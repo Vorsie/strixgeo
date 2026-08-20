@@ -37,6 +37,7 @@ import { describe, expect, it } from 'vitest'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
+import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { computeSectionFillActive } from './partitionEngineSelect'
@@ -52,6 +53,12 @@ const BASELINE = resolve(HERE, '__fixtures__/geotech_210_conformance_baseline.js
 
 /** A 0/1-tie construct may be this many times taller than its own band. */
 const BALLOON_SLACK = 2.0
+/** Slack on "terminates at 0.5 Distance approximately" — his own word. */
+const MIDDLE_GRACE = 0.06
+
+/** Elevation tolerance (m) at which two contacts are the same contact. */
+const CONTACT_EPS = 1e-6
+
 /** Absolute grace on the balloon cap (m) — snap grain and label strokes. */
 const BALLOON_GRACE_M = 0.05
 /** How close to the far column a same-mass welded span must reach (fraction). */
@@ -83,10 +90,10 @@ interface RawSection extends RawArm {
   geotech: RawArm
 }
 interface Violation {
-  kind: 'balloon' | 'missing' | 'nospan'
+  kind: 'balloon' | 'missing' | 'nospan' | 'overreach'
   detail: string
 }
-type Counts = { balloon: number; missing: number; nospan: number }
+type Counts = { balloon: number; missing: number; nospan: number; overreach: number }
 
 function assemble(arm: RawArm): {
   columns: PartitionColumn[]
@@ -132,6 +139,7 @@ function auditedPartition(sec: RawSection): {
   preMerge: (SectionRegion & { role: 'construct' | 'fill' })[]
   lithoColumns: PartitionColumn[]
   lithoEdges: CorrelationEdge[]
+  lithoRegions: SectionRegion[]
 } {
   const G = assemble(sec.geotech)
   const empty = new Map<string, BodyBoundaryResponse>()
@@ -145,11 +153,11 @@ function auditedPartition(sec: RawSection): {
       G.alongM,
     )
     const tagged = raw.map((r) => ({ ...r, role: 'construct' as const }))
-    return { lithoColumns: [], lithoEdges: [], ...G, regions: raw, preMerge: tagged }
+    return { lithoColumns: [], lithoEdges: [], lithoRegions: [], ...G, regions: raw, preMerge: tagged }
   }
   const L = assemble(sec)
   if (L.columns.length < 2)
-    return { lithoColumns: [], lithoEdges: [], ...G, regions: [], preMerge: [] }
+    return { lithoColumns: [], lithoEdges: [], lithoRegions: [], ...G, regions: [], preMerge: [] }
   const geotechColumns = frameAlignedColumns(
     L.columns,
     new Map(G.columns.map((c) => [c.investigationId, c])),
@@ -179,6 +187,7 @@ function auditedPartition(sec: RawSection): {
     preMerge: out.preMergeRegions,
     lithoColumns: L.columns,
     lithoEdges: L.edges,
+    lithoRegions,
   }
 }
 
@@ -191,8 +200,44 @@ function auditSection(sec: RawSection): Violation[] {
   for (let ci = 0; ci < G.columns.length; ci++) {
     for (const u of G.columns[ci].units) columnOf.set(u.layerId, ci)
   }
-  // Ties per (layerId, gapIndex): only edges between ADJACENT columns count —
-  // a jump tie over a bandless stretch is bridge machinery with its own rules.
+  // FAMILY MEMBERSHIP, computed exactly as the fill computes it (same two
+  // helpers, same inputs) so the audit counts the ties the constructor kept.
+  const bandParents = resolveBandParents(G.columns, G.lithoColumns)
+  const { familyOfLithoLayer } = buildLithoFamilies(
+    G.lithoColumns,
+    G.lithoEdges,
+    G.lithoRegions,
+  )
+  const familyOfBand = new Map<string, string>()
+  for (const [band, parentLayer] of bandParents.parentOfBand) {
+    const familyId = familyOfLithoLayer.get(parentLayer)
+    if (familyId !== undefined) familyOfBand.set(band, familyId)
+  }
+  const bandedColumnsByFamily = new Map<string, Set<number>>()
+  for (let ci = 0; ci < G.columns.length; ci++) {
+    for (const u of G.columns[ci].units) {
+      const familyId = familyOfBand.get(u.layerId)
+      if (familyId === undefined) continue
+      const set = bandedColumnsByFamily.get(familyId)
+      if (set === undefined) bandedColumnsByFamily.set(familyId, new Set([ci]))
+      else set.add(ci)
+    }
+  }
+  // TIES ARE COUNTED THE WAY THE FILL COUNTS THEM, or the audit measures a
+  // construct against a law the constructor was never given:
+  //
+  //  * a tie whose two bands sit in DIFFERENT litho families is DROPPED by the
+  //    fill (a packing tie states one mass inside one litho body — the draw-time
+  //    cross-litho-body guard's own rule), so it must not count here either.
+  //    Counting it made CS1 col15's very dense sand audit as a two-tie band that
+  //    fails to span, when what the render draws — correctly — is a lens (the
+  //    #273 cross-family case: its parent units are not correlated);
+  //  * a tie that JUMPS a column the family has no bands on is the fill's own
+  //    ADJACENT tie: the family's run spans that column (the 2026-08-15 EXCLUDED
+  //    ruling keeps a deep mass continuous across a short test), so the tie
+  //    bounds the contact exactly as a neighbour-to-neighbour one does. Counting
+  //    only |ci - cj| === 1 read CS1 col19's medium-dense sand as a 0-tie lens
+  //    and called its own two tie lines a balloon.
   const unitOf = new Map<string, { u: RawUnit; ci: number }>()
   for (let ci = 0; ci < G.columns.length; ci++) {
     for (const u of G.columns[ci].units) unitOf.set(u.layerId, { u: u as RawUnit, ci })
@@ -210,8 +255,22 @@ function auditSection(sec: RawSection): Violation[] {
   for (const e of G.edges) {
     const ca = columnOf.get(e.a)
     const cb = columnOf.get(e.b)
-    if (ca === undefined || cb === undefined || Math.abs(ca - cb) !== 1) continue
-    const gap = Math.min(ca, cb)
+    if (ca === undefined || cb === undefined || ca === cb) continue
+    // Same litho family, or the fill drops it.
+    const fa = familyOfBand.get(e.a)
+    const fb = familyOfBand.get(e.b)
+    if (fa === undefined || fb === undefined || fa !== fb) continue
+    const lo = Math.min(ca, cb)
+    const hi = Math.max(ca, cb)
+    // Every column it jumps must carry NO band of this family — then the run
+    // spans it and the tie is the run's own adjacent tie. A column that DOES
+    // carry the family between them is a real intermediate test; a tie over it
+    // is bridge machinery with its own rules and stays out of the count.
+    let spans = true
+    for (let between = lo + 1; between < hi; between++) {
+      if (bandedColumnsByFamily.get(fa)?.has(between) === true) spans = false
+    }
+    if (!spans) continue
     const elevOf = (layer: string, side: 'top' | 'base'): number => {
       const home = unitOf.get(layer)
       if (!home) return 0
@@ -219,23 +278,56 @@ function auditSection(sec: RawSection): Violation[] {
     }
     const elevA = elevOf(e.a, e.aSide ?? 'top')
     const elevB = elevOf(e.b, e.bSide ?? 'top')
-    const left = (columnOf.get(e.a) ?? 0) < (columnOf.get(e.b) ?? 0) ? elevA : elevB
-    const right = left === elevA ? elevB : elevA
-    for (const [layer, far] of [
-      [e.a, e.b],
-      [e.b, e.a],
-    ] as const) {
-      const key = `${layer}|${gap}`
-      tieCount.set(key, (tieCount.get(key) ?? 0) + 1)
-      const list = tieLines.get(key) ?? []
-      list.push([left, right])
-      tieLines.set(key, list)
-      const fars = farForms.get(key) ?? []
-      const farUnit = unitOf.get(far)
-      if (farUnit) fars.push(farUnit.u.formationId)
-      farForms.set(key, fars)
+    const loElev = ca < cb ? elevA : elevB
+    const hiElev = ca < cb ? elevB : elevA
+    const loX = G.alongM[lo]
+    const hiX = G.alongM[hi]
+    // The tie's elevation at a column, interpolated along the straight line —
+    // the same line the fill draws.
+    const at = (ci: number): number =>
+      Math.abs(hiX - loX) < 1e-9
+        ? loElev
+        : loElev + ((G.alongM[ci] - loX) / (hiX - loX)) * (hiElev - loElev)
+    // A TIE IS DRAWN ON A CONTACT, AND A CONTACT IS SHARED (owner: *"it has a
+    // top and bottom tie to the right though?"*). The fill credits the tie to
+    // BOTH bands that adjoin the contact it lands on, whichever of them the
+    // stored row happens to name, and the far end it compares against is the
+    // band on the SAME SIDE of the contact over there. Crediting only the named
+    // layer read CS1 col19's medium-dense sand as a one-tie band when the law
+    // gives it two.
+    const bandsOnContact = (ci: number, elevation: number): { u: RawUnit; above: boolean }[] => {
+      const out: { u: RawUnit; above: boolean }[] = []
+      for (const u of G.columns[ci].units) {
+        const top = G.columns[ci].surfaceElevM - u.topDepthM
+        const base = G.columns[ci].surfaceElevM - u.baseDepthM
+        if (Math.abs(base - elevation) <= CONTACT_EPS) out.push({ u: u as RawUnit, above: true })
+        else if (Math.abs(top - elevation) <= CONTACT_EPS) out.push({ u: u as RawUnit, above: false })
+      }
+      return out
+    }
+    // The tie bounds the contact in EVERY gap it crosses.
+    for (let gap = lo; gap < hi; gap++) {
+      const left = at(gap)
+      const right = at(gap + 1)
+      for (const [nearCi, nearElev, farCi, farElev] of [
+        [ca, elevA, cb, elevB],
+        [cb, elevB, ca, elevA],
+      ] as const) {
+        for (const near of bandsOnContact(nearCi, nearElev)) {
+          const key = `${near.u.layerId}|${gap}`
+          tieCount.set(key, (tieCount.get(key) ?? 0) + 1)
+          const list = tieLines.get(key) ?? []
+          list.push([left, right])
+          tieLines.set(key, list)
+          const fars = farForms.get(key) ?? []
+          const far = bandsOnContact(farCi, farElev).find((b) => b.above === near.above)
+          if (far !== undefined) fars.push(far.u.formationId)
+          farForms.set(key, fars)
+        }
+      }
     }
   }
+
   // LITHO APPROVAL CARRIES DOWN (owner ruling A, 2026-08-19). A band's parent litho unit's own
   // ties are lines drawn for this mass too, so the family flood follows them and the envelope has
   // to know that — otherwise every legitimate flood along a litho tie reads as a balloon here.
@@ -243,7 +335,7 @@ function auditSection(sec: RawSection): Violation[] {
   // They widen the ENVELOPE only. They are deliberately NOT counted in ``tieCount``: 2/1/0 is a
   // PACKING-tie count, so a litho-tied band with no packing tie is still a 0-tie band that must
   // close its own loop, and a deleted packing tie is still deleted.
-  const { parentOfBand } = resolveBandParents(G.columns, G.lithoColumns)
+  const { parentOfBand } = bandParents
   const lithoColumnOf = new Map<string, number>()
   const lithoElev = new Map<string, { top: number; base: number }>()
   for (let ci = 0; ci < G.lithoColumns.length; ci++) {
@@ -305,7 +397,7 @@ function auditSection(sec: RawSection): Violation[] {
       regionsOf.set(key, list)
     }
   }
-  const preOf = new Map<string, SectionRegion[]>()
+  const preOf = new Map<string, (SectionRegion & { role: 'construct' | 'fill' })[]>()
   for (const r of G.preMerge) {
     if (r.role !== 'construct') continue
     for (const layer of r.layerIds ?? []) {
@@ -363,6 +455,65 @@ function auditSection(sec: RawSection): Violation[] {
               detail: `${tag} reach=${reach.toFixed(2)} ${sameMassFar ? 'same-mass' : 'to-middle'}`,
             })
           continue
+        }
+        // THE TERMINATION CLAUSE (owner, 2026-08-20): *"an onlap can't paint over
+        // ground near test itself, it terminates at 0.5 Distance approximately."*
+        // A 0/1-tie construct owns its own half and no more, so its own loops
+        // may not cross the middle by more than a grace. Without this the audit
+        // could not tell a lens that reaches 0.45 from one that reaches 0.95 —
+        // both stay inside their own elevation extent, so the balloon check is
+        // blind to it (measured: sabotaging the reach to 0.95 left every count
+        // at zero until this check existed).
+        // "0.5 Distance" is the distance between the two TESTS the ground runs
+        // between — the family's own run — not the frame gap. Where a family
+        // has no bands on a column its run spans it (the 2026-08-15 EXCLUDED
+        // ruling), so the middle can lie in a different frame gap altogether;
+        // then this gap is wholly on one test's side and there is nothing to
+        // check here.
+        const banded = [...(bandedColumnsByFamily.get(familyOfBand.get(u.layerId) ?? '') ?? [])].sort(
+          (a, b) => a - b,
+        )
+        let runLeft = -1
+        let runRight = -1
+        for (let k = 0; k + 1 < banded.length; k++) {
+          if (banded[k] <= gap && banded[k + 1] >= gap + 1) {
+            runLeft = banded[k]
+            runRight = banded[k + 1]
+          }
+        }
+        // A band whose tie shows the SAME mass at the other end emits NOTHING by
+        // the law — it and its twin are one mass — so its ground runs the whole
+        // way and the termination clause does not apply to it. The clause is
+        // about a construct painting over ground ANOTHER mass measured.
+        const sameMassAcross =
+          ties >= 1 &&
+          (farForms.get(`${u.layerId}|${gap}`) ?? []).length > 0 &&
+          (farForms.get(`${u.layerId}|${gap}`) ?? []).every((f) => f === u.formationId)
+        if (runLeft >= 0 && !sameMassAcross) {
+          const middleX = (G.alongM[runLeft] + G.alongM[runRight]) / 2
+          const width = G.alongM[gap + 1] - G.alongM[gap]
+          const middle = Math.abs(width) < 1e-9 ? 0.5 : (middleX - G.alongM[gap]) / width
+          const wantHighReach = ci <= gap // the band stands on the LEFT of this gap
+          if (middle > -MIDDLE_GRACE && middle < 1 + MIDDLE_GRACE) {
+            for (const r of preOf.get(`${u.layerId}|${gap}`) ?? []) {
+              if (r.role !== 'construct') continue
+              const far = wantHighReach
+                ? Math.max(...r.polygon.map((p) => p.fraction))
+                : Math.min(...r.polygon.map((p) => p.fraction))
+              const crossed = wantHighReach
+                ? far - (middle + MIDDLE_GRACE)
+                : middle - MIDDLE_GRACE - far
+              if (crossed > 0) {
+                out.push({
+                  kind: 'overreach',
+                  detail:
+                    `${tag} construct reaches ${far.toFixed(2)} past the middle ` +
+                    `${middle.toFixed(2)} of run ${runLeft}|${runRight}`,
+                })
+                break
+              }
+            }
+          }
         }
         // 0/1-tie constructs pinch at their own level: no region of theirs may
         // grow far taller than the band itself (the balloon family), and the
@@ -432,11 +583,12 @@ describe('2/1/0 conformance gate', () => {
     const lines: string[] = []
     for (const sec of raw.sections) {
       const violations = auditSection(sec)
-      const counts: Counts = { balloon: 0, missing: 0, nospan: 0 }
+      const counts: Counts = { balloon: 0, missing: 0, nospan: 0, overreach: 0 }
       for (const v of violations) counts[v.kind]++
       perSection[sec.name] = counts
       lines.push(
-        `${sec.name.padEnd(18)} balloon=${counts.balloon} missing=${counts.missing} nospan=${counts.nospan}`,
+        `${sec.name.padEnd(18)} balloon=${counts.balloon} missing=${counts.missing} ` +
+          `nospan=${counts.nospan} overreach=${counts.overreach}`,
       )
       for (const v of violations) lines.push(`    [${v.kind}] ${v.detail}`)
     }
@@ -459,7 +611,7 @@ describe('2/1/0 conformance gate', () => {
     for (const [name, counts] of Object.entries(perSection)) {
       const base = frozen[name]
       if (!base) continue // a new section has no baseline yet
-      for (const kind of ['balloon', 'missing', 'nospan'] as const) {
+      for (const kind of ['balloon', 'missing', 'nospan', 'overreach'] as const) {
         if (counts[kind] > base[kind]) {
           regressions.push(`${name}: ${kind} ${base[kind]} → ${counts[kind]}`)
         }
