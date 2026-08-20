@@ -407,15 +407,27 @@ export function buildGapConstructs(
  * line in the middle"*, and *"left is MD right is D"*.
  */
 export function claims(construct: BandConstruct, x: number, y: number): boolean {
-  if (construct.emit === 'vertical') {
-    // *"if it is different then vertical line in the middle"* — the two masses
-    // a vertical stands between own their own side of it. An ONLAP is NOT
-    // capped: it follows its tie for as long as its own level lets it, and
-    // stopping it mid-gap is exactly what the owner objected to — *"should
-    // onlap except it is terminating on a straight line"*.
-    const middle = (construct.band.x + construct.farX) / 2
-    if ((x - middle) * (construct.farX - middle) > 0) return false
+  // "emit nothing" means no NEW line — not that the band has no ground. Its two
+  // contacts are the lines it follows (its ties, or its own level where untied)
+  // and the ground between them is its own. It is NOT capped at the middle: the
+  // mass at the other end of those ties is the SAME litho and packing, so the
+  // two halves paint one class either way and the merge welds them into the one
+  // body the law asks for.
+  if (construct.emit === 'nothing') {
+    const top = construct.topAt(x)
+    const base = construct.baseAt(x)
+    return y <= top && y >= base && top > base
   }
+  // THE TERMINATION CLAUSE (owner, 2026-08-20): *"an onlap can't paint over
+  // ground near test itself, it terminates at 0.5 Distance approximately."*
+  // It governs EVERY construct, not just the onlap: a construct is one test's
+  // statement about the ground, so it owns at most its OWN HALF of the gap and
+  // the far half belongs to the far test's constructs and its dominant fill.
+  // Without it a construct riding a tie reached the facing column and painted
+  // over ground that test itself measured — 44 of 1120 own-column-edge samples
+  // on his model before this clause, 0 after.
+  const middle = (construct.band.x + construct.farX) / 2
+  if ((x - middle) * (construct.farX - middle) > 0) return false
   if (construct.apexX !== undefined) {
     const from = construct.band.x
     if ((x - from) * (construct.apexX - from) < 0) return false
