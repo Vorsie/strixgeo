@@ -530,6 +530,34 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     }
   })
 
+  it('S15 · gap 19 · the medium-dense sand follows its two jump ties, whole', () => {
+    // The gate's one surviving balloon of 2026-08-20, decoded: col19's ZAND-6 at
+    // 2.62 .. 1.67 is NOT a no-tie lens. Both of its contacts are tied — its top
+    // to GEO-10/170-S11's sand top, its base (the contact it shares with the
+    // dense sand below, named by that band's row) to the same test — and those
+    // ties JUMP the three short tests between, which carry no band of this
+    // family. The family's run therefore spans them, and by the 2026-08-15
+    // EXCLUDED ruling those ties are the run's own adjacent ties.
+    //
+    // Both far ends are the same litho and packing, so the law emits NOTHING and
+    // the mass is continuous: the window between the two lines reads one class
+    // the whole way, and nothing foreign appears inside it.
+    for (const [f, e] of [
+      [0.02, 2.0],
+      [0.3, 1.9],
+      [0.6, 1.7],
+      [0.9, 1.5],
+      [0.98, 1.2],
+    ] as const) {
+      expect(geotechClassAt(scene, 19, f, e), `(${f},${e}) is not the continuous mass`).toBe(
+        'ZAND-6',
+      )
+    }
+    // And its own test's stack survives beside it, band for band (S14's rule at
+    // the same column): the dense sand directly below it is still dense.
+    expect(geotechClassAt(scene, 19, 0.02, 1.3)).toBe('ZAND-7')
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
