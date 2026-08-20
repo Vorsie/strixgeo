@@ -61,6 +61,8 @@ export interface FamilyFillContext {
 /** What one family produced. */
 export interface FamilyFillResult {
   regions: SectionRegion[]
+  /** The pre-merge loops, single owner + role each — the audit's surface. */
+  preMerge: (SectionRegion & { role: 'construct' | 'fill' })[]
   /** Cover no class reached — the "correlate me" hatch. */
   fallback: SectionRegion[]
   conflicts: TieConflict[]
@@ -108,6 +110,7 @@ export function fillFamily(
   const { alongM } = context
   const out: FamilyFillResult = {
     regions: [],
+    preMerge: [],
     fallback: [],
     conflicts: [],
     oneSidedGaps: 0,
@@ -203,6 +206,7 @@ export function fillFamily(
       massOf: context.massOf,
     })
     out.regions.push(...filled.covered)
+    out.preMerge.push(...filled.preMerge)
     out.fallback.push(...filled.residual)
     out.remainderAreaM2 += filled.remainderAreaM2
     out.splitRemainders += filled.splitRemainders
