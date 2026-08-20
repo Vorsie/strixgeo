@@ -54,8 +54,12 @@ const BASELINE = resolve(HERE, '__fixtures__/geotech_210_conformance_baseline.js
 const BALLOON_SLACK = 2.0
 /** Absolute grace on the balloon cap (m) — snap grain and label strokes. */
 const BALLOON_GRACE_M = 0.05
-/** How close to the far column a >=2-tie band must reach (fraction). */
+/** How close to the far column a same-mass welded span must reach (fraction). */
 const SPAN_REACH = 0.99
+/** How close to the middle a 2-tie-different construct must reach. The law
+ * says the vertical stands "in the middle ... at 0.5 Distance approximately",
+ * so the check carries the same tolerance both ways. */
+const MIDDLE_REACH = 0.4
 
 interface RawUnit {
   layerId: string
@@ -125,6 +129,7 @@ function auditedPartition(sec: RawSection): {
   alongM: number[]
   edges: CorrelationEdge[]
   regions: SectionRegion[]
+  preMerge: (SectionRegion & { role: 'construct' | 'fill' })[]
   lithoColumns: PartitionColumn[]
   lithoEdges: CorrelationEdge[]
 } {
@@ -133,20 +138,18 @@ function auditedPartition(sec: RawSection): {
   if (process.env.GEOTECH_210_RAW === '1') {
     // The RAW arm audits the whole-section geotech partition, which has no litho frame at all —
     // so it carries no parent litho lines and the envelope stays the packing ties' alone.
-    return {
-      lithoColumns: [],
-      lithoEdges: [],
-      ...G,
-      regions: computeSectionFillActive(
-        G.columns,
-        G.edges,
-        deriveSectionApexOverrides(G.columns, G.edges, G.alongM, empty, true),
-        G.alongM,
-      ),
-    }
+    const raw = computeSectionFillActive(
+      G.columns,
+      G.edges,
+      deriveSectionApexOverrides(G.columns, G.edges, G.alongM, empty, true),
+      G.alongM,
+    )
+    const tagged = raw.map((r) => ({ ...r, role: 'construct' as const }))
+    return { lithoColumns: [], lithoEdges: [], ...G, regions: raw, preMerge: tagged }
   }
   const L = assemble(sec)
-  if (L.columns.length < 2) return { lithoColumns: [], lithoEdges: [], ...G, regions: [] }
+  if (L.columns.length < 2)
+    return { lithoColumns: [], lithoEdges: [], ...G, regions: [], preMerge: [] }
   const geotechColumns = frameAlignedColumns(
     L.columns,
     new Map(G.columns.map((c) => [c.investigationId, c])),
@@ -165,6 +168,15 @@ function auditedPartition(sec: RawSection): {
     alongM: L.alongM,
     edges: G.edges,
     regions: out.regions,
+    // The PRE-MERGE surface, role-tagged. Balloons audit only the CONSTRUCT
+    // loops — the geometric shapes the law drew from the ties, structurally
+    // inside their own envelope, so the expected count is ZERO and any hit is
+    // a constructor bug (owner: "there shouldn't be pre merge ballooning
+    // anywhere ... not untill we do the geometrical fill"). Fill loops are the
+    // law's dominant-lithology step and legitimately exceed one band's extent.
+    // Existence and span audit the MERGED surface: a same-mass band emits
+    // NOTHING by the law, so its only appearance is the welded mass.
+    preMerge: out.preMergeRegions,
     lithoColumns: L.columns,
     lithoEdges: L.edges,
   }
@@ -190,6 +202,9 @@ function auditSection(sec: RawSection): Violation[] {
     return home ? G.columns[home.ci].surfaceElevM : 0
   }
   const tieCount = new Map<string, number>()
+  // Per (layerId, gap): the formationIds at the ties' far ends — same
+  // formationId = same mass (the kernel's one comparison).
+  const farForms = new Map<string, string[]>()
   // Per (layerId, gap): the tied LINE as (elev at left column, elev at right column).
   const tieLines = new Map<string, [number, number][]>()
   for (const e of G.edges) {
@@ -206,12 +221,19 @@ function auditSection(sec: RawSection): Violation[] {
     const elevB = elevOf(e.b, e.bSide ?? 'top')
     const left = (columnOf.get(e.a) ?? 0) < (columnOf.get(e.b) ?? 0) ? elevA : elevB
     const right = left === elevA ? elevB : elevA
-    for (const layer of [e.a, e.b]) {
+    for (const [layer, far] of [
+      [e.a, e.b],
+      [e.b, e.a],
+    ] as const) {
       const key = `${layer}|${gap}`
       tieCount.set(key, (tieCount.get(key) ?? 0) + 1)
       const list = tieLines.get(key) ?? []
       list.push([left, right])
       tieLines.set(key, list)
+      const fars = farForms.get(key) ?? []
+      const farUnit = unitOf.get(far)
+      if (farUnit) fars.push(farUnit.u.formationId)
+      farForms.set(key, fars)
     }
   }
   // LITHO APPROVAL CARRIES DOWN (owner ruling A, 2026-08-19). A band's parent litho unit's own
@@ -247,15 +269,33 @@ function auditSection(sec: RawSection): Violation[] {
     const elevA = at(e.a, (e.aSide ?? 'top') as 'top' | 'base')
     const elevB = at(e.b, (e.bSide ?? 'top') as 'top' | 'base')
     const [left, right] = ca < cb ? [elevA, elevB] : [elevB, elevA]
-    for (const parent of [e.a, e.b]) {
-      const key = `${parent}|${gap}`
-      const list = parentLine.get(key) ?? []
-      list.push([left, right])
-      parentLine.set(key, list)
+    // A CONTACT IS SHARED (the same principle that counts a band's ties on
+    // contacts): the line drawn on one unit's top is the unit-above's base and
+    // vice versa, so the envelope registers it under BOTH flanking units — a
+    // clay whose base follows the sand-top tie line is inside its unit, not
+    // ballooning out of it.
+    for (const [layer, side] of [
+      [e.a, (e.aSide ?? 'top') as 'top' | 'base'],
+      [e.b, (e.bSide ?? 'top') as 'top' | 'base'],
+    ] as const) {
+      const ci2 = lithoColumnOf.get(layer)
+      if (ci2 === undefined) continue
+      const col = G.lithoColumns[ci2]
+      const sorted = [...col.units].sort((a, b) => a.topDepthM - b.topDepthM)
+      const idx = sorted.findIndex((u) => u.layerId === layer)
+      const neighbour =
+        side === 'top' ? sorted[idx - 1]?.layerId : sorted[idx + 1]?.layerId
+      for (const owner of neighbour === undefined ? [layer] : [layer, neighbour]) {
+        const key = `${owner}|${gap}`
+        const list = parentLine.get(key) ?? []
+        list.push([left, right])
+        parentLine.set(key, list)
+      }
     }
   }
 
-  // Regions per (layerId, gapIndex), via the v2 layer-id attribution.
+  // Regions per (layerId, gapIndex), via the v2 layer-id attribution — the
+  // MERGED surface (existence + span) and the PRE-MERGE surface (balloons).
   const regionsOf = new Map<string, SectionRegion[]>()
   for (const r of regions) {
     for (const layer of r.layerIds ?? []) {
@@ -263,6 +303,16 @@ function auditSection(sec: RawSection): Violation[] {
       const list = regionsOf.get(key) ?? []
       list.push(r)
       regionsOf.set(key, list)
+    }
+  }
+  const preOf = new Map<string, SectionRegion[]>()
+  for (const r of G.preMerge) {
+    if (r.role !== 'construct') continue
+    for (const layer of r.layerIds ?? []) {
+      const key = `${layer}|${r.gapIndex}`
+      const list = preOf.get(key) ?? []
+      list.push(r)
+      preOf.set(key, list)
     }
   }
 
@@ -288,16 +338,30 @@ function auditSection(sec: RawSection): Violation[] {
         const tag = `${sec.name} col${ci} gap${gap} class=${u.formationId.slice(0, 8)} ` +
           `band ${(surf - u.topDepthM).toFixed(2)}..${(surf - u.baseDepthM).toFixed(2)} ties=${ties}`
         if (ties >= 2) {
-          // A twice-tied band BANDS: its fill must reach the far column.
+          // THE LAW's two-tie cases (owner: "what is a no span?"): far end the
+          // SAME mass -> no emit, the mass is continuous, so the WELDED region
+          // must reach the far column. A DIFFERENT mass -> the construct
+          // terminates at the vertical line in the middle ("terminates at 0.5
+          // Distance approximately"), so its own loops must reach ~the middle
+          // and demanding the far column would contradict the ruling.
+          const sameMassFar = (farForms.get(`${u.layerId}|${gap}`) ?? []).every(
+            (f) => f === u.formationId,
+          )
           const wantHigh = gap === ci // band on the LEFT column of the gap reaches right
+          const surface = sameMassFar ? mine : (preOf.get(`${u.layerId}|${gap}`) ?? [])
           let reach = wantHigh ? 0 : 1
-          for (const r of mine) {
+          for (const r of surface) {
             for (const p of r.polygon) {
               reach = wantHigh ? Math.max(reach, p.fraction) : Math.min(reach, p.fraction)
             }
           }
-          const ok = wantHigh ? reach >= SPAN_REACH : reach <= 1 - SPAN_REACH
-          if (!ok) out.push({ kind: 'nospan', detail: `${tag} reach=${reach.toFixed(2)}` })
+          const need = sameMassFar ? SPAN_REACH : MIDDLE_REACH
+          const ok = wantHigh ? reach >= need : reach <= 1 - need
+          if (!ok)
+            out.push({
+              kind: 'nospan',
+              detail: `${tag} reach=${reach.toFixed(2)} ${sameMassFar ? 'same-mass' : 'to-middle'}`,
+            })
           continue
         }
         // 0/1-tie constructs pinch at their own level: no region of theirs may
@@ -320,7 +384,9 @@ function auditSection(sec: RawSection): Violation[] {
           ...(tieLines.get(`${u.layerId}|${gap}`) ?? []),
           ...(parent === undefined ? [] : (parentLine.get(`${parent}|${gap}`) ?? [])),
         ]
-        for (const r of mine) {
+        // Balloons audit the PRE-MERGE loops: single owner each, so the welded
+        // mass's shared attribution cannot echo here.
+        for (const r of preOf.get(`${u.layerId}|${gap}`) ?? []) {
           let lo = Infinity
           let hi = -Infinity
           let f0 = 1
