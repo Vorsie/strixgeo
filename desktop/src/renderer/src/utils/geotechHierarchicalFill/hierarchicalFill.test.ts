@@ -431,4 +431,120 @@ describe('the hierarchical geotech fill — densities within lithos', () => {
       ).toBe(true)
     }
   })
+
+  it('H9: a tie JUMPING a test the family has no bands on is that run OWN tie', () => {
+    // The 2026-08-15 EXCLUDED ruling: a test that never had this soil is spanned
+    // by the family's run, so a tie across it is the run's ADJACENT tie and the
+    // law reads it as one — *"if a litho has two ties, follow ties and check
+    // litho and packing density on the other end"*. Here A and C carry the same
+    // clay density and their contacts are tied across M, which has no clay at
+    // all: same litho, same packing at the other end, so the law emits NOTHING
+    // and the mass is continuous through both gaps.
+    //
+    // Measured on his own model before this was pinned: CS1 col19's medium-dense
+    // sand carries exactly this shape (two ties jumping three short tests to
+    // GEO-10/170-S11), and reading them as "no ties" called its own two tie
+    // lines a lens that balloons.
+    const litho = {
+      columns: [
+        column('A', 10, [
+          { layerId: 'LA-clay', formationId: CLAY, top: 0, base: 6 },
+          { layerId: 'LA-sand', formationId: SAND, top: 6, base: 14 },
+        ]),
+        column('M', 10, [{ layerId: 'LM-sand', formationId: SAND, top: 0, base: 14 }]),
+        column('C', 10, [
+          { layerId: 'LC-clay', formationId: CLAY, top: 0, base: 6 },
+          { layerId: 'LC-sand', formationId: SAND, top: 6, base: 14 },
+        ]),
+      ],
+      edges: [tie('LA-clay', 'LC-clay'), tie('LA-sand', 'LM-sand'), tie('LM-sand', 'LC-sand')],
+    }
+    const geotech = [
+      column('A', 10, [
+        { layerId: 'GA1', formationId: CLAY_STIFF, top: 0, base: 2 },
+        { layerId: 'GA2', formationId: CLAY_SOFT, top: 2, base: 6 },
+        { layerId: 'GA3', formationId: SAND_DENSE, top: 6, base: 14 },
+      ]),
+      column('M', 10, [{ layerId: 'GM1', formationId: SAND_DENSE, top: 0, base: 14 }]),
+      column('C', 10, [
+        { layerId: 'GC1', formationId: CLAY_STIFF, top: 0, base: 2.5 },
+        { layerId: 'GC2', formationId: CLAY_SOFT, top: 2.5, base: 6 },
+        { layerId: 'GC3', formationId: SAND_DENSE, top: 6, base: 14 },
+      ]),
+    ]
+    // Both of the stiff clay's contacts are tied across M: its top (the surface
+    // pair) and its base — the latter named by the SOFT clay below it, because a
+    // tie is drawn on a CONTACT and a contact is shared.
+    const out = run(geotech, [tie('GA1', 'GC1'), tie('GA2', 'GC2')], litho, [0, 50, 100])
+    // Audited on the CONSTRUCT surface, not the merged one: a lens closing at its
+    // own reach can still be welded into a spanning mass by the fill's dominant
+    // step, so only the loops the law itself drew answer the question.
+    for (const gap of [0, 1]) {
+      const drawn = out.preMergeRegions.filter(
+        (r) =>
+          r.gapIndex === gap &&
+          r.role === 'construct' &&
+          (r.layerIds ?? []).includes(gap === 0 ? 'GA1' : 'GC1'),
+      )
+      expect(drawn.length, `no stiff-clay construct in gap ${gap}`).toBeGreaterThan(0)
+      let lo = 1
+      let hi = 0
+      for (const r of drawn) for (const p of r.polygon) {
+        lo = Math.min(lo, p.fraction)
+        hi = Math.max(hi, p.fraction)
+      }
+      // One mass: the construct runs the whole gap rather than closing as a lens
+      // a fraction of the way in.
+      expect(hi - lo, `gap ${gap} construct does not span (lens-shaped?)`).toBeGreaterThan(0.98)
+    }
+  })
+
+  it('H10: the same jump, a DIFFERENT density at the far end — the two masses meet', () => {
+    // Negative control on H9. Change only C's top density: the far end of both
+    // ties is now a different packing, so the law does NOT emit nothing — the two
+    // masses meet at the vertical in the middle of the RUN (which lies in the
+    // second gap, since the run spans M) and neither reaches the other's test.
+    const litho = {
+      columns: [
+        column('A', 10, [
+          { layerId: 'LA-clay', formationId: CLAY, top: 0, base: 6 },
+          { layerId: 'LA-sand', formationId: SAND, top: 6, base: 14 },
+        ]),
+        column('M', 10, [{ layerId: 'LM-sand', formationId: SAND, top: 0, base: 14 }]),
+        column('C', 10, [
+          { layerId: 'LC-clay', formationId: CLAY, top: 0, base: 6 },
+          { layerId: 'LC-sand', formationId: SAND, top: 6, base: 14 },
+        ]),
+      ],
+      edges: [tie('LA-clay', 'LC-clay'), tie('LA-sand', 'LM-sand'), tie('LM-sand', 'LC-sand')],
+    }
+    const geotech = [
+      column('A', 10, [
+        { layerId: 'GA1', formationId: CLAY_STIFF, top: 0, base: 2 },
+        { layerId: 'GA2', formationId: CLAY_SOFT, top: 2, base: 6 },
+        { layerId: 'GA3', formationId: SAND_DENSE, top: 6, base: 14 },
+      ]),
+      column('M', 10, [{ layerId: 'GM1', formationId: SAND_DENSE, top: 0, base: 14 }]),
+      column('C', 10, [
+        { layerId: 'GC1', formationId: CLAY_SOFT, top: 0, base: 2.5 },
+        { layerId: 'GC2', formationId: CLAY_STIFF, top: 2.5, base: 6 },
+        { layerId: 'GC3', formationId: SAND_DENSE, top: 6, base: 14 },
+      ]),
+    ]
+    const out = run(geotech, [tie('GA1', 'GC1'), tie('GA2', 'GC2')], litho, [0, 50, 100])
+    // A's stiff clay never reaches C's test, and C's own stiff clay is its own
+    // region — one mass would have welded them into a single spanning face.
+    // The run spans M, so its middle sits ON M — the two masses meet there. A's
+    // construct therefore fills gap 0 and stops; C's fills gap 1 and stops. What
+    // must NOT happen is either one carrying on past the middle into the other
+    // test's half, which is the termination clause.
+    const constructOf = (layerId: string, gap: number) =>
+      out.preMergeRegions.filter(
+        (r) => r.gapIndex === gap && r.role === 'construct' && (r.layerIds ?? []).includes(layerId),
+      )
+    expect(constructOf('GA1', 0).length, "A's construct is missing from its own half").toBeGreaterThan(0)
+    expect(constructOf('GA1', 1), "A's construct crossed the middle").toEqual([])
+    expect(constructOf('GC1', 1).length, "C's construct is missing from its own half").toBeGreaterThan(0)
+    expect(constructOf('GC1', 0), "C's construct crossed the middle").toEqual([])
+  })
 })
