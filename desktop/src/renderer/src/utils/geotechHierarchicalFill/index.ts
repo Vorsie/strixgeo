@@ -114,6 +114,13 @@ export interface HierarchicalGeotechFillDiagnostics {
 
 /** The fill, ready for the render and the build. */
 export interface HierarchicalGeotechFillResult {
+  /**
+   * The classed loops BEFORE the merge weld, single owning band each. The
+   * merge repaints nothing, so audits that judge a band against its own 2/1/0
+   * envelope read THIS surface (owner: "why don't you count balloons before
+   * the fill merge step?"); the render reads ``regions``.
+   */
+  preMergeRegions: (SectionRegion & { role: 'construct' | 'fill' })[]
   /** Packing-classed faces, disjoint, tiling everything that IS classified. */
   regions: SectionRegion[]
   /**
@@ -380,6 +387,7 @@ export function computeHierarchicalGeotechFill(
   }
 
   const regions: SectionRegion[] = []
+  const preMergeRegions: (SectionRegion & { role: 'construct' | 'fill' })[] = []
   const lithoFallback: SectionRegion[] = [...unattributed]
   let singleColumnFamilies = 0
   let oneSidedGaps = 0
@@ -429,6 +437,7 @@ export function computeHierarchicalGeotechFill(
       },
     )
     regions.push(...out.regions)
+    preMergeRegions.push(...out.preMerge)
     lithoFallback.push(...out.fallback)
     conflicts.push(...out.conflicts)
     oneSidedGaps += out.oneSidedGaps
@@ -440,6 +449,7 @@ export function computeHierarchicalGeotechFill(
 
   return {
     regions,
+    preMergeRegions,
     lithoFallback,
     conflicts,
     diagnostics: {
