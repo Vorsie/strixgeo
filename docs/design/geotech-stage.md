@@ -157,7 +157,20 @@ the constructive fill:
 * litho consistency (§7): **every one of the 14 sections improved** — CS1
   97.9 → 98.7 %, worst section 98.6 %, and every remaining mismatch bucket is
   soil→(void) raster hairline, never wrong-soil paint;
-* 2/1/0 conformance (`GEOTECH_210=1`): model-wide balloon 81 → 29, missing 103 →
+* 2/1/0 conformance (`GEOTECH_210=1`) — **balloon / missing / nospan /
+  overreach all ZERO on all 14 sections**, and the gate counts ties the way the
+  FILL counts them or it audits a law the constructor was never given: a tie
+  whose two bands sit in different litho families is dropped by both (#273's
+  cross-family case then audits as the lens the render draws); a tie that JUMPS
+  a column the family has no bands on is the run's own adjacent tie (the
+  2026-08-15 EXCLUDED ruling), and it is credited to BOTH bands adjoining the
+  contact it lands on, not to the layer the row happens to name. A fourth check,
+  `overreach`, audits the termination clause on the construct surface — measured
+  on the RUN's middle, and inert for a band that emits NOTHING, whose twin is
+  the same mass. Negative-controlled: a construct dropped 2 m below its own
+  level gives CS1 balloon 18 / missing 23 / nospan 5; a lens reach widened to
+  0.95 gives overreach 12 / 173 / 92.
+* the retired reading of that gate: model-wide balloon 81 → 29, missing 103 →
   63, nospan 6 → 5. The survivors are attribution, not paint: a merged mass
   carries every contributing band's `layerIds`, so the gate measures a thin
   member against the whole mass (balloon); a 2-tie band facing a DIFFERENT
