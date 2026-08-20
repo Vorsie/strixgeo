@@ -237,27 +237,38 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
 
   // ---------------------------------------------------------------- M2 --
 
-  // PENDING OWNER RULING (2026-08-19): this pin encodes his MORNING sentence
-  // (below-TD adoption of the SF band), but his COMPLETE emit table of the same
-  // afternoon makes a 0-tie band a LENS - and the lens's taper leaves the pinned
-  // sample (f=0.5, e=4.6) 2 cm outside it. The two rulings disagree on this
-  // scene by exactly that taper. `it.fails` holds the conflict LOUDLY: if the
-  // behaviour changes to satisfy this pin without a ruling, the suite goes red.
-  it.fails('S6 · gap 8 · the adopted silt band is ONE band, not split (CONFLICTS with the emit table - awaiting ruling)', () => {
-    // Owner: "Below TD there is a SF on the test to the right that gets adopted
-    // ... there the SF silt is one band, it gets split below TD at S8? why?"
-    // The right test read SILT-13 over 5.49 .. 4.43; sampled beside it the adopted
-    // cover must read that one class over that whole interval — across the run's own
-    // floor (5.01, the far test's base) and out the other side — with nothing threaded
-    // through it.
-    for (const e of [5.45, 5.2, 5.05, 4.9, 4.6]) {
-      expect(geotechClassAt(scene, 8, 0.9, e)).toBe('SILT-13')
+  it('S6 · gap 8 · the adopted silt bands on the right, and lenses toward the empty left', () => {
+    // Owner, 2026-08-19: *"Below TD there is a SF on the test to the right that gets
+    // adopted ... there the SF silt is one band, it gets split below TD at S8? why?"*
+    // and his ruling of 2026-08-20 on what that means under the complete law:
+    // *"s6 no ruling needed two bands on the right, it should band on that side, no
+    // bands on the left it should emit a lens. The rule is litteral and you can take
+    // it as such."*
+    //
+    // So: the right test read SILT-13 over 5.49 .. 4.43 and it is ONE band on ITS
+    // side of the gap — no interleaved slivers down a vertical, which was the
+    // original complaint. With nothing on the left, the band closes as a lens and
+    // terminates at about half the gap like every construct.
+    // Its whole interval beside the test that read it...
+    for (const e of [5.45, 5.3, 5.2, 5.0, 4.8, 4.6, 4.5]) {
+      expect(geotechClassAt(scene, 8, 0.9, e), `(0.9,${e}) is not one band`).toBe('SILT-13')
     }
-    // Mid-gap, where the band has tapered but is still one band: reading it as
-    // SILT-13 / SILT-14 / SILT-13 down the same vertical is the split he asked about.
-    for (const e of [5.25, 5.15, 5.05, 4.9, 4.6]) {
-      expect(geotechClassAt(scene, 8, 0.5, e)).toBe('SILT-13')
+    // ...and out into its own half, ONE class down every vertical. Reading it as
+    // SILT-13 / SILT-14 / SILT-13 down the same line is the split he asked about;
+    // the lens narrowing at its own top and base as it reaches out is the shape the
+    // law asks for, so the samples stay inside the band rather than on its taper.
+    for (const f of [0.75, 0.6]) {
+      for (const e of [5.3, 5.2, 5.0, 4.8, 4.6]) {
+        expect(geotechClassAt(scene, 8, f, e), `(${f},${e}) is not one band`).toBe('SILT-13')
+      }
     }
+    // Past the termination the left half is answered by the ground's own mass, and
+    // never by a silt conjured from nowhere: whatever is painted there is a class a
+    // real test measured (the wrapper of the closed lens).
+    const left = geotechClassAt(scene, 8, 0.15, 4.6)
+    expect(left).not.toBe('(hatch)')
+    expect(left).not.toBe('SILT-13')
+    expect(left?.startsWith('SILT')).toBe(true)
   })
 
   it('S7 · gap 8 · the clay wedge the litho paints is not left hatched', () => {
@@ -419,25 +430,34 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
   //    don't emit onlap, the md sand above, same litho different packing = emit
   //    onlap."
 
-  it('S13a · gap 0 · the bottom dense sand onlaps along its tie, not into a straight line', () => {
+  it('S13a · gap 0 · the bottom dense sand onlaps along its tie, ending at half the gap', () => {
     // S6's ZAND-7 at -0.33 .. -1.77 carries ONE tie, on its base contact (the very
-    // dense sand's top over on S10). It follows that line across the gap — its base
-    // rides -1.77 -> -1.33 — and it does not stop on a vertical mid-gap.
+    // dense sand's top over on S10). It follows that line — its base rides -1.77
+    // toward -1.33 — and it TERMINATES at about half the gap, which is the owner's
+    // clause of 2026-08-20: *"an onlap can't paint over ground near test itself, it
+    // terminates at 0.5 Distance approximately."*
+    //
+    // RE-PINNED from "reaches the far test": that reading came from his earlier
+    // sentence about the shape (*"should onlap except it is terminating on a
+    // straight line"*), and the clause above supersedes it — the shape rides the
+    // tie, the reach stops at the middle.
     for (const [f, e] of [
       [0.9, -1.5],
-      [0.5, -1.0],
-      [0.15, -0.9],
+      [0.7, -1.0],
+      [0.55, -1.5],
     ] as const) {
       expect(geotechClassAt(scene, 0, f, e), `(${f},${e})`).toBe('ZAND-7')
     }
+    // Past the middle it is the other test's ground, not this band's.
+    expect(geotechClassAt(scene, 0, 0.45, -1.0)).not.toBe('ZAND-7')
     const own = scene.geotech.filter(
       (r) =>
         r.gapIndex === 0 &&
         scene.classOf(r.formationId) === 'ZAND-7' &&
         Math.max(...r.polygon.map((p) => p.elevation)) < 0,
     )
-    expect(own.length).toBeGreaterThan(0)
-    expect(Math.min(...own.flatMap((r) => r.polygon.map((p) => p.fraction)))).toBeLessThan(0.05)
+    expect(own.length).toBe(1)
+    expect(Math.min(...own[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.4)
   })
 
   it('S13b · gap 0 · the deep clay onlaps along its tie too', () => {
@@ -445,14 +465,16 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // clay top). It follows that line — its top rides -2.35 -> -3.54 — and closes where
     // the line meets its own base level: an onlap, not a vertical.
     expect(geotechClassAt(scene, 0, 0.9, -2.6)).toBe('KLEI-22')
-    expect(geotechClassAt(scene, 0, 0.6, -3.0)).toBe('KLEI-22')
+    expect(geotechClassAt(scene, 0, 0.7, -3.0)).toBe('KLEI-22')
     // ...and it CLOSES: past the point where the tie meets its own base level the
     // clay of the other test owns the ground, so the onlap never reaches that test.
     const onlap = scene.geotech.filter(
       (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'KLEI-22',
     )
     expect(onlap.length).toBe(1)
-    expect(Math.min(...onlap[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.05)
+    // It closes at the middle at the latest (the termination clause), and here
+    // its own base level meets the tie there.
+    expect(Math.min(...onlap[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.4)
     expect(geotechClassAt(scene, 0, 0.1, -3.6)).toBe('KLEI-23')
   })
 
@@ -462,16 +484,15 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // contact, and what continues ABOVE that line is S10's own ZAND-7. One mass, so no
     // construct at all — and after the fill sweep, ONE region carrying both bands.
     const dense = scene.geotech.filter(
-      (r) =>
-        r.gapIndex === 0 &&
-        scene.classOf(r.formationId) === 'ZAND-7' &&
-        Math.min(...r.polygon.map((p) => p.elevation)) > 0.5 &&
-        Math.max(...r.polygon.map((p) => p.elevation)) < 2.5,
+      (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'ZAND-7' && inPolygon(0.75, 1.0, r.polygon),
     )
     expect(dense.length).toBe(1)
     expect((dense[0].layerIds ?? []).length).toBe(2)
     // Mid-gap, inside the sand's own window between the two tie lines (the silt unit
     // below it starts at 1.22 there — the litho frame, not this band's business).
+    // Mid-gap, inside the sand's own window between the two tie lines — one mass,
+    // one region, no seam and no vertical.
+    expect(geotechClassAt(scene, 0, 0.75, 1.0)).toBe('ZAND-7')
     expect(geotechClassAt(scene, 0, 0.5, 1.3)).toBe('ZAND-7')
   })
 
@@ -481,6 +502,32 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // is its ZAND-7. Different packing, so it onlaps along the tie.
     expect(geotechClassAt(scene, 0, 0.9, 2.0)).toBe('ZAND-6')
     expect(geotechClassAt(scene, 0, 0.6, 1.9)).toBe('ZAND-6')
+  })
+
+  // --------------------------------------------------------------- M4 --
+  // GAP 19 — GEO-23/125-S6 (col 19) | GEO-23/125-S5A (col 20), the owner's arrow
+  // of 2026-08-20: a dark sliver at S6's RIGHT column edge, at the SAND-VD level,
+  // painted over ground S6 itself measured. His clause: *"an onlap can't paint
+  // over ground near test itself, it terminates at 0.5 Distance approximately."*
+  // At a test's own edge the answer can only be that test's own log.
+
+  it('S14 · gap 19 · S6 owns its own column edge, band for band', () => {
+    // S6 reads, below its clay at 0.97..0.04: MD 0.04..-0.99, VD -0.99..-2.80,
+    // MD -2.80..-3.30, D -3.30..-3.72, MD -3.72..-4.12, VD -4.12..-5.87. Sampled
+    // a hair into the gap, every one of those windows must read its own class.
+    for (const [top, base, expected] of [
+      [0.04, -0.99, 'ZAND-6'],
+      [-0.99, -2.8, 'ZAND-8'],
+      [-2.8, -3.3, 'ZAND-6'],
+      [-3.3, -3.72, 'ZAND-7'],
+      [-3.72, -4.12, 'ZAND-6'],
+      [-4.12, -5.87, 'ZAND-8'],
+    ] as const) {
+      const mid = (top + base) / 2
+      expect(geotechClassAt(scene, 19, 0.02, mid), `${top}..${base} at S6's own edge`).toBe(
+        expected,
+      )
+    }
   })
 
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
