@@ -11,6 +11,12 @@
  *    sweep if a lens is touching a body with same litho and packing then lens
  *    disappears and it becomes one body, in the renderer and in the database."*
  *
+ * ...and the TERMINATION CLAUSE that governs every construct it emits
+ * (2026-08-20, on the ground a construct painted over at the facing test):
+ *
+ *   *"an onlap can't paint over ground near test itself, it terminates at 0.5
+ *    Distance approximately."*
+ *
  * *"a few very simple rules that can be written in 50 lines of code when bare."*
  *
  * This module is those rules and NOTHING else. It knows no geometry: it is
