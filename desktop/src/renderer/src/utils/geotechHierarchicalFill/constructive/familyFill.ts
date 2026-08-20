@@ -41,6 +41,21 @@ export interface FamilyFillContext {
   massOf: (band: RunBand) => Mass
   /** Every litho region per gap, in the render's z-order — ownership authority. */
   paintByGap: ReadonlyMap<number, SectionRegion[]>
+  /**
+   * Bands of another family that this family's cover ENCLOSES in a gap, where
+   * that family has no cover of its own there. The litho fill merges a
+   * same-soil sandwich into one host region, so a unit can lose its cover to
+   * its neighbour; its bands are lent to whoever holds the ground, or the test
+   * that measured them would read another unit's classes at its own edge (the
+   * owner's arrow, 2026-08-20). Same soil only — nothing crosses a lithology.
+   */
+  adoptedBandsFor: (
+    gap: number,
+    ci: number,
+    coverLo: number,
+    coverHi: number,
+    soil: string,
+  ) => RunBand[]
 }
 
 /** What one family produced. */
@@ -154,16 +169,36 @@ export function fillFamily(
     }
     if (run === null) out.oneSidedGaps += 1
 
+    // The cover's own elevation window, and the bands another family lost to it.
+    let coverLo = Infinity
+    let coverHi = -Infinity
+    for (const region of cover) {
+      for (const p of region.polygon) {
+        if (p.elevation < coverLo) coverLo = p.elevation
+        if (p.elevation > coverHi) coverHi = p.elevation
+      }
+    }
+    const soil = cover[0]?.formationId ?? ''
+    const withAdopted = (column: RunColumn): RunColumn => {
+      const adopted = context.adoptedBandsFor(gap, column.ci, coverLo, coverHi, soil)
+      if (adopted.length === 0) return column
+      return {
+        ...column,
+        bands: [...column.bands, ...adopted].sort((a, b) => b.top - a.top),
+      }
+    }
+    const runWithAdopted =
+      run === null ? null : { left: withAdopted(run.left), right: withAdopted(run.right) }
     const filled = fillGap({
       gapIndex: gap,
       xa: alongM[gap],
       xb: alongM[gap + 1],
       cover,
       gapPaint: context.paintByGap.get(gap) ?? cover,
-      run,
+      run: runWithAdopted,
       ties,
       coverTies,
-      columns: [...own.values()],
+      columns: [...own.values()].map(withAdopted),
       stacks: context.stacks,
       massOf: context.massOf,
     })

@@ -313,6 +313,23 @@ export function computeHierarchicalGeotechFill(
     }
   }
 
+  // WHICH FAMILIES HAVE COVER IN A GAP. The litho fill MERGES a same-soil
+  // sandwich into one host region (an enclosed interbed of another soil between
+  // two sands comes back as ONE sand region carrying only the upper unit's id),
+  // so a unit can lose its cover to its own neighbour's family. Its bands would
+  // then have nowhere to paint and the ground would read the OTHER unit's
+  // classes at their own test's edge — the owner's arrow of 2026-08-20 at
+  // GEO-23/125-S6. A family with no cover of its own in a gap therefore lends
+  // its bands to the family whose cover encloses them (``adoptedBandsFor``).
+  const familiesWithCoverByGap = new Map<number, Set<string>>()
+  for (const family of families) {
+    for (const gap of family.regionsByGap.keys()) {
+      const set = familiesWithCoverByGap.get(gap)
+      if (set === undefined) familiesWithCoverByGap.set(gap, new Set([family.id]))
+      else set.add(family.id)
+    }
+  }
+
   // Every litho region of a gap, in the render's own z-order (overlays last) —
   // the ownership authority the per-family fills resolve against.
   const paintByGap = new Map<number, SectionRegion[]>()
@@ -395,6 +412,20 @@ export function computeHierarchicalGeotechFill(
         paintByGap,
         stacks,
         massOf,
+        adoptedBandsFor: (gap, ci, lo, hi, soil) => {
+          const out: RunBand[] = []
+          for (const band of stacks.get(ci) ?? []) {
+            const owner = familyOfBand.get(band.layerId)
+            if (owner === undefined || owner === family.id) continue
+            if (familiesWithCoverByGap.get(gap)?.has(owner) === true) continue
+            const parent = parentOfBand.get(band.layerId)
+            if (parent === undefined) continue
+            if (lithoFormationOfUnit.get(parent) !== soil) continue
+            if (band.top > hi + COVER_EPS || band.base < lo - COVER_EPS) continue
+            out.push(band)
+          }
+          return out
+        },
       },
     )
     regions.push(...out.regions)

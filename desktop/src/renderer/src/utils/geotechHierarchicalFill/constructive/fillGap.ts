@@ -98,6 +98,37 @@ function coverAt(
   return found
 }
 
+/**
+ * The elevation span a ring occupies on the vertical at ``fraction`` — a
+ * scanline through it. Falls back to the ring's whole range where the vertical
+ * misses it (a degenerate face).
+ */
+function ringSpanAt(
+  ring: readonly { fraction: number; elevation: number }[],
+  fraction: number,
+): { lo: number; hi: number } {
+  let lo = Infinity
+  let hi = -Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]
+    const b = ring[(i + 1) % ring.length]
+    if (a.fraction === b.fraction) continue
+    const t = (fraction - a.fraction) / (b.fraction - a.fraction)
+    if (t < 0 || t > 1) continue
+    const elevation = a.elevation + t * (b.elevation - a.elevation)
+    if (elevation < lo) lo = elevation
+    if (elevation > hi) hi = elevation
+  }
+  if (lo <= hi) return { lo, hi }
+  let allLo = Infinity
+  let allHi = -Infinity
+  for (const p of ring) {
+    if (p.elevation < allLo) allLo = p.elevation
+    if (p.elevation > allHi) allHi = p.elevation
+  }
+  return { lo: allLo, hi: allHi }
+}
+
 /** Ring area in the gap's fraction space, scaled to square metres. */
 function areaM2(ring: readonly { fraction: number; elevation: number }[], width: number): number {
   let twice = 0
@@ -256,8 +287,9 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // ----------------------------------------------------------------- FILL --
   const lenses = constructs.filter((c) => c.emit === 'lens')
   const onlaps = constructs.filter((c) => c.emit === 'onlap')
-  // The two masses a vertical line stands between own their own side of it.
-  const verticals = constructs.filter((c) => c.emit === 'vertical')
+  // The two masses a vertical line stands between own their own side of it; a
+  // band that emits NOTHING owns the ground between the lines it follows.
+  const verticals = constructs.filter((c) => c.emit === 'vertical' || c.emit === 'nothing')
   const framePaint = painterOrder(gapPaint)
   // *"(should be the same if all onlaps and lenses are emitted)"* — the rest of
   // the ground belongs to the CONTINUOUS mass, so the masses that drew a shape
@@ -303,12 +335,13 @@ export function fillGap(input: GapFillInput): GapFillResult {
     }
     // "then fill in the rest with the dominant lithology"
     if (band === null) {
-      let lo = Infinity
-      let hi = -Infinity
-      for (const p of face.ring) {
-        if (p.elevation < lo) lo = p.elevation
-        if (p.elevation > hi) hi = p.elevation
-      }
+      // The loop's own extent AT THIS POINT'S vertical, not over its whole
+      // width: a loop between two dipping tie lines is one band's ground at one
+      // end and the facing band's at the other, and measuring the dominance
+      // across the whole loop hands a thin band's own ground to whichever mass
+      // is thicker over there. Beside its own test, a band's own levels are the
+      // ones that count (owner, 2026-08-20 — a test owns the ground beside it).
+      const { lo, hi } = ringSpanAt(face.ring, face.sample.fraction)
       // The continuous masses answer first; only where every mass here drew a
       // shape of its own does the nearest of THOSE answer, which is better than
       // a hole in the middle of ground the tests did read.
