@@ -263,13 +263,45 @@ function auditSection(sec: RawSection): string[] {
     return found
   }
 
+  // RUN-WIDE FAN WELD (the engine's ``fanWeldsSameMass``): a contact may carry
+  // several ties (the fan), and ONE same-class far end welds it wherever the
+  // band answers — the other ties are the far layers' own pinch statements.
+  // The per-gap table below only sees ties CROSSING the audited gap, so the
+  // welding tie of B2's MD tail (a jump to S6's own MD) is invisible from the
+  // S10|B2 gap; this set carries the weld across. Keyed layerId@elevKey.
+  const weldedContacts = new Set<string>()
+  for (const e of G.edges) {
+    const a = home.get(e.a)
+    const b = home.get(e.b)
+    if (a === undefined || b === undefined || a.ci === b.ci) continue
+    const ea = (e.aSide ?? 'top') === 'base' ? a.base : a.top
+    const eb = (e.bSide ?? 'top') === 'base' ? b.base : b.top
+    for (const [nearCi, nearElev, farCi, farElev] of [
+      [a.ci, ea, b.ci, eb],
+      [b.ci, eb, a.ci, ea],
+    ] as const) {
+      for (const mine of onContact(nearCi, nearElev)) {
+        const partner = onContact(farCi, farElev).find((p) => p.above === mine.above)
+        if (partner === undefined) continue
+        if (classKeyOf(partner.band.formationId) === classKeyOf(mine.band.formationId))
+          weldedContacts.add(`${mine.band.layerId}@${Math.round(nearElev * 1000)}`)
+      }
+    }
+  }
+
   // Per (layerId, gap): the far masses of the ties this band carries there. A
   // tie is drawn ON A CONTACT, and a contact belongs to the two bands that meet
   // at it — so a tie stored against one of them speaks for both, and the far
   // end is the band on the SAME SIDE of the contact over there.
   const fars = new Map<string, string[]>()
-  /** (layerId|gap) -> contact key -> the far end read there (fans collapse). */
-  const contactsOf = new Map<string, Map<string, { far: string; spanX: [number, number] }>>()
+  /** (layerId|gap) -> contact key -> the far end read there (fans collapse).
+   *  ``rescued`` marks a read the run-wide fan supplied over an EMPTY far
+   *  side — same-mass by the weld, but with no ground across this gap for
+   *  the mass to arrive at. */
+  const contactsOf = new Map<
+    string,
+    Map<string, { far: string; spanX: [number, number]; rescued?: boolean }>
+  >()
   for (const e of G.edges) {
     const a = home.get(e.a)
     const b = home.get(e.b)
@@ -288,18 +320,33 @@ function auditSection(sec: RawSection): string[] {
         if (near.ci !== gap && near.ci !== gap + 1) continue
         for (const mine of onContact(near.ci, nearElev)) {
           const partner = onContact(far.ci, farElev).find((p) => p.above === mine.above)
-          if (partner === undefined) continue
           const key = `${mine.band.layerId}|${gap}`
+          const contactKey = `${Math.round(nearElev * 1000)}`
+          // A tie whose far side is EMPTY states nothing about the mass —
+          // then, and only then, the contact's FAN speaks run-wide: a
+          // same-class end on another of its ties welds it (``weldedContacts``
+          // above — the engine's fanWeldsSameMass). A real far end across
+          // this gap keeps its own read: a band welds one way and onlaps the
+          // other, and the weld must not erase the onlap.
+          if (
+            partner === undefined &&
+            !weldedContacts.has(`${mine.band.layerId}@${contactKey}`)
+          ) {
+            continue
+          }
           // ONE CONTACT, ONE TIE: *"two ties is two tied contacts, if you have
           // two ties on the same contact that means a layer tapers out to a
           // pinch, right up to that contact."*
           const contacts = contactsOf.get(key) ?? new Map()
-          const contactKey = `${Math.round(nearElev * 1000)}`
           if (!contacts.has(contactKey)) {
             contacts.set(contactKey, {
               // The far MASS is its class, not its formation row.
-              far: classKeyOf(partner.band.formationId),
+              far:
+                partner !== undefined
+                  ? classKeyOf(partner.band.formationId)
+                  : classKeyOf(mine.band.formationId),
               spanX: [alongM[near.ci], alongM[far.ci]],
+              rescued: partner === undefined,
             })
           }
           contactsOf.set(key, contacts)
@@ -367,6 +414,11 @@ function auditSection(sec: RawSection): string[] {
           // must arrive is the CLASS: the two bands of one mass each own their
           // own half of the ground they weld into, so asking one band's id to
           // reach the far column asks for something the law never says.
+          // A weld the fan RESCUED over an empty far side has nothing across
+          // this gap to arrive at — its ground factually ends where its lines
+          // converge (S6's ZAND-5 toward S7's bandless contact) — so the
+          // arrival demand only stands where a real partner read exists.
+          if (contacts.every((c) => c.rescued === true)) continue
           let massReach = 0
           for (const r of out.regions) {
             if (r.gapIndex !== gap || classKeyOf(r.formationId) !== classKeyOf(band.formationId))
