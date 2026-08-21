@@ -192,6 +192,29 @@ export function fillFamily(
     }
     const runWithAdopted =
       run === null ? null : { left: withAdopted(run.left), right: withAdopted(run.right) }
+    // AN ADOPTED BAND BRINGS ITS TIES (owner, 2026-08-21, the S8|S6 deep VD:
+    // *"the deepest VD sand on both these columns are tied by 2 ties. However
+    // MD wins in the gaps below sub TD"*). The run-level resolution above saw
+    // only the family's OWN contacts, so a tie landing on a contact that only
+    // an adopted band carries was dropped and the band read as a 0-tie lens —
+    // its correlated sub-TD span went to the dominant pick instead. Re-resolve
+    // against the gap's two flanks WITH their adopted bands and merge; the
+    // run-level list still carries the own-family long jumps this per-gap pass
+    // cannot see.
+    let gapTies: readonly RunTie[] = ties
+    if (
+      run !== null &&
+      runWithAdopted !== null &&
+      (runWithAdopted.left !== run.left || runWithAdopted.right !== run.right)
+    ) {
+      const extra = resolveRunTies(
+        context.boundingEdges,
+        [runWithAdopted.left, runWithAdopted.right],
+        context.geotechBandOfLayer,
+      ).ties
+      const have = new Set(ties.map((t) => t.key))
+      gapTies = [...ties, ...extra.filter((t) => !have.has(t.key))]
+    }
     const filled = fillGap({
       gapIndex: gap,
       xa: alongM[gap],
@@ -199,7 +222,7 @@ export function fillFamily(
       cover,
       gapPaint: context.paintByGap.get(gap) ?? cover,
       run: runWithAdopted,
-      ties,
+      ties: gapTies,
       coverTies,
       columns: [...own.values()].map(withAdopted),
       stacks: context.stacks,
