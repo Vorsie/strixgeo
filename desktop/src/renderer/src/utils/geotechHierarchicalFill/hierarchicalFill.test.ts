@@ -547,4 +547,124 @@ describe('the hierarchical geotech fill — densities within lithos', () => {
     expect(constructOf('GC1', 1).length, "C's construct is missing from its own half").toBeGreaterThan(0)
     expect(constructOf('GC1', 0), "C's construct crossed the middle").toEqual([])
   })
+
+  // -------------------------------------------------------------------------
+  // ONE MASS, ONE BODY (owner ruling 2026-08-21). The model stores one geotech
+  // formation ROW per (class, litho parent, GEOLOGICAL parent), so the same
+  // NAD class lives under several row ids wherever a litho unit spans a
+  // geological boundary. The law compares the CLASS — *"same litho and packing
+  // density"* — so two tied NAD-6 sands on different duplicate rows are ONE
+  // spanning mass, not two masses meeting at a vertical line in the middle
+  // (his CS1 gap-10 scene: two ZAND-6 rows fenced at f=0.5 for 4.2 m).
+  // -------------------------------------------------------------------------
+
+  /** The dense sand as it exists under TWO geological parents: two row ids. */
+  const SAND_DENSE_GEO_B = 'g-sand-dense-under-geo-b'
+
+  /** One sand density per column, same class, DIFFERENT formation rows. */
+  function duplicateRowScene(): { geotech: PartitionColumn[]; edges: CorrelationEdge[] } {
+    return {
+      geotech: [
+        column('A', 10, [
+          { layerId: 'GA-clay', formationId: CLAY_SOFT, top: 0, base: 6 },
+          { layerId: 'GA-sand', formationId: SAND_DENSE, top: 6, base: 14 },
+        ]),
+        column('B', 10, [
+          { layerId: 'GB-clay', formationId: CLAY_SOFT, top: 0, base: 6 },
+          { layerId: 'GB-sand', formationId: SAND_DENSE_GEO_B, top: 6, base: 14 },
+        ]),
+      ],
+      edges: [tie('GA-sand', 'GB-sand'), tie('GA-clay', 'GB-clay')],
+    }
+  }
+
+  /** Sand-class regions of gap 0, whatever duplicate row they carry. */
+  const sandRegions = (out: ReturnType<typeof computeHierarchicalGeotechFill>) =>
+    out.regions.filter(
+      (r) =>
+        r.gapIndex === 0 && (r.formationId === SAND_DENSE || r.formationId === SAND_DENSE_GEO_B),
+    )
+
+  /** Does any single region reach BOTH columns and carry BOTH bands' layer ids? */
+  const oneWeldedMass = (out: ReturnType<typeof computeHierarchicalGeotechFill>) =>
+    sandRegions(out).some((r) => {
+      let f0 = Infinity
+      let f1 = -Infinity
+      for (const p of r.polygon) {
+        f0 = Math.min(f0, p.fraction)
+        f1 = Math.max(f1, p.fraction)
+      }
+      const ids = r.layerIds ?? []
+      return f0 < 0.01 && f1 > 0.99 && ids.includes('GA-sand') && ids.includes('GB-sand')
+    })
+
+  it('H11: two tied densities of the SAME class on different duplicate rows are ONE spanning mass', () => {
+    const scene = duplicateRowScene()
+    const out = computeHierarchicalGeotechFill({
+      lithoColumns: lithoScene().columns,
+      lithoEdges: lithoScene().edges,
+      lithoRegions: computeSectionFillActive(lithoScene().columns, lithoScene().edges, undefined, ALONG),
+      geotechColumns: scene.geotech,
+      geotechEdges: scene.edges,
+      alongM: ALONG,
+      packingClassOf: new Map([
+        [SAND_DENSE, 'ZAND|8'],
+        [SAND_DENSE_GEO_B, 'ZAND|8'],
+        [CLAY_SOFT, 'KLEI|22'],
+      ]),
+    })
+    // One welded region spans the whole gap and credits BOTH tests' bands.
+    expect(oneWeldedMass(out), 'the same class fenced at the middle instead of spanning').toBe(true)
+    // And no vertical seam splits the sand cover mid-gap.
+    for (const r of sandRegions(out)) {
+      const ring = r.polygon
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i]
+        const b = ring[(i + 1) % ring.length]
+        const vertical =
+          Math.abs(a.fraction - b.fraction) < 1e-9 && Math.abs(a.elevation - b.elevation) > 0.01
+        if (vertical && a.fraction > 0.02 && a.fraction < 0.98) {
+          throw new Error(
+            `vertical seam at f=${a.fraction.toFixed(3)} splits the one mass ` +
+              `(${a.elevation.toFixed(2)}..${b.elevation.toFixed(2)})`,
+          )
+        }
+      }
+    }
+  })
+
+  it('H11b: WITHOUT the class map the rows keep row identity (the conservative fallback)', () => {
+    // No packingClassOf — the caller could not name the classes, so two rows
+    // stay two masses exactly as before the ruling. Pins that the map is the
+    // ONLY thing that changes identity, and doubles as the negative control
+    // proving H11's assertion discriminates.
+    const scene = duplicateRowScene()
+    const out = computeHierarchicalGeotechFill({
+      lithoColumns: lithoScene().columns,
+      lithoEdges: lithoScene().edges,
+      lithoRegions: computeSectionFillActive(lithoScene().columns, lithoScene().edges, undefined, ALONG),
+      geotechColumns: scene.geotech,
+      geotechEdges: scene.edges,
+      alongM: ALONG,
+    })
+    expect(oneWeldedMass(out), 'row identity welded without any class knowledge').toBe(false)
+  })
+
+  it('H11c: two DIFFERENT classes on different rows still meet — the map never over-welds', () => {
+    const scene = duplicateRowScene()
+    const out = computeHierarchicalGeotechFill({
+      lithoColumns: lithoScene().columns,
+      lithoEdges: lithoScene().edges,
+      lithoRegions: computeSectionFillActive(lithoScene().columns, lithoScene().edges, undefined, ALONG),
+      geotechColumns: scene.geotech,
+      geotechEdges: scene.edges,
+      alongM: ALONG,
+      packingClassOf: new Map([
+        [SAND_DENSE, 'ZAND|8'],
+        [SAND_DENSE_GEO_B, 'ZAND|6'],
+        [CLAY_SOFT, 'KLEI|22'],
+      ]),
+    })
+    expect(oneWeldedMass(out), 'different classes welded into one mass').toBe(false)
+  })
 })
