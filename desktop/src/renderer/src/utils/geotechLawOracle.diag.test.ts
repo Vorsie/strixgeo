@@ -41,27 +41,21 @@
  * OUT OF SCOPE, as everywhere else: a gap whose facing test carries no bands at
  * all — an un-divided test shows empty ground by the 2026-08-15 ruling.
  *
- * TWO KNOWN SCOPE LIMITS, measured 2026-08-21 and deliberately not papered
- * over — both are places where this decode and the constructor's disagree, and
- * the disagreement is the point of having a second decode:
+ * ...and the two rulings of 2026-08-21 that fix how it counts and where it
+ * measures, verbatim:
  *
- *   1. GAPS vs RUNS. This file measures reach on SECTION gaps. The fill works
- *      on a family's RUN, which spans columns the family has no bands on (the
- *      2026-08-15 excluded-column ruling), so one run gap can cover two section
- *      gaps and a construct that stops at its own run's middle reads here as
- *      crossing a section gap end to end. 19 of the 28 exceptions on the real
- *      model are of this shape, plus the 6 welded-mass ones.
- *   2. FANS. This file counts TIES; the constructor counts tied CONTACTS, so
- *      two ties landing on one contact are two here and one there. His sentence
- *      is about a band's top and bottom ("it has a top and bottom tie to the
- *      right though?"), which reads as contacts — but it has not been ruled,
- *      and 3 of the 28 (the same three the 210 gate reports as nospan) hang on
- *      exactly this question.
+ *   *"the SF silt on the right has 2 bands, definition is band an no lens or
+ *    onlap is emitted, two ties is two tied contacts, if you have two ties on
+ *    the same contact that means a layer tapers out to a pinch, right up to
+ *    that contact. 0.5x distance to next test (so half of the line width it
+ *    onlaps on)."*
  *
- * So the count is REPORTED, not frozen at zero: freezing it would either pin
- * the constructor's reading of an unruled question or bury the run-gap scope
- * gap. Both need one owner sentence each, and then this file can be tightened
- * and frozen.
+ * So: a FAN — two ties landing on ONE contact — is ONE tied contact here, and
+ * states that the layer at the far end pinches out against that line. And the
+ * termination is half of the LINE the construct rides, not half of the section
+ * gap: a tie that bridges a test the family has no bands on carries its middle
+ * past the gap's own far column, and a construct reaching there is obeying the
+ * clause, not breaking it.
  *
  * Dormant unless GEOTECH_LAW=1. Env: GEOTECH_AXIS_INPUT (input override).
  * Report: scripts/throwaway_geotech_law.txt.
@@ -75,6 +69,8 @@ import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
+import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -94,7 +90,7 @@ const WELD_REACH = 0.99
 /** A vertical must come at least this close to the middle. */
 const MIDDLE_REACH = 0.4
 
-type Verdict = 'lens' | 'onlap' | 'nothing' | 'vertical'
+type Verdict = 'lens' | 'onlap' | 'nothing'
 
 interface RawUnit {
   layerId: string
@@ -158,13 +154,16 @@ function verdictOf(own: string, fars: readonly string[]): Verdict {
   if (fars.length === 0) return 'lens'
   const same = fars.filter((f) => f === own).length
   if (fars.length === 1) return same === 1 ? 'nothing' : 'onlap'
-  if (same === fars.length) return 'nothing'
-  if (same === 0) return 'vertical'
+  // *"the SF silt on the right has 2 bands, definition is band an no lens or
+  // onlap is emitted"* — two tied contacts is a band whatever the far ends
+  // read. His *"vertical line in the middle"* is where two such open masses
+  // meet, which the fill draws; no band emits it on its own.
   return 'nothing'
 }
 
 function auditSection(sec: RawSection): string[] {
   const L = assemble(sec)
+  const alongM = L.alongM
   const G = assemble(sec.geotech)
   if (L.columns.length < 2) return []
   const geotechColumns = frameAlignedColumns(
@@ -200,6 +199,36 @@ function auditSection(sec: RawSection): string[] {
   const home = new Map<string, Band>()
   for (const col of bands) for (const b of col) home.set(b.layerId, b)
 
+  // THE NEXT TEST is the next test THIS FAMILY reads (the 2026-08-15 excluded
+  // ruling: a run spans a test the family has no bands on), so *"0.5x distance
+  // to next test"* is measured to that column, not to the section's next one.
+  // Family membership only — the verdict above never consults it.
+  const { parentOfBand } = resolveBandParents(geotechColumns, L.columns)
+  const { familyOfLithoLayer } = buildLithoFamilies(L.columns, L.edges, lithoRegions)
+  const familyOfBand = new Map<string, string>()
+  for (const [layer, parent] of parentOfBand) {
+    const family = familyOfLithoLayer.get(parent)
+    if (family !== undefined) familyOfBand.set(layer, family)
+  }
+  const familyColumns = new Map<string, Set<number>>()
+  for (const col of bands) {
+    for (const b of col) {
+      const family = familyOfBand.get(b.layerId)
+      if (family === undefined) continue
+      const set = familyColumns.get(family)
+      if (set === undefined) familyColumns.set(family, new Set([b.ci]))
+      else set.add(b.ci)
+    }
+  }
+  const nextTestX = (b: Band, toTheRight: boolean): number => {
+    const columns = familyColumns.get(familyOfBand.get(b.layerId) ?? '')
+    const step = toTheRight ? 1 : -1
+    for (let ci = b.ci + step; ci >= 0 && ci < geotechColumns.length; ci += step) {
+      if (columns?.has(ci) === true) return alongM[ci]
+    }
+    return alongM[toTheRight ? geotechColumns.length - 1 : 0]
+  }
+
   /** The bands adjoining a contact on one column, and on which side they sit. */
   const onContact = (ci: number, elevation: number): { band: Band; above: boolean }[] => {
     const found: { band: Band; above: boolean }[] = []
@@ -215,6 +244,8 @@ function auditSection(sec: RawSection): string[] {
   // at it — so a tie stored against one of them speaks for both, and the far
   // end is the band on the SAME SIDE of the contact over there.
   const fars = new Map<string, string[]>()
+  /** (layerId|gap) -> contact key -> the far end read there (fans collapse). */
+  const contactsOf = new Map<string, Map<string, { far: string; spanX: [number, number] }>>()
   for (const e of G.edges) {
     const a = home.get(e.a)
     const b = home.get(e.b)
@@ -235,9 +266,18 @@ function auditSection(sec: RawSection): string[] {
           const partner = onContact(far.ci, farElev).find((p) => p.above === mine.above)
           if (partner === undefined) continue
           const key = `${mine.band.layerId}|${gap}`
-          const list = fars.get(key) ?? []
-          list.push(partner.band.formationId)
-          fars.set(key, list)
+          // ONE CONTACT, ONE TIE: *"two ties is two tied contacts, if you have
+          // two ties on the same contact that means a layer tapers out to a
+          // pinch, right up to that contact."*
+          const contacts = contactsOf.get(key) ?? new Map()
+          const contactKey = `${Math.round(nearElev * 1000)}`
+          if (!contacts.has(contactKey)) {
+            contacts.set(contactKey, {
+              far: partner.band.formationId,
+              spanX: [alongM[near.ci], alongM[far.ci]],
+            })
+          }
+          contactsOf.set(key, contacts)
         }
       }
     }
@@ -271,7 +311,9 @@ function auditSection(sec: RawSection): string[] {
         const facing = gap === ci ? ci + 1 : gap
         if ((bands[facing]?.length ?? 0) === 0) continue
         const key = `${band.layerId}|${gap}`
-        const far = fars.get(key) ?? []
+        const contacts = [...(contactsOf.get(key)?.values() ?? [])]
+        const far = contacts.map((c) => c.far)
+        fars.set(key, far)
         const verdict = verdictOf(band.formationId, far)
         const sameAllFar = far.length > 0 && far.every((f) => f === band.formationId)
         const mine = painted.get(key) ?? []
@@ -296,17 +338,39 @@ function auditSection(sec: RawSection): string[] {
           }
         }
         if (sameAllFar) {
-          // "emit nothing" — one mass through the gap, so it must arrive.
-          if (reach < WELD_REACH)
-            exceptions.push(`${tag} — welded mass stops at ${reach.toFixed(2)} of the gap`)
+          // "emit nothing" — one mass through the gap, so it must arrive. What
+          // must arrive is the CLASS: the two bands of one mass each own their
+          // own half of the ground they weld into, so asking one band's id to
+          // reach the far column asks for something the law never says.
+          let massReach = 0
+          for (const r of out.regions) {
+            if (r.gapIndex !== gap || r.formationId !== band.formationId) continue
+            for (const p of r.polygon) {
+              massReach = Math.max(massReach, ownIsLeft ? p.fraction : 1 - p.fraction)
+            }
+          }
+          if (massReach < WELD_REACH)
+            exceptions.push(`${tag} — welded mass stops at ${massReach.toFixed(2)} of the gap`)
           continue
         }
-        if (verdict === 'nothing') continue // the mixed pair: no reach is asked
+        if (verdict === 'nothing') continue // a band: it spans, no reach is asked
         if (loops.length === 0) continue // welded away by the fill sweep
-        if (reach > 0.5 + MIDDLE_GRACE)
-          exceptions.push(`${tag} — closed construct crosses the middle (${reach.toFixed(2)})`)
-        if (verdict === 'vertical' && reach < MIDDLE_REACH)
-          exceptions.push(`${tag} — vertical stops at ${reach.toFixed(2)}, short of the middle`)
+        // *"0.5x distance to next test (so half of the line width it onlaps
+        // on)"* — half of the LINE the construct rides, expressed in this gap's
+        // own fractions. A tie that bridges a test this family has no bands on
+        // puts that middle beyond the gap's far column, and then nothing in
+        // this gap can cross it.
+        const gapWidth = alongM[gap + 1] - alongM[gap]
+        const ownX = band.ci === gap ? alongM[gap] : alongM[gap + 1]
+        const lineFarX = contacts.length === 0 ? nextTestX(band, ownIsLeft) : contacts
+          .map((c) => c.spanX[1])
+          .reduce((furthest, x) => (Math.abs(x - ownX) > Math.abs(furthest - ownX) ? x : furthest), ownX)
+        const halfLine =
+          Math.abs(gapWidth) < 1e-9 ? 0.5 : Math.abs((ownX + lineFarX) / 2 - ownX) / Math.abs(gapWidth)
+        if (reach > halfLine + MIDDLE_GRACE)
+          exceptions.push(
+            `${tag} — closed construct reaches ${reach.toFixed(2)}, past half its own line (${halfLine.toFixed(2)})`,
+          )
       }
     }
   }
@@ -329,19 +393,24 @@ describe('the law oracle', () => {
       for (const e of exceptions) lines.push(`    ${e}`)
     }
     writeFileSync(OUT, lines.join('\n'))
-    // 13 sections audit at ZERO. CS1 is ratcheted at 28 pending two owner
-    // rulings (2026-08-21), both documented in the header: (1) reach is
-    // measured here on SECTION GAPS while the fill terminates on FAMILY RUNS
-    // that bridge excluded columns — "0.5 of what" is his call; (2) the
-    // fan question — two ties on one contact: ties or tied contacts? When he
-    // rules, tighten the measurement and drop this ratchet to zero. May only
-    // shrink; never raise it.
+    // THIRTEEN SECTIONS AUDIT AT ZERO, and CS1 has ONE exception left — a
+    // frame-vs-tie conflict, not a decode error: its col19 band 7.03..6.62
+    // carries two tied contacts into gap 19, so the law says BAND, but that
+    // band's litho family has no COVER in gap 19 at all (its run ends at
+    // col19), so there is nowhere for it to paint and the neighbouring family's
+    // mass holds the ground beside its own test. That is the unresolved half of
+    // debt #273 — a tie whose near band's family cannot reach the gap it
+    // crosses — and it needs an owner ruling rather than a code guess. The same
+    // band is the 210 gate's one nospan and the one own-column-edge violation.
+    //
+    // Pinned exactly, not as a ceiling: a new exception fails, and so does
+    // fixing this one (re-freeze deliberately when it is ruled).
+    const KNOWN_FRAME_CONFLICTS = 1
+    const total = [...perSection.values()].reduce((sum, n) => sum + n, 0)
+    expect(total, lines.join(String.fromCharCode(10))).toBe(KNOWN_FRAME_CONFLICTS)
     for (const [name, count] of perSection) {
-      if (name === 'Cross-section 1') {
-        expect(count, lines.join('\n')).toBeLessThanOrEqual(28)
-      } else {
-        expect(count, `${name}:\n${lines.join('\n')}`).toBe(0)
-      }
+      if (name === 'Cross-section 1') continue
+      expect(count, `${name}: ${lines.join(String.fromCharCode(10))}`).toBe(0)
     }
   })
 })
