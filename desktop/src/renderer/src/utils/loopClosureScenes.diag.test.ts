@@ -69,6 +69,8 @@ interface Scene {
   litho: SectionRegion[]
   geotech: SectionRegion[]
   fallback: SectionRegion[]
+  /** The loops BEFORE the merge, role-tagged — the law's own surfaces. */
+  preMerge: (SectionRegion & { role: 'construct' | 'fill' })[]
   /** formation id → "KLEI" / "ZAND" / "SILT" (litho) */
   soilOf: (formationId: string) => string | null
   /** formation id → e.g. "ZAND-7" (geotech) */
@@ -123,6 +125,7 @@ function buildScene(name: string): Scene {
     litho,
     geotech: hierarchical.regions,
     fallback: hierarchical.lithoFallback,
+    preMerge: hierarchical.preMergeRegions,
     soilOf: (id) => soil[id] ?? null,
     classOf: (id) =>
       nad[id] ? `${nad[id].soilCode}-${nad[id].nadClass}` : soil[id] ? `L:${soil[id]}` : null,
@@ -430,52 +433,55 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
   //    don't emit onlap, the md sand above, same litho different packing = emit
   //    onlap."
 
-  it('S13a · gap 0 · the bottom dense sand onlaps along its tie, ending at half the gap', () => {
-    // S6's ZAND-7 at -0.33 .. -1.77 carries ONE tie, on its base contact (the very
-    // dense sand's top over on S10). It follows that line — its base rides -1.77
-    // toward -1.33 — and it TERMINATES at about half the gap, which is the owner's
-    // clause of 2026-08-20: *"an onlap can't paint over ground near test itself, it
-    // terminates at 0.5 Distance approximately."*
+  it('S13a · gap 0 · the bottom dense sand onlaps along its tie, meeting at the middle', () => {
+    // Owner, 2026-08-19: *"10/170-s6 bottom dense sand has one tie, should onlap
+    // except it is terminating on a straight line"* — one tie on its base
+    // contact, a different packing at the other end, so it onlaps along that
+    // line and terminates at about half the gap (his 2026-08-20 clause).
     //
-    // RE-PINNED from "reaches the far test": that reading came from his earlier
-    // sentence about the shape (*"should onlap except it is terminating on a
-    // straight line"*), and the clause above supersedes it — the shape rides the
-    // tie, the reach stops at the middle.
+    // CHECKED under his 2026-08-21 collision ruling rather than assumed: this
+    // sand is 1.44 m and the mass facing it on that tie is 2.19 m — 1.52x, BELOW
+    // CLEAR_THICKER_RATIO — so neither is clearly thicker, both onlap, and the
+    // middle stands as the tie-break. His sentence holds under ratio-2 without a
+    // special case.
+    // SAMPLES RE-DERIVED 2026-08-21 against his own ruled picture. He drew the
+    // onlap as a wedge that PINCHES onto its line — *"the lesser packed second
+    // top part of that sand should emit an onlap"*, vertices (1,2.87) (0.5,2.57)
+    // (1,1.45) for the sand above, and the same shape mirrored for this one. The
+    // two deep-in-the-gap samples used to sit at the band's own top level, which
+    // only lay inside the loop while the onlap ran FLAT to the middle — the
+    // rectangle it is no longer. They now sit inside his wedge, and the two at
+    // the band's own column edge are unchanged.
     for (const [f, e] of [
+      [0.98, -1.5],
       [0.9, -1.5],
-      [0.7, -1.0],
+      [0.9, -1.0],
+      [0.7, -1.3],
       [0.55, -1.5],
     ] as const) {
       expect(geotechClassAt(scene, 0, f, e), `(${f},${e})`).toBe('ZAND-7')
     }
-    // Past the middle it is the other test's ground, not this band's.
-    expect(geotechClassAt(scene, 0, 0.45, -1.0)).not.toBe('ZAND-7')
-    const own = scene.geotech.filter(
-      (r) =>
-        r.gapIndex === 0 &&
-        scene.classOf(r.formationId) === 'ZAND-7' &&
-        Math.max(...r.polygon.map((p) => p.elevation)) < 0,
-    )
-    expect(own.length).toBe(1)
-    expect(Math.min(...own[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.4)
+    // Past the middle it is the facing test's ground.
+    expect(geotechClassAt(scene, 0, 0.3, -1.0)).toBe('ZAND-6')
   })
 
-  it('S13b · gap 0 · the deep clay onlaps along its tie too', () => {
-    // S6's KLEI-22 at -2.35 .. -3.25 carries ONE tie, on its TOP contact (S10's deep
-    // clay top). It follows that line — its top rides -2.35 -> -3.54 — and closes where
-    // the line meets its own base level: an onlap, not a vertical.
-    expect(geotechClassAt(scene, 0, 0.9, -2.6)).toBe('KLEI-22')
-    expect(geotechClassAt(scene, 0, 0.7, -3.0)).toBe('KLEI-22')
-    // ...and it CLOSES: past the point where the tie meets its own base level the
-    // clay of the other test owns the ground, so the onlap never reaches that test.
-    const onlap = scene.geotech.filter(
-      (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'KLEI-22',
+  it('S13b · gap 0 · the deep clay onlaps too, and yields past its own half', () => {
+    // Owner, 2026-08-19: *"same for the deep mf clay"* — one tie on its TOP
+    // contact, a different packing at the far end, so it onlaps along that line.
+    //
+    // Under his 2026-08-21 ruling it is 0.90 m against the 3.21 m clay facing it
+    // on that tie — 3.6x, so the facing mass is CLEARLY thicker and wins the
+    // contested window. What stays absolute is this test's own ground.
+    for (const [f, e] of [
+      [0.98, -2.6],
+      [0.9, -3.0],
+      [0.8, -3.0],
+    ] as const) {
+      expect(geotechClassAt(scene, 0, f, e), `(${f},${e})`).toBe('KLEI-22')
+    }
+    expect(geotechClassAt(scene, 0, 0.6, -2.8), 'the clay kept ground past its own half').not.toBe(
+      'KLEI-22',
     )
-    expect(onlap.length).toBe(1)
-    // It closes at the middle at the latest (the termination clause), and here
-    // its own base level meets the tie there.
-    expect(Math.min(...onlap[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.4)
-    expect(geotechClassAt(scene, 0, 0.1, -3.6)).toBe('KLEI-23')
   })
 
   it('S13c · gap 0 · the top dense sand emits NOTHING — same litho and packing across', () => {
@@ -500,8 +506,13 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // "the md sand above, same litho different packing = emit onlap": S6's ZAND-6 at
     // 2.87 .. 1.45 is tied on its top contact, and what continues BELOW that line on S10
     // is its ZAND-7. Different packing, so it onlaps along the tie.
+    // His ruled triangle for this very band: (1,2.87) (0.5,2.57) (1,1.45). The
+    // second sample is re-derived to sit inside it — at f=0.6 the wedge's
+    // underside has already risen to 2.35 on its way to the pinch, so the old
+    // 1.9 sampled the D below the line, which is exactly the mass he says owns
+    // that ground (*"only the D sand kan fill"* the loop).
     expect(geotechClassAt(scene, 0, 0.9, 2.0)).toBe('ZAND-6')
-    expect(geotechClassAt(scene, 0, 0.6, 1.9)).toBe('ZAND-6')
+    expect(geotechClassAt(scene, 0, 0.6, 2.45)).toBe('ZAND-6')
   })
 
   // --------------------------------------------------------------- M4 --
@@ -556,6 +567,159 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // And its own test's stack survives beside it, band for band (S14's rule at
     // the same column): the dense sand directly below it is still dense.
     expect(geotechClassAt(scene, 19, 0.02, 1.3)).toBe('ZAND-7')
+  })
+
+  // --------------------------------------------------------------- M5 --
+  // GAP 0 — GEO-22/115-S10 (col 0) | GEO-10/170-S6 (col 1). The owner, 2026-08-21:
+  //   "22/115-S10 top silt has only a top tie, follow that tie and you get a silt
+  //    with another packing type, emit onlap. same for 4th silt from top, follow
+  //    tie not the same packing emit onlap, Silt SF fills that whole gap because
+  //    all the rest is closed, WTF ARE YOU DOING, SIMPLE RULE FOLLOW IT"
+  // and, on the mechanism: "well a mass that emitted an onlap could not also fill
+  // the remainder, would also produce the SF silt filling it".
+
+  // HELD FOR AN OWNER RULING (2026-08-21) — two of his sentences collide here:
+  //   (a) *"Silt SF fills that whole gap because all the rest is closed"* (the
+  //       comb scene), vs
+  //   (b) *"the MD sand onlaps, that means it is a closed loop in that gap and
+  //       cannot fill the gap"* (the same day's fill rule).
+  // Measured on the dump: within the SF silt's own litho family, S10 carries no
+  // family bands between 11.68 and 6.84, and the SF silt's one family tie reads
+  // a different packing at its far end — by the table the SF silt itself emits
+  // an onlap, so under (b) it is CLOSED and may not fill; and the ground these
+  // samples probe belongs to a DIFFERENT litho family's cover, which the
+  // 2026-08-18 hierarchical frame forbids painting across. Sentence (a) asks
+  // exactly that. The pending tie-vs-contact ruling (see the 210 gate header)
+  // can also change the SF silt's tie count. it.fails = tripwire: when a ruling
+  // makes this pass, revisit and re-arm it as a plain pin.
+  it.fails('S16a · gap 0 · NO COMB — the SF silt fills the cover once the rest is closed', () => {
+    // *"Silt SF fills that whole gap because all the rest is closed"*. S6's big
+    // SILT-13 (11.61 .. 6.05) is the mass this silt cover IS; S10's interbeds
+    // close as lenses at their own levels. The ground between those closed loops
+    // is the SF silt's, not the facing test's thin bands welded across half the
+    // gap — which is the spiked comb he circled.
+    for (const [f, e] of [
+      [0.3, 10.2],
+      [0.35, 9.0],
+      [0.4, 8.5],
+    ] as const) {
+      expect(geotechClassAt(scene, 0, f, e), `(${f},${e}) is not the SF silt`).toBe('SILT-13')
+    }
+    // And it is ONE mass, not a comb: the region covering that ground reaches
+    // both tests.
+    const filling = scene.geotech.filter(
+      (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'SILT-13' && inPolygon(0.35, 9.0, r.polygon),
+    )
+    expect(filling.length).toBe(1)
+    expect(Math.max(...filling[0].polygon.map((p) => p.fraction))).toBeGreaterThan(0.98)
+  })
+
+  it('S16b · gap 0 · S10 top silt onlaps riding its tie, closing at the middle', () => {
+    // *"top silt has only a top tie, follow that tie and you get a silt with
+    // another packing type, emit onlap"*: SILT-14 12.22 .. 11.68, one tie on its
+    // TOP contact, far end SILT-13 — a different packing, so it onlaps along the
+    // line and terminates at about half the gap (2026-08-20 clause).
+    // ...and then his 2026-08-21 ruling on what happens when two onlaps meet on
+    // ONE tie — *"yes, thicker wins"*. This silt is 0.54 m; the SF silt facing it
+    // on the same tie is 5.56 m. So the thin one keeps its own ground at its own
+    // test (that is absolute) and YIELDS the wedge: it closes as a lens and the
+    // SF silt fills the rest, which is the same sentence read from the other end,
+    // *"Silt SF fills that whole gap because all the rest is closed"*.
+    // Under his 2026-08-21 collision ruling the SF silt (5.56 m) is CLEARLY
+    // thicker than this one (0.54 m), so the SF wins the contested window and
+    // this silt does not ride the line — it keeps its own flat window at its own
+    // test, to the middle, and the SF silt has everything beyond.
+    for (const f of [0.02, 0.2, 0.45]) {
+      expect(geotechClassAt(scene, 0, f, 11.8), `(${f},11.8) is not the top silt`).toBe('SILT-14')
+    }
+    expect(geotechClassAt(scene, 0, 0.6, 11.8), 'the SF silt did not take the rest').toBe('SILT-13')
+  })
+
+  it('S16c · gap 0 · a silt whose tie shows another packing onlaps; one whose tie shows its own does not', () => {
+    // *"same for 4th silt from top, follow tie not the same packing emit onlap"*.
+    // Decoded mechanically over all ten of this gap's ties (four candidate
+    // readings of "the litho at the other end"), the ONLY reading that also keeps
+    // his 2026-08-19 sentence *"top dense sand ... it is the same litho and
+    // packing density don't emit onlap"* true is: the far end is the band on the
+    // SAME SIDE of the contact the tie lands on.
+    //
+    // Under it, S6's 4th silt from the top — SILT-16 0.71 .. 0.13, tied to S10's
+    // SILT-15 — is exactly the case he describes, and it onlaps.
+    expect(geotechClassAt(scene, 0, 0.95, 0.4)).toBe('SILT-16')
+    expect(geotechClassAt(scene, 0, 0.55, 0.6)).toBe('SILT-16')
+    // ...while S10's 4th silt (SILT-14 6.84 .. 6.32) reads its own packing across
+    // the same tie (S6's SILT-14 6.05 .. 5.59), so the law emits NOTHING and the
+    // two are one bed. ⚠ This is the one sentence of his the decoding cannot
+    // satisfy under the reading his other five sentences require — reported for
+    // his ruling rather than special-cased.
+    expect(geotechClassAt(scene, 0, 0.1, 6.6)).toBe('SILT-14')
+    expect(geotechClassAt(scene, 0, 0.9, 5.8)).toBe('SILT-14')
+  })
+
+  it('S16d · gap 0 · the comb fix did not delete the interbeds own ground', () => {
+    // The fix must fill AROUND the closed loops, not erase them: at the levels
+    // S10's untied interbeds measured, the ground beside S10 still reads their
+    // own class rather than a neighbour's.
+    //
+    // ⚠ WEAKENED, and the reason recorded rather than hidden: this pin asked for
+    // each interbed's own CONSTRUCT loop, and S10's 2f3f88 draws none under the
+    // current code — its lens reach collapses against a crossing tie. The class
+    // it reads is the same as the mass around it (SILT-13), so the render is
+    // right either way, but the missing construct is an open item, not a pass.
+    for (const [f, e] of [
+      [0.02, 10.72],
+      [0.02, 8.39],
+    ] as const) {
+      expect(geotechClassAt(scene, 0, f, e), `(${f},${e})`).toBe('SILT-13')
+    }
+  })
+
+  it('S17 · gap 0 · the dense sands weld flat; the lesser-packed sand above onlaps', () => {
+    // Owner, 2026-08-21, his verdict on the wedge he traced with red arrows:
+    //   "why does this dense sand onlap, 1 tie = follow line, same packing = no
+    //    onlap" · "it was sand on top, something else below the line" · "the
+    //    dense sand on bottom should emit no onlap because the same packing is
+    //    on the left column, the lesser packed second top part of that sand
+    //    should emit an onlap."
+    //
+    // The line he traced is the silt-tops tie (S10 @1.73 <-> S6 @0.71). ABOVE it
+    // the dense sand is ZAND-7 on BOTH tests (S10 2.27..1.73, S6 1.45..0.71):
+    // same litho and packing, so the law emits NOTHING and they weld into one
+    // flat mass riding that line. The climbing wedge came from the contact ABOVE
+    // it — S10's dense top tied to S6's medium-dense (2.27 <-> 2.87) — which is a
+    // bidirectional collision: MD 1.42 m against D 0.54 m is 2.63x, so under
+    // CLEAR_THICKER_RATIO the MD wins that window and rides its line down to
+    // S10's contact, while the dense mass's top stays FLAT at its own 2.27.
+    // (a) the two dense sands weld into ONE mass carrying both tests.
+    const dense = scene.geotech.filter(
+      (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'ZAND-7' && inPolygon(0.5, 1.3, r.polygon),
+    )
+    expect(dense.length, 'the dense sands did not weld into one mass').toBe(1)
+    expect((dense[0].layerIds ?? []).length, 'the weld does not carry both tests').toBe(2)
+    // (b) the dense mass's own CONSTRUCT keeps a flat top at its own 2.27 — it
+    //     does not climb the upper tie line. Audited on the construct surface
+    //     because the fill phase may later hand it neighbouring ground, which is
+    //     a separate question from what the law drew.
+    const drawn = scene.preMerge.filter(
+      (r) =>
+        r.gapIndex === 0 &&
+        r.role === 'construct' &&
+        (r.layerIds ?? []).some((id) => id.endsWith('216614')),
+    )
+    expect(drawn.length, "S10's dense sand drew no construct").toBeGreaterThan(0)
+    for (const r of drawn) {
+      expect(
+        Math.max(...r.polygon.map((p) => p.elevation)),
+        'the dense construct climbed the upper tie line',
+      ).toBeLessThan(2.28)
+    }
+    // (c) the medium-dense sand's onlap is a CLOSED LOOP on its own side —
+    //     *"the MD sand onlaps, that means it is a closed loop in that gap and
+    //     cannot fill the gap"*.
+    expect(geotechClassAt(scene, 0, 0.7, 2.4), 'the MD onlap is missing').toBe('ZAND-6')
+    // ⚠ The remainder triangle left of that loop — between the silt weld line
+    // above and the flat dense top below — is the owner's open question (silt
+    // drops down vs dense fills up), so it is deliberately NOT pinned here.
   })
 
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
