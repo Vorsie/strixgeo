@@ -189,6 +189,7 @@ async def _run_resolver(
                 LithoLayerOrm.body_id,
                 GeologicalFormationOrm.parent_formation_id,
                 GeologicalFormationOrm.litho_main_soil_code,
+                GeologicalFormationOrm.nad_class,
             )
             .join(GeologicalFormationOrm, GeologicalFormationOrm.id == LithoLayerOrm.formation_id)
             .where(
@@ -213,6 +214,10 @@ async def _run_resolver(
             depth_top_m=r.depth_top_m,
             source_investigation_id=(r.borehole_id if r.borehole_id is not None else r.cpt_id),
             packing_formation_id=r.formation_id if is_geotechnical else None,
+            # The CLASS the row states — the mass identity the resolver compares
+            # (owner 2026-08-21: one mass one body). None on litho and on
+            # skeleton bands, where the row comparison stands.
+            packing_nad_class=r.nad_class if is_geotechnical else None,
         )
         for r in layer_rows
     ]
