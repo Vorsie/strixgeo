@@ -136,6 +136,21 @@ Before this rule, every same-class tie across a geological boundary read
 "different mass": both sides emitted onlaps, met at a mid-gap vertical seam
 (the owner's "bug with vertical lines", 8 seams on CS1), and the DB body split.
 
+**The fill sweep crosses families** (owner ruling 2026-08-21, option 3 of the
+`gap0_lens_dissolve_choice` page — *"option 3 ofcourse"*): a closed lens
+touching a same-class mass from ANOTHER litho family welds into it, **no tie
+needed** — the one deliberate exception to "ties define it". The litho stage
+closed such a lens with no litho tie (its own family), so the per-family merge
+can never reach it; `crossFamilyWeld.ts` runs the same weld over a whole gap's
+classed faces keyed on the class, pre-splitting shared boundaries the two
+family runs state at different granularities. Geometry never moves — only
+seams dissolve and layer ids combine. The DB half rides the body-recompute
+EVIDENCE: `mergeTouchingBodiesWithGroups` takes `identityKeyOf` (the class
+key) so touching same-class rows state one connectivity fact, and the
+resolver's class filter accepts it. His S10|S6 proof scene: the two SILT-SF
+interbeds on S10 dissolve into S6's spanning SF silt — one region, three
+layer ids, one body after recompute.
+
 **The database half of the fill sweep** (`resolve_litho_instances`): a geotech
 body is one soil AND one packing class. `LayerNode.packing_formation_id` marks
 a band as classed; `packing_nad_class` carries the CLASS the union compares —
