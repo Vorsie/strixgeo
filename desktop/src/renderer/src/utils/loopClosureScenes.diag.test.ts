@@ -789,6 +789,22 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(geotechClassAt(scene, 18, 0.5, -5.5), 'gap 18 sub-TD lost the VD band').toBe('ZAND-8')
   })
 
+  it('S21 · gaps 14-16 · the dense never crosses its correlation upward', () => {
+    // Owner, 2026-08-21 late evening: "the dense sand is spilling over the
+    // correlation to the MD sand ... even below S10 there is VD sand even when
+    // the base is tied to s8 and B2." The deep VD's top tie line is a WALL: a
+    // class may never cross a correlation, so the ground between the shallow
+    // tests' tied bases and that line reads the sand ABOVE the line, and the
+    // VD keeps only its own band window below it.
+    expect(geotechClassAt(scene, 14, 0.5, -5.0), 'VD above its correlation (gap 14)').toBe('ZAND-6')
+    expect(geotechClassAt(scene, 15, 0.5, -4.5), 'VD below S10 above the line (gap 15)').toBe(
+      'ZAND-6',
+    )
+    expect(geotechClassAt(scene, 16, 0.333, -5.0), 'VD above its correlation (gap 16)').toBe(
+      'ZAND-6',
+    )
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
