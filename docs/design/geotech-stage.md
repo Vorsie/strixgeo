@@ -91,7 +91,9 @@ else is plumbing that DRAWS what the kernel decides.
    litho edges.
 2. Group litho units into FAMILIES (`families.ts`); pair each band with the
    unit it subdivides by geometric containment (`bandParents.ts`). A packing
-   tie whose ends sit in different families is DROPPED and counted.
+   tie whose ends sit in different families is KEPT — each end counts at its
+   own in-family contact (the 2026-08-21 tied-contact ruling) — and counted
+   as a statistic only.
 3. Per family, per gap: **LINES → LOOPS → FILL → MERGE** (`constructive/`).
    * **LINES** (`constructs.ts`) — the kernel is asked per band. Ties are
      counted on a band's CONTACTS (a contact is shared, so the clay-top tie
@@ -120,12 +122,27 @@ else is plumbing that DRAWS what the kernel decides.
    ruling); a column carrying no unit of the family is EXCLUDED and the run
    spans it.
 
+**Mass identity is the CLASS, never the formation row** (owner 2026-08-21:
+*"yes one mass one body"*). The subdivide keeps one geotech formation ROW per
+`(nad_class, litho parent, GEOLOGICAL parent)` — deliberate provenance — so the
+same NAD class exists under several row ids wherever a litho unit spans a
+geological boundary. Everything that compares masses therefore translates row →
+class first: the fill takes `packingClassOf` (built by
+`geotechHierarchicalFill/packingClassOf.ts` from the formations' soil + class;
+threaded from the overlay, the voxel build and the fence so render = build =
+one identity), and the gates decode with the same map. A formation with no
+class (a skeleton band) keeps row identity — two unknowns are not known equal.
+Before this rule, every same-class tie across a geological boundary read
+"different mass": both sides emitted onlaps, met at a mid-gap vertical seam
+(the owner's "bug with vertical lines", 8 seams on CS1), and the DB body split.
+
 **The database half of the fill sweep** (`resolve_litho_instances`): a geotech
-body is one soil AND one packing class. `LayerNode.packing_formation_id` carries
-the band's class; where both ends of a tie carry one and they differ, the edge
-does not union — *"same litho and packing"*. A litho layer passes none, so the
-litho model is untouched. Pinned by three unit tests; the DB-level pins live in
-`tests/integration/api/test_geotech_body_mass.py` (run via the wrapper).
+body is one soil AND one packing class. `LayerNode.packing_formation_id` marks
+a band as classed; `packing_nad_class` carries the CLASS the union compares —
+where both ends carry one and they differ, the edge does not union; where
+either is unknown, the row comparison stands. A litho layer passes neither, so
+the litho model is untouched. Pinned by six unit tests; the DB-level pins live
+in `tests/integration/api/test_geotech_body_mass.py` (run via the wrapper).
 
 **Structural invariants**, held by the committed gate
 `geotechHierarchicalCoverage.diag.test.ts` (`HIER_COV=1`, PIP sweep over all
