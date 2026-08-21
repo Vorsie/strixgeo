@@ -63,6 +63,7 @@ import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
 import { CLEAR_THICKER_RATIO } from './geotechHierarchicalFill/constructive/emitKernel'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -71,6 +72,27 @@ const REPO_ROOT = resolve(HERE, '../../../../..')
 const INPUT = process.env.GEOTECH_AXIS_INPUT
   ? resolve(REPO_ROOT, process.env.GEOTECH_AXIS_INPUT)
   : resolve(REPO_ROOT, 'scripts/throwaway_geotech_axis_inputs.json')
+
+// Formation row → canonical class key, lazily from the dump's own nadMeta.
+// The gate must compare masses exactly as the fill does — by CLASS (owner
+// 2026-08-21: one mass one body) — or it audits a law the fill was not given.
+let packingClassCache: Map<string, string> | null = null
+function loadPackingClassOf(): Map<string, string> {
+  if (packingClassCache === null) {
+    const raw = existsSync(INPUT)
+      ? (JSON.parse(readFileSync(INPUT, 'utf8')) as {
+          refinementBundle?: {
+            nadMeta?: Record<string, { nadClass: number | null; soilCode: string | null }>
+          }
+        })
+      : {}
+    packingClassCache = buildPackingClassOf(Object.entries(raw.refinementBundle?.nadMeta ?? {}))
+  }
+  return packingClassCache
+}
+function classKeyOf(formationId: string): string {
+  return loadPackingClassOf().get(formationId) ?? formationId
+}
 const OUT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_210.txt')
 const BASELINE = resolve(HERE, '__fixtures__/geotech_210_conformance_baseline.json')
 
@@ -193,6 +215,7 @@ function auditedPartition(sec: RawSection): {
     geotechColumns,
     geotechEdges: G.edges,
     alongM: L.alongM,
+    packingClassOf: loadPackingClassOf(),
   })
   return {
     columns: geotechColumns,
@@ -483,7 +506,9 @@ function auditSection(sec: RawSection): Violation[] {
           // Distance approximately"), so its own loops must reach ~the middle
           // and demanding the far column would contradict the ruling.
           const fars = farForms.get(`${u.layerId}|${gap}`) ?? []
-          const sameMassFar = fars.every((f) => f === u.formationId)
+          // CLASS identity, not row identity — the duplicate formation rows the
+          // model keeps per geological parent are ONE mass (owner 2026-08-21).
+          const sameMassFar = fars.every((f) => classKeyOf(f) === classKeyOf(u.formationId))
           // THE MIXED PAIR (owner, 2026-08-21): *"the D sand should fill that
           // gap ... which forms a closed loop in that gap that only the D sand
           // kan fill."* One end welds, the other reads a different mass — the
@@ -491,7 +516,8 @@ function auditSection(sec: RawSection): Violation[] {
           // law asks it for no reach of its own, so the binary same/different
           // split this check was written on has no case for it. Existence is
           // still audited by the missing check above.
-          if (!sameMassFar && !fars.every((f) => f !== u.formationId)) continue
+          if (!sameMassFar && !fars.every((f) => classKeyOf(f) !== classKeyOf(u.formationId)))
+            continue
           const wantHigh = gap === ci // band on the LEFT column of the gap reaches right
           // TWO TIED CONTACTS IS A BAND (owner, 2026-08-21): it emits nothing,
           // stays open and SPANS, so its ground is read on the merged surface —
@@ -504,7 +530,9 @@ function auditSection(sec: RawSection): Violation[] {
           // id to reach the far column asks for something the law never says.
           // What must arrive over there is the CLASS.
           const surface = sameMassFar
-            ? regions.filter((r) => r.gapIndex === gap && r.formationId === u.formationId)
+            ? regions.filter(
+                (r) => r.gapIndex === gap && classKeyOf(r.formationId) === classKeyOf(u.formationId),
+              )
             : mine
           let reach = wantHigh ? 0 : 1
           for (const r of surface) {
@@ -561,7 +589,7 @@ function auditSection(sec: RawSection): Violation[] {
           return home.u.baseDepthM - home.u.topDepthM
         }
         const wonCollision = (farForms.get(`${u.layerId}|${gap}`) ?? []).some((f, k) => {
-          if (f === u.formationId) return false
+          if (classKeyOf(f) === classKeyOf(u.formationId)) return false
           const far = (farLayers.get(`${u.layerId}|${gap}`) ?? [])[k]
           if (far === undefined) return false
           return thickness > thicknessOf(far) * CLEAR_THICKER_RATIO
@@ -569,7 +597,9 @@ function auditSection(sec: RawSection): Violation[] {
         const sameMassAcross =
           ties >= 1 &&
           (farForms.get(`${u.layerId}|${gap}`) ?? []).length > 0 &&
-          (farForms.get(`${u.layerId}|${gap}`) ?? []).every((f) => f === u.formationId)
+          (farForms.get(`${u.layerId}|${gap}`) ?? []).every(
+            (f) => classKeyOf(f) === classKeyOf(u.formationId),
+          )
         if (runLeft >= 0 && !sameMassAcross && !wonCollision) {
           const middleX = (G.alongM[runLeft] + G.alongM[runRight]) / 2
           const width = G.alongM[gap + 1] - G.alongM[gap]
