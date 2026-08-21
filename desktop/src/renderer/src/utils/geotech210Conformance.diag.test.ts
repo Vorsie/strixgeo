@@ -26,6 +26,15 @@
  * shrink. Freeze/refresh with GEOTECH_210_FREEZE=1 — only commit a refresh
  * whose numbers you can explain.
  *
+ * Baseline 2026-08-21: CS1 nospan=3, everything else zero. The 3 hang on ONE
+ * unruled question — do "two ties" mean two TIES or two tied CONTACTS? Each of
+ * the three bands carries a fan of two ties on a single contact: this gate
+ * counts ties (reads 2 -> must span), the constructor counts tied contacts
+ * (reads 1 -> pinching onlap). The owner's S12 sentence ("it has a top and
+ * bottom tie to the right though?") reads as contacts, but he has not ruled.
+ * When he does, either the gate re-scopes to contacts or the constructor
+ * changes — both return this to zero. Do not chase these three as defects.
+ *
  * Dormant unless GEOTECH_210=1. Env: GEOTECH_AXIS_INPUT (input override,
  * same as the consistency gate). Report: scripts/throwaway_geotech_210.txt.
  */
@@ -39,6 +48,7 @@ import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
+import { CLEAR_THICKER_RATIO } from './geotechHierarchicalFill/constructive/emitKernel'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
@@ -250,6 +260,8 @@ function auditSection(sec: RawSection): Violation[] {
   // Per (layerId, gap): the formationIds at the ties' far ends — same
   // formationId = same mass (the kernel's one comparison).
   const farForms = new Map<string, string[]>()
+  /** Per (layerId, gap): the far bands' layer ids, parallel to ``farForms``. */
+  const farLayers = new Map<string, string[]>()
   // Per (layerId, gap): the tied LINE as (elev at left column, elev at right column).
   const tieLines = new Map<string, [number, number][]>()
   for (const e of G.edges) {
@@ -323,6 +335,9 @@ function auditSection(sec: RawSection): Violation[] {
           const far = bandsOnContact(farCi, farElev).find((b) => b.above === near.above)
           if (far !== undefined) fars.push(far.u.formationId)
           farForms.set(key, fars)
+          const farIds = farLayers.get(key) ?? []
+          if (far !== undefined) farIds.push(far.u.layerId)
+          farLayers.set(key, farIds)
         }
       }
     }
@@ -436,9 +451,16 @@ function auditSection(sec: RawSection): Violation[] {
           // terminates at the vertical line in the middle ("terminates at 0.5
           // Distance approximately"), so its own loops must reach ~the middle
           // and demanding the far column would contradict the ruling.
-          const sameMassFar = (farForms.get(`${u.layerId}|${gap}`) ?? []).every(
-            (f) => f === u.formationId,
-          )
+          const fars = farForms.get(`${u.layerId}|${gap}`) ?? []
+          const sameMassFar = fars.every((f) => f === u.formationId)
+          // THE MIXED PAIR (owner, 2026-08-21): *"the D sand should fill that
+          // gap ... which forms a closed loop in that gap that only the D sand
+          // kan fill."* One end welds, the other reads a different mass — the
+          // band emits NOTHING, stays open, and the fill hands it the loop. The
+          // law asks it for no reach of its own, so the binary same/different
+          // split this check was written on has no case for it. Existence is
+          // still audited by the missing check above.
+          if (!sameMassFar && !fars.every((f) => f !== u.formationId)) continue
           const wantHigh = gap === ci // band on the LEFT column of the gap reaches right
           const surface = sameMassFar ? mine : (preOf.get(`${u.layerId}|${gap}`) ?? [])
           let reach = wantHigh ? 0 : 1
@@ -485,11 +507,27 @@ function auditSection(sec: RawSection): Violation[] {
         // the law — it and its twin are one mass — so its ground runs the whole
         // way and the termination clause does not apply to it. The clause is
         // about a construct painting over ground ANOTHER mass measured.
+        // A CLEARLY THICKER onlap wins its bidirectional collision and rides its
+        // tie to the far contact (owner, 2026-08-21: *"Start with clearly
+        // thicker wins"*), so the middle is not its limit either. The gate has
+        // to count what the fill counts, or it audits a law the constructor was
+        // never given.
+        const thicknessOf = (layer: string): number => {
+          const home = unitOf.get(layer)
+          if (home === undefined) return 0
+          return home.u.baseDepthM - home.u.topDepthM
+        }
+        const wonCollision = (farForms.get(`${u.layerId}|${gap}`) ?? []).some((f, k) => {
+          if (f === u.formationId) return false
+          const far = (farLayers.get(`${u.layerId}|${gap}`) ?? [])[k]
+          if (far === undefined) return false
+          return thickness > thicknessOf(far) * CLEAR_THICKER_RATIO
+        })
         const sameMassAcross =
           ties >= 1 &&
           (farForms.get(`${u.layerId}|${gap}`) ?? []).length > 0 &&
           (farForms.get(`${u.layerId}|${gap}`) ?? []).every((f) => f === u.formationId)
-        if (runLeft >= 0 && !sameMassAcross) {
+        if (runLeft >= 0 && !sameMassAcross && !wonCollision) {
           const middleX = (G.alongM[runLeft] + G.alongM[runRight]) / 2
           const width = G.alongM[gap + 1] - G.alongM[gap]
           const middle = Math.abs(width) < 1e-9 ? 0.5 : (middleX - G.alongM[gap]) / width
