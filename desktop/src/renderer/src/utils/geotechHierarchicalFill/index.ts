@@ -65,6 +65,17 @@ export interface HierarchicalGeotechFillInput {
   geotechEdges: readonly CorrelationEdge[]
   /** Along-section metres, 1:1 with ``lithoColumns``. */
   alongM: readonly number[]
+  /**
+   * Geotech formation id → canonical packing-class key (``SOIL|CLASS``, see
+   * ``buildPackingClassOf``). The law compares *"litho and packing density"* —
+   * the CLASS — but the model stores one formation ROW per (class, litho
+   * parent, GEOLOGICAL parent), so the same NAD class exists under several row
+   * ids and comparing rows reads two NAD-6 sands as different masses wherever
+   * a geological boundary crosses the gap (owner ruling 2026-08-21: *"one mass
+   * one body"*). A formation absent from the map (a skeleton band with no
+   * class) keeps row identity: two unknowns are not known to be the same.
+   */
+  packingClassOf?: ReadonlyMap<string, string>
 }
 
 /** What the construction had to work around, for the gates and the console. */
@@ -360,7 +371,8 @@ export function computeHierarchicalGeotechFill(
   }
   const massOf = (band: RunBand): Mass => ({
     litho: lithoFormationOfUnit.get(parentOfBand.get(band.layerId) ?? '') ?? '',
-    packing: band.formationId,
+    // The CLASS when known, the row id when not — see ``packingClassOf`` above.
+    packing: input.packingClassOf?.get(band.formationId) ?? band.formationId,
   })
 
   // Every litho unit's own column and elevations — the litho tie's geometry,
