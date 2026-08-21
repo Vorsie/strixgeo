@@ -26,7 +26,17 @@
  * is a FILL construction defect to repair (the substrate face ownership riding the line
  * art), never a reason to restore an eligibility check.
  *
- * ONE IMPLEMENTATION (audit item 4). The corr-0 lens is emitted by the SHARED
+ * SUPERSEDED FOR THE CORR-0 ARM (owner, 2026-08-21 — *"it should be a continuous band starting
+ * from S7 but now it is interrupted at S7A's column by a SF clay render"*). A hugging lens is a
+ * statement about where this unit MEETS the facing test's reading, and below that test's TD
+ * there is no reading to meet. So a corr-0 sub-TD unit now CONTINUES to the facing column at
+ * full thickness (``emitContinuation``, applied inside the shared ``emitCorr0Termination``);
+ * the hugging-lens geometry below survives only as the physical fallback when the rectangle
+ * would be degenerate (a sub-snap-thin unit / a sub-snap-narrow gap). The pass itself is
+ * unchanged — it still owns every unit entirely below the facing TD, still defers nothing to
+ * the sweep, and the F5 corr-1 sub-TD onlap is untouched (an onlap HAS a tie to follow).
+ *
+ * ONE IMPLEMENTATION (audit item 4). The corr-0 termination is emitted by the SHARED
  * ``emitCorr0Termination`` (``emitTerminationSweep.ts``) — the SAME emission authority the
  * ordinary above-TD sweep uses — called in its SUB-TD geometry context (``subTd = true``):
  * the deep-to-deep substrate is the flood the lens holes INTO, so the helper emits ONLY the
