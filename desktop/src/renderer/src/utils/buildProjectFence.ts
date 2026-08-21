@@ -57,6 +57,7 @@ export interface FenceSectionInput {
 export function buildProjectFence(
   sections: readonly FenceSectionInput[],
   frameSections?: readonly FenceSectionInput[],
+  packingClassOf?: ReadonlyMap<string, string>,
 ): FencePanel[] {
   // Pass 1 (shared with ``buildVoxelRequest``): assemble every section +
   // compute the canonical per-test world positions.
@@ -124,6 +125,8 @@ export function buildProjectFence(
           ),
           geotechEdges: input.edges,
           alongM: lithoFrame.orderedColumns.map((c) => c.alongM),
+          // Same class identity as the render — one mass one body (2026-08-21).
+          packingClassOf,
         }).regions
       : computeSectionFillActive(columns, input.edges)
     const fenceRegions: FenceRegion[] = regions.map((r) => ({
