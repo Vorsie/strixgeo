@@ -592,12 +592,21 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
   // exactly that. The pending tie-vs-contact ruling (see the 210 gate header)
   // can also change the SF silt's tie count. it.fails = tripwire: when a ruling
   // makes this pass, revisit and re-arm it as a plain pin.
-  it.fails('S16a · gap 0 · NO COMB — the SF silt fills the cover once the rest is closed', () => {
-    // *"Silt SF fills that whole gap because all the rest is closed"*. S6's big
-    // SILT-13 (11.61 .. 6.05) is the mass this silt cover IS; S10's interbeds
-    // close as lenses at their own levels. The ground between those closed loops
-    // is the SF silt's, not the facing test's thin bands welded across half the
-    // gap — which is the spiked comb he circled.
+  it('S16a · gap 0 · NO COMB — the SF silt fills the cover once the rest is closed', () => {
+    // RULED 2026-08-21, verbatim: *"the SF silt on the right has 2 bands,
+    // definition is band an no lens or onlap is emitted, two ties is two tied
+    // contacts, if you have two ties on the same contact that means a layer
+    // tapers out to a pinch, right up to that contact. 0.5x distance to next
+    // test (so half of the line width it onlaps on)."* — and, walking the same
+    // scene, *"had 2 ties, so it shoudnt emit jack shit, which leaves it open
+    // ... the other silt onlaps and the sf silt fills."*
+    //
+    // S6's big SILT-13 (11.61 .. 6.05) carries a tie on its TOP contact and the
+    // one he drew on its BASE, so it is a BAND: it emits nothing, stays open and
+    // fills this cover. S10's interbeds close as lenses at their own levels, and
+    // the ground between those closed loops is the SF silt's — not the facing
+    // test's thin bands welded across half the gap, which is the spiked comb he
+    // circled (*"Silt SF fills that whole gap because all the rest is closed"*).
     for (const [f, e] of [
       [0.3, 10.2],
       [0.35, 9.0],
@@ -619,18 +628,23 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // another packing type, emit onlap"*: SILT-14 12.22 .. 11.68, one tie on its
     // TOP contact, far end SILT-13 — a different packing, so it onlaps along the
     // line and terminates at about half the gap (2026-08-20 clause).
-    // ...and then his 2026-08-21 ruling on what happens when two onlaps meet on
-    // ONE tie — *"yes, thicker wins"*. This silt is 0.54 m; the SF silt facing it
-    // on the same tie is 5.56 m. So the thin one keeps its own ground at its own
-    // test (that is absolute) and YIELDS the wedge: it closes as a lens and the
-    // SF silt fills the rest, which is the same sentence read from the other end,
-    // *"Silt SF fills that whole gap because all the rest is closed"*.
-    // Under his 2026-08-21 collision ruling the SF silt (5.56 m) is CLEARLY
-    // thicker than this one (0.54 m), so the SF wins the contested window and
-    // this silt does not ride the line — it keeps its own flat window at its own
-    // test, to the middle, and the SF silt has everything beyond.
-    for (const f of [0.02, 0.2, 0.45]) {
-      expect(geotechClassAt(scene, 0, f, 11.8), `(${f},11.8) is not the top silt`).toBe('SILT-14')
+    // The thicker-wins collision does NOT apply here, checked rather than
+    // assumed: it settles two onlaps facing each other on one tie, and after his
+    // 2026-08-21 ruling the SF silt across that tie has TWO tied contacts — a
+    // band, not an onlap — so there is no second onlap to weigh. This silt
+    // onlaps exactly as he said it does.
+    //
+    // SAMPLES RE-DERIVED on the ruled shape: the wedge runs (0,12.22) (0,11.68)
+    // (0.50,11.91) — it rides the tie down and its free base rises to meet that
+    // line at the middle, so a sample at the band's own top level only sits
+    // inside it near its own test. Beyond about a third of the gap the wedge has
+    // closed most of the way and the ground below it is the SF silt's.
+    for (const [f, e] of [
+      [0.02, 11.9],
+      [0.2, 12.0],
+      [0.4, 11.93],
+    ] as const) {
+      expect(geotechClassAt(scene, 0, f, e), `(${f},${e}) is not the top silt`).toBe('SILT-14')
     }
     expect(geotechClassAt(scene, 0, 0.6, 11.8), 'the SF silt did not take the rest').toBe('SILT-13')
   })
