@@ -152,7 +152,7 @@ export function useGeotechPackingCorrelation(
         `packing-connect: linking ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) on geotech model ${modelId}`,
       )
       try {
-        await api.geology.createContactCorrelation(
+        const created = await api.geology.createContactCorrelation(
           projectId,
           modelId,
           layerAId,
@@ -170,7 +170,18 @@ export function useGeotechPackingCorrelation(
         // Bodies changed → the borehole division is now out of date (amber the
         // "Divide boreholes" button until the engineer re-divides).
         markBoreholesStale()
-        toast('success', 'Packing correlation added.')
+        // THE TIE STANDS, BUT SAY WHAT IT CAN DO (owner order 2026-08-21, after
+        // he deleted a silt↔clay packing tie whose ground the fill answered
+        // with an onlap: "next time flag a tie like that when it doesn't
+        // conform to the litho model!"). The plain success toast would claim
+        // the correlation did something the litho frame will never let it do;
+        // the warning names both bands and the tie carries a review badge.
+        if (created?.frame_warning) {
+          log.warn('section', `packing-connect: frame mismatch — ${created.frame_warning}`)
+          toast('warning', created.frame_warning)
+        } else {
+          toast('success', 'Packing correlation added.')
+        }
         log.success(
           'section',
           `packing-connect: edge ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) created on model ${modelId}`,
