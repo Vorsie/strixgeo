@@ -17,6 +17,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { emitContinuation, facingReadsNothing } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { enclosedLensReach, type ReachTie } from './lensReach'
 import { type ColumnGeom, type EnclosedLens, type SectionInput, type UnitGeom } from './sectionGeom'
@@ -145,6 +146,16 @@ function emitOne(
   }
 
   const ov = lookupOverride(section, lens, gapIndex)
+  // A CLOSURE EXISTS TO MEET THE FACING TEST (owner, 2026-08-21 — *"it should be a
+  // continuous band starting from S7 but now it is interrupted at S7A's column by a SF
+  // clay render"*). An enclosed interbed whose facing column read NOTHING at its levels
+  // has no reading to pinch against, so it continues to that column at full thickness —
+  // the SAME law the corr-0 sweep applies (``emitContinuation``). A user-drawn lens is
+  // exempt: explicit nodes are the user's own statement about the shape, never
+  // auto-corrected (the same carve-out the substrate-floor clamp takes below).
+  if (!ov?.freedraw && facingReadsNothing(facing, lens.topElev, lens.baseElev)) {
+    if (emitContinuation(lens, colX, facing.x, labels, nextId, out)) return
+  }
   if (ov?.freedraw) {
     // User-drawn lens: emit the drawn polyline verbatim between the RAW column corners (the
     // substrate-floor clamp is an auto-geometry correction, not applied to explicit user nodes).
