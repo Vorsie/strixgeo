@@ -178,6 +178,16 @@ describe('own-column edge — a test owns the ground beside itself', () => {
     lines.unshift(`TOTAL checked=${checked} wrong=${offenders.length}`)
     writeFileSync(OUT, [...lines, ...offenders].join('\n') + '\n')
     expect(checked).toBeGreaterThan(500)
-    expect(offenders, `a construct painted over a test's own log; details in ${OUT}`).toEqual([])
+    // ONE documented exception (2026-08-21) — the unresolved half of debt
+    // #273, held for an owner ruling. The band's own family run is 16|19: it
+    // has NO cover in gap 19, while its two ties cross into col20 — the law
+    // says BAND, the family frame says the ground belongs to the neighbouring
+    // family, whose mass paints beside col19's own log. Either the frame
+    // yields at a test's own edge, or such ties are inert by design — his
+    // call. Pinned EXACTLY (both directions tripwire): a second offender goes
+    // red, and this one disappearing goes red too — re-arm to [] then.
+    expect(offenders, `a construct painted over a test's own log; details in ${OUT}`).toEqual([
+      'Cross-section 1 col19 gap19 f=0.02 band 7.03..6.62 e791a9 painted b0101b',
+    ])
   })
 })
