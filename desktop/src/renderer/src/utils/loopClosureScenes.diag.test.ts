@@ -738,6 +738,20 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // drops down vs dense fills up), so it is deliberately NOT pinned here.
   })
 
+  it('S18 · gap 5 · remainder ground goes to the OPEN silt, never a closed lens', () => {
+    // Owner, 2026-08-21, on the darker quad right of S12 ("what is this quad
+    // ... the whole interval is SF"): the SF cover below S12's silt base is
+    // remainder ground — S12's big silt there is untied and closes as a lens,
+    // and the level-scoped exclusion let S12's closed SILT-15 INTERBED take
+    // that ground because its extent sat nearest. *"The remainder of each
+    // closed loop goes to the OPEN mass"* is absolute: a closed construct
+    // takes no remainder ground while any open band can answer. The open SF
+    // silt owns it.
+    expect(geotechClassAt(scene, 5, 0.333, 5.94)).toBe('SILT-13')
+    // And the SILT-15 interbed still exists at its OWN level (the lens stands).
+    expect(geotechClassAt(scene, 5, 0.05, 10.06)).toBe('SILT-15')
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
