@@ -886,7 +886,7 @@ export default function SectionsCanvas(): JSX.Element {
         `contact-correlate: linking ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on model ${modelId}`,
       )
       try {
-        await api.geology.createContactCorrelation(
+        const created = await api.geology.createContactCorrelation(
           project.id,
           modelId,
           layerAId,
@@ -895,6 +895,17 @@ export default function SectionsCanvas(): JSX.Element {
           layerASide,
           layerBSide,
         )
+        // THE TIE STANDS, BUT SAY WHAT IT CAN DO (owner order 2026-08-21, after
+        // he deleted a silt↔clay packing tie that rendered as an onlap: "next
+        // time flag a tie like that when it doesn't conform to the litho
+        // model!"). WARNING, not error: the gesture succeeded — the tie states
+        // a surface — but the litho frame will not band the two bands, and
+        // that is invisible until he hunts for it on the canvas. The badge on
+        // the tie carries the same message after the toast fades.
+        if (created?.frame_warning) {
+          log.warn('section', `contact-correlate: frame mismatch — ${created.frame_warning}`)
+          toast('warning', created.frame_warning)
+        }
         await Promise.all([refetchContactEdges(), refetchLithoContacts()])
         markMutated()
         // A tie create/delete moves body geometry — schedule the litho identity
