@@ -931,3 +931,49 @@ band split at the unit's window boundary) → g12. **Scoped to the flag-ON liter
 product path** (`twoSidedTerminationsEnabled`) so the frozen flag-OFF seam-engine
 reference stays pinned by identity at 10 (byte-identical). Flag-ON conformance is now
 a true 0; the overpaint gate is the independent data-loss backstop.
+
+## 12. A closure exists to MEET the facing test (owner ruling 2026-08-21)
+
+**Owner, verbatim,** on S7's thin interbeds drawn as phantom pinches around the
+short S7A: *"it should be a continuous band starting from S7 but now it is
+interrupted at S7A's column by a SF clay render."*
+
+**The law.** A termination — a lens apex, a pinch — is a statement about where a
+unit meets what the FACING test read. Where the facing column has no litho unit at
+any of the unit's own levels (the ground over there is below that column's TD, or
+above the first thing it logged) there is nothing to meet: the unit **continues to
+that column at full thickness** instead of pinching. It closes per the ordinary
+2/1/0 rules in the first gap whose facing column DOES read that ground. This is the
+litho arm's half of the rule the geotech constructive arm already carries
+(`geotechHierarchicalFill/constructive/constructs.ts` → `extendsToFar`); the two
+must read a short log the same way, because the geotech frame can never exceed the
+litho cover.
+
+**Scope.** corr-0 only. A corr-1 onlap HAS a tie to follow — that IS a reading to
+meet — and is untouched (CS1 gap 17's KLEI +5.05..+4.23 still onlaps its bridge tie).
+
+**Implementation.** `partitionFillV2/emitContinuation.ts`:
+`facingReadsNothing(facing, top, base)` (no facing unit overlaps the window) +
+`emitContinuation` (top contact carried across → a CURTAIN on the facing column →
+base contact carried back; with the unit's own column-vertical that is a closed
+rectangle, the `btcurtain` idiom). Wired at the **one** corr-0 emission authority,
+`emitTerminationSweep.emitCorr0Termination`, so the above-TD sweep and the sub-TD
+pass inherit it together, and at the enclosed-lens carrier `emitLenses.emitOne`
+(a freedraw-override lens is exempt — explicit user nodes are never auto-corrected).
+`detourBandContour.collectEnclosedLensDiamonds` mirrors the skip so no onlap flank
+detours around a diamond the emitter no longer draws. Only the CURTAIN carries the
+unit's `LensLabel`: the two carried contacts are shared with the units above and
+below, so naming one of them hands a neighbour's face this unit's litho.
+
+**Consequence for `emitSubTdLenses`.** Below the facing TD there is by definition no
+reading, so the corr-0 sub-TD *hugging lens* is superseded everywhere; its geometry
+survives only as the physical fallback when the rectangle would be sub-snap
+degenerate. The pass's F5 corr-1 sub-TD onlap is unchanged.
+
+**Measured on the live 14-section model** (`lithoLedger.diag`, LITHO_LEDGER=1):
+13 regions removed / 16 added, **every one a named continuation instance**, zero
+unexplained; **13 of 14 sections byte-identical** (only Cross-section 1 moves, gaps
+14/15/17/18/19/20); holes 0→0 and different-soil overlaps 0→0; **total covered area
+unchanged to 0.01 m²** (18844.1 m²) — no new ground is claimed, 119.9 m² changes
+hands. CS1 gates 8/8, the litho-consistency ratchet unmoved, the geotech scene pin
+S23 (the owner's own scene, held RED as `it.fails`) now satisfied end-to-end.
