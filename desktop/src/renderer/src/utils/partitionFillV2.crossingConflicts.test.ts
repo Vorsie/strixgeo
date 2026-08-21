@@ -71,18 +71,11 @@ function coverAt(regions: SectionRegion[], gap: number, f: number, e: number): s
   }
   return null
 }
-/** Does any region in this gap span the full width as a banded quad? */
-function hasSpanningQuad(regions: SectionRegion[], gap: number, fid: string): boolean {
-  return regions.some((r) => {
-    if (r.gapIndex !== gap || r.formationId !== fid || r.kind === 'lens') return false
-    let minF = Infinity
-    let maxF = -Infinity
-    for (const p of r.polygon) {
-      if (p.fraction < minF) minF = p.fraction
-      if (p.fraction > maxF) maxF = p.fraction
-    }
-    return minF < 1e-3 && maxF > 1 - 1e-3
-  })
+/** Every drilled layer id any region in this gap is attributed to. */
+function layersInGap(regions: SectionRegion[], gap: number): string[] {
+  const out: string[] = []
+  for (const r of regions) if (r.gapIndex === gap) out.push(...(r.layerIds ?? []))
+  return out
 }
 
 describe('§8 Q4 — crossing approved ties are a hard conflict (bridges included)', () => {
@@ -131,16 +124,26 @@ describe('§8 Q4 — crossing approved ties are a hard conflict (bridges include
     // Both bridges suspended → a single reported conflict naming the two edges.
     expect(conflicts.length).toBeGreaterThanOrEqual(1)
     expect(conflicts[0].tieIds.length).toBe(2)
-    // No deep-to-deep SAND or CLAY band spans either gap off the suspended bridges
-    // (the sub-shallow-TD deep region falls back to empty / lens, never a banded quad).
-    expect(hasSpanningQuad(regions, 0, SAND)).toBe(false)
-    expect(hasSpanningQuad(regions, 0, CLAY)).toBe(false)
-    expect(hasSpanningQuad(regions, 1, SAND)).toBe(false)
-    expect(hasSpanningQuad(regions, 1, CLAY)).toBe(false)
-    // Specifically: at the deep sub-TD elevation (el -2) below the shallow middle,
-    // neither bridge painted a band across the gap.
-    expect(coverAt(regions, 0, 0.5, -2)).not.toBe(SAND)
-    expect(coverAt(regions, 1, 0.5, -2)).not.toBe(CLAY)
+    // NEITHER SUSPENDED BRIDGE CARRIED A UNIT ACROSS THE SHALLOW MIDDLE. A bridge is the only
+    // thing that can put one column's deep unit into the gap on the FAR side of M, so that —
+    // not "nothing spans a gap" — is what a suspended bridge must be judged on: L's deep SAND
+    // never appears in gap 1, R's deep CLAY never in gap 0.
+    //
+    // Re-anchored 2026-08-21 (owner: *"it should be a continuous band starting from S7 but now
+    // it is interrupted at S7A's column"*). M's log stops at el 7, so it read NOTHING at the
+    // deep elevations, and each deep unit now continues full-width into ITS OWN gap
+    // (``emitContinuation``). "No spanning quad / not SAND at (0.5, -2)" therefore no longer
+    // separates a bridge band from a drilled unit's own lawful continuation — the LAYER does.
+    // Positive control first, so the two negatives below cannot pass vacuously on an
+    // unattributed partition: each deep unit IS attributed in its own gap.
+    expect(layersInGap(regions, 0)).toContain(lSand)
+    expect(layersInGap(regions, 1)).toContain(rClay)
+    expect(layersInGap(regions, 1)).not.toContain(lSand)
+    expect(layersInGap(regions, 0)).not.toContain(rClay)
+    // And the suspension is visible where the bridge lines themselves would have run: at the
+    // deep sub-TD elevation each gap reads only its OWN column's drilled unit.
+    expect(coverAt(regions, 0, 0.5, -2)).toBe(SAND) // L's own sand, continued
+    expect(coverAt(regions, 1, 0.5, -2)).toBe(CLAY) // R's own clay, continued
   })
 
   it('case 2: bridge × adjacent-tie crossing → both suspended, conflict reported', () => {
