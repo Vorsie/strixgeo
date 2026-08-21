@@ -52,7 +52,7 @@ export interface Mass {
 }
 
 /** What the law says to emit for one band in one gap. */
-export type Emit = 'lens' | 'onlap' | 'nothing' | 'vertical'
+export type Emit = 'lens' | 'onlap' | 'nothing'
 
 /** *"same litho and packing density"* — the one comparison the law makes. */
 export function sameMass(a: Mass, b: Mass): boolean {
@@ -78,15 +78,21 @@ export function emitFor(own: Mass, farEnds: readonly Mass[]): Emit {
   // "if a litho has two ties ... if it is different then vertical line in the
   //  middle, else no emit"
   //
-  // THE MIXED PAIR, ruled 2026-08-21 on his gap-0 picture: *"the D sand should
-  // fill that gap, you have the silt top sand bottom correlation above, the sand
-  // top silt bottom correlation below + the onlap tie, which forms a closed loop
-  // in that gap that only the D sand kan fill."* One end reads the same mass and
-  // welds; the other reads a different one. That is not the two-different case
-  // the vertical answers, and it is not a renunciation either: the band emits
-  // NOTHING, stays OPEN, and is the mass the fill hands the loop to.
-  const allDifferent = farEnds.every((far) => !sameMass(own, far))
-  return allDifferent ? 'vertical' : 'nothing'
+  // TWO TIED CONTACTS IS A BAND, ruled 2026-08-21: *"the SF silt on the right
+  // has 2 bands, definition is band an no lens or onlap is emitted, two ties is
+  // two tied contacts"* — and, on the same silt, *"had 2 ties, so it shoudnt
+  // emit jack shit, which leaves it open ... the other silt onlaps and the sf
+  // silt fills."* So a band with two tied contacts emits NOTHING whatever the
+  // far ends read: it stays OPEN and spans.
+  //
+  // His table's *"vertical line in the middle"* is still drawn — but it is the
+  // SEAM WHERE TWO OPEN MASSES MEET, not something one band emits on its own.
+  // Two spanning masses reaching for the same ground share the two tie lines
+  // that bound it, so the nearer test owns each half and the line falls exactly
+  // in the middle (his S12 scene). Where the mass facing an open band has
+  // CLOSED its loop instead, there is nobody to meet and the open mass fills
+  // through — which is the SF silt.
+  return 'nothing'
 }
 
 /**
