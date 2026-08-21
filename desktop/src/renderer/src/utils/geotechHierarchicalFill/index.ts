@@ -40,6 +40,7 @@
 import { resolveBandParents } from './bandParents'
 import { buildLithoFamilies } from './families'
 import { fillFamily } from './constructive/familyFill'
+import { weldAcrossFamilies } from './crossFamilyWeld'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
 import type { Mass } from './constructive/emitKernel'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
@@ -110,6 +111,12 @@ export interface HierarchicalGeotechFillDiagnostics {
   blockedColumns: number
   /** Cover the dominant-mass step classified, in square metres. */
   levelFilledAreaM2: number
+  /**
+   * Same-class masses welded ACROSS litho families (owner 2026-08-21, option
+   * 3: a closed lens touching a same-class mass from another family is one
+   * mass and one body, no tie needed).
+   */
+  crossFamilyWelds: number
   /**
    * Loops whose dominant mass was not unique by overlap and needed the vertical
    * line to decide. His *"(should be the same if all onlaps and lenses are
@@ -465,8 +472,17 @@ export function computeHierarchicalGeotechFill(
     residualAreaM2.outsideBandRange += out.residualAreaM2.outsideBandRange
   }
 
-  return {
+  // THE FILL SWEEP CROSSES FAMILIES (owner ruling 2026-08-21, option 3: one
+  // mass one body, no tie needed) — see ``crossFamilyWeld.ts``.
+  const swept = weldAcrossFamilies(
     regions,
+    (formationId) => input.packingClassOf?.get(formationId) ?? formationId,
+  )
+  const crossFamilyWelds = swept.welds
+  const sweptRegions = swept.regions
+
+  return {
+    regions: sweptRegions,
     preMergeRegions,
     lithoFallback,
     conflicts,
@@ -482,6 +498,7 @@ export function computeHierarchicalGeotechFill(
       oneSidedGaps,
       blockedColumns,
       levelFilledAreaM2,
+      crossFamilyWelds,
       splitRemainders,
       residualAreaM2,
     },
