@@ -77,6 +77,7 @@ function args(over: Partial<UseProjectBodyRecomputeArgs> = {}): UseProjectBodyRe
     geotechModelId: 'G1',
     geotechLayers: GEOTECH_LAYERS,
     geotechLayersLoaded: true,
+    geotechFormations: [],
     bodyRecomputeLithoNonce: 0,
     bodyRecomputeGeotechNonce: 0,
     toast: vi.fn(),
