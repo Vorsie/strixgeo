@@ -650,6 +650,72 @@ describe('the hierarchical geotech fill — densities within lithos', () => {
     expect(oneWeldedMass(out), 'row identity welded without any class knowledge').toBe(false)
   })
 
+  it('H12: a closed lens touching a same-class mass from ANOTHER family welds into it', () => {
+    // Owner ruling 2026-08-21 (option 3 of the gap0_lens_dissolve_choice page,
+    // "option 3 ofcourse"): touching + same class = one mass and one body, no
+    // tie needed — even when the litho stage closed the lens as its own litho
+    // family. Mirror of his S10|S6 scene: column A carries silt interbeds
+    // inside a sand stack, column B one thick silt; only the TOP silts and the
+    // BOTTOM sands are litho-tied, so A's interbed silt is its own family.
+    const litho = {
+      columns: [
+        column('A', 10, [
+          { layerId: 'LA-top-silt', formationId: 'f-silt-a', top: 0, base: 1 },
+          { layerId: 'LA-sand-lens', formationId: 'f-sand-a', top: 1, base: 3 },
+          { layerId: 'LA-silt-lens', formationId: 'f-silt-a2', top: 3, base: 4 },
+          { layerId: 'LA-deep-sand', formationId: 'f-sand-a', top: 4, base: 6 },
+        ]),
+        column('B', 10, [
+          { layerId: 'LB-silt', formationId: 'f-silt-b', top: 0, base: 5 },
+          { layerId: 'LB-sand', formationId: 'f-sand-b', top: 5, base: 6 },
+        ]),
+      ],
+      edges: [tie('LA-top-silt', 'LB-silt'), tie('LA-deep-sand', 'LB-sand')],
+    }
+    const geotech = [
+      column('A', 10, [
+        { layerId: 'GA-top-silt', formationId: 'g-silt-row-a', top: 0, base: 1 },
+        { layerId: 'GA-sand-lens', formationId: 'g-sand-lens-row', top: 1, base: 3 },
+        { layerId: 'GA-silt-lens', formationId: 'g-silt-row-a2', top: 3, base: 4 },
+        { layerId: 'GA-deep-sand', formationId: 'g-sand-row', top: 4, base: 6 },
+      ]),
+      column('B', 10, [
+        { layerId: 'GB-silt', formationId: 'g-silt-row-b', top: 0, base: 5 },
+        { layerId: 'GB-sand', formationId: 'g-sand-row', top: 5, base: 6 },
+      ]),
+    ]
+    const out = computeHierarchicalGeotechFill({
+      lithoColumns: litho.columns,
+      lithoEdges: litho.edges,
+      lithoRegions: computeSectionFillActive(litho.columns, litho.edges, undefined, ALONG),
+      geotechColumns: geotech,
+      geotechEdges: [tie('GA-top-silt', 'GB-silt'), tie('GA-deep-sand', 'GB-sand')],
+      alongM: ALONG,
+      packingClassOf: new Map([
+        ['g-silt-row-a', 'SILT|13'],
+        ['g-silt-row-a2', 'SILT|13'],
+        ['g-silt-row-b', 'SILT|13'],
+        ['g-sand-lens-row', 'ZAND|6'],
+        ['g-sand-row', 'ZAND|8'],
+      ]),
+    })
+    // The interbed lens's layer id and the big silt's layer id ride ONE region:
+    // the lens disappeared into the mass, in the render and in the evidence.
+    const together = out.regions.some((r) => {
+      const ids = r.layerIds ?? []
+      return ids.includes('GA-silt-lens') && ids.includes('GB-silt')
+    })
+    expect(together, 'the same-class lens did not weld into the touching mass').toBe(true)
+    // The different-class sand lens does NOT weld into the deep sand.
+    for (const r of out.regions) {
+      const ids = r.layerIds ?? []
+      expect(
+        ids.includes('GA-sand-lens') && ids.includes('GA-deep-sand'),
+        'a different-class lens welded into a foreign mass',
+      ).toBe(false)
+    }
+  })
+
   it('H11c: two DIFFERENT classes on different rows still meet — the map never over-welds', () => {
     const scene = duplicateRowScene()
     const out = computeHierarchicalGeotechFill({
