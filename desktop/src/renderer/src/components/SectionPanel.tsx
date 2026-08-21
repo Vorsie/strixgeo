@@ -116,6 +116,7 @@ import {
 import GeotechBandEditOverlay from './sections/GeotechBandEditOverlay'
 import GeotechBoreholePreviewGhosts from './sections/GeotechBoreholePreviewGhosts'
 import PartitionFillOverlay, { type GeotechLithoFrame } from './sections/PartitionFillOverlay'
+import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
@@ -935,6 +936,7 @@ export default function SectionPanel({
       lithoFormationColorById: geotechModel.lithoFormationColorById,
       lithoSoilByFormationId: geotechModel.lithoSoilByFormationId,
       geotechSoilByFormationId,
+      packingClassByFormationId: buildPackingClassOf(geotechModel.nadMeta),
     }
   }, [axisMode, geotechModel, fillSelection.showLithoFillInstead, lithoLayers, contactEdges])
   // The lens suggestion compares NAD classes only; flattened here so the overlay's
