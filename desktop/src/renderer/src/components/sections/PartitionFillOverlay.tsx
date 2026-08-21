@@ -186,6 +186,13 @@ export interface GeotechLithoFrame {
   lithoSoilByFormationId: ReadonlyMap<string, string | null>
   /** Geotech formation id → main soil code (what a packing band covers). */
   geotechSoilByFormationId: ReadonlyMap<string, string | null>
+  /**
+   * Geotech formation id → canonical class key (``buildPackingClassOf``). The
+   * fill compares masses by CLASS, so the duplicate formation rows the model
+   * keeps per geological parent read as one mass (owner 2026-08-21: *"one mass
+   * one body"*).
+   */
+  packingClassByFormationId: ReadonlyMap<string, string>
 }
 
 /**
@@ -1384,6 +1391,12 @@ export default function PartitionFillOverlay({
                 geotechColumns: orderedColumns,
                 geotechEdges: edges,
                 alongM,
+                // Mass identity by CLASS: the duplicate formation rows the
+                // model keeps per geological parent are one mass (owner
+                // 2026-08-21). Invalidation rides the topology key — a class
+                // change re-points the layer to another formation row, which
+                // changes the columns.
+                packingClassOf: lithoFrame?.packingClassByFormationId,
               })
               // Live-fill probe (owner ask 2026-08-21): stash the EXACT inputs
               // and outputs of this compute so `__GEOFILL_SAVE()` in DevTools
@@ -1404,6 +1417,8 @@ export default function PartitionFillOverlay({
                     geotechColumns: orderedColumns,
                     geotechEdges: edges,
                     alongM,
+                    // A Map JSON-serialises to {}, so dump it as entries.
+                    packingClassOf: [...(lithoFrame?.packingClassByFormationId ?? [])],
                   },
                   regions: out.regions,
                   diagnostics: out.diagnostics,
