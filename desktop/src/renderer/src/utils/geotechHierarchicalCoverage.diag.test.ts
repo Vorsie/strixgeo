@@ -30,6 +30,7 @@ import { describe, expect, it } from 'vitest'
 
 import { frameAlignedColumns, frameGapRuns, shiftRegionGaps } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -139,6 +140,7 @@ describe('hierarchical fill — structural sweep', () => {
         geotechColumns,
         geotechEdges: G.edges,
         alongM: L.alongM,
+        packingClassOf: buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta)),
       })
       // The path being replaced: whole-section run on the frame axis + the
       // post-hoc clip (nearest-same-soil relabel).
