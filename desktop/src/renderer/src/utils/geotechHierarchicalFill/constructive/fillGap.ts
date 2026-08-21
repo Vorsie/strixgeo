@@ -33,6 +33,7 @@ import {
   type RunTie,
 } from './constructs'
 import { FILL_ORDER, massKey, type Mass } from './emitKernel'
+import { fillGapProbe, type ProbeFace } from './fillGapProbe'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
@@ -441,6 +442,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
   const residual: SectionRegion[] = []
   let remainderAreaM2 = 0
   let splitRemainders = 0
+  const probeFaces: ProbeFace[] = []
   for (const face of faces) {
     const frame = coverAt(framePaint, face.sample.fraction, face.sample.elevation)
     // Outside this family's litho cover, or inside a face another family owns.
@@ -502,6 +504,14 @@ export function fillGap(input: GapFillInput): GapFillResult {
         remainderAreaM2 += areaM2(face.ring, width)
         if (dominant.split) splitRemainders += 1
       }
+    }
+    if (fillGapProbe.enabled) {
+      probeFaces.push({
+        owner: band === null ? null : band.layerId,
+        role: band === null ? 'residual' : answeredByConstruct ? 'construct' : 'fill',
+        sample: [face.sample.fraction, face.sample.elevation],
+        ring: face.ring.map((p) => [p.fraction, p.elevation]),
+      })
     }
     if (band === null) {
       residual.push({
@@ -567,5 +577,22 @@ export function fillGap(input: GapFillInput): GapFillResult {
       layerIds: [...ids].sort(),
     }
   })
+  if (fillGapProbe.enabled) {
+    fillGapProbe.entries.push({
+      gapIndex,
+      coverLayers: cover.flatMap((r) => r.layerIds ?? []),
+      constructs: constructs.map((c) => ({
+        layer: c.band.layerId,
+        ci: c.band.ci,
+        top: c.band.top,
+        base: c.band.base,
+        emit: c.emit,
+        topTied: c.topTied,
+        baseTied: c.baseTied,
+      })),
+      lines: lines.map((line) => line.map((p) => [p.fraction, p.elevation])),
+      faces: probeFaces,
+    })
+  }
   return { covered, residual, remainderAreaM2, splitRemainders, preMerge }
 }
