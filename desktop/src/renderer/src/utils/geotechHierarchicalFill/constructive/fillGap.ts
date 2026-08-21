@@ -64,6 +64,14 @@ export interface GapFillInput {
   stacks: ReadonlyMap<number, readonly RunBand[]>
   /** The mass (litho + packing) of a band. */
   massOf: (band: RunBand) => Mass
+  /**
+   * Where each band's ONLAP closures stand, run-wide (layer id → the middle x
+   * of every gap it onlapped in). An onlap is a closed loop: it pinches in its
+   * own gap and its statement ends there — it never answers remainder ground
+   * on the far side of one of its bars, in ANY gap (owner 2026-08-21 night:
+   * "the dense sand onlaps so the MD should fill").
+   */
+  onlapBars: ReadonlyMap<string, readonly number[]>
 }
 
 /** What one gap produced. */
@@ -172,11 +180,19 @@ function pickDominant(
   y: number,
   massKeyOf: (band: RunBand) => string,
   drawnTies: readonly RunTie[],
+  onlapBars: ReadonlyMap<string, readonly number[]>,
 ): { band: RunBand | null; split: boolean } {
   let best: RunBand | null = null
   let bestScore: [number, number, number, number] | null = null
   let split = false
   for (const band of candidates) {
+    // AN ONLAP'S STATEMENT ENDS AT ITS PINCH, RUN-WIDE. The per-gap middle
+    // rule below only knows the closures THIS gap drew; a band that onlapped
+    // in another gap read as open here and its ground walked past its own
+    // pinch (S8's D answering the sub-TD window two gaps over). The bar list
+    // is absolute: no rung, walls on or off, hands ground across one.
+    const bars = onlapBars.get(band.layerId)
+    if (bars !== undefined && bars.some((barX) => (x - barX) * (band.x - barX) < 0)) continue
     // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
     // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
     // top tie line — over the D|MD correlation, and below S10 whose base is
@@ -269,6 +285,7 @@ function dominantBand(
   y: number,
   massKeyOf: (band: RunBand) => string,
   drawnTies: readonly RunTie[],
+  onlapBars: ReadonlyMap<string, readonly number[]>,
 ): { band: RunBand | null; split: boolean } {
   const open = pickDominant(
     candidates,
@@ -281,9 +298,22 @@ function dominantBand(
     y,
     massKeyOf,
     drawnTies,
+    onlapBars,
   )
   if (open.band !== null) return open
-  return pickDominant(candidates, null, closedAtMiddle, middle, lo, hi, x, y, massKeyOf, drawnTies)
+  return pickDominant(
+    candidates,
+    null,
+    closedAtMiddle,
+    middle,
+    lo,
+    hi,
+    x,
+    y,
+    massKeyOf,
+    drawnTies,
+    onlapBars,
+  )
 }
 
 /**
@@ -293,7 +323,20 @@ function dominantBand(
  * @returns The classed regions, the unclassed cover, and the counters.
  */
 export function fillGap(input: GapFillInput): GapFillResult {
-  const { gapIndex, xa, xb, cover, gapPaint, run, ties, coverTies, columns, stacks, massOf } = input
+  const {
+    gapIndex,
+    xa,
+    xb,
+    cover,
+    gapPaint,
+    run,
+    ties,
+    coverTies,
+    columns,
+    stacks,
+    massOf,
+    onlapBars,
+  } = input
   // ONE mass identity for the whole gap — the emit decisions, the remainder
   // split, the weld and the layer-id attribution all compare THIS, so two
   // formation rows of one class can never disagree about being one mass.
@@ -527,7 +570,19 @@ export function fillGap(input: GapFillInput): GapFillResult {
       const pick = (cands: readonly RunBand[]): { band: RunBand | null; split: boolean } | null =>
         cands.length === 0
           ? null
-          : dominantBand(cands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf, drawnTies)
+          : dominantBand(
+              cands,
+              closedByLens,
+              closedAtMiddle,
+              middleX,
+              lo,
+              hi,
+              x,
+              y,
+              massKeyOf,
+              drawnTies,
+              onlapBars,
+            )
       const openFlank = allBands.filter((b) => !closedAtMiddle.has(b.layerId))
       // THE RUN'S OTHER TESTS ANSWER WHERE THE FLANKS CANNOT (owner
       // 2026-08-21, the S8|S6 deep VD passing under two shallow tests): the
@@ -547,7 +602,19 @@ export function fillGap(input: GapFillInput): GapFillResult {
         dominant =
           familyBands.length === 0
             ? null
-            : dominantBand(familyBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf, [])
+            : dominantBand(
+                familyBands,
+                closedByLens,
+                closedAtMiddle,
+                middleX,
+                lo,
+                hi,
+                x,
+                y,
+                massKeyOf,
+                [],
+                onlapBars,
+              )
       }
       band = dominant?.band ?? null
       if (band !== null) {
