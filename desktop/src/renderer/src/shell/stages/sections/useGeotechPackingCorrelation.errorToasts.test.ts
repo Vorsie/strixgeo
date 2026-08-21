@@ -153,3 +153,53 @@ describe('ET3 — a failed accept is announced', () => {
     expect(message.toLowerCase()).toContain('accept')
   })
 })
+
+describe('ET4 — a tie the litho frame will not band says so instead of "added"', () => {
+  // Owner order 2026-08-21, after he drew two packing ties between a silt and a
+  // clay, saw an onlap where he expected a band, and deleted them himself:
+  // "next time flag a tie like that when it doesn't conform to the litho
+  // model!" The plain success toast claimed the correlation did something the
+  // frame will never let it do.
+  it('toasts the server warning as a WARNING, not a success', async () => {
+    const toast = vi.fn()
+    mockCreateContactCorrelation.mockResolvedValue({
+      edge_id: 'edge-9',
+      was_created: true,
+      frame_warning:
+        'The litho model does not connect the units of GEO-10/170-S11 -6.21..-7.53 and ' +
+        'GEO-23/125-S6 -5.87..-9.96 - the frame will not band them.',
+    })
+
+    const { result } = renderHook(() => useGeotechPackingCorrelation(makeDeps(toast) as never))
+
+    await act(async () => {
+      await result.current.handleCreateGeotechPackingCorrelation('layer-a', 'layer-b', 'top', 'top')
+    })
+
+    expect(toast).toHaveBeenCalledTimes(1)
+    const [severity, message] = toast.mock.calls[0] as [string, string]
+    expect(severity).toBe('warning')
+    expect(message).toContain('will not band them')
+    // The engineer must be able to tell WHICH tie — the message names columns.
+    expect(message).toContain('GEO-10/170-S11')
+  })
+
+  it('still says "added" when the tie conforms', async () => {
+    const toast = vi.fn()
+    mockCreateContactCorrelation.mockResolvedValue({
+      edge_id: 'edge-9',
+      was_created: true,
+      frame_warning: null,
+    })
+
+    const { result } = renderHook(() => useGeotechPackingCorrelation(makeDeps(toast) as never))
+
+    await act(async () => {
+      await result.current.handleCreateGeotechPackingCorrelation('layer-a', 'layer-b', 'top', 'top')
+    })
+
+    const [severity, message] = toast.mock.calls[0] as [string, string]
+    expect(severity).toBe('success')
+    expect(message).toContain('added')
+  })
+})
