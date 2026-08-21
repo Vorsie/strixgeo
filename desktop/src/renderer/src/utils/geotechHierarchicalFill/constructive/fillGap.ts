@@ -160,36 +160,101 @@ function areaM2(ring: readonly { fraction: number; elevation: number }[], width:
  * MIDDLE for, so the loop already lies on one side of it and the test on that
  * side owns it. Counted (``splitRemainders``) so the case stays visible.
  */
-function dominantBand(
+function pickDominant(
   candidates: readonly RunBand[],
-  x: number,
+  closedLevels: ReadonlyMap<string, { lo: number; hi: number }> | null,
+  closedAtMiddle: ReadonlySet<string>,
+  middle: number,
   lo: number,
   hi: number,
+  x: number,
+  y: number,
 ): { band: RunBand | null; split: boolean } {
   let best: RunBand | null = null
-  let bestOverlap = -Infinity
-  let bestDistance = Infinity
+  let bestScore: [number, number, number, number] | null = null
   let split = false
   for (const band of candidates) {
-    const distance = Math.abs(band.x - x)
-    // How much of this loop's own levels the mass occupies. A form no mass
-    // reaches at all (the ground a closed loop encircles above or below every
-    // stack) scores NEGATIVE — the elevation gap to the nearest mass — so the
-    // wall of that form still answers rather than leaving a hole.
-    const overlap = Math.min(band.top, hi) - Math.max(band.base, lo)
-    const better =
-      overlap > bestOverlap + 1e-9 ||
-      (overlap > bestOverlap - 1e-9 && distance < bestDistance)
-    if (best !== null && Math.abs(overlap - bestOverlap) <= 1e-9 && best.formationId !== band.formationId) {
+    // A LENS has said where it ends. Its own loop stands, but the ground BEYOND
+    // it belongs to whatever encloses it, so it is not a candidate at its own
+    // levels (owner: *"top circle should be a lens"*).
+    const closed = closedLevels?.get(band.layerId)
+    if (closed !== undefined && Math.min(closed.hi, hi) - Math.max(closed.lo, lo) > 0) continue
+    // A CLOSED STATEMENT ENDS AT THE MIDDLE. *"if it is different then vertical
+    // line in the middle"* — the line is where the two masses stop, so a band
+    // that drew a lens, an onlap or a vertical may not be handed remainder
+    // ground on the FAR side of it either. Without this the very dense sand's
+    // vertical construct stopped at the middle exactly as the law says, and
+    // then the fill walked it across anyway and painted the facing test's own
+    // half (his S12 scene, ZAND-8 where ZAND-6 stands).
+    if (closedAtMiddle.has(band.layerId) && (x - middle) * (band.x - middle) < 0) continue
+    const covers = Math.min(band.top, hi) - Math.max(band.base, lo)
+    const gapToLevel = covers > 0 ? 0 : Math.max(lo - band.top, band.base - hi)
+    // 1. DOES THIS MASS OWN THIS VERY LEVEL — not merely overlap the loop's
+    //    span. Ranking on the span let a thick neighbour that reaches into the
+    //    loop outrank the band the sample is actually inside, and that painted
+    //    over thin logs at their own test (11 own-column samples on his model).
+    //    The own-column rule is absolute and outranks thickness.
+    // 2. the nearer test, because a test owns the ground beside it;
+    // 3. how big the mass is — *"fill in the rest with the dominant lithology"*,
+    //    which is what tells his 5.6 m SF silt from a 0.5 m interbed on the
+    //    facing test whose own loop has already closed.
+    const ownsLevel = y <= band.top && y >= band.base
+    const score: [number, number, number, number] = [
+      ownsLevel ? 1 : 0,
+      covers > 0 ? 1 : -gapToLevel,
+      -Math.abs(band.x - x),
+      band.top - band.base,
+    ]
+    let better = bestScore === null
+    if (bestScore !== null) {
+      for (let k = 0; k < score.length; k++) {
+        if (score[k] > bestScore[k] + 1e-9) {
+          better = true
+          break
+        }
+        if (score[k] < bestScore[k] - 1e-9) break
+      }
+    }
+    if (
+      best !== null &&
+      bestScore !== null &&
+      score.every((v, k) => Math.abs(v - (bestScore as number[])[k]) <= 1e-9) &&
+      best.formationId !== band.formationId
+    ) {
       split = true
     }
     if (better) {
       best = band
-      bestOverlap = overlap
-      bestDistance = distance
+      bestScore = score
     }
   }
   return { band: best, split }
+}
+
+/**
+ * *"then fill in the rest with the dominant lithology"* — the mass that takes
+ * remainder ground.
+ *
+ * A lens has said where it ends, so it does not reach for ground beyond its own
+ * loop while any other mass can answer for that ground. When NOTHING else can —
+ * every mass at this level closed a loop of its own — the rest is still filled,
+ * because the law fills the rest, and the fill sweep then welds the lens into
+ * the body it is touching when the two are one mass. Leaving it unclassed
+ * instead was a hole of my own making (CF4/CF6).
+ */
+function dominantBand(
+  candidates: readonly RunBand[],
+  closedLevels: ReadonlyMap<string, { lo: number; hi: number }>,
+  closedAtMiddle: ReadonlySet<string>,
+  middle: number,
+  lo: number,
+  hi: number,
+  x: number,
+  y: number,
+): { band: RunBand | null; split: boolean } {
+  const open = pickDominant(candidates, closedLevels, closedAtMiddle, middle, lo, hi, x, y)
+  if (open.band !== null) return open
+  return pickDominant(candidates, null, closedAtMiddle, middle, lo, hi, x, y)
 }
 
 /**
@@ -256,6 +321,24 @@ export function fillGap(input: GapFillInput): GapFillResult {
     if (constructs.some((c) => c.emit === 'vertical' || c.emit === 'onlap')) {
       vertical(toFraction((run.left.x + run.right.x) / 2))
     }
+    // THE ONLAP FLANK — the free contact closing onto its tie at the
+    // termination. Without this line the arrangement has no edge along the
+    // wedge's underside: one face spans the wedge AND the ground beyond it, the
+    // face's own sample lands outside the wedge, and the onlap loses its own
+    // column edge to whatever fills there (his gap-0 MD sand, painted D at
+    // f=0.98 beside its own test). The lens flanks below have always been
+    // inserted for exactly this reason; a pinching onlap needs it just as much.
+    for (const construct of constructs) {
+      if (construct.emit !== 'onlap' || construct.apexX === undefined) continue
+      const free = construct.topTied ? construct.band.base : construct.band.top
+      const apex = construct.topTied
+        ? construct.baseAt(construct.apexX)
+        : construct.topAt(construct.apexX)
+      lines.push([
+        { fraction: toFraction(construct.band.x), elevation: free },
+        { fraction: toFraction(construct.apexX), elevation: apex },
+      ])
+    }
     // The lens flanks.
     for (const construct of constructs) {
       if (construct.emit !== 'lens' || construct.apexX === undefined) continue
@@ -302,17 +385,31 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // band that emits NOTHING owns the ground between the lines it follows.
   const verticals = constructs.filter((c) => c.emit === 'vertical' || c.emit === 'nothing')
   const framePaint = painterOrder(gapPaint)
-  // *"(should be the same if all onlaps and lenses are emitted)"* — the rest of
-  // the ground belongs to the CONTINUOUS mass, so the masses that drew a shape
-  // of their own (a lens, an onlap) are not candidates for it: their shape is
-  // their whole statement, and letting one own the ground past its own loop is
-  // what carried an interbed's level across a gap.
-  const shaped = new Set(
-    constructs.filter((c) => c.emit === 'lens' || c.emit === 'onlap').map((c) => c.band.layerId),
-  )
+  // *"Silt SF fills that whole gap because all the rest is closed"* (owner,
+  // 2026-08-21). The rest of the ground belongs to the mass this cover IS, and a
+  // mass that emitted an onlap is still that mass: its onlap is where it meets
+  // the facing test, not a renunciation of its own ground. Excluding every
+  // shaped band from the remainder was an invention of mine, and it is what
+  // painted the facing test's thin closed interbeds across half his silt cover —
+  // the spiked comb he circled. Only a LENS drops out, and only at the levels it
+  // closed on (see ``dominantBand``).
   const answering = run === null ? columns : [run.left, run.right]
   const allBands = answering.flatMap((c) => c.bands)
-  const continuous = allBands.filter((b) => !shaped.has(b.layerId))
+  // *"the remainder of each closed loop goes to the OPEN mass"* — a band that
+  // emitted a lens or an onlap has CLOSED its loop and takes no remainder
+  // ground (owner, 2026-08-21: *"the MD sand onlaps, that means it is a closed
+  // loop in that gap and cannot fill the gap"*). A band that emitted nothing —
+  // welded, or welded at one end and holding its own level at the other — is
+  // the open mass, and his gap-0 loop is the D sand's for exactly that reason.
+  const closedByLens = new Map<string, { lo: number; hi: number }>()
+  const closedAtMiddle = new Set<string>()
+  for (const construct of constructs) {
+    if (construct.emit === 'nothing') continue
+    closedAtMiddle.add(construct.band.layerId)
+    if (construct.emit === 'vertical') continue
+    closedByLens.set(construct.band.layerId, { lo: construct.band.base, hi: construct.band.top })
+  }
+  const middleX = run === null ? Number.NaN : (run.left.x + run.right.x) / 2
 
   const labelled: LabelledFace<RunBand>[] = []
   const preMerge: (SectionRegion & { role: 'construct' | 'fill' })[] = []
@@ -355,10 +452,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // is thicker over there. Beside its own test, a band's own levels are the
       // ones that count (owner, 2026-08-20 — a test owns the ground beside it).
       const { lo, hi } = ringSpanAt(face.ring, face.sample.fraction)
-      // The continuous masses answer first; only where every mass here drew a
-      // shape of its own does the nearest of THOSE answer, which is better than
-      // a hole in the middle of ground the tests did read.
-      const dominant = dominantBand(continuous.length > 0 ? continuous : allBands, x, lo, hi)
+      const dominant = dominantBand(allBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y)
       band = dominant.band
       if (band !== null) {
         remainderAreaM2 += areaM2(face.ring, width)
