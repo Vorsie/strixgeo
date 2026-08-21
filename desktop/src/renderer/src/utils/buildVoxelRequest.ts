@@ -404,6 +404,10 @@ export function toRegionInputs(engineRegions: readonly SectionRegion[]): RegionI
  *     Every body's stored hand-drawn boundary (the same map the section overlay
  *     renders from). Used to derive the apex/contact overrides so the built model
  *     matches the drawn partition. Omit only when nothing is drawn.
+ * packingClassOf : ReadonlyMap<string, string>, optional
+ *     Geotech formation id → canonical class key (``buildPackingClassOf``), for
+ *     a framed GEOTECH build — the same mass identity the geotech axis renders
+ *     with. Ignored on litho builds.
  *
  * Returns
  * -------
@@ -418,6 +422,7 @@ export function buildVoxelRequest(
   verticalM: number,
   boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>,
   frameSections?: readonly FenceSectionInput[],
+  packingClassOf?: ReadonlyMap<string, string>,
 ): VoxelBuildRequest {
   const out: SectionPartitionInput[] = [];
   // THE LITHO FRAME, for a GEOTECH build (owner ruling 2026-08-18, "densities
@@ -464,6 +469,8 @@ export function buildVoxelRequest(
         ),
         geotechEdges: input.edges,
         alongM: lithoFrame.alongM,
+        // Same class identity as the render — one mass one body (2026-08-21).
+        packingClassOf,
       });
       engineRegions = hierarchical.regions;
       log.info(
