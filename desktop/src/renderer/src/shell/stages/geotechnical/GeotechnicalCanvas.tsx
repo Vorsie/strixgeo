@@ -46,6 +46,7 @@ import {
 } from '../shared/useBody3DViewState'
 import { BodyViewModePills } from '../shared/BodyViewModePills'
 import { makeVoxelRequestBuilder } from '../shared/makeVoxelRequestBuilder'
+import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 
 // ---------------------------------------------------------------------------
 // Module-level refs shared with GeotechnicalToolbar — no bus extension.
@@ -152,6 +153,19 @@ export default function GeotechnicalCanvas(): JSX.Element {
 
   const geotechModelId = activeGeotechModel?.id ?? null
 
+  // Formation row → canonical class key: the fill's mass identity (owner
+  // 2026-08-21, one mass one body). Same map the geotech axis renders with, so
+  // the 3-D build and the fence weld exactly what the 2-D fill welds.
+  const packingClassOf = useMemo(
+    () =>
+      buildPackingClassOf(
+        geotechFormations.map(
+          f => [f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null }] as const,
+        ),
+      ),
+    [geotechFormations],
+  )
+
   // Shared 3D-view plumbing: view mode, wireframe, split state, ground
   // surface, fence-edge fetch + fence memos (audit FE-SHELL-CLIENTS-10).
   // The geotech fence only exists in 3D mode, so the fence gate carries the
@@ -183,6 +197,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     resetSplitViewportRef: resetGeotechSplitViewportCallback,
     voxelRequestRef: geotechVoxelRequestCallback,
     fenceActive: dimension === '3d',
+    packingClassOf,
   })
 
   // -------------------------------------------------------------------------
@@ -203,6 +218,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     // geotech 2-D render (owner ruling 2026-08-18) — one path for both.
     frameModelId: activeLithoModel?.id ?? null,
     frameLayers: lithoLayers,
+    packingClassOf,
   })
 
   // NAD-coloured formations for the 3D viewer (presentation-boundary recolour;
