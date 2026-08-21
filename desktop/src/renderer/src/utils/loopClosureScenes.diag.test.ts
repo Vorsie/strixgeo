@@ -712,10 +712,13 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     )
     expect(dense.length, 'the dense sands did not weld into one mass').toBe(1)
     expect((dense[0].layerIds ?? []).length, 'the weld does not carry both tests').toBe(2)
-    // (b) the dense mass's own CONSTRUCT keeps a flat top at its own 2.27 — it
-    //     does not climb the upper tie line. Audited on the construct surface
-    //     because the fill phase may later hand it neighbouring ground, which is
-    //     a separate question from what the law drew.
+    // (b) the dense mass's own CONSTRUCT rises AT MOST to the upper tie line
+    //     (2.27 at S10 -> 2.87 at S6) and never past it. Re-scoped 2026-08-21
+    //     evening (one contact, one geometry — the S11 MD spill): the silts
+    //     above that contact weld, so the contact IS the line and the dense
+    //     mass fills up TO it on its own half — which is also the answer to
+    //     the remainder-triangle question this pin used to leave open. What
+    //     stays forbidden is CROSSING the line into the MD's window.
     const drawn = scene.preMerge.filter(
       (r) =>
         r.gapIndex === 0 &&
@@ -724,10 +727,13 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     )
     expect(drawn.length, "S10's dense sand drew no construct").toBeGreaterThan(0)
     for (const r of drawn) {
-      expect(
-        Math.max(...r.polygon.map((p) => p.elevation)),
-        'the dense construct climbed the upper tie line',
-      ).toBeLessThan(2.28)
+      for (const p of r.polygon) {
+        const lineAt = 2.27 + p.fraction * (2.87 - 2.27)
+        expect(
+          p.elevation,
+          `the dense construct crossed the upper tie line at f=${p.fraction.toFixed(2)}`,
+        ).toBeLessThan(lineAt + 0.02)
+      }
     }
     // (c) the medium-dense sand's onlap is a CLOSED LOOP on its own side —
     //     *"the MD sand onlaps, that means it is a closed loop in that gap and
@@ -750,6 +756,22 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(geotechClassAt(scene, 5, 0.333, 5.94)).toBe('SILT-13')
     // And the SILT-15 interbed still exists at its OWN level (the lens stands).
     expect(geotechClassAt(scene, 5, 0.05, 10.06)).toBe('SILT-15')
+  })
+
+  it('S19 · gap 7 · the MD never spills below the very dense sand’s correlation', () => {
+    // Owner, 2026-08-21 evening: "there is a MD sand that spills over the
+    // correlation band with the very dense sand below" (right of S11). The
+    // ZAND-8 tops are tied (S11 @-1.08 <-> the far test @-0.78) and the two
+    // ZAND-8s weld, so that contact IS the tie line on BOTH halves: below it
+    // the very dense band is complete, above it the MD. The spill was the MD
+    // holding a flat base at its own log depth and claiming the wedge under
+    // the rising line.
+    expect(geotechClassAt(scene, 7, 0.5, -1.03), 'MD paint inside the VD correlation band').toBe(
+      'ZAND-8',
+    )
+    expect(geotechClassAt(scene, 7, 0.5, -0.95), 'the MD lost its own side of the line').toBe(
+      'ZAND-6',
+    )
   })
 
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
