@@ -805,6 +805,22 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     )
   })
 
+  it('S22 · gap 15 · an onlapping dense takes no remainder; the MD fills below S10 TD', () => {
+    // Owner, 2026-08-21 night: "why is there still a dense sand quad below
+    // S10, the dense sand onlaps so the MD should fill." S8's D (-3.68..-4.45)
+    // has ONE tied contact (a fan at its top, to S9 and to S10's base) — it
+    // onlaps and pinches in its own gap, a closed loop that cannot fill ground
+    // beyond that pinch in ANY gap. The window below S10's TD (-3.24..-4.45 in
+    // S10|B2) is the MD's: B2's own tail band reads MD there, and with no
+    // facing data below S10's TD its statement continues across.
+    expect(geotechClassAt(scene, 15, 0.25, -3.9), 'the D quad below S10 (left half)').toBe('ZAND-6')
+    expect(geotechClassAt(scene, 15, 0.65, -4.25), 'the D under the MD onlap (right half)').toBe(
+      'ZAND-6',
+    )
+    // The D's own honest pinch in its own gap stays.
+    expect(geotechClassAt(scene, 14, 0.1, -4.0), 'the D onlap up to its contact').toBe('ZAND-7')
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
