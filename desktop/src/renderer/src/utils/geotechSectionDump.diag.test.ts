@@ -15,6 +15,7 @@ import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -135,6 +136,7 @@ describe('SECTION dump diag', () => {
       ),
       geotechEdges: geoEdges,
       alongM: L.alongM,
+      packingClassOf: buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta)),
     })
     writeFileSync(
       OUT,
