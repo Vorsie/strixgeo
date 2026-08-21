@@ -69,6 +69,7 @@ import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
 import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { computeSectionFillActive } from './partitionEngineSelect'
@@ -80,6 +81,28 @@ const INPUT = process.env.GEOTECH_AXIS_INPUT
   ? resolve(REPO_ROOT, process.env.GEOTECH_AXIS_INPUT)
   : resolve(REPO_ROOT, 'scripts/throwaway_geotech_axis_inputs.json')
 const OUT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_law.txt')
+
+// Formation row → canonical class key, lazily from the dump's own nadMeta.
+// The oracle compares masses exactly as the fill does — by CLASS (owner
+// 2026-08-21: one mass one body): the duplicate formation rows the model keeps
+// per geological parent are one mass, so a mass key here is the class key.
+let packingClassCache: Map<string, string> | null = null
+function loadPackingClassOf(): Map<string, string> {
+  if (packingClassCache === null) {
+    const raw = existsSync(INPUT)
+      ? (JSON.parse(readFileSync(INPUT, 'utf8')) as {
+          refinementBundle?: {
+            nadMeta?: Record<string, { nadClass: number | null; soilCode: string | null }>
+          }
+        })
+      : {}
+    packingClassCache = buildPackingClassOf(Object.entries(raw.refinementBundle?.nadMeta ?? {}))
+  }
+  return packingClassCache
+}
+function classKeyOf(formationId: string): string {
+  return loadPackingClassOf().get(formationId) ?? formationId
+}
 
 /** Two contacts are the same contact within this many metres. */
 const CONTACT_EPS = 1e-6
@@ -184,6 +207,7 @@ function auditSection(sec: RawSection): string[] {
     geotechColumns,
     geotechEdges: G.edges,
     alongM: L.alongM,
+    packingClassOf: loadPackingClassOf(),
   })
 
   // Every band, by column, in elevation terms.
@@ -273,7 +297,8 @@ function auditSection(sec: RawSection): string[] {
           const contactKey = `${Math.round(nearElev * 1000)}`
           if (!contacts.has(contactKey)) {
             contacts.set(contactKey, {
-              far: partner.band.formationId,
+              // The far MASS is its class, not its formation row.
+              far: classKeyOf(partner.band.formationId),
               spanX: [alongM[near.ci], alongM[far.ci]],
             })
           }
@@ -314,8 +339,8 @@ function auditSection(sec: RawSection): string[] {
         const contacts = [...(contactsOf.get(key)?.values() ?? [])]
         const far = contacts.map((c) => c.far)
         fars.set(key, far)
-        const verdict = verdictOf(band.formationId, far)
-        const sameAllFar = far.length > 0 && far.every((f) => f === band.formationId)
+        const verdict = verdictOf(classKeyOf(band.formationId), far)
+        const sameAllFar = far.length > 0 && far.every((f) => f === classKeyOf(band.formationId))
         const mine = painted.get(key) ?? []
         // The construct loops the law asked this band to draw — EMPTY where its
         // loop welded into a body of the same mass, which is the fill sweep
@@ -344,7 +369,8 @@ function auditSection(sec: RawSection): string[] {
           // reach the far column asks for something the law never says.
           let massReach = 0
           for (const r of out.regions) {
-            if (r.gapIndex !== gap || r.formationId !== band.formationId) continue
+            if (r.gapIndex !== gap || classKeyOf(r.formationId) !== classKeyOf(band.formationId))
+              continue
             for (const p of r.polygon) {
               massReach = Math.max(massReach, ownIsLeft ? p.fraction : 1 - p.fraction)
             }
@@ -393,19 +419,13 @@ describe('the law oracle', () => {
       for (const e of exceptions) lines.push(`    ${e}`)
     }
     writeFileSync(OUT, lines.join('\n'))
-    // THIRTEEN SECTIONS AUDIT AT ZERO, and CS1 has ONE exception left — a
-    // frame-vs-tie conflict, not a decode error: its col19 band 7.03..6.62
-    // carries two tied contacts into gap 19, so the law says BAND, but that
-    // band's litho family has no COVER in gap 19 at all (its run ends at
-    // col19), so there is nowhere for it to paint and the neighbouring family's
-    // mass holds the ground beside its own test. That is the unresolved half of
-    // debt #273 — a tie whose near band's family cannot reach the gap it
-    // crosses — and it needs an owner ruling rather than a code guess. The same
-    // band is the 210 gate's one nospan and the one own-column-edge violation.
-    //
-    // Pinned exactly, not as a ceiling: a new exception fails, and so does
-    // fixing this one (re-freeze deliberately when it is ruled).
-    const KNOWN_FRAME_CONFLICTS = 1
+    // ALL FOURTEEN SECTIONS AUDIT AT ZERO. The one frame-conflict exception
+    // that stood here (#273's far half — the col19 ZAND-5 band 7.03..6.62)
+    // dissolved with the 2026-08-21 ruling *"one mass one body"*: its two ties
+    // land on another ZAND-5 that sat on a DIFFERENT duplicate formation row
+    // (same class, different geological parent), and under class identity the
+    // pair is one mass — it welds, spans, and the oracle's own decode agrees.
+    const KNOWN_FRAME_CONFLICTS = 0
     const total = [...perSection.values()].reduce((sum, n) => sum + n, 0)
     expect(total, lines.join(String.fromCharCode(10))).toBe(KNOWN_FRAME_CONFLICTS)
     for (const [name, count] of perSection) {
