@@ -169,6 +169,7 @@ function pickDominant(
   hi: number,
   x: number,
   y: number,
+  massKeyOf: (band: RunBand) => string,
 ): { band: RunBand | null; split: boolean } {
   let best: RunBand | null = null
   let bestScore: [number, number, number, number] | null = null
@@ -219,7 +220,7 @@ function pickDominant(
       best !== null &&
       bestScore !== null &&
       score.every((v, k) => Math.abs(v - (bestScore as number[])[k]) <= 1e-9) &&
-      best.formationId !== band.formationId
+      massKeyOf(best) !== massKeyOf(band)
     ) {
       split = true
     }
@@ -251,10 +252,11 @@ function dominantBand(
   hi: number,
   x: number,
   y: number,
+  massKeyOf: (band: RunBand) => string,
 ): { band: RunBand | null; split: boolean } {
-  const open = pickDominant(candidates, closedLevels, closedAtMiddle, middle, lo, hi, x, y)
+  const open = pickDominant(candidates, closedLevels, closedAtMiddle, middle, lo, hi, x, y, massKeyOf)
   if (open.band !== null) return open
-  return pickDominant(candidates, null, closedAtMiddle, middle, lo, hi, x, y)
+  return pickDominant(candidates, null, closedAtMiddle, middle, lo, hi, x, y, massKeyOf)
 }
 
 /**
@@ -265,6 +267,10 @@ function dominantBand(
  */
 export function fillGap(input: GapFillInput): GapFillResult {
   const { gapIndex, xa, xb, cover, gapPaint, run, ties, coverTies, columns, stacks, massOf } = input
+  // ONE mass identity for the whole gap — the emit decisions, the remainder
+  // split, the weld and the layer-id attribution all compare THIS, so two
+  // formation rows of one class can never disagree about being one mass.
+  const massKeyOf = (band: RunBand): string => massKey(massOf(band))
   const width = xb - xa
   if (cover.length === 0 || !Number.isFinite(width) || Math.abs(width) < 1e-9) {
     return { covered: [], residual: [...cover], remainderAreaM2: 0, splitRemainders: 0, preMerge: [] }
@@ -480,7 +486,17 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // is thicker over there. Beside its own test, a band's own levels are the
       // ones that count (owner, 2026-08-20 — a test owns the ground beside it).
       const { lo, hi } = ringSpanAt(face.ring, face.sample.fraction)
-      const dominant = dominantBand(allBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y)
+      const dominant = dominantBand(
+        allBands,
+        closedByLens,
+        closedAtMiddle,
+        middleX,
+        lo,
+        hi,
+        x,
+        y,
+        massKeyOf,
+      )
       band = dominant.band
       if (band !== null) {
         remainderAreaM2 += areaM2(face.ring, width)
@@ -500,7 +516,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // THE FILL SWEEP is the merge key: same litho + same packing IS one mass,
     // so a lens touching such a body welds into it and disappears. Within a
     // family the litho is one by construction, so the key is the packing class.
-    labelled.push({ key: massKey(massOf(band)), label: band, ring: face.ring })
+    labelled.push({ key: massKeyOf(band), label: band, ring: face.ring })
     preMerge.push({
       gapIndex,
       formationId: band.formationId,
@@ -535,7 +551,9 @@ export function fillGap(input: GapFillInput): GapFillResult {
       const own = Math.abs(column.x - xa) < Math.abs(column.x - xb) ? f0 : f1
       if (own > 0.02 && own < 0.98) continue
       for (const band of column.bands) {
-        if (band.formationId !== label.formationId) continue
+        // Same MASS, not same row — a region welded across a geological
+        // boundary covers bands of both duplicate formation rows.
+        if (massKeyOf(band) !== massKeyOf(label)) continue
         if (Math.min(band.top, hi) - Math.max(band.base, lo) <= 0) continue
         ids.add(band.layerId)
       }
