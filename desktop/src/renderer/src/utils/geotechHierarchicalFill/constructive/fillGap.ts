@@ -171,11 +171,25 @@ function pickDominant(
   x: number,
   y: number,
   massKeyOf: (band: RunBand) => string,
+  drawnTies: readonly RunTie[],
 ): { band: RunBand | null; split: boolean } {
   let best: RunBand | null = null
   let bestScore: [number, number, number, number] | null = null
   let split = false
   for (const band of candidates) {
+    // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
+    // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
+    // top tie line — over the D|MD correlation, and below S10 whose base is
+    // tied both ways). A candidate separated from this ground by any drawn
+    // correlation line answers nothing here; level lines are not walls (the
+    // sub-TD reach below a band's own untied base stays legal).
+    const bandMid = (band.top + band.base) / 2
+    const separated = drawnTies.some((tie) => {
+      const atSample = y - tieElevAt(tie, x)
+      const atBand = bandMid - tieElevAt(tie, band.x)
+      return atSample !== 0 && atBand !== 0 && atSample > 0 !== atBand > 0
+    })
+    if (separated) continue
     // A LENS has said where it ends. Its own loop stands, but the ground BEYOND
     // it belongs to whatever encloses it, so it is not a candidate at its own
     // levels (owner: *"top circle should be a lens"*).
@@ -254,10 +268,22 @@ function dominantBand(
   x: number,
   y: number,
   massKeyOf: (band: RunBand) => string,
+  drawnTies: readonly RunTie[],
 ): { band: RunBand | null; split: boolean } {
-  const open = pickDominant(candidates, closedLevels, closedAtMiddle, middle, lo, hi, x, y, massKeyOf)
+  const open = pickDominant(
+    candidates,
+    closedLevels,
+    closedAtMiddle,
+    middle,
+    lo,
+    hi,
+    x,
+    y,
+    massKeyOf,
+    drawnTies,
+  )
   if (open.band !== null) return open
-  return pickDominant(candidates, null, closedAtMiddle, middle, lo, hi, x, y, massKeyOf)
+  return pickDominant(candidates, null, closedAtMiddle, middle, lo, hi, x, y, massKeyOf, drawnTies)
 }
 
 /**
@@ -310,12 +336,15 @@ export function fillGap(input: GapFillInput): GapFillResult {
     ])
   }
 
+  /** The correlation lines actually drawn across this gap — the fill's walls. */
+  const drawnTies: RunTie[] = []
   if (run !== null) {
     const lo = Math.min(run.left.ci, run.right.ci)
     const hi = Math.max(run.left.ci, run.right.ci)
     // Every tie line that crosses this ground: the correlations themselves.
     for (const tie of ties) {
       if (Math.min(tie.leftCi, tie.rightCi) > lo || Math.max(tie.leftCi, tie.rightCi) < hi) continue
+      drawnTies.push(tie)
       lines.push([
         { fraction: -EXTEND, elevation: tieElevAt(tie, atFraction(-EXTEND)) },
         { fraction: 1 + EXTEND, elevation: tieElevAt(tie, atFraction(1 + EXTEND)) },
@@ -495,19 +524,35 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // base). While ANY open band can answer, only open bands are asked; a
       // closed construct is consulted solely in the nobody-open-can fallback
       // (the CF4/CF6 all-closed holes).
-      const openBands = allBands.filter((b) => !closedAtMiddle.has(b.layerId))
-      const openOnly =
-        openBands.length === 0
+      const pick = (cands: readonly RunBand[]): { band: RunBand | null; split: boolean } | null =>
+        cands.length === 0
           ? null
-          : dominantBand(openBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf)
-      const dominant =
-        openOnly !== null && openOnly.band !== null
-          ? openOnly
-          : dominantBand(allBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf)
-      band = dominant.band
+          : dominantBand(cands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf, drawnTies)
+      const openFlank = allBands.filter((b) => !closedAtMiddle.has(b.layerId))
+      // THE RUN'S OTHER TESTS ANSWER WHERE THE FLANKS CANNOT (owner
+      // 2026-08-21, the S8|S6 deep VD passing under two shallow tests): the
+      // correlated band's ground runs through gaps whose flanking tests never
+      // reached it, and its owners stand on the run's other columns. Same
+      // wall in every rung: never across a correlation.
+      const familyBands = columns.flatMap((c) => c.bands)
+      const openFamily = familyBands.filter((b) => !closedAtMiddle.has(b.layerId))
+      let dominant = pick(openFlank)
+      if (dominant === null || dominant.band === null) dominant = pick(openFamily)
+      if (dominant === null || dominant.band === null) dominant = pick(allBands)
+      if (dominant === null || dominant.band === null) dominant = pick(familyBands)
+      // A pocket EVERY candidate is walled from (its own cover dipping below
+      // its own base restatement, for one) still belongs to its nearest class
+      // — the wall decides between candidates, it never un-classes ground.
+      if (dominant === null || dominant.band === null) {
+        dominant =
+          familyBands.length === 0
+            ? null
+            : dominantBand(familyBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf, [])
+      }
+      band = dominant?.band ?? null
       if (band !== null) {
         remainderAreaM2 += areaM2(face.ring, width)
-        if (dominant.split) splitRemainders += 1
+        if (dominant?.split === true) splitRemainders += 1
       }
     }
     if (fillGapProbe.enabled) {
