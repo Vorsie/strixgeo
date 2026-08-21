@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest'
 
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -116,7 +117,13 @@ describe('own-column edge — a test owns the ground beside itself', () => {
     return
   }
   it('every banded column reads its own classes at its own edge', () => {
-    const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
+    const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as {
+      sections: RawSection[]
+      refinementBundle: {
+        nadMeta: Record<string, { nadClass: number | null; soilCode: string | null }>
+      }
+    }
+    const packingClassOf = buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta))
     const lines: string[] = []
     const offenders: string[] = []
     let checked = 0
@@ -136,6 +143,7 @@ describe('own-column edge — a test owns the ground beside itself', () => {
         geotechColumns,
         geotechEdges: toEdges(sec.geotech.edges),
         alongM: L.alongM,
+        packingClassOf,
       })
       const paintAt = (gap: number, f: number, e: number): SectionRegion | null => {
         let hit: SectionRegion | null = null
@@ -163,7 +171,12 @@ describe('own-column edge — a test owns the ground beside itself', () => {
             const hit = paintAt(gap, f, mid)
             if (hit === null) continue
             sectionChecked++
-            if (hit.formationId === unit.formationId) continue
+            // CLASS identity, not row identity (owner 2026-08-21: one mass one
+            // body) — a mass welded across a geological boundary carries ONE
+            // of its duplicate formation rows, and beside this test that row
+            // may be the far column's. Same class = the test's own reading.
+            const clsOf = (id: string): string => packingClassOf.get(id) ?? id
+            if (clsOf(hit.formationId) === clsOf(unit.formationId)) continue
             sectionWrong++
             offenders.push(
               `${sec.name} col${ci} gap${gap} f=${f} band ${top.toFixed(2)}..${base.toFixed(2)} ` +
@@ -178,16 +191,11 @@ describe('own-column edge — a test owns the ground beside itself', () => {
     lines.unshift(`TOTAL checked=${checked} wrong=${offenders.length}`)
     writeFileSync(OUT, [...lines, ...offenders].join('\n') + '\n')
     expect(checked).toBeGreaterThan(500)
-    // ONE documented exception (2026-08-21) — the unresolved half of debt
-    // #273, held for an owner ruling. The band's own family run is 16|19: it
-    // has NO cover in gap 19, while its two ties cross into col20 — the law
-    // says BAND, the family frame says the ground belongs to the neighbouring
-    // family, whose mass paints beside col19's own log. Either the frame
-    // yields at a test's own edge, or such ties are inert by design — his
-    // call. Pinned EXACTLY (both directions tripwire): a second offender goes
-    // red, and this one disappearing goes red too — re-arm to [] then.
-    expect(offenders, `a construct painted over a test's own log; details in ${OUT}`).toEqual([
-      'Cross-section 1 col19 gap19 f=0.02 band 7.03..6.62 e791a9 painted b0101b',
-    ])
+    // ZERO offenders. The one documented exception (#273's far half — the
+    // col19 ZAND-5 band whose ties cross to col20) DISSOLVED with the
+    // 2026-08-21 "one mass one body" ruling: its two rows are both ZAND-5, so
+    // under class identity the welded mass painting beside col19 IS the
+    // test's own reading, and the tie is no longer inert.
+    expect(offenders, `a construct painted over a test's own log; details in ${OUT}`).toEqual([])
   })
 })
