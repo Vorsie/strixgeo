@@ -157,9 +157,26 @@ export function resolveRunTies(
     const aBand = bandAt.get(edge.a)
     const bBand = bandAt.get(edge.b)
     if (aBand === undefined || bBand === undefined) continue
-    const aIndex = indexOfColumn.get(aBand.ci)
-    const bIndex = indexOfColumn.get(bBand.ci)
-    if (aIndex === undefined || bIndex === undefined || aIndex === bIndex) continue
+    // ONE END IN THE RUN IS ENOUGH (owner, 2026-08-21: *"two ties is two tied
+    // contacts"*). The line is drawn between two real tests, so it bounds the
+    // contact it lands on here whatever lies at its other end — including a
+    // column this family has no bands on. Demanding both ends inside the run
+    // dropped the tie he drew on the SF silt's base and the band read as a
+    // one-tie onlap instead of the band he ruled it to be. An outside endpoint
+    // is placed by its own position along the section so the line still crosses
+    // the same ground.
+    const inRunA = indexOfColumn.get(aBand.ci)
+    const inRunB = indexOfColumn.get(bBand.ci)
+    if (inRunA === undefined && inRunB === undefined) continue
+    const indexFor = (band: RunBand, exact: number | undefined): number => {
+      if (exact !== undefined) return exact
+      let position = 0
+      while (position < columns.length && columns[position].x < band.x) position += 1
+      return position - 0.5
+    }
+    const aIndex = indexFor(aBand, inRunA)
+    const bIndex = indexFor(bBand, inRunB)
+    if (aIndex === bIndex) continue
     const aY = (edge.aSide ?? 'top') === 'base' ? aBand.base : aBand.top
     const bY = (edge.bSide ?? 'top') === 'base' ? bBand.base : bBand.top
     if (
@@ -356,16 +373,23 @@ export function buildGapConstructs(
       const farEnds: Mass[] = []
       const own = massOf(band)
       let yielded = false
-      // A CONTACT RIDES ITS TIE ONLY WHERE THE TIE SHOWS THE SAME MASS.
-      // *"follow tie"* moves a contact onto its line; it does not hand a band
-      // the ground of a mass that reads DIFFERENT over there. So:
-      //   same far mass       -> ride: the line is a weld line;
-      //   different far mass  -> hold my own level, UNLESS the onlap I emit is
-      //                          the statement about that very line.
-      // Holding is what stops the wedge he circled on gap 0 (*"why does this
-      // dense sand onlap, 1 tie = follow line, same packing = no onlap"*): the
-      // dense sand welds flat through its lower line and stays at its own level
-      // at the contested one, and the FILL then hands it the loop.
+      // WHOSE LINE IS IT? *"follow tie"* moves a contact onto its line — but a
+      // line the mass over there has already spoken for is not this band's to
+      // ride. Three cases, and the third is the owner's vertical:
+      //   same far mass                -> ride: the line is a weld line;
+      //   different, and I am the onlap-> ride: the onlap IS my statement
+      //                                  about that line;
+      //   different, far mass is OPEN  -> ride: *"two ties is two tied
+      //     (two tied contacts of its own)   contacts"* makes it a band too, so
+      //                                  we share the quad between our two
+      //                                  lines and meet at the vertical in the
+      //                                  middle (*"left is MD right is D"*);
+      //   different, far mass CLOSED   -> hold my own level: its lens or onlap
+      //                                  is the statement about that line, and
+      //                                  riding it is the wedge he circled on
+      //                                  gap 0 (*"why does this dense sand
+      //                                  onlap, 1 tie = follow line, same
+      //                                  packing = no onlap"*).
       const contested = { top: false, base: false }
       for (const [side, tie, elevation, above] of [
         ['top', topTie, band.top, false],
@@ -376,7 +400,12 @@ export function buildGapConstructs(
         const farMass = far === null ? { litho: '', packing: '' } : massOf(far)
         farEnds.push(farMass)
         if (far === null || sameMass(own, farMass)) continue
-        contested[side] = true
+        const farTiedContacts =
+          (tieOnContact(gapTies, far.ci, far.top, left, right) === null ? 0 : 1) +
+          (tieOnContact(gapTies, far.ci, far.base, left, right) === null ? 0 : 1)
+        // Open over there (two tied contacts of its own) = we meet in the
+        // middle, so the line is shared and both ride it.
+        contested[side] = farTiedContacts < 2
         // THE BIDIRECTIONAL COLLISION, and only it (owner, 2026-08-21): both
         // bands carry exactly ONE tie, the same tie, both far ends different —
         // two onlaps facing each other on one line. *"Start with clearly thicker
@@ -384,11 +413,11 @@ export function buildGapConstructs(
         // make it option 1."* The loser emits no onlap and closes at its own
         // level; the winner's onlap still pinches at the middle.
         const mineAlone = (topTie === null ? 0 : 1) + (baseTie === null ? 0 : 1) === 1
-        const farAlone =
-          (tieOnContact(gapTies, far.ci, far.top, left, right) === null ? 0 : 1) +
-            (tieOnContact(gapTies, far.ci, far.base, left, right) === null ? 0 : 1) ===
-          1
-        if (mineAlone && farAlone && collision(band.top - band.base, far.top - far.base) === 'yield') {
+        if (
+          mineAlone &&
+          farTiedContacts === 1 &&
+          collision(band.top - band.base, far.top - far.base) === 'yield'
+        ) {
           yielded = true
         }
       }
