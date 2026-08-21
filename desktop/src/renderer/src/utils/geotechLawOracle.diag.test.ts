@@ -433,6 +433,17 @@ function auditSection(sec: RawSection): string[] {
         }
         if (verdict === 'nothing') continue // a band: it spans, no reach is asked
         if (loops.length === 0) continue // welded away by the fill sweep
+        // A CLOSURE EXISTS TO MEET THE FACING READING (owner 2026-08-21 late
+        // night, on S7's interbeds pinching at short S7A: *"it should be a
+        // continuous band starting from S7 but now it is interrupted at S7A's
+        // column"*). Where the facing test read NOTHING at these levels — the
+        // ground over there is below its TD — there is nobody to meet, and the
+        // construct continues to that column instead of terminating. The
+        // termination clause only governs closures that face data.
+        const facingReads = (bands[facing] ?? []).some(
+          (b) => Math.min(b.top, band.top) - Math.max(b.base, band.base) > 0,
+        )
+        if (!facingReads) continue
         // *"0.5x distance to next test (so half of the line width it onlaps
         // on)"* — half of the LINE the construct rides, expressed in this gap's
         // own fractions. A tie that bridges a test this family has no bands on
