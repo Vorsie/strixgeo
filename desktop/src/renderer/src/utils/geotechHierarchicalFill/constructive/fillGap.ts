@@ -586,6 +586,13 @@ export function fillGap(input: GapFillInput): GapFillResult {
     fillGapProbe.entries.push({
       gapIndex,
       coverLayers: cover.flatMap((r) => r.layerIds ?? []),
+      ties: ties.map((t) => ({
+        key: t.key,
+        leftCi: t.leftCi,
+        leftY: t.leftY,
+        rightCi: t.rightCi,
+        rightY: t.rightY,
+      })),
       constructs: constructs.map((c) => ({
         layer: c.band.layerId,
         ci: c.band.ci,
