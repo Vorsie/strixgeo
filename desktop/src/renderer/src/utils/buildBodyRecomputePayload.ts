@@ -32,6 +32,7 @@ import {
   type SectionPartitionInput,
 } from "./buildVoxelRequest";
 import { computeSectionFillActiveWithIdentity } from "./partitionEngineSelect";
+import { mergeTouchingBodiesWithGroups } from "./partitionFillV2/mergeTouchingBodies";
 import { log } from "./log";
 
 /** The full payload POSTed to ``POST .../bodies/recompute``. */
@@ -82,6 +83,7 @@ export function buildBodyRecomputePayload(
   sections: readonly FenceSectionInput[],
   boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse> | undefined,
   logLabel: string,
+  packingClassOf?: ReadonlyMap<string, string>,
 ): RecomputeBodiesRequest | null {
   const outSections: SectionPartitionInput[] = [];
   const sectionIds: string[] = [];
@@ -90,12 +92,29 @@ export function buildBodyRecomputePayload(
 
   for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
     const { input, columns, payloadColumns, alongM, apexOverrides, partitionEngineV2 } = frame;
-    const { regions, groups } = computeSectionFillActiveWithIdentity(
+    const { regions, groups: rowGroups } = computeSectionFillActiveWithIdentity(
       columns,
       input.edges,
       apexOverrides,
       alongM,
     );
+    // GEOTECH: identity is the CLASS, never the formation row (owner
+    // 2026-08-21, "one mass one body" + option 3 — a touching same-class lens
+    // welds without a tie). The identity engine grouped per row; re-derive the
+    // groups with the class key so the evidence states what the ruling states.
+    // The regions posted below stay the identity engine's own — only the
+    // GROUPS change. Litho passes no map and keeps row groups.
+    const groups = packingClassOf
+      ? mergeTouchingBodiesWithGroups(
+          regions,
+          // Only the along positions matter here (the per-gap snap tolerance).
+          alongM.map((x) => ({ x })),
+          {
+            excludeFallback: true,
+            identityKeyOf: (formationId) => packingClassOf.get(formationId) ?? formationId,
+          },
+        ).groups
+      : rowGroups;
     // Fallback-painted regions (substrate / flood label authority) are NOT geometry
     // evidence — the backend must never anchor identity facts on inferred fill.
     const drilled = regions.filter((r) => r.fallback !== true);
