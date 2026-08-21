@@ -29,11 +29,21 @@ export interface ProbeFace {
   ring: [number, number][]
 }
 
+/** One resolved tie of the run, as the constructs see it. */
+export interface ProbeTie {
+  key: string
+  leftCi: number
+  leftY: number
+  rightCi: number
+  rightY: number
+}
+
 /** One (family, gap) run. ``coverLayers`` names the family via its cover. */
 export interface ProbeEntry {
   gapIndex: number
   coverLayers: string[]
   constructs: ProbeConstruct[]
+  ties: ProbeTie[]
   lines: [number, number][][]
   faces: ProbeFace[]
 }
