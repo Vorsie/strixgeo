@@ -34,6 +34,7 @@
  */
 
 import { segIntersect } from './detourEnclosedLens'
+import { facingReadsNothing } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { enclosedLensDiamond } from './emitLenses'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
@@ -215,6 +216,11 @@ export function collectEnclosedLensDiamonds(
     const ov =
       lens.bodyId != null ? section.lensApexOverrides?.get(`${lens.bodyId}@${gapIndex}`) : undefined
     if (ov && (ov.upper?.length || ov.lower?.length)) return
+    // A lens whose facing column read NOTHING at its levels CONTINUES instead of pinching
+    // (owner 2026-08-21, ``emitContinuation``) — ``emitOne`` draws a full-thickness
+    // rectangle, not a diamond. Mirror that skip so no onlap flank detours around a
+    // diamond the emitter did not draw.
+    if (facingReadsNothing(facing, lens.topElev, lens.baseElev)) return
     const { topPt, apex, basePt } = enclosedLensDiamond(
       lens,
       col,
