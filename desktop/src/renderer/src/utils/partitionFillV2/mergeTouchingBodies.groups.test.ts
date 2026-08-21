@@ -80,6 +80,44 @@ describe('mergeTouchingBodiesWithGroups — merge groups carry LAYER ids', () =>
     expect(groups).toEqual([['lyr-A', 'lyr-B']])
   })
 
+  it('(1c) identityKeyOf: same CLASS on different formation rows groups as one mass', () => {
+    // The geotech model keeps one formation ROW per (class, litho parent,
+    // GEOLOGICAL parent), so a mass tied or touching across a geological
+    // boundary carries two row ids. The owner ruled identity is the CLASS
+    // (2026-08-21, "one mass one body" + option 3): with the key both rows
+    // read ZAND|6 and the touching pair states ONE connectivity fact; without
+    // it (the litho default) the rows stay two components — unchanged.
+    const regions: SectionRegion[] = [
+      rect(0, 'row-geo-a', 'body-A', 0.0, 0.5, 4, 8, { layerIds: ['lyr-A'] }),
+      rect(0, 'row-geo-b', 'body-B', 0.5, 1.0, 4, 8, { layerIds: ['lyr-B'] }),
+    ]
+    const classKey = new Map([
+      ['row-geo-a', 'ZAND|6'],
+      ['row-geo-b', 'ZAND|6'],
+    ])
+    const withKey = mergeTouchingBodiesWithGroups(regions, [], {
+      identityKeyOf: (id) => classKey.get(id) ?? id,
+    })
+    expect(withKey.groups).toEqual([['lyr-A', 'lyr-B']])
+    const withoutKey = mergeTouchingBodiesWithGroups(regions, [])
+    expect(withoutKey.groups).toEqual([])
+  })
+
+  it('(1d) identityKeyOf never over-groups: different classes stay apart whatever the rows', () => {
+    const regions: SectionRegion[] = [
+      rect(0, 'row-geo-a', 'body-A', 0.0, 0.5, 4, 8, { layerIds: ['lyr-A'] }),
+      rect(0, 'row-geo-b', 'body-B', 0.5, 1.0, 4, 8, { layerIds: ['lyr-B'] }),
+    ]
+    const classKey = new Map([
+      ['row-geo-a', 'ZAND|6'],
+      ['row-geo-b', 'ZAND|8'],
+    ])
+    const { groups } = mergeTouchingBodiesWithGroups(regions, [], {
+      identityKeyOf: (id) => classKey.get(id) ?? id,
+    })
+    expect(groups).toEqual([])
+  })
+
   it('(1b) layer ids union DEDUPED across members; layerless (v1-shaped) regions group nothing', () => {
     // A band face sliced into two gap regions repeats its producing layers on each
     // slice — the group carries each id once. Two touching regions WITHOUT layerIds
