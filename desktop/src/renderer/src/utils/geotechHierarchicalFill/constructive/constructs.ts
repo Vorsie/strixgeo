@@ -27,7 +27,7 @@
  * @module utils/geotechHierarchicalFill/constructive/constructs
  */
 
-import { emitFor, type Emit, type Mass } from './emitKernel'
+import { collision, emitFor, sameMass, type Emit, type Mass } from './emitKernel'
 import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
 
@@ -86,7 +86,13 @@ export interface BandConstruct {
   baseAt: (x: number) => number
   /** Along-x at which a lens closes. */
   apexX?: number
-  /** Whether each contact is stated by a tie (its line IS that tie). */
+  /**
+   * Whether each contact's line IS its tie — i.e. the construct RIDES it. A
+   * contact that yielded a collision holds the band's own level instead, so it
+   * is a boundary of its own and the fill must draw it: without that line the
+   * face ran on up to the tie the band had just yielded, and the mass climbed
+   * the very wedge the yield exists to prevent.
+   */
   topTied: boolean
   baseTied: boolean
   /** The far column's along-x — a vertical construct owns its own side of it. */
@@ -274,17 +280,15 @@ function tieOnContact(
  * @param above Whether the band lies ABOVE the contact the tie is on.
  * @param stacks EVERY packing band per column — the far band may belong to a
  *   neighbouring family, and its mass still decides.
- * @param massOf The mass of a band.
- * @returns The far mass, or null when nothing lies on that side there.
+ * @returns The far band, or null when nothing lies on that side there.
  */
-function farMassOf(
+function farBandOf(
   tie: RunTie,
   ci: number,
   elevation: number,
   above: boolean,
   stacks: ReadonlyMap<number, readonly RunBand[]>,
-  massOf: (band: RunBand) => Mass,
-): Mass | null {
+): RunBand | null {
   const onLeft = tie.leftCi === ci && Math.abs(tie.leftY - elevation) <= CONTACT_EPS
   const farCi = onLeft ? tie.rightCi : tie.leftCi
   const farY = onLeft ? tie.rightY : tie.leftY
@@ -292,7 +296,7 @@ function farMassOf(
   const far = stack.find((b) =>
     above ? Math.abs(b.base - farY) <= CONTACT_EPS : Math.abs(b.top - farY) <= CONTACT_EPS,
   )
-  return far === undefined ? null : massOf(far)
+  return far ?? null
 }
 
 /**
@@ -351,21 +355,88 @@ export function buildGapConstructs(
       // The band sits BELOW its own top contact and ABOVE its own base contact.
       const farEnds: Mass[] = []
       const own = massOf(band)
-      for (const [tie, elevation, above] of [
-        [topTie, band.top, false],
-        [baseTie, band.base, true],
+      let yielded = false
+      // A CONTACT RIDES ITS TIE ONLY WHERE THE TIE SHOWS THE SAME MASS.
+      // *"follow tie"* moves a contact onto its line; it does not hand a band
+      // the ground of a mass that reads DIFFERENT over there. So:
+      //   same far mass       -> ride: the line is a weld line;
+      //   different far mass  -> hold my own level, UNLESS the onlap I emit is
+      //                          the statement about that very line.
+      // Holding is what stops the wedge he circled on gap 0 (*"why does this
+      // dense sand onlap, 1 tie = follow line, same packing = no onlap"*): the
+      // dense sand welds flat through its lower line and stays at its own level
+      // at the contested one, and the FILL then hands it the loop.
+      const contested = { top: false, base: false }
+      for (const [side, tie, elevation, above] of [
+        ['top', topTie, band.top, false],
+        ['base', baseTie, band.base, true],
       ] as const) {
         if (tie === null) continue
-        farEnds.push(
-          farMassOf(tie, band.ci, elevation, above, stacks, massOf) ?? { litho: '', packing: '' },
-        )
+        const far = farBandOf(tie, band.ci, elevation, above, stacks)
+        const farMass = far === null ? { litho: '', packing: '' } : massOf(far)
+        farEnds.push(farMass)
+        if (far === null || sameMass(own, farMass)) continue
+        contested[side] = true
+        // THE BIDIRECTIONAL COLLISION, and only it (owner, 2026-08-21): both
+        // bands carry exactly ONE tie, the same tie, both far ends different —
+        // two onlaps facing each other on one line. *"Start with clearly thicker
+        // wins, but program it so that you just have to delete the ratio 2 to
+        // make it option 1."* The loser emits no onlap and closes at its own
+        // level; the winner's onlap still pinches at the middle.
+        const mineAlone = (topTie === null ? 0 : 1) + (baseTie === null ? 0 : 1) === 1
+        const farAlone =
+          (tieOnContact(gapTies, far.ci, far.top, left, right) === null ? 0 : 1) +
+            (tieOnContact(gapTies, far.ci, far.base, left, right) === null ? 0 : 1) ===
+          1
+        if (mineAlone && farAlone && collision(band.top - band.base, far.top - far.base) === 'yield') {
+          yielded = true
+        }
       }
-      const emit = emitFor(own, farEnds)
-      // *"follow tie"* — a tied contact IS its tie line; an untied one holds the
-      // band's own level. Nothing else moves a contact.
+      // *"the thinner side emits no onlap there"* — a closed shape at its own
+      // level is what a band with nothing to say draws, so the loser becomes a
+      // lens and, like every lens, never fills remainder ground.
+      const emit = yielded ? 'lens' : emitFor(own, farEnds)
       const flat = (y: number) => () => y
-      const topAt = topTie !== null ? (x: number) => tieElevAt(topTie, x) : flat(band.top)
-      const baseAt = baseTie !== null ? (x: number) => tieElevAt(baseTie, x) : flat(band.base)
+      const ridesTop = topTie !== null && !(contested.top && emit !== 'onlap')
+      const ridesBase = baseTie !== null && !(contested.base && emit !== 'onlap')
+      const topAt = ridesTop ? (x: number) => tieElevAt(topTie as RunTie, x) : flat(band.top)
+      const baseAt = ridesBase ? (x: number) => tieElevAt(baseTie as RunTie, x) : flat(band.base)
+      // AN ONLAP PINCHES ONTO ITS OWN LINE (owner, 2026-08-21, on the picture he
+      // then confirmed — *"Yes that's it, that has always been the rule, you got
+      // it right before on the litho stage"*): it rides its tie and closes on it
+      // at the termination. It never ends in a vertical cut and never takes
+      // remainder ground — *"the MD sand onlaps, that means it is a closed loop
+      // in that gap and cannot fill the gap."*
+      if (emit === 'onlap') {
+        const tie = (topTie ?? baseTie) as RunTie
+        const apexX = (band.x + xFar) / 2
+        const span = apexX - band.x
+        const t = (x: number): number =>
+          Math.min(1, Math.max(0, Math.abs(span) < 1e-9 ? 1 : (x - band.x) / span))
+        out.push({
+          band,
+          emit,
+          apexX,
+          farX: xFar,
+          topTied: topTie !== null,
+          baseTied: baseTie !== null,
+          // The free contact closes ONTO THE LINE ITSELF, not onto the line's
+          // height at the middle: interpolating to a fixed apex let a steeply
+          // dipping tie cross its own wedge and shut the onlap at a fifth of
+          // the gap. Here the two contacts can only meet where t = 1 — the
+          // termination — so the loop always pinches on its tie, and always at
+          // about the middle.
+          topAt:
+            topTie !== null
+              ? (x) => tieElevAt(tie, x)
+              : (x) => band.top + t(x) * (tieElevAt(tie, x) - band.top),
+          baseAt:
+            baseTie !== null
+              ? (x) => tieElevAt(tie, x)
+              : (x) => band.base + t(x) * (tieElevAt(tie, x) - band.base),
+        })
+        continue
+      }
       if (emit === 'lens') {
         const reach = lensReach(band, gapTies, xFar)
         const apexX = band.x + reach * (xFar - band.x)
@@ -389,8 +460,8 @@ export function buildGapConstructs(
         band,
         emit,
         farX: xFar,
-        topTied: topTie !== null,
-        baseTied: baseTie !== null,
+        topTied: ridesTop,
+        baseTied: ridesBase,
         topAt,
         baseAt,
       })
