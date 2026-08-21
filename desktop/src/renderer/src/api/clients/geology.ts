@@ -643,7 +643,10 @@ export const geologyClient = {
     // base-handle gesture (Task 8) passes 'base'/'base'.
     layerASide: 'top' | 'base' = 'top',
     layerBSide: 'top' | 'base' = 'top',
-  ): Promise<{ edge_id: string; was_created: boolean }> =>
+    // ``frame_warning`` is set when a packing tie does not conform to the litho
+    // frame — the tie IS written, but the fill will not band it (owner order
+    // 2026-08-21). Optional so a backend that predates the field still parses.
+  ): Promise<{ edge_id: string; was_created: boolean; frame_warning?: string | null }> =>
     post(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`, {
       layer_a_id: layerAId,
       layer_b_id: layerBId,
