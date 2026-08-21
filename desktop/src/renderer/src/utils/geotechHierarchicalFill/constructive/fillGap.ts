@@ -488,17 +488,22 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // is thicker over there. Beside its own test, a band's own levels are the
       // ones that count (owner, 2026-08-20 — a test owns the ground beside it).
       const { lo, hi } = ringSpanAt(face.ring, face.sample.fraction)
-      const dominant = dominantBand(
-        allBands,
-        closedByLens,
-        closedAtMiddle,
-        middleX,
-        lo,
-        hi,
-        x,
-        y,
-        massKeyOf,
-      )
+      // *"the remainder of each closed loop goes to the OPEN mass"* — and that
+      // is ABSOLUTE (owner 2026-08-21, again on the S12|S7 quad: a lens'
+      // level-scoped exclusion let it take ground OUTSIDE its own levels, and
+      // a closed SILT interbed painted the SF cover below its neighbour's
+      // base). While ANY open band can answer, only open bands are asked; a
+      // closed construct is consulted solely in the nobody-open-can fallback
+      // (the CF4/CF6 all-closed holes).
+      const openBands = allBands.filter((b) => !closedAtMiddle.has(b.layerId))
+      const openOnly =
+        openBands.length === 0
+          ? null
+          : dominantBand(openBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf)
+      const dominant =
+        openOnly !== null && openOnly.band !== null
+          ? openOnly
+          : dominantBand(allBands, closedByLens, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf)
       band = dominant.band
       if (band !== null) {
         remainderAreaM2 += areaM2(face.ring, width)
