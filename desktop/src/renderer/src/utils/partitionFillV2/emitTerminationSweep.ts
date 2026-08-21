@@ -50,6 +50,7 @@
 import { type Corr0Diamond } from './detourBandContour'
 import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
+import { emitContinuation, facingReadsNothing } from './emitContinuation'
 import { isForcedOnlap } from './forceOnlapUnits'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
@@ -467,6 +468,16 @@ export function emitCorr0Termination(
   overrides?: ReadonlyMap<string, LensApexOverride>,
   detourDiamonds?: readonly Corr0Diamond[],
 ): void {
+  // A CLOSURE EXISTS TO MEET THE FACING TEST (owner, 2026-08-21 — *"it should be a
+  // continuous band starting from S7 but now it is interrupted at S7A's column by a SF
+  // clay render"*). Where the facing column read NOTHING at this unit's levels there is
+  // nothing for a lens to meet, so the unit continues to that column at full thickness.
+  // This is the ONE corr-0 emission authority, so the law lands here once and covers the
+  // above-TD sweep and the sub-TD pass alike (``emitContinuation``). It never touches a
+  // corr-1 onlap: an onlap HAS a tie to follow, which is a reading to meet.
+  if (facingReadsNothing(facing, u.topElev, u.baseElev)) {
+    if (emitContinuation(u, colX, facingX, lensLabels, nextId, out)) return
+  }
   if (subTd) {
     // SUB-TD: the deep-to-deep substrate is the flood. Emit ONLY the bare lens closing (no facing
     // flood wedge) at the 8b-capped ``LENS_PINCH_FRACTION`` — byte-identical to the session-13
