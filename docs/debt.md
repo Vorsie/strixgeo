@@ -8523,3 +8523,29 @@ touching the stroke pass.
 
 **When to revisit.** First dogfeed after the hierarchical harvest — if the
 pale lines survive on his screen, this is the next contained renderer fix.
+
+## 275. Codebase-wide simplification / deletion campaign (L)
+
+**What.** Owner directive 2026-08-21, during the constructive-fill round:
+*"you are making a huge mess of the codebase by just adding code on top and
+on top that is unnecessary"* → *"maybe we should run that pass on the whole
+codebase in another session."* A dedicated session that sweeps the WHOLE
+repo (backend Python + desktop TS) for accreted, superseded, and decorated
+code — not a bug hunt, a deletion hunt. Known-suspect areas to seed the
+sweep: leftovers of the geotech patch-layer era (any surviving refinement /
+clip / matrix helpers outside `constructive/`), superseded engines still on
+disk (the watertight loft builder parts), diag suites whose gate was
+retired, one-caller helpers that restate their caller, and the #201
+god-component remainder. Shape: parallel review agents per area
+(reuse / dead-code / altitude), deletion lists verified against the full
+battery (unit + integration via the wrapper + desktop + e2e), one file per
+commit, net-negative lines as the success measure.
+
+**Why deferred.** The constructive-fill round is mid-flight and already
+carries its own scoped deletion mandate for `geotechHierarchicalFill/`;
+overlapping a repo-wide sweep with an active build round would churn the
+same files twice.
+
+**When to revisit.** A fresh session after the constructive-fill round is
+harvested and dogfed green — the owner fires it explicitly ("run the
+simplification campaign").
