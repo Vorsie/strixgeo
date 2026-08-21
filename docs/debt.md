@@ -8486,25 +8486,30 @@ geotech derivation: re-freeze the baseline first (or key the baseline on the
 section NAMES instead of model ids so a model wipe cannot orphan it), and only
 then trust the gate again.
 
-## 273. Cross-family packing ties are dropped silently by the hierarchical fill (M)
+## 273. Cross-family packing ties — the far half: a family with no cover in the crossed gap (M)
 
-**What.** The hierarchical fill (2026-08-19) runs the engine per litho
-family and drops any packing tie whose two bands belong to units that are
-not litho-correlated (`tiesCrossingFamilies` diagnostic — 25 on CS1 at
-harvest; column 15's ZAND-8 loses all four of its ties and can no longer
-span, the gate's +2 nospan). The drop is the draw-time cross-litho-body
-guard's own rule applied at render time, so it is CORRECT — but it is
-invisible: the tie still renders as a line while contributing nothing, which
-reads as "my tie does nothing" (the exact complaint class of 2026-08-18).
+**What.** HALF RESOLVED 2026-08-21 by the owner's tied-contact ruling
+("two ties is two tied contacts"): a tie now counts at its in-family
+contact whatever family the far end belongs to (`boundingEdges` +
+`resolveRunTies` accept one in-run endpoint), so the old "25 inert ties"
+class largely dissolved — CS1 alone moved 11.6 % of samples, every change
+class-within-soil, litho arm byte-identical. What REMAINS is the far half:
+a tie whose near band's own family has NO cover in the gap the tie
+crosses. One live case, pinned identically in three gates (210 nospan=1,
+law-oracle CS1=1, own-edge exception list): `Cross-section 1 col19 gap19
+band 7.03..6.62` — its family run is 16|19 and stops at col19, its two
+ties cross into col20; the law says BAND, the family frame says the ground
+belongs to the neighbouring family, whose mass paints beside col19's own
+log. Four fix attempts were measured and reverted (band adoption by cover
+window / by edge point / when buried; refusing to fill over another
+family's log cost 3.6 pp CS1 coverage).
 
-**Why deferred.** The fix is part UI (badge/tooltip/toast naming the two
-uncorrelated litho units, or a distinct render style for inert ties) and
-part model-side (the owner correlating those litho units); both need the
-owner's eyes on the real 25 first.
+**Why deferred.** Needs an owner ruling, not code: either the family frame
+yields at a test's own edge, or such ties are inert by design. Question
+put to him 2026-08-21.
 
-**When to revisit.** The owner's next CS1 dogfeed after the hierarchical
-harvest — walk the 25 with him; if most resolve by litho correlation, a
-badge may be all the UI needs.
+**When to revisit.** His answer — then the three pinned exceptions re-arm
+to zero in the same round.
 
 ## 274. Seam strokes double on same-class edges — the pale helper lines (S)
 
