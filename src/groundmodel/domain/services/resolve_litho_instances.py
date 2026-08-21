@@ -81,6 +81,14 @@ class LayerNode:
         body, in the renderer and in the database"* — a geotech body is one soil
         AND one packing density, so two sand bands of different densities are
         two bodies however they are tied.
+    packing_nad_class : int | None
+        The band's NAD packing class (1–31), or ``None`` for a litho layer or a
+        skeleton band that carries none. The model stores one packing formation
+        ROW per (class, litho parent, GEOLOGICAL parent), so the same class
+        exists under several row ids — and the mass comparison the owner ruled
+        (2026-08-21: *"yes one mass one body"*) is the CLASS, not the row.
+        Where both ends carry a class, the class decides; where either does
+        not, the row comparison stands (two unknowns are not known equal).
     """
 
     layer_id: UUID
@@ -90,6 +98,7 @@ class LayerNode:
     depth_top_m: float
     source_investigation_id: UUID
     packing_formation_id: UUID | None = None
+    packing_nad_class: int | None = None
 
 
 @dataclass(frozen=True)
@@ -261,12 +270,21 @@ def resolve_litho_instances(
         # there. Where both ends carry one and they differ, the tie states a
         # CONTACT between two masses, not one mass — the same reading the fill
         # uses when it emits an onlap instead of nothing.
-        if (
-            a.packing_formation_id is not None
-            and b.packing_formation_id is not None
-            and a.packing_formation_id != b.packing_formation_id
-        ):
-            continue
+        #
+        # "Packing" is the CLASS, never the formation ROW (owner 2026-08-21:
+        # *"yes one mass one body"*): the model keeps one packing formation row
+        # per (class, litho parent, GEOLOGICAL parent), so the same NAD class
+        # exists under several row ids and comparing rows silently split every
+        # body tied across a geological boundary — the exact case the A2 note
+        # below says MUST stay one body. Where either end's class is unknown
+        # (a skeleton band), the row comparison stands: two unknowns are not
+        # known to be the same density.
+        if a.packing_formation_id is not None and b.packing_formation_id is not None:
+            if a.packing_nad_class is not None and b.packing_nad_class is not None:
+                if a.packing_nad_class != b.packing_nad_class:
+                    continue
+            elif a.packing_formation_id != b.packing_formation_id:
+                continue
         # A2 (owner directive 2026-06-04): the one-geological-formation invariant
         # is REVERSED. A same-lithology body MAY span a geological boundary — a
         # continuous sand correlated across the Holocene/Pleistocene line is ONE
