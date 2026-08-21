@@ -3,14 +3,23 @@
  * (owner ruling 2026-07-16 night: "0 correlations, left or right = lens to the same side,
  * INCLUDING sub-TD"; design partition-engine-v2.md §8 ruling 8h phases 1-2 below the facing TD).
  *
+ * SUPERSEDED IN PART — owner, 2026-08-21: *"it should be a continuous band starting from S7
+ * but now it is interrupted at S7A's column by a SF clay render."* A closure exists to MEET
+ * the facing test's reading; below the facing TD there is no reading, so the unit CONTINUES to
+ * that column at full thickness (``partitionFillV2/emitContinuation.ts``). Cases (a) and (b)
+ * below therefore now pin the CONTINUATION where they used to pin the hugging lens — the same
+ * scenes, the later rule. What survives unchanged is the invariant the gates were really
+ * built on and (c) still states alone: the sub-TD gap stays hole-free and
+ * different-litho-overlap-free however the 0-corr unit terminates.
+ *
  * The gates encode the owner's acceptance in the RULE's vocabulary (NOT impl-shaped):
  *
  *   (a) MIXED MINORITY RUN — a run of 0-corr minorities where one member's formation IS the
- *       flooding substrate and the others differ: the differing members each get their OWN
- *       hugging lens (the DIFFERENT-litho invariant is what the gate checks).
- *   (b) SUB-FACING-TD UNIT — a 0-corr unit entirely below the FACING column's TD gets a
- *       per-side hugging lens carved into the deep-to-deep substrate; the partition stays
- *       hole-free and different-litho-overlap-free.
+ *       flooding substrate and the others differ: each differing member carries across to the
+ *       short column (the DIFFERENT-litho invariant is what the gate checks).
+ *   (b) SUB-FACING-TD UNIT — a 0-corr unit entirely below the FACING column's TD continues to
+ *       that column through the deep-to-deep substrate; the partition stays hole-free and
+ *       different-litho-overlap-free.
  *   (c) SAME-FORMATION SUB-TD UNIT — a sub-facing-TD ZAND minority in a ZAND substrate reads
  *       LITERAL corr 0 too, so under ruling 8i(e) (S35, audit item 4 — the M-in-M eligibility
  *       is deleted) it ALSO emits a lens closing; but the closing is SAME-formation as the
@@ -84,19 +93,22 @@ function assertNoDiffOverlap(regions: SectionRegion[], gap: number, elLo: number
   }
 }
 
-/** Whether a formation renders as a HUGGING lens on ``side`` (a region not reaching the far edge). */
-function hugsSide(regions: SectionRegion[], gap: number, fid: string, side: 'left' | 'right', elLo: number, elHi: number): boolean {
+/**
+ * Whether a formation CONTINUES across the gap at full thickness over [elLo..elHi] — one
+ * region touching both column edges and still its own height at the far one (owner
+ * 2026-08-21: where the facing test read nothing, the unit continues to that column
+ * instead of pinching).
+ */
+function continuesAcross(regions: SectionRegion[], gap: number, fid: string, elLo: number, elHi: number): boolean {
   for (const r of inGap(regions, gap)) {
     if (r.formationId !== fid) continue
     const lo = Math.min(...r.polygon.map((p) => p.fraction))
     const hi = Math.max(...r.polygon.map((p) => p.fraction))
-    const eLo = Math.min(...r.polygon.map((p) => p.elevation))
-    const eHi = Math.max(...r.polygon.map((p) => p.elevation))
-    if (eHi <= elLo + 0.05 || eLo >= elHi - 0.05) continue
-    const hugsLeft = lo <= 0.02 && hi < 0.98
-    const hugsRight = hi >= 0.98 && lo > 0.02
-    if (side === 'left' && hugsLeft) return true
-    if (side === 'right' && hugsRight) return true
+    if (lo > 0.02 || hi < 0.98) continue
+    // Full thickness at the far column, not a taper: the region must cover the whole
+    // window a hair short of fraction 1.
+    const mid = (elLo + elHi) / 2
+    if (coverAt(regions, gap, 0.97, mid).includes(fid)) return true
   }
   return false
 }
@@ -155,22 +167,26 @@ function fixture(mid: (U & { edgeToP?: boolean })[]): { cols: PartitionColumn[];
 describe('sub-TD per-side lens (owner ruling: 0-corr = lens same side, incl. sub-TD)', () => {
   // (a) A MIXED sub-TD minority run [SILT, VEEN] enclosed by ZAND/ZAND on L, below M's TD (gap
   //     1, L is the left column). The SILT is EDGED to P (banded left, not extracted). BOTH
-  //     members differ from the flooding ZAND substrate → BOTH hug L's edge on the L-M gap.
-  it('(a) a mixed sub-TD minority run — each differing member lenses per unit', () => {
+  //     members differ from the flooding ZAND substrate, and M read NOTHING at their levels —
+  //     so under the 2026-08-21 continuation law BOTH carry across to M's column at full
+  //     thickness instead of hugging L. (Superseded assertion: ``hugsSide(…, 'left', …)``.)
+  it('(a) a mixed sub-TD minority run — each member continues to the short column', () => {
     const { cols, edges } = fixture([
       { top: 6, base: 8, f: SILT, layerId: '', edgeToP: true }, // el -8..-6 (edged left)
       { top: 8, base: 10, f: VEEN, layerId: '', edgeToP: true }, // el -10..-8 (edged left)
       { top: 10, base: 12, f: ZAND, layerId: '' }, // el -12..-10 (matrix continues)
     ])
     const regions = computeSectionFillV2(cols, edges, undefined, [0, 40, 80])
-    expect(hugsSide(regions, 1, SILT, 'left', -8, -6)).toBe(true)
-    expect(hugsSide(regions, 1, VEEN, 'left', -10, -8)).toBe(true)
+    expect(continuesAcross(regions, 1, SILT, -8, -6)).toBe(true)
+    expect(continuesAcross(regions, 1, VEEN, -10, -8)).toBe(true)
     assertNoDiffOverlap(regions, 1, -12, -6)
   })
 
-  // (b) A single 0-corr SILT interbed below M's TD, EDGED to P (banded left), hugs L's edge on
-  //     the L-M gap (lens right), carved into the ZAND substrate; no different-litho overlap.
-  it('(b) a sub-facing-TD 0-corr SILT bands left, hugs its column right (carved into ZAND)', () => {
+  // (b) A single 0-corr SILT interbed below M's TD, EDGED to P (banded left). M read nothing at
+  //     its levels, so on the L-M gap it CONTINUES to M's column at full thickness (2026-08-21
+  //     law) instead of hugging L; still carved into the ZAND substrate, no different-litho
+  //     overlap. (Superseded assertion: ``hugsSide(regions, 1, SILT, 'left', -8, -6)``.)
+  it('(b) a sub-facing-TD 0-corr SILT bands left, continues to the short column right', () => {
     const { cols, edges } = fixture([
       { top: 6, base: 8, f: SILT, layerId: '', edgeToP: true }, // el -8..-6, enclosed by ZAND/ZAND
       { top: 8, base: 12, f: ZAND, layerId: '' }, // el -12..-8
@@ -179,8 +195,8 @@ describe('sub-TD per-side lens (owner ruling: 0-corr = lens same side, incl. sub
     // Band LEFT (gap 0, P-L): the edged SILT spans full-width via its tie.
     const g0silt = inGap(regions, 0).filter((r) => r.formationId === SILT && r.polygon.some((p) => p.elevation < -5 && p.elevation > -9))
     expect(g0silt.length, 'SILT present on the P-L (left) gap').toBeGreaterThan(0)
-    // Lens RIGHT (gap 1, L-M): the SILT hugs L's edge, not full-width.
-    expect(hugsSide(regions, 1, SILT, 'left', -8, -6)).toBe(true)
+    // RIGHT (gap 1, L-M): M read nothing at these levels, so the SILT continues to its column.
+    expect(continuesAcross(regions, 1, SILT, -8, -6)).toBe(true)
     assertNoDiffOverlap(regions, 1, -12, -6)
   })
 
