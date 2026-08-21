@@ -24,6 +24,24 @@
  * emit. Everything around it — intersecting lines, tracing loops, clipping to
  * the litho cover, welding faces — is plumbing that DRAWS what this decides.
  *
+ * ...and the BIDIRECTIONAL COLLISION, ruled 2026-08-21. Two onlaps facing each
+ * other on ONE tie, both reading a different mass at the far end:
+ *
+ *   *"Start with clearly thicker wins, but program it so that you just have to
+ *    delete the ratio 2 to make it option 1."*
+ *
+ * SCOPE, narrowed 2026-08-21: this decides ONLY the true bidirectional case —
+ * both bands carry exactly ONE tie, the SAME tie, and each reads a different
+ * mass at the other end. CLEARLY thicker (at least {@link CLEAR_THICKER_RATIO}
+ * times) is the one whose onlap exists; the thinner side emits none and closes
+ * at its own level. It does NOT extend the winner's reach: *"the MD sand
+ * onlaps, that means it is a closed loop in that gap and cannot fill the gap."*
+ * Below the ratio neither is clearly thicker, so both onlap and pinch at the
+ * middle — the 2026-08-20
+ * termination clause standing as the tie-break. Deleting the ratio (or setting
+ * it to 1) degenerates the whole rule to plain thicker-wins, which is his
+ * option 1, and that constant is the ONLY thing to touch.
+ *
  * @module utils/geotechHierarchicalFill/constructive/emitKernel
  */
 
@@ -59,7 +77,16 @@ export function emitFor(own: Mass, farEnds: readonly Mass[]): Emit {
   if (farEnds.length === 1) return same ? 'nothing' : 'onlap'
   // "if a litho has two ties ... if it is different then vertical line in the
   //  middle, else no emit"
-  return same ? 'nothing' : 'vertical'
+  //
+  // THE MIXED PAIR, ruled 2026-08-21 on his gap-0 picture: *"the D sand should
+  // fill that gap, you have the silt top sand bottom correlation above, the sand
+  // top silt bottom correlation below + the onlap tie, which forms a closed loop
+  // in that gap that only the D sand kan fill."* One end reads the same mass and
+  // welds; the other reads a different one. That is not the two-different case
+  // the vertical answers, and it is not a renunciation either: the band emits
+  // NOTHING, stays OPEN, and is the mass the fill hands the loop to.
+  const allDifferent = farEnds.every((far) => !sameMass(own, far))
+  return allDifferent ? 'vertical' : 'nothing'
 }
 
 /**
@@ -76,4 +103,28 @@ export const FILL_ORDER = ['lens', 'onlap', 'remainder'] as const
  */
 export function massKey(mass: Mass): string {
   return `${mass.litho}|${mass.packing}`
+}
+
+/**
+ * *"Start with clearly thicker wins, but program it so that you just have to
+ * delete the ratio 2 to make it option 1."*
+ *
+ * THE ONE DELETION POINT. Set this to 1 (or drop the multiplier from
+ * {@link collision}) and every collision resolves by thickness alone.
+ */
+export const CLEAR_THICKER_RATIO = 2
+
+/**
+ * Which side of a bidirectional onlap collision yields.
+ *
+ * @param mine The band's own thickness at its own test.
+ * @param theirs The opposing band's thickness at its own test.
+ * @returns ``'win'`` (take the contested window, ride the tie to the far
+ *   contact), ``'yield'`` (no onlap here — close at your own column), or
+ *   ``'meet'`` (neither is CLEARLY thicker: both onlap to the middle).
+ */
+export function collision(mine: number, theirs: number): 'win' | 'yield' | 'meet' {
+  if (mine > theirs * CLEAR_THICKER_RATIO) return 'win'
+  if (theirs > mine * CLEAR_THICKER_RATIO) return 'yield'
+  return 'meet'
 }
