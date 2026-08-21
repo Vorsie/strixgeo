@@ -20,6 +20,19 @@
  * un-divided test shows empty ground by ruling (2026-08-15), so nothing being
  * emitted there is the law working. Everything else is audited.
  *
+ * COUNTING, ruled 2026-08-21 (verbatim): *"two ties is two tied contacts, if
+ * you have two ties on the same contact that means a layer tapers out to a
+ * pinch, right up to that contact. 0.5x distance to next test (so half of the
+ * line width it onlaps on)."* A fan on one contact is ONE tie here, and a band
+ * with two tied contacts is a BAND — it emits nothing, spans, and is audited on
+ * the merged mass rather than on construct loops it no longer draws.
+ *
+ * A tie is counted on the contact it lands on whatever family the band at its
+ * far end belongs to (the same ruling). That is the half of debt #273's
+ * silently-dropped ties whose near end is in-family; the other half — a tie
+ * whose near band's family has no COVER in the gap it crosses — is what the one
+ * surviving CS1 nospan is, and it needs an owner ruling, not a code guess.
+ *
  * RATCHET, not absolute truth: the oracle is deliberately coarse (a dipping
  * one-tie onlap can legitimately exceed the height cap by its tie's dip), so
  * violations are COUNTED per section against a frozen baseline and may only
@@ -257,6 +270,8 @@ function auditSection(sec: RawSection): Violation[] {
     return home ? G.columns[home.ci].surfaceElevM : 0
   }
   const tieCount = new Map<string, number>()
+  /** (layerId|gap)@contact — a fan on one contact counts once (ruling below). */
+  const countedContacts = new Set<string>()
   // Per (layerId, gap): the formationIds at the ties' far ends — same
   // formationId = same mass (the kernel's one comparison).
   const farForms = new Map<string, string[]>()
@@ -268,10 +283,15 @@ function auditSection(sec: RawSection): Violation[] {
     const ca = columnOf.get(e.a)
     const cb = columnOf.get(e.b)
     if (ca === undefined || cb === undefined || ca === cb) continue
-    // Same litho family, or the fill drops it.
-    const fa = familyOfBand.get(e.a)
-    const fb = familyOfBand.get(e.b)
-    if (fa === undefined || fb === undefined || fa !== fb) continue
+    // A TIE ON A BAND'S OWN CONTACT COUNTS FOR THAT BAND (owner, 2026-08-21):
+    // *"two ties is two tied contacts"* — the tie he drew on the SF silt's base
+    // is one of its two even though the band at the other end belongs to a
+    // neighbouring litho family. The fill no longer drops those either, so the
+    // audit must not: the family is used here only to know which columns the
+    // run spans. (Debt #273's silently-dropped class is partly resolved by this
+    // ruling — the near-end-in-family half of it.)
+    const fa = familyOfBand.get(e.a) ?? familyOfBand.get(e.b)
+    if (fa === undefined) continue
     const lo = Math.min(ca, cb)
     const hi = Math.max(ca, cb)
     // Every column it jumps must carry NO band of this family — then the run
@@ -327,6 +347,17 @@ function auditSection(sec: RawSection): Violation[] {
       ] as const) {
         for (const near of bandsOnContact(nearCi, nearElev)) {
           const key = `${near.u.layerId}|${gap}`
+          // TWO TIES IS TWO TIED CONTACTS (owner, 2026-08-21, verbatim): *"two
+          // ties is two tied contacts, if you have two ties on the same contact
+          // that means a layer tapers out to a pinch, right up to that
+          // contact."* So a fan on ONE contact is ONE tie for this band — it
+          // states that the far layer pinches out against that line, not that
+          // this band has a second contact tied. Counting the rows read three
+          // of his CS1 bands as two-tie bands that fail to span; they are
+          // lawful one-tie onlaps.
+          const contact = `${key}@${Math.round(nearElev * 1000)}`
+          if (countedContacts.has(contact)) continue
+          countedContacts.add(contact)
           tieCount.set(key, (tieCount.get(key) ?? 0) + 1)
           const list = tieLines.get(key) ?? []
           list.push([left, right])
@@ -462,7 +493,19 @@ function auditSection(sec: RawSection): Violation[] {
           // still audited by the missing check above.
           if (!sameMassFar && !fars.every((f) => f !== u.formationId)) continue
           const wantHigh = gap === ci // band on the LEFT column of the gap reaches right
-          const surface = sameMassFar ? mine : (preOf.get(`${u.layerId}|${gap}`) ?? [])
+          // TWO TIED CONTACTS IS A BAND (owner, 2026-08-21): it emits nothing,
+          // stays open and SPANS, so its ground is read on the merged surface —
+          // the mass — not on construct loops it no longer draws. Reading the
+          // loops made every two-contact band look like it emitted nothing into
+          // its gap, which is exactly what the law says it does.
+          // ...and a WELD is a property of the MASS, not of one band's id: the
+          // two bands of one mass each own their own half of the ground they
+          // weld into (the attribution rule in ``mergeFaces``), so asking one
+          // id to reach the far column asks for something the law never says.
+          // What must arrive over there is the CLASS.
+          const surface = sameMassFar
+            ? regions.filter((r) => r.gapIndex === gap && r.formationId === u.formationId)
+            : mine
           let reach = wantHigh ? 0 : 1
           for (const r of surface) {
             for (const p of r.polygon) {
