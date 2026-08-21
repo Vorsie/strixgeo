@@ -143,6 +143,10 @@ const LITHO_FRAME: GeotechLithoFrame = {
     ['nad-zand-5', 'ZAND'],
     ['nad-zand-7', 'ZAND'],
   ]),
+  packingClassByFormationId: new Map([
+    ['nad-zand-5', 'ZAND|5'],
+    ['nad-zand-7', 'ZAND|7'],
+  ]),
 }
 
 const NAD_COLOURS = new Map<string, string>([

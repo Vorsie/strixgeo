@@ -143,6 +143,10 @@ const LITHO_FRAME: GeotechLithoFrame = {
     ['nad-zand-5', 'ZAND'],
     ['nad-zand-7', 'ZAND'],
   ]),
+  packingClassByFormationId: new Map([
+    ['nad-zand-5', 'ZAND|5'],
+    ['nad-zand-7', 'ZAND|7'],
+  ]),
 }
 
 // formationColorById maps GEOTECH formation ids → NAD colour on this axis
