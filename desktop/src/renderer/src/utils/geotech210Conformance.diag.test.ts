@@ -295,6 +295,47 @@ function auditSection(sec: RawSection): Violation[] {
   const tieCount = new Map<string, number>()
   /** (layerId|gap)@contact — a fan on one contact counts once (ruling below). */
   const countedContacts = new Set<string>()
+  /** The bands adjoining a contact on one column, and on which side they sit. */
+  const bandsOnContact = (ci: number, elevation: number): { u: RawUnit; above: boolean }[] => {
+    const out: { u: RawUnit; above: boolean }[] = []
+    for (const u of G.columns[ci].units) {
+      const top = G.columns[ci].surfaceElevM - u.topDepthM
+      const base = G.columns[ci].surfaceElevM - u.baseDepthM
+      if (Math.abs(base - elevation) <= CONTACT_EPS) out.push({ u: u as RawUnit, above: true })
+      else if (Math.abs(top - elevation) <= CONTACT_EPS) out.push({ u: u as RawUnit, above: false })
+    }
+    return out
+  }
+  // RUN-WIDE FAN WELD (the engine's ``fanWeldsSameMass``): a contact may carry
+  // several ties (the fan), and ONE same-class far end welds it wherever the
+  // band answers — the other ties are the far layers' own pinch statements.
+  // The per-gap loop below only visits gaps a tie CROSSES, so the welding tie
+  // of B2's MD tail (a jump to S6's own MD) is invisible from the S10|B2 gap;
+  // this set carries the weld across. Keyed layerId@elevKey.
+  const weldedContacts = new Set<string>()
+  for (const e of G.edges) {
+    const ca = columnOf.get(e.a)
+    const cb = columnOf.get(e.b)
+    if (ca === undefined || cb === undefined || ca === cb) continue
+    const preElevOf = (layer: string, side: 'top' | 'base'): number => {
+      const home = unitOf.get(layer)
+      if (!home) return 0
+      return surfaceElev(layer) - (side === 'top' ? home.u.topDepthM : home.u.baseDepthM)
+    }
+    const elevA = preElevOf(e.a, e.aSide ?? 'top')
+    const elevB = preElevOf(e.b, e.bSide ?? 'top')
+    for (const [nearCi, nearElev, farCi, farElev] of [
+      [ca, elevA, cb, elevB],
+      [cb, elevB, ca, elevA],
+    ] as const) {
+      for (const near of bandsOnContact(nearCi, nearElev)) {
+        const far = bandsOnContact(farCi, farElev).find((b) => b.above === near.above)
+        if (far === undefined) continue
+        if (classKeyOf(far.u.formationId) === classKeyOf(near.u.formationId))
+          weldedContacts.add(`${near.u.layerId}@${Math.round(nearElev * 1000)}`)
+      }
+    }
+  }
   // Per (layerId, gap): the formationIds at the ties' far ends — same
   // formationId = same mass (the kernel's one comparison).
   const farForms = new Map<string, string[]>()
@@ -350,16 +391,6 @@ function auditSection(sec: RawSection): Violation[] {
     // band on the SAME SIDE of the contact over there. Crediting only the named
     // layer read CS1 col19's medium-dense sand as a one-tie band when the law
     // gives it two.
-    const bandsOnContact = (ci: number, elevation: number): { u: RawUnit; above: boolean }[] => {
-      const out: { u: RawUnit; above: boolean }[] = []
-      for (const u of G.columns[ci].units) {
-        const top = G.columns[ci].surfaceElevM - u.topDepthM
-        const base = G.columns[ci].surfaceElevM - u.baseDepthM
-        if (Math.abs(base - elevation) <= CONTACT_EPS) out.push({ u: u as RawUnit, above: true })
-        else if (Math.abs(top - elevation) <= CONTACT_EPS) out.push({ u: u as RawUnit, above: false })
-      }
-      return out
-    }
     // The tie bounds the contact in EVERY gap it crosses.
     for (let gap = lo; gap < hi; gap++) {
       const left = at(gap)
@@ -385,12 +416,25 @@ function auditSection(sec: RawSection): Violation[] {
           const list = tieLines.get(key) ?? []
           list.push([left, right])
           tieLines.set(key, list)
-          const fars = farForms.get(key) ?? []
+          // A tie whose far side is EMPTY states nothing about the mass —
+          // then, and only then, the contact's FAN speaks run-wide: a
+          // same-class end on another of its ties welds it (``weldedContacts``
+          // above — the engine's fanWeldsSameMass). A real far end across
+          // this gap keeps its own read: a band welds one way and onlaps the
+          // other, and the weld must not erase the onlap.
           const far = bandsOnContact(farCi, farElev).find((b) => b.above === near.above)
-          if (far !== undefined) fars.push(far.u.formationId)
-          farForms.set(key, fars)
+          const fars = farForms.get(key) ?? []
           const farIds = farLayers.get(key) ?? []
-          if (far !== undefined) farIds.push(far.u.layerId)
+          // The two lists stay index-parallel; a welded entry's layer id is
+          // never consulted (the collision check skips same-class reads).
+          if (far !== undefined) {
+            fars.push(far.u.formationId)
+            farIds.push(far.u.layerId)
+          } else if (weldedContacts.has(`${near.u.layerId}@${Math.round(nearElev * 1000)}`)) {
+            fars.push(near.u.formationId)
+            farIds.push(near.u.layerId)
+          }
+          farForms.set(key, fars)
           farLayers.set(key, farIds)
         }
       }
