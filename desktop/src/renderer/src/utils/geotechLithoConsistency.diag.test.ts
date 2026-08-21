@@ -51,6 +51,7 @@ import { describe, expect, it } from 'vitest'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import {
   frameAlignedColumns,
   frameGapRuns,
@@ -308,6 +309,7 @@ describe('geotech fill — litho-consistency gate', () => {
                 ),
                 geotechEdges: geoEdges,
                 alongM: L.alongM,
+                packingClassOf: buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta)),
               })
               return { regions: out.regions, lithoFallback: out.lithoFallback }
             })()
