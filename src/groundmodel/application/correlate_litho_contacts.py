@@ -29,6 +29,10 @@ from groundmodel.domain.services.geotech_edge_crossing_guard import (
     gap_key,
 )
 from groundmodel.domain.services.litho_body_guard import shares_litho_body
+from groundmodel.domain.services.litho_frame_conformance import (
+    FRAME_MISMATCH_REVIEW_REASON,
+    frame_tie_warning,
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -102,10 +106,16 @@ class ContactCorrelateResult:
     was_created : bool
         ``True`` when a new row was inserted; ``False`` when the edge
         already existed (idempotent re-call).
+    frame_warning : str | None
+        Draw-time warning when a geotech packing tie does not conform to
+        the litho frame (owner order 2026-08-21: *"next time flag a tie
+        like that when it doesn't conform to the litho model!"*).  The tie
+        is still written — see ``litho_frame_conformance``.
     """
 
     edge: LithoContactCorrelationEdgeOrm
     was_created: bool
+    frame_warning: str | None = None
 
 
 class CorrelateLithoContacts(GroundModelLogger):
@@ -309,6 +319,23 @@ class CorrelateLithoContacts(GroundModelLogger):
                 raise CrossingCorrelationError(crossed)
 
         # ------------------------------------------------------------------ #
+        # 4d. Geotech-only frame-conformance FLAG (owner order 2026-08-21:     #
+        #     "next time flag a tie like that when it doesn't conform to the  #
+        #     litho model!"). Never refuses — the tie may be a legitimate     #
+        #     surface statement — but the engineer is told at draw time that  #
+        #     the litho frame will not band the two bands, instead of         #
+        #     discovering an "onlap that should band" on the canvas. Flagged  #
+        #     edges are born with a review badge (``review_reason``).         #
+        # ------------------------------------------------------------------ #
+        frame_warning: str | None = None
+        if model.kind == MODEL_KIND_GEOTECHNICAL:
+            frame_warning = await self._frame_conformance_warning(
+                geotech_model=model, a_id=ca.id, b_id=cb.id
+            )
+            if frame_warning is not None:
+                self.warning(f"CorrelateLithoContacts: frame mismatch — {frame_warning}")
+
+        # ------------------------------------------------------------------ #
         # 5. Canonical ordering: (min, max), sides paired with their ids.      #
         # ------------------------------------------------------------------ #
         a_id, a_side, b_id, b_side = canonical_contact_order(
@@ -336,7 +363,9 @@ class CorrelateLithoContacts(GroundModelLogger):
             self.info(
                 f"CorrelateLithoContacts: edge already exists ({existing.id}) — idempotent return"
             )
-            return ContactCorrelateResult(edge=existing, was_created=False)
+            return ContactCorrelateResult(
+                edge=existing, was_created=False, frame_warning=frame_warning
+            )
 
         # ------------------------------------------------------------------ #
         # 7. Insert the new edge, run resolver + lens detection, then commit.  #
@@ -354,6 +383,10 @@ class CorrelateLithoContacts(GroundModelLogger):
             layer_b_side=b_side,
             source=source,
             user_approved=True,
+            # A frame-mismatched tie is born flagged — the violet review badge
+            # keeps the draw-time warning visible until the engineer confirms
+            # or deletes it (owner order 2026-08-21).
+            review_reason=FRAME_MISMATCH_REVIEW_REASON if frame_warning is not None else None,
         )
         self._session.add(edge)
         await self._session.flush()
@@ -377,7 +410,7 @@ class CorrelateLithoContacts(GroundModelLogger):
             f"CorrelateLithoContacts: committed contact-edge {edge.id}; "
             f"contact_a={a_id} contact_b={b_id} source={source!r}"
         )
-        return ContactCorrelateResult(edge=edge, was_created=True)
+        return ContactCorrelateResult(edge=edge, was_created=True, frame_warning=frame_warning)
 
     # ---------------------------------------------------------------------- #
     # Private helpers                                                          #
@@ -602,6 +635,126 @@ class CorrelateLithoContacts(GroundModelLogger):
             .limit(1)
         )
         return (await self._session.execute(stmt)).scalars().first()
+
+    async def _frame_conformance_warning(
+        self,
+        *,
+        geotech_model: GeologicalModelOrm,
+        a_id: UUID,
+        b_id: UUID,
+    ) -> str | None:
+        """Draw-time warning when a packing tie exceeds the litho frame, or ``None``.
+
+        Owner order 2026-08-21 (after deleting a silt-to-clay tie that
+        rendered as nothing): *"next time flag a tie like that when it
+        doesn't conform to the litho model!"* Resolves each endpoint band's
+        parent litho unit, compares main soils, and — for same-soil pairs —
+        walks the parent litho model's ACCEPTED correlation edges for a path
+        between the two units. Unresolvable parents stay silent: absence of
+        evidence is not evidence of non-conformance.
+
+        Parameters
+        ----------
+        geotech_model : GeologicalModelOrm
+            The geotechnical model (its ``parent_model_id`` is the frame).
+        a_id, b_id : UUID
+            The two geotech contact (= band) ids being tied.
+
+        Returns
+        -------
+        str | None
+            The warning sentence, or ``None`` when the tie conforms.
+        """
+        litho_model_id = geotech_model.parent_model_id
+        if litho_model_id is None:
+            return None
+        band_a = await self._session.get(LithoLayerOrm, a_id)
+        band_b = await self._session.get(LithoLayerOrm, b_id)
+        if band_a is None or band_b is None:
+            return None
+        unit_a = await self._containing_litho_layer(litho_model_id=litho_model_id, band=band_a)
+        unit_b = await self._containing_litho_layer(litho_model_id=litho_model_id, band=band_b)
+        if unit_a is None or unit_b is None:
+            return None
+        soil_a = await self._main_soil_of(unit_a)
+        soil_b = await self._main_soil_of(unit_b)
+        # The BFS only decides the same-soil case; skip it when soils differ.
+        connected = (
+            soil_a == soil_b
+            and soil_a is not None
+            and await self._litho_units_connected(
+                litho_model_id=litho_model_id, a=unit_a.id, b=unit_b.id
+            )
+        )
+        return frame_tie_warning(
+            soil_a=soil_a,
+            soil_b=soil_b,
+            litho_connected=connected,
+            band_a=await self._describe_geotech_band(a_id),
+            band_b=await self._describe_geotech_band(b_id),
+        )
+
+    async def _main_soil_of(self, unit: LithoLayerOrm) -> str | None:
+        """The main soil code of *unit*'s formation, or ``None``."""
+        formation = await self._session.get(GeologicalFormationOrm, unit.formation_id)
+        if formation is None:
+            return None
+        return formation.litho_main_soil_code
+
+    async def _litho_units_connected(
+        self,
+        *,
+        litho_model_id: UUID,
+        a: UUID,
+        b: UUID,
+    ) -> bool:
+        """Whether an accepted litho correlation path connects units *a* and *b*.
+
+        Plain BFS over the parent litho model's accepted contact-correlation
+        edges (all sections — bodies union across sections). Deliberately
+        permissive: any path counts, so an over-connection under-flags rather
+        than nagging about a conforming tie.
+
+        Parameters
+        ----------
+        litho_model_id : UUID
+            The parent lithostratigraphic model.
+        a, b : UUID
+            The two accepted litho layer ids.
+
+        Returns
+        -------
+        bool
+            ``True`` when a path exists (or ``a == b``).
+        """
+        if a == b:
+            return True
+        rows = (
+            await self._session.execute(
+                select(
+                    LithoContactCorrelationEdgeOrm.layer_a_id,
+                    LithoContactCorrelationEdgeOrm.layer_b_id,
+                ).where(
+                    LithoContactCorrelationEdgeOrm.model_id == litho_model_id,
+                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                )
+            )
+        ).all()
+        adjacency: dict[UUID, list[UUID]] = {}
+        for x, y in rows:
+            adjacency.setdefault(x, []).append(y)
+            adjacency.setdefault(y, []).append(x)
+        frontier = [a]
+        seen = {a}
+        while frontier:
+            node = frontier.pop()
+            for neighbour in adjacency.get(node, []):
+                if neighbour == b:
+                    return True
+                if neighbour not in seen:
+                    seen.add(neighbour)
+                    frontier.append(neighbour)
+        return False
 
     async def _enclosing_body_of(
         self,
