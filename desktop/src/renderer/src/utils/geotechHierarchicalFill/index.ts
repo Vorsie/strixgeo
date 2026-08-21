@@ -253,15 +253,17 @@ export function computeHierarchicalGeotechFill(
     if (fa === undefined || fb === undefined) tiesUnresolved += 1
     else if (fa !== fb) tiesCrossingFamilies += 1
   }
-  // The ties that may BOUND a contact: every packing tie whose two ends belong
-  // to ONE family. A cross-family tie — a clay band tied to a sand band — is
-  // dropped: it states a contact between two different masses, not one mass, so
-  // it can bound nothing (H5).
-  const boundingEdges = input.geotechEdges.filter((e) => {
-    const fa = familyOfBand.get(e.a)
-    const fb = familyOfBand.get(e.b)
-    return fa !== undefined && fb !== undefined && fa === fb
-  })
+  // A TIE ON A BAND'S OWN CONTACT COUNTS FOR THAT BAND (owner, 2026-08-21):
+  // *"two ties is two tied contacts"* — and the tie he drew on the SF silt's
+  // base is one of its two, even though the band at the other end sits in a
+  // litho unit this family has no litho tie into. Dropping every cross-family
+  // tie here (the old H5 rule) hid that second contact, and the SF read as a
+  // one-tie onlap instead of the band he ruled it to be. The far end's family
+  // is not consulted at all now: the per-run resolver keeps only the lines that
+  // touch THIS family's own contacts, and the mass at the far end is read from
+  // the actual band over there, whatever family owns it. (Debt #273's
+  // silently-dropped ties: the half whose near end is in-family is resolved.)
+  const boundingEdges = input.geotechEdges
 
   // Every litho unit's own depth extent, so a band can be told whether its
   // contact IS the cover's boundary (see the mapping below).
