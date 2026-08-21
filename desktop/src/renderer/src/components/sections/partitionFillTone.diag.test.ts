@@ -33,6 +33,7 @@ import type { BodyBoundaryResponse } from '../../api/clients/geology.types'
 import { deriveSectionApexOverrides } from '../../utils/buildVoxelRequest'
 import { frameAlignedColumns } from '../../utils/frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from '../../utils/geotechHierarchicalFill'
+import { buildPackingClassOf } from '../../utils/geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from '../../utils/partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../../utils/partitionFill'
 import { buildColumnStripFills } from './columnStripFills'
@@ -188,6 +189,7 @@ describe('TONE diag — composited coats either side of a card edge', () => {
           ),
           geotechEdges: geoEdges,
           alongM: L.alongM,
+          packingClassOf: buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta)),
         })
         geoRegions = hierarchical.regions
         lithoFallback = hierarchical.lithoFallback
