@@ -75,7 +75,15 @@ async function openBodyMenu(page: Page): Promise<void> {
   // PartitionFillOverlay renders ``partition-region-*`` paths when showBands is
   // ON; each fires onBodyContextMenu on right-click when the body has a bodyId.
   await enableFillBands(page)
-  const partitionRegion = page.locator('[data-testid^="partition-region-"]').first()
+  // The context menu is wired only once the model's BODY LIST has loaded
+  // (interactive = onBodyContextMenu && body): wait for an INTERACTIVE region
+  // (cursor: context-menu) and dispatch on it. Dispatching on merely the first
+  // rendered path raced the body-list fetch — the single contextmenu event
+  // landed on a pointer-events:none path and the menu could never open (the
+  // historic "body-detection" flake was THIS race).
+  const partitionRegion = page
+    .locator('[data-testid^="partition-region-"][style*="context-menu"]')
+    .first()
   await expect(partitionRegion).toBeVisible({ timeout: 30_000 })
   await partitionRegion.dispatchEvent('contextmenu', {
     button: 2,
