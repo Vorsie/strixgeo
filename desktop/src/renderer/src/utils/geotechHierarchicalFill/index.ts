@@ -79,7 +79,11 @@ export interface HierarchicalGeotechFillDiagnostics {
   bandsStraddling: number
   /** Bands with no litho unit at their depth — excluded from every family. */
   bandsUnparented: number
-  /** Ties whose two ends sit in DIFFERENT families — dropped. */
+  /**
+   * Ties whose two ends sit in DIFFERENT families — counted as a statistic
+   * only. Since the 2026-08-21 tied-contact ruling they are KEPT: each end
+   * counts at its own in-family contact (see ``boundingEdges`` below).
+   */
   tiesCrossingFamilies: number
   /** Ties with an end no litho unit claims — dropped. */
   tiesUnresolved: number
