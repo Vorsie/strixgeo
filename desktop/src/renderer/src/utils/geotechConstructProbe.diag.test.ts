@@ -122,8 +122,9 @@ describe('construct probe — the fill decisions of one gap', () => {
 
     fillGapProbe.enabled = true
     fillGapProbe.entries.length = 0
+    let out!: ReturnType<typeof computeHierarchicalGeotechFill>
     try {
-      computeHierarchicalGeotechFill({
+      out = computeHierarchicalGeotechFill({
         lithoColumns: L.columns,
         lithoEdges: L.edges,
         lithoRegions,
@@ -140,6 +141,8 @@ describe('construct probe — the fill decisions of one gap', () => {
     }
 
     const lines: string[] = [`=== ${sectionName} gap ${gap} — per (family, gap) run ===`]
+    lines.push('CONFLICTS (crossing ties, both dropped):')
+    for (const c of out.conflicts) lines.push('  ' + JSON.stringify(c))
     for (const entry of fillGapProbe.entries) {
       if (entry.gapIndex !== gap) continue
       lines.push(`--- run (cover layers: ${entry.coverLayers.map((l) => l.slice(-6)).join(',')})`)
@@ -147,6 +150,12 @@ describe('construct probe — the fill decisions of one gap', () => {
       for (const c of entry.constructs) {
         lines.push(
           `    ci${c.ci} ${nm(c.layer)} emit=${c.emit} topTied=${c.topTied} baseTied=${c.baseTied}`,
+        )
+      }
+      lines.push('  TIES:')
+      for (const t of entry.ties) {
+        lines.push(
+          `    ci${t.leftCi}@${t.leftY.toFixed(2)} -> ci${t.rightCi}@${t.rightY.toFixed(2)} [${t.key.slice(0, 40)}]`,
         )
       }
       lines.push('  LINES:')
