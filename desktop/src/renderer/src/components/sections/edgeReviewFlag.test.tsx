@@ -25,9 +25,18 @@ describe('reviewFlagLabel', () => {
     expect(reviewFlagLabel('band_absorbed')).not.toEqual(reviewFlagLabel('ambiguous_band'))
   })
 
+  it('ERF5 — frame_mismatch says the litho model will not band these', () => {
+    // Owner order 2026-08-21, after deleting a silt↔clay tie that rendered as
+    // an onlap: "flag a tie like that when it doesn't conform to the litho
+    // model!" The badge has to say WHY, or it reads like the re-anchor flags.
+    expect(reviewFlagLabel('frame_mismatch')).toContain('litho')
+  })
+
   it('ERF4 — every token has its own sentence, and none of them is the fallback', () => {
     const fallback = reviewFlagLabel(null)
-    const sentences = ['class_changed', 'ambiguous_band', 'band_absorbed'].map(reviewFlagLabel)
+    const sentences = ['class_changed', 'ambiguous_band', 'band_absorbed', 'frame_mismatch'].map(
+      reviewFlagLabel,
+    )
     expect(new Set(sentences).size).toBe(sentences.length)
     for (const sentence of sentences) expect(sentence).not.toEqual(fallback)
   })
