@@ -258,7 +258,9 @@ F_MD = UUID("00000000-0000-0000-0000-0000000000d6")  # ZAND, NAD 6 (medium dense
 F_D = UUID("00000000-0000-0000-0000-0000000000d7")  # ZAND, NAD 7 (dense)
 
 
-def _band(layer_id: str, depth: float, inv: UUID, packing: UUID) -> LayerNode:
+def _band(
+    layer_id: str, depth: float, inv: UUID, packing: UUID, nad_class: int | None = None
+) -> LayerNode:
     """One geotech band: same soil as its neighbours, its own packing class."""
     return LayerNode(
         layer_id=UUID(layer_id),
@@ -268,6 +270,7 @@ def _band(layer_id: str, depth: float, inv: UUID, packing: UUID) -> LayerNode:
         depth_top_m=depth,
         source_investigation_id=inv,
         packing_formation_id=packing,
+        packing_nad_class=nad_class,
     )
 
 
@@ -286,6 +289,46 @@ def test_geotech_bands_of_the_same_packing_become_one_body() -> None:
     result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
     assert len(result.instances) == 1
     assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
+
+
+def test_geotech_same_class_on_duplicate_rows_is_one_mass_one_body() -> None:
+    """Same NAD class across a geological boundary is ONE body.
+
+    The subdivide keeps one packing formation ROW per (class, litho parent,
+    GEOLOGICAL parent), so a litho unit spanning a geological boundary carries
+    the same class under two row ids. The owner ruled the mass is the CLASS
+    (2026-08-21: "yes one mass one body"), matching his A2 note — a body may
+    span a geological boundary.
+    """
+    row_geo_a = UUID("00000000-0000-0000-0000-0000000000e6")  # ZAND, NAD 6 under geo A
+    row_geo_b = UUID("00000000-0000-0000-0000-0000000000f6")  # ZAND, NAD 6 under geo B
+    a = _band("00000000-0000-0000-0000-000000000011", 1.0, INV_A, row_geo_a, nad_class=6)
+    b = _band("00000000-0000-0000-0000-000000000012", 1.2, INV_B, row_geo_b, nad_class=6)
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 1
+    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
+
+
+def test_geotech_different_classes_stay_two_bodies_whatever_the_rows() -> None:
+    """The class comparison never over-welds: NAD 6 and NAD 7 are two masses."""
+    row_geo_a = UUID("00000000-0000-0000-0000-0000000000e6")
+    row_geo_b = UUID("00000000-0000-0000-0000-0000000000f7")
+    a = _band("00000000-0000-0000-0000-000000000013", 1.0, INV_A, row_geo_a, nad_class=6)
+    b = _band("00000000-0000-0000-0000-000000000014", 1.2, INV_B, row_geo_b, nad_class=7)
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 2
+
+
+def test_geotech_unknown_class_keeps_row_identity() -> None:
+    """A skeleton band (no class) falls back to the row comparison.
+
+    Two unknowns are not known to be the same density, so different rows stay
+    two bodies exactly as before the ruling.
+    """
+    a = _band("00000000-0000-0000-0000-000000000015", 1.0, INV_A, F_MD, nad_class=None)
+    b = _band("00000000-0000-0000-0000-000000000016", 1.2, INV_B, F_D, nad_class=None)
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 2
 
 
 def test_litho_layers_carry_no_packing_class_and_keep_merging() -> None:
