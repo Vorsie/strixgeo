@@ -57,6 +57,12 @@ export interface VoxelRequestBuilderParams {
   frameModelId?: string | null
   /** The frame model's litho-layer rows; required alongside ``frameModelId``. */
   frameLayers?: readonly LithoLayerLike[]
+  /**
+   * Geotech formation id → canonical class key (``buildPackingClassOf``) for a
+   * framed geotech build — the same mass identity the geotech axis renders
+   * with (owner 2026-08-21: one mass one body). Omit on litho builds.
+   */
+  packingClassOf?: ReadonlyMap<string, string>
 }
 
 /**
@@ -96,6 +102,7 @@ export function makeVoxelRequestBuilder(
     logLabel,
     frameModelId,
     frameLayers,
+    packingClassOf,
   } = params
 
   return async (): Promise<VoxelBuildRequest | null> => {
@@ -224,6 +231,7 @@ export function makeVoxelRequestBuilder(
       voxelVerticalSpacingM,
       boundariesByBodyId,
       frameSectionInputs,
+      packingClassOf,
     )
   }
 }
