@@ -15,8 +15,14 @@
  * @module utils/geotechHierarchicalFill/constructive/familyFill
  */
 
-import { fillGap } from './fillGap'
-import { resolveRunTies, type RunBand, type RunColumn, type RunTie } from './constructs'
+import { fillGap, type GapFillInput } from './fillGap'
+import {
+  buildGapConstructs,
+  resolveRunTies,
+  type RunBand,
+  type RunColumn,
+  type RunTie,
+} from './constructs'
 import type { Mass } from './emitKernel'
 import type { LithoFamily } from '../families'
 import type { CorrelationEdge, SectionRegion } from '../../partitionFill'
@@ -181,6 +187,13 @@ export function fillFamily(
     return { columns, ties, coverTies }
   })
 
+  // PASS A — plan every gap, then read the plans for ONLAP CLOSURES before any
+  // gap fills. An onlap is a closed loop: its statement pinches in its own gap
+  // and may not take remainder ground beyond that pinch in ANY gap (owner
+  // 2026-08-21 night: "the dense sand onlaps so the MD should fill" — S8's D,
+  // closed toward S10, answered the sub-TD window two gaps over as if open,
+  // because closure was only known to the gap that drew it).
+  const plans: Omit<GapFillInput, 'onlapBars'>[] = []
   for (const gap of [...family.regionsByGap.keys()].sort((a, b) => a - b)) {
     const cover = family.regionsByGap.get(gap) as SectionRegion[]
     // One of this gap's tests carries the family and has not been divided: the
@@ -228,7 +241,7 @@ export function fillFamily(
     }
     const runWithAdopted =
       run === null ? null : { left: withAdopted(run.left), right: withAdopted(run.right) }
-    const filled = fillGap({
+    plans.push({
       gapIndex: gap,
       xa: alongM[gap],
       xb: alongM[gap + 1],
@@ -241,6 +254,33 @@ export function fillFamily(
       stacks: context.stacks,
       massOf: context.massOf,
     })
+  }
+  // The bars: for every gap whose constructs include an onlap, the closure
+  // stands at that gap's middle — the pinch the law draws. A band never
+  // answers remainder on the far side of one of its own bars.
+  const onlapBars = new Map<string, number[]>()
+  for (const plan of plans) {
+    if (plan.run === null) continue
+    const middle = (plan.run.left.x + plan.run.right.x) / 2
+    const constructs = buildGapConstructs(
+      plan.run.left,
+      plan.run.right,
+      plan.ties,
+      plan.coverTies,
+      context.stacks,
+      context.massOf,
+    )
+    for (const construct of constructs) {
+      if (construct.emit !== 'onlap') continue
+      let bars = onlapBars.get(construct.band.layerId)
+      if (bars === undefined) onlapBars.set(construct.band.layerId, (bars = []))
+      bars.push(middle)
+    }
+  }
+
+  // PASS B — fill, every gap seeing the run's closures.
+  for (const plan of plans) {
+    const filled = fillGap({ ...plan, onlapBars })
     out.regions.push(...filled.covered)
     out.preMerge.push(...filled.preMerge)
     out.fallback.push(...filled.residual)
