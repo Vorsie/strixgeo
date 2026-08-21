@@ -1,0 +1,347 @@
+/**
+ * THE LAW ORACLE — the owner's own ask, 2026-08-21:
+ *
+ *   *"why don't you write tests that check if a body follows the 2 1 0 rules
+ *    based on the number of contacts and the litho + packing on the other side
+ *    of the tie."*
+ *
+ * So this file counts a band's ties, reads the mass on the OTHER SIDE of each
+ * one, decides what the law says to emit, and then checks the rendered geometry
+ * against that verdict. It deliberately re-derives everything: it imports
+ * NOTHING from ``geotechHierarchicalFill/constructive`` — not the kernel, not
+ * ``emitFor``, not the constructs — because an oracle that asks the constructor
+ * what the law says can only ever agree with it. The emit table below is typed
+ * out from his sentence, not imported:
+ *
+ *   *"If litho has no ties emit lens, if litho has one tie, follow tie - if
+ *    litho at other end of tie has same litho and packing density emit nothing.
+ *    If it is a different litho emit an onlap, if a litho has two ties, follow
+ *    ties and check litho and packing density on the other end. if it is
+ *    different then vertical line in the middle, else no emit."*
+ *
+ * ...plus the two later rulings that complete it:
+ *
+ *   *"an onlap can't paint over ground near test itself, it terminates at 0.5
+ *    Distance approximately."* (2026-08-20)
+ *   *"the D sand should fill that gap ... which forms a closed loop in that gap
+ *    that only the D sand kan fill."* (2026-08-21 — the MIXED pair: one end
+ *    welds, the other reads a different mass, so the band emits nothing and
+ *    stays the open mass.)
+ *
+ * WHAT IT CHECKS, per band per gap:
+ *
+ *   lens (0 ties)          the band's own ground exists and stays on its side
+ *                          of the middle.
+ *   nothing, all-same      the welded mass reaches the far column.
+ *   onlap (1, different)   the wedge exists and stays on its own side.
+ *   vertical (2, different) the construct exists, reaches about the middle and
+ *                          does not cross it.
+ *   nothing, mixed         the band's ground exists; the law asks no reach.
+ *
+ * OUT OF SCOPE, as everywhere else: a gap whose facing test carries no bands at
+ * all — an un-divided test shows empty ground by the 2026-08-15 ruling.
+ *
+ * TWO KNOWN SCOPE LIMITS, measured 2026-08-21 and deliberately not papered
+ * over — both are places where this decode and the constructor's disagree, and
+ * the disagreement is the point of having a second decode:
+ *
+ *   1. GAPS vs RUNS. This file measures reach on SECTION gaps. The fill works
+ *      on a family's RUN, which spans columns the family has no bands on (the
+ *      2026-08-15 excluded-column ruling), so one run gap can cover two section
+ *      gaps and a construct that stops at its own run's middle reads here as
+ *      crossing a section gap end to end. 19 of the 28 exceptions on the real
+ *      model are of this shape, plus the 6 welded-mass ones.
+ *   2. FANS. This file counts TIES; the constructor counts tied CONTACTS, so
+ *      two ties landing on one contact are two here and one there. His sentence
+ *      is about a band's top and bottom ("it has a top and bottom tie to the
+ *      right though?"), which reads as contacts — but it has not been ruled,
+ *      and 3 of the 28 (the same three the 210 gate reports as nospan) hang on
+ *      exactly this question.
+ *
+ * So the count is REPORTED, not frozen at zero: freezing it would either pin
+ * the constructor's reading of an unruled question or bury the run-gap scope
+ * gap. Both need one owner sentence each, and then this file can be tightened
+ * and frozen.
+ *
+ * Dormant unless GEOTECH_LAW=1. Env: GEOTECH_AXIS_INPUT (input override).
+ * Report: scripts/throwaway_geotech_law.txt.
+ */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+import type { BodyBoundaryResponse } from '../api/clients/geology.types'
+import { deriveSectionApexOverrides } from './buildVoxelRequest'
+import { frameAlignedColumns } from './frameAlignedPartition'
+import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { computeSectionFillActive } from './partitionEngineSelect'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = resolve(HERE, '../../../../..')
+const INPUT = process.env.GEOTECH_AXIS_INPUT
+  ? resolve(REPO_ROOT, process.env.GEOTECH_AXIS_INPUT)
+  : resolve(REPO_ROOT, 'scripts/throwaway_geotech_axis_inputs.json')
+const OUT = resolve(REPO_ROOT, 'scripts/throwaway_geotech_law.txt')
+
+/** Two contacts are the same contact within this many metres. */
+const CONTACT_EPS = 1e-6
+/** *"terminates at 0.5 Distance approximately"* — his own word, as a grace. */
+const MIDDLE_GRACE = 0.06
+/** A welded mass must reach this close to the far column. */
+const WELD_REACH = 0.99
+/** A vertical must come at least this close to the middle. */
+const MIDDLE_REACH = 0.4
+
+type Verdict = 'lens' | 'onlap' | 'nothing' | 'vertical'
+
+interface RawUnit {
+  layerId: string
+  topDepthM: number
+  baseDepthM: number
+  formationId: string
+  bodyId: string | null
+}
+interface RawArm {
+  columns: { investigationId: string; surfaceElevM: number | null; units: RawUnit[] }[]
+  edges: { a: string; b: string; aSide?: string; bSide?: string }[]
+  alongM: number[]
+}
+interface RawSection extends RawArm {
+  name: string
+  geotech: RawArm
+}
+
+/** A band as the oracle reads it: a mass between two elevations on one column. */
+interface Band {
+  layerId: string
+  formationId: string
+  ci: number
+  top: number
+  base: number
+}
+
+function assemble(arm: RawArm): {
+  columns: PartitionColumn[]
+  alongM: number[]
+  edges: CorrelationEdge[]
+} {
+  const paired = arm.columns
+    .map((c, i) => ({ c, a: arm.alongM[i] }))
+    .filter(({ c }) => c.surfaceElevM != null && c.units.length > 0)
+    .sort((p, q) => p.a - q.a)
+  return {
+    columns: paired.map(({ c }) => ({
+      investigationId: c.investigationId,
+      surfaceElevM: c.surfaceElevM as number,
+      units: [...(c.units as PartitionColumn['units'])].sort((a, b) => a.topDepthM - b.topDepthM),
+    })),
+    alongM: paired.map(({ a }) => a),
+    edges: arm.edges.map((e) => ({
+      a: e.a,
+      b: e.b,
+      aSide: (e.aSide ?? 'top') as 'top' | 'base',
+      bSide: (e.bSide ?? 'top') as 'top' | 'base',
+    })),
+  }
+}
+
+/**
+ * The law's own table, typed out from his sentence — never imported.
+ *
+ * @param own The band's own mass key.
+ * @param fars The mass key at the far end of each tie the band carries here.
+ * @returns What the law says to emit.
+ */
+function verdictOf(own: string, fars: readonly string[]): Verdict {
+  if (fars.length === 0) return 'lens'
+  const same = fars.filter((f) => f === own).length
+  if (fars.length === 1) return same === 1 ? 'nothing' : 'onlap'
+  if (same === fars.length) return 'nothing'
+  if (same === 0) return 'vertical'
+  return 'nothing'
+}
+
+function auditSection(sec: RawSection): string[] {
+  const L = assemble(sec)
+  const G = assemble(sec.geotech)
+  if (L.columns.length < 2) return []
+  const geotechColumns = frameAlignedColumns(
+    L.columns,
+    new Map(G.columns.map((c) => [c.investigationId, c])),
+  )
+  const empty = new Map<string, BodyBoundaryResponse>()
+  const lithoRegions = computeSectionFillActive(
+    L.columns,
+    L.edges,
+    deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty, true),
+    L.alongM,
+  )
+  const out = computeHierarchicalGeotechFill({
+    lithoColumns: L.columns,
+    lithoEdges: L.edges,
+    lithoRegions,
+    geotechColumns,
+    geotechEdges: G.edges,
+    alongM: L.alongM,
+  })
+
+  // Every band, by column, in elevation terms.
+  const bands: Band[][] = geotechColumns.map((col, ci) =>
+    col.units.map((u) => ({
+      layerId: u.layerId,
+      formationId: u.formationId,
+      ci,
+      top: col.surfaceElevM - u.topDepthM,
+      base: col.surfaceElevM - u.baseDepthM,
+    })),
+  )
+  const home = new Map<string, Band>()
+  for (const col of bands) for (const b of col) home.set(b.layerId, b)
+
+  /** The bands adjoining a contact on one column, and on which side they sit. */
+  const onContact = (ci: number, elevation: number): { band: Band; above: boolean }[] => {
+    const found: { band: Band; above: boolean }[] = []
+    for (const b of bands[ci] ?? []) {
+      if (Math.abs(b.base - elevation) <= CONTACT_EPS) found.push({ band: b, above: true })
+      else if (Math.abs(b.top - elevation) <= CONTACT_EPS) found.push({ band: b, above: false })
+    }
+    return found
+  }
+
+  // Per (layerId, gap): the far masses of the ties this band carries there. A
+  // tie is drawn ON A CONTACT, and a contact belongs to the two bands that meet
+  // at it — so a tie stored against one of them speaks for both, and the far
+  // end is the band on the SAME SIDE of the contact over there.
+  const fars = new Map<string, string[]>()
+  for (const e of G.edges) {
+    const a = home.get(e.a)
+    const b = home.get(e.b)
+    if (a === undefined || b === undefined || a.ci === b.ci) continue
+    const elevOf = (band: Band, side: string): number => (side === 'base' ? band.base : band.top)
+    const ea = elevOf(a, e.aSide ?? 'top')
+    const eb = elevOf(b, e.bSide ?? 'top')
+    const lo = Math.min(a.ci, b.ci)
+    const hi = Math.max(a.ci, b.ci)
+    for (let gap = lo; gap < hi; gap++) {
+      for (const [near, nearElev, far, farElev] of [
+        [a, ea, b, eb],
+        [b, eb, a, ea],
+      ] as const) {
+        // Only the two columns of this gap answer for it.
+        if (near.ci !== gap && near.ci !== gap + 1) continue
+        for (const mine of onContact(near.ci, nearElev)) {
+          const partner = onContact(far.ci, farElev).find((p) => p.above === mine.above)
+          if (partner === undefined) continue
+          const key = `${mine.band.layerId}|${gap}`
+          const list = fars.get(key) ?? []
+          list.push(partner.band.formationId)
+          fars.set(key, list)
+        }
+      }
+    }
+  }
+
+  // The rendered ground, per (layerId, gap) — on TWO surfaces, because the law
+  // speaks about two different things. A closed construct (lens, onlap,
+  // vertical) is judged on the CONSTRUCT loops: after the fill sweep welds *"a
+  // lens touching a body with same litho and packing"* into that body, the
+  // lens's own id rides a region that spans the whole gap, and reading the
+  // merged surface would call his own sweep a violation. A welded mass, on the
+  // other hand, only exists on the merged surface — that IS what "emit nothing"
+  // draws.
+  const painted = new Map<string, SectionRegion[]>()
+  const constructed = new Map<string, SectionRegion[]>()
+  const index = (target: Map<string, SectionRegion[]>, r: SectionRegion): void => {
+    for (const layer of r.layerIds ?? []) {
+      const key = `${layer}|${r.gapIndex}`
+      const list = target.get(key) ?? []
+      list.push(r)
+      target.set(key, list)
+    }
+  }
+  for (const r of out.regions) index(painted, r)
+  for (const r of out.preMergeRegions) if (r.role === 'construct') index(constructed, r)
+
+  const exceptions: string[] = []
+  for (let ci = 0; ci < geotechColumns.length; ci++) {
+    for (const band of bands[ci]) {
+      for (const gap of [ci - 1, ci].filter((g) => g >= 0 && g < geotechColumns.length - 1)) {
+        const facing = gap === ci ? ci + 1 : gap
+        if ((bands[facing]?.length ?? 0) === 0) continue
+        const key = `${band.layerId}|${gap}`
+        const far = fars.get(key) ?? []
+        const verdict = verdictOf(band.formationId, far)
+        const sameAllFar = far.length > 0 && far.every((f) => f === band.formationId)
+        const mine = painted.get(key) ?? []
+        // The construct loops the law asked this band to draw — EMPTY where its
+        // loop welded into a body of the same mass, which is the fill sweep
+        // doing its job, not an absence.
+        const loops = constructed.get(key) ?? []
+        const tag =
+          `${sec.name} col${ci} gap${gap} ${band.top.toFixed(2)}..${band.base.toFixed(2)} ` +
+          `ties=${far.length} verdict=${verdict}`
+        if (mine.length === 0) {
+          exceptions.push(`${tag} — the law asks for a ${verdict} and nothing is drawn`)
+          continue
+        }
+        // How far into the gap its ground reaches, as a fraction from its own
+        // column: 0 at its own test, 1 at the facing one.
+        const ownIsLeft = gap === ci
+        let reach = 0
+        for (const r of sameAllFar ? mine : loops) {
+          for (const p of r.polygon) {
+            reach = Math.max(reach, ownIsLeft ? p.fraction : 1 - p.fraction)
+          }
+        }
+        if (sameAllFar) {
+          // "emit nothing" — one mass through the gap, so it must arrive.
+          if (reach < WELD_REACH)
+            exceptions.push(`${tag} — welded mass stops at ${reach.toFixed(2)} of the gap`)
+          continue
+        }
+        if (verdict === 'nothing') continue // the mixed pair: no reach is asked
+        if (loops.length === 0) continue // welded away by the fill sweep
+        if (reach > 0.5 + MIDDLE_GRACE)
+          exceptions.push(`${tag} — closed construct crosses the middle (${reach.toFixed(2)})`)
+        if (verdict === 'vertical' && reach < MIDDLE_REACH)
+          exceptions.push(`${tag} — vertical stops at ${reach.toFixed(2)}, short of the middle`)
+      }
+    }
+  }
+  return exceptions
+}
+
+describe('the law oracle', () => {
+  if (process.env.GEOTECH_LAW !== '1' || !existsSync(INPUT)) {
+    it.skip('dormant — set GEOTECH_LAW=1 with the axis dump present', () => {})
+    return
+  }
+  it('every band renders what the 2/1/0 table says for its ties', () => {
+    const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
+    const lines: string[] = []
+    const perSection = new Map<string, number>()
+    for (const sec of raw.sections) {
+      const exceptions = auditSection(sec)
+      perSection.set(sec.name, exceptions.length)
+      lines.push(`${sec.name.padEnd(18)} exceptions=${exceptions.length}`)
+      for (const e of exceptions) lines.push(`    ${e}`)
+    }
+    writeFileSync(OUT, lines.join('\n'))
+    // 13 sections audit at ZERO. CS1 is ratcheted at 28 pending two owner
+    // rulings (2026-08-21), both documented in the header: (1) reach is
+    // measured here on SECTION GAPS while the fill terminates on FAMILY RUNS
+    // that bridge excluded columns — "0.5 of what" is his call; (2) the
+    // fan question — two ties on one contact: ties or tied contacts? When he
+    // rules, tighten the measurement and drop this ratchet to zero. May only
+    // shrink; never raise it.
+    for (const [name, count] of perSection) {
+      if (name === 'Cross-section 1') {
+        expect(count, lines.join('\n')).toBeLessThanOrEqual(28)
+      } else {
+        expect(count, `${name}:\n${lines.join('\n')}`).toBe(0)
+      }
+    }
+  })
+})
