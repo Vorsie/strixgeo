@@ -41,6 +41,7 @@ import { resolveBandParents } from './bandParents'
 import { buildLithoFamilies } from './families'
 import { fillFamily } from './constructive/familyFill'
 import { weldAcrossFamilies } from './crossFamilyWeld'
+import { dropRegionNeedles } from './dropNeedleSpurs'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
 import type { Mass } from './constructive/emitKernel'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
@@ -479,7 +480,13 @@ export function computeHierarchicalGeotechFill(
     (formationId) => input.packingClassOf?.get(formationId) ?? formationId,
   )
   const crossFamilyWelds = swept.welds
-  const sweptRegions = swept.regions
+  // NO OUTLINE THAT ENDS IN NOTHING (owner 2026-08-21: *"the crack has a
+  // boundary at the bottom but not at the top, it shouldn't be there"*). A
+  // merged ring can walk out to a wedge apex and back along nearly the same
+  // path; the detour holds no ground, but the seam-stroke pass has no
+  // neighbour to match its two edges against and draws them as a hairline
+  // into mid-region. Dropping the apex changes no area and no class.
+  const sweptRegions = dropRegionNeedles(swept.regions)
 
   return {
     regions: sweptRegions,
