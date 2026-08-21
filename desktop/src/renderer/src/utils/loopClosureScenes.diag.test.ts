@@ -821,6 +821,30 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(geotechClassAt(scene, 14, 0.1, -4.0), 'the D onlap up to its contact').toBe('ZAND-7')
   })
 
+  it.fails('S23 · gaps 16-17 · an interbed facing sub-TD continues; it pinches only against data', () => {
+    // Owner, 2026-08-21 late night, on S7's thin KLEI-22 interbed rendered as
+    // phantom lenses around S7A: "it should be a continuous band starting
+    // from S7 but now it is interrupted at S7A's column by a SF clay render."
+    // S7A's only band is its top silt (TD ~+10.4) — below that it has nothing
+    // to meet, so the interbed continues full-thickness across gap 17 to
+    // S7A's column, and the adopted copy in gap 16 still pinches toward B2,
+    // whose log DID read continuous clay there.
+    //
+    // HELD RED (it.fails) — blocked by the LITHO arm: S7's interbeds are each
+    // their own litho-UNTIED litho unit (0c7b6f and siblings), and the litho
+    // engine (partitionFillV2) closes each as a lens pinching at ~0.55 in the
+    // S7A|S7 gap; the geotech frame can never exceed the litho cover, and
+    // S7A has no unit to litho-correlate to (its log stops at +10.4). The
+    // geotech-side rule is BUILT (constructs.ts extendsToFar: a lens facing
+    // sub-TD continues full thickness) and takes over the moment the litho
+    // arm learns the same sub-TD continuation law.
+    expect(geotechClassAt(scene, 17, 0.3, 6.3), 'the interbed interrupted at S7A').toBe('KLEI-22')
+    expect(geotechClassAt(scene, 16, 0.75, 6.3), 'the adopted interbed at S7A side').toBe(
+      'KLEI-22',
+    )
+    expect(geotechClassAt(scene, 16, 0.2, 6.3), 'the pinch against B2 data stands').toBe('KLEI-21')
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
