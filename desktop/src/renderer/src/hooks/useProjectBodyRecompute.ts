@@ -34,6 +34,7 @@ import type {
   SectionLike,
 } from '../utils/assembleLithoSectionInputs'
 import { useBodyRecompute, type UseBodyRecomputeResult } from './useBodyRecompute'
+import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
 
 /**
  * Module-ref bridge to the toolbar's manual "Recompute bodies" verb — the same
@@ -91,6 +92,13 @@ export interface UseProjectBodyRecomputeArgs {
    * "nothing is committed".
    */
   geotechLayersLoaded: boolean
+  /**
+   * The geotech model's formation rows — the source of the packing-class
+   * identity map (owner 2026-08-21: one mass one body; the model keeps one
+   * formation row per (class, litho parent, geological parent), so identity
+   * evidence must compare the CLASS, never the row).
+   */
+  geotechFormations: readonly { id: string; nad_class: number | null; litho_main_soil_code: string | null }[]
   /** Coordinator nonce — bumped by every litho-model mutation site. */
   bodyRecomputeLithoNonce: number
   /** Coordinator nonce — bumped by every geotech-model mutation site. */
@@ -127,10 +135,23 @@ export function useProjectBodyRecompute(
     geotechModelId,
     geotechLayers,
     geotechLayersLoaded,
+    geotechFormations,
     bodyRecomputeLithoNonce,
     bodyRecomputeGeotechNonce,
     toast,
   } = args
+
+  // Formation row → canonical class key — the identity the geotech evidence
+  // groups by (litho passes none and keeps row identity).
+  const geotechPackingClassOf = useMemo(
+    () =>
+      buildPackingClassOf(
+        geotechFormations.map(
+          f => [f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null }] as const,
+        ),
+      ),
+    [geotechFormations],
+  )
 
   const investigations = useMemo<InvestigationLocation[]>(
     () => [
@@ -163,9 +184,18 @@ export function useProjectBodyRecompute(
         investigations,
         layers: isGeotechTarget ? geotechLayers : lithoLayers,
         logLabel: isGeotechTarget ? 'geotech-recompute' : 'litho-recompute',
+        packingClassOf: isGeotechTarget ? geotechPackingClassOf : undefined,
       })
     },
-    [projectId, geotechModelId, visibleSections, investigations, geotechLayers, lithoLayers],
+    [
+      projectId,
+      geotechModelId,
+      visibleSections,
+      investigations,
+      geotechLayers,
+      lithoLayers,
+      geotechPackingClassOf,
+    ],
   )
 
   // The geometry "4 · Divide boreholes" reads each borehole column off. Built
