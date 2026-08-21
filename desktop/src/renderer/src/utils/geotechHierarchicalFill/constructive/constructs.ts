@@ -403,9 +403,38 @@ export function buildGapConstructs(
         const farTiedContacts =
           (tieOnContact(gapTies, far.ci, far.top, left, right) === null ? 0 : 1) +
           (tieOnContact(gapTies, far.ci, far.base, left, right) === null ? 0 : 1)
+        // ONE CONTACT, ONE GEOMETRY (owner 2026-08-21, the S10|S6 silt strip —
+        // *"the onlapping silt that should band"*): a contact is shared by two
+        // band pairs, and when the pair on the OTHER side of it is the same
+        // mass, their weld puts the contact ON its tie line — so this band
+        // rides that line too, whatever its own far end reads. Without this the
+        // big SF silt held a flat level at its base while the welded SILT-14
+        // strip below rode the tie, and the sliver between line and level cut
+        // the strip into the step he circled.
+        //
+        // EXCEPT when the different mass over there rides this very line into
+        // my window itself — a one-tie neighbour of THIS run whose onlap IS its
+        // statement about the line (his S17 dense sands: the thicker MD rides
+        // down and the dense top stays FLAT at its own contact to leave it the
+        // window). A far band from another family never emits here, and the
+        // family cover clips whatever the ride would overreach, so only an
+        // in-run far band suppresses it.
+        const localOpposite =
+          (stacks.get(band.ci) ?? []).find((b) =>
+            above
+              ? Math.abs(b.top - elevation) <= CONTACT_EPS
+              : Math.abs(b.base - elevation) <= CONTACT_EPS,
+          ) ?? null
+        const farOpposite = farBandOf(tie, band.ci, elevation, !above, stacks)
+        const farInRun = [...left.bands, ...right.bands].some((b) => b.layerId === far.layerId)
+        const weldedAcross =
+          localOpposite !== null &&
+          farOpposite !== null &&
+          sameMass(massOf(localOpposite), massOf(farOpposite)) &&
+          !(farInRun && farTiedContacts === 1)
         // Open over there (two tied contacts of its own) = we meet in the
         // middle, so the line is shared and both ride it.
-        contested[side] = farTiedContacts < 2
+        contested[side] = !weldedAcross && farTiedContacts < 2
         // THE BIDIRECTIONAL COLLISION, and only it (owner, 2026-08-21): both
         // bands carry exactly ONE tie, the same tie, both far ends different —
         // two onlaps facing each other on one line. *"Start with clearly thicker
