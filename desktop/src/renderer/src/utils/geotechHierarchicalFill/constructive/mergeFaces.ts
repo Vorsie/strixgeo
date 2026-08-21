@@ -75,7 +75,7 @@ function normalise(ring: readonly FacePoint[]): FacePoint[] {
  */
 export function mergeFaces<T>(
   faces: readonly LabelledFace<T>[],
-): { label: T; members: T[]; ring: FacePoint[] }[] {
+): { label: T; members: T[]; ring: FacePoint[]; welded: boolean }[] {
   const prepared = faces
     .map((face) => ({ ...face, ring: normalise(face.ring) }))
     .filter((face) => face.ring.length >= 3)
@@ -87,7 +87,7 @@ export function mergeFaces<T>(
     else list.push(face)
   }
 
-  const out: { label: T; members: T[]; ring: FacePoint[] }[] = []
+  const out: { label: T; members: T[]; ring: FacePoint[]; welded: boolean }[] = []
   for (const group of byKey.values()) {
     // Components: loops of this group that share an edge.
     const parent = group.map((_, i) => i)
@@ -123,7 +123,7 @@ export function mergeFaces<T>(
     for (const members of components.values()) {
       if (members.length === 1) {
         const only = group[members[0]]
-        out.push({ label: only.label, members: [only.label], ring: only.ring })
+        out.push({ label: only.label, members: [only.label], ring: only.ring, welded: false })
         continue
       }
       const merged = weld(members.map((i) => group[i].ring))
@@ -131,13 +131,15 @@ export function mergeFaces<T>(
         // Not one simple ring — keep the loops, but every piece still carries
         // the whole component's identities, because the component IS one mass.
         const all = members.map((i) => group[i].label)
-        for (const i of members) out.push({ label: group[i].label, members: all, ring: group[i].ring })
+        for (const i of members)
+          out.push({ label: group[i].label, members: all, ring: group[i].ring, welded: false })
         continue
       }
       out.push({
         label: group[members[0]].label,
         members: members.map((i) => group[i].label),
         ring: merged,
+        welded: true,
       })
     }
   }
