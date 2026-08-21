@@ -185,6 +185,9 @@ async def create_contact_correlation(
         model_id=result.edge.model_id,
         source=result.edge.source,
         was_created=result.was_created,
+        # The tie stands; the warning rides along so the renderer can toast it
+        # (owner order 2026-08-21 — flag a tie the litho frame will not band).
+        frame_warning=result.frame_warning,
     )
     if not result.was_created:
         from fastapi.responses import JSONResponse
