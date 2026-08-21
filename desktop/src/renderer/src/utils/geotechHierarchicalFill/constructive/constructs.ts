@@ -87,6 +87,14 @@ export interface BandConstruct {
   /** Along-x at which a lens closes. */
   apexX?: number
   /**
+   * The construct continues to the facing column instead of pinching — set
+   * when the facing test has no band at any of this band's levels (sub-TD
+   * ground: nothing over there to meet; owner 2026-08-21, "it should be a
+   * continuous band starting from S7"). ``claims`` skips its middle cut for
+   * these: the far half is nobody else's to answer.
+   */
+  extendsToFar?: boolean
+  /**
    * Whether each contact's line IS its tie — i.e. the construct RIDES it. A
    * contact that yielded a collision holds the band's own level instead, so it
    * is a boundary of its own and the fill must draw it: without that line the
@@ -532,6 +540,33 @@ export function buildGapConstructs(
         continue
       }
       if (emit === 'lens') {
+        // A LENS FACING NO DATA CONTINUES (owner 2026-08-21 night, on S7's
+        // thin interbeds rendered as phantom pinches around short S7A: "it
+        // should be a continuous band starting from S7 but now it is
+        // interrupted at S7A's column"). The pinch exists to MEET the facing
+        // test's reading; where the facing column has no band at any of this
+        // band's levels — the ground over there is below its TD — there is
+        // nothing to meet, and the band continues to that column at full
+        // thickness. Adoption carries it on from there, and it still pinches
+        // in the first gap whose facing test DID read that ground.
+        const facingCi = column.ci === left.ci ? right.ci : left.ci
+        const facingHasData = (stacks.get(facingCi) ?? []).some(
+          (b) => Math.min(b.top, band.top) - Math.max(b.base, band.base) > 0,
+        )
+        if (!facingHasData) {
+          out.push({
+            band,
+            emit,
+            apexX: xFar,
+            farX: xFar,
+            extendsToFar: true,
+            topTied: topTie !== null,
+            baseTied: baseTie !== null,
+            topAt: flat(band.top),
+            baseAt: flat(band.base),
+          })
+          continue
+        }
         const reach = lensReach(band, gapTies, xFar)
         const apexX = band.x + reach * (xFar - band.x)
         const mid = (band.top + band.base) / 2
@@ -591,12 +626,17 @@ export function claims(construct: BandConstruct, x: number, y: number): boolean 
   // Without it a construct riding a tie reached the facing column and painted
   // over ground that test itself measured — 44 of 1120 own-column-edge samples
   // on his model before this clause, 0 after.
-  const middle = (construct.band.x + construct.farX) / 2
-  if ((x - middle) * (construct.farX - middle) > 0) return false
-  if (construct.apexX !== undefined) {
-    const from = construct.band.x
-    if ((x - from) * (construct.apexX - from) < 0) return false
-    if (Math.abs(x - from) >= Math.abs(construct.apexX - from)) return false
+  // An EXTENDED construct owns its window to the facing column: the ground on
+  // the far half is below that test's TD, so there is no facing statement for
+  // the middle to protect (see ``extendsToFar``).
+  if (construct.extendsToFar !== true) {
+    const middle = (construct.band.x + construct.farX) / 2
+    if ((x - middle) * (construct.farX - middle) > 0) return false
+    if (construct.apexX !== undefined) {
+      const from = construct.band.x
+      if ((x - from) * (construct.apexX - from) < 0) return false
+      if (Math.abs(x - from) >= Math.abs(construct.apexX - from)) return false
+    }
   }
   const top = construct.topAt(x)
   const base = construct.baseAt(x)
