@@ -282,6 +282,37 @@ function tieOnContact(
 }
 
 /**
+ * Does ANY tie of this contact's FAN reach a same-mass far end?
+ *
+ * A contact may carry several ties (the fan — owner ruling 2026-08-21: the
+ * extra tie is the far layer's pinch statement, not a second tied contact of
+ * this band's). The far-end read must survey them ALL, run-wide: one same-mass
+ * end welds the contact whatever the others say. Reading only one tie of the
+ * fan let B2's MD tail read its S10 end — nothing there, the ground is below
+ * S10's TD — and call itself an onlap, while its jump tie to S6's own MD said
+ * WELD the whole time (owner: "the dense sand onlaps so the MD should fill").
+ * A tie whose far side holds no band states nothing about the mass.
+ */
+function fanWeldsSameMass(
+  ties: readonly RunTie[],
+  band: RunBand,
+  elevation: number,
+  above: boolean,
+  stacks: ReadonlyMap<number, readonly RunBand[]>,
+  own: Mass,
+  massOf: (band: RunBand) => Mass,
+): boolean {
+  for (const tie of ties) {
+    const onLeft = tie.leftCi === band.ci && Math.abs(tie.leftY - elevation) <= CONTACT_EPS
+    const onRight = tie.rightCi === band.ci && Math.abs(tie.rightY - elevation) <= CONTACT_EPS
+    if (!onLeft && !onRight) continue
+    const far = farBandOf(tie, band.ci, elevation, above, stacks)
+    if (far !== null && sameMass(own, massOf(far))) return true
+  }
+  return false
+}
+
+/**
  * *"follow tie ... check litho and packing density on the other end"* — the
  * mass that continues past the tie, on the SAME SIDE of the contact.
  *
@@ -397,6 +428,15 @@ export function buildGapConstructs(
       ] as const) {
         if (tie === null) continue
         const far = farBandOf(tie, band.ci, elevation, above, stacks)
+        // A TIE WHOSE FAR SIDE IS EMPTY states nothing about the mass — then,
+        // and only then, the contact's FAN speaks run-wide: any same-mass end
+        // on another of its ties welds it (see ``fanWeldsSameMass``). A real
+        // far end across THIS gap keeps its own read — a band welds one way
+        // and onlaps the other, and the weld must not erase the onlap.
+        if (far === null && fanWeldsSameMass(ties, band, elevation, above, stacks, own, massOf)) {
+          farEnds.push(own)
+          continue
+        }
         const farMass = far === null ? { litho: '', packing: '' } : massOf(far)
         farEnds.push(farMass)
         if (far === null || sameMass(own, farMass)) continue
