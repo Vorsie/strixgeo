@@ -119,11 +119,47 @@ export function fillFamily(
     residualAreaM2: { noBands: 0, outsideBandRange: 0 },
   }
 
+  // ADOPTION IS VISIBLE TO TIE RESOLUTION (owner 2026-08-21, the S8|S6 deep
+  // VD): a tie landing on a contact only an adopted band carries must resolve
+  // at the RUN level, or its line exists only in the gaps whose flanks happen
+  // to carry the band — in the S10|B2 gap between two shallow tests the deep
+  // VD's lines were not drawn at all and its ground flooded unwalled. Union
+  // each column's adoptable bands across the family's gaps (a superset is
+  // harmless: extra contacts only ADMIT ties) and resolve against that.
+  const adoptedByCi = new Map<number, Map<string, RunBand>>()
+  for (const [gap, cover] of family.regionsByGap) {
+    let coverLo = Infinity
+    let coverHi = -Infinity
+    for (const region of cover) {
+      for (const p of region.polygon) {
+        if (p.elevation < coverLo) coverLo = p.elevation
+        if (p.elevation > coverHi) coverHi = p.elevation
+      }
+    }
+    const soil = cover[0]?.formationId ?? ''
+    for (const ci of own.keys()) {
+      for (const band of context.adoptedBandsFor(gap, ci, coverLo, coverHi, soil)) {
+        let byLayer = adoptedByCi.get(ci)
+        if (byLayer === undefined) adoptedByCi.set(ci, (byLayer = new Map()))
+        byLayer.set(band.layerId, band)
+      }
+    }
+  }
+  const augmented = (ci: number): RunColumn => {
+    const column = own.get(ci) as RunColumn
+    const extra = adoptedByCi.get(ci)
+    if (extra === undefined || extra.size === 0) return column
+    return { ...column, bands: [...column.bands, ...extra.values()].sort((a, b) => b.top - a.top) }
+  }
+
   const resolved = runs.map((indices) => {
     const columns = indices.map((ci) => own.get(ci) as RunColumn)
+    // Resolution sees the adopted contacts; the FILL's flank columns stay
+    // per-gap (only that gap's adoptions apply — a band whose own family
+    // fills a gap must not also stand in it here).
     const { ties, crossings } = resolveRunTies(
       context.boundingEdges,
-      columns,
+      indices.map(augmented),
       context.geotechBandOfLayer,
     )
     // The cover's own boundaries, as lines: an untied contact that IS the parent
@@ -192,29 +228,6 @@ export function fillFamily(
     }
     const runWithAdopted =
       run === null ? null : { left: withAdopted(run.left), right: withAdopted(run.right) }
-    // AN ADOPTED BAND BRINGS ITS TIES (owner, 2026-08-21, the S8|S6 deep VD:
-    // *"the deepest VD sand on both these columns are tied by 2 ties. However
-    // MD wins in the gaps below sub TD"*). The run-level resolution above saw
-    // only the family's OWN contacts, so a tie landing on a contact that only
-    // an adopted band carries was dropped and the band read as a 0-tie lens —
-    // its correlated sub-TD span went to the dominant pick instead. Re-resolve
-    // against the gap's two flanks WITH their adopted bands and merge; the
-    // run-level list still carries the own-family long jumps this per-gap pass
-    // cannot see.
-    let gapTies: readonly RunTie[] = ties
-    if (
-      run !== null &&
-      runWithAdopted !== null &&
-      (runWithAdopted.left !== run.left || runWithAdopted.right !== run.right)
-    ) {
-      const extra = resolveRunTies(
-        context.boundingEdges,
-        [runWithAdopted.left, runWithAdopted.right],
-        context.geotechBandOfLayer,
-      ).ties
-      const have = new Set(ties.map((t) => t.key))
-      gapTies = [...ties, ...extra.filter((t) => !have.has(t.key))]
-    }
     const filled = fillGap({
       gapIndex: gap,
       xa: alongM[gap],
@@ -222,7 +235,7 @@ export function fillFamily(
       cover,
       gapPaint: context.paintByGap.get(gap) ?? cover,
       run: runWithAdopted,
-      ties: gapTies,
+      ties,
       coverTies,
       columns: [...own.values()].map(withAdopted),
       stacks: context.stacks,
