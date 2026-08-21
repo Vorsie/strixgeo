@@ -221,7 +221,7 @@ function polygonsTouch(
  * number
  *     The fraction tolerance for gap ``g``.
  */
-export function gapEdgeFractionTol(columns: readonly ColumnGeom[], g: number): number {
+export function gapEdgeFractionTol(columns: readonly Pick<ColumnGeom, 'x'>[], g: number): number {
   const x0 = columns[g]?.x
   const x1 = columns[g + 1]?.x
   if (x0 == null || x1 == null) return FRACTION_SNAP
@@ -282,7 +282,7 @@ export function edgeElevInterval(
  */
 export function mergeTouchingBodies(
   regions: readonly SectionRegion[],
-  columns: readonly ColumnGeom[],
+  columns: readonly Pick<ColumnGeom, 'x'>[],
 ): SectionRegion[] {
   return mergeTouchingBodiesWithGroups(regions, columns).regions
 }
@@ -297,6 +297,15 @@ export interface MergeTouchingBodiesOptions {
    * component). Default false — identical to the legacy merge.
    */
   excludeFallback?: boolean
+  /**
+   * Formation id → identity key for the adjacency scans. The geotech model
+   * keeps one formation ROW per (class, litho parent, GEOLOGICAL parent), so
+   * comparing rows split every mass tied or touching across a geological
+   * boundary; the owner ruled the identity is the CLASS (2026-08-21, "one
+   * mass one body" + option 3). Default: the formation id itself — the litho
+   * merge is unchanged.
+   */
+  identityKeyOf?: (formationId: string) => string
 }
 
 /**
@@ -326,10 +335,11 @@ export interface MergeTouchingBodiesOptions {
  */
 export function mergeTouchingBodiesWithGroups(
   regions: readonly SectionRegion[],
-  columns: readonly ColumnGeom[],
+  columns: readonly Pick<ColumnGeom, 'x'>[],
   opts?: MergeTouchingBodiesOptions,
 ): { regions: SectionRegion[]; groups: string[][] } {
   const excludeFallback = opts?.excludeFallback === true
+  const identityKeyOf = opts?.identityKeyOf ?? ((formationId: string): string => formationId)
   /** Whether a region takes part in the adjacency scan / groups at all. */
   const participates = (i: number): boolean => !(excludeFallback && regions[i].fallback === true)
   const n = regions.length
@@ -352,7 +362,7 @@ export function mergeTouchingBodiesWithGroups(
   const byGapForm = new Map<string, number[]>()
   for (let i = 0; i < n; i++) {
     if (!participates(i)) continue // excluded fallback fill: no unions through it
-    const key = `${regions[i].gapIndex}|${regions[i].formationId}`
+    const key = `${regions[i].gapIndex}|${identityKeyOf(regions[i].formationId)}`
     let arr = byGapForm.get(key)
     if (!arr) {
       arr = []
@@ -405,7 +415,7 @@ export function mergeTouchingBodiesWithGroups(
       const ia = edgeElevInterval(regions[a].polygon, 1, edgeTolL)
       if (!ia) continue
       for (const b of rightIdxs) {
-        if (regions[b].formationId !== regions[a].formationId) continue
+        if (identityKeyOf(regions[b].formationId) !== identityKeyOf(regions[a].formationId)) continue
         if (ufFind(parent, a) === ufFind(parent, b)) continue
         if (ext[b].fLo > edgeTolR) continue // B does not reach the shared column
         const ib = edgeElevInterval(regions[b].polygon, 0, edgeTolR)
