@@ -570,54 +570,44 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // base). While ANY open band can answer, only open bands are asked; a
       // closed construct is consulted solely in the nobody-open-can fallback
       // (the CF4/CF6 all-closed holes).
-      const pick = (cands: readonly RunBand[]): { band: RunBand | null; split: boolean } | null =>
-        cands.length === 0
-          ? null
-          : dominantBand(
-              cands,
-              closedByLens,
-              closedAtMiddle,
-              middleX,
-              lo,
-              hi,
-              x,
-              y,
-              massKeyOf,
-              drawnTies,
-              onlapBars,
-            )
-      const openFlank = allBands.filter((b) => !closedAtMiddle.has(b.layerId))
       // THE RUN'S OTHER TESTS ANSWER WHERE THE FLANKS CANNOT (owner
       // 2026-08-21, the S8|S6 deep VD passing under two shallow tests): the
       // correlated band's ground runs through gaps whose flanking tests never
-      // reached it, and its owners stand on the run's other columns. Same
-      // wall in every rung: never across a correlation.
+      // reached it, and its owners stand on the run's other columns.
+      //
+      // So the ground asks in widening circles — the two flanks first, then
+      // the whole family; open masses first, then closed ones — and the WALLS
+      // hold in every circle. Only when every circle is walled out does the
+      // last one drop the walls, because a wall chooses BETWEEN candidates and
+      // may never un-class ground (measured: 345 cells of KLEI-23 went to
+      // hatch without that last resort).
       const familyBands = columns.flatMap((c) => c.bands)
-      const openFamily = familyBands.filter((b) => !closedAtMiddle.has(b.layerId))
-      let dominant = pick(openFlank)
-      if (dominant === null || dominant.band === null) dominant = pick(openFamily)
-      if (dominant === null || dominant.band === null) dominant = pick(allBands)
-      if (dominant === null || dominant.band === null) dominant = pick(familyBands)
-      // A pocket EVERY candidate is walled from (its own cover dipping below
-      // its own base restatement, for one) still belongs to its nearest class
-      // — the wall decides between candidates, it never un-classes ground.
-      if (dominant === null || dominant.band === null) {
-        dominant =
-          familyBands.length === 0
-            ? null
-            : dominantBand(
-                familyBands,
-                closedByLens,
-                closedAtMiddle,
-                middleX,
-                lo,
-                hi,
-                x,
-                y,
-                massKeyOf,
-                [],
-                onlapBars,
-              )
+      const open = (bs: readonly RunBand[]): RunBand[] =>
+        bs.filter((b) => !closedAtMiddle.has(b.layerId))
+      const rungs: [readonly RunBand[], readonly RunTie[]][] = [
+        [open(allBands), drawnTies],
+        [open(familyBands), drawnTies],
+        [allBands, drawnTies],
+        [familyBands, drawnTies],
+        [familyBands, []],
+      ]
+      let dominant: { band: RunBand | null; split: boolean } | null = null
+      for (const [candidates, walls] of rungs) {
+        if (candidates.length === 0) continue
+        dominant = dominantBand(
+          candidates,
+          closedByLens,
+          closedAtMiddle,
+          middleX,
+          lo,
+          hi,
+          x,
+          y,
+          massKeyOf,
+          walls,
+          onlapBars,
+        )
+        if (dominant.band !== null) break
       }
       band = dominant?.band ?? null
       if (band !== null) {
