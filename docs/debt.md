@@ -8486,30 +8486,24 @@ geotech derivation: re-freeze the baseline first (or key the baseline on the
 section NAMES instead of model ids so a model wipe cannot orphan it), and only
 then trust the gate again.
 
-## 273. Cross-family packing ties — the far half: a family with no cover in the crossed gap (M)
+## 273. Cross-family packing ties dropped silently (M) — RESOLVED 2026-08-21
 
-**What.** HALF RESOLVED 2026-08-21 by the owner's tied-contact ruling
-("two ties is two tied contacts"): a tie now counts at its in-family
-contact whatever family the far end belongs to (`boundingEdges` +
-`resolveRunTies` accept one in-run endpoint), so the old "25 inert ties"
-class largely dissolved — CS1 alone moved 11.6 % of samples, every change
-class-within-soil, litho arm byte-identical. What REMAINS is the far half:
-a tie whose near band's own family has NO cover in the gap the tie
-crosses. One live case, pinned identically in three gates (210 nospan=1,
-law-oracle CS1=1, own-edge exception list): `Cross-section 1 col19 gap19
-band 7.03..6.62` — its family run is 16|19 and stops at col19, its two
-ties cross into col20; the law says BAND, the family frame says the ground
-belongs to the neighbouring family, whose mass paints beside col19's own
-log. Four fix attempts were measured and reverted (band adoption by cover
-window / by edge point / when buried; refusing to fill over another
-family's log cost 3.6 pp CS1 coverage).
-
-**Why deferred.** Needs an owner ruling, not code: either the family frame
-yields at a test's own edge, or such ties are inert by design. Question
-put to him 2026-08-21.
-
-**When to revisit.** His answer — then the three pinned exceptions re-arm
-to zero in the same round.
+**What.** Resolved in two halves, both on owner rulings. NEAR half
+(tied-contact ruling, "two ties is two tied contacts"): a tie counts at
+its in-family contact whatever family the far end belongs to
+(`boundingEdges` + `resolveRunTies`). FAR half (mass-identity ruling,
+*"yes one mass one body"*): the one remaining case — `Cross-section 1
+col19 gap19 band 7.03..6.62`, pinned identically in three gates — turned
+out to be the duplicate-formation-row defect, not a frame conflict: the
+band's two ties land on another ZAND-5 sitting on a DIFFERENT formation
+row (the subdivide keeps one row per (class, litho parent, GEOLOGICAL
+parent)), and mass identity compared ROWS. With identity by CLASS
+(`packingClassOf` in the fill + `packing_nad_class` in the DB resolver)
+the pair welds, spans, and paints ZAND-5 beside col19's own log. All three
+gate exceptions re-armed to zero the same round (210 all-zero ×14,
+law-oracle 0 ×14, own-edge 0/1120). The same fix dissolved 8 mid-gap
+vertical seams splitting same-class masses on CS1 (his "bug with vertical
+lines" report) and un-split every body tied across a geological boundary.
 
 ## 274. Seam strokes double on same-class edges — the pale helper lines (S)
 
