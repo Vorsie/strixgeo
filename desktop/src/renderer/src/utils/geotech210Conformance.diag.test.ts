@@ -644,7 +644,21 @@ function auditSection(sec: RawSection): Violation[] {
           (farForms.get(`${u.layerId}|${gap}`) ?? []).every(
             (f) => classKeyOf(f) === classKeyOf(u.formationId),
           )
-        if (runLeft >= 0 && !sameMassAcross && !wonCollision) {
+        // A CLOSURE EXISTS TO MEET THE FACING READING (owner 2026-08-21 late
+        // night, on S7's interbeds pinching at short S7A: *"it should be a
+        // continuous band starting from S7 but now it is interrupted at S7A's
+        // column"*). With no band over there at these levels — sub-TD ground —
+        // there is nobody to meet, the construct continues, and the
+        // termination clause has nothing to say about it.
+        const facingCi = ci <= gap ? gap + 1 : gap
+        const myTop = surf - u.topDepthM
+        const myBase = surf - u.baseDepthM
+        const facingReads = (G.columns[facingCi]?.units ?? []).some((v) => {
+          const top = G.columns[facingCi].surfaceElevM - v.topDepthM
+          const base = G.columns[facingCi].surfaceElevM - v.baseDepthM
+          return Math.min(top, myTop) - Math.max(base, myBase) > 0
+        })
+        if (runLeft >= 0 && !sameMassAcross && !wonCollision && facingReads) {
           const middleX = (G.alongM[runLeft] + G.alongM[runRight]) / 2
           const width = G.alongM[gap + 1] - G.alongM[gap]
           const middle = Math.abs(width) < 1e-9 ? 0.5 : (middleX - G.alongM[gap]) / width
