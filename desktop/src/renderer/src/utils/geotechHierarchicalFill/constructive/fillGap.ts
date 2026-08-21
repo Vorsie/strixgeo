@@ -423,9 +423,12 @@ export function fillGap(input: GapFillInput): GapFillResult {
         { fraction: toFraction(construct.apexX), elevation: apex },
       ])
     }
-    // The lens flanks.
+    // The lens flanks. An EXTENDED lens (facing sub-TD, continues full
+    // thickness — see ``extendsToFar``) has no pinch, so no flank: its own
+    // level horizontals below bound its window across the whole gap.
     for (const construct of constructs) {
       if (construct.emit !== 'lens' || construct.apexX === undefined) continue
+      if (construct.extendsToFar === true) continue
       const mid = (construct.band.top + construct.band.base) / 2
       const fa = toFraction(construct.band.x)
       const fb = toFraction(construct.apexX)
