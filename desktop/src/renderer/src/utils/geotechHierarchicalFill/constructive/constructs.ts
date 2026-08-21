@@ -403,22 +403,20 @@ export function buildGapConstructs(
         const farTiedContacts =
           (tieOnContact(gapTies, far.ci, far.top, left, right) === null ? 0 : 1) +
           (tieOnContact(gapTies, far.ci, far.base, left, right) === null ? 0 : 1)
-        // ONE CONTACT, ONE GEOMETRY (owner 2026-08-21, the S10|S6 silt strip —
-        // *"the onlapping silt that should band"*): a contact is shared by two
-        // band pairs, and when the pair on the OTHER side of it is the same
-        // mass, their weld puts the contact ON its tie line — so this band
-        // rides that line too, whatever its own far end reads. Without this the
-        // big SF silt held a flat level at its base while the welded SILT-14
-        // strip below rode the tie, and the sliver between line and level cut
-        // the strip into the step he circled.
-        //
-        // EXCEPT when the different mass over there rides this very line into
-        // my window itself — a one-tie neighbour of THIS run whose onlap IS its
-        // statement about the line (his S17 dense sands: the thicker MD rides
-        // down and the dense top stays FLAT at its own contact to leave it the
-        // window). A far band from another family never emits here, and the
-        // family cover clips whatever the ride would overreach, so only an
-        // in-run far band suppresses it.
+        // ONE CONTACT, ONE GEOMETRY (owner 2026-08-21, twice in one day — the
+        // S10|S6 silt strip, *"the onlapping silt that should band"*, and the
+        // S11 MD sand *"spills over the correlation band with the very dense
+        // sand below"*): a contact is shared by two band pairs, and when the
+        // pair on the OTHER side of it is the same mass, their weld puts the
+        // contact ON its tie line — so this band rides that line too, whatever
+        // its own far end reads, ON BOTH HALVES. Holding a flat level instead
+        // left a wedge between level and line that the band's own log then
+        // claimed — the MD paint inside the very dense sand's correlation
+        // band. A far pinching onlap owns only its own half above the line and
+        // never conflicts with the ride; the dense mass under a welded contact
+        // fills UP TO the line on its own half (which is also the answer to
+        // the S17 remainder triangle — the ground is this family's cover, so
+        // the mass below the line takes it, to the line and no further).
         const localOpposite =
           (stacks.get(band.ci) ?? []).find((b) =>
             above
@@ -426,12 +424,10 @@ export function buildGapConstructs(
               : Math.abs(b.base - elevation) <= CONTACT_EPS,
           ) ?? null
         const farOpposite = farBandOf(tie, band.ci, elevation, !above, stacks)
-        const farInRun = [...left.bands, ...right.bands].some((b) => b.layerId === far.layerId)
         const weldedAcross =
           localOpposite !== null &&
           farOpposite !== null &&
-          sameMass(massOf(localOpposite), massOf(farOpposite)) &&
-          !(farInRun && farTiedContacts === 1)
+          sameMass(massOf(localOpposite), massOf(farOpposite))
         // Open over there (two tied contacts of its own) = we meet in the
         // middle, so the line is shared and both ride it.
         contested[side] = !weldedAcross && farTiedContacts < 2
