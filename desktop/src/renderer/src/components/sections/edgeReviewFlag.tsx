@@ -54,6 +54,11 @@ export function reviewFlagLabel(reason: string | null | undefined): string {
     // band the tie was drawn on is gone. Owner's wording, 2026-08-10.
     case 'band_absorbed':
       return 'The band this tie was drawn on was absorbed — check it still belongs'
+    // The tie is lawful as a surface statement but the litho frame will never
+    // open the ground it claims, so the fill answers with an onlap where the
+    // engineer expected a band. Owner order 2026-08-21: say so at draw time.
+    case 'frame_mismatch':
+      return 'The litho model does not connect these units — the fill will not band them'
     default:
       return 'This tie needs checking'
   }
