@@ -98,6 +98,12 @@ export interface UseBody3DViewStateOptions {
    * ``false`` (no fence machinery at all).  Defaults to ``true`` (Lithology).
    */
   fenceActive?: boolean
+  /**
+   * Geotech formation id → canonical class key (``buildPackingClassOf``) for a
+   * framed geotech fence — the same mass identity the geotech axis renders
+   * with (owner 2026-08-21: one mass one body). Omit on litho / geology use.
+   */
+  packingClassOf?: ReadonlyMap<string, string>
 }
 
 /** State + derived values returned by ``useBody3DViewState``. */
@@ -153,6 +159,7 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     resetSplitViewportRef,
     voxelRequestRef,
     fenceActive = true,
+    packingClassOf,
   } = options
 
   const {
@@ -401,9 +408,9 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
   const fencePanels = useMemo(
     () =>
       fenceActive && viewMode === 'fence'
-        ? buildProjectFence(fenceSectionInputs, frameSectionInputs)
+        ? buildProjectFence(fenceSectionInputs, frameSectionInputs, packingClassOf)
         : undefined,
-    [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs],
+    [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs, packingClassOf],
   )
 
   return {
