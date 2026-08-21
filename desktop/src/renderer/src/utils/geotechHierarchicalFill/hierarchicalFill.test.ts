@@ -716,6 +716,67 @@ describe('the hierarchical geotech fill — densities within lithos', () => {
     }
   })
 
+  it('H13: a welded pair puts its contact ON the tie line — the band above rides it too', () => {
+    // Owner, 2026-08-21, on the S10|S6 silt strip: *"the onlapping silt that
+    // should band."* The SILT-14 strip's top contact is tied and the two
+    // SILT-14s weld, so that contact IS the tie line — one contact, one
+    // geometry. The SF silt above must ride the same line, even though ITS far
+    // end at that contact reads a different, closed mass (the clay above the
+    // strip on the other test). Before this rule it held a flat level at its
+    // own base and the sliver between line and level cut the strip mid-gap.
+    const litho = {
+      columns: [
+        column('A', 10, [
+          { layerId: 'LA-topsilt', formationId: 'f-silt', top: 0, base: 0.5 },
+          { layerId: 'LA-clay', formationId: 'f-clay', top: 0.5, base: 3 },
+          { layerId: 'LA-silt', formationId: 'f-silt', top: 3, base: 3.5 },
+          { layerId: 'LA-sand', formationId: 'f-sand', top: 3.5, base: 6 },
+        ]),
+        column('B', 10, [
+          { layerId: 'LB-silt', formationId: 'f-silt', top: 0, base: 4.5 },
+          { layerId: 'LB-sand', formationId: 'f-sand', top: 4.5, base: 6 },
+        ]),
+      ],
+      edges: [tie('LA-topsilt', 'LB-silt'), tie('LA-sand', 'LB-sand')],
+    }
+    const geotech = [
+      column('A', 10, [
+        { layerId: 'GA-topsilt', formationId: 'g-silt-14a', top: 0, base: 0.5 },
+        { layerId: 'GA-clay', formationId: 'g-klei-21', top: 0.5, base: 3 },
+        { layerId: 'GA-silt14', formationId: 'g-silt-14a', top: 3, base: 3.5 },
+        { layerId: 'GA-sand', formationId: 'g-zand-8', top: 3.5, base: 6 },
+      ]),
+      column('B', 10, [
+        { layerId: 'GB-silt13', formationId: 'g-silt-13', top: 0, base: 4 },
+        { layerId: 'GB-silt14', formationId: 'g-silt-14b', top: 4, base: 4.5 },
+        { layerId: 'GB-sand', formationId: 'g-zand-8', top: 4.5, base: 6 },
+      ]),
+    ]
+    const out = computeHierarchicalGeotechFill({
+      lithoColumns: litho.columns,
+      lithoEdges: litho.edges,
+      lithoRegions: computeSectionFillActive(litho.columns, litho.edges, undefined, ALONG),
+      geotechColumns: geotech,
+      geotechEdges: [tie('GA-topsilt', 'GB-silt13'), tie('GA-silt14', 'GB-silt14')],
+      alongM: ALONG,
+      packingClassOf: new Map([
+        ['g-klei-21', 'KLEI|21'],
+        ['g-silt-13', 'SILT|13'],
+        ['g-silt-14a', 'SILT|14'],
+        ['g-silt-14b', 'SILT|14'],
+        ['g-zand-8', 'ZAND|8'],
+      ]),
+    })
+    // The tie line runs elev 7 (A) -> 6 (B). At f=0.75 it sits at 6.25: the
+    // ground just BELOW it belongs to the welded SILT-14 strip, not to the SF
+    // silt holding its own 6.0 level.
+    const below = paintAt(out.regions, 0, 0.75, 6.12)
+    expect(below?.formationId, 'the strip lost its ground below the tie line').toMatch(/silt-14/)
+    // And just ABOVE the line the SF silt stands, as before.
+    const above = paintAt(out.regions, 0, 0.75, 6.4)
+    expect(above?.formationId, 'the SF silt left its own side of the line').toBe('g-silt-13')
+  })
+
   it('H11c: two DIFFERENT classes on different rows still meet — the map never over-welds', () => {
     const scene = duplicateRowScene()
     const out = computeHierarchicalGeotechFill({
