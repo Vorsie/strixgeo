@@ -2,19 +2,19 @@
   "lithoModelId": "019e934c-70fd-7d11-a44a-b2073f4063a2",
   "geotechModelId": "01a00625-0e1b-7e04-a9d7-0fa7026a60f6",
   "sections": {
-    "Cross-section 1": 98.87,
-    "Cross-section 2": 99.04,
-    "Cross-section 3": 99.42,
-    "Tie-section 10": 99.26,
-    "Tie-section 11": 98.56,
-    "Tie-section 12": 98.42,
+    "Cross-section 1": 98.27,
+    "Cross-section 2": 98.26,
+    "Cross-section 3": 99.07,
+    "Tie-section 10": 97.34,
+    "Tie-section 11": 98.05,
+    "Tie-section 12": 97.13,
     "Tie-section 13": 100,
-    "Tie-section 14": 98.87,
-    "Tie-section 4": 97.99,
-    "Tie-section 5": 98.34,
-    "Tie-section 6": 98.96,
-    "Tie-section 7": 98.71,
-    "Tie-section 8": 98.87,
-    "Tie-section 9": 99.16
+    "Tie-section 14": 97.36,
+    "Tie-section 4": 96.44,
+    "Tie-section 5": 97.48,
+    "Tie-section 6": 97.82,
+    "Tie-section 7": 97.15,
+    "Tie-section 8": 97.45,
+    "Tie-section 9": 98.58
   }
 }
