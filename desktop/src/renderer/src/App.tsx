@@ -1097,6 +1097,7 @@ export default function App() {
     geotechModelId: geo.activeGeotechModel?.id ?? null,
     geotechLayers: geo.geotechLayers,
     geotechLayersLoaded: geo.geotechLayersLoaded,
+    geotechFormations: geo.geotechFormations,
     bodyRecomputeLithoNonce,
     bodyRecomputeGeotechNonce,
     toast,
