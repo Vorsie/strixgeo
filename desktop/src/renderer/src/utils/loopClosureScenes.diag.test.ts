@@ -796,7 +796,15 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // class may never cross a correlation, so the ground between the shallow
     // tests' tied bases and that line reads the sand ABOVE the line, and the
     // VD keeps only its own band window below it.
-    expect(geotechClassAt(scene, 14, 0.5, -5.0), 'VD above its correlation (gap 14)').toBe('ZAND-6')
+    // The gap-14 sample sat at -5.0 until the sub-TD continuation ruling
+    // (2026-08-21 late night) turned that ground into S8's DRILLED SILT: S8
+    // logged silt -4.45..-6.32 and S10's log stops at -3.24, so with nothing
+    // to meet the silt now carries across instead of pinching. The rule this
+    // scene states is about SAND, so its sample moves to sand ground above
+    // the deep VD; the silt that took the old point is pinned on its own line
+    // below, so the change is recorded rather than hidden.
+    expect(geotechClassAt(scene, 14, 0.5, -4.0), 'VD above its correlation (gap 14)').toBe('ZAND-6')
+    expect(geotechClassAt(scene, 14, 0.5, -5.0), "S8's drilled silt carries across").toBe('SILT-16')
     expect(geotechClassAt(scene, 15, 0.5, -4.5), 'VD below S10 above the line (gap 15)').toBe(
       'ZAND-6',
     )
@@ -821,7 +829,7 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(geotechClassAt(scene, 14, 0.1, -4.0), 'the D onlap up to its contact').toBe('ZAND-7')
   })
 
-  it.fails('S23 · gaps 16-17 · an interbed facing sub-TD continues; it pinches only against data', () => {
+  it('S23 · gaps 16-17 · an interbed facing sub-TD continues; it pinches only against data', () => {
     // Owner, 2026-08-21 late night, on S7's thin KLEI-22 interbed rendered as
     // phantom lenses around S7A: "it should be a continuous band starting
     // from S7 but now it is interrupted at S7A's column by a SF clay render."
@@ -830,14 +838,11 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // S7A's column, and the adopted copy in gap 16 still pinches toward B2,
     // whose log DID read continuous clay there.
     //
-    // HELD RED (it.fails) — blocked by the LITHO arm: S7's interbeds are each
-    // their own litho-UNTIED litho unit (0c7b6f and siblings), and the litho
-    // engine (partitionFillV2) closes each as a lens pinching at ~0.55 in the
-    // S7A|S7 gap; the geotech frame can never exceed the litho cover, and
-    // S7A has no unit to litho-correlate to (its log stops at +10.4). The
-    // geotech-side rule is BUILT (constructs.ts extendsToFar: a lens facing
-    // sub-TD continues full thickness) and takes over the moment the litho
-    // arm learns the same sub-TD continuation law.
+    // Both arms carry the law now: the geotech constructive arm
+    // (constructs.ts, extendsToFar) and the litho engine
+    // (partitionFillV2/emitContinuation.ts). It had to be both — the geotech
+    // frame can never exceed the litho cover, so while only the geotech half
+    // existed this pin stayed red on a litho pinch the engine invented.
     expect(geotechClassAt(scene, 17, 0.3, 6.3), 'the interbed interrupted at S7A').toBe('KLEI-22')
     expect(geotechClassAt(scene, 16, 0.75, 6.3), 'the adopted interbed at S7A side').toBe(
       'KLEI-22',
