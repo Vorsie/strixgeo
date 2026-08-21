@@ -42,6 +42,12 @@ export interface BodyRecomputeAssemblyParams {
   layers: readonly LithoLayerLike[]
   /** Log channel label ('litho-recompute' / 'geotech-recompute'). */
   logLabel: string
+  /**
+   * Geotech formation id → canonical class key (``buildPackingClassOf``) — the
+   * identity the evidence groups by (owner 2026-08-21: one mass one body).
+   * Omit for the litho model, which keeps row identity.
+   */
+  packingClassOf?: ReadonlyMap<string, string>
 }
 
 /**
@@ -66,7 +72,8 @@ export interface BodyRecomputeAssemblyParams {
 export async function assembleBodyRecomputePayload(
   params: BodyRecomputeAssemblyParams,
 ): Promise<RecomputeBodiesRequest | null> {
-  const { projectId, modelId, visibleSections, investigations, layers, logLabel } = params
+  const { projectId, modelId, visibleSections, investigations, layers, logLabel, packingClassOf } =
+    params
   if (!projectId || !modelId || visibleSections.length === 0) return null
 
   // Section-scoped approved edges, minus resolver-suspended flagged ties. A failed
@@ -124,5 +131,5 @@ export async function assembleBodyRecomputePayload(
     lithoLayers: layers,
     edgesBySectionId,
   })
-  return buildBodyRecomputePayload(sectionInputs, boundariesByBodyId, logLabel)
+  return buildBodyRecomputePayload(sectionInputs, boundariesByBodyId, logLabel, packingClassOf)
 }
