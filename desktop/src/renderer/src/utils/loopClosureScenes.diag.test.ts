@@ -32,6 +32,7 @@ import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
+import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
 
@@ -118,6 +119,7 @@ function buildScene(name: string): Scene {
     ),
     geotechEdges: geoEdges,
     alongM: L.alongM,
+    packingClassOf: buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta)),
   })
   const nad = raw.refinementBundle.nadMeta
   const soil = raw.refinementBundle.lithoSoilByFormationId
