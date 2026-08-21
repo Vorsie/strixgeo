@@ -90,6 +90,13 @@ class ContactCorrelationResponse(BaseModel):
     was_created : bool
         ``True`` when a new edge was inserted; ``False`` when the edge
         already existed (idempotent re-call returns 200 not 201).
+    frame_warning : str | None
+        Set when a geotech packing tie does not conform to the litho frame
+        (different soils, or same soil with no litho correlation path).  The
+        tie IS written — this is the draw-time flag the owner ordered on
+        2026-08-21, surfaced as a toast; the edge also carries the matching
+        ``review_reason`` badge.  ``None`` for conforming ties and for every
+        litho / geological correlation.
     """
 
     edge_id: UUID
@@ -100,6 +107,7 @@ class ContactCorrelationResponse(BaseModel):
     model_id: UUID
     source: str
     was_created: bool
+    frame_warning: str | None = None
 
 
 class ContactCorrelationEdgeListItem(BaseModel):
