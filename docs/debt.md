@@ -8523,6 +8523,18 @@ touching the stroke pass.
 **When to revisit.** First dogfeed after the hierarchical harvest — if the
 pale lines survive on his screen, this is the next contained renderer fix.
 
+**PARTLY RESOLVED 2026-08-21 (late night).** One family of pale line was
+NOT a doubled stroke: the merged ring walked out to a wedge apex and back
+along nearly the same path, and the stroke pass — finding no neighbour for
+those two coincident edges — drew the detour as a hairline ending in
+mid-region ("a boundary at the bottom but not at the top", his words).
+Fixed in GEOMETRY, not in the stroke pass: `dropNeedleSpurs.ts` removes
+out-and-back detours and whole sliver regions thinner than the snap grid
+(four model-wide, 0.0016 m² between them). A geometric hole audit
+(`geotechHoles.diag`, GEOTECH_HOLES=1, negative-controlled) confirms the
+fill leaves ZERO unpainted ground, so any pale line that survives is a
+stroke question and belongs to the remainder of this item.
+
 ## 275. Codebase-wide simplification / deletion campaign (L)
 
 **What.** Owner directive 2026-08-21, during the constructive-fill round:
