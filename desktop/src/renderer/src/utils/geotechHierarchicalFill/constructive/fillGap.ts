@@ -314,11 +314,16 @@ export function fillGap(input: GapFillInput): GapFillResult {
         { fraction: 1 + EXTEND, elevation: tieElevAt(tie, atFraction(1 + EXTEND)) },
       ])
     }
-    // "vertical line in the middle" — where the law calls for it (two ties, a
-    // different mass at the other end), and where two onlaps reaching from
-    // opposite tests meet, which is the same line: a construct owns its own
-    // side of it (see ``claims``).
-    if (constructs.some((c) => c.emit === 'vertical' || c.emit === 'onlap')) {
+    // *"if it is different then vertical line in the middle"* — the line is
+    // drawn where two statements MEET: two onlaps reaching from opposite tests,
+    // or two open masses spanning into each other (ruled 2026-08-21, *"two ties
+    // is two tied contacts"*: a two-contact band emits nothing and spans, and
+    // the vertical is the seam between it and the mass coming the other way).
+    // Where only one side has an open mass there is nobody to meet, so no seam
+    // is drawn and it fills through — the SF silt.
+    const opensLeft = constructs.some((c) => c.emit === 'nothing' && c.band.ci === run.left.ci)
+    const opensRight = constructs.some((c) => c.emit === 'nothing' && c.band.ci === run.right.ci)
+    if (constructs.some((c) => c.emit === 'onlap') || (opensLeft && opensRight)) {
       vertical(toFraction((run.left.x + run.right.x) / 2))
     }
     // THE ONLAP FLANK — the free contact closing onto its tie at the
@@ -361,10 +366,24 @@ export function fillGap(input: GapFillInput): GapFillResult {
   const levelColumns =
     run === null ? columns : columns.filter((c) => c.ci === run.left.ci || c.ci === run.right.ci)
   const stated = new Set<string>()
+  const held = new Set<string>()
+  const contactKeyOf = (ci: number, elevation: number): string =>
+    `${ci}@${Math.round(elevation * 1000)}`
   for (const construct of constructs) {
-    if (construct.topTied) stated.add(`${construct.band.ci}@${Math.round(construct.band.top * 1000)}`)
-    if (construct.baseTied) stated.add(`${construct.band.ci}@${Math.round(construct.band.base * 1000)}`)
+    for (const [rides, elevation] of [
+      [construct.topTied, construct.band.top],
+      [construct.baseTied, construct.band.base],
+    ] as const) {
+      ;(rides ? stated : held).add(contactKeyOf(construct.band.ci, elevation))
+    }
   }
+  // A CONTACT IS SHARED, and the two bands meeting at it can disagree about
+  // whose line it is: one rides the tie, the other holds its own level because
+  // the mass over there closed its loop. Then the flat line is a real boundary
+  // and has to be drawn — suppressing it because the OTHER band rides let one
+  // face span both sides of it, and the face's own sample decided for the
+  // whole: S6's thin silt lost its own log to the big silt above it at f=0.98.
+  for (const key of held) stated.delete(key)
   for (const column of levelColumns) {
     for (const band of column.bands) {
       if (!stated.has(`${band.ci}@${Math.round(band.top * 1000)}`)) horizontal(band.top)
@@ -381,9 +400,10 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // ----------------------------------------------------------------- FILL --
   const lenses = constructs.filter((c) => c.emit === 'lens')
   const onlaps = constructs.filter((c) => c.emit === 'onlap')
-  // The two masses a vertical line stands between own their own side of it; a
-  // band that emits NOTHING owns the ground between the lines it follows.
-  const verticals = constructs.filter((c) => c.emit === 'vertical' || c.emit === 'nothing')
+  // A band that emits NOTHING owns the ground between the lines it follows. Two
+  // of them reaching into each other share those lines, so the nearer test wins
+  // each half and the seam falls in the middle by itself — his vertical.
+  const spanning = constructs.filter((c) => c.emit === 'nothing')
   const framePaint = painterOrder(gapPaint)
   // *"Silt SF fills that whole gap because all the rest is closed"* (owner,
   // 2026-08-21). The rest of the ground belongs to the mass this cover IS, and a
@@ -406,7 +426,6 @@ export function fillGap(input: GapFillInput): GapFillResult {
   for (const construct of constructs) {
     if (construct.emit === 'nothing') continue
     closedAtMiddle.add(construct.band.layerId)
-    if (construct.emit === 'vertical') continue
     closedByLens.set(construct.band.layerId, { lo: construct.band.base, hi: construct.band.top })
   }
   const middleX = run === null ? Number.NaN : (run.left.x + run.right.x) / 2
@@ -429,14 +448,23 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // is the ground between two masses a vertical stands in, then the dominant
     // mass of whatever is left.
     for (const tier of FILL_ORDER.map((step) =>
-      step === 'lens' ? lenses : step === 'onlap' ? onlaps : verticals,
+      step === 'lens' ? lenses : step === 'onlap' ? onlaps : spanning,
     )) {
-      let bestDistance = Infinity
+      // Nearest test first, because a test owns the ground beside it — and on
+      // ONE test, the band that owns this very level answers before its
+      // neighbours. Two spanning constructs of the same column both claim the
+      // ground between their lines where those lines cross a neighbour's
+      // window, and without this the stack order decided it: S6's own thin silt
+      // lost its own log to the big silt above it (S16c, at f=0.9 beside S6).
+      let best: [number, number] | null = null
       for (const construct of tier) {
         if (!claims(construct, x, y)) continue
-        const distance = Math.abs(construct.band.x - x)
-        if (distance < bestDistance) {
-          bestDistance = distance
+        const rank: [number, number] = [
+          y <= construct.band.top && y >= construct.band.base ? 1 : 0,
+          -Math.abs(construct.band.x - x),
+        ]
+        if (best === null || rank[0] > best[0] || (rank[0] === best[0] && rank[1] > best[1])) {
+          best = rank
           band = construct.band
         }
       }
