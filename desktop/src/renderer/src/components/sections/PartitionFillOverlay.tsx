@@ -1425,7 +1425,7 @@ export default function PartitionFillOverlay({
                 `hierarchical geotech fill: ${out.diagnostics.families} litho families, ` +
                   `${out.diagnostics.bands} bands → ${out.regions.length} classed faces, ` +
                   `${out.lithoFallback.length} un-classed; ` +
-                  `${out.diagnostics.tiesCrossingFamilies} tie(s) dropped across families, ` +
+                  `${out.diagnostics.tiesCrossingFamilies} cross-family tie(s) (kept — counted at their in-family contacts), ` +
                   `${out.diagnostics.bandsStraddling} band(s) straddling a litho contact`,
               )
               return {
