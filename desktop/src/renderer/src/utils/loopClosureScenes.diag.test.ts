@@ -774,6 +774,21 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     )
   })
 
+  it('S20 · gaps 15-18 · an adopted band brings its ties: the deep VD spans sub-TD', () => {
+    // Owner, 2026-08-21 evening: "the deepest VD sand on both these columns
+    // [S8|S6] are tied by 2 ties. However MD wins in the gaps below sub TD."
+    // S6's deep sand stack is ADOPTED into the upper-sand family between S8
+    // and S6 (its own litho family has no cover there), and tie resolution ran
+    // before adoption — so the deep VD's two ties (its tops S8@-6.32<->S6@-4.12
+    // and the KLEI-23-top line at its base) were dropped and it read as a
+    // 0-tie lens; the MD took its correlated span. An adopted band now brings
+    // its ties, and the VD BANDS between its two lines through every sub-TD
+    // gap of the jump.
+    expect(geotechClassAt(scene, 15, 0.5, -6.9), 'gap 15 sub-TD lost the VD band').toBe('ZAND-8')
+    expect(geotechClassAt(scene, 16, 0.333, -6.5), 'gap 16 sub-TD lost the VD band').toBe('ZAND-8')
+    expect(geotechClassAt(scene, 18, 0.5, -5.5), 'gap 18 sub-TD lost the VD band').toBe('ZAND-8')
+  })
+
   it('S8 · gap 11 · the closed form floods with the only silt that can fill it', () => {
     // Owner: "we have a closed form, the only thing left that can flood that form
     // is the MF silt to the left." The form sits between the left test's silt band
