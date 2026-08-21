@@ -1385,6 +1385,41 @@ export default function PartitionFillOverlay({
                 geotechEdges: edges,
                 alongM,
               })
+              // Live-fill probe (owner ask 2026-08-21): stash the EXACT inputs
+              // and outputs of this compute so `__GEOFILL_SAVE()` in DevTools
+              // downloads them for an offline diff against the dump-script
+              // render — the diagnostic for "the canvas disagrees with the
+              // engine on identical inputs". Dev builds only; keyed per
+              // section so several open panels do not clobber each other.
+              if (!import.meta.env.PROD) {
+                const w = window as unknown as Record<string, unknown>
+                const all = (w.__GEOFILL_ALL ?? (w.__GEOFILL_ALL = {})) as Record<string, unknown>
+                const key = `${orderedColumns[0]?.investigationId ?? '?'}|${orderedColumns.length}cols`
+                all[key] = {
+                  at: Date.now(),
+                  inputs: {
+                    lithoColumns: lithoFramePartition.lithoColumns,
+                    lithoEdges: lithoFramePartition.lithoEdges,
+                    lithoRegions,
+                    geotechColumns: orderedColumns,
+                    geotechEdges: edges,
+                    alongM,
+                  },
+                  regions: out.regions,
+                  diagnostics: out.diagnostics,
+                }
+                w.__GEOFILL_SAVE = (): string[] => {
+                  const blob = new Blob([JSON.stringify(w.__GEOFILL_ALL)], {
+                    type: 'application/json',
+                  })
+                  const a = document.createElement('a')
+                  a.href = URL.createObjectURL(blob)
+                  a.download = 'geofill_live_dump.json'
+                  a.click()
+                  URL.revokeObjectURL(a.href)
+                  return Object.keys((w.__GEOFILL_ALL ?? {}) as Record<string, unknown>)
+                }
+              }
               log.info(
                 'partition',
                 `hierarchical geotech fill: ${out.diagnostics.families} litho families, ` +
