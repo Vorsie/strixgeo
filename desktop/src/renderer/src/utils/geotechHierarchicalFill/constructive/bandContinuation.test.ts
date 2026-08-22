@@ -130,4 +130,33 @@ describe('bandContinuations', () => {
     const splice = spliceFor(bandContinuations(run, ties), 'deep-veen')
     expect(splice?.gaps, 'the rightward tie must not block the leftward continuation').toEqual([0])
   })
+
+  it('BC8 — a tie that SKIPS the blind immediate neighbour (its far end lands past it, on a THIRD column) still needs the splice (real CS1 S10 bottom MD sand, shared-contact tie all the way to S11)', () => {
+    // NEAR (ci=2) carries the band. Its immediate neighbour, MID (ci=1), is
+    // blind to it — no band of its own overlaps the window at all. FAR
+    // (ci=0) does read it (via a same-contact band), and a tie's endpoint
+    // lands on NEAR's own contact — but that tie's OTHER end is FAR (ci=0),
+    // skipping MID entirely: MID carries no endpoint of this tie at all.
+    // The old `tiedAcrossGap` treated "the tie's span [0,2] CONTAINS the
+    // immediate gap [1,2]" as "a tie crosses the immediate gap", wrongly
+    // concluding the ordinary per-gap tie logic already handles gap 1|2 —
+    // but gap 1|2's own buildGapConstructs call never sees NEAR as a flank
+    // (NEAR is ci=2, only gap 2|3 has it), so nothing draws there unless
+    // this band is spliced in. A tie only substitutes for continuation when
+    // it actually TERMINATES at the immediate neighbour's own column, not
+    // merely when its span happens to span past it.
+    const run: RunColumn[] = [
+      col(0, 0, [band('far-read', 8, 4, 0, 0)]),
+      col(1, 50, []),
+      col(2, 100, [band('near', 8, 4, 2, 100)]),
+    ]
+    const ties: RunTie[] = [
+      { key: 't', leftCi: 0, rightCi: 2, leftX: 0, rightX: 100, leftY: 8, rightY: 8 },
+    ]
+    const splice = spliceFor(bandContinuations(run, ties), 'near')
+    expect(
+      splice?.gaps,
+      'a tie skipping past the blind neighbour must not block the splice into that gap',
+    ).toEqual([0])
+  })
 })
