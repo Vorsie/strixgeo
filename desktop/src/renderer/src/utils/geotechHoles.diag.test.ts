@@ -24,7 +24,7 @@ import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
-import { NEEDLE_WIDTH } from './geotechHierarchicalFill/dropNeedleSpurs'
+import { NEEDLE_WIDTH_M } from './geotechHierarchicalFill/dropNeedleSpurs'
 import { overlayFaces, pointInRing } from './geotechHierarchicalFill/frameClipGeometry'
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
@@ -223,17 +223,20 @@ describe('no holes in the model (geometric)', () => {
           // (``dropNeedleSpurs``): a face narrower than the needle width is
           // snap debris on either side of the ledger — the engine drops such
           // slivers rather than painting hairlines, so the audit must not
-          // then call the same geometry a hole.
-          let longest = 0
+          // then call the same geometry a hole. Measured in true metres,
+          // matching the engine (2026-08-22): fraction alone is not a
+          // distance, and this gate's own gap width is right above.
+          let longestM = 0
+          let twiceAreaM = 0
           for (let i = 0; i < face.ring.length; i++) {
             const a = face.ring[i]
             const b = face.ring[(i + 1) % face.ring.length]
-            longest = Math.max(
-              longest,
-              Math.hypot(b.fraction - a.fraction, b.elevation - a.elevation),
-            )
+            const ax = a.fraction * widthM
+            const bx = b.fraction * widthM
+            longestM = Math.max(longestM, Math.hypot(bx - ax, b.elevation - a.elevation))
+            twiceAreaM += ax * b.elevation - bx * a.elevation
           }
-          if (longest > 0 && (2 * area) / longest <= NEEDLE_WIDTH) continue
+          if (longestM > 0 && Math.abs(twiceAreaM) / longestM <= NEEDLE_WIDTH_M) continue
           const { fraction, elevation } = face.sample
           if (!frame.some((r) => pointInRing(fraction, elevation, r.polygon))) continue
           if (covered(fraction, elevation, painted)) continue
