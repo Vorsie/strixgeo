@@ -134,16 +134,29 @@ describe('§8 Q4 — crossing approved ties are a hard conflict (bridges include
     // deep elevations, and each deep unit now continues full-width into ITS OWN gap
     // (``emitContinuation``). "No spanning quad / not SAND at (0.5, -2)" therefore no longer
     // separates a bridge band from a drilled unit's own lawful continuation — the LAYER does.
-    // Positive control first, so the two negatives below cannot pass vacuously on an
-    // unattributed partition: each deep unit IS attributed in its own gap.
+    // Re-anchored again 2026-08-21 (the RELOCATION refinement, owner: *"you made them
+    // crossing but now it is inconsistent with the litho and some don't terminate in a
+    // pinch"*). M read NOTHING at the deep elevations, so it is not a boundary at all: each
+    // deep unit now crosses it and pinches against the far DEEP column — which puts L's sand
+    // into gap 1 LAWFULLY, with no bridge involved. "Never in the far gap" therefore no
+    // longer separates a suspended bridge from a drilled unit's own continuation, and that
+    // pin is retired. What still separates them is REACH: a live bridge bands the pair
+    // column-to-column, while two suspended bridges leave each unit closing in an open pinch
+    // short of the other test — so beside each column only that column's own unit stands.
+    // Positive control first, so the negatives cannot pass vacuously on an unattributed
+    // partition: each deep unit IS attributed in its own gap.
     expect(layersInGap(regions, 0)).toContain(lSand)
     expect(layersInGap(regions, 1)).toContain(rClay)
-    expect(layersInGap(regions, 1)).not.toContain(lSand)
-    expect(layersInGap(regions, 0)).not.toContain(rClay)
-    // And the suspension is visible where the bridge lines themselves would have run: at the
-    // deep sub-TD elevation each gap reads only its OWN column's drilled unit.
-    expect(coverAt(regions, 0, 0.5, -2)).toBe(SAND) // L's own sand, continued
-    expect(coverAt(regions, 1, 0.5, -2)).toBe(CLAY) // R's own clay, continued
+    expect(coverAt(regions, 1, 0.98, -2)).toBe(CLAY) // beside R: L's sand never got there
+    expect(coverAt(regions, 0, 0.02, -2)).toBe(SAND) // beside L: R's clay never got there
+    // Each closes in an OPEN PINCH — present at its own apex level, gone below it...
+    expect(coverAt(regions, 0, 0.5, -2)).toBe(SAND) // L's sand still thick at mid-gap 0
+    expect(coverAt(regions, 1, 0.5, 0)).toBe(CLAY) // R's clay at its own apex level
+    // ...and NOTHING spans. With both bridges suspended the deep middle of the far gap is
+    // EMPTY (owner §8 Q3 — sub-TD ground stays empty unless a tie reaches it), which is the
+    // sharpest statement of "no substrate band off either". The pre-relocation curtain
+    // filled that ground full-width and hid exactly this.
+    expect(coverAt(regions, 1, 0.5, -2)).toBeNull()
   })
 
   it('case 2: bridge × adjacent-tie crossing → both suspended, conflict reported', () => {
