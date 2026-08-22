@@ -206,11 +206,20 @@ export function fitLensReach(
   return 0
 }
 
-/** A tie's elevation at along-x ``x`` (its endpoints run left→right column x). Flat outside. */
+/**
+ * A tie's elevation at along-x ``x`` (its endpoints run left→right column x). FLAT OUTSIDE its
+ * own endpoints — a correlation states nothing past the two contacts it joins, and extrapolating
+ * it is how a steep short-gap tie becomes a phantom bracket far away. That only became reachable
+ * when a termination started measuring against a column several gaps off (2026-08-21,
+ * ``terminationRun``): CS1's 1.17 m S7A→S7 silt tie (dipping 0.37 m/m) extrapolated 31 m into gap
+ * 16 crossed S7's +7.75..+6.65 interbed at a place it never goes, and halved that lens twice.
+ * Inside a single gap every sample already sits within the tie's own span, so the clamp is a
+ * measured no-op there.
+ */
 function reachTieElevAt(t: ReachTie, x: number): number {
   const w = t.right.x - t.left.x
   if (Math.abs(w) < MIN_REACH_FRACTION) return t.left.y
-  const f = (x - t.left.x) / w
+  const f = Math.max(0, Math.min(1, (x - t.left.x) / w))
   return t.left.y + f * (t.right.y - t.left.y)
 }
 
