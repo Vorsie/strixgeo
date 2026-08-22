@@ -34,7 +34,7 @@
  */
 
 import { segIntersect } from './detourEnclosedLens'
-import { facingReadsNothing } from './emitContinuation'
+import { runGapTies, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { enclosedLensDiamond } from './emitLenses'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
@@ -205,31 +205,30 @@ export function collectEnclosedLensDiamonds(
   const record = (
     lens: UnitGeom,
     col: ColumnGeom,
-    facing: ColumnGeom,
+    colIndex: number,
     gapIndex: number,
     side: 'left' | 'right',
-    gapWidth: number,
-    gapTies: readonly ResolvedTie[],
   ): void => {
     // A freedraw-override lens is not a simple diamond — skip (parity with ``emitOne``'s freedraw
     // branch, which emits a polyline, not two flanks). ``lensApexOverrides`` keys ``bodyId@gap``.
     const ov =
       lens.bodyId != null ? section.lensApexOverrides?.get(`${lens.bodyId}@${gapIndex}`) : undefined
     if (ov && (ov.upper?.length || ov.lower?.length)) return
-    // A lens whose facing column read NOTHING at its levels CONTINUES instead of pinching
-    // (owner 2026-08-21, ``emitContinuation``) — ``emitOne`` draws a full-thickness
-    // rectangle, not a diamond. Mirror that skip so no onlap flank detours around a
-    // diamond the emitter did not draw.
-    if (facingReadsNothing(facing, lens.topElev, lens.baseElev)) return
+    // A lens is measured against the first column that READ its levels, crossing any blind
+    // column on the way (owner 2026-08-21, ``terminationRun``). Mirror ``emitOne``'s target,
+    // width and run ties so the detour rides the EXACT diamond the emitter drew; a lens with
+    // no reading column that way is a full-thickness rectangle, not a diamond — skip it.
+    const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, lens.topElev, lens.baseElev)
+    if (!run.reads) return
     const { topPt, apex, basePt } = enclosedLensDiamond(
       lens,
       col,
-      facing,
+      run.column,
       gapIndex,
       side,
-      gapWidth,
+      Math.abs(run.column.x - col.x),
       section,
-      gapTies,
+      runGapTies(ties, run),
     )
     // ``emitOne`` drops a sub-snap-degenerate diamond (no lens emitted) — mirror that so we never
     // detour around a diamond the emitter did not draw.
@@ -240,14 +239,10 @@ export function collectEnclosedLensDiamonds(
     const col = columns[ci]
     if (col.enclosedLenses.length === 0) continue
     if (ci + 1 < columns.length) {
-      const gw = columns[ci + 1].x - col.x
-      const gapTies = ties.filter((t) => t.gapIndex === ci)
-      for (const el of col.enclosedLenses) record(el.lens, col, columns[ci + 1], ci, 'left', gw, gapTies)
+      for (const el of col.enclosedLenses) record(el.lens, col, ci, ci, 'left')
     }
     if (ci - 1 >= 0) {
-      const gw = col.x - columns[ci - 1].x
-      const gapTies = ties.filter((t) => t.gapIndex === ci - 1)
-      for (const el of col.enclosedLenses) record(el.lens, col, columns[ci - 1], ci - 1, 'right', gw, gapTies)
+      for (const el of col.enclosedLenses) record(el.lens, col, ci, ci - 1, 'right')
     }
   }
 }
