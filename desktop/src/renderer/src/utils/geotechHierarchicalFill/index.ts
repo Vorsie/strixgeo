@@ -485,13 +485,21 @@ export function computeHierarchicalGeotechFill(
   // merged ring can walk out to a wedge apex and back along nearly the same
   // path; the detour holds no ground, but the seam-stroke pass has no
   // neighbour to match its two edges against and draws them as a hairline
-  // into mid-region. Dropping the apex changes no area and no class.
+  // into mid-region. Dropping the apex changes no area and no class. Swept on
+  // EVERY surface a needle can reach (owner code-hunt finding, 2026-08-22):
+  // ``lithoFallback`` is a real rendered surface (``PartitionFillOverlay``)
+  // and ``preMergeRegions`` feeds the 2/1/0 conformance gate and the law
+  // oracle — a needle left there is the exact same defect, just unswept.
   const sweptRegions = dropRegionNeedles(swept.regions, input.alongM)
+  const sweptFallback = dropRegionNeedles(lithoFallback, input.alongM)
+  const sweptPreMerge = dropRegionNeedles(preMergeRegions, input.alongM) as (SectionRegion & {
+    role: 'construct' | 'fill'
+  })[]
 
   return {
     regions: sweptRegions,
-    preMergeRegions,
-    lithoFallback,
+    preMergeRegions: sweptPreMerge,
+    lithoFallback: sweptFallback,
     conflicts,
     diagnostics: {
       families: families.length,
