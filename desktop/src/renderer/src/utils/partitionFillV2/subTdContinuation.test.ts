@@ -51,6 +51,14 @@ const paintedAt = (regions: readonly SectionRegion[], f: number, e: number): str
   return out
 }
 
+/** What is painted at ``f``×``e`` inside ONE gap's own fraction space. */
+const paintedInGap = (
+  regions: readonly SectionRegion[],
+  gap: number,
+  f: number,
+  e: number,
+): string | null => paintedAt(regions.filter((r) => r.gapIndex === gap), f, e)
+
 /** CS1's real S7A|S7 pair: a 1.17 m gap between a short log and a deep one. */
 const SHORT_SURFACE = 13.07
 const DEEP_SURFACE = 13.1
@@ -111,12 +119,46 @@ const deepLogEnclosed: PartitionColumn = {
   ],
 }
 
+/**
+ * CS1's real B2 — the first test LEFT of the short one that DID read the interbeds' ground,
+ * 67.80 m away, with the short log sitting between it and the deep one.
+ */
+const FAR_SURFACE = 13.05
+const farLog: PartitionColumn = {
+  investigationId: 'FAR',
+  surfaceElevM: FAR_SURFACE,
+  units: [
+    unit(FAR_SURFACE, 13.05, 10.05, 'KLEI', 'F-klei-top'),
+    unit(FAR_SURFACE, 10.05, 8.05, 'SILT', 'F-silt'),
+    unit(FAR_SURFACE, 8.05, 4.25, 'KLEI', 'F-klei'),
+    unit(FAR_SURFACE, 4.25, -4.45, 'ZAND', 'F-zand'),
+  ],
+}
+/** FAR | SHORT | DEEP at CS1's real spacing — two gaps, the middle test blind below +10.42. */
+const ALONG_M3 = [577.77, 645.57, 646.74]
+
+/**
+ * Where the relocated pinch closes, in the FAR|SHORT gap's own fraction space:
+ * ``LENS_PINCH_FRACTION`` (0.45) of the DEEP→FAR line, measured from DEEP.
+ * 646.74 − 0.45 × 68.97 = 615.70 → (615.70 − 577.77) / 67.80 = 0.559.
+ */
+const APEX_FRACTION_IN_FAR_GAP = 0.559
+
 const NO_EDGES: CorrelationEdge[] = []
 
 const run = (columns: PartitionColumn[]): SectionRegion[] => {
   const prev = setTwoSidedTerminations(true)
   try {
     return computeSectionFillV2(columns, NO_EDGES, undefined, ALONG_M)
+  } finally {
+    setTwoSidedTerminations(prev)
+  }
+}
+
+const run3 = (columns: PartitionColumn[]): SectionRegion[] => {
+  const prev = setTwoSidedTerminations(true)
+  try {
+    return computeSectionFillV2(columns, NO_EDGES, undefined, ALONG_M3)
   } finally {
     setTwoSidedTerminations(prev)
   }
@@ -138,6 +180,36 @@ describe('an interbed facing ground its neighbour never read continues to that c
     for (const e of [7.7, 7.2, 6.7]) {
       expect(paintedAt(regions, 0.05, e), `beside the short test at ${e}`).toBe('VEEN')
     }
+  })
+
+  it('the interbed crosses the blind test and pinches against the one that DID read', () => {
+    const regions = run3([farLog, shortLog, deepLog])
+    // Gap 1 = SHORT|DEEP. The blind test is not a boundary, so the interbed is not closed
+    // off there: beside it, top and bottom of the unit's own span, the interbed stands.
+    for (const e of [7.7, 6.7]) {
+      expect(paintedInGap(regions, 1, 0.05, e), `beside the blind test at ${e}`).toBe('VEEN')
+    }
+    // Gap 0 = FAR|SHORT. The unit passed straight through the blind test and is still here,
+    // tapering toward the test that DID read the ground...
+    expect(paintedInGap(regions, 0, 0.95, 7.2), 'just past the blind test').toBe('VEEN')
+    expect(paintedInGap(regions, 0, 0.75, 7.2), 'a quarter of the way across').toBe('VEEN')
+    // ...and it CLOSES before it gets there — an open pinch, not a wall at the blind test.
+    expect(paintedInGap(regions, 0, 0.35, 7.2), 'past the pinch').not.toBe('VEEN')
+    expect(paintedInGap(regions, 0, 0.05, 7.2), 'beside the reading test').not.toBe('VEEN')
+    // The apex sits where the ordinary pinch puts it: 0.45 of the DEEP→FAR line.
+    const straddles =
+      paintedInGap(regions, 0, APEX_FRACTION_IN_FAR_GAP + 0.06, 7.2) === 'VEEN' &&
+      paintedInGap(regions, 0, APEX_FRACTION_IN_FAR_GAP - 0.06, 7.2) !== 'VEEN'
+    expect(straddles, `the pinch closes at fraction ${APEX_FRACTION_IN_FAR_GAP} of the far gap`).toBe(true)
+  })
+
+  it('an enclosed interbed crosses the blind test the same way', () => {
+    const regions = run3([farLog, shortLog, deepLogEnclosed])
+    for (const e of [7.7, 6.7]) {
+      expect(paintedInGap(regions, 1, 0.05, e), `beside the blind test at ${e}`).toBe('VEEN')
+    }
+    expect(paintedInGap(regions, 0, 0.75, 7.2), 'a quarter of the way across').toBe('VEEN')
+    expect(paintedInGap(regions, 0, 0.35, 7.2), 'past the pinch').not.toBe('VEEN')
   })
 
   it('NEAR MISS — where the facing test DID read that ground the interbed still pinches', () => {
