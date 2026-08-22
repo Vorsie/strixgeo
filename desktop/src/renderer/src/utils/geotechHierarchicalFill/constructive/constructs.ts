@@ -499,8 +499,21 @@ export function buildGapConstructs(
       // lens and, like every lens, never fills remainder ground.
       const emit = yielded ? 'lens' : emitFor(own, farEnds)
       const flat = (y: number) => () => y
-      const ridesTop = topTie !== null && !(contested.top && emit !== 'onlap')
-      const ridesBase = baseTie !== null && !(contested.base && emit !== 'onlap')
+      // A TWO-TIED-CONTACT BAND FOLLOWS BOTH ITS TIES, UNCONDITIONALLY (owner
+      // code-hunt finding A4, 2026-08-22): the 2026-08-21 ruling — "two tied
+      // contacts ... emits NOTHING whatever the far ends read" — is absolute,
+      // and that absoluteness has to reach the GEOMETRY too, not just the
+      // classification. ``contested`` exists to resolve a genuine collision
+      // between two COMPETING one-tie statements about the same line; a band
+      // with two tied contacts has already been told by the law it spans
+      // regardless of what either far end says, so there is no collision left
+      // to resolve — withholding the ride left its BASE holding a flat level
+      // metres away from the tie it is provably tied to (a band whose top
+      // welds via the fan while its base reads a real, different mass at the
+      // far end).
+      const bothTied = topTie !== null && baseTie !== null
+      const ridesTop = topTie !== null && (bothTied || !(contested.top && emit !== 'onlap'))
+      const ridesBase = baseTie !== null && (bothTied || !(contested.base && emit !== 'onlap'))
       const topAt = ridesTop ? (x: number) => tieElevAt(topTie as RunTie, x) : flat(band.top)
       const baseAt = ridesBase ? (x: number) => tieElevAt(baseTie as RunTie, x) : flat(band.base)
       // AN ONLAP PINCHES ONTO ITS OWN LINE (owner, 2026-08-21, on the picture he
