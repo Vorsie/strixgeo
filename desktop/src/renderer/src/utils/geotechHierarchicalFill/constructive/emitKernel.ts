@@ -32,12 +32,12 @@
  *
  * SCOPE, narrowed 2026-08-21: this decides ONLY the true bidirectional case —
  * both bands carry exactly ONE tie, the SAME tie, and each reads a different
- * mass at the other end. CLEARLY thicker (at least {@link CLEAR_THICKER_RATIO}
- * times) is the one whose onlap exists; the thinner side emits none and closes
- * at its own level. It does NOT extend the winner's reach: *"the MD sand
- * onlaps, that means it is a closed loop in that gap and cannot fill the gap."*
- * Below the ratio neither is clearly thicker, so both onlap and pinch at the
- * middle — the 2026-08-20
+ * mass at the other end. CLEARLY thicker (MORE than {@link CLEAR_THICKER_RATIO}
+ * times — exactly the ratio is still a tie) is the one whose onlap exists; the
+ * thinner side emits none and closes at its own level. It does NOT extend the
+ * winner's reach: *"the MD sand onlaps, that means it is a closed loop in that
+ * gap and cannot fill the gap."* Below the ratio neither is clearly thicker,
+ * so both onlap and pinch at the middle — the 2026-08-20
  * termination clause standing as the tie-break. Deleting the ratio (or setting
  * it to 1) degenerates the whole rule to plain thicker-wins, which is his
  * option 1, and that constant is the ONLY thing to touch.
