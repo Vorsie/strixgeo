@@ -50,7 +50,7 @@
 import { type Corr0Diamond } from './detourBandContour'
 import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
-import { emitContinuation, facingReadsNothing } from './emitContinuation'
+import { emitContinuation, terminationRun } from './emitContinuation'
 import { isForcedOnlap } from './forceOnlapUnits'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
@@ -170,11 +170,11 @@ export function emitTerminationSweep(
     // Look RIGHT into gap ci (this column is the gap's LEFT column, side 'left'). RULING 8i(e):
     // NO sub-snap-width guard — every 0-corr side lenses; the physical 1 mm floor decides collapse.
     if (ci + 1 < columns.length) {
-      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], activeTies, bridgeGapAnchored, planAt, sinkLabels, nextId, nextFloodId, sinkOut, sinkDiamonds, overrides, detour)
+      emitSideSweep(ci, 'left', ci, col, columns[ci + 1], columns, activeTies, bridgeGapAnchored, planAt, sinkLabels, nextId, nextFloodId, sinkOut, sinkDiamonds, overrides, detour)
     }
     // Look LEFT into gap ci-1 (this column is the gap's RIGHT column, side 'right').
     if (ci - 1 >= 0) {
-      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], activeTies, bridgeGapAnchored, planAt, sinkLabels, nextId, nextFloodId, sinkOut, sinkDiamonds, overrides, detour)
+      emitSideSweep(ci - 1, 'right', ci, col, columns[ci - 1], columns, activeTies, bridgeGapAnchored, planAt, sinkLabels, nextId, nextFloodId, sinkOut, sinkDiamonds, overrides, detour)
     }
   }
   }
@@ -195,6 +195,7 @@ function emitSideSweep(
   colIndex: number,
   col: ColumnGeom,
   facing: ColumnGeom,
+  columns: readonly ColumnGeom[],
   activeTies: readonly ResolvedTie[],
   bridgeGapAnchored: ReadonlySet<string>,
   planAt: ReadonlyMap<string, TerminationPlan>,
@@ -206,9 +207,6 @@ function emitSideSweep(
   overrides?: ReadonlyMap<string, LensApexOverride>,
   detourDiamonds?: readonly Corr0Diamond[],
 ): void {
-  // ``colIndex`` is retained for signature parity / future per-column diagnostics; the
-  // direction-blind bridge suppression that consumed it is deleted (Part B, ruling 8i(e)).
-  void colIndex
   const left = side === 'left' ? col : facing
   const right = side === 'left' ? facing : col
   // RULING 8i CLASSIFY: effectiveCorrForSide is the SINGLE 2/1/0 source (leftSide/rightSide),
@@ -331,8 +329,17 @@ function emitSideSweep(
       // ``drawTermination``. "There can't be holes by design": a hole a formerly-flooded boundary
       // unit now exposes is a FILL construction defect to repair (face ownership / closure riding
       // line art), never a reason to restore the guard.
+      // A COLUMN THAT READ NOTHING IS NOT A BOUNDARY (owner, 2026-08-21 — *"you made them
+      // crossing but now it is inconsistent with the litho and some don't terminate in a
+      // pinch"*). The lens is measured against the first column that DID read these levels,
+      // crossing any blind column on the way; only where nothing in this direction ever read
+      // it does the unit run flat to the section edge (``emitContinuation``). An immediate
+      // reading facing resolves to itself, so the ordinary case is untouched.
+      const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, u.topElev, u.baseElev)
+      if (!run.reads && emitContinuation(u, colX, run.column.x, lensLabels, nextId, out)) continue
       emitCorr0Termination(
-        u, piece.hostUnitIndex, eff, col, facing, side, colX, facingX, gapIndex, shallowTD,
+        u, piece.hostUnitIndex, eff, col, run.reads ? run.column : facing, side, colX,
+        run.reads ? run.column.x : facingX, gapIndex, shallowTD,
         activeTies, lensLabels, nextId, nextFloodId, out, false, pieceIsFirst, pieceIsLast, diamonds, overrides, detourDiamonds,
       )
       continue
@@ -444,6 +451,14 @@ function emitSideSweep(
  * flood covers the vacated space) parameterises the FLOOD, never the emission decision (which is
  * always the literal corr-0 lens; formationId never gates it). The 8n(b) sub-TD anchoring (the
  * ``cs1subtdanchor`` band∩column intersect) lives in ``emitSubstrateBridges``, untouched.
+ *
+ * ``facing`` / ``facingX`` are the RESOLVED termination target (``emitContinuation``'s
+ * ``terminationRun``), which the callers pick: the first column that READ these levels, which is
+ * the adjacent one in the ordinary case and a farther one where blind columns sit in between.
+ * ``shallowTD`` stays the ADJACENT gap's floor — it is read ONLY by the ``td`` boundary-lens
+ * geometry, which a relocated unit cannot take: a unit whose neighbour read nothing at its levels
+ * is either entirely below that column's TD (the sub-TD pass, ``shallowTD`` unused) or above its
+ * first logged contact, where the ``surface`` geometry applies.
  */
 export function emitCorr0Termination(
   u: UnitGeom,
@@ -468,16 +483,6 @@ export function emitCorr0Termination(
   overrides?: ReadonlyMap<string, LensApexOverride>,
   detourDiamonds?: readonly Corr0Diamond[],
 ): void {
-  // A CLOSURE EXISTS TO MEET THE FACING TEST (owner, 2026-08-21 — *"it should be a
-  // continuous band starting from S7 but now it is interrupted at S7A's column by a SF
-  // clay render"*). Where the facing column read NOTHING at this unit's levels there is
-  // nothing for a lens to meet, so the unit continues to that column at full thickness.
-  // This is the ONE corr-0 emission authority, so the law lands here once and covers the
-  // above-TD sweep and the sub-TD pass alike (``emitContinuation``). It never touches a
-  // corr-1 onlap: an onlap HAS a tie to follow, which is a reading to meet.
-  if (facingReadsNothing(facing, u.topElev, u.baseElev)) {
-    if (emitContinuation(u, colX, facingX, lensLabels, nextId, out)) return
-  }
   if (subTd) {
     // SUB-TD: the deep-to-deep substrate is the flood. Emit ONLY the bare lens closing (no facing
     // flood wedge) at the 8b-capped ``LENS_PINCH_FRACTION`` — byte-identical to the session-13
