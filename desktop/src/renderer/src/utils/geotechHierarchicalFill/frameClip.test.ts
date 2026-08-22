@@ -97,7 +97,7 @@ const run = (
       [right.ci, right.bands],
     ]),
     massOf: (band) => ({ litho: 'litho-sand', packing: band.formationId }),
-    onlapBars: new Map(),
+    closureBars: new Map(),
     })
 
 describe('the family frame', () => {
