@@ -24,20 +24,23 @@ export interface PackingClassMeta {
 /**
  * Build the formation-id → canonical class key map the fill compares masses by.
  *
- * A formation with no NAD class (a skeleton band over unread ground) gets NO
- * entry: two unknowns are not known to be the same density, so they keep row
- * identity and never weld across rows.
+ * A formation missing EITHER half of its identity (no NAD class — a skeleton
+ * band over unread ground — or no soil code) gets NO entry: two unknowns are
+ * not known to be the same density, so they keep row identity and never weld
+ * across rows. Collapsing a missing soil code to a placeholder token would
+ * silently weld two formations that share a class but were never shown to
+ * share a soil — the exact case this map exists to keep apart.
  *
  * @param entries Formation id → meta pairs (any iterable — a ``Map`` works).
- * @returns Formation id → ``SOIL|CLASS`` for every formation with a class.
+ * @returns Formation id → ``SOIL|CLASS`` for every formation with both known.
  */
 export function buildPackingClassOf(
   entries: Iterable<readonly [string, PackingClassMeta]>,
 ): Map<string, string> {
   const out = new Map<string, string>()
   for (const [formationId, meta] of entries) {
-    if (meta.nadClass === null) continue
-    out.set(formationId, `${meta.soilCode ?? '?'}|${meta.nadClass}`)
+    if (meta.nadClass === null || meta.soilCode === null) continue
+    out.set(formationId, `${meta.soilCode}|${meta.nadClass}`)
   }
   return out
 }
