@@ -368,16 +368,61 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // column edge to whatever fills there (his gap-0 MD sand, painted D at
     // f=0.98 beside its own test). The lens flanks below have always been
     // inserted for exactly this reason; a pinching onlap needs it just as much.
+    //
+    // A band whose own home column is bridged in from beyond this gap (its
+    // run's own flanks are not this gap's own — the real CS1 S10 bottom MD
+    // sand, onlapping toward S11 across excluded S8) has ``band.x`` OUTSIDE
+    // this gap's own [0, 1] fraction range entirely: the flank's own free
+    // endpoint would sit past the gap's own edge, closing nothing WITHIN it,
+    // and this gap's own portion of the wedge is left with no upper edge —
+    // an unrelated construct riding the same tie (a 2-tied "emits nothing"
+    // span has no termination clause of its own) then claims the ground
+    // instead. Clamp the free endpoint to this gap's own edge, read through
+    // the construct's own boundary function (not the flat home-column value,
+    // which is only correct exactly AT ``band.x``).
+    //
+    // ONLY the bridged case gets the multi-point refinement below. ``freeAt``
+    // is quadratic in x, so a single straight segment always cuts inside the
+    // true curve somewhat — but a straight 2-point flank is the law's own
+    // long-standing approximation everywhere else, and re-litigating its
+    // precision model-wide moved an owner-pinned real-data regression
+    // (S13b, KLEI-22 vs KLEI-23: the winner's own ``claims()`` was always
+    // exact regardless of this flank — a face just used to land its sample
+    // inside the loser's cruder-flanked face at that exact point). Scoped
+    // here to where it actually matters: a bridged home column stretches the
+    // flank over a domain the straight-line approximation was never measured
+    // against, and that domain is exactly where the unconditional "emits
+    // nothing" span (no termination clause of its own) is left free to claim
+    // whatever the flank fails to cut.
+    const FLANK_STEPS = 8
     for (const construct of constructs) {
       if (construct.emit !== 'onlap' || construct.apexX === undefined) continue
-      const free = construct.topTied ? construct.band.base : construct.band.top
-      const apex = construct.topTied
-        ? construct.baseAt(construct.apexX)
-        : construct.topAt(construct.apexX)
-      lines.push([
-        { fraction: toFraction(construct.band.x), elevation: free },
-        { fraction: toFraction(construct.apexX), elevation: apex },
-      ])
+      const freeAt = construct.topTied ? construct.baseAt : construct.topAt
+      const rawHomeFraction = toFraction(construct.band.x)
+      const bridged = rawHomeFraction < 0 || rawHomeFraction > 1
+      const homeFraction = Math.min(1, Math.max(0, rawHomeFraction))
+      const apexFraction = toFraction(construct.apexX)
+      if (!bridged) {
+        const free = construct.topTied ? construct.band.base : construct.band.top
+        const apex = freeAt(construct.apexX)
+        lines.push([
+          { fraction: homeFraction, elevation: free },
+          { fraction: apexFraction, elevation: apex },
+        ])
+        continue
+      }
+      // ``overlayFaces`` treats every entry in ``lines`` as a CLOSED ring
+      // with wrap-around — a 2-point entry is a harmless no-op duplicate
+      // segment, but pushing every sample as ONE array would wrap the last
+      // point back to the first and close a spurious loop. Push consecutive
+      // PAIRS.
+      let prev = { fraction: homeFraction, elevation: freeAt(atFraction(homeFraction)) }
+      for (let i = 1; i <= FLANK_STEPS; i++) {
+        const fraction = homeFraction + ((apexFraction - homeFraction) * i) / FLANK_STEPS
+        const next = { fraction, elevation: freeAt(atFraction(fraction)) }
+        lines.push([prev, next])
+        prev = next
+      }
     }
     // The lens flanks. An EXTENDED lens (facing sub-TD, continues full
     // thickness — see ``extendsToFar``) has no pinch, so no flank: its own
@@ -415,6 +460,37 @@ export function fillGap(input: GapFillInput): GapFillResult {
       ;(rides ? stated : held).add(contactKeyOf(construct.band.ci, elevation))
     }
   }
+  // A BRIDGED ONLAP'S OWN FREE CONTACT ALREADY HAS ITS LINE — the flank drawn
+  // above (owner code-hunt finding, 2026-08-22, the real CS1 S10 bottom MD
+  // sand: an onlap's untied side pinches DIAGONALLY from its own level
+  // toward the tie it rides — that is exactly what the flank line states.
+  // Falling through to this generic "held contact gets a flat line" pass
+  // drew a SECOND, UNCONDITIONAL, whole-gap-width horizontal at the band's
+  // own flat level — which disagrees with the flank everywhere past the
+  // point the diagonal has already pinched below it, splitting the true
+  // wedge into the flank's correct sliver near the apex and a spurious
+  // flat-topped remainder nearer the facing column. That remainder's own
+  // sample point then falls OUTSIDE the onlap's ``claims()`` window (already
+  // pinched past it), so an unrelated welded-contact construct riding the
+  // SAME tie line from the other side — with no termination clause of its
+  // own (2-tie ``emit==='nothing'`` spans are unbounded, by design) — claims
+  // it instead: the S10 bottom MD sand's own territory near S8 painted as
+  // S11's VD sand.
+  //
+  // Scoped to the BRIDGED case only (home column outside this gap's own
+  // [0, 1] — see the flank loop below): an ordinary onlap's own flat level
+  // sits exactly AT its own column edge, where the diagonal flank and the
+  // flat horizontal coincide by construction (t(x)=0 there) — suppressing it
+  // model-wide dropped a real boundary an owner-pinned real-data scene
+  // relies on (S13b/S14).
+  const onlapFlank = new Set<string>()
+  for (const construct of constructs) {
+    if (construct.emit !== 'onlap' || construct.apexX === undefined) continue
+    const homeFraction = toFraction(construct.band.x)
+    if (homeFraction >= 0 && homeFraction <= 1) continue
+    const free = construct.topTied ? construct.band.base : construct.band.top
+    onlapFlank.add(contactKeyOf(construct.band.ci, free))
+  }
   // A CONTACT IS SHARED, and the two bands meeting at it can disagree about
   // whose line it is: one rides the tie, the other holds its own level because
   // the mass over there closed its loop. Then the flat line is a real boundary
@@ -424,8 +500,10 @@ export function fillGap(input: GapFillInput): GapFillResult {
   for (const key of held) stated.delete(key)
   for (const column of levelColumns) {
     for (const band of column.bands) {
-      if (!stated.has(`${band.ci}@${Math.round(band.top * 1000)}`)) horizontal(band.top)
-      if (!stated.has(`${band.ci}@${Math.round(band.base * 1000)}`)) horizontal(band.base)
+      const topKey = `${band.ci}@${Math.round(band.top * 1000)}`
+      const baseKey = `${band.ci}@${Math.round(band.base * 1000)}`
+      if (!stated.has(topKey) && !onlapFlank.has(topKey)) horizontal(band.top)
+      if (!stated.has(baseKey) && !onlapFlank.has(baseKey)) horizontal(band.base)
     }
   }
 
