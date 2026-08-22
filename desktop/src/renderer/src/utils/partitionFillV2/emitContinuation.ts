@@ -1,29 +1,27 @@
 /**
- * partitionFillV2/emitContinuation.ts — A CLOSURE EXISTS TO MEET THE FACING TEST.
+ * partitionFillV2/emitContinuation.ts — A COLUMN THAT READ NOTHING IS NOT A BOUNDARY.
  *
  * OWNER, 2026-08-21, on S7's thin interbeds drawn as phantom pinches around the short
  * S7A: *"it should be a continuous band starting from S7 but now it is interrupted at
- * S7A's column by a SF clay render."*
+ * S7A's column by a SF clay render."* Then, on the flat-ended curtain that first answer
+ * shipped: *"you made them crossing but now it is inconsistent with the litho and some
+ * don't terminate in a pinch"* / *"how do we get open terminations for lenses"*.
  *
  * THE LAW. A termination — a lens apex, a pinch — is a statement about where this unit
- * meets what the FACING test read. Where the facing column has no litho unit at any of
- * the unit's own levels (the ground over there is below that column's TD, or above the
- * first thing it logged), there is nothing to meet: the unit continues to that column at
- * FULL THICKNESS instead of pinching. It closes per the ordinary 0/1/2 rules in the first
- * gap whose facing column DOES read that ground.
+ * meets what a FACING TEST read. A column with no litho unit at any of the unit's own
+ * levels (the ground over there is below its TD, or above the first thing it logged)
+ * read nothing, so it states nothing, so it is NOT a boundary: the unit passes straight
+ * through it and terminates in its ORDINARY pinch against the first column that DID read
+ * that ground — one gap away, or several. Only where no column in that direction ever
+ * read it does the unit run to the section edge, and only there is it closed flat.
  *
- * This is the litho arm's half of the same law the geotech constructive arm already
- * carries (``geotechHierarchicalFill/constructive/constructs.ts`` → ``extendsToFar``);
- * the two arms must read a short log the same way or the geotech frame — which can never
- * exceed the litho cover — keeps painting a pinch the litho engine invented.
- *
- * THE SHAPE. Three closing curves per continued unit: its own top contact carried across
- * to the facing column, a CURTAIN down that column between the unit's two levels, and its
- * base contact carried back. With the unit's own column-vertical that is a closed
- * rectangle — the unit owns its window right up to the facing column, exactly as
- * ``extendsToFar`` gives a geotech construct its whole gap. The curtain idiom is the
- * substrate's (``emitBottomTieSubstrate``'s ``btcurtain``): a vertical on a column line
- * where that column has no footprint edge of its own to close against.
+ * This is the litho arm's half of the law the geotech constructive arm already carries
+ * (``geotechHierarchicalFill/constructive/`` bridges bandless columns and lends the
+ * neighbour's bands across, so its construct already pinches against the first reading
+ * column). The two arms must read a short log the same way or the geotech frame — which can
+ * never exceed the litho cover — keeps painting a shape the litho engine invented. Measured
+ * agreement on CS1: S7's KLEI +6.65..+6.03 closes at fraction 0.559 of gap 16 —
+ * ``LENS_PINCH_FRACTION`` of the S7→B2 line — on BOTH arms, vertex for vertex.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
@@ -36,75 +34,87 @@ import { type InputCurve, type Point } from './types'
 /** Vertical overlap (metres) below which a facing unit is a contact touch, not a reading. */
 const OVERLAP_EPS = 1e-6
 
-/**
- * Did the facing test read NOTHING at this unit's levels?
- *
- * The same predicate the geotech arm asks of the facing column's stack: no band of the
- * facing column overlaps the window at all. Because a litho column is gap-free from its
- * first logged contact to its TD, this is true exactly when the window sits entirely
- * below that column's TD or entirely above its first litho top — the two ways a test can
- * have no opinion about a depth.
- *
- * Parameters
- * ----------
- * facing : ColumnGeom
- *     The column the termination would pinch toward.
- * topElev, baseElev : number
- *     The unit's own elevation window (mTAW); order-insensitive.
- *
- * Returns
- * -------
- * boolean
- *     ``true`` when no facing unit overlaps the window — nothing to meet.
- */
-export function facingReadsNothing(facing: ColumnGeom, topElev: number, baseElev: number): boolean {
-  const hi = Math.max(topElev, baseElev)
-  const lo = Math.min(topElev, baseElev)
-  for (const fu of facing.units) {
-    if (Math.min(fu.topElev, hi) - Math.max(fu.baseElev, lo) > OVERLAP_EPS) return false
-  }
-  return true
+/** The column a termination measures against, and the gaps its geometry spans. */
+export interface TerminationRun {
+  /** The first column in this direction that READ the unit's levels, or — when none did —
+   *  the outermost column in that direction (the section edge the unit runs to). */
+  column: ColumnGeom
+  /** ``true`` when ``column`` actually read the ground: an ordinary pinch measures against
+   *  it. ``false`` = nothing in this direction ever read it; the unit runs to the edge. */
+  reads: boolean
+  /** The gap-index half-open range ``[gapLo, gapHi)`` the run crosses. */
+  gapLo: number
+  gapHi: number
 }
 
 /**
- * Carry a unit across to the facing column at full thickness, in place of its termination.
+ * Resolve the column a unit's termination measures against, crossing blind columns.
  *
- * Emits the top contact, the curtain on the facing column, and the base contact — one
- * closed rectangle with the unit's own column-vertical. Every curve is labelled with the
- * unit's OWN litho so the traced face reads the unit, not the matrix flooding around it.
+ * ``columns`` left to right; ``nearIndex`` the terminating unit's own column; ``dir`` the look
+ * direction (+1 = right); ``topElev``/``baseElev`` its elevation window (order-insensitive).
+ */
+export function terminationRun(
+  columns: readonly ColumnGeom[],
+  nearIndex: number,
+  dir: 1 | -1,
+  topElev: number,
+  baseElev: number,
+): TerminationRun {
+  const hi = Math.max(topElev, baseElev)
+  const lo = Math.min(topElev, baseElev)
+  const span = (index: number, reads: boolean): TerminationRun => ({
+    column: columns[index],
+    reads,
+    gapLo: Math.min(nearIndex, index),
+    gapHi: Math.max(nearIndex, index),
+  })
+  let last = nearIndex
+  for (let i = nearIndex + dir; i >= 0 && i < columns.length; i += dir) {
+    last = i
+    for (const fu of columns[i].units) {
+      if (Math.min(fu.topElev, hi) - Math.max(fu.baseElev, lo) > OVERLAP_EPS) return span(i, true)
+    }
+  }
+  // Nothing in this direction ever read the ground: the outermost column IS the edge the
+  // unit runs to (``last`` stays ``nearIndex`` only when there is no column that way at all,
+  // which degenerates the continuation into a no-op the caller's ordinary path absorbs).
+  return span(last, false)
+}
+
+/** The ties whose gaps the run crosses — the reach shorteners a relocated diamond can meet. */
+export function runGapTies<T extends { gapIndex: number }>(
+  ties: readonly T[],
+  run: TerminationRun,
+): T[] {
+  return ties.filter((t) => t.gapIndex >= run.gapLo && t.gapIndex < run.gapHi)
+}
+
+/**
+ * Run a unit to the SECTION EDGE at full thickness — the one case with nothing to pinch at.
  *
- * Parameters
- * ----------
- * u : UnitGeom
- *     The continuing unit (its own two contacts are the rectangle's levels).
- * colX, facingX : number
- *     Along-section metres of the unit's own column and of the facing column.
- * lensLabels : Map<string, LensLabel>
- *     Shared label map the face labelling reads.
- * nextId : () => string
- *     Curve-id allocator of the calling emitter (so ids stay in that emitter's space).
- * out : InputCurve[]
- *     Curve accumulator.
+ * Emits the top contact, a CURTAIN on the edge column, and the base contact: with the unit's
+ * own column-vertical that is a closed rectangle. The curtain idiom is the substrate's
+ * (``emitBottomTieSubstrate``'s ``btcurtain``) — a vertical on a column line where that column
+ * has no footprint edge of its own to close against. This is the ONLY flat termination the law
+ * allows, and it sits on the section's own boundary, not on a test.
  *
- * Returns
- * -------
- * boolean
- *     ``true`` when the continuation was emitted; ``false`` on a physically degenerate
- *     window or gap (a sub-snap-thin unit / a sub-snap-narrow gap), where the caller's
- *     ordinary termination — itself degenerate-guarded — is left to no-op as before.
+ * ``colX``/``edgeX`` are the unit's own column and the edge column in along-metres; ``nextId``
+ * is the calling emitter's id allocator so ids stay in that emitter's space. Returns ``false``
+ * on a physically degenerate window or run (sub-snap thin / sub-snap narrow), leaving the
+ * caller's ordinary — itself degenerate-guarded — termination to no-op as before.
  */
 export function emitContinuation(
   u: UnitGeom,
   colX: number,
-  facingX: number,
+  edgeX: number,
   lensLabels: Map<string, LensLabel>,
   nextId: () => string,
   out: InputCurve[],
 ): boolean {
   const nearTop: Point = { x: colX, y: u.topElev }
   const nearBase: Point = { x: colX, y: u.baseElev }
-  const farTop: Point = { x: facingX, y: u.topElev }
-  const farBase: Point = { x: facingX, y: u.baseElev }
+  const farTop: Point = { x: edgeX, y: u.topElev }
+  const farBase: Point = { x: edgeX, y: u.baseElev }
   // Physical floor only (never a policy width): below the 1 mm snap grid a side collapses
   // and the rectangle cannot bound a face. Both the carried contacts and the curtain must
   // survive, or none of them is emitted — a half-open loop is worse than the pinch.
