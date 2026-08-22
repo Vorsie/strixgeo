@@ -108,4 +108,26 @@ describe('bandContinuations', () => {
     const splice = spliceFor(bandContinuations(run, []), 'near')
     expect(splice?.gaps).toEqual([1])
   })
+
+  it("BC7 — a band tied in ONE direction is still eligible for continuation in the OTHER direction (real CS1 S10 bottom MD sand shape)", () => {
+    // FAR reads it, SHORT is blind, DEEP carries the band — same shape as
+    // BC1 — but DEEP's TOP contact is tied RIGHTWARD to a fourth column,
+    // TIED_FAR, crossing gap 2 (DEEP|TIED_FAR) only. That tie has nothing to
+    // do with the LEFTWARD gap toward FAR/SHORT: buildGapConstructs' own
+    // per-gap tie resolution (crossesGap-scoped) would find ZERO ties on
+    // either contact when it evaluates gap 0/1, exactly like BC1 — a band
+    // must not be excluded from continuation in a direction some UNRELATED
+    // tie, crossing a completely different gap, never reaches.
+    const run: RunColumn[] = [
+      col(0, 0, [band('far-unit', 8, 4, 0, 0)]),
+      col(1, 50, []),
+      col(2, 100, [band('deep-veen', 7.75, 6.65, 2, 100)]),
+      col(3, 150, [band('tied-far', 8, 6, 3, 150)]),
+    ]
+    const ties: RunTie[] = [
+      { key: 't', leftCi: 2, rightCi: 3, leftX: 100, rightX: 150, leftY: 7.75, rightY: 8 },
+    ]
+    const splice = spliceFor(bandContinuations(run, ties), 'deep-veen')
+    expect(splice?.gaps, 'the rightward tie must not block the leftward continuation').toEqual([0])
+  })
 })
