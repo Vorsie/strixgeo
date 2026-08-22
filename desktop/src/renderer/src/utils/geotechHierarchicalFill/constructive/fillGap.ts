@@ -26,6 +26,7 @@
 import {
   buildGapConstructs,
   claims,
+  seamMeets,
   tieElevAt,
   type BandConstruct,
   type RunBand,
@@ -353,16 +354,11 @@ export function fillGap(input: GapFillInput): GapFillResult {
         { fraction: 1 + EXTEND, elevation: tieElevAt(tie, atFraction(1 + EXTEND)) },
       ])
     }
-    // *"if it is different then vertical line in the middle"* — the line is
-    // drawn where two statements MEET: two onlaps reaching from opposite tests,
-    // or two open masses spanning into each other (ruled 2026-08-21, *"two ties
-    // is two tied contacts"*: a two-contact band emits nothing and spans, and
-    // the vertical is the seam between it and the mass coming the other way).
-    // Where only one side has an open mass there is nobody to meet, so no seam
-    // is drawn and it fills through — the SF silt.
-    const opensLeft = constructs.some((c) => c.emit === 'nothing' && c.band.ci === run.left.ci)
-    const opensRight = constructs.some((c) => c.emit === 'nothing' && c.band.ci === run.right.ci)
-    if (constructs.some((c) => c.emit === 'onlap') || (opensLeft && opensRight)) {
+    // *"if it is different then vertical line in the middle"* — see
+    // ``seamMeets`` for the rule (two statements MEETING from opposite
+    // tests): a lone onlap or a lone open mass has nobody on the facing side
+    // to meet, so no seam is drawn and the ground fills through instead.
+    if (seamMeets(constructs, run.left.ci, run.right.ci)) {
       vertical(toFraction((run.left.x + run.right.x) / 2))
     }
     // THE ONLAP FLANK — the free contact closing onto its tie at the
