@@ -64,6 +64,27 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
     expect(hasSegment(segs, seg([0, 0], [1, 0]))).toBe(true)
   })
 
+  it('a column line is never an outline — the unit continues onto the card', () => {
+    // Owner, 2026-08-22, on gap 0: "there is a black line between the SF silt
+    // on column 0 and the quad to the right of it". A region's edge AT the
+    // column has only one owner — the neighbouring gap is keyed separately and
+    // the test's own card is not in this pass — so it read as outer envelope
+    // and drew. But a column is not a contact: the same unit continues onto
+    // the card, which draws itself.
+    const band = region('sand-a', [
+      { fraction: 0, elevation: 0 },
+      { fraction: 1, elevation: 0 },
+      { fraction: 1, elevation: 10 },
+      { fraction: 0, elevation: 10 },
+    ])
+    const segs = lithoOutlineEdges([band], SOILS)
+    expect(hasSegment(segs, seg([0, 0], [0, 10]))).toBe(false)
+    expect(hasSegment(segs, seg([1, 0], [1, 10]))).toBe(false)
+    // The real envelope — top and bottom — is untouched.
+    expect(hasSegment(segs, seg([0, 10], [1, 10]))).toBe(true)
+    expect(hasSegment(segs, seg([0, 0], [1, 0]))).toBe(true)
+  })
+
   it('a seam where the soil changes draws exactly once', () => {
     const sand = region('sand-a', [
       { fraction: 0, elevation: 5 },
@@ -141,8 +162,12 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
       { fraction: 0, elevation: 5 },
     ], 'quad', 1)
     const segs = lithoOutlineEdges([a, b], SOILS)
-    // Identical coordinates, different gaps: all eight edges draw.
-    expect(segs.filter((s) => s.gapIndex === 0).length).toBe(4)
-    expect(segs.filter((s) => s.gapIndex === 1).length).toBe(4)
+    // Identical coordinates, different gaps: neither cancels the other, so
+    // each gap keeps its own edges. TWO apiece, not four — the two vertical
+    // ones lie on the column lines, which stopped being contacts (2026-08-22).
+    // The invariant under test is the non-cancellation, and it holds.
+    expect(segs.filter((s) => s.gapIndex === 0).length).toBe(2)
+    expect(segs.filter((s) => s.gapIndex === 1).length).toBe(2)
+    expect(hasSegment(segs, seg([0, 5], [1, 5]))).toBe(true)
   })
 })
