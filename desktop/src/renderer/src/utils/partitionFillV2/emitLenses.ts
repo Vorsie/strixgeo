@@ -17,7 +17,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { emitContinuation, facingReadsNothing } from './emitContinuation'
+import { emitContinuation, runGapTies, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { enclosedLensReach, type ReachTie } from './lensReach'
 import { type ColumnGeom, type EnclosedLens, type SectionInput, type UnitGeom } from './sectionGeom'
@@ -69,19 +69,15 @@ export function emitEnclosedLensCurves(
     if (col.enclosedLenses.length === 0) continue
     // Into the gap to the RIGHT (this column is the gap's LEFT column).
     if (ci + 1 < columns.length) {
-      const gw = columns[ci + 1].x - col.x
-      const gapTies = ties.filter((t) => t.gapIndex === ci)
       for (const el of col.enclosedLenses)
         if (shouldEmitLens(col, columns[ci + 1], el))
-          emitOne(el.lens, col, columns[ci + 1], ci, 'left', gw, section, gapTies, nextId, out, labels)
+          emitOne(el.lens, col, columns, ci, ci, 'left', section, ties, nextId, out, labels)
     }
     // Into the gap to the LEFT (this column is the gap's RIGHT column).
     if (ci - 1 >= 0) {
-      const gw = col.x - columns[ci - 1].x
-      const gapTies = ties.filter((t) => t.gapIndex === ci - 1)
       for (const el of col.enclosedLenses)
         if (shouldEmitLens(col, columns[ci - 1], el))
-          emitOne(el.lens, col, columns[ci - 1], ci - 1, 'right', gw, section, gapTies, nextId, out, labels)
+          emitOne(el.lens, col, columns, ci, ci - 1, 'right', section, ties, nextId, out, labels)
     }
   }
 }
@@ -122,16 +118,22 @@ function shouldEmitLens(col: ColumnGeom, facing: ColumnGeom, el: EnclosedLens): 
   return true
 }
 
-/** Emit one enclosed lens's closing curves into one gap, recording its label. */
+/**
+ * Emit one enclosed lens's closing curves into one gap, recording its label.
+ *
+ * ``colIndex`` is the lens's own column in ``columns`` and ``gapIndex`` the gap it is emitted
+ * into (the override key); the diamond itself is measured against the ``terminationRun`` target —
+ * the first column that READ the lens's levels, which is the adjacent one in the ordinary case.
+ */
 function emitOne(
   lens: UnitGeom,
   col: ColumnGeom,
-  facing: ColumnGeom,
+  columns: readonly ColumnGeom[],
+  colIndex: number,
   gapIndex: number,
   side: 'left' | 'right',
-  gapWidth: number,
   section: SectionInput,
-  gapTies: readonly ReachTie[],
+  ties: readonly (ReachTie & { gapIndex: number })[],
   nextId: () => string,
   out: InputCurve[],
   labels: Map<string, LensLabel>,
@@ -146,19 +148,12 @@ function emitOne(
   }
 
   const ov = lookupOverride(section, lens, gapIndex)
-  // A CLOSURE EXISTS TO MEET THE FACING TEST (owner, 2026-08-21 — *"it should be a
-  // continuous band starting from S7 but now it is interrupted at S7A's column by a SF
-  // clay render"*). An enclosed interbed whose facing column read NOTHING at its levels
-  // has no reading to pinch against, so it continues to that column at full thickness —
-  // the SAME law the corr-0 sweep applies (``emitContinuation``). A user-drawn lens is
-  // exempt: explicit nodes are the user's own statement about the shape, never
-  // auto-corrected (the same carve-out the substrate-floor clamp takes below).
-  if (!ov?.freedraw && facingReadsNothing(facing, lens.topElev, lens.baseElev)) {
-    if (emitContinuation(lens, colX, facing.x, labels, nextId, out)) return
-  }
   if (ov?.freedraw) {
     // User-drawn lens: emit the drawn polyline verbatim between the RAW column corners (the
     // substrate-floor clamp is an auto-geometry correction, not applied to explicit user nodes).
+    // The nodes are the user's own fractions of THIS gap, so the relocation below — an
+    // auto-geometry rule — never applies to them either.
+    const gapWidth = Math.abs(columns[colIndex + dir].x - colX)
     const topPt: Point = { x: colX, y: lens.topElev }
     const basePt: Point = { x: colX, y: lens.baseElev }
     const toPt = (n: { fraction: number; elevation: number }): Point => ({
@@ -170,6 +165,18 @@ function emitOne(
     push([topPt, ...upper, ...lower, basePt])
     return
   }
+  // A COLUMN THAT READ NOTHING IS NOT A BOUNDARY (owner, 2026-08-21 — *"it should be a
+  // continuous band starting from S7 but now it is interrupted at S7A's column by a SF
+  // clay render"*, then *"how do we get open terminations for lenses"*). An enclosed interbed
+  // whose facing column read NOTHING at its levels has no reading to pinch against there, so
+  // it crosses that column and pinches against the first one that DID read — the SAME law the
+  // corr-0 sweep applies. Only where nothing in this direction ever read it does it run flat
+  // to the section edge.
+  const run = terminationRun(columns, colIndex, dir, lens.topElev, lens.baseElev)
+  const facing = run.column
+  const gapWidth = Math.abs(facing.x - colX)
+  const gapTies = runGapTies(ties, run)
+  if (!run.reads && emitContinuation(lens, colX, facing.x, labels, nextId, out)) return
   // ``topPt``/``basePt`` come from the diamond (base clamped to the substrate floor — see
   // ``enclosedLensDiamond``) so the two flanks and the detour's copy of the diamond are identical.
   const { topPt, apex, basePt } = enclosedLensDiamond(lens, col, facing, gapIndex, side, gapWidth, section, gapTies)
