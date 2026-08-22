@@ -25,6 +25,20 @@ export interface OutlineSegment {
 /** Vertex quantum for edge identity — well under the engine's 1 mm snap. */
 const KEY_DECIMALS = 6
 
+/**
+ * How close to a gap's own edge a VERTICAL segment must be to count as
+ * lying on the column line rather than inside the ground.
+ *
+ * Exact equality is wrong: the v2 arrangement snaps its vertices, so a
+ * gap's column edges land a hair inside it rather than at exactly 0 and 1.
+ * MEASURED on the owner's real model, all 14 sections: of 465 vertical
+ * outline segments, 464 sit at a column edge with a worst offset of
+ * 1.228e-3, and the ONE genuine interior vertical sits at fraction 0.5 —
+ * the law's own mid-gap "two statements meet" seam. This threshold sits 8×
+ * above the worst column offset and 50× below that seam.
+ */
+const COLUMN_LINE_FRACTION_EPS = 0.01
+
 interface EdgeOwners {
   gapIndex: number
   a: { fraction: number; elevation: number }
@@ -69,8 +83,18 @@ export function lithoOutlineEdges(
       // neighbouring gap is keyed separately, and the test's own card is not
       // in this pass at all — so it read as outer envelope and drew a line
       // through ground that simply continues onto the card.
+      //
+      // The test is PROXIMITY, not equality (owner, same day: *"when i turn
+      // on the fill there is a black vertical line top to bottom on the left
+      // of every column"*). The first version asked for exactly 0 or 1 and
+      // the v2 arrangement's snap puts a gap's column edges a hair inside it
+      // — 4.9e-5 on his CS1 — so every column vertical sailed past the guard
+      // and drew, stacking contiguously into one line per column edge. See
+      // {@link COLUMN_LINE_FRACTION_EPS} for the measurement.
       if (Math.abs(a.fraction - b.fraction) < 1e-9) {
-        const onColumn = Math.abs(a.fraction) < 1e-9 || Math.abs(a.fraction - 1) < 1e-9
+        const onColumn =
+          Math.abs(a.fraction) < COLUMN_LINE_FRACTION_EPS ||
+          Math.abs(a.fraction - 1) < COLUMN_LINE_FRACTION_EPS
         if (onColumn) continue
       }
       const key = ka < kb ? `${r.gapIndex}|${ka}|${kb}` : `${r.gapIndex}|${kb}|${ka}`
