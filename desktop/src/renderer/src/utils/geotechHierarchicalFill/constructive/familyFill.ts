@@ -64,22 +64,32 @@ export interface FamilyFillContext {
   ) => RunBand[]
 }
 
-/** What one family produced. */
-export interface FamilyFillResult {
+/** What one family's PLANNING pass produced (see {@link planFamily}). */
+export interface FamilyPlanResult {
+  /** This family's gap plans, ready for the fill once every family's are in. */
+  plans: Omit<GapFillInput, 'closureBars'>[]
+  conflicts: TieConflict[]
+  /** Gaps with no run of banded tests over them. */
+  oneSidedGaps: number
+  /** Cover this family could never plan for — an un-divided flank (owner ruling 2026-08-15). */
+  fallback: SectionRegion[]
+  /** That fallback cover, in m². */
+  residualNoBandsM2: number
+}
+
+/** What the FILL pass produced (see {@link fillPlans}). */
+export interface FillPlansResult {
   regions: SectionRegion[]
   /** The pre-merge loops, single owner + role each — the audit's surface. */
   preMerge: (SectionRegion & { role: 'construct' | 'fill' })[]
   /** Cover no class reached — the "correlate me" hatch. */
   fallback: SectionRegion[]
-  conflicts: TieConflict[]
-  /** Gaps with no run of banded tests over them. */
-  oneSidedGaps: number
   /** Cover the dominant-mass step classified, in m². */
   remainderAreaM2: number
   /** Loops whose dominant mass needed the vertical line to decide. */
   splitRemainders: number
-  /** Unclassed cover, in m², by why (see the diagnostics type). */
-  residualAreaM2: { noBands: number; outsideBandRange: number }
+  /** Cover left unclassed because nothing answered it, in m². */
+  residualOutsideBandRangeM2: number
 }
 
 /** Ring area in square metres: fraction-space area scaled by the gap width. */
@@ -97,32 +107,35 @@ function areaM2(region: SectionRegion, alongM: readonly number[]): number {
 }
 
 /**
- * Fill one family's cover, gap by gap.
+ * PLAN one family's gaps — everything through the law's LINES, stopping short
+ * of the fill. Split out from the fill itself (owner code-hunt finding F7,
+ * 2026-08-22) so ``closureBarsFor`` can run ONCE, over every family's plans
+ * together, before any family fills: a band adopted across a family boundary
+ * carries its TRUE closure wherever it is consulted, not a re-derivation
+ * scoped to whichever family happens to be asking.
  *
- * @param family The litho chain this fill belongs to.
+ * @param family The litho chain this plan belongs to.
  * @param own Its banded columns, by frame column index.
  * @param blockers Frame columns carrying its litho unit with no band of it.
  * @param runs Its runs of banded columns (see ``runsBetweenBlockers``).
  * @param context The section around it (see {@link FamilyFillContext}).
- * @returns The classed regions, the hatch, the crossings and the counters.
+ * @returns This family's gap plans, the hatch it already knows about, and the
+ *   crossing conflicts found while resolving its ties.
  */
-export function fillFamily(
+export function planFamily(
   family: LithoFamily,
   own: ReadonlyMap<number, RunColumn>,
   blockers: ReadonlySet<number>,
   runs: readonly number[][],
   context: FamilyFillContext,
-): FamilyFillResult {
+): FamilyPlanResult {
   const { alongM } = context
-  const out: FamilyFillResult = {
-    regions: [],
-    preMerge: [],
-    fallback: [],
+  const out: FamilyPlanResult = {
+    plans: [],
     conflicts: [],
     oneSidedGaps: 0,
-    remainderAreaM2: 0,
-    splitRemainders: 0,
-    residualAreaM2: { noBands: 0, outsideBandRange: 0 },
+    fallback: [],
+    residualNoBandsM2: 0,
   }
 
   // ADOPTION IS VISIBLE TO TIE RESOLUTION (owner 2026-08-21, the S8|S6 deep
@@ -187,12 +200,10 @@ export function fillFamily(
     return { columns, ties, coverTies }
   })
 
-  // PASS A — plan every gap, then read the plans for ONLAP CLOSURES before any
-  // gap fills. An onlap is a closed loop: its statement pinches in its own gap
-  // and may not take remainder ground beyond that pinch in ANY gap (owner
-  // 2026-08-21 night: "the dense sand onlaps so the MD should fill" — S8's D,
-  // closed toward S10, answered the sub-TD window two gaps over as if open,
-  // because closure was only known to the gap that drew it).
+  // PLAN every gap — the law's LINES, nothing filled yet. Closure bars (an
+  // onlap's or a lens's pinch, "the remainder of each closed loop goes to the
+  // OPEN mass") are computed by the CALLER, over every family's plans
+  // together — see ``closureBarsFor``.
   const plans: Omit<GapFillInput, 'closureBars'>[] = []
   for (const gap of [...family.regionsByGap.keys()].sort((a, b) => a - b)) {
     const cover = family.regionsByGap.get(gap) as SectionRegion[]
@@ -202,7 +213,7 @@ export function fillFamily(
     // "4 · Divide boreholes" is what accepts it.
     if (blockers.has(gap) || blockers.has(gap + 1) || own.size === 0) {
       out.fallback.push(...cover)
-      for (const r of cover) out.residualAreaM2.noBands += areaM2(r, alongM)
+      for (const r of cover) out.residualNoBandsM2 += areaM2(r, alongM)
       if (own.size === 0) out.oneSidedGaps += 1
       continue
     }
@@ -241,7 +252,7 @@ export function fillFamily(
     }
     const runWithAdopted =
       run === null ? null : { left: withAdopted(run.left), right: withAdopted(run.right) }
-    plans.push({
+    out.plans.push({
       gapIndex: gap,
       xa: alongM[gap],
       xb: alongM[gap + 1],
@@ -255,19 +266,41 @@ export function fillFamily(
       massOf: context.massOf,
     })
   }
-  // THE BARS: for every gap whose constructs CLOSE — a lens or an onlap,
-  // "the remainder of each closed loop goes to the OPEN mass" applies to
-  // both, unconditionally (owner code-hunt finding B1b, 2026-08-22: a lens's
-  // closure was only ever known to the gap that drew it, so a band that
-  // pinched two gaps back could still win remainder ground somewhere it
-  // never touches — the SAME class of leak the onlap bars were built to
-  // stop, just never extended to the other half of "closed"). The bar sits
-  // at the construct's own apex: for an onlap that IS the run's own middle
-  // (apexX == (band.x + farX) / 2, computed once here and again inside
-  // ``buildGapConstructs`` — the two must never drift apart); for a lens it
-  // is wherever ``lensReach`` actually pinched, which is normally much
-  // closer to the band's own column. A band never answers remainder on the
-  // far side of any of its own bars, in any gap.
+  void family
+  return out
+}
+
+/**
+ * THE BARS, run-wide across EVERY family together (owner code-hunt finding
+ * F7, 2026-08-22): for every gap whose constructs CLOSE — a lens or an
+ * onlap, "the remainder of each closed loop goes to the OPEN mass" applies to
+ * both, unconditionally (owner 2026-08-21 night: "the dense sand onlaps so
+ * the MD should fill" — S8's D, closed toward S10, answered the sub-TD
+ * window two gaps over as if open, because closure was only known to the gap
+ * that drew it; owner code-hunt finding B1b, 2026-08-22 extended this to
+ * lenses). Computed over the UNION of every family's plans, not one family's
+ * own: a band adopted across a family boundary is consulted as a remainder
+ * candidate wherever it is lent, and its true closure has to be visible
+ * there too — a band re-derived only inside the borrowing family's own gap
+ * context could miss a pinch it already made in the family it actually
+ * belongs to, or compute a different one from a different run pairing.
+ *
+ * The bar sits at the construct's own apex: for an onlap that IS the run's
+ * own middle (apexX == (band.x + farX) / 2, computed once here and again
+ * inside ``buildGapConstructs`` — the two must never drift apart); for a
+ * lens it is wherever ``lensReach`` actually pinched, which is normally much
+ * closer to the band's own column. A band never answers remainder on the far
+ * side of any of its own bars, in any gap, in any family.
+ *
+ * @param plans EVERY family's plans, flattened together.
+ * @param stacks EVERY packing band per column — the far-end read.
+ * @param massOf The mass (litho + packing) of a band.
+ */
+export function closureBarsFor(
+  plans: readonly Omit<GapFillInput, 'closureBars'>[],
+  stacks: FamilyFillContext['stacks'],
+  massOf: FamilyFillContext['massOf'],
+): Map<string, number[]> {
   const closureBars = new Map<string, number[]>()
   for (const plan of plans) {
     if (plan.run === null) continue
@@ -276,8 +309,8 @@ export function fillFamily(
       plan.run.right,
       plan.ties,
       plan.coverTies,
-      context.stacks,
-      context.massOf,
+      stacks,
+      massOf,
     )
     for (const construct of constructs) {
       if (construct.emit === 'nothing' || construct.apexX === undefined) continue
@@ -286,8 +319,31 @@ export function fillFamily(
       bars.push(construct.apexX)
     }
   }
+  return closureBars
+}
 
-  // PASS B — fill, every gap seeing the run's closures.
+/**
+ * FILL every plan — every gap seeing the SAME, run-wide closures (see
+ * {@link closureBarsFor}). Family-agnostic: a plan carries everything its own
+ * fill needs, so this runs flat over plans from every family together.
+ *
+ * @param plans EVERY family's plans, flattened together.
+ * @param closureBars The run-wide bars from {@link closureBarsFor}.
+ * @param alongM Along-section metres, 1:1 with the frame's columns.
+ */
+export function fillPlans(
+  plans: readonly Omit<GapFillInput, 'closureBars'>[],
+  closureBars: ReadonlyMap<string, readonly number[]>,
+  alongM: readonly number[],
+): FillPlansResult {
+  const out: FillPlansResult = {
+    regions: [],
+    preMerge: [],
+    fallback: [],
+    remainderAreaM2: 0,
+    splitRemainders: 0,
+    residualOutsideBandRangeM2: 0,
+  }
   for (const plan of plans) {
     const filled = fillGap({ ...plan, closureBars })
     out.regions.push(...filled.covered)
@@ -295,8 +351,7 @@ export function fillFamily(
     out.fallback.push(...filled.residual)
     out.remainderAreaM2 += filled.remainderAreaM2
     out.splitRemainders += filled.splitRemainders
-    for (const r of filled.residual) out.residualAreaM2.outsideBandRange += areaM2(r, alongM)
+    for (const r of filled.residual) out.residualOutsideBandRangeM2 += areaM2(r, alongM)
   }
-  void family
   return out
 }
