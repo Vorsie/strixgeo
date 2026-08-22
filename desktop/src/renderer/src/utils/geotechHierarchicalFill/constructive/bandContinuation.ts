@@ -29,9 +29,13 @@
  * This module decides WHERE the band must be visible; it never decides HOW
  * it is drawn there — that stays entirely ``constructs.ts``'s law, untouched.
  *
- * A band with ANY tie on either contact is untouched (its far-end read
- * already comes from an explicit correlation — this mechanism is the
- * 0-tie-lens law's alone, mirroring the ``emit === 'lens'`` gate).
+ * A DIRECTION is untouched when a tie crosses the band's own immediate gap
+ * THAT WAY (its far-end read already comes from an explicit correlation —
+ * this mechanism is the 0-tie-lens law's alone, mirroring the
+ * ``emit === 'lens'`` gate) — scoped exactly like ``buildGapConstructs``'s
+ * own per-gap tie resolution, so a tie crossing the OPPOSITE direction's gap
+ * never disqualifies this one (a band tied one way and open the other, e.g.
+ * the real CS1 S10 bottom MD sand, still needs its open side carried).
  *
  * Pure module — no I/O, no React.
  *
@@ -60,13 +64,33 @@ export interface ContinuationSplice {
   gaps: number[]
 }
 
-/** Does any tie land on this exact contact (any tie in the run, not gap-scoped)? */
-function tiedAt(ties: readonly RunTie[], ci: number, elevation: number): boolean {
-  return ties.some(
-    (t) =>
+/**
+ * Does any tie land on this exact contact AND cross the gap between
+ * ``loCi``/``hiCi`` — matching ``buildGapConstructs``'s own per-gap
+ * ``tieOnContact``/``crossesGap`` scoping exactly (owner code-hunt finding,
+ * 2026-08-22, the real CS1 S10 bottom MD sand: a band tied RIGHTWARD to a
+ * far column was wrongly excluded from continuation LEFTWARD too, because
+ * the old check asked "does ANY tie in the run touch this contact" instead
+ * of "does a tie touch this contact AND cross the SPECIFIC gap in
+ * question" — a tie crossing a completely different gap must never
+ * disqualify a direction it never reaches).
+ */
+function tiedAcrossGap(
+  ties: readonly RunTie[],
+  ci: number,
+  elevation: number,
+  loCi: number,
+  hiCi: number,
+): boolean {
+  return ties.some((t) => {
+    const onThisContact =
       (t.leftCi === ci && Math.abs(t.leftY - elevation) <= CONTACT_EPS) ||
-      (t.rightCi === ci && Math.abs(t.rightY - elevation) <= CONTACT_EPS),
-  )
+      (t.rightCi === ci && Math.abs(t.rightY - elevation) <= CONTACT_EPS)
+    if (!onThisContact) return false
+    const tieLo = Math.min(t.leftCi, t.rightCi)
+    const tieHi = Math.max(t.leftCi, t.rightCi)
+    return tieLo <= loCi && tieHi >= hiCi
+  })
 }
 
 /** Does this column's own bands overlap the given window at all? */
@@ -79,8 +103,9 @@ function reads(column: RunColumn, top: number, base: number): boolean {
  * SAME-family column, and where.
  *
  * @param runColumns The family's run, left to right (one run, not the whole section).
- * @param ties The run's surviving packing ties — a band with any tie on
- *   either contact is untouched (the 0-tie lens law alone).
+ * @param ties The run's surviving packing ties — a direction is untouched
+ *   when a tie crosses the band's own immediate gap that way (the 0-tie
+ *   lens law alone), scoped per direction, not per band.
  */
 export function bandContinuations(
   runColumns: readonly RunColumn[],
@@ -90,10 +115,22 @@ export function bandContinuations(
   for (let i = 0; i < runColumns.length; i++) {
     const column = runColumns[i]
     for (const band of column.bands) {
-      if (tiedAt(ties, column.ci, band.top) || tiedAt(ties, column.ci, band.base)) continue
       for (const dir of [-1, 1] as const) {
         const immediateIndex = i + dir
         if (immediateIndex < 0 || immediateIndex >= runColumns.length) continue
+        // A tie disqualifies this DIRECTION only when it actually crosses
+        // the band's own immediate gap that way — the same gap
+        // buildGapConstructs' own tieOnContact/crossesGap would consult, so
+        // a tie crossing a completely different gap (e.g. the opposite
+        // direction) can never wrongly block this one.
+        const loCi = Math.min(column.ci, runColumns[immediateIndex].ci)
+        const hiCi = Math.max(column.ci, runColumns[immediateIndex].ci)
+        if (
+          tiedAcrossGap(ties, column.ci, band.top, loCi, hiCi) ||
+          tiedAcrossGap(ties, column.ci, band.base, loCi, hiCi)
+        ) {
+          continue
+        }
         if (reads(runColumns[immediateIndex], band.top, band.base)) continue
         const run = terminationRun(runColumns, i, dir, band.top, band.base)
         if (!run.reads || run.columnIndex === immediateIndex) continue
