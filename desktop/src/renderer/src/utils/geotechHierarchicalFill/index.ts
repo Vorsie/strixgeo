@@ -486,7 +486,7 @@ export function computeHierarchicalGeotechFill(
   // path; the detour holds no ground, but the seam-stroke pass has no
   // neighbour to match its two edges against and draws them as a hairline
   // into mid-region. Dropping the apex changes no area and no class.
-  const sweptRegions = dropRegionNeedles(swept.regions)
+  const sweptRegions = dropRegionNeedles(swept.regions, input.alongM)
 
   return {
     regions: sweptRegions,
