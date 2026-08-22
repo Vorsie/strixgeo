@@ -65,6 +65,7 @@ import {
 } from '../../utils/partitionFill'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
 import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOverrideWiring'
+import { fillIdentityOf } from './sectionFillIdentity'
 import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
@@ -2184,14 +2185,28 @@ export default function PartitionFillOverlay({
   // "unfilled space" and stroking it left a darker rim (0.62 over 0.62) down
   // the gap side of every card boundary — the tone step the owner still saw
   // after the veil went to 0. They classify only; they carry no stroke.
+  // ONE MASS, ONE IDENTITY (owner dogfeed 2026-08-22, the vertical line down
+  // B3's right edge): on the geotech axis one packing class lives under
+  // several formation ROWS (one per litho/geological parent — provenance by
+  // design), so comparing raw row ids drew a seam through a mass the fill had
+  // already welded. See ``sectionFillIdentity``.
+  const packingClassByFormationId = lithoFrame?.packingClassByFormationId
+  const identityOf = useCallback(
+    (formationId: string): string => fillIdentityOf(formationId, packingClassByFormationId),
+    [packingClassByFormationId],
+  )
+
   const seamStrokes = useMemo(
     (): { undercol: string[]; regions: string[] } =>
       computeSectionSeamStrokes(
-        underColumnFills.map((f) => ({ points: f.pts, formationId: f.formationId })),
-        screenRegions.map((sr) => ({ points: sr.points, formationId: sr.region.formationId })),
-        columnStrips.map((s) => ({ points: s.pts, formationId: s.formationId })),
+        underColumnFills.map((f) => ({ points: f.pts, formationId: identityOf(f.formationId) })),
+        screenRegions.map((sr) => ({
+          points: sr.points,
+          formationId: identityOf(sr.region.formationId),
+        })),
+        columnStrips.map((s) => ({ points: s.pts, formationId: identityOf(s.formationId) })),
       ),
-    [underColumnFills, screenRegions, columnStrips],
+    [underColumnFills, screenRegions, columnStrips, identityOf],
   )
 
   // ---- DISSOLVED FILL GROUPS (S61 — owner clause 5, app-render half). --------
@@ -2228,7 +2243,7 @@ export default function PartitionFillOverlay({
         selectedBodyId && selFormId !== null && s.formationId !== selFormId ? 0.25 : FILL_OPACITY
       elements.push({
         points: s.pts,
-        formationId: s.formationId,
+        formationId: identityOf(s.formationId),
         color,
         opacityBucket: String(opacity),
         opacity,
@@ -2239,7 +2254,7 @@ export default function PartitionFillOverlay({
         selectedBodyId && selFormId !== null && f.formationId !== selFormId ? 0.25 : FILL_OPACITY
       elements.push({
         points: f.pts,
-        formationId: f.formationId,
+        formationId: identityOf(f.formationId),
         color: f.color,
         opacityBucket: String(opacity),
         opacity,
@@ -2251,14 +2266,14 @@ export default function PartitionFillOverlay({
         selectedBodyId && sr.region.bodyId !== selectedBodyId ? 0.25 : naturalOpacity
       elements.push({
         points: sr.points,
-        formationId: sr.region.formationId,
+        formationId: identityOf(sr.region.formationId),
         color: formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR,
         opacityBucket: String(opacity),
         opacity,
       })
     }
     return buildFillGroups(elements)
-  }, [underColumnFills, screenRegions, columnStrips, selectedBodyId, formationColorById, lithoFrame])
+  }, [underColumnFills, screenRegions, columnStrips, selectedBodyId, formationColorById, lithoFrame, identityOf])
 
   // ---- LITHO FRAME over the geotech partition (owner ruling 2026-08-13). ----
   //
