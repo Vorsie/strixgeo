@@ -19,6 +19,7 @@ export interface ProbeConstruct {
   emit: string
   topTied: boolean
   baseTied: boolean
+  extendsToFar?: boolean
 }
 
 /** One labelled face: who owns it, decided on which tier. */
