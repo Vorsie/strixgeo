@@ -36,6 +36,7 @@ import {
 import { FILL_ORDER, massKey, type Mass } from './emitKernel'
 import { fillGapProbe, type ProbeFace } from './fillGapProbe'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
+import { nearestFamilyColumns } from './nearestFamilyColumns'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
 
@@ -446,8 +447,14 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // through it cuts a sliver off the tie-bounded window and hands it to the
   // wrong mass (measured on his gap 3: the facing sand's flat base sliced the
   // very dense sand's own window in half).
+  // A gap no run brackets is answered by the nearest carrying test on each
+  // side — never by every column the family has anywhere in the section (see
+  // ``nearestFamilyColumns``; owner dogfeed 2026-08-22, the greener silt quad
+  // left of B3). Used for BOTH jobs a column does here: stating its own
+  // levels as lines, and offering candidates to the dominant-mass step.
+  const oneSided = run === null ? nearestFamilyColumns(columns, gapIndex) : null
   const levelColumns =
-    run === null ? columns : columns.filter((c) => c.ci === run.left.ci || c.ci === run.right.ci)
+    oneSided ?? columns.filter((c) => c.ci === run!.left.ci || c.ci === run!.right.ci)
   const stated = new Set<string>()
   const held = new Set<string>()
   const contactKeyOf = (ci: number, elevation: number): string =>
@@ -529,7 +536,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // painted the facing test's thin closed interbeds across half his silt cover —
   // the spiked comb he circled. Only a LENS drops out, and only at the levels it
   // closed on (see the remainder rungs below).
-  const answering = run === null ? columns : [run.left, run.right]
+  const answering = oneSided ?? [run!.left, run!.right]
   const allBands = answering.flatMap((c) => c.bands)
   // *"the remainder of each closed loop goes to the OPEN mass"* — a band that
   // emitted a lens or an onlap has CLOSED its loop and takes no remainder
