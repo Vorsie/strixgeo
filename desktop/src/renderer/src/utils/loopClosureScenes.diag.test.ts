@@ -803,13 +803,25 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // scene states is about SAND, so its sample moves to sand ground above
     // the deep VD; the silt that took the old point is pinned on its own line
     // below, so the change is recorded rather than hidden.
+    //
+    // The gap-16 sample moves the same way, and for the same reason one step
+    // further out (2026-08-21 late night, the RELOCATION refinement): a column
+    // that read nothing is not a boundary, so S8's silt does not stop at the
+    // short S10 — it crosses S10, B2, S7A and S7 (none of which reached -4.45)
+    // and pinches against S6, the first test that DID read that ground, 155 m
+    // away. Its wedge therefore stands at gap 16 -4.86..-5.91 where the old
+    // sample sat. The sand sample moves 0.5 m up, above the silt's top there,
+    // and the silt's own wedge is pinned at the vacated point.
     expect(geotechClassAt(scene, 14, 0.5, -4.0), 'VD above its correlation (gap 14)').toBe('ZAND-6')
     expect(geotechClassAt(scene, 14, 0.5, -5.0), "S8's drilled silt carries across").toBe('SILT-16')
     expect(geotechClassAt(scene, 15, 0.5, -4.5), 'VD below S10 above the line (gap 15)').toBe(
       'ZAND-6',
     )
-    expect(geotechClassAt(scene, 16, 0.333, -5.0), 'VD above its correlation (gap 16)').toBe(
+    expect(geotechClassAt(scene, 16, 0.333, -4.5), 'VD above its correlation (gap 16)').toBe(
       'ZAND-6',
+    )
+    expect(geotechClassAt(scene, 16, 0.333, -5.0), "S8's silt reaches S6, the first test that read").toBe(
+      'SILT-16',
     )
   })
 
