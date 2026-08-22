@@ -39,7 +39,8 @@
 
 import { resolveBandParents } from './bandParents'
 import { buildLithoFamilies } from './families'
-import { fillFamily } from './constructive/familyFill'
+import { closureBarsFor, fillPlans, planFamily } from './constructive/familyFill'
+import type { GapFillInput } from './constructive/fillGap'
 import { weldAcrossFamilies } from './crossFamilyWeld'
 import { dropRegionNeedles } from './dropNeedleSpurs'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
@@ -412,15 +413,17 @@ export function computeHierarchicalGeotechFill(
     }
   }
 
-  const regions: SectionRegion[] = []
-  const preMergeRegions: (SectionRegion & { role: 'construct' | 'fill' })[] = []
   const lithoFallback: SectionRegion[] = [...unattributed]
   let singleColumnFamilies = 0
   let oneSidedGaps = 0
   let blockedColumns = 0
-  let levelFilledAreaM2 = 0
-  let splitRemainders = 0
   const residualAreaM2 = { noBands: 0, afterEngine: 0, outsideBandRange: 0 }
+  // PLAN every family first, THEN fill — the closure bars (see
+  // ``closureBarsFor``) have to see every family's constructs before any
+  // family fills, or a band adopted across a family boundary can be handed
+  // remainder ground past a pinch it already made in the family it actually
+  // belongs to (owner code-hunt finding F7, 2026-08-22).
+  const allPlans: Omit<GapFillInput, 'closureBars'>[] = []
   for (const family of families) {
     const own = columnsByFamily.get(family.id) ?? new Map<number, RunColumn>()
     if (own.size === 1) singleColumnFamilies += 1
@@ -432,7 +435,7 @@ export function computeHierarchicalGeotechFill(
       if (!own.has(ci)) blockers.add(ci)
     }
     blockedColumns += blockers.size
-    const out = fillFamily(
+    const planned = planFamily(
       family,
       own,
       blockers,
@@ -462,16 +465,20 @@ export function computeHierarchicalGeotechFill(
         },
       },
     )
-    regions.push(...out.regions)
-    preMergeRegions.push(...out.preMerge)
-    lithoFallback.push(...out.fallback)
-    conflicts.push(...out.conflicts)
-    oneSidedGaps += out.oneSidedGaps
-    levelFilledAreaM2 += out.remainderAreaM2
-    splitRemainders += out.splitRemainders
-    residualAreaM2.noBands += out.residualAreaM2.noBands
-    residualAreaM2.outsideBandRange += out.residualAreaM2.outsideBandRange
+    allPlans.push(...planned.plans)
+    lithoFallback.push(...planned.fallback)
+    conflicts.push(...planned.conflicts)
+    oneSidedGaps += planned.oneSidedGaps
+    residualAreaM2.noBands += planned.residualNoBandsM2
   }
+  const closureBars = closureBarsFor(allPlans, stacks, massOf)
+  const filled = fillPlans(allPlans, closureBars, input.alongM)
+  const regions: SectionRegion[] = filled.regions
+  const preMergeRegions: (SectionRegion & { role: 'construct' | 'fill' })[] = filled.preMerge
+  lithoFallback.push(...filled.fallback)
+  const levelFilledAreaM2 = filled.remainderAreaM2
+  const splitRemainders = filled.splitRemainders
+  residualAreaM2.outsideBandRange += filled.residualOutsideBandRangeM2
 
   // THE FILL SWEEP CROSSES FAMILIES (owner ruling 2026-08-21, option 3: one
   // mass one body, no tie needed) — see ``crossFamilyWeld.ts``.
