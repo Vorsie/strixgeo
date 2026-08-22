@@ -63,6 +63,16 @@ export function lithoOutlineEdges(
       const ka = keyOf(a)
       const kb = keyOf(b)
       if (ka === kb) continue // zero-length (snap debris)
+      // A COLUMN IS NOT A CONTACT (owner, 2026-08-22, on gap 0: *"there is a
+      // black line between the SF silt on column 0 and the quad to the right
+      // of it"*). An edge lying on a column line has only one owner here — the
+      // neighbouring gap is keyed separately, and the test's own card is not
+      // in this pass at all — so it read as outer envelope and drew a line
+      // through ground that simply continues onto the card.
+      if (Math.abs(a.fraction - b.fraction) < 1e-9) {
+        const onColumn = Math.abs(a.fraction) < 1e-9 || Math.abs(a.fraction - 1) < 1e-9
+        if (onColumn) continue
+      }
       const key = ka < kb ? `${r.gapIndex}|${ka}|${kb}` : `${r.gapIndex}|${kb}|${ka}`
       const owners = edges.get(key)
       if (owners) {
