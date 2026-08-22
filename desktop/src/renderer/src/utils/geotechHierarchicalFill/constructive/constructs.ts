@@ -639,6 +639,36 @@ export function buildGapConstructs(
 }
 
 /**
+ * Does this gap's constructs draw the vertical "two statements meet" seam?
+ *
+ * *"if it is different then vertical line in the middle"* — the line exists
+ * ONLY where two statements MEET: two onlaps reaching from opposite tests, or
+ * two open ('nothing') masses spanning into each other. A LONE onlap or a
+ * lone open mass — the tie's far side is empty, or nothing on the facing test
+ * disagrees — has nobody on the facing side to meet, so no seam is drawn and
+ * the ground fills through instead (the SF silt case). Reviewer finding
+ * (2026-08-22): the onlap half of this rule was previously "ANY onlap
+ * anywhere in the gap", which drew the seam even when the facing test had
+ * nothing there at all.
+ *
+ * @param constructs Every construct of the gap.
+ * @param leftCi The left flank's column index.
+ * @param rightCi The right flank's column index.
+ */
+export function seamMeets(
+  constructs: readonly BandConstruct[],
+  leftCi: number,
+  rightCi: number,
+): boolean {
+  const on = (emit: Emit, ci: number): boolean =>
+    constructs.some((c) => c.emit === emit && c.band.ci === ci)
+  return (
+    (on('onlap', leftCi) && on('onlap', rightCi)) ||
+    (on('nothing', leftCi) && on('nothing', rightCi))
+  )
+}
+
+/**
  * Does a construct's own shape contain the point (x, y)?
  *
  * A ``vertical`` construct owns the window between its two ties on ITS OWN SIDE
