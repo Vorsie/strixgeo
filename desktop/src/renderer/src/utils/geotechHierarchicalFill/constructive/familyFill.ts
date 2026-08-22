@@ -15,6 +15,7 @@
  * @module utils/geotechHierarchicalFill/constructive/familyFill
  */
 
+import { bandContinuations } from './bandContinuation'
 import { fillGap, type GapFillInput } from './fillGap'
 import {
   buildGapConstructs,
@@ -200,6 +201,25 @@ export function planFamily(
     return { columns, ties, coverTies }
   })
 
+  // A COLUMN THAT READ NOTHING IS NOT A BOUNDARY (owner 2026-08-21, ported
+  // from the litho arm's ``partitionFillV2/emitContinuation.ts`` — see
+  // ``bandContinuation.ts`` for the full law and why the geotech arm's
+  // gap-by-gap architecture only needs ONE new idea: splice a band that must
+  // cross a blind same-family column into every gap along the way, and let
+  // ``buildGapConstructs``'s existing ``facingHasData`` sort each one into a
+  // flat pass-through or the one real pinch on its own). Computed once per
+  // run, gathered by gap, so the per-gap loop below can splice by lookup.
+  const continuationsByGap = new Map<number, RunBand[]>()
+  for (const candidate of resolved) {
+    for (const splice of bandContinuations(candidate.columns, candidate.ties)) {
+      for (const gap of splice.gaps) {
+        let bands = continuationsByGap.get(gap)
+        if (bands === undefined) continuationsByGap.set(gap, (bands = []))
+        bands.push(splice.band)
+      }
+    }
+  }
+
   // PLAN every gap — the law's LINES, nothing filled yet. Closure bars (an
   // onlap's or a lens's pinch, "the remainder of each closed loop goes to the
   // OPEN mass") are computed by the CALLER, over every family's plans
@@ -250,8 +270,28 @@ export function planFamily(
         bands: [...column.bands, ...adopted].sort((a, b) => b.top - a.top),
       }
     }
+    // A continuation band carries its own TRUE .ci/.x — attaching it to
+    // whichever flank is CLOSER to that true position makes
+    // buildGapConstructs' xFar/facingCi read the OPPOSITE flank, which is
+    // the resolved reading column for the terminal gap (correct: that flank
+    // genuinely has data, so the ordinary pinch runs) — or, for a merely
+    // intermediate gap, the choice is inert either way (extendsToFar claims
+    // unconditionally regardless of which flank it is nested under).
+    const continuationBands = run === null ? [] : (continuationsByGap.get(gap) ?? [])
+    const withContinuation = (column: RunColumn, otherSide: RunColumn): RunColumn => {
+      const carried = continuationBands.filter(
+        (b) => Math.abs(b.x - column.x) < Math.abs(b.x - otherSide.x),
+      )
+      if (carried.length === 0) return column
+      return { ...column, bands: [...column.bands, ...carried].sort((a, b) => b.top - a.top) }
+    }
     const runWithAdopted =
-      run === null ? null : { left: withAdopted(run.left), right: withAdopted(run.right) }
+      run === null
+        ? null
+        : {
+            left: withAdopted(withContinuation(run.left, run.right)),
+            right: withAdopted(withContinuation(run.right, run.left)),
+          }
     out.plans.push({
       gapIndex: gap,
       xa: alongM[gap],
