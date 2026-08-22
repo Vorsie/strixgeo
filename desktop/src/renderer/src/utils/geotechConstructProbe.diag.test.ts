@@ -149,7 +149,8 @@ describe('construct probe — the fill decisions of one gap', () => {
       lines.push('  CONSTRUCTS:')
       for (const c of entry.constructs) {
         lines.push(
-          `    ci${c.ci} ${nm(c.layer)} emit=${c.emit} topTied=${c.topTied} baseTied=${c.baseTied}`,
+          `    ci${c.ci} ${nm(c.layer)} emit=${c.emit} topTied=${c.topTied} baseTied=${c.baseTied}` +
+            (c.extendsToFar === true ? ' EXTENDS_TO_FAR' : ''),
         )
       }
       lines.push('  TIES:')
