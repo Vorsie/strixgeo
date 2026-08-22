@@ -171,3 +171,46 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
     expect(hasSegment(segs, seg([0, 5], [1, 5]))).toBe(true)
   })
 })
+
+describe('a column line is not a contact — snapped, not exact', () => {
+  // Owner dogfeed 2026-08-22: *"when i turn on the fill there is a black
+  // vertical line top to bottom on the left of every column"*. The
+  // column-line guard existed but tested for EXACTLY 0 or 1 (< 1e-9); the
+  // v2 engine's own snap leaves a gap's column edges a hair inside it, so
+  // every one of those verticals sailed past the guard and drew.
+  //
+  // MEASURED on the owner's real model, all 14 sections: 465 vertical
+  // outline segments, 464 of them at a column edge with a worst offset of
+  // 1.228e-3, and the ONE genuine interior vertical at fraction 0.5000 —
+  // the law's own mid-gap seam. Four hundred times' separation.
+  const ringAt = (f0: number, f1: number) => [
+    { fraction: f0, elevation: 0 },
+    { fraction: f1, elevation: 0 },
+    { fraction: f1, elevation: 5 },
+    { fraction: f0, elevation: 5 },
+  ]
+
+  it('LO-SNAP1 — a vertical at the REAL snapped column offsets does not draw', () => {
+    const segs = lithoOutlineEdges([region('sand-a', ringAt(0.000049, 0.999911))], SOILS)
+    const verticals = segs.filter((s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9)
+    expect(verticals, 'the snapped column edges are still column edges').toEqual([])
+  })
+
+  it('LO-SNAP2 — the worst offset measured on the real model (1.228e-3) still does not draw', () => {
+    const segs = lithoOutlineEdges([region('sand-a', ringAt(0.001228, 0.998772))], SOILS)
+    const verticals = segs.filter((s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9)
+    expect(verticals).toEqual([])
+  })
+
+  it('LO-SNAP3 — the law\u2019s own mid-gap vertical seam STILL draws (negative control)', () => {
+    // Two different soils meeting at the middle: the vertical between them is
+    // a real statement and must survive.
+    const left = region('sand-a', ringAt(0, 0.5))
+    const right = region('clay-a', ringAt(0.5, 1))
+    const segs = lithoOutlineEdges([left, right], SOILS)
+    const midVerticals = segs.filter(
+      (s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9 && Math.abs(s.a.fraction - 0.5) < 1e-9,
+    )
+    expect(midVerticals.length, 'the mid-gap seam is a real contact').toBeGreaterThan(0)
+  })
+})
