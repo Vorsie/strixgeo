@@ -65,15 +65,29 @@ export interface ContinuationSplice {
 }
 
 /**
- * Does any tie land on this exact contact AND cross the gap between
- * ``loCi``/``hiCi`` — matching ``buildGapConstructs``'s own per-gap
- * ``tieOnContact``/``crossesGap`` scoping exactly (owner code-hunt finding,
- * 2026-08-22, the real CS1 S10 bottom MD sand: a band tied RIGHTWARD to a
- * far column was wrongly excluded from continuation LEFTWARD too, because
- * the old check asked "does ANY tie in the run touch this contact" instead
- * of "does a tie touch this contact AND cross the SPECIFIC gap in
- * question" — a tie crossing a completely different gap must never
- * disqualify a direction it never reaches).
+ * Does any tie land on this exact contact AND actually TERMINATE at the
+ * immediate neighbour's own column — matching ``buildGapConstructs``'s own
+ * per-gap ``tieOnContact``/``crossesGap`` scoping exactly (owner code-hunt
+ * finding, 2026-08-22, the real CS1 S10 bottom MD sand: a band tied
+ * RIGHTWARD to a far column was wrongly excluded from continuation
+ * LEFTWARD too, because the old check asked "does ANY tie in the run touch
+ * this contact" instead of "does a tie touch this contact AND cross the
+ * SPECIFIC gap in question" — a tie crossing a completely different gap
+ * must never disqualify a direction it never reaches).
+ *
+ * A SECOND owner code-hunt finding, same night: EQUALITY, not containment.
+ * A tie's span merely CONTAINING the immediate gap (``tieLo<=loCi &&
+ * tieHi>=hiCi``) is not enough — a tie whose far end SKIPS PAST the blind
+ * immediate neighbour, landing on a THIRD column further out (the real S10
+ * bottom MD sand's shared-contact tie, S10 straight to S11, S8 carrying no
+ * endpoint of it at all), still leaves the immediate gap with no flank of
+ * its own to draw from: that gap's own ``buildGapConstructs`` call never
+ * sees this band as a ``left``/``right`` member, so the tie having "passed
+ * over" it settles nothing there. Only a tie that actually TERMINATES at
+ * the immediate neighbour's own column (its span EXACTLY equalling
+ * ``[loCi, hiCi]``) means that gap's ordinary per-gap resolution already
+ * has what it needs; anything wider still needs the splice to be seen at
+ * all in the gap(s) between.
  */
 function tiedAcrossGap(
   ties: readonly RunTie[],
@@ -89,7 +103,7 @@ function tiedAcrossGap(
     if (!onThisContact) return false
     const tieLo = Math.min(t.leftCi, t.rightCi)
     const tieHi = Math.max(t.leftCi, t.rightCi)
-    return tieLo <= loCi && tieHi >= hiCi
+    return tieLo === loCi && tieHi === hiCi
   })
 }
 
