@@ -706,6 +706,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
         emit: c.emit,
         topTied: c.topTied,
         baseTied: c.baseTied,
+        extendsToFar: c.extendsToFar,
       })),
       lines: lines.map((line) => line.map((p) => [p.fraction, p.elevation])),
       faces: probeFaces,
