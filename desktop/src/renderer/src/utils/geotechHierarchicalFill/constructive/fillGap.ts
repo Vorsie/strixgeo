@@ -65,13 +65,15 @@ export interface GapFillInput {
   /** The mass (litho + packing) of a band. */
   massOf: (band: RunBand) => Mass
   /**
-   * Where each band's ONLAP closures stand, run-wide (layer id → the middle x
-   * of every gap it onlapped in). An onlap is a closed loop: it pinches in its
-   * own gap and its statement ends there — it never answers remainder ground
-   * on the far side of one of its bars, in ANY gap (owner 2026-08-21 night:
-   * "the dense sand onlaps so the MD should fill").
+   * Where each band's CLOSURES stand, run-wide (layer id → the apex x of
+   * every gap it closed a loop in — lens or onlap alike). A closed loop
+   * pinches in its own gap and its statement ends there — it never answers
+   * remainder ground on the far side of one of its bars, in ANY gap (owner
+   * 2026-08-21 night: "the dense sand onlaps so the MD should fill"; owner
+   * code-hunt finding B1b, 2026-08-22: a lens closes exactly as absolutely
+   * as an onlap does, and the bar must say so).
    */
-  onlapBars: ReadonlyMap<string, readonly number[]>
+  closureBars: ReadonlyMap<string, readonly number[]>
 }
 
 /** What one gap produced. */
@@ -171,7 +173,6 @@ function areaM2(ring: readonly { fraction: number; elevation: number }[], width:
  */
 function pickDominant(
   candidates: readonly RunBand[],
-  closedLevels: ReadonlyMap<string, { lo: number; hi: number }> | null,
   closedAtMiddle: ReadonlySet<string>,
   middle: number,
   lo: number,
@@ -180,18 +181,19 @@ function pickDominant(
   y: number,
   massKeyOf: (band: RunBand) => string,
   drawnTies: readonly RunTie[],
-  onlapBars: ReadonlyMap<string, readonly number[]>,
+  closureBars: ReadonlyMap<string, readonly number[]>,
 ): { band: RunBand | null; split: boolean } {
   let best: RunBand | null = null
   let bestScore: [number, number, number, number] | null = null
   let split = false
   for (const band of candidates) {
-    // AN ONLAP'S STATEMENT ENDS AT ITS PINCH, RUN-WIDE. The per-gap middle
-    // rule below only knows the closures THIS gap drew; a band that onlapped
-    // in another gap read as open here and its ground walked past its own
-    // pinch (S8's D answering the sub-TD window two gaps over). The bar list
-    // is absolute: no rung, walls on or off, hands ground across one.
-    const bars = onlapBars.get(band.layerId)
+    // A CLOSURE'S STATEMENT ENDS AT ITS PINCH, RUN-WIDE. The per-gap middle
+    // rule below only knows the closures THIS gap drew; a band that closed a
+    // loop (lens or onlap) in another gap read as open here and its ground
+    // walked past its own pinch (S8's D answering the sub-TD window two gaps
+    // over). The bar list is absolute: no rung, walls on or off, hands
+    // ground across one.
+    const bars = closureBars.get(band.layerId)
     if (bars !== undefined && bars.some((barX) => (x - barX) * (band.x - barX) < 0)) continue
     // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
     // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
@@ -206,11 +208,22 @@ function pickDominant(
       return atSample !== 0 && atBand !== 0 && atSample > 0 !== atBand > 0
     })
     if (separated) continue
-    // A LENS has said where it ends. Its own loop stands, but the ground BEYOND
-    // it belongs to whatever encloses it, so it is not a candidate at its own
-    // levels (owner: *"top circle should be a lens"*).
-    const closed = closedLevels?.get(band.layerId)
-    if (closed !== undefined && Math.min(closed.hi, hi) - Math.max(closed.lo, lo) > 0) continue
+    // NO PER-SLIVER "IS THIS BAND'S OWN RANGE CLOSED" CHECK HERE (owner
+    // code-hunt finding C2, 2026-08-22, "two agreeing tests must not have
+    // their stack inverted mid-gap"): there used to be one, comparing a
+    // band's ORIGINAL [base,top] window against the CURRENT LOOP's span —
+    // but near a lens's own apex the loop has already narrowed past the
+    // band's nominal window, so that check excluded the band from a sliver
+    // that was still, geometrically, its own ground, while an UNRELATED
+    // band (whose own closed range simply didn't happen to overlap that
+    // narrow sliver) slipped through as "open" and won by default — a full
+    // stack swap between two identical, uncorrelated logs. The callers
+    // (below) already exclude every genuinely-closed band from the OPEN
+    // rungs by full-band identity (``closedAtMiddle``, whole-band, not
+    // sliver-overlap); once a rung falls through to candidates that MAY be
+    // closed, the ordinary scoring (own-level, covers, nearest, thickest)
+    // decides — the enclosing-mass case it used to protect resolves the
+    // same way via thickness, without a separate exclusion to get wrong.
     // A CLOSED STATEMENT ENDS AT THE MIDDLE. *"if it is different then vertical
     // line in the middle"* — the line is where the two masses stop, so a band
     // that drew a lens, an onlap or a vertical may not be handed remainder
@@ -264,59 +277,6 @@ function pickDominant(
 }
 
 /**
- * *"then fill in the rest with the dominant lithology"* — the mass that takes
- * remainder ground.
- *
- * A lens has said where it ends, so it does not reach for ground beyond its own
- * loop while any other mass can answer for that ground. When NOTHING else can —
- * every mass at this level closed a loop of its own — the rest is still filled,
- * because the law fills the rest, and the fill sweep then welds the lens into
- * the body it is touching when the two are one mass. Leaving it unclassed
- * instead was a hole of my own making (CF4/CF6).
- */
-function dominantBand(
-  candidates: readonly RunBand[],
-  closedLevels: ReadonlyMap<string, { lo: number; hi: number }>,
-  closedAtMiddle: ReadonlySet<string>,
-  middle: number,
-  lo: number,
-  hi: number,
-  x: number,
-  y: number,
-  massKeyOf: (band: RunBand) => string,
-  drawnTies: readonly RunTie[],
-  onlapBars: ReadonlyMap<string, readonly number[]>,
-): { band: RunBand | null; split: boolean } {
-  const open = pickDominant(
-    candidates,
-    closedLevels,
-    closedAtMiddle,
-    middle,
-    lo,
-    hi,
-    x,
-    y,
-    massKeyOf,
-    drawnTies,
-    onlapBars,
-  )
-  if (open.band !== null) return open
-  return pickDominant(
-    candidates,
-    null,
-    closedAtMiddle,
-    middle,
-    lo,
-    hi,
-    x,
-    y,
-    massKeyOf,
-    drawnTies,
-    onlapBars,
-  )
-}
-
-/**
  * Fill one family's cover in one gap.
  *
  * @param input See {@link GapFillInput}.
@@ -335,7 +295,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     columns,
     stacks,
     massOf,
-    onlapBars,
+    closureBars,
   } = input
   // ONE mass identity for the whole gap — the emit decisions, the remainder
   // split, the weld and the layer-id attribution all compare THIS, so two
@@ -494,7 +454,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // shaped band from the remainder was an invention of mine, and it is what
   // painted the facing test's thin closed interbeds across half his silt cover —
   // the spiked comb he circled. Only a LENS drops out, and only at the levels it
-  // closed on (see ``dominantBand``).
+  // closed on (see the remainder rungs below).
   const answering = run === null ? columns : [run.left, run.right]
   const allBands = answering.flatMap((c) => c.bands)
   // *"the remainder of each closed loop goes to the OPEN mass"* — a band that
@@ -503,12 +463,10 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // loop in that gap and cannot fill the gap"*). A band that emitted nothing —
   // welded, or welded at one end and holding its own level at the other — is
   // the open mass, and his gap-0 loop is the D sand's for exactly that reason.
-  const closedByLens = new Map<string, { lo: number; hi: number }>()
   const closedAtMiddle = new Set<string>()
   for (const construct of constructs) {
     if (construct.emit === 'nothing') continue
     closedAtMiddle.add(construct.band.layerId)
-    closedByLens.set(construct.band.layerId, { lo: construct.band.base, hi: construct.band.top })
   }
   const middleX = run === null ? Number.NaN : (run.left.x + run.right.x) / 2
 
@@ -584,29 +542,34 @@ export function fillGap(input: GapFillInput): GapFillResult {
       const familyBands = columns.flatMap((c) => c.bands)
       const open = (bs: readonly RunBand[]): RunBand[] =>
         bs.filter((b) => !closedAtMiddle.has(b.layerId))
-      const rungs: [readonly RunBand[], readonly RunTie[]][] = [
-        [open(allBands), drawnTies],
-        [open(familyBands), drawnTies],
-        [allBands, drawnTies],
-        [familyBands, drawnTies],
-        [familyBands, []],
+      // THE LAST RUNG'S WALL-DROP IS FOR A POCKET SOME OTHER TIE WALLS OFF BY
+      // ACCIDENT, NEVER FOR GROUND GENUINELY ON THE FAR SIDE OF ITS OWN
+      // CORRELATION (owner code-hunt finding B4, 2026-08-22): dropping the
+      // wall lets the ladder pick the nearest candidate BY ELIMINATION even
+      // when nothing actually relates to this ground positionally — undivided
+      // head above a tie, near the far test, picked up the class that exists
+      // only BELOW that same tie. So the last rung answers only when its
+      // winner genuinely owns or covers the sample's own levels; a winner
+      // that is merely "closest, nothing else was left" is refused, same as
+      // finding nothing at all.
+      const lastRungMustBeRelevant = (winner: RunBand | null): RunBand | null => {
+        if (winner === null) return null
+        const ownsLevel = y <= winner.top && y >= winner.base
+        const covers = Math.min(winner.top, hi) - Math.max(winner.base, lo) > 0
+        return ownsLevel || covers ? winner : null
+      }
+      const rungs: [readonly RunBand[], readonly RunTie[], boolean][] = [
+        [open(allBands), drawnTies, false],
+        [open(familyBands), drawnTies, false],
+        [allBands, drawnTies, false],
+        [familyBands, drawnTies, false],
+        [familyBands, [], true],
       ]
       let dominant: { band: RunBand | null; split: boolean } | null = null
-      for (const [candidates, walls] of rungs) {
+      for (const [candidates, walls, isLastRung] of rungs) {
         if (candidates.length === 0) continue
-        dominant = dominantBand(
-          candidates,
-          closedByLens,
-          closedAtMiddle,
-          middleX,
-          lo,
-          hi,
-          x,
-          y,
-          massKeyOf,
-          walls,
-          onlapBars,
-        )
+        dominant = pickDominant(candidates, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf, walls, closureBars)
+        if (isLastRung) dominant = { ...dominant, band: lastRungMustBeRelevant(dominant.band) }
         if (dominant.band !== null) break
       }
       band = dominant?.band ?? null
