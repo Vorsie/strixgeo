@@ -26,13 +26,14 @@
  * is a FILL construction defect to repair (the substrate face ownership riding the line
  * art), never a reason to restore an eligibility check.
  *
- * SUPERSEDED FOR THE CORR-0 ARM (owner, 2026-08-21 — *"it should be a continuous band starting
- * from S7 but now it is interrupted at S7A's column by a SF clay render"*). A hugging lens is a
- * statement about where this unit MEETS the facing test's reading, and below that test's TD
- * there is no reading to meet. So a corr-0 sub-TD unit now CONTINUES to the facing column at
- * full thickness (``emitContinuation``, applied inside the shared ``emitCorr0Termination``);
- * the hugging-lens geometry below survives only as the physical fallback when the rectangle
- * would be degenerate (a sub-snap-thin unit / a sub-snap-narrow gap). The pass itself is
+ * RELOCATED FOR THE CORR-0 ARM (owner, 2026-08-21 — *"it should be a continuous band starting
+ * from S7 but now it is interrupted at S7A's column by a SF clay render"*, then *"you made them
+ * crossing but now it is inconsistent with the litho and some don't terminate in a pinch"*). A
+ * hugging lens is a statement about where this unit MEETS the facing test's reading, and below
+ * that test's TD there is no reading to meet — so the facing column is NOT the boundary. The
+ * lens is still a lens, still pinches, but it is measured against the first column that DID read
+ * these levels (``terminationRun``), crossing the blind ones on the way. Only a run that meets no
+ * reading column at all runs flat to the section edge (``emitContinuation``). The pass itself is
  * unchanged — it still owns every unit entirely below the facing TD, still defers nothing to
  * the sweep, and the F5 corr-1 sub-TD onlap is untouched (an onlap HAS a tie to follow).
  *
@@ -51,6 +52,7 @@
 
 import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
 import { tieRefFarElev } from './drawTermination'
+import { emitContinuation, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { emitCorr0Termination } from './emitTerminationSweep'
 import { type LensLabel } from './emitLenses'
@@ -140,8 +142,8 @@ export function emitSubTdLenses(
     const left = columns[gi]
     const right = columns[gi + 1]
     // Each side's units lens toward the facing column when they sit below the FACING TD.
-    emitSideSubTd(gi, 'left', left, right, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
-    emitSideSubTd(gi, 'right', right, left, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
+    emitSideSubTd(gi, 'left', gi, left, right, columns, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
+    emitSideSubTd(gi, 'right', gi + 1, right, left, columns, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
   }
 }
 
@@ -209,8 +211,9 @@ function emitSubTdOnlap(
 
 /**
  * Emit the sub-TD corr-0 lenses for ONE side of ONE gap (ruling 8i(e), audit item 4). ``col`` is
- * the near column (whose sub-TD units lens toward ``facing``); ``side`` names which facing column
- * ``col`` is for this gap so the lens pinches into the gap on the correct side. For EVERY unit
+ * the near column (whose sub-TD units lens toward ``facing``, at index ``colIndex`` in
+ * ``columns`` so the termination target can be resolved past blind columns); ``side`` names which
+ * facing column ``col`` is for this gap so the lens pinches into the gap on the correct side. For EVERY unit
  * entirely below the facing TD with literal corr 0, delegate to the SHARED ``emitCorr0Termination``
  * in its sub-TD flood context (``subTd = true`` — the deep-to-deep substrate is the flood, so only
  * the bare 8b-capped lens closing is emitted). No M-in-M / bridge / boundary eligibility; the corr
@@ -219,8 +222,10 @@ function emitSubTdOnlap(
 function emitSideSubTd(
   gapIndex: number,
   side: 'left' | 'right',
+  colIndex: number,
   col: ColumnGeom,
   facing: ColumnGeom,
+  columns: readonly ColumnGeom[],
   activeTies: readonly ResolvedTie[],
   bridgeGapAnchored: ReadonlySet<string>,
   planAt: ReadonlyMap<string, TerminationPlan>,
@@ -265,8 +270,16 @@ function emitSideSubTd(
         // A sub-TD corr-0 side (ruling 8i(e) "everything must lens" — no formationId gate): the shared
         // helper emits its lens in the sub-TD flood context (the substrate carves the hole around it).
         // ``piece.hostUnitIndex`` indexes the merged stack for the geometry reads.
+        //
+        // A COLUMN THAT READ NOTHING IS NOT A BOUNDARY (owner, 2026-08-21). Below the facing TD the
+        // facing test read nothing BY DEFINITION, so this pass is where the relocation bites hardest:
+        // the lens is measured against the first column that DID read these levels — however many
+        // blind columns lie between — and only a run that never meets one closes flat at the edge.
+        const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev)
+        if (!run.reads && emitContinuation(pu, colX, run.column.x, lensLabels, nextId, out)) continue
         emitCorr0Termination(
-          pu, piece.hostUnitIndex, eff, col, facing, side, colX, facingX, gapIndex, Infinity,
+          pu, piece.hostUnitIndex, eff, col, run.reads ? run.column : facing, side, colX,
+          run.reads ? run.column.x : facingX, gapIndex, Infinity,
           activeTies, lensLabels, nextId, nextFloodId, out, true,
         )
         continue
