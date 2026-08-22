@@ -402,12 +402,28 @@ export function buildGapConstructs(
   massOf: (band: RunBand) => Mass,
 ): BandConstruct[] {
   const gapTies = ties.filter((t) => crossesGap(t, left, right))
+  const gapCoverTies = coverTies.filter((t) => crossesGap(t, left, right))
   const out: BandConstruct[] = []
   for (const column of [left, right]) {
     const xFar = column.ci === left.ci ? right.x : left.x
     for (const band of column.bands) {
       const topTie = tieOnContact(gapTies, band.ci, band.top, left, right)
       const baseTie = tieOnContact(gapTies, band.ci, band.base, left, right)
+      // RULING A, THE GEOMETRY HALF (owner code-hunt finding, 2026-08-22): an
+      // untied contact that IS the parent litho unit's own boundary follows
+      // the accepted LITHO tie there instead of holding the band's own flat
+      // level — "A boundary only: 2/1/0 counts packing ties" (module header):
+      // this never feeds ``farEnds``/``emitFor``/``contested``, it only
+      // replaces the flat fallback below with a line once the classification
+      // is already decided.
+      const topCoverTie =
+        topTie === null && band.atCoverTop === true
+          ? tieOnContact(gapCoverTies, band.ci, band.top, left, right)
+          : null
+      const baseCoverTie =
+        baseTie === null && band.atCoverBase === true
+          ? tieOnContact(gapCoverTies, band.ci, band.base, left, right)
+          : null
       // The band sits BELOW its own top contact and ABOVE its own base contact.
       const farEnds: Mass[] = []
       const own = massOf(band)
@@ -514,8 +530,18 @@ export function buildGapConstructs(
       const bothTied = topTie !== null && baseTie !== null
       const ridesTop = topTie !== null && (bothTied || !(contested.top && emit !== 'onlap'))
       const ridesBase = baseTie !== null && (bothTied || !(contested.base && emit !== 'onlap'))
-      const topAt = ridesTop ? (x: number) => tieElevAt(topTie as RunTie, x) : flat(band.top)
-      const baseAt = ridesBase ? (x: number) => tieElevAt(baseTie as RunTie, x) : flat(band.base)
+      // An untied cover contact rides the accepted LITHO line instead of the
+      // band's own flat level (see ``topCoverTie``/``baseCoverTie`` above).
+      const topAt = ridesTop
+        ? (x: number) => tieElevAt(topTie as RunTie, x)
+        : topCoverTie !== null
+          ? (x: number) => tieElevAt(topCoverTie, x)
+          : flat(band.top)
+      const baseAt = ridesBase
+        ? (x: number) => tieElevAt(baseTie as RunTie, x)
+        : baseCoverTie !== null
+          ? (x: number) => tieElevAt(baseCoverTie, x)
+          : flat(band.base)
       // AN ONLAP PINCHES ONTO ITS OWN LINE (owner, 2026-08-21, on the picture he
       // then confirmed — *"Yes that's it, that has always been the rule, you got
       // it right before on the litho stage"*): it rides its tie and closes on it
