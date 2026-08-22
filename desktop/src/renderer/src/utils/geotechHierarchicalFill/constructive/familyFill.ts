@@ -193,7 +193,7 @@ export function fillFamily(
   // 2026-08-21 night: "the dense sand onlaps so the MD should fill" — S8's D,
   // closed toward S10, answered the sub-TD window two gaps over as if open,
   // because closure was only known to the gap that drew it).
-  const plans: Omit<GapFillInput, 'onlapBars'>[] = []
+  const plans: Omit<GapFillInput, 'closureBars'>[] = []
   for (const gap of [...family.regionsByGap.keys()].sort((a, b) => a - b)) {
     const cover = family.regionsByGap.get(gap) as SectionRegion[]
     // One of this gap's tests carries the family and has not been divided: the
@@ -255,13 +255,22 @@ export function fillFamily(
       massOf: context.massOf,
     })
   }
-  // The bars: for every gap whose constructs include an onlap, the closure
-  // stands at that gap's middle — the pinch the law draws. A band never
-  // answers remainder on the far side of one of its own bars.
-  const onlapBars = new Map<string, number[]>()
+  // THE BARS: for every gap whose constructs CLOSE — a lens or an onlap,
+  // "the remainder of each closed loop goes to the OPEN mass" applies to
+  // both, unconditionally (owner code-hunt finding B1b, 2026-08-22: a lens's
+  // closure was only ever known to the gap that drew it, so a band that
+  // pinched two gaps back could still win remainder ground somewhere it
+  // never touches — the SAME class of leak the onlap bars were built to
+  // stop, just never extended to the other half of "closed"). The bar sits
+  // at the construct's own apex: for an onlap that IS the run's own middle
+  // (apexX == (band.x + farX) / 2, computed once here and again inside
+  // ``buildGapConstructs`` — the two must never drift apart); for a lens it
+  // is wherever ``lensReach`` actually pinched, which is normally much
+  // closer to the band's own column. A band never answers remainder on the
+  // far side of any of its own bars, in any gap.
+  const closureBars = new Map<string, number[]>()
   for (const plan of plans) {
     if (plan.run === null) continue
-    const middle = (plan.run.left.x + plan.run.right.x) / 2
     const constructs = buildGapConstructs(
       plan.run.left,
       plan.run.right,
@@ -271,16 +280,16 @@ export function fillFamily(
       context.massOf,
     )
     for (const construct of constructs) {
-      if (construct.emit !== 'onlap') continue
-      let bars = onlapBars.get(construct.band.layerId)
-      if (bars === undefined) onlapBars.set(construct.band.layerId, (bars = []))
-      bars.push(middle)
+      if (construct.emit === 'nothing' || construct.apexX === undefined) continue
+      let bars = closureBars.get(construct.band.layerId)
+      if (bars === undefined) closureBars.set(construct.band.layerId, (bars = []))
+      bars.push(construct.apexX)
     }
   }
 
   // PASS B — fill, every gap seeing the run's closures.
   for (const plan of plans) {
-    const filled = fillGap({ ...plan, onlapBars })
+    const filled = fillGap({ ...plan, closureBars })
     out.regions.push(...filled.covered)
     out.preMerge.push(...filled.preMerge)
     out.fallback.push(...filled.residual)
