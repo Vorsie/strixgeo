@@ -1,25 +1,28 @@
 /**
- * extendsToFar's CURTAIN — a live risk found by code-hunting, not yet by dogfeed.
+ * extendsToFar's CURTAIN — a live risk found by code-hunting, PORTED
+ * 2026-08-22 (see ``constructive/bandContinuation.ts`` for the fix).
  *
- * Owner, 2026-08-22, on the litho arm's sub-TD continuation shape: *"you made
+ * Owner, 2026-08-21, on the litho arm's sub-TD continuation shape: *"you made
  * them crossing but now it is inconsistent with the litho and some don't
  * terminate in a pinch"* / *"how do we get open terminations for lenses"*.
  * That was fixed on the LITHO side (blind columns are passed through, the
- * unit pinches against the first column that DOES read its ground).
+ * unit pinches against the first column that DOES read its ground) — and the
+ * SAME law now runs on the geotech constructive arm too
+ * (``bandContinuation.ts`` + ``terminationRun.ts``; see
+ * ``bandContinuationScene.test.ts`` for the multi-column proof).
  *
- * The GEOTECH constructive arm has the SAME shape of special case
- * (``constructs.ts`` → ``extendsToFar``, built earlier the same night, before
- * the owner's ruling): a 0-tie band whose immediate facing column has no band
- * at its own depth window runs FLAT to that column with NO PINCH — a curtain,
- * not a lens. A real-data sweep of all 24 CS1 gaps + every gap of every other
- * section found ZERO live instances (the family run-splitting already routes
- * around fully-BLOCKED columns, which is the common real-data shape). But a
- * blocked column and a genuinely-banded-but-silent-at-this-depth column are
- * DIFFERENT: a run member that has SOME band elsewhere (e.g. only the dense
- * sand, not the loose sand above it) is never blocked, so it legitimately
- * becomes ``left``/``right`` for its own gap, and ``facingHasData`` can still
- * read false there. This file proves the shape is REACHABLE and pins today's
- * actual behaviour (RED-first would be the fix; this is the "before" pin).
+ * EF1 BELOW STAYS AS-IS AND IS NOT A REGRESSION. Its scene is only TWO
+ * columns (A, M) — M genuinely IS the run's own edge, nothing exists beyond
+ * it. Per the law, a run edge with nothing further to read is exactly the
+ * ONE case where the flat curtain IS the correct, final answer (mirroring
+ * the litho arm's ``reads: false`` case) — the fix changes nothing here. EF1
+ * exists to prove the code path is reachable; ``bandContinuationScene.test.ts``
+ * is the file that proves the actual multi-column fix (a THIRD column beyond
+ * M that DOES read A's ground) — that shape found ZERO live instances on a
+ * real-data sweep at the time this was written, but the litho arm's own
+ * regression test for this exact law is built on real CS1 columns
+ * (S7A/S7/FAR) the geotech axis shares, so it is very plausibly live once
+ * dogfed.
  *
  * @module utils/geotechHierarchicalFill/extendsToFarCurtain
  */
@@ -104,12 +107,15 @@ describe("extendsToFar's curtain — a genuinely 0-tie band whose facing column 
       alongM,
     })
 
-    // TODAY'S SHAPE (the pin). A's loose sand is a genuine 0-tie band; its
-    // facing column (M) reads NOTHING at its elevation window [5,10] (M only
-    // has dense sand at [0,5]) — exactly the condition extendsToFar exists
-    // for. A plain lens would close within a hair of A's own column
-    // (LENS_PINCH_FRACTION, far under 0.1); today's curtain instead runs
-    // flat all the way to M's own column line.
+    // THE CORRECT, FINAL SHAPE — not a "before" pin. A's loose sand is a
+    // genuine 0-tie band; M is the run's OWN EDGE (no third column exists),
+    // and M reads NOTHING at its elevation window [5,10] either (M only has
+    // dense sand at [0,5]) — nothing in this direction ever reads it, so per
+    // the law (``terminationRun.ts``'s header) the flat curtain to M IS the
+    // right, permanent answer, mirroring the litho arm's ``reads: false``
+    // case exactly. A plain lens would close within a hair of A's own
+    // column (LENS_PINCH_FRACTION, far under 0.1); the curtain instead runs
+    // flat all the way to M's own column line, on purpose.
     const looseRegions = out.regions.filter((r) => (r.layerIds ?? []).includes('GA-loose'))
     expect(looseRegions.length, 'the loose sand painted nothing').toBeGreaterThan(0)
     let farthestFraction = 0
@@ -118,15 +124,15 @@ describe("extendsToFar's curtain — a genuinely 0-tie band whose facing column 
     }
     expect(
       farthestFraction,
-      "TODAY: the curtain runs to M's own column line rather than pinching near A's",
+      "the curtain runs to M's own column line rather than pinching near A's — correct, M is the run's own edge",
     ).toBeGreaterThan(0.95)
 
     // Ground right beside M's own column, at the loose sand's elevation —
-    // depth M never logged at all — reads LOOSE today.
+    // depth M never logged at all — correctly reads LOOSE (M's own edge).
     const besideM = out.regions.find((r) => inRegion(0.97, 7.5, r))
     expect(
       besideM?.formationId,
-      "TODAY: loose sand paints right up to M's column, at a depth M's own log never reached",
+      "loose sand correctly paints right up to M's column, at a depth M's own log never reached",
     ).toBe(LOOSE)
   })
 })
