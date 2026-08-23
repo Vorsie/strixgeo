@@ -111,6 +111,7 @@ import {
 } from '../../utils/unbandedGeotechHatch'
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
+import { nextConflictIndex } from './crossingTieNav'
 import ReviewFlagLayer, { type ReviewFlagMarker } from './ReviewFlagLayer'
 import { reviewFlagId } from '../../utils/reviewFlagPrefs'
 import { type ReviewFlag } from '../../utils/partitionFillV2'
@@ -322,6 +323,23 @@ export interface Props {
    * on FREEDRAW_EDIT_ENABLED) — this action is always available. Absent = the Correlate row is inert.
    */
   onCorrelateReviewFlag?: (flagLayerId: string, facingLayerId: string) => void
+  /**
+   * Centre the gap holding the next crossing-tie conflict (owner ask
+   * 2026-08-23: *"make that clickable so it zooms to the first one, and then
+   * when it is resolved it takes the second one"*).
+   *
+   * Absent leaves the warning chip PASSIVE, exactly as it shipped — only a
+   * caller that can actually pan supplies this, so the chip never advertises an
+   * affordance it cannot honour.
+   *
+   * Carries a resolved SCREEN X, not the conflict's ``gapIndex``, deliberately.
+   * On the geotech axis the fill's gap axis is the LITHO FRAME's column list
+   * (``lithoFramePartition.lithoValid``), which is not the caller's visible-column
+   * list — handing the index across that boundary would silently centre the
+   * wrong gap whenever the two differ. The overlay owns that axis, so it does
+   * the lookup through its own ``gapXs``.
+   */
+  onJumpToConflictGap?: (screenX: number) => void
 }
 
 // Shared with the per-column band stack, so the fill in the gaps and the fill
@@ -437,8 +455,14 @@ export default function PartitionFillOverlay({
   dismissedReviewFlags,
   onDismissReviewFlag,
   onCorrelateReviewFlag,
+  onJumpToConflictGap,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
+  // Which crossing-tie conflict the chip last centred. A REF, not state: the
+  // pan happens outside this component, so advancing must not re-render — and
+  // declared HERE, beside the other refs at the top of the body, so no hook is
+  // added below an early return (the #201 hook-order trap).
+  const conflictVisitRef = useRef<number | null>(null)
   // The geotech axis is VIEW-ONLY: no body / lens / boundary gesture is wired
   // there (geotech editing lives in GeotechBandEditOverlay), so every
   // interactive surface below is suppressed. Keyed on the AXIS, not on
@@ -3270,6 +3294,21 @@ export default function PartitionFillOverlay({
         conflictCount={conflicts.length}
         plotLeft={plotLeft ?? 0}
         plotTop={plotTop}
+        onJump={
+          onJumpToConflictGap
+            ? () => {
+                const next = nextConflictIndex(conflictVisitRef.current, conflicts.length)
+                if (next === null) return
+                conflictVisitRef.current = next
+                // Resolve the gap on the fill's OWN axis (see the prop's doc):
+                // gapXs is built from the same ordered column list the conflict
+                // indexes, so this cannot drift from what was actually drawn.
+                const gap = sectionFillData.gapXs[conflicts[next].gapIndex]
+                if (gap === undefined) return
+                onJumpToConflictGap((gap.leftX + gap.rightX) / 2)
+              }
+            : undefined
+        }
       />
       {/* LITHO FALLBACK FILLS (geotech axis, owner ruling 2026-08-13): the
           litho regions the packing model has no bands for, painted in their
