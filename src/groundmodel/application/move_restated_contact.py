@@ -40,6 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -352,7 +353,7 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             survivor_row.depth_top_m = merged_outcome.depth_top_m
             survivor_row.depth_base_m = merged_outcome.depth_base_m
             survivor_row.formation_id = survivor_formation.id
-            survivor_row.source = "manual"
+            survivor_row.source = MANUAL_BAND_SOURCE
             deleted_band_ids = (absorbed_row.id,)
             await self._session.delete(absorbed_row)
         else:
@@ -377,10 +378,10 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             )
             upper_row.depth_base_m = boundary_m
             upper_row.formation_id = upper_formation.id
-            upper_row.source = "manual"
+            upper_row.source = MANUAL_BAND_SOURCE
             lower_row.depth_top_m = boundary_m
             lower_row.formation_id = lower_formation.id
-            lower_row.source = "manual"
+            lower_row.source = MANUAL_BAND_SOURCE
 
         litho_upper.depth_base_m = boundary_m
         litho_lower.depth_top_m = boundary_m
