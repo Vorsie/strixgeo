@@ -42,6 +42,8 @@ describe('tryParseNumeric', () => {
     expect(tryParseNumeric('1e3')).toBeNull()
     expect(tryParseNumeric('0x10')).toBeNull()
     expect(tryParseNumeric('+5')).toBeNull()
+    // DEFAULT behaviour — a minus is refused unless the caller opts in.
+    // SettingsDialog's 0..1 ratio depends on this staying the default.
     expect(tryParseNumeric('-5')).toBeNull()
   })
 
@@ -50,6 +52,46 @@ describe('tryParseNumeric', () => {
     expect(tryParseNumeric('5m')).toBeNull()
     expect(tryParseNumeric('$5')).toBeNull()
     expect(tryParseNumeric('5%')).toBeNull()
+  })
+})
+
+describe('tryParseNumeric — allowNegative', () => {
+  // Owner ruling 2026-08-23: "waterdepth can be negative too, offshore for
+  // example". A quantity measured downward from a surface goes negative
+  // whenever the thing measured sits ABOVE that surface — water over a
+  // seabed. Elevations below a datum are the same shape. So the primitive
+  // has to be able to take a minus, opt-in, without loosening the default.
+  it('parses a negative in both separator forms', () => {
+    expect(tryParseNumeric('-5', { allowNegative: true })).toBe(-5)
+    expect(tryParseNumeric('-3,45', { allowNegative: true })).toBe(-3.45)
+    expect(tryParseNumeric('-3.45', { allowNegative: true })).toBe(-3.45)
+    expect(tryParseNumeric('-0,675', { allowNegative: true })).toBe(-0.675)
+  })
+
+  it('still parses positives unchanged when negatives are allowed', () => {
+    expect(tryParseNumeric('5', { allowNegative: true })).toBe(5)
+    expect(tryParseNumeric('0,3', { allowNegative: true })).toBe(0.3)
+  })
+
+  it('treats a lone minus as not-yet-a-number (mid-typing)', () => {
+    // Same contract as a lone separator: the draft keeps it on screen, the
+    // parent value does not move until there is a number to move to.
+    expect(tryParseNumeric('-', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('-.', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('-,', { allowNegative: true })).toBeNull()
+  })
+
+  it('accepts a minus ONLY as the leading character', () => {
+    expect(tryParseNumeric('5-', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('--5', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('3-4', { allowNegative: true })).toBeNull()
+  })
+
+  it('does not accidentally re-admit the other rejects', () => {
+    expect(tryParseNumeric('-1e3', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('+5', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('-1.2,3', { allowNegative: true })).toBeNull()
+    expect(tryParseNumeric('-abc', { allowNegative: true })).toBeNull()
   })
 })
 
@@ -64,6 +106,14 @@ describe('formatNumericForDisplay', () => {
     expect(formatNumericForDisplay(NaN)).toBe('')
     expect(formatNumericForDisplay(Infinity)).toBe('')
     expect(formatNumericForDisplay(-Infinity)).toBe('')
+  })
+
+  it('renders negatives with a leading minus', () => {
+    // Display has never been gated on sign — only INPUT was. Pinned so a
+    // future formatting change cannot quietly drop the sign on an offshore
+    // water table or a below-datum elevation.
+    expect(formatNumericForDisplay(-3.45)).toMatch(/^-3[.,]45$/)
+    expect(formatNumericForDisplay(-16)).toBe('-16')
   })
 })
 
@@ -190,5 +240,87 @@ describe('<NumericInput>', () => {
     // The user's draft survives — focused edit wins over the external
     // value change.
     expect(input.value).toBe('0,')
+  })
+})
+
+describe('<NumericInput allowNegative>', () => {
+  it('blocks the minus key by DEFAULT', () => {
+    render(<NumericInput value={0} onChange={() => {}} aria-label="x" />)
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    input.focus()
+    expect(fireEvent.keyDown(input, { key: '-' })).toBe(false)
+  })
+
+  it('allows a leading minus when opted in', () => {
+    render(
+      <NumericInput value={0} onChange={() => {}} allowNegative aria-label="x" />,
+    )
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    input.focus()
+    expect(fireEvent.keyDown(input, { key: '-' })).toBe(true)
+  })
+
+  it('emits a negative number the user types', () => {
+    const onChange = vi.fn()
+    render(
+      <NumericInput value={0} onChange={onChange} allowNegative aria-label="x" />,
+    )
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    input.focus()
+    fireEvent.change(input, { target: { value: '-3,45' } })
+    expect(onChange).toHaveBeenLastCalledWith(-3.45)
+  })
+
+  it('holds a lone minus as a draft without emitting', () => {
+    const onChange = vi.fn()
+    render(
+      <NumericInput value={0} onChange={onChange} allowNegative aria-label="x" />,
+    )
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    input.focus()
+    fireEvent.change(input, { target: { value: '-' } })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(input.value).toBe('-')
+  })
+
+  it('blocks a SECOND minus', () => {
+    // Mirrors the decimal-separator rule exactly: the keydown filter stops a
+    // second one, and POSITION is left to the parser rather than being
+    // re-derived from the caret. A misplaced minus ("3-4") can therefore be
+    // typed but never commits — the same contract a mixed-separator paste
+    // already has.
+    render(
+      <NumericInput value={0} onChange={() => {}} allowNegative aria-label="x" />,
+    )
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    input.focus()
+    fireEvent.change(input, { target: { value: '-3' } })
+    expect(fireEvent.keyDown(input, { key: '-' })).toBe(false)
+  })
+
+  it('never commits a misplaced minus', () => {
+    const onChange = vi.fn()
+    render(
+      <NumericInput value={0} onChange={onChange} allowNegative aria-label="x" />,
+    )
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    input.focus()
+    fireEvent.change(input, { target: { value: '3-4' } })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(input.value).toBe('3-4')
+  })
+
+  it('round-trips a negative through blur re-formatting', () => {
+    function Wrapper(): JSX.Element {
+      const [v, setV] = useState(0)
+      return <NumericInput value={v} onChange={setV} allowNegative aria-label="x" />
+    }
+    render(<Wrapper />)
+    const input = screen.getByLabelText('x') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '-3,450' } })
+    expect(input.value).toBe('-3,450')
+    fireEvent.blur(input)
+    expect(input.value).toMatch(/^-3[.,]45$/)
   })
 })
