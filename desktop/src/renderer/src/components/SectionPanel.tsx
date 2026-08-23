@@ -2050,6 +2050,25 @@ export default function SectionPanel({
     [plotWidth, scaleH],
   )
 
+  // Centre the gap holding the next crossing-tie conflict (owner ask
+  // 2026-08-23: *"make that clickable so it zooms to the first one, and then
+  // when it is resolved it takes the second one"*). The chip cycles; this only
+  // pans, reusing the same one-shot slide the column find uses so the jump
+  // keeps whatever zoom the engineer set.
+  //
+  // The overlay hands over a resolved SCREEN X rather than the conflict's gap
+  // index, because on the geotech axis that index lives on the litho frame's
+  // column list, not on ``visibleColumns`` — see PartitionFillOverlay's
+  // ``onJumpToConflictGap`` doc.
+  const handleConflictJump = useCallback(
+    (screenX: number) => {
+      setViewport(prev =>
+        panViewportToScreenX(prev, screenX, MARGIN.left + plotWidth / 2, scaleH),
+      )
+    },
+    [plotWidth, scaleH],
+  )
+
   // Mirror the layout state the wheel handler needs into ``layoutStateRef``.
   // handleWheel is declared far above these memos, so it can't close over them
   // directly; the ref lets it re-run the SAME horizontal layout at the
@@ -3343,6 +3362,7 @@ export default function SectionPanel({
                 dismissedReviewFlags={dismissedReviewFlags}
                 onDismissReviewFlag={handleDismissReviewFlag}
                 onCorrelateReviewFlag={onCorrelateBoundary}
+                onJumpToConflictGap={handleConflictJump}
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
