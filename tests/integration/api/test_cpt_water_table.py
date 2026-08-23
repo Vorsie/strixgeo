@@ -198,17 +198,59 @@ async def test_a_second_edit_still_rolls_back_to_the_file_not_to_the_first_edit(
     assert cleared.json()["water_depth_source"] == "gef"
 
 
+async def test_a_water_table_above_the_collar_is_accepted(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Offshore the water stands ABOVE the collar, so the depth is negative.
+
+    Owner ruling 2026-08-23: *"waterdepth can be negative too, offshore for
+    example"*. The schema's old ``ge=0.0`` floor forced every such reading to
+    be flattened to 0, so the value the engineer actually observed could not
+    be recorded at all — the CPT could not say whether the sea was at the
+    seabed or fifteen metres over it.
+
+    NOTE this is a PROVENANCE change, not a numerical one: ``stress_profile``
+    puts the pore-pressure datum at the ground surface, so its case-1 branch
+    ("water at or above ground surface") already returns the same stresses for
+    0 and for -15. What changes is that the observation survives the round
+    trip instead of being rewritten on the way in.
+    """
+    project = await make_project(db_session)
+    cpt_id = (await _import(async_client, str(project.id), _GEF_WITH_WATER)).json()["cpt_id"]
+
+    accepted = await async_client.patch(
+        f"/cpt/{cpt_id}/water-table?project_id={project.id}",
+        json={"water_depth_m": -15.0},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["water_depth_m"] == -15.0
+
+    after = await async_client.get(f"/cpt/{cpt_id}?project_id={project.id}")
+    assert after.json()["water_depth_m"] == -15.0, "the negative depth did not survive"
+    assert after.json()["water_depth_source"] == "engineer"
+
+    # The stress pipeline must still answer — a negative gwt reaching the
+    # Robertson normalisation may not blow up or blank the profile.
+    profile = await async_client.get(f"/cpt/{cpt_id}/sbt-profile?project_id={project.id}")
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["gwt_m"] == -15.0
+
+
 async def test_an_out_of_range_depth_is_refused_and_changes_nothing(
     async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """A negative or absurd depth 422s — and the engineer's stored value survives it."""
+    """An ABSURD depth still 422s — the engineer's stored value survives it.
+
+    The lower bound moved to -500 m (see the offshore test above); it is still
+    a bound, because a value past it can only be a typo or a corrupt file.
+    """
     project = await make_project(db_session)
     cpt_id = (await _import(async_client, str(project.id), _GEF_WITH_WATER)).json()["cpt_id"]
     await async_client.patch(
         f"/cpt/{cpt_id}/water-table?project_id={project.id}", json={"water_depth_m": 3.0}
     )
 
-    for bad in (-1.0, 501.0):
+    for bad in (-501.0, 501.0):
         refused = await async_client.patch(
             f"/cpt/{cpt_id}/water-table?project_id={project.id}", json={"water_depth_m": bad}
         )
