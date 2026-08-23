@@ -52,7 +52,13 @@ foreach ($a in $CallerArgs) {
         $hasTarget = $true
     }
 }
-$pytestArgs = if ($hasTarget) { $CallerArgs } else { @("tests/integration") + $CallerArgs }
+# The @( ) wrapper is load-bearing. PowerShell unrolls a ONE-element array on
+# assignment, so a single-argument call (`run-integration-tests.ps1 tests/x.py`)
+# left $pytestArgs holding a plain string — and splatting a string with @ spreads
+# it one CHARACTER per argument, so pytest was handed "t", "e", "s", ... and
+# reported `file or directory not found: t`. Two-or-more-argument calls stayed an
+# array and worked, which is why this survived the earlier -k fix.
+$pytestArgs = @(if ($hasTarget) { $CallerArgs } else { @("tests/integration") + $CallerArgs })
 
 Write-Host "==> pytest $pytestArgs"
 uv run pytest @pytestArgs
