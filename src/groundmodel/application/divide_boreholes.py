@@ -101,6 +101,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import _parse_admixtures
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_crossing_sweep import sweep_crossing_ties
@@ -1594,6 +1595,26 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # the tie section — is imported as-is, so a later press on a section
         # that shares it can never tell a second story. The set feeds the
         # planner's segment filter AND execute's delete/capture exclusions.
+        #
+        # NARROWED by the owner ruling 2026-08-23 (*"you only decide how the
+        # boreholes get divided after user review"*): what first-subdivision-
+        # wins protects is the ENGINEER's work, not the machine's first guess.
+        #
+        # This verb derives ties of its own AFTER placing its bands, so a
+        # borehole's first pass is necessarily planned against a thinner tie
+        # set than the one the engineer ends up approving. Skipping every
+        # already-banded borehole froze that first guess permanently: pressing
+        # 4 again was a no-op and the only escape was Clear subdivision, one
+        # column at a time. Measured on the dev model the day of the ruling,
+        # 126-B8 kept a single NAD 6 band over 10.97-16.00 m where a re-plan
+        # reads 6/5/7/6/8 — and a CPT-to-CPT span survived across it purely
+        # because a mid-band crossing has no contact to land on.
+        #
+        # So the skip is keyed on HAND EVIDENCE: any band the engineer touched
+        # carries ``source='manual'``, stamped by every band-edit writer
+        # (set-class, split, merge, move-boundary, move-restated-contact). A
+        # purely machine-placed borehole is re-planned and picks up the review;
+        # a touched one is imported as-is, exactly as before.
         skip_set: set[UUID] = set()
         if skip_existing:
             skip_set = {
@@ -1604,6 +1625,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         .where(
                             LithoLayerOrm.model_id == geotech_model.id,
                             LithoLayerOrm.borehole_id.is_not(None),
+                            LithoLayerOrm.source == MANUAL_BAND_SOURCE,
                         )
                         .distinct()
                     )
