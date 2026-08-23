@@ -871,4 +871,30 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(painted).not.toBe('(hatch)')
     expect(painted).toBe('SILT-14')
   })
+
+  it('S24 · gap 19 · an onlap is a TRIANGLE — it never takes the ground above its own pinch', () => {
+    // Owner, 2026-08-22: *"The loose sand has a bottom tie, not a top tie
+    // that is why it is an onlap and should be a triangle and not a quad"*.
+    //
+    // ci19's ZAND-5 (loose sand, 11.06..10.65) carries ONE tie, on its BASE
+    // contact (ci19@10.65 -> ci20@11.07), so it rides that line and its free
+    // TOP pinches down onto it — a triangle, apex at the middle. The engine
+    // builds exactly that triangle. What made it read as a QUAD is a SECOND
+    // face: the remainder step handed the band the wedge directly ABOVE its
+    // own pinching top (still inside its nominal 11.06..10.65 window, so it
+    // won the ownsLevel rank), and the two together square off against the
+    // mid-gap seam.
+    //
+    // A band's own construct is the statement of where it is. Where that
+    // construct speaks, it speaks completely — the remainder may not re-add
+    // ground the band's own closed shape has already excluded.
+    expect(
+      geotechClassAt(scene, 19, 0.167, 10.857),
+      'the onlap keeps its own triangle',
+    ).toBe('ZAND-5')
+    expect(
+      geotechClassAt(scene, 19, 0.333, 10.993),
+      "the ground above the pinch is NOT the onlap own ground",
+    ).not.toBe('ZAND-5')
+  })
 })
