@@ -26,6 +26,13 @@ const SOILS = new Map<string, string | null>([
   ['lens-clay', 'KLEI'],
 ])
 
+/**
+ * Gap width (m) for the synthetic scenes. The column-line guard is METRIC, so
+ * every call has to say how wide its gap is; 100 m is a wide, ordinary gap in
+ * which 2 mm is a very small fraction.
+ */
+const WIDE = (): number => 100
+
 const seg = (a: [number, number], b: [number, number]) => ({ a, b })
 const hasSegment = (
   segs: ReturnType<typeof lithoOutlineEdges>,
@@ -58,7 +65,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
       { fraction: 1, elevation: 5 },
       { fraction: 0, elevation: 5 },
     ])
-    const segs = lithoOutlineEdges([upper, lower], SOILS)
+    const segs = lithoOutlineEdges([upper, lower], SOILS, WIDE)
     expect(hasSegment(segs, seg([0, 5], [1, 5]))).toBe(false)
     expect(hasSegment(segs, seg([0, 10], [1, 10]))).toBe(true)
     expect(hasSegment(segs, seg([0, 0], [1, 0]))).toBe(true)
@@ -77,7 +84,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
       { fraction: 1, elevation: 10 },
       { fraction: 0, elevation: 10 },
     ])
-    const segs = lithoOutlineEdges([band], SOILS)
+    const segs = lithoOutlineEdges([band], SOILS, WIDE)
     expect(hasSegment(segs, seg([0, 0], [0, 10]))).toBe(false)
     expect(hasSegment(segs, seg([1, 0], [1, 10]))).toBe(false)
     // The real envelope — top and bottom — is untouched.
@@ -98,7 +105,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
       { fraction: 1, elevation: 5 },
       { fraction: 0, elevation: 5 },
     ])
-    const segs = lithoOutlineEdges([sand, clay], SOILS)
+    const segs = lithoOutlineEdges([sand, clay], SOILS, WIDE)
     const contact = segs.filter((s) => hasSegment([s], seg([0, 5], [1, 5])))
     expect(contact.length).toBe(1)
   })
@@ -126,6 +133,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
     const sameSoil = lithoOutlineEdges(
       [region('sand-a', hostRing), region('lens-sand', lensRing, 'lens')],
       SOILS,
+      WIDE,
     )
     expect(hasSegment(sameSoil, seg([0.4, 6], [0.6, 6]))).toBe(false)
     expect(hasSegment(sameSoil, seg([0.4, 6], [0.5, 7]))).toBe(false)
@@ -133,6 +141,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
     const foreign = lithoOutlineEdges(
       [region('sand-a', hostRing), region('lens-clay', lensRing, 'lens')],
       SOILS,
+      WIDE,
     )
     expect(hasSegment(foreign, seg([0.4, 6], [0.6, 6]))).toBe(true)
     expect(hasSegment(foreign, seg([0.4, 6], [0.5, 7]))).toBe(true)
@@ -144,7 +153,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
       { fraction: 0.6, elevation: 6 },
       { fraction: 0.5, elevation: 7 },
     ]
-    const segs = lithoOutlineEdges([region('lens-clay', lensRing, 'lens')], SOILS)
+    const segs = lithoOutlineEdges([region('lens-clay', lensRing, 'lens')], SOILS, WIDE)
     expect(segs.length).toBe(0)
   })
 
@@ -161,7 +170,7 @@ describe('lithoOutlineEdges — soil-level dissolve of the litho outline pass', 
       { fraction: 1, elevation: 5 },
       { fraction: 0, elevation: 5 },
     ], 'quad', 1)
-    const segs = lithoOutlineEdges([a, b], SOILS)
+    const segs = lithoOutlineEdges([a, b], SOILS, WIDE)
     // Identical coordinates, different gaps: neither cancels the other, so
     // each gap keeps its own edges. TWO apiece, not four — the two vertical
     // ones lie on the column lines, which stopped being contacts (2026-08-22).
@@ -191,13 +200,17 @@ describe('a column line is not a contact — snapped, not exact', () => {
   ]
 
   it('LO-SNAP1 — a vertical at the REAL snapped column offsets does not draw', () => {
-    const segs = lithoOutlineEdges([region('sand-a', ringAt(0.000049, 0.999911))], SOILS)
+    // 4.9e-5 and 8.9e-5 of a 10 m gap are 0.49 mm and 0.89 mm — both inside
+    // the 2 mm metric tolerance.
+    const segs = lithoOutlineEdges([region('sand-a', ringAt(0.000049, 0.999911))], SOILS, () => 10)
     const verticals = segs.filter((s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9)
     expect(verticals, 'the snapped column edges are still column edges').toEqual([])
   })
 
   it('LO-SNAP2 — the worst offset measured on the real model (1.228e-3) still does not draw', () => {
-    const segs = lithoOutlineEdges([region('sand-a', ringAt(0.001228, 0.998772))], SOILS)
+    // That fraction is 0.5 mm on the 0.407 m gap it was measured on — the same
+    // half-snap-cell error, just expressed in a much narrower gap's fractions.
+    const segs = lithoOutlineEdges([region('sand-a', ringAt(0.001228, 0.998772))], SOILS, () => 0.407)
     const verticals = segs.filter((s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9)
     expect(verticals).toEqual([])
   })
@@ -207,10 +220,42 @@ describe('a column line is not a contact — snapped, not exact', () => {
     // a real statement and must survive.
     const left = region('sand-a', ringAt(0, 0.5))
     const right = region('clay-a', ringAt(0.5, 1))
-    const segs = lithoOutlineEdges([left, right], SOILS)
+    const segs = lithoOutlineEdges([left, right], SOILS, WIDE)
     const midVerticals = segs.filter(
       (s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9 && Math.abs(s.a.fraction - 0.5) < 1e-9,
     )
     expect(midVerticals.length, 'the mid-gap seam is a real contact').toBeGreaterThan(0)
+  })
+
+  it('LO-SNAP4 — a PAIRED STATION gap (42 mm) still suppresses its column verticals', () => {
+    // Audit finding, 2026-08-23. partitionFillV2/columnSeparation forces a CPT
+    // and a borehole drilled at ONE station apart to MIN_COLUMN_SEPARATION_M
+    // (20 mm); the dev model has a 42 mm pair on Tie-section 8. The snap error
+    // is a fixed 0.5 mm, so in a 42 mm gap it is 0.012 of the width — PAST the
+    // old flat 0.01 fraction guard, which therefore drew the column verticals
+    // again and put back the very black line it was written to remove.
+    //
+    // A metric tolerance does not care how narrow the gap is.
+    const offset = 0.0005 / 0.042 // 0.5 mm of a 42 mm gap ≈ 0.0119
+    const segs = lithoOutlineEdges(
+      [region('sand-a', ringAt(offset, 1 - offset))],
+      SOILS,
+      () => 0.042,
+    )
+    const verticals = segs.filter((s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9)
+    expect(verticals, 'a 42 mm paired-station gap is still a column line').toEqual([])
+  })
+
+  it('LO-SNAP5 — a WIDE gap does not let the guard eat a real near-column contact', () => {
+    // The mirror failure of the same bug: a flat 0.01 fraction was 1.5 m of
+    // ground on a 150 m gap. Metric, 0.01 of that gap is 1.5 m — far outside
+    // the 2 mm tolerance — so a genuine vertical contact there still draws.
+    const left = region('sand-a', ringAt(0, 0.01))
+    const right = region('clay-a', ringAt(0.01, 1))
+    const segs = lithoOutlineEdges([left, right], SOILS, () => 150)
+    const atContact = segs.filter(
+      (s) => Math.abs(s.a.fraction - s.b.fraction) < 1e-9 && Math.abs(s.a.fraction - 0.01) < 1e-9,
+    )
+    expect(atContact.length, 'a soil change 1.5 m from the column is a real contact').toBeGreaterThan(0)
   })
 })
