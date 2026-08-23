@@ -1,0 +1,4703 @@
+{
+ "provenance": "Cross-section 1 of the owner's dev project, both models, extracted from scripts/throwaway_geotech_axis_inputs.json. Ids anonymised; geometry verbatim. Regenerate: scripts/extract_cs1_golden_fixture.mjs (see its header).",
+ "alongM": [
+  23.44840678389045,
+  96.9548453276104,
+  100.13728257085015,
+  101.56220517970824,
+  191.9437820743472,
+  289.8552876053077,
+  385.7288429798838,
+  422.72950376774145,
+  456.0656931220336,
+  471.8690913729887,
+  497.9879765067048,
+  499.8932996610495,
+  502.87501950588967,
+  537.7070631786592,
+  569.6041398348876,
+  574.861784643093,
+  577.7737417615965,
+  645.5718189049626,
+  646.7369878976377,
+  724.8292524346077,
+  800.3197214850318,
+  801.4221510192044,
+  801.5916856110593,
+  877.6880628346381
+ ],
+ "geotechAlongM": [
+  23.44840678389045,
+  96.9548453276104,
+  100.13728257085015,
+  101.56220517970824,
+  191.9437820743472,
+  289.8552876053077,
+  385.7288429798838,
+  422.72950376774145,
+  456.0656931220336,
+  471.8690913729887,
+  497.9879765067048,
+  499.8932996610495,
+  502.87501950588967,
+  537.7070631786592,
+  569.6041398348876,
+  574.861784643093,
+  577.7737417615965,
+  645.5718189049626,
+  646.7369878976377,
+  724.8292524346077,
+  800.3197214850318,
+  801.4221510192044,
+  801.5916856110593,
+  877.6880628346381
+ ],
+ "columns": [
+  {
+   "investigationId": "col-00",
+   "surfaceElevM": 13.43,
+   "units": [
+    {
+     "layerId": "lay-000",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.75,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-001",
+     "topDepthM": 1.75,
+     "baseDepthM": 2.52,
+     "formationId": "formation-sand",
+     "bodyId": "body-01"
+    },
+    {
+     "layerId": "lay-002",
+     "topDepthM": 2.52,
+     "baseDepthM": 2.9,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-003",
+     "topDepthM": 2.9,
+     "baseDepthM": 4.73,
+     "formationId": "formation-sand",
+     "bodyId": "body-02"
+    },
+    {
+     "layerId": "lay-004",
+     "topDepthM": 4.73,
+     "baseDepthM": 5.35,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-005",
+     "topDepthM": 5.35,
+     "baseDepthM": 6.59,
+     "formationId": "formation-clay",
+     "bodyId": "body-03"
+    },
+    {
+     "layerId": "lay-006",
+     "topDepthM": 6.59,
+     "baseDepthM": 7.11,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-007",
+     "topDepthM": 7.11,
+     "baseDepthM": 7.76,
+     "formationId": "formation-sand",
+     "bodyId": "body-04"
+    },
+    {
+     "layerId": "lay-008",
+     "topDepthM": 7.76,
+     "baseDepthM": 9.581049712235094,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-009",
+     "topDepthM": 9.581049712235094,
+     "baseDepthM": 10.36,
+     "formationId": "formation-sand",
+     "bodyId": "body-06"
+    },
+    {
+     "layerId": "lay-010",
+     "topDepthM": 10.36,
+     "baseDepthM": 11.16,
+     "formationId": "formation-silt",
+     "bodyId": "body-07"
+    },
+    {
+     "layerId": "lay-011",
+     "topDepthM": 11.16,
+     "baseDepthM": 11.7,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-012",
+     "topDepthM": 11.7,
+     "baseDepthM": 12.57,
+     "formationId": "formation-silt",
+     "bodyId": "body-09"
+    },
+    {
+     "layerId": "lay-013",
+     "topDepthM": 12.57,
+     "baseDepthM": 16.97,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-014",
+     "topDepthM": 16.97,
+     "baseDepthM": 20.18,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-01",
+   "surfaceElevM": 13.13,
+   "units": [
+    {
+     "layerId": "lay-015",
+     "topDepthM": 1.52,
+     "baseDepthM": 7.542,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-016",
+     "topDepthM": 7.542,
+     "baseDepthM": 8.271,
+     "formationId": "formation-sand",
+     "bodyId": "body-04"
+    },
+    {
+     "layerId": "lay-017",
+     "topDepthM": 8.271,
+     "baseDepthM": 9.817,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-018",
+     "topDepthM": 9.817,
+     "baseDepthM": 10.26,
+     "formationId": "formation-silt",
+     "bodyId": "body-07"
+    },
+    {
+     "layerId": "lay-019",
+     "topDepthM": 10.26,
+     "baseDepthM": 12.42,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-020",
+     "topDepthM": 12.42,
+     "baseDepthM": 13,
+     "formationId": "formation-silt",
+     "bodyId": "body-09"
+    },
+    {
+     "layerId": "lay-021",
+     "topDepthM": 13,
+     "baseDepthM": 15.48,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-022",
+     "topDepthM": 15.48,
+     "baseDepthM": 21.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-02",
+   "surfaceElevM": 13.17,
+   "units": [
+    {
+     "layerId": "lay-023",
+     "topDepthM": 1.5,
+     "baseDepthM": 6.891649161486562,
+     "formationId": "formation-clay",
+     "bodyId": "body-11"
+    },
+    {
+     "layerId": "lay-024",
+     "topDepthM": 6.891649161486562,
+     "baseDepthM": 8.147278679761191,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-025",
+     "topDepthM": 8.147278679761191,
+     "baseDepthM": 9.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-026",
+     "topDepthM": 9.5,
+     "baseDepthM": 12.591291701941932,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-027",
+     "topDepthM": 12.591291701941932,
+     "baseDepthM": 13.016768858155226,
+     "formationId": "formation-silt",
+     "bodyId": "body-09"
+    },
+    {
+     "layerId": "lay-028",
+     "topDepthM": 13.016768858155226,
+     "baseDepthM": 14.75,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-029",
+     "topDepthM": 14.75,
+     "baseDepthM": 20,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-03",
+   "surfaceElevM": 13.13,
+   "units": [
+    {
+     "layerId": "lay-030",
+     "topDepthM": 0,
+     "baseDepthM": 5.621478653032826,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-031",
+     "topDepthM": 5.621478653032826,
+     "baseDepthM": 6,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-032",
+     "topDepthM": 6,
+     "baseDepthM": 8.425420475043278,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-033",
+     "topDepthM": 8.425420475043278,
+     "baseDepthM": 9.070824580743281,
+     "formationId": "formation-silt",
+     "bodyId": "body-12"
+    },
+    {
+     "layerId": "lay-034",
+     "topDepthM": 9.070824580743281,
+     "baseDepthM": 12.521610890357794,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-035",
+     "topDepthM": 12.521610890357794,
+     "baseDepthM": 12.898452462083583,
+     "formationId": "formation-silt",
+     "bodyId": "body-09"
+    },
+    {
+     "layerId": "lay-036",
+     "topDepthM": 12.898452462083583,
+     "baseDepthM": 15.5,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-037",
+     "topDepthM": 15.5,
+     "baseDepthM": 17,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-04",
+   "surfaceElevM": 13.37,
+   "units": [
+    {
+     "layerId": "lay-038",
+     "topDepthM": 0.81,
+     "baseDepthM": 1.42,
+     "formationId": "formation-sand",
+     "bodyId": "body-13"
+    },
+    {
+     "layerId": "lay-039",
+     "topDepthM": 1.42,
+     "baseDepthM": 8.16,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-040",
+     "topDepthM": 8.16,
+     "baseDepthM": 9.69,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-041",
+     "topDepthM": 9.69,
+     "baseDepthM": 15.16,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-042",
+     "topDepthM": 15.16,
+     "baseDepthM": 23.06,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-05",
+   "surfaceElevM": 13.35,
+   "units": [
+    {
+     "layerId": "lay-043",
+     "topDepthM": 1.51,
+     "baseDepthM": 6.91,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-044",
+     "topDepthM": 6.91,
+     "baseDepthM": 7.551,
+     "formationId": "formation-sand",
+     "bodyId": "body-14"
+    },
+    {
+     "layerId": "lay-045",
+     "topDepthM": 7.551,
+     "baseDepthM": 9.801088528095523,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-046",
+     "topDepthM": 9.801088528095523,
+     "baseDepthM": 15.64,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-047",
+     "topDepthM": 15.64,
+     "baseDepthM": 23.06,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-06",
+   "surfaceElevM": 13.11,
+   "units": [
+    {
+     "layerId": "lay-048",
+     "topDepthM": 1.52,
+     "baseDepthM": 1.98,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-049",
+     "topDepthM": 1.98,
+     "baseDepthM": 6.74,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-050",
+     "topDepthM": 6.74,
+     "baseDepthM": 7.32,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-051",
+     "topDepthM": 7.32,
+     "baseDepthM": 7.92,
+     "formationId": "formation-sand",
+     "bodyId": "body-15"
+    },
+    {
+     "layerId": "lay-052",
+     "topDepthM": 7.92,
+     "baseDepthM": 9.04,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-053",
+     "topDepthM": 9.04,
+     "baseDepthM": 11.71,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-054",
+     "topDepthM": 11.71,
+     "baseDepthM": 15.17,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-055",
+     "topDepthM": 15.17,
+     "baseDepthM": 21.44,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-07",
+   "surfaceElevM": 12.97,
+   "units": [
+    {
+     "layerId": "lay-056",
+     "topDepthM": 1.6,
+     "baseDepthM": 7.01,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-057",
+     "topDepthM": 7.01,
+     "baseDepthM": 7.96,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-058",
+     "topDepthM": 7.96,
+     "baseDepthM": 11.715816396071641,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-059",
+     "topDepthM": 11.715816396071641,
+     "baseDepthM": 15.19,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-060",
+     "topDepthM": 15.19,
+     "baseDepthM": 22.82,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-08",
+   "surfaceElevM": 12.79,
+   "units": [
+    {
+     "layerId": "lay-061",
+     "topDepthM": 1.52,
+     "baseDepthM": 2.94,
+     "formationId": "formation-sand",
+     "bodyId": "body-16"
+    },
+    {
+     "layerId": "lay-062",
+     "topDepthM": 2.94,
+     "baseDepthM": 3.5,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-09",
+   "surfaceElevM": 12.87,
+   "units": [
+    {
+     "layerId": "lay-063",
+     "topDepthM": 1.61,
+     "baseDepthM": 3,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-064",
+     "topDepthM": 3,
+     "baseDepthM": 4.03,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-065",
+     "topDepthM": 4.03,
+     "baseDepthM": 6.39,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-066",
+     "topDepthM": 6.39,
+     "baseDepthM": 10.36,
+     "formationId": "formation-silt",
+     "bodyId": "body-00"
+    },
+    {
+     "layerId": "lay-067",
+     "topDepthM": 10.36,
+     "baseDepthM": 16.75,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-068",
+     "topDepthM": 16.75,
+     "baseDepthM": 23.12,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-10",
+   "surfaceElevM": 12.85,
+   "units": [
+    {
+     "layerId": "lay-069",
+     "topDepthM": 2,
+     "baseDepthM": 3.002347564644782,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-070",
+     "topDepthM": 3.002347564644782,
+     "baseDepthM": 7.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-071",
+     "topDepthM": 7.5,
+     "baseDepthM": 17.5,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-072",
+     "topDepthM": 17.5,
+     "baseDepthM": 21,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-11",
+   "surfaceElevM": 12.91,
+   "units": [
+    {
+     "layerId": "lay-073",
+     "topDepthM": 1.52,
+     "baseDepthM": 7.44,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-074",
+     "topDepthM": 7.44,
+     "baseDepthM": 9.49,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-075",
+     "topDepthM": 9.49,
+     "baseDepthM": 11.12,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-076",
+     "topDepthM": 11.12,
+     "baseDepthM": 17.69,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-077",
+     "topDepthM": 17.69,
+     "baseDepthM": 23.34,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-12",
+   "surfaceElevM": 12.98,
+   "units": [
+    {
+     "layerId": "lay-078",
+     "topDepthM": 0,
+     "baseDepthM": 1,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-079",
+     "topDepthM": 1,
+     "baseDepthM": 4.5,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-080",
+     "topDepthM": 4.5,
+     "baseDepthM": 7,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-081",
+     "topDepthM": 7,
+     "baseDepthM": 9,
+     "formationId": "formation-sand",
+     "bodyId": "body-18"
+    },
+    {
+     "layerId": "lay-082",
+     "topDepthM": 9,
+     "baseDepthM": 10.089821306874626,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-083",
+     "topDepthM": 10.089821306874626,
+     "baseDepthM": 10.629455735952238,
+     "formationId": "formation-silt",
+     "bodyId": "body-19"
+    },
+    {
+     "layerId": "lay-084",
+     "topDepthM": 10.629455735952238,
+     "baseDepthM": 17.7,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-085",
+     "topDepthM": 17.7,
+     "baseDepthM": 19,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-13",
+   "surfaceElevM": 12.94,
+   "units": [
+    {
+     "layerId": "lay-086",
+     "topDepthM": 1.21,
+     "baseDepthM": 8.1,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-087",
+     "topDepthM": 8.1,
+     "baseDepthM": 9.14,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-088",
+     "topDepthM": 9.14,
+     "baseDepthM": 9.68,
+     "formationId": "formation-silt",
+     "bodyId": "body-19"
+    },
+    {
+     "layerId": "lay-089",
+     "topDepthM": 9.68,
+     "baseDepthM": 18.214172818568525,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-090",
+     "topDepthM": 18.214172818568525,
+     "baseDepthM": 20.05,
+     "formationId": "formation-silt",
+     "bodyId": "body-20"
+    },
+    {
+     "layerId": "lay-091",
+     "topDepthM": 20.05,
+     "baseDepthM": 23.3,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-14",
+   "surfaceElevM": 12.95,
+   "units": [
+    {
+     "layerId": "lay-092",
+     "topDepthM": 1.21,
+     "baseDepthM": 6.07,
+     "formationId": "formation-clay",
+     "bodyId": "body-21"
+    },
+    {
+     "layerId": "lay-093",
+     "topDepthM": 6.07,
+     "baseDepthM": 7.83,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-094",
+     "topDepthM": 7.83,
+     "baseDepthM": 9.75,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-095",
+     "topDepthM": 9.75,
+     "baseDepthM": 17.4,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-096",
+     "topDepthM": 17.4,
+     "baseDepthM": 19.27,
+     "formationId": "formation-silt",
+     "bodyId": "body-20"
+    },
+    {
+     "layerId": "lay-097",
+     "topDepthM": 19.27,
+     "baseDepthM": 20.59,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-098",
+     "topDepthM": 20.59,
+     "baseDepthM": 23.15,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-15",
+   "surfaceElevM": 12.92,
+   "units": [
+    {
+     "layerId": "lay-099",
+     "topDepthM": 1.52,
+     "baseDepthM": 4.8,
+     "formationId": "formation-clay",
+     "bodyId": "body-21"
+    },
+    {
+     "layerId": "lay-100",
+     "topDepthM": 4.8,
+     "baseDepthM": 7.607,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-101",
+     "topDepthM": 7.607,
+     "baseDepthM": 8.83,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-102",
+     "topDepthM": 8.83,
+     "baseDepthM": 13.18,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-103",
+     "topDepthM": 13.18,
+     "baseDepthM": 14.09,
+     "formationId": "formation-silt",
+     "bodyId": "body-22"
+    },
+    {
+     "layerId": "lay-104",
+     "topDepthM": 14.09,
+     "baseDepthM": 16.16,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-16",
+   "surfaceElevM": 13.05,
+   "units": [
+    {
+     "layerId": "lay-105",
+     "topDepthM": 0,
+     "baseDepthM": 3,
+     "formationId": "formation-clay",
+     "bodyId": "body-21"
+    },
+    {
+     "layerId": "lay-106",
+     "topDepthM": 3,
+     "baseDepthM": 5,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-107",
+     "topDepthM": 5,
+     "baseDepthM": 8.8,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-108",
+     "topDepthM": 8.8,
+     "baseDepthM": 17.5,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-17",
+   "surfaceElevM": 13.07,
+   "units": [
+    {
+     "layerId": "lay-109",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.65,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-18",
+   "surfaceElevM": 13.1,
+   "units": [
+    {
+     "layerId": "lay-110",
+     "topDepthM": 1.21,
+     "baseDepthM": 2.99,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-111",
+     "topDepthM": 2.99,
+     "baseDepthM": 5.35,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-112",
+     "topDepthM": 5.35,
+     "baseDepthM": 6.45,
+     "formationId": "formation-silt",
+     "bodyId": "body-23"
+    },
+    {
+     "layerId": "lay-113",
+     "topDepthM": 6.45,
+     "baseDepthM": 7.07,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-114",
+     "topDepthM": 7.07,
+     "baseDepthM": 7.64,
+     "formationId": "formation-silt",
+     "bodyId": "body-24"
+    },
+    {
+     "layerId": "lay-115",
+     "topDepthM": 7.64,
+     "baseDepthM": 8.05,
+     "formationId": "formation-peat",
+     "bodyId": "body-25"
+    },
+    {
+     "layerId": "lay-116",
+     "topDepthM": 8.05,
+     "baseDepthM": 8.87,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-19",
+   "surfaceElevM": 13.03,
+   "units": [
+    {
+     "layerId": "lay-117",
+     "topDepthM": 1.6,
+     "baseDepthM": 2.38,
+     "formationId": "formation-sand",
+     "bodyId": "body-26"
+    },
+    {
+     "layerId": "lay-118",
+     "topDepthM": 2.38,
+     "baseDepthM": 3.79,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-119",
+     "topDepthM": 3.79,
+     "baseDepthM": 6.002908198035821,
+     "formationId": "formation-clay",
+     "bodyId": "body-05"
+    },
+    {
+     "layerId": "lay-120",
+     "topDepthM": 6.002908198035821,
+     "baseDepthM": 12.061,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-121",
+     "topDepthM": 12.061,
+     "baseDepthM": 12.99,
+     "formationId": "formation-clay",
+     "bodyId": "body-27"
+    },
+    {
+     "layerId": "lay-122",
+     "topDepthM": 12.99,
+     "baseDepthM": 18.9,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-123",
+     "topDepthM": 18.9,
+     "baseDepthM": 22.99,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-20",
+   "surfaceElevM": 12.98,
+   "units": [
+    {
+     "layerId": "lay-124",
+     "topDepthM": 1.6,
+     "baseDepthM": 1.91,
+     "formationId": "formation-sand",
+     "bodyId": "body-26"
+    },
+    {
+     "layerId": "lay-125",
+     "topDepthM": 1.91,
+     "baseDepthM": 2.39,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-126",
+     "topDepthM": 2.39,
+     "baseDepthM": 2.84,
+     "formationId": "formation-clay",
+     "bodyId": "body-28"
+    },
+    {
+     "layerId": "lay-127",
+     "topDepthM": 2.84,
+     "baseDepthM": 3.37,
+     "formationId": "formation-sand",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-128",
+     "topDepthM": 3.37,
+     "baseDepthM": 5.07,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-21",
+   "surfaceElevM": 12.99,
+   "units": [
+    {
+     "layerId": "lay-129",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.63,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-130",
+     "topDepthM": 2.63,
+     "baseDepthM": 3.23,
+     "formationId": "formation-sand",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-131",
+     "topDepthM": 3.23,
+     "baseDepthM": 3.76,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-132",
+     "topDepthM": 3.76,
+     "baseDepthM": 4.11,
+     "formationId": "formation-sand",
+     "bodyId": "body-30"
+    },
+    {
+     "layerId": "lay-133",
+     "topDepthM": 4.11,
+     "baseDepthM": 5.03,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-22",
+   "surfaceElevM": 13.06,
+   "units": [
+    {
+     "layerId": "lay-134",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.61,
+     "formationId": "formation-sand",
+     "bodyId": "body-26"
+    },
+    {
+     "layerId": "lay-135",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.64,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-136",
+     "topDepthM": 2.64,
+     "baseDepthM": 3.23,
+     "formationId": "formation-sand",
+     "bodyId": "body-29"
+    },
+    {
+     "layerId": "lay-137",
+     "topDepthM": 3.23,
+     "baseDepthM": 4.14,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-23",
+   "surfaceElevM": 12.96,
+   "units": [
+    {
+     "layerId": "lay-138",
+     "topDepthM": 1.52,
+     "baseDepthM": 6.221445914346272,
+     "formationId": "formation-silt",
+     "bodyId": "body-17"
+    },
+    {
+     "layerId": "lay-139",
+     "topDepthM": 6.221445914346272,
+     "baseDepthM": 19.17,
+     "formationId": "formation-sand",
+     "bodyId": "body-08"
+    },
+    {
+     "layerId": "lay-140",
+     "topDepthM": 19.17,
+     "baseDepthM": 20.49,
+     "formationId": "formation-silt",
+     "bodyId": "body-31"
+    },
+    {
+     "layerId": "lay-141",
+     "topDepthM": 20.49,
+     "baseDepthM": 26.33,
+     "formationId": "formation-clay",
+     "bodyId": "body-10"
+    }
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "a": "lay-019",
+   "b": "lay-011",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-032",
+   "b": "lay-026",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-015",
+   "b": "lay-000",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-020",
+   "b": "lay-012",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-039",
+   "b": "lay-030",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-043",
+   "b": "lay-039",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-040",
+   "b": "lay-031",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-042",
+   "b": "lay-037",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-045",
+   "b": "lay-040",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-047",
+   "b": "lay-042",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-102",
+   "b": "lay-108",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-076",
+   "b": "lay-084",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-089",
+   "b": "lay-084",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-095",
+   "b": "lay-089",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-036",
+   "b": "lay-028",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-021",
+   "b": "lay-028",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-067",
+   "b": "lay-059",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-054",
+   "b": "lay-059",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-054",
+   "b": "lay-046",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-139",
+   "b": "lay-120",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-016",
+   "b": "lay-007",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-021",
+   "b": "lay-013",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-046",
+   "b": "lay-041",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-086",
+   "b": "lay-078",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-088",
+   "b": "lay-083",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-018",
+   "b": "lay-009",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-018",
+   "b": "lay-026",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-015",
+   "b": "lay-024",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-031",
+   "b": "lay-025",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-037",
+   "b": "lay-029",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-041",
+   "b": "lay-032",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-076",
+   "b": "lay-071",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-073",
+   "b": "lay-070",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-093",
+   "b": "lay-086",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-123",
+   "b": "lay-098",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-099",
+   "b": "lay-105",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-100",
+   "b": "lay-106",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-096",
+   "b": "lay-090",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-035",
+   "b": "lay-027",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-020",
+   "b": "lay-027",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-066",
+   "b": "lay-057",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-050",
+   "b": "lay-057",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-053",
+   "b": "lay-045",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-067",
+   "b": "lay-058",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-128",
+   "b": "lay-119",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-129",
+   "b": "lay-135",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-131",
+   "b": "lay-137",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-130",
+   "b": "lay-136",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-118",
+   "b": "lay-110",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-133",
+   "b": "lay-128",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-116",
+   "b": "lay-108",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-098",
+   "b": "lay-091",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-072",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-047",
+   "b": "lay-042",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-014",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-120",
+   "b": "lay-116",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-111",
+   "b": "lay-109",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-109",
+   "b": "lay-107",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-139",
+   "b": "lay-137",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-141",
+   "b": "lay-123",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-085",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-060",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-037",
+   "b": "lay-029",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-119",
+   "b": "lay-111",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-109",
+   "b": "lay-106",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-123",
+   "b": "lay-098",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-072",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-047",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-029",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-110",
+   "b": "lay-109",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-133",
+   "b": "lay-137",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-091",
+   "b": "lay-085",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-060",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-042",
+   "b": "lay-037",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-047",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-141",
+   "b": "lay-123",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-017",
+   "b": "lay-008",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-014",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-125",
+   "b": "lay-118",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-130",
+   "b": "lay-127",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-062",
+   "b": "lay-064",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-129",
+   "b": "lay-125",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-131",
+   "b": "lay-128",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-064",
+   "b": "lay-069",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-048",
+   "b": "lay-043",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-062",
+   "b": "lay-065",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-073",
+   "b": "lay-079",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-075",
+   "b": "lay-082",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-085",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-022",
+   "b": "lay-029",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-030",
+   "b": "lay-024",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-067",
+   "b": "lay-071",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-074",
+   "b": "lay-080",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-091",
+   "b": "lay-085",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-102",
+   "b": "lay-095",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-100",
+   "b": "lay-093",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-101",
+   "b": "lay-107",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-087",
+   "b": "lay-082",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-099",
+   "b": "lay-092",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-101",
+   "b": "lay-094",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-094",
+   "b": "lay-087",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-098",
+   "b": "lay-091",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-017",
+   "b": "lay-025",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-077",
+   "b": "lay-072",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-063",
+   "b": "lay-056",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-060",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-049",
+   "b": "lay-056",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-053",
+   "b": "lay-058",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-055",
+   "b": "lay-060",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-065",
+   "b": "lay-070",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-068",
+   "b": "lay-072",
+   "aSide": "top",
+   "bSide": "top"
+  }
+ ],
+ "geotechColumns": [
+  {
+   "investigationId": "col-00",
+   "surfaceElevM": 13.43,
+   "units": [
+    {
+     "layerId": "glay-000",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.75,
+     "formationId": "nad-silt-14",
+     "bodyId": "gbody-00"
+    },
+    {
+     "layerId": "glay-001",
+     "topDepthM": 1.75,
+     "baseDepthM": 2.52,
+     "formationId": "nad-zand-5",
+     "bodyId": "gbody-01"
+    },
+    {
+     "layerId": "glay-002",
+     "topDepthM": 2.52,
+     "baseDepthM": 2.9,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-02"
+    },
+    {
+     "layerId": "glay-003",
+     "topDepthM": 2.9,
+     "baseDepthM": 3.3,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-03"
+    },
+    {
+     "layerId": "glay-004",
+     "topDepthM": 3.3,
+     "baseDepthM": 4.73,
+     "formationId": "nad-zand-7",
+     "bodyId": "gbody-04"
+    },
+    {
+     "layerId": "glay-005",
+     "topDepthM": 4.73,
+     "baseDepthM": 5.35,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-05"
+    },
+    {
+     "layerId": "glay-006",
+     "topDepthM": 5.35,
+     "baseDepthM": 6.59,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-06"
+    },
+    {
+     "layerId": "glay-007",
+     "topDepthM": 6.59,
+     "baseDepthM": 7.11,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-07"
+    },
+    {
+     "layerId": "glay-008",
+     "topDepthM": 7.11,
+     "baseDepthM": 7.76,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-08"
+    },
+    {
+     "layerId": "glay-009",
+     "topDepthM": 7.76,
+     "baseDepthM": 9.581,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-09"
+    },
+    {
+     "layerId": "glay-010",
+     "topDepthM": 9.581,
+     "baseDepthM": 10.36,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-10"
+    },
+    {
+     "layerId": "glay-011",
+     "topDepthM": 10.36,
+     "baseDepthM": 11.16,
+     "formationId": "nad-silt-15",
+     "bodyId": "gbody-11"
+    },
+    {
+     "layerId": "glay-012",
+     "topDepthM": 11.16,
+     "baseDepthM": 11.7,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-12"
+    },
+    {
+     "layerId": "glay-013",
+     "topDepthM": 11.7,
+     "baseDepthM": 12.57,
+     "formationId": "nad-silt-15",
+     "bodyId": "gbody-13"
+    },
+    {
+     "layerId": "glay-014",
+     "topDepthM": 12.57,
+     "baseDepthM": 14.76,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-015",
+     "topDepthM": 14.76,
+     "baseDepthM": 16.97,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-15"
+    },
+    {
+     "layerId": "glay-016",
+     "topDepthM": 16.97,
+     "baseDepthM": 20.18,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-01",
+   "surfaceElevM": 13.13,
+   "units": [
+    {
+     "layerId": "glay-017",
+     "topDepthM": 1.52,
+     "baseDepthM": 7.08,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-018",
+     "topDepthM": 7.08,
+     "baseDepthM": 7.542,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-07"
+    },
+    {
+     "layerId": "glay-019",
+     "topDepthM": 7.542,
+     "baseDepthM": 8.271,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-08"
+    },
+    {
+     "layerId": "glay-020",
+     "topDepthM": 8.271,
+     "baseDepthM": 9.817,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-09"
+    },
+    {
+     "layerId": "glay-021",
+     "topDepthM": 9.817,
+     "baseDepthM": 10.26,
+     "formationId": "nad-silt-15",
+     "bodyId": "gbody-11"
+    },
+    {
+     "layerId": "glay-022",
+     "topDepthM": 10.26,
+     "baseDepthM": 11.68,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-023",
+     "topDepthM": 11.68,
+     "baseDepthM": 12.42,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-12"
+    },
+    {
+     "layerId": "glay-024",
+     "topDepthM": 12.42,
+     "baseDepthM": 13,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-18"
+    },
+    {
+     "layerId": "glay-025",
+     "topDepthM": 13,
+     "baseDepthM": 13.46,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-026",
+     "topDepthM": 13.46,
+     "baseDepthM": 14.9,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-19"
+    },
+    {
+     "layerId": "glay-027",
+     "topDepthM": 14.9,
+     "baseDepthM": 15.48,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-15"
+    },
+    {
+     "layerId": "glay-028",
+     "topDepthM": 15.48,
+     "baseDepthM": 16.38,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-029",
+     "topDepthM": 16.38,
+     "baseDepthM": 21.5,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-02",
+   "surfaceElevM": 13.17,
+   "units": [
+    {
+     "layerId": "glay-030",
+     "topDepthM": 1.5,
+     "baseDepthM": 6.891649161486562,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-21"
+    },
+    {
+     "layerId": "glay-031",
+     "topDepthM": 6.891649161486562,
+     "baseDepthM": 7.241649161486562,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-032",
+     "topDepthM": 7.241649161486562,
+     "baseDepthM": 8.147278679761191,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-07"
+    },
+    {
+     "layerId": "glay-033",
+     "topDepthM": 8.147278679761191,
+     "baseDepthM": 9.5,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-09"
+    },
+    {
+     "layerId": "glay-034",
+     "topDepthM": 9.5,
+     "baseDepthM": 11.719999999999999,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-035",
+     "topDepthM": 11.719999999999999,
+     "baseDepthM": 12.591291701941932,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-12"
+    },
+    {
+     "layerId": "glay-036",
+     "topDepthM": 12.591291701941932,
+     "baseDepthM": 13.016768858155226,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-18"
+    },
+    {
+     "layerId": "glay-037",
+     "topDepthM": 13.016768858155226,
+     "baseDepthM": 13.5,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-038",
+     "topDepthM": 13.5,
+     "baseDepthM": 14.75,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-19"
+    },
+    {
+     "layerId": "glay-039",
+     "topDepthM": 14.75,
+     "baseDepthM": 16.419999999999998,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-040",
+     "topDepthM": 16.419999999999998,
+     "baseDepthM": 20,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-03",
+   "surfaceElevM": 13.13,
+   "units": [
+    {
+     "layerId": "glay-041",
+     "topDepthM": 0,
+     "baseDepthM": 5.621478653032826,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-042",
+     "topDepthM": 5.621478653032826,
+     "baseDepthM": 6,
+     "formationId": "nad-klei-22#2",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-043",
+     "topDepthM": 6,
+     "baseDepthM": 8.425420475043278,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-044",
+     "topDepthM": 8.425420475043278,
+     "baseDepthM": 9.070824580743281,
+     "formationId": "nad-silt-15#2",
+     "bodyId": "gbody-22"
+    },
+    {
+     "layerId": "glay-045",
+     "topDepthM": 9.070824580743281,
+     "baseDepthM": 11.68,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-046",
+     "topDepthM": 11.68,
+     "baseDepthM": 12.521610890357794,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-12"
+    },
+    {
+     "layerId": "glay-047",
+     "topDepthM": 12.521610890357794,
+     "baseDepthM": 12.898452462083583,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-18"
+    },
+    {
+     "layerId": "glay-048",
+     "topDepthM": 12.898452462083583,
+     "baseDepthM": 13.46,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-049",
+     "topDepthM": 13.46,
+     "baseDepthM": 14.9,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-19"
+    },
+    {
+     "layerId": "glay-050",
+     "topDepthM": 14.9,
+     "baseDepthM": 15.5,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-23"
+    },
+    {
+     "layerId": "glay-051",
+     "topDepthM": 15.5,
+     "baseDepthM": 16.38,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-052",
+     "topDepthM": 16.38,
+     "baseDepthM": 17,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-04",
+   "surfaceElevM": 13.37,
+   "units": [
+    {
+     "layerId": "glay-053",
+     "topDepthM": 0.81,
+     "baseDepthM": 1.42,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-24"
+    },
+    {
+     "layerId": "glay-054",
+     "topDepthM": 1.42,
+     "baseDepthM": 6.68,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-055",
+     "topDepthM": 6.68,
+     "baseDepthM": 8.16,
+     "formationId": "nad-silt-16#2",
+     "bodyId": "gbody-25"
+    },
+    {
+     "layerId": "glay-056",
+     "topDepthM": 8.16,
+     "baseDepthM": 9.69,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-057",
+     "topDepthM": 9.69,
+     "baseDepthM": 13.56,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-058",
+     "topDepthM": 13.56,
+     "baseDepthM": 14.43,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-19"
+    },
+    {
+     "layerId": "glay-059",
+     "topDepthM": 14.43,
+     "baseDepthM": 15.16,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-060",
+     "topDepthM": 15.16,
+     "baseDepthM": 17.06,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-061",
+     "topDepthM": 17.06,
+     "baseDepthM": 23.06,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-05",
+   "surfaceElevM": 13.35,
+   "units": [
+    {
+     "layerId": "glay-062",
+     "topDepthM": 1.51,
+     "baseDepthM": 3.1,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-063",
+     "topDepthM": 3.1,
+     "baseDepthM": 3.47,
+     "formationId": "nad-silt-15#2",
+     "bodyId": "gbody-27"
+    },
+    {
+     "layerId": "glay-064",
+     "topDepthM": 3.47,
+     "baseDepthM": 6.91,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-065",
+     "topDepthM": 6.91,
+     "baseDepthM": 7.551,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-28"
+    },
+    {
+     "layerId": "glay-066",
+     "topDepthM": 7.551,
+     "baseDepthM": 9.801,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-067",
+     "topDepthM": 9.801,
+     "baseDepthM": 15.64,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-068",
+     "topDepthM": 15.64,
+     "baseDepthM": 17.89,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-069",
+     "topDepthM": 17.89,
+     "baseDepthM": 23.06,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-06",
+   "surfaceElevM": 13.11,
+   "units": [
+    {
+     "layerId": "glay-070",
+     "topDepthM": 1.52,
+     "baseDepthM": 1.98,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-071",
+     "topDepthM": 1.98,
+     "baseDepthM": 6.74,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-072",
+     "topDepthM": 6.74,
+     "baseDepthM": 7.32,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-17"
+    },
+    {
+     "layerId": "glay-073",
+     "topDepthM": 7.32,
+     "baseDepthM": 7.92,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-29"
+    },
+    {
+     "layerId": "glay-074",
+     "topDepthM": 7.92,
+     "baseDepthM": 8.3,
+     "formationId": "nad-silt-15#2",
+     "bodyId": "gbody-30"
+    },
+    {
+     "layerId": "glay-075",
+     "topDepthM": 8.3,
+     "baseDepthM": 9.04,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-31"
+    },
+    {
+     "layerId": "glay-076",
+     "topDepthM": 9.04,
+     "baseDepthM": 10.69,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-077",
+     "topDepthM": 10.69,
+     "baseDepthM": 11.71,
+     "formationId": "nad-klei-22#2",
+     "bodyId": "gbody-32"
+    },
+    {
+     "layerId": "glay-078",
+     "topDepthM": 11.71,
+     "baseDepthM": 13.24,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-079",
+     "topDepthM": 13.24,
+     "baseDepthM": 14.32,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-33"
+    },
+    {
+     "layerId": "glay-080",
+     "topDepthM": 14.32,
+     "baseDepthM": 15.17,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-081",
+     "topDepthM": 15.17,
+     "baseDepthM": 16.94,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-082",
+     "topDepthM": 16.94,
+     "baseDepthM": 21.44,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-07",
+   "surfaceElevM": 12.97,
+   "units": [
+    {
+     "layerId": "glay-083",
+     "topDepthM": 1.6,
+     "baseDepthM": 7.01,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-084",
+     "topDepthM": 7.01,
+     "baseDepthM": 7.96,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-31"
+    },
+    {
+     "layerId": "glay-085",
+     "topDepthM": 7.96,
+     "baseDepthM": 11.716,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-086",
+     "topDepthM": 11.716,
+     "baseDepthM": 14.05,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-087",
+     "topDepthM": 14.05,
+     "baseDepthM": 15.19,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-088",
+     "topDepthM": 15.19,
+     "baseDepthM": 16.64,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-089",
+     "topDepthM": 16.64,
+     "baseDepthM": 22.82,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-08",
+   "surfaceElevM": 12.79,
+   "units": [
+    {
+     "layerId": "glay-090",
+     "topDepthM": 1.52,
+     "baseDepthM": 2.94,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-35"
+    },
+    {
+     "layerId": "glay-091",
+     "topDepthM": 2.94,
+     "baseDepthM": 3.5,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-36"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-09",
+   "surfaceElevM": 12.87,
+   "units": [
+    {
+     "layerId": "glay-092",
+     "topDepthM": 1.61,
+     "baseDepthM": 3,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-093",
+     "topDepthM": 3,
+     "baseDepthM": 4.03,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-094",
+     "topDepthM": 4.03,
+     "baseDepthM": 6.39,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-095",
+     "topDepthM": 6.39,
+     "baseDepthM": 7.38,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-31"
+    },
+    {
+     "layerId": "glay-096",
+     "topDepthM": 7.38,
+     "baseDepthM": 8.44,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-38"
+    },
+    {
+     "layerId": "glay-097",
+     "topDepthM": 8.44,
+     "baseDepthM": 9.29,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-31"
+    },
+    {
+     "layerId": "glay-098",
+     "topDepthM": 9.29,
+     "baseDepthM": 10.36,
+     "formationId": "nad-silt-15#2",
+     "bodyId": "gbody-39"
+    },
+    {
+     "layerId": "glay-099",
+     "topDepthM": 10.36,
+     "baseDepthM": 12.09,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-100",
+     "topDepthM": 12.09,
+     "baseDepthM": 13.65,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-40"
+    },
+    {
+     "layerId": "glay-101",
+     "topDepthM": 13.65,
+     "baseDepthM": 16.06,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-102",
+     "topDepthM": 16.06,
+     "baseDepthM": 16.75,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-41"
+    },
+    {
+     "layerId": "glay-103",
+     "topDepthM": 16.75,
+     "baseDepthM": 17.31,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-104",
+     "topDepthM": 17.31,
+     "baseDepthM": 23.12,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-10",
+   "surfaceElevM": 12.85,
+   "units": [
+    {
+     "layerId": "glay-105",
+     "topDepthM": 2,
+     "baseDepthM": 3.002347564644781,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-106",
+     "topDepthM": 3.002347564644782,
+     "baseDepthM": 7.5,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-107",
+     "topDepthM": 7.5,
+     "baseDepthM": 13.51,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-108",
+     "topDepthM": 13.51,
+     "baseDepthM": 16.22,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-109",
+     "topDepthM": 16.22,
+     "baseDepthM": 17.5,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-42"
+    },
+    {
+     "layerId": "glay-110",
+     "topDepthM": 17.5,
+     "baseDepthM": 18.08,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-111",
+     "topDepthM": 18.08,
+     "baseDepthM": 21,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-11",
+   "surfaceElevM": 12.91,
+   "units": [
+    {
+     "layerId": "glay-112",
+     "topDepthM": 1.52,
+     "baseDepthM": 7.44,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-113",
+     "topDepthM": 7.44,
+     "baseDepthM": 9.49,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-43"
+    },
+    {
+     "layerId": "glay-114",
+     "topDepthM": 9.49,
+     "baseDepthM": 11.12,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-115",
+     "topDepthM": 11.12,
+     "baseDepthM": 13.57,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-116",
+     "topDepthM": 13.57,
+     "baseDepthM": 16.28,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-117",
+     "topDepthM": 16.28,
+     "baseDepthM": 17.69,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-42"
+    },
+    {
+     "layerId": "glay-118",
+     "topDepthM": 17.69,
+     "baseDepthM": 18.14,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    },
+    {
+     "layerId": "glay-119",
+     "topDepthM": 18.14,
+     "baseDepthM": 23.34,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-12",
+   "surfaceElevM": 12.98,
+   "units": [
+    {
+     "layerId": "glay-120",
+     "topDepthM": 0,
+     "baseDepthM": 1,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-121",
+     "topDepthM": 1,
+     "baseDepthM": 4.5,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-122",
+     "topDepthM": 4.5,
+     "baseDepthM": 6.495645863570392,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-123",
+     "topDepthM": 6.495645863570392,
+     "baseDepthM": 7,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-43"
+    },
+    {
+     "layerId": "glay-124",
+     "topDepthM": 7,
+     "baseDepthM": 9,
+     "formationId": "nad-zand-6",
+     "bodyId": "gbody-44"
+    },
+    {
+     "layerId": "glay-125",
+     "topDepthM": 9,
+     "baseDepthM": 10.089821306874626,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-126",
+     "topDepthM": 10.089821306874626,
+     "baseDepthM": 10.629455735952238,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-127",
+     "topDepthM": 10.629455735952238,
+     "baseDepthM": 13.64,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-128",
+     "topDepthM": 13.64,
+     "baseDepthM": 16.35,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-129",
+     "topDepthM": 16.35,
+     "baseDepthM": 17.7,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-42"
+    },
+    {
+     "layerId": "glay-130",
+     "topDepthM": 17.7,
+     "baseDepthM": 19,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-20"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-13",
+   "surfaceElevM": 12.94,
+   "units": [
+    {
+     "layerId": "glay-131",
+     "topDepthM": 1.21,
+     "baseDepthM": 6.71,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-132",
+     "topDepthM": 6.71,
+     "baseDepthM": 8.1,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-43"
+    },
+    {
+     "layerId": "glay-133",
+     "topDepthM": 8.1,
+     "baseDepthM": 9.14,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-134",
+     "topDepthM": 9.14,
+     "baseDepthM": 9.68,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-37"
+    },
+    {
+     "layerId": "glay-135",
+     "topDepthM": 9.68,
+     "baseDepthM": 11.47,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-136",
+     "topDepthM": 11.47,
+     "baseDepthM": 12.14,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-45"
+    },
+    {
+     "layerId": "glay-137",
+     "topDepthM": 12.14,
+     "baseDepthM": 12.57,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-138",
+     "topDepthM": 12.57,
+     "baseDepthM": 13.27,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-46"
+    },
+    {
+     "layerId": "glay-139",
+     "topDepthM": 13.27,
+     "baseDepthM": 14.11,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-140",
+     "topDepthM": 14.11,
+     "baseDepthM": 17.61,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-141",
+     "topDepthM": 17.61,
+     "baseDepthM": 18.214,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-142",
+     "topDepthM": 18.214,
+     "baseDepthM": 19.19,
+     "formationId": "nad-silt-14#3",
+     "bodyId": "gbody-47"
+    },
+    {
+     "layerId": "glay-143",
+     "topDepthM": 19.19,
+     "baseDepthM": 19.55,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-48"
+    },
+    {
+     "layerId": "glay-144",
+     "topDepthM": 19.55,
+     "baseDepthM": 20.05,
+     "formationId": "nad-silt-15",
+     "bodyId": "gbody-49"
+    },
+    {
+     "layerId": "glay-145",
+     "topDepthM": 20.05,
+     "baseDepthM": 23.3,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-14",
+   "surfaceElevM": 12.95,
+   "units": [
+    {
+     "layerId": "glay-146",
+     "topDepthM": 1.21,
+     "baseDepthM": 6.07,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-50"
+    },
+    {
+     "layerId": "glay-147",
+     "topDepthM": 6.07,
+     "baseDepthM": 7.83,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-43"
+    },
+    {
+     "layerId": "glay-148",
+     "topDepthM": 7.83,
+     "baseDepthM": 9.75,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-149",
+     "topDepthM": 9.75,
+     "baseDepthM": 11.36,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-150",
+     "topDepthM": 11.36,
+     "baseDepthM": 12.13,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-51"
+    },
+    {
+     "layerId": "glay-151",
+     "topDepthM": 12.13,
+     "baseDepthM": 12.67,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-152",
+     "topDepthM": 12.67,
+     "baseDepthM": 13.29,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-52"
+    },
+    {
+     "layerId": "glay-153",
+     "topDepthM": 13.29,
+     "baseDepthM": 14.13,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-154",
+     "topDepthM": 14.13,
+     "baseDepthM": 16.63,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-155",
+     "topDepthM": 16.63,
+     "baseDepthM": 17.4,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-53"
+    },
+    {
+     "layerId": "glay-156",
+     "topDepthM": 17.4,
+     "baseDepthM": 19.27,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-48"
+    },
+    {
+     "layerId": "glay-157",
+     "topDepthM": 19.27,
+     "baseDepthM": 20.59,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-158",
+     "topDepthM": 20.59,
+     "baseDepthM": 23.15,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-15",
+   "surfaceElevM": 12.92,
+   "units": [
+    {
+     "layerId": "glay-159",
+     "topDepthM": 1.52,
+     "baseDepthM": 4.8,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-50"
+    },
+    {
+     "layerId": "glay-160",
+     "topDepthM": 4.8,
+     "baseDepthM": 7.607,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-161",
+     "topDepthM": 7.607,
+     "baseDepthM": 8.83,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-162",
+     "topDepthM": 8.83,
+     "baseDepthM": 13.18,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-163",
+     "topDepthM": 13.18,
+     "baseDepthM": 14.09,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-55"
+    },
+    {
+     "layerId": "glay-164",
+     "topDepthM": 14.09,
+     "baseDepthM": 16.16,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-16",
+   "surfaceElevM": 13.05,
+   "units": [
+    {
+     "layerId": "glay-165",
+     "topDepthM": 0,
+     "baseDepthM": 3,
+     "formationId": "nad-klei-21#2",
+     "bodyId": "gbody-50"
+    },
+    {
+     "layerId": "glay-166",
+     "topDepthM": 3,
+     "baseDepthM": 5,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-167",
+     "topDepthM": 5,
+     "baseDepthM": 8.8,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-168",
+     "topDepthM": 8.8,
+     "baseDepthM": 14.216504893434227,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-169",
+     "topDepthM": 14.216504893434227,
+     "baseDepthM": 16.281456406172552,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-170",
+     "topDepthM": 16.281456406172552,
+     "baseDepthM": 17.5,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-17",
+   "surfaceElevM": 13.07,
+   "units": [
+    {
+     "layerId": "glay-171",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.65,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-18",
+   "surfaceElevM": 13.1,
+   "units": [
+    {
+     "layerId": "glay-172",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.6,
+     "formationId": "nad-silt-14",
+     "bodyId": "gbody-56"
+    },
+    {
+     "layerId": "glay-173",
+     "topDepthM": 1.6,
+     "baseDepthM": 2.61,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-174",
+     "topDepthM": 2.61,
+     "baseDepthM": 2.99,
+     "formationId": "nad-silt-16#3",
+     "bodyId": "gbody-57"
+    },
+    {
+     "layerId": "glay-175",
+     "topDepthM": 2.99,
+     "baseDepthM": 5.35,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-176",
+     "topDepthM": 5.35,
+     "baseDepthM": 6.45,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-58"
+    },
+    {
+     "layerId": "glay-177",
+     "topDepthM": 6.45,
+     "baseDepthM": 7.07,
+     "formationId": "nad-klei-22#2",
+     "bodyId": "gbody-59"
+    },
+    {
+     "layerId": "glay-178",
+     "topDepthM": 7.07,
+     "baseDepthM": 7.64,
+     "formationId": "nad-silt-15#2",
+     "bodyId": "gbody-60"
+    },
+    {
+     "layerId": "glay-179",
+     "topDepthM": 7.64,
+     "baseDepthM": 8.05,
+     "formationId": "nad-veen-30",
+     "bodyId": "gbody-61"
+    },
+    {
+     "layerId": "glay-180",
+     "topDepthM": 8.05,
+     "baseDepthM": 8.549,
+     "formationId": "nad-klei-22#2",
+     "bodyId": "gbody-62"
+    },
+    {
+     "layerId": "glay-181",
+     "topDepthM": 8.549,
+     "baseDepthM": 8.87,
+     "formationId": "nad-klei-24",
+     "bodyId": "gbody-63"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-19",
+   "surfaceElevM": 13.03,
+   "units": [
+    {
+     "layerId": "glay-182",
+     "topDepthM": 1.6,
+     "baseDepthM": 1.97,
+     "formationId": "nad-zand-6#3",
+     "bodyId": "gbody-64"
+    },
+    {
+     "layerId": "glay-183",
+     "topDepthM": 1.97,
+     "baseDepthM": 2.38,
+     "formationId": "nad-zand-5",
+     "bodyId": "gbody-65"
+    },
+    {
+     "layerId": "glay-184",
+     "topDepthM": 2.38,
+     "baseDepthM": 3.067,
+     "formationId": "nad-silt-14",
+     "bodyId": "gbody-56"
+    },
+    {
+     "layerId": "glay-185",
+     "topDepthM": 3.067,
+     "baseDepthM": 3.79,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-186",
+     "topDepthM": 3.79,
+     "baseDepthM": 6.003,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-26"
+    },
+    {
+     "layerId": "glay-187",
+     "topDepthM": 6.003,
+     "baseDepthM": 6.41,
+     "formationId": "nad-zand-5#3",
+     "bodyId": "gbody-66"
+    },
+    {
+     "layerId": "glay-188",
+     "topDepthM": 6.41,
+     "baseDepthM": 7.19,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-189",
+     "topDepthM": 7.19,
+     "baseDepthM": 10.41,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-67"
+    },
+    {
+     "layerId": "glay-190",
+     "topDepthM": 10.41,
+     "baseDepthM": 11.36,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-191",
+     "topDepthM": 11.36,
+     "baseDepthM": 12.061,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-68"
+    },
+    {
+     "layerId": "glay-192",
+     "topDepthM": 12.061,
+     "baseDepthM": 12.99,
+     "formationId": "nad-klei-22",
+     "bodyId": "gbody-69"
+    },
+    {
+     "layerId": "glay-193",
+     "topDepthM": 12.99,
+     "baseDepthM": 14.02,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-194",
+     "topDepthM": 14.02,
+     "baseDepthM": 15.83,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-195",
+     "topDepthM": 15.83,
+     "baseDepthM": 16.33,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-196",
+     "topDepthM": 16.33,
+     "baseDepthM": 16.75,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-70"
+    },
+    {
+     "layerId": "glay-197",
+     "topDepthM": 16.75,
+     "baseDepthM": 17.15,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-198",
+     "topDepthM": 17.15,
+     "baseDepthM": 18.9,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-199",
+     "topDepthM": 18.9,
+     "baseDepthM": 22.99,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-20",
+   "surfaceElevM": 12.98,
+   "units": [
+    {
+     "layerId": "glay-200",
+     "topDepthM": 1.6,
+     "baseDepthM": 1.91,
+     "formationId": "nad-zand-6#3",
+     "bodyId": "gbody-64"
+    },
+    {
+     "layerId": "glay-201",
+     "topDepthM": 1.91,
+     "baseDepthM": 2.39,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-202",
+     "topDepthM": 2.39,
+     "baseDepthM": 2.84,
+     "formationId": "nad-klei-21",
+     "bodyId": "gbody-71"
+    },
+    {
+     "layerId": "glay-203",
+     "topDepthM": 2.84,
+     "baseDepthM": 3.37,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-72"
+    },
+    {
+     "layerId": "glay-204",
+     "topDepthM": 3.37,
+     "baseDepthM": 4.52,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-73"
+    },
+    {
+     "layerId": "glay-205",
+     "topDepthM": 4.52,
+     "baseDepthM": 5.07,
+     "formationId": "nad-silt-15#2",
+     "bodyId": "gbody-74"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-21",
+   "surfaceElevM": 12.99,
+   "units": [
+    {
+     "layerId": "glay-206",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.274,
+     "formationId": "nad-silt-13",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-207",
+     "topDepthM": 2.274,
+     "baseDepthM": 2.63,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-208",
+     "topDepthM": 2.63,
+     "baseDepthM": 3.23,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-72"
+    },
+    {
+     "layerId": "glay-209",
+     "topDepthM": 3.23,
+     "baseDepthM": 3.76,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-73"
+    },
+    {
+     "layerId": "glay-210",
+     "topDepthM": 3.76,
+     "baseDepthM": 4.11,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-75"
+    },
+    {
+     "layerId": "glay-211",
+     "topDepthM": 4.11,
+     "baseDepthM": 5.03,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-76"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-22",
+   "surfaceElevM": 13.06,
+   "units": [
+    {
+     "layerId": "glay-212",
+     "topDepthM": 1.21,
+     "baseDepthM": 1.61,
+     "formationId": "nad-zand-6#3",
+     "bodyId": "gbody-77"
+    },
+    {
+     "layerId": "glay-213",
+     "topDepthM": 1.61,
+     "baseDepthM": 2.64,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-214",
+     "topDepthM": 2.64,
+     "baseDepthM": 3.23,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-72"
+    },
+    {
+     "layerId": "glay-215",
+     "topDepthM": 3.23,
+     "baseDepthM": 4.14,
+     "formationId": "nad-silt-14#2",
+     "bodyId": "gbody-73"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-23",
+   "surfaceElevM": 12.96,
+   "units": [
+    {
+     "layerId": "glay-216",
+     "topDepthM": 1.52,
+     "baseDepthM": 6.221,
+     "formationId": "nad-silt-13#2",
+     "bodyId": "gbody-54"
+    },
+    {
+     "layerId": "glay-217",
+     "topDepthM": 6.221,
+     "baseDepthM": 7.243,
+     "formationId": "nad-zand-5#2",
+     "bodyId": "gbody-66"
+    },
+    {
+     "layerId": "glay-218",
+     "topDepthM": 7.243,
+     "baseDepthM": 8.36,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-219",
+     "topDepthM": 8.36,
+     "baseDepthM": 10.75,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-67"
+    },
+    {
+     "layerId": "glay-220",
+     "topDepthM": 10.75,
+     "baseDepthM": 13.53,
+     "formationId": "nad-zand-6#2",
+     "bodyId": "gbody-14"
+    },
+    {
+     "layerId": "glay-221",
+     "topDepthM": 13.53,
+     "baseDepthM": 14.46,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-222",
+     "topDepthM": 14.46,
+     "baseDepthM": 15.06,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-78"
+    },
+    {
+     "layerId": "glay-223",
+     "topDepthM": 15.06,
+     "baseDepthM": 16.17,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-224",
+     "topDepthM": 16.17,
+     "baseDepthM": 16.89,
+     "formationId": "nad-zand-7#2",
+     "bodyId": "gbody-70"
+    },
+    {
+     "layerId": "glay-225",
+     "topDepthM": 16.89,
+     "baseDepthM": 19.17,
+     "formationId": "nad-zand-8",
+     "bodyId": "gbody-34"
+    },
+    {
+     "layerId": "glay-226",
+     "topDepthM": 19.17,
+     "baseDepthM": 20.49,
+     "formationId": "nad-silt-16",
+     "bodyId": "gbody-79"
+    },
+    {
+     "layerId": "glay-227",
+     "topDepthM": 20.49,
+     "baseDepthM": 26.33,
+     "formationId": "nad-klei-23",
+     "bodyId": "gbody-16"
+    }
+   ]
+  }
+ ],
+ "geotechEdges": [
+  {
+   "a": "glay-191",
+   "b": "glay-221",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-164",
+   "b": "glay-155",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-195",
+   "b": "glay-224",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-199",
+   "b": "glay-226",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-007",
+   "b": "glay-018",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-087",
+   "b": "glay-101",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-188",
+   "b": "glay-218",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-189",
+   "b": "glay-219",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-089",
+   "b": "glay-104",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-155",
+   "b": "glay-141",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-152",
+   "b": "glay-138",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-194",
+   "b": "glay-221",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-150",
+   "b": "glay-136",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-153",
+   "b": "glay-139",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-151",
+   "b": "glay-137",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-164",
+   "b": "glay-154",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-171",
+   "b": "glay-173",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-198",
+   "b": "glay-157",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-197",
+   "b": "glay-225",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-196",
+   "b": "glay-224",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-185",
+   "b": "glay-201",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-082",
+   "b": "glay-069",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-198",
+   "b": "glay-225",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-024",
+   "b": "glay-036",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-112",
+   "b": "glay-121",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-115",
+   "b": "glay-127",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-116",
+   "b": "glay-128",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-117",
+   "b": "glay-129",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-161",
+   "b": "glay-167",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-118",
+   "b": "glay-130",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-020",
+   "b": "glay-033",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-115",
+   "b": "glay-107",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-116",
+   "b": "glay-108",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-117",
+   "b": "glay-109",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-094",
+   "b": "glay-106",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-171",
+   "b": "glay-167",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-025",
+   "b": "glay-037",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-026",
+   "b": "glay-038",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-112",
+   "b": "glay-106",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-114",
+   "b": "glay-125",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-159",
+   "b": "glay-165",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-119",
+   "b": "glay-111",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-118",
+   "b": "glay-110",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-119",
+   "b": "glay-111",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-057",
+   "b": "glay-043",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-113",
+   "b": "glay-122",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-171",
+   "b": "glay-166",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-061",
+   "b": "glay-052",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-060",
+   "b": "glay-051",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-061",
+   "b": "glay-052",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-017",
+   "b": "glay-031",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-018",
+   "b": "glay-032",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-047",
+   "b": "glay-036",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-054",
+   "b": "glay-041",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-093",
+   "b": "glay-105",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-043",
+   "b": "glay-034",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-021",
+   "b": "glay-034",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-041",
+   "b": "glay-031",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-145",
+   "b": "glay-130",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-048",
+   "b": "glay-037",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-049",
+   "b": "glay-038",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-160",
+   "b": "glay-166",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-181",
+   "b": "glay-168",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-131",
+   "b": "glay-120",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-135",
+   "b": "glay-127",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-140",
+   "b": "glay-128",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-099",
+   "b": "glay-107",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-101",
+   "b": "glay-108",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-104",
+   "b": "glay-111",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-103",
+   "b": "glay-110",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-104",
+   "b": "glay-111",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-056",
+   "b": "glay-042",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-162",
+   "b": "glay-168",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-052",
+   "b": "glay-040",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-051",
+   "b": "glay-039",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-052",
+   "b": "glay-040",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-133",
+   "b": "glay-125",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-029",
+   "b": "glay-040",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-028",
+   "b": "glay-039",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-029",
+   "b": "glay-040",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-134",
+   "b": "glay-126",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-195",
+   "b": "glay-170",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-164",
+   "b": "glay-170",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-194",
+   "b": "glay-169",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-164",
+   "b": "glay-169",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-058",
+   "b": "glay-049",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-132",
+   "b": "glay-123",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-059",
+   "b": "glay-050",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-046",
+   "b": "glay-035",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-023",
+   "b": "glay-035",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-216",
+   "b": "glay-213",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-102",
+   "b": "glay-109",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-175",
+   "b": "glay-186",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-017",
+   "b": "glay-000",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-184",
+   "b": "glay-201",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-162",
+   "b": "glay-149",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-021",
+   "b": "glay-010",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-158",
+   "b": "glay-145",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-158",
+   "b": "glay-145",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-085",
+   "b": "glay-076",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-085",
+   "b": "glay-099",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-215",
+   "b": "glay-217",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-014",
+   "b": "glay-025",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-084",
+   "b": "glay-095",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-013",
+   "b": "glay-024",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-199",
+   "b": "glay-158",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-199",
+   "b": "glay-158",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-016",
+   "b": "glay-029",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-016",
+   "b": "glay-028",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-211",
+   "b": "glay-215",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-009",
+   "b": "glay-020",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-156",
+   "b": "glay-142",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-186",
+   "b": "glay-205",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-161",
+   "b": "glay-148",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-062",
+   "b": "glay-054",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-209",
+   "b": "glay-215",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-093",
+   "b": "glay-091",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-083",
+   "b": "glay-071",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-076",
+   "b": "glay-066",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-082",
+   "b": "glay-069",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-081",
+   "b": "glay-068",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-187",
+   "b": "glay-181",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-012",
+   "b": "glay-022",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-089",
+   "b": "glay-082",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-088",
+   "b": "glay-081",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-070",
+   "b": "glay-062",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-208",
+   "b": "glay-203",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-094",
+   "b": "glay-091",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-172",
+   "b": "glay-184",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-159",
+   "b": "glay-146",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-147",
+   "b": "glay-131",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-213",
+   "b": "glay-206",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-086",
+   "b": "glay-078",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-069",
+   "b": "glay-061",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-068",
+   "b": "glay-060",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-067",
+   "b": "glay-057",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-211",
+   "b": "glay-205",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-149",
+   "b": "glay-135",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-208",
+   "b": "glay-214",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-078",
+   "b": "glay-067",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-209",
+   "b": "glay-204",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-066",
+   "b": "glay-056",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-086",
+   "b": "glay-099",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-084",
+   "b": "glay-072",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-187",
+   "b": "glay-217",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-008",
+   "b": "glay-019",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-089",
+   "b": "glay-104",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-088",
+   "b": "glay-103",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-160",
+   "b": "glay-147",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-083",
+   "b": "glay-092",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-148",
+   "b": "glay-133",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-206",
+   "b": "glay-201",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-199",
+   "b": "glay-227",
+   "aSide": "base",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-199",
+   "b": "glay-227",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-190",
+   "b": "glay-220",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-089",
+   "b": "glay-082",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-185",
+   "b": "glay-173",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-087",
+   "b": "glay-080",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-069",
+   "b": "glay-061",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-015",
+   "b": "glay-027",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-154",
+   "b": "glay-140",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-119",
+   "b": "glay-130",
+   "aSide": "top",
+   "bSide": "base"
+  },
+  {
+   "a": "glay-156",
+   "b": "glay-143",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "glay-157",
+   "b": "glay-144",
+   "aSide": "top",
+   "bSide": "top"
+  }
+ ],
+ "nadFormations": {
+  "nad-silt-14": {
+   "nadClass": 14,
+   "soilCode": "SILT"
+  },
+  "nad-zand-5": {
+   "nadClass": 5,
+   "soilCode": "ZAND"
+  },
+  "nad-silt-13": {
+   "nadClass": 13,
+   "soilCode": "SILT"
+  },
+  "nad-zand-6": {
+   "nadClass": 6,
+   "soilCode": "ZAND"
+  },
+  "nad-zand-7": {
+   "nadClass": 7,
+   "soilCode": "ZAND"
+  },
+  "nad-silt-13#2": {
+   "nadClass": 13,
+   "soilCode": "SILT"
+  },
+  "nad-klei-21": {
+   "nadClass": 21,
+   "soilCode": "KLEI"
+  },
+  "nad-silt-14#2": {
+   "nadClass": 14,
+   "soilCode": "SILT"
+  },
+  "nad-zand-5#2": {
+   "nadClass": 5,
+   "soilCode": "ZAND"
+  },
+  "nad-zand-6#2": {
+   "nadClass": 6,
+   "soilCode": "ZAND"
+  },
+  "nad-silt-15": {
+   "nadClass": 15,
+   "soilCode": "SILT"
+  },
+  "nad-zand-7#2": {
+   "nadClass": 7,
+   "soilCode": "ZAND"
+  },
+  "nad-zand-8": {
+   "nadClass": 8,
+   "soilCode": "ZAND"
+  },
+  "nad-klei-23": {
+   "nadClass": 23,
+   "soilCode": "KLEI"
+  },
+  "nad-silt-16": {
+   "nadClass": 16,
+   "soilCode": "SILT"
+  },
+  "nad-klei-22": {
+   "nadClass": 22,
+   "soilCode": "KLEI"
+  },
+  "nad-klei-22#2": {
+   "nadClass": 22,
+   "soilCode": "KLEI"
+  },
+  "nad-silt-15#2": {
+   "nadClass": 15,
+   "soilCode": "SILT"
+  },
+  "nad-silt-16#2": {
+   "nadClass": 16,
+   "soilCode": "SILT"
+  },
+  "nad-silt-14#3": {
+   "nadClass": 14,
+   "soilCode": "SILT"
+  },
+  "nad-klei-21#2": {
+   "nadClass": 21,
+   "soilCode": "KLEI"
+  },
+  "nad-silt-16#3": {
+   "nadClass": 16,
+   "soilCode": "SILT"
+  },
+  "nad-veen-30": {
+   "nadClass": 30,
+   "soilCode": "VEEN"
+  },
+  "nad-klei-24": {
+   "nadClass": 24,
+   "soilCode": "KLEI"
+  },
+  "nad-zand-6#3": {
+   "nadClass": 6,
+   "soilCode": "ZAND"
+  },
+  "nad-zand-5#3": {
+   "nadClass": 5,
+   "soilCode": "ZAND"
+  }
+ },
+ "lithoSoil": {
+  "formation-silt": "SILT",
+  "formation-sand": "ZAND",
+  "formation-clay": "KLEI",
+  "formation-peat": "VEEN"
+ }
+}
