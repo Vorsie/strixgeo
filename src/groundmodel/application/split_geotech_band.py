@@ -39,6 +39,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -133,6 +134,20 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         upper_outcome, lower_outcome = plan.intervals
         for warning in plan.warnings:
             self.warning(f"SplitGeotechBand: {warning.code} — {warning.message}")
+
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it — every
+        # guard above has passed, so this request is going to write. The
+        # ``ResolveLithoInstances`` call below takes this same lock, but by then
+        # this transaction has already resized one ``litho_layer`` row and
+        # inserted another, and those writes race the debounced background
+        # ``bodies/recompute``, which re-stamps ``litho_layer.body_id`` over the
+        # same rows in a different lock order (owner dogfeed 2026-08-23:
+        # DeadlockDetectedError on ``litho_layer`` during a quick edit burst).
+        # The lock is re-entrant per session, so the resolver's later
+        # acquisition stays free.
+        await lock_body_partition(
+            self._session, model_id=geotech_model_id, operation="split-geotech-band"
+        )
 
         target = context.band_rows[str(band_id)]
         original_base_m = target.depth_base_m

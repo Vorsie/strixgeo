@@ -36,6 +36,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -141,6 +142,15 @@ class DeleteLithoLayer(GroundModelLogger):
             as 204.
         """
         self.info(f"Deleting litho layer: {layer_id} (model={model_id})")
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it.
+        # ``ResolveLithoInstances`` below takes this same lock, but by then this
+        # transaction has already DELETEd the layer (and the surface gap-fill has
+        # UPDATEd its neighbour) — racing the debounced background
+        # ``bodies/recompute``, which stamps ``litho_layer.body_id`` over the same
+        # rows in a different order (owner dogfeed 2026-08-23: DeadlockDetectedError
+        # on ``DELETE FROM litho_layer``). Re-entrant per session, so the resolver's
+        # later acquisition stays free.
+        await lock_body_partition(self._session, model_id=model_id, operation="delete-litho-layer")
         # Capture (model, formation, status) BEFORE the delete — the row
         # is gone after, and the stale-mark + post-cascade reconciliation
         # need the pre-state.

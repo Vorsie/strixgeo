@@ -100,6 +100,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_band_edit_helpers import _parse_admixtures
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_crossing_sweep import sweep_crossing_ties
@@ -2825,6 +2826,21 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 layer_count=0,
                 created_formation_ids=[],
             )
+
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it.
+        # ``ResolveLithoInstances`` below takes this same lock, but by then this
+        # transaction has already DELETEd every borehole band and re-inserted
+        # them — so those writes raced the debounced background
+        # ``bodies/recompute``, which UPDATEs ``litho_layer.body_id`` stamps over
+        # the same rows in a different order (owner dogfeed 2026-08-23:
+        # DeadlockDetectedError on ``DELETE FROM litho_layer``). Placed after
+        # ``plan`` so its 404 guard has already run and the model id is known —
+        # a request about to be rejected must not queue behind a live writer —
+        # and after the no-op early return, which writes nothing. The lock is
+        # re-entrant per session, so the resolver's later acquisition is free.
+        await lock_body_partition(
+            self._session, model_id=geotech_model_id, operation="divide-boreholes"
+        )
 
         # The per-investigation layer index the rest of the verb writes into.
         # Seeded with the plan's CPT bands; the borehole bands are appended as

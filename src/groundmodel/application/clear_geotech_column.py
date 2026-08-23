@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
@@ -65,6 +66,18 @@ class ClearGeotechColumn(GroundModelLogger):
             an idempotent no-op, not an error).
         """
         self.info(f"ClearGeotechColumn: model={geotech_model_id} investigation={investigation_id}")
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it.
+        # ``ResolveLithoInstances`` below takes this same lock, but by then this
+        # transaction has already DELETEd the column's rows — and those deletes
+        # race the debounced background ``bodies/recompute``, which UPDATEs
+        # ``litho_layer.body_id`` stamps over the same rows in a different order
+        # (owner dogfeed 2026-08-23: a band edit 500'd with DeadlockDetectedError
+        # on ``DELETE FROM litho_layer`` while a recompute for the same model was
+        # in flight). The lock is re-entrant per session, so the resolver's later
+        # acquisition stays free.
+        await lock_body_partition(
+            self._session, model_id=geotech_model_id, operation="clear-geotech-column"
+        )
         anchor = or_(
             LithoLayerOrm.cpt_id == investigation_id,
             LithoLayerOrm.borehole_id == investigation_id,

@@ -21,6 +21,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import (
     ResolveLithoInstances,
 )
@@ -88,6 +89,18 @@ class DeleteFormationContact(GroundModelLogger):
             as 204.
         """
         self.info(f"Deleting formation contact: {contact_id} (model={model_id})")
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it. On a litho
+        # model this delete fires the FC→LL mirror trigger, so the row is DELETEd
+        # from ``litho_layer`` long before ``ResolveLithoInstances`` below takes the
+        # same lock — racing the debounced background ``bodies/recompute``, which
+        # stamps ``litho_layer.body_id`` over the same rows in a different order
+        # (owner dogfeed 2026-08-23: DeadlockDetectedError on ``DELETE FROM
+        # litho_layer``). Taken unconditionally: the kind is only known after a
+        # fetch, and a geological model's key simply has no other contender. The
+        # lock is re-entrant per session, so the resolver's later take stays free.
+        await lock_body_partition(
+            self._session, model_id=model_id, operation="delete-formation-contact"
+        )
         # Capture the (model, formation) before the delete so we know
         # which surface row to flip stale. No row → no flip needed
         # (the surface either doesn't exist or already has no source).

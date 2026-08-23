@@ -22,6 +22,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -114,6 +115,19 @@ class SetGeotechBandClass(GeotechBoreholeMaterialiser):
                 f"NAD class {nad_class} does not belong to {soil_label} — "
                 f"this band's soil offers {', '.join(str(c) for c in allowed)}."
             )
+
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it — every
+        # guard above has passed, so this request is going to write. The
+        # ``ResolveLithoInstances`` call below takes this same lock, but by then
+        # this transaction has already re-pointed the ``litho_layer`` row, and
+        # that write races the debounced background ``bodies/recompute``, which
+        # re-stamps ``litho_layer.body_id`` over the same rows in a different
+        # lock order (owner dogfeed 2026-08-23: DeadlockDetectedError on
+        # ``litho_layer`` during a quick edit burst). The lock is re-entrant per
+        # session, so the resolver's later acquisition stays free.
+        await lock_body_partition(
+            self._session, model_id=geotech_model_id, operation="set-geotech-band-class"
+        )
 
         target = context.band_rows[str(band_id)]
         band = next(b for b in context.bands if b.band_id == str(band_id))

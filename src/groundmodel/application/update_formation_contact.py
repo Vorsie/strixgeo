@@ -46,6 +46,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.domain.value_objects.formation_contact_result import (
     FormationContactResult,
 )
@@ -133,6 +134,21 @@ class UpdateFormationContact(GroundModelLogger):
 
         old_model_id = pre.model_id
         old_formation_id = pre.formation_id
+
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it — here the
+        # model id is only knowable from ``pre``, so this is the first point it can
+        # be taken (and the row-vanished 404 above has already returned). Every
+        # write below mirrors into ``litho_layer`` through the FC→LL trigger — the
+        # cross-merge deletes, the patch, the coupled-depth propagation — and the
+        # cross-merge path only reaches ``ResolveLithoInstances``, which takes this
+        # same lock, once those deletes are done. Unguarded they race the debounced
+        # background ``bodies/recompute`` stamping ``litho_layer.body_id`` over the
+        # same rows in a different order (owner dogfeed 2026-08-23:
+        # DeadlockDetectedError on ``DELETE FROM litho_layer``). Re-entrant per
+        # session, so the resolver's later acquisition stays free.
+        await lock_body_partition(
+            self._session, model_id=old_model_id, operation="update-formation-contact"
+        )
 
         # Fetch the model kind once.  Cross-merge runs on the geological
         # axis only; litho contacts skip it per owner directive

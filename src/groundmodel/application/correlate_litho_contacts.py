@@ -20,6 +20,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_tie_tombstones import record_tie_tombstone
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
@@ -370,6 +371,16 @@ class CorrelateLithoContacts(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 7. Insert the new edge, run resolver + lens detection, then commit.  #
         # ------------------------------------------------------------------ #
+        # Take the partition lock HERE, before the INSERT — not down in
+        # ``ResolveLithoInstances``, which takes it too late to protect this
+        # transaction's own edge write. Unguarded, that write races the
+        # debounced background ``bodies/recompute`` for the same model, which
+        # re-stamps ``litho_layer.body_id`` over the same rows in a different
+        # order (owner dogfeed 2026-08-23: DeadlockDetectedError). The lock is
+        # re-entrant per session, so the resolver's later take stays free.
+        await lock_body_partition(
+            self._session, model_id=model_id, operation="correlate-litho-contacts"
+        )
         # Manual gestures are implicitly user-approved — set the flag
         # explicitly so auto-proposed edges (user_approved=False) stay
         # invisible to the lens detector even if the server_default changes.
@@ -1072,6 +1083,17 @@ class UncorrelateLithoContacts(GroundModelLogger):
             )
             await self._session.commit()
             return
+
+        # From here on this transaction writes — take the partition lock before
+        # the tombstone and the DELETE rather than leaving it to
+        # ``ResolveLithoInstances`` below, which acquires it after those writes
+        # have already raced the debounced ``bodies/recompute`` re-stamping
+        # ``litho_layer.body_id`` in a different order (owner dogfeed
+        # 2026-08-23: DeadlockDetectedError). Re-entrant, so the resolver's
+        # later take stays free.
+        await lock_body_partition(
+            self._session, model_id=model_id, operation="uncorrelate-litho-contacts"
+        )
 
         # A deletion the ENGINEER makes on a geotechnical model stays deleted
         # (owner 2026-08-17: "a tie i delete stays deleted but does not delete

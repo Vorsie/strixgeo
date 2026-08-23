@@ -39,6 +39,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -152,6 +153,25 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             f"MoveRestatedContact: model={geotech_model_id} upper={upper_band_id} "
             f"lower={lower_band_id} depth={new_depth_m:.3f} m"
         )
+        # TAKE THE PARTITION LOCKS BEFORE THE FIRST WRITE, not after it. This
+        # gesture rewrites TWO body partitions — the geotech bands and the parent
+        # litho rows it resizes — while the debounced background
+        # ``bodies/recompute`` re-stamps ``litho_layer.body_id`` over the very
+        # same rows in a different order (owner dogfeed 2026-08-23: a band edit
+        # 500'd with DeadlockDetectedError on ``DELETE FROM litho_layer``).
+        # ``ResolveLithoInstances`` below takes the geotech one again for free —
+        # the lock is re-entrant per session — but by then the writes have
+        # happened, so it is far too late to be the only holder.
+        # LITHO PARENT FIRST, THEN THE GEOTECH CHILD — the one multi-model lock
+        # order, stated once in ``body_partition_lock``, so two holders can never
+        # take this pair in opposite orders and deadlock on the locks. The
+        # geological arm needs none: a geological model carries formation
+        # contacts, not the ``litho_layer`` rows a body partition is made of.
+        parent_litho_model_id = await self._parent_litho_model_id(geotech_model_id)
+        for partition_model_id in (parent_litho_model_id, geotech_model_id):
+            await lock_body_partition(
+                self._session, model_id=partition_model_id, operation="move-restated-contact"
+            )
         # One context per band, because the two sit in DIFFERENT litho units and
         # each must re-derive under its own soil. A single load would classify one
         # side with the other's NAD column.
@@ -212,7 +232,7 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
         # drift apart in the first place.
         pre_move_boundary_m = upper_row.depth_base_m
         litho_upper, litho_lower = await self._litho_pair_at(
-            geotech_model_id=geotech_model_id,
+            parent_model_id=parent_litho_model_id,
             investigation_id=upper_ctx.investigation_id,
             boundary_m=pre_move_boundary_m,
         )
@@ -436,10 +456,46 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             geo_contact_id=geo_contact_id,
         )
 
+    async def _parent_litho_model_id(self, geotech_model_id: UUID) -> UUID:
+        """Return the lithostratigraphic model this geotechnical model refines.
+
+        Resolved up front, because it is the SECOND body partition this gesture
+        rewrites and both locks have to be taken together, before any write.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotechnical model being edited.
+
+        Returns
+        -------
+        UUID
+            The parent lithostratigraphic model's id.
+
+        Raises
+        ------
+        GeotechBandEditError
+            When the geotechnical model names no parent — there is then no
+            lithostratigraphic contact to move at all.
+        """
+        parent_model_id: UUID | None = (
+            await self._session.execute(
+                select(GeologicalModelOrm.parent_model_id).where(
+                    GeologicalModelOrm.id == geotech_model_id
+                )
+            )
+        ).scalar_one_or_none()
+        if parent_model_id is None:
+            raise GeotechBandEditError(
+                "Contact move rejected: this geotechnical model names no parent "
+                "lithostratigraphic model, so there is no contact to move."
+            )
+        return parent_model_id
+
     async def _litho_pair_at(
         self,
         *,
-        geotech_model_id: UUID,
+        parent_model_id: UUID,
         investigation_id: UUID,
         boundary_m: float,
     ) -> tuple[LithoLayerOrm, LithoLayerOrm]:
@@ -447,8 +503,12 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
 
         Parameters
         ----------
-        geotech_model_id : UUID
-            The geotech model being edited; its PARENT is the litho model searched.
+        parent_model_id : UUID
+            The lithostratigraphic model the geotech model refines — the one
+            searched. Packing bands are ``litho_layer`` rows too, and the upper
+            BAND's own base is exactly this boundary, so an unscoped search would
+            match the band itself and "move the litho contact" would silently
+            move a packing band a second time.
         investigation_id : UUID
             The column the boundary sits on.
         boundary_m : float
@@ -466,22 +526,6 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
             disagreement between the two models, not a rounding matter, and
             guessing a row would move something the engineer never pointed at.
         """
-        # Scoped to the geotech model's PARENT. Packing bands are ``litho_layer``
-        # rows too, and the upper BAND's own base is exactly this boundary — an
-        # unscoped search would match the band itself, and "move the litho contact"
-        # would silently move a packing band a second time.
-        parent_model_id = (
-            await self._session.execute(
-                select(GeologicalModelOrm.parent_model_id).where(
-                    GeologicalModelOrm.id == geotech_model_id
-                )
-            )
-        ).scalar_one_or_none()
-        if parent_model_id is None:
-            raise GeotechBandEditError(
-                "Contact move rejected: this geotechnical model names no parent "
-                "lithostratigraphic model, so there is no contact to move."
-            )
         rows = (
             (
                 await self._session.execute(

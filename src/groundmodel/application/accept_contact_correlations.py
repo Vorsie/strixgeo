@@ -34,6 +34,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -178,6 +179,18 @@ class AcceptContactCorrelations(GroundModelLogger):
                 LithoContactCorrelationEdgeOrm.model_id == model_id,
                 LithoContactCorrelationEdgeOrm.user_approved.is_(False),
             )
+
+        # Every scope guard above has run, so nothing that follows can be
+        # rejected — take the partition lock now, before the in-scope read and
+        # the approval flip it feeds. ``ResolveLithoInstances`` at step 4 takes
+        # this same lock, but by then the UPDATE has already raced the debounced
+        # background ``bodies/recompute`` for this model, which re-stamps
+        # ``litho_layer.body_id`` in a different order (owner dogfeed
+        # 2026-08-23: DeadlockDetectedError). The lock is re-entrant per
+        # session, so the resolver's later take stays free.
+        await lock_body_partition(
+            self._session, model_id=model_id, operation="accept-contact-correlations"
+        )
 
         edge_ids = [r[0] for r in (await self._session.execute(in_scope_stmt)).all()]
         self.debug(f"AcceptContactCorrelations: {len(edge_ids)} unapproved edge(s) in scope")

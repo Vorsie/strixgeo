@@ -57,6 +57,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.project_investigations_onto_section import (
     project_investigations_onto_section,
 )
@@ -141,6 +142,17 @@ class MergeEnclosedLensBodies(GroundModelLogger):
         )
         await load_scoped_or_raise(
             self._session, GeologicalModelOrm, model_id, project_id, label="Model"
+        )
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it. The
+        # resolver at step 7 takes this same lock, but by then this transaction
+        # has already INSERTed the merge edges — writes that raced the debounced
+        # background ``bodies/recompute``, which re-stamps ``litho_layer.body_id``
+        # across the same model in a different lock order (owner dogfeed
+        # 2026-08-23: that overlap 500'd with DeadlockDetectedError). Taken after
+        # the scope guard, so a rejected request never locks on the model's
+        # behalf; re-entrant per session, so the resolver's later take is free.
+        await lock_body_partition(
+            self._session, model_id=model_id, operation="merge-enclosed-lens-bodies"
         )
 
         # 1. Accepted layers + their lithology.

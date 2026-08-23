@@ -142,6 +142,7 @@ from sqlalchemy import ColumnElement, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
@@ -542,8 +543,52 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             label="Litho model",
         )
 
+        # TAKE THE PARTITION LOCKS BEFORE THE FIRST WRITE, not after it. This
+        # verb rewrites TWO body partitions — the litho model's (the Phase-1
+        # resolver) and the geotech child's (Phase 4's reset, Phase 8's inserts,
+        # the Phase-10 resolver) — and it used to take each lock only inside
+        # ``ResolveLithoInstances``, by which point this transaction had already
+        # deleted and inserted layers unguarded. Those writes raced the debounced
+        # background ``bodies/recompute``, which UPDATEs ``litho_layer.body_id``
+        # over the same rows in a different order (owner dogfeed 2026-08-23:
+        # DeadlockDetectedError on ``DELETE FROM litho_layer``). Both locks are
+        # re-entrant per session, so the two resolvers' later acquisitions stay
+        # free.
+        #
+        # Read the geotech child's id HERE rather than reusing
+        # ``_ensure_geotech_model``: that helper may INSERT and flush, and a
+        # flush before the lock is exactly the hole being closed.
+        existing_geotech_id = (
+            (
+                await self._session.execute(
+                    select(GeologicalModelOrm.id).where(
+                        GeologicalModelOrm.parent_model_id == litho_model.id,
+                        GeologicalModelOrm.kind == "geotechnical",
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        # LITHO PARENT FIRST, THEN THE GEOTECH CHILD — the one multi-model lock
+        # order, stated once in ``body_partition_lock``. Two holders taking this
+        # pair in opposite orders would deadlock on the locks themselves.
+        to_lock = [litho_model_id]
+        if existing_geotech_id is not None:
+            to_lock.append(existing_geotech_id)
+        for locked_model_id in to_lock:
+            await lock_body_partition(
+                self._session, model_id=locked_model_id, operation="subdivide-all-bodies"
+            )
+
         # Phase 1 — ensure the geotech model + resolve litho body_id stamps.
         geotech_model, geotech_model_created = await self._ensure_geotech_model(litho_model)
+        # A geotech model born in THIS transaction has an id no other session can
+        # know yet, so this take never waits and cannot invert the order above.
+        # Re-entrant when the loop already took it.
+        await lock_body_partition(
+            self._session, model_id=geotech_model.id, operation="subdivide-all-bodies"
+        )
         # The pre-model choice, applied at the ONE moment it can be: creation.
         # A re-run deliberately ignores it — the model's own choice is what
         # every band on screen was classified with, and letting a request body
