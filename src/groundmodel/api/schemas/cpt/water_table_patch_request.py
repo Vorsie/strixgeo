@@ -24,10 +24,23 @@ class WaterTablePatchRequest(BaseModel):
         to "nothing recorded" and consumers fall back to the project-wide
         assumption and label it as assumed.
 
-        The range guard (0 to 500 m) rejects a negative depth (a water table
-        above the collar is expressed as 0 here — the stress profile's
-        "water at or above ground surface" branch) and a depth deeper than any
-        CPT ever pushed, which can only be a typo.
+        NEGATIVE means the water stands ABOVE the collar — the offshore case,
+        where the collar is the seabed and the sea is over it (owner ruling
+        2026-08-23: *"waterdepth can be negative too, offshore for example"*).
+        This used to be floored at 0, which silently rewrote the engineer's
+        observation on the way in: a CPT could not say whether the water was
+        at the seabed or fifteen metres above it.
+
+        Recording it is a PROVENANCE gain, not a numerical one.
+        ``robertson_2015.stress_profile`` puts the pore-pressure datum at the
+        ground surface, so its case-1 branch ("water at or above ground
+        surface") already yields identical stresses for 0 and for -15. Should
+        a future offshore pipeline need the water column in sigma_v, that is a
+        change to the stress branch, not to this bound.
+
+        The range guard (-500 to 500 m) still rejects a depth further from the
+        collar than any CPT ever worked, which can only be a typo or a corrupt
+        file.
     """
 
-    water_depth_m: float | None = Field(default=None, ge=0.0, le=500.0)
+    water_depth_m: float | None = Field(default=None, ge=-500.0, le=500.0)
