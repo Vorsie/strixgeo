@@ -23,6 +23,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -144,7 +145,7 @@ class SetGeotechBandClass(GeotechBoreholeMaterialiser):
         target.formation_id = formation.id
         # The class is the engineer's own statement now — provenance must say
         # so, and the low donor-distance confidence would be a lie about it.
-        target.source = "manual"
+        target.source = MANUAL_BAND_SOURCE
         target.confidence = "high"
         await self._session.flush()
 
