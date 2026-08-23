@@ -30,6 +30,17 @@ export interface Props {
   plotLeft: number
   /** Plot-area top edge in screen px. */
   plotTop: number
+  /**
+   * Centre the next conflict in the viewport (owner ask 2026-08-23: *"make that
+   * clickable so it zooms to the first one, and then when it is resolved it
+   * takes the second one"*). The caller owns which one is next — see
+   * ``crossingTieNav.nextConflictIndex``.
+   *
+   * OMITTED keeps the original passive chip: ``pointerEvents: 'none'``, no
+   * focus, no click steal. Only a caller that can actually pan supplies this,
+   * so the chip never advertises an affordance it cannot honour.
+   */
+  onJump?: () => void
 }
 
 /**
@@ -52,15 +63,46 @@ export default function CrossingTieWarningChip({
   conflictCount,
   plotLeft,
   plotTop,
+  onJump,
 }: Props): JSX.Element | null {
   if (conflictCount <= 0) return null
-  const label =
-    `⚠ ${conflictCount} crossing correlation tie${conflictCount === 1 ? '' : 's'} — resolve to restore bands`
+  const plural = conflictCount === 1 ? '' : 's'
+  // The tail differs by mode on purpose. Passive, the only useful instruction is
+  // WHAT to do; clickable, the affordance itself has to be discoverable, because
+  // nothing about an SVG chip says "press me".
+  const label = onJump
+    ? `⚠ ${conflictCount} crossing correlation tie${plural} — click to find`
+    : `⚠ ${conflictCount} crossing correlation tie${plural} — resolve to restore bands`
   const w = Math.ceil(label.length * CHAR_W) + CHIP_PAD_X * 2
   const x = plotLeft + 8
   const y = plotTop + 8
   return (
-    <g data-testid="crossing-tie-warning" style={{ pointerEvents: 'none' }}>
+    <g
+      data-testid="crossing-tie-warning"
+      // Interactive ONLY when it can act: a chip that swallowed clicks without
+      // doing anything would be worse than the passive one it replaces.
+      style={{ pointerEvents: onJump ? 'auto' : 'none', cursor: onJump ? 'pointer' : undefined }}
+      role={onJump ? 'button' : undefined}
+      tabIndex={onJump ? 0 : undefined}
+      aria-label={
+        onJump
+          ? `${conflictCount} crossing correlation tie${plural}. Activate to centre the next one.`
+          : undefined
+      }
+      onClick={onJump}
+      onKeyDown={
+        onJump
+          ? e => {
+              // An SVG <g> gets none of a real button's keyboard behaviour, and
+              // the section editor is keyboard-driven (WCAG 2.2 AA).
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onJump()
+              }
+            }
+          : undefined
+      }
+    >
       <rect
         x={x}
         y={y}
