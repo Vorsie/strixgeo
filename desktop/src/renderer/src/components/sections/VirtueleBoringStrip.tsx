@@ -26,6 +26,10 @@ import { useEffect, useState } from 'react'
 import type { VirtueleBoringLagenmodelEntry } from '../../api/client'
 import { useVirtueleBoringCatalog } from '../../hooks/useVirtueleBoringCatalog'
 import {
+  formatNumericForDisplay,
+  tryParseNumeric,
+} from '../ui/NumericInput'
+import {
   VIRTUELE_BORING_MAX_DEPTH_MAX_M,
   VIRTUELE_BORING_MAX_DEPTH_MIN_M,
 } from '../../utils/virtueleBoringOverlay'
@@ -62,10 +66,10 @@ export default function VirtueleBoringStrip({
   // they leave the field. Matches the section-buffer slider's
   // commit-on-mouseup convention.
   const [localDepth, setLocalDepth] = useState<string>(
-    maxDepthM === null ? '' : String(maxDepthM),
+    maxDepthM === null ? '' : formatNumericForDisplay(maxDepthM),
   )
   useEffect(() => {
-    setLocalDepth(maxDepthM === null ? '' : String(maxDepthM))
+    setLocalDepth(maxDepthM === null ? '' : formatNumericForDisplay(maxDepthM))
   }, [maxDepthM])
 
   const overlayActive = modelA !== null || modelB !== null
@@ -75,10 +79,15 @@ export default function VirtueleBoringStrip({
       onChangePicker({ modelA, modelB, maxDepthM: null })
       return
     }
-    const n = Number(value)
-    if (!Number.isFinite(n)) {
+    // Shares NumericInput's parser so "what counts as a number" is defined
+    // once: both `.` and `,` are accepted whatever the OS locale says, and
+    // scientific / hex / signed forms stay out. Negatives are NOT allowed —
+    // this depth is measured downward from each investigation's own surface
+    // and the overlay has no meaning above it.
+    const n = tryParseNumeric(value)
+    if (n === null) {
       // Reset the input visually to the previous committed value.
-      setLocalDepth(maxDepthM === null ? '' : String(maxDepthM))
+      setLocalDepth(maxDepthM === null ? '' : formatNumericForDisplay(maxDepthM))
       return
     }
     const clamped = Math.min(
@@ -125,11 +134,18 @@ export default function VirtueleBoringStrip({
           />
           <label className="flex items-center gap-1.5 text-[11px] text-text-secondary">
             <span className="text-text-muted">Depth</span>
+            {/* type=text, NOT type=number: the browser's number-input value
+                sanitisation drops any string its own locale doesn't
+                recognise, so `12,5` reached commitDepth as "" and silently
+                reset the overlay to the full column. inputMode keeps the
+                numeric keypad on touch surfaces. Range is enforced by
+                commitDepth's clamp against the same two constants. */}
             <input
-              type="number"
-              min={VIRTUELE_BORING_MAX_DEPTH_MIN_M}
-              max={VIRTUELE_BORING_MAX_DEPTH_MAX_M}
-              step={5}
+              type="text"
+              inputMode="decimal"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               value={localDepth}
               onChange={e => setLocalDepth(e.target.value)}
               onBlur={e => commitDepth(e.target.value)}
