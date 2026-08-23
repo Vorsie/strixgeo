@@ -26,8 +26,26 @@ COMMIT or ROLLBACK, and re-acquiring it inside the same transaction is free
 (advisory locks are reference-counted per session), so a caller that already
 holds it may pass through ``_run_resolver`` without special-casing.
 
-Every holder takes exactly ONE such lock per transaction, so the lock itself
+Most holders take exactly ONE such lock per transaction, so the lock itself
 cannot deadlock.
+
+THE MULTI-MODEL ORDER (audit, 2026-08-23). Three transactions legitimately
+hold two: ``SubdivideAllBodies`` and ``MoveRestatedContact`` lock a litho
+parent together with its geotech child, and ``reconcile_bodies_after_restore``
+walks every model of a project. Two holders taking the same pair in opposite
+orders would deadlock on the LOCKS — trading one ABBA for another. The single
+rule, and it is not negotiable for a new holder:
+
+    lock the LITHO PARENT first, then the GEOTECH CHILD; break any
+    remaining tie on ``str(model_id)``.
+
+Parent-first is the order the codebase already resolves in (``SubdivideAllBodies``
+resolves the litho model, then the child it derives), so it is the one that
+needs no translation at the call site. It was briefly expressed two ways — pure
+``sorted(key=str)`` here, parent-first there — which agreed only by accident,
+because ``uuid7`` ids are time-ordered and a child is always minted after its
+parent. A hand-written fixture id or a restore that mints out of lineage order
+would have broken that coincidence silently.
 """
 
 from __future__ import annotations

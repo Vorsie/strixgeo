@@ -46,6 +46,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -132,6 +133,19 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
                 "Merge rejected: provide the adjacent pair or a band_ids run."
             )
         self.info(f"MergeGeotechBands: model={geotech_model_id} run={[str(b) for b in run]}")
+        # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it.
+        # ``ResolveLithoInstances`` below takes this same lock, but by then this
+        # transaction has already DELETEd the absorbed row and UPDATEd the
+        # survivor — so those writes raced the debounced background
+        # ``bodies/recompute``, which UPDATEs ``litho_layer.body_id`` stamps over
+        # the same rows in a different order. Owner dogfeed 2026-08-23: merging
+        # bands in quick succession 500'd with DeadlockDetectedError on
+        # ``DELETE FROM litho_layer`` while a recompute for the same model was in
+        # flight. The lock is re-entrant per session, so the resolver's later
+        # acquisition stays free.
+        await lock_body_partition(
+            self._session, model_id=geotech_model_id, operation="merge-geotech-bands"
+        )
         context = await load_geotech_column_context(
             self._session,
             self,
