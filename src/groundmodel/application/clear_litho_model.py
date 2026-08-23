@@ -45,6 +45,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -157,6 +158,14 @@ class ClearLithoModel(GroundModelLogger):
         # still has its orphan litho units found here. The orphan guard in
         # step 5 keeps it safe — a formation still referenced by any model's
         # contact survives.
+        # THE ABBA CASE THE LOCK WAS BUILT FOR (audit, 2026-08-23). This verb
+        # DELETEs litho_layer then body; the resolver under the lock walks the
+        # same two tables the other way round (DELETE body, then UPDATE
+        # litho_layer.body_id) — and litho_layer.body_id is ON DELETE SET NULL,
+        # so its DELETE body takes litho_layer row locks too. Pressing "Clear
+        # litho model" inside the debounced bodies/recompute window deadlocks
+        # exactly as the band merge did.
+        await lock_body_partition(self._session, model_id=model_id, operation="clear-litho-model")
         litho_fids_stmt = select(GeologicalFormationOrm.id).where(
             GeologicalFormationOrm.app_project_id == project_id,
             GeologicalFormationOrm.litho_main_soil_code.is_not(None),

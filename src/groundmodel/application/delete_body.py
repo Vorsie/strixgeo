@@ -22,6 +22,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -80,6 +81,12 @@ class DeleteBody(GroundModelLogger):
                 f"(project={body.app_project_id} model={body.model_id}) — no-op"
             )
             return False
+
+        # The resolver DELETEs orphan body rows under the lock; an unguarded
+        # delete here walks an overlapping set in a different order (audit,
+        # 2026-08-23). Taken after the 404/scope no-ops so a rejected request
+        # never queues behind a live writer.
+        await lock_body_partition(self._session, model_id=model_id, operation="delete-body")
 
         formation_id = body.formation_id
         body_ordinal = body.body_ordinal

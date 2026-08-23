@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -118,6 +119,12 @@ class NameBody(GroundModelLogger):
         await load_scoped_or_raise(
             self._session, GeologicalFormationOrm, formation_id, project_id, label="Formation"
         )
+
+        # The resolver INSERTs the same (model, formation, ordinal) triples this
+        # verb does, so an unguarded insert here is the uq_litho_lens_model_
+        # formation_ordinal violation named in body_partition_lock (audit,
+        # 2026-08-23). After the scope guards, before the read-then-insert.
+        await lock_body_partition(self._session, model_id=model_id, operation="name-body")
 
         # ------------------------------------------------------------------
         # Check for an existing metadata row for this (model, formation, ordinal).
