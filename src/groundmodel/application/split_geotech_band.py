@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -164,7 +165,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         )
         target.depth_base_m = boundary_m
         target.formation_id = upper_formation.id
-        target.source = "manual"
+        target.source = MANUAL_BAND_SOURCE
 
         # Lower half — a new row on the SAME column, never on another.
         lower_formation = await formation_for_class(
