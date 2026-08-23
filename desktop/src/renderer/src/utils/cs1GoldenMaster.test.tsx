@@ -68,23 +68,49 @@ function describeDiff<T>(
   keyOf: (t: T) => string,
   showOf: (t: T) => string,
 ): string[] {
-  const g = new Map(golden.map((t) => [keyOf(t), t]))
-  const f = new Map(fresh.map((t) => [keyOf(t), t]))
+  // MULTISET, not set. Keying into a plain Map collapses duplicates, and an
+  // element emitted TWICE then reads as identical to one emitted once — the
+  // gate stayed green on an injected duplicate (audit finding, 2026-08-23,
+  // reproduced by hand: `out.push({...out[0]})` took the screen half from 476
+  // to 477 painted elements and the gate still passed). Counts are part of
+  // the picture: painting the same band twice is a real defect (double
+  // compositing darkens a translucent fill) and the whole point of this gate
+  // is that nothing about the picture moves silently.
+  const count = (ts: readonly T[]): Map<string, { n: number; sample: T }> => {
+    const m = new Map<string, { n: number; sample: T }>()
+    for (const t of ts) {
+      const k = keyOf(t)
+      const prev = m.get(k)
+      if (prev === undefined) m.set(k, { n: 1, sample: t })
+      else prev.n += 1
+    }
+    return m
+  }
+  const g = count(golden)
+  const f = count(fresh)
   const lines: string[] = []
   const gone = [...g.keys()].filter((k) => !f.has(k))
   const born = [...f.keys()].filter((k) => !g.has(k))
-  const moved = [...g.keys()].filter(
-    (k) => f.has(k) && JSON.stringify(g.get(k)) !== JSON.stringify(f.get(k)),
+  const requantified = [...g.keys()].filter(
+    (k) => f.has(k) && (f.get(k) as { n: number }).n !== (g.get(k) as { n: number }).n,
   )
-  if (gone.length === 0 && born.length === 0 && moved.length === 0) return lines
+  if (
+    gone.length === 0 &&
+    born.length === 0 &&
+    requantified.length === 0 &&
+    golden.length === fresh.length
+  ) {
+    return lines
+  }
   lines.push(
-    `${label}: ${golden.length} frozen -> ${fresh.length} now  (${gone.length} gone, ${born.length} new, ${moved.length} changed)`,
+    `${label}: ${golden.length} frozen -> ${fresh.length} now  (${gone.length} gone, ${born.length} new, ${requantified.length} re-counted)`,
   )
-  for (const k of gone.slice(0, 5)) lines.push(`  GONE    ${showOf(g.get(k) as T)}`)
-  for (const k of born.slice(0, 5)) lines.push(`  NEW     ${showOf(f.get(k) as T)}`)
-  for (const k of moved.slice(0, 5)) {
-    lines.push(`  CHANGED ${showOf(g.get(k) as T)}`)
-    lines.push(`       -> ${showOf(f.get(k) as T)}`)
+  for (const k of gone.slice(0, 5)) lines.push(`  GONE    ${showOf((g.get(k) as { sample: T }).sample)}`)
+  for (const k of born.slice(0, 5)) lines.push(`  NEW     ${showOf((f.get(k) as { sample: T }).sample)}`)
+  for (const k of requantified.slice(0, 5)) {
+    const gn = (g.get(k) as { n: number }).n
+    const fn = (f.get(k) as { n: number }).n
+    lines.push(`  x${gn} -> x${fn}  ${showOf((f.get(k) as { sample: T }).sample)}`)
   }
   return lines
 }
@@ -95,7 +121,12 @@ const showRegion = (r: FrozenRegion): string =>
 const showElement = (e: FrozenElement): string =>
   `${e.family} fill=${e.fill} stroke=${e.stroke} op=${e.opacity} d=${e.d.length > 120 ? `${e.d.slice(0, 120)}…` : e.d}`
 
-/** Regions are keyed on WHAT they are; the ring is the value that must match. */
+/**
+ * The FULL content is the key, ring included — so a moved vertex reports as an
+ * unpaired GONE plus an unpaired NEW rather than a paired before/after. That is
+ * deliberate: several regions legitimately share (gap, formationId, kind), so a
+ * shorter key would not be unique and any pairing would be a guess.
+ */
 const regionKey = (r: FrozenRegion): string => `${r.gap}|${r.formationId}|${r.kind}|${r.ring}`
 const elementKey = (e: FrozenElement): string => `${e.family}|${e.fill}|${e.stroke}|${e.d}`
 
