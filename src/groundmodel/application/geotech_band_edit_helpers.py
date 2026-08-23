@@ -18,6 +18,16 @@ Geotech bands are ``litho_layer`` rows in the geotechnical model whose
 ``geological_formation`` carries ``nad_class`` plus the two parent ids
 (``source_litho_formation_id`` / ``source_geo_formation_id``) that form the hard
 walls a packing boundary clamps at.
+
+Locking — deliberately NOT here
+-------------------------------
+Nothing in this module takes the body-partition advisory lock. The CALLING use
+case takes it, once, before its own first write (see ``merge_geotech_bands``);
+by the time a writer here runs, that caller has already mutated rows, so a lock
+taken at this depth would guard nothing it needs to guard.
+:func:`load_geotech_column_context` stays lock-free for a second reason: the
+read-only preview shares it, and a preview that took a write lock would stall a
+live drag behind an in-flight ``bodies/recompute`` while writing nothing itself.
 """
 
 from __future__ import annotations
@@ -1244,36 +1254,6 @@ async def transfer_accepted_edges(
         f"displaced_pending={len(plan.displaced_edge_ids)}"
     )
     return plan
-
-
-async def finalize_band_edit(
-    session: AsyncSession,
-    litho_repo: LithoLayerRepository,
-    *,
-    geotech_model_id: UUID,
-) -> None:
-    """Close a band edit: stale the solids, re-resolve bodies, commit once.
-
-    The identical three-line tail of every band-edit commit (split, merge,
-    run-merge, move), hoisted for the same reason the edge helpers above were.
-    Order matters and is the reason this is one function rather than a
-    convention: the 3-D solids must be marked stale BEFORE the commit that
-    publishes the new band geometry, and the resolver must run inside that same
-    transaction (``commit=False``) so a body ordinal can never be observed
-    disagreeing with the rows it describes.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active session; this function performs the single commit.
-    litho_repo : LithoLayerRepository
-        Repository owning the solid-staleness flag.
-    geotech_model_id : UUID
-        The edited geotechnical model.
-    """
-    await litho_repo.mark_litho_solids_stale(geotech_model_id)
-    await ResolveLithoInstances(session).execute(model_id=geotech_model_id, commit=False)
-    await session.commit()
 
 
 async def delete_edges(session: AsyncSession, edge_ids: Sequence[UUID]) -> int:
