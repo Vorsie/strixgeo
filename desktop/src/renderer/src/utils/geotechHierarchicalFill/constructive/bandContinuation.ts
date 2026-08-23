@@ -75,6 +75,14 @@ export interface ContinuationSplice {
  * SPECIFIC gap in question" — a tie crossing a completely different gap
  * must never disqualify a direction it never reaches).
  *
+ * COVERAGE NOTE (audit, 2026-08-23): this refinement is INERT on the CS1
+ * scene the golden master freezes — instrumenting ``bandContinuations`` there
+ * yields the identical five splices under equality and under containment, and
+ * across 1419 contact-touching evaluations the two never disagree. BC8, a
+ * synthetic three-column pin, is the only thing guarding it. The real case the
+ * paragraph below names came from a live model that has since been
+ * re-correlated; treat the named scene as provenance, not as a live pin.
+ *
  * A SECOND owner code-hunt finding, same night: EQUALITY, not containment.
  * A tie's span merely CONTAINING the immediate gap (``tieLo<=loCi &&
  * tieHi>=hiCi``) is not enough — a tie whose far end SKIPS PAST the blind

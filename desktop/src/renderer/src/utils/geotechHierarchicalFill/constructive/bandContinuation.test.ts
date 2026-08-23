@@ -139,12 +139,18 @@ describe('bandContinuations', () => {
     // skipping MID entirely: MID carries no endpoint of this tie at all.
     // The old `tiedAcrossGap` treated "the tie's span [0,2] CONTAINS the
     // immediate gap [1,2]" as "a tie crosses the immediate gap", wrongly
-    // concluding the ordinary per-gap tie logic already handles gap 1|2 —
-    // but gap 1|2's own buildGapConstructs call never sees NEAR as a flank
-    // (NEAR is ci=2, only gap 2|3 has it), so nothing draws there unless
-    // this band is spliced in. A tie only substitutes for continuation when
-    // it actually TERMINATES at the immediate neighbour's own column, not
-    // merely when its span happens to span past it.
+    // concluding the ordinary per-gap tie logic already handles it, and so
+    // suppressed the splice ENTIRELY — `gaps` came back undefined.
+    //
+    // What the splice is for is gap 0 (FAR|MID), the ground between the true
+    // reading column and the blind one; the band's OWN gap (1, MID|NEAR) is
+    // never in the list by design — `ContinuationSplice.gaps` says "up to,
+    // but never including, the band's own gap", which today's extendsToFar
+    // already covers. So the assertion below is `[0]`, not `[0, 1]`.
+    //
+    // A tie only substitutes for continuation when it actually TERMINATES at
+    // the immediate neighbour's own column, not merely when its span happens
+    // to reach past it.
     const run: RunColumn[] = [
       col(0, 0, [band('far-read', 8, 4, 0, 0)]),
       col(1, 50, []),
