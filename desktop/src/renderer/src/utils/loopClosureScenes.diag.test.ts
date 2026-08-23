@@ -892,9 +892,15 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
       geotechClassAt(scene, 19, 0.167, 10.857),
       'the onlap keeps its own triangle',
     ).toBe('ZAND-5')
+    // POSITIVE, not a bare negation (audit finding, 2026-08-23): `.not.toBe`
+    // is also satisfied by '(hatch)' and by null — "nothing is painted here"
+    // — and this very fix is the one that moves ground to the correlate-me
+    // hatch, so a negation could not tell the intended outcome from a hole.
+    // Name the mass that should take it: the medium-dense sand ABOVE, closing
+    // over the loose sand as it pinches out.
     expect(
       geotechClassAt(scene, 19, 0.333, 10.993),
-      "the ground above the pinch is NOT the onlap own ground",
-    ).not.toBe('ZAND-5')
+      'the ground above the pinch belongs to the MD sand above, not the onlap',
+    ).toBe('ZAND-6')
   })
 })
