@@ -157,6 +157,24 @@ export interface FrozenElement {
   d: string
 }
 
+/**
+ * The screen half: WHAT is painted, and in WHICH LAYER ORDER.
+ *
+ * The elements are sorted by content so a pure reshuffle inside one layer is
+ * not reported as a change — but that sort, and the content-keyed comparison
+ * in the gate, together erase paint ORDER completely. Paint order is not
+ * cosmetic here: the litho outline is drawn deliberately OVER the packing
+ * fills ("litho boundaries persist", owner ruling 2026-08-13), and an audit
+ * agent moved that layer beneath the fills with the gate staying green
+ * (2026-08-23). So the LAYER sequence is frozen separately — six entries,
+ * a tiny readable diff, and it pins exactly the thing that matters.
+ */
+export interface ScreenSnapshot {
+  elements: FrozenElement[]
+  /** Distinct element families in DOM paint order — first painted first. */
+  layerOrder: string[]
+}
+
 /** Build the props exactly as ``SectionPanel`` wires them on the geotech axis. */
 export function cs1GeotechProps(scene: Cs1Scene = loadCs1Scene()): Props {
   const lithoFrame: GeotechLithoFrame = {
@@ -217,19 +235,21 @@ const roundPath = (d: string): string =>
  * @param scene The frozen scene; defaults to the committed fixture.
  * @returns Every painted element, in a deterministic order.
  */
-export function computeScreenSnapshot(scene: Cs1Scene = loadCs1Scene()): FrozenElement[] {
+export function computeScreenSnapshot(scene: Cs1Scene = loadCs1Scene()): ScreenSnapshot {
   const { container } = render(
     <svg width={PLOT.right} height={PLOT.bottom}>
       <PartitionFillOverlay {...cs1GeotechProps(scene)} />
     </svg>,
   )
   const out: FrozenElement[] = []
+  const layerOrder: string[] = []
   for (const el of Array.from(container.querySelectorAll('[data-testid]'))) {
     const testid = el.getAttribute('data-testid') ?? ''
     const hit = FAMILIES.find(([stem]) => testid.startsWith(stem))
     if (!hit) continue
     const d = el.getAttribute('d')
     if (d === null) continue
+    if (layerOrder[layerOrder.length - 1] !== hit[1]) layerOrder.push(hit[1])
     out.push({
       family: hit[1],
       fill: el.getAttribute('fill') ?? '',
@@ -274,5 +294,5 @@ export function computeScreenSnapshot(scene: Cs1Scene = loadCs1Scene()): FrozenE
         ? a.fill.localeCompare(b.fill)
         : a.d.localeCompare(b.d),
   )
-  return out
+  return { elements: out, layerOrder }
 }

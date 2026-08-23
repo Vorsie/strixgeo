@@ -55,6 +55,8 @@ interface Golden {
   note: string
   engine: { regions: FrozenRegion[]; fallback: FrozenRegion[] }
   screen: FrozenElement[]
+  /** Element families in paint order — the z-order the render depends on. */
+  layerOrder: string[]
 }
 
 /**
@@ -135,18 +137,19 @@ describe('CS1 golden master — the whole picture, frozen', () => {
   // full suite's parallel load it exceeds the 5 s default.
   it('the engine and the screen both reproduce the frozen CS1', { timeout: 60_000 }, () => {
     const engine = computeEngineSnapshot()
-    const screen = computeScreenSnapshot()
+    const { elements: screen, layerOrder } = computeScreenSnapshot()
 
     if (process.env.CS1_GOLDEN_FREEZE === '1') {
       const golden: Golden = {
         note: 'CS1 golden master — regenerate ONLY via CS1_GOLDEN_FREEZE=1, and only for a change you can explain. See cs1GoldenMaster.test.tsx.',
         engine,
         screen,
+        layerOrder,
       }
       writeFileSync(GOLDEN, JSON.stringify(golden, null, 1) + '\n')
       // eslint-disable-next-line no-console
       console.log(
-        `FROZE ${engine.regions.length} regions + ${engine.fallback.length} fallback + ${screen.length} painted elements -> ${GOLDEN}`,
+        `FROZE ${engine.regions.length} regions + ${engine.fallback.length} fallback + ${screen.length} painted elements + ${layerOrder.length} layers -> ${GOLDEN}`,
       )
       return
     }
@@ -167,6 +170,17 @@ describe('CS1 golden master — the whole picture, frozen', () => {
         showRegion,
       ),
       ...describeDiff('SCREEN elements', golden.screen, screen, elementKey, showElement),
+      // PAINT ORDER, pinned separately (see ScreenSnapshot). The element diff
+      // above is content-keyed and cannot see a reshuffle; the litho outline
+      // is drawn deliberately OVER the fills and an audit agent moved it under
+      // them with this gate green.
+      ...(JSON.stringify(golden.layerOrder ?? []) === JSON.stringify(layerOrder)
+        ? []
+        : [
+            `SCREEN layer order changed:
+  frozen: ${JSON.stringify(golden.layerOrder ?? [])}
+  now:    ${JSON.stringify(layerOrder)}`,
+          ]),
     ]
     expect(lines.join('\n'), `CS1 changed:\n${lines.join('\n')}`).toBe('')
   })

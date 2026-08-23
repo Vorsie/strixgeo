@@ -7789,5 +7789,13 @@
    "strokeWidth": "",
    "d": "M 929.83,78.8 L 929.83,82.8 L 941.16,80.6 L 943.4,78.8 Z"
   }
+ ],
+ "layerOrder": [
+  "litho-fallback",
+  "fill-group",
+  "unbanded-hatch",
+  "seam-stroke-undercol",
+  "seam-stroke-region",
+  "litho-outline"
  ]
 }
