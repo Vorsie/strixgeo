@@ -47,6 +47,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -189,7 +190,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         survivor.formation_id = formation.id
         # The merged band's extent is the engineer's decision now, not the
         # segmenter's — provenance must say so.
-        survivor.source = "manual"
+        survivor.source = MANUAL_BAND_SOURCE
 
         # BEFORE each row delete: re-anchor the absorbed band's ACCEPTED ties
         # onto the survivor (owner ruling 2026-08-07 — the FK cascade must
