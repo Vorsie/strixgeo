@@ -167,8 +167,10 @@ class SuggestLithoContacts(GroundModelLogger):
         # ``elevation_m`` is the TAW elevation of the ground surface; ``None``
         # defaults to 0 (the segmenter result is still valid relative to depth).
         niveau_m: float = cpt.elevation_m if cpt.elevation_m is not None else 0.0
-        # ``water_depth_m`` is depth below ground surface (positive); convert to
-        # TAW by subtracting from niveau. The fallback for a CPT with none
+        # ``water_depth_m`` is depth below ground surface — normally positive,
+        # but NEGATIVE offshore, where the water stands above the collar; the
+        # subtraction below then correctly puts yw ABOVE niveau and
+        # ``stress_profile`` takes its case-1 branch. The fallback for a CPT with none
         # recorded (every DOV import) lives in ``resolve_gwt`` — the SAME
         # resolver the Ic chart and the SBT-profile endpoint use, so the curve
         # the engineer reads and the ghosts he is offered share one water table.
