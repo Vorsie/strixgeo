@@ -93,8 +93,15 @@ def _make_execute_side_effects(
         result.rowcount = n
         return result
 
+    def _lock_result() -> MagicMock:
+        """Mock that mimics ``pg_try_advisory_xact_lock`` answering uncontended."""
+        result = MagicMock()
+        result.scalar_one.return_value = True
+        return result
+
     ll_survivors = surviving_fids_from_ll if surviving_fids_from_ll is not None else []
     effects: list = [
+        _lock_result(),  # 0 — the body-partition advisory lock
         _scalars_result(candidate_fids),  # 1 — candidate litho fids
         _rowcount_result(n_edges),  # 2 — DELETE edges (edges-first)
         _rowcount_result(n_contacts),  # 3 — DELETE contacts
@@ -207,10 +214,10 @@ async def test_geological_formations_not_touched() -> None:
 
     assert result.contacts == 3
     assert result.formations == 0
-    # Only 6 execute calls: candidate-fid SELECT + 5 DELETEs (edges,
-    # contacts, litho_layer, surfaces, bodies). No survivor SELECTs or
-    # formation DELETE because candidate_fids was empty.
-    assert session.execute.call_count == 6
+    # 7 execute calls: the body-partition advisory lock, the candidate-fid
+    # SELECT, and 5 DELETEs (edges, contacts, litho_layer, surfaces, bodies).
+    # No survivor SELECTs or formation DELETE because candidate_fids was empty.
+    assert session.execute.call_count == 7
 
 
 @pytest.mark.asyncio

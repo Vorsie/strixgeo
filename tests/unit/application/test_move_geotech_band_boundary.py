@@ -41,6 +41,24 @@ class _FakeSession:
         self.added: list[Any] = []
         self.deleted: list[Any] = []
         self.commits = 0
+        self.executed: list[object] = []
+
+    async def execute(self, statement: object, params: object = None) -> object:
+        """Record a raw statement (the body-partition advisory lock) and answer.
+
+        The band edits take the lock BEFORE their first write (see
+        ``application/body_partition_lock``), so the double has to answer
+        ``execute``; recording it lets a test assert the lock was taken.
+        """
+        self.executed.append((statement, params))
+
+        class _Result:
+            @staticmethod
+            def scalar_one() -> bool:
+                # ``pg_try_advisory_xact_lock`` — the uncontended answer.
+                return True
+
+        return _Result()
 
     def add(self, obj: Any) -> None:
         """Record an INSERT."""
