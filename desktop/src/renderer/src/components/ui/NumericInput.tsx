@@ -23,6 +23,8 @@
 // * ``onKeyDown`` blocks letters, symbols, multiple separators,
 //   scientific notation; ``onChange`` re-validates the resulting
 //   string (paste safety).
+// * Negatives are OPT-IN via ``allowNegative`` — a field whose quantity
+//   cannot go below its datum keeps refusing a minus by default.
 // * Draft state is focus-gated so an external ``value`` change while
 //   the field is NOT focused syncs the display; while focused, the
 //   user's mid-typed value wins.
@@ -56,6 +58,22 @@ export function formatNumericForDisplay(
   }).format(value)
 }
 
+/** Options shared by the parser and the component. */
+export interface NumericParseOptions {
+  /**
+   * Accept a leading minus. OFF by default, so a field that is
+   * physically non-negative (a ratio, a depth below its own collar)
+   * keeps refusing one without having to say so.
+   *
+   * Turn it ON for any quantity measured from a datum the value can sit
+   * on the other side of — an elevation below the datum, or a water
+   * table above the ground surface it is measured down from (owner
+   * ruling 2026-08-23: *"waterdepth can be negative too, offshore for
+   * example"* — over a seabed the water stands above the collar).
+   */
+  allowNegative?: boolean
+}
+
 /**
  * Parse a string drafted by the user into a number. Returns ``null``
  * when the draft is empty, malformed, or contains both separators
@@ -64,20 +82,32 @@ export function formatNumericForDisplay(
  * Accepts intermediate edits: ``"0,"`` parses to ``0`` so the parent
  * value updates as the user types past the separator. ``"0"`` and
  * ``"0."`` both parse to ``0``.
+ *
+ * A minus is refused unless ``allowNegative`` is set, and even then only
+ * as the LEADING character — ``"3-4"`` stays unparseable. Position is
+ * enforced here rather than in the keystroke filter, exactly as the
+ * decimal separator's is.
  */
-export function tryParseNumeric(draft: string): number | null {
+export function tryParseNumeric(
+  draft: string,
+  { allowNegative = false }: NumericParseOptions = {},
+): number | null {
   const trimmed = draft.trim()
   if (trimmed === '') return null
   // Reject if BOTH separators appear — that's not a locale problem,
   // it's a typo / paste from a thousands-grouped source.
   if (trimmed.includes(',') && trimmed.includes('.')) return null
   const normalized = trimmed.replace(',', '.')
-  // Strict shape: optional leading digits, optional single `.`,
-  // optional trailing digits. Blocks scientific notation, hex, plus
-  // signs, percent signs, currency, anything pasted from elsewhere.
-  if (!/^\d*\.?\d*$/.test(normalized)) return null
-  // Empty after normalization (just "." or "," typed) → null.
-  if (normalized === '' || normalized === '.') return null
+  // Strict shape: optional leading `-` (opt-in only), optional leading
+  // digits, optional single `.`, optional trailing digits. Blocks
+  // scientific notation, hex, plus signs, percent signs, currency,
+  // anything pasted from elsewhere.
+  const shape = allowNegative ? /^-?\d*\.?\d*$/ : /^\d*\.?\d*$/
+  if (!shape.test(normalized)) return null
+  // No digit anywhere means this is not a number YET — covers "", ".",
+  // and (when negatives are allowed) "-" and "-." alike. The draft keeps
+  // showing it; the parent's value must not move to meet it.
+  if (!/\d/.test(normalized)) return null
   const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : null
 }
@@ -113,12 +143,17 @@ interface Props
    *  The primitive itself doesn't enforce min/max; it parses and emits
    *  whatever the user typed. */
   invalid?: boolean
+  /** See ``NumericParseOptions.allowNegative``. Off by default. */
+  allowNegative?: boolean
 }
 
 export default function NumericInput({
   value,
   onChange,
   invalid,
+  // Destructured OUT of ``rest`` deliberately: it is our own prop, and
+  // spreading it onto the <input> would emit an unknown DOM attribute.
+  allowNegative = false,
   onFocus,
   onBlur,
   ...rest
@@ -147,14 +182,26 @@ export default function NumericInput({
       }
       return
     }
-    // Everything else (letters, symbols, `-`, `+`, `e`, space) blocked.
+    // Minus — same rule as the separator: at most ONE, and only when the
+    // caller opted in. WHERE it landed is the parser's business (see
+    // tryParseNumeric), so a misplaced one is typeable but never commits.
+    if (e.key === '-') {
+      if (!allowNegative) {
+        e.preventDefault()
+        return
+      }
+      const current = draft ?? displayValue
+      if (current.includes('-')) e.preventDefault()
+      return
+    }
+    // Everything else (letters, symbols, `+`, `e`, space) blocked.
     e.preventDefault()
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>): void {
     const next = e.target.value
     setDraft(next)
-    const parsed = tryParseNumeric(next)
+    const parsed = tryParseNumeric(next, { allowNegative })
     if (parsed !== null) {
       onChange(parsed)
     }
