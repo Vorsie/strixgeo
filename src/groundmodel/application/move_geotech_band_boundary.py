@@ -34,6 +34,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import (
     GeotechBandEditResult,
     formation_for_class,
@@ -171,10 +172,10 @@ class MoveGeotechBandBoundary(GeotechBoreholeMaterialiser):
         # become the engineer's decision (the hand-edit counter keys on it).
         upper_row.depth_base_m = boundary_m
         upper_row.formation_id = upper_formation.id
-        upper_row.source = "manual"
+        upper_row.source = MANUAL_BAND_SOURCE
         lower_row.depth_top_m = boundary_m
         lower_row.formation_id = lower_formation.id
-        lower_row.source = "manual"
+        lower_row.source = MANUAL_BAND_SOURCE
         await self._session.flush()
 
         revalidation = await revalidate_layer_edges(
