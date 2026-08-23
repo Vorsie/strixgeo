@@ -1525,6 +1525,40 @@ clear the `boreholesStale` amber — the columns it left out are still out of
 date. The committed rows then drop that column's ghosts and leave every other
 column's alone.
 
+### An onlap is a triangle, and its shadow may be hatch (owner ruling 2026-08-23)
+
+**Owner ruling:** *"The loose sand has a bottom tie, not a top tie that is why
+it is an onlap and should be a triangle and not a quad"*, and on the cost:
+*"hatch is fine, leave it."*
+
+A band whose ONE tie is on its BASE contact rides that line and pinches its
+free top down onto it — a triangle, apex at the termination. The engine drew
+that correctly all along; what squared it into a quad was the REMAINDER step
+handing the same band the wedge directly ABOVE its own pinching top (still
+inside its nominal window, so it won the `ownsLevel` rank). The guard in
+`fillGap.pickDominant` now refuses that: where a band's own construct speaks,
+it speaks completely — the remainder may not re-take ground the band's own
+closed shape has already declared it does not occupy at that x.
+
+Scoped to ONLAP constructs, and held on every rung:
+
+* a LENS keeps its existing level-scoped treatment (2026-08-21, *"only a LENS
+  drops out, and only at the levels it closed on"*) — barring lenses too left
+  the ground with NO candidate and un-tiled the cover (CF5/CF6 went red);
+* dropping the guard on the last no-wall rung, as the walls drop, reopens the
+  defect: in CS1 gap 19 every band in the run is closed, so the ground falls
+  through and the onlap takes it back.
+
+**THE ACCEPTED COST.** On CS1 this moves **13.365 m²** — three faces, all in
+gap 19, all on the sand — from a class to the "correlate me" hatch, because
+every construct in that run is closed and no open mass can answer the shadow.
+That is 0.071 % of the section's cover. The owner ruled it acceptable: hatch
+is the honest render for ground no test states, and it invites the correlation
+that would resolve it. **Do not "fix" those three hatch faces** — they are the
+ruling, not a defect, and they are frozen into the CS1 golden master as the
+baseline. S24 pins the neighbouring outcome positively (the MD sand above
+takes the ground at the sampled point, `ZAND-6`).
+
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
