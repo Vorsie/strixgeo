@@ -3839,6 +3839,24 @@
    "d": "M 977.08,118.9 L 983.38,122.4 M 983.38,115.4 L 977.08,118.9 M 969.38,532.88 L 969.39,532.88 M 969.39,532.88 L 983.38,533.38 M 983.38,533.38 L 983.38,533.38 M 983.38,434.04 L 983.38,434.04 M 983.38,434.04 L 969.39,433.8 M 969.39,433.8 L 969.38,433.8 M 983.38,162.34 L 983.38,162.34 M 983.38,162.34 L 969.39,162.3 M 969.39,162.3 L 969.38,162.3 M 983.38,140.78 L 983.38,140.8 M 983.38,140.8 L 969.39,141.8 M 969.39,141.8 L 969.38,141.8 M 983.38,104.8 L 969.39,107.8 M 983.38,92.8 L 976.38,95 M 976.38,95 L 969.39,97.2 M 976.38,95 L 969.39,88.2 M 983.38,72.4 L 969.39,78.6 M 983.38,72.4 L 969.39,72.4"
   },
   {
+   "family": "paint-def:line",
+   "fill": "",
+   "stroke": "#475569",
+   "opacity": "",
+   "strokeOpacity": "0.22",
+   "strokeWidth": "0.9",
+   "d": "stroke-opacity=0.22 stroke-width=0.9 stroke=#475569 x1=0 x2=0 y1=0 y2=12"
+  },
+  {
+   "family": "paint-def:pattern",
+   "fill": "",
+   "stroke": "",
+   "opacity": "",
+   "strokeOpacity": "",
+   "strokeWidth": "",
+   "d": "height=12 id=partition-unbanded-hatch patternTransform=rotate(-45) patternUnits=userSpaceOnUse width=12"
+  },
+  {
    "family": "seam-stroke-region",
    "fill": "none",
    "stroke": "#e8d48a",

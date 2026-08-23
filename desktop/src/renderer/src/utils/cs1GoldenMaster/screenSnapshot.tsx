@@ -143,14 +143,17 @@ function toPlaced(scene: Cs1Scene): PlacedColumn[] {
 
 /** One painted SVG element, reduced to what the eye can tell apart. */
 export interface FrozenElement {
-  /** Element family — the data-testid stem. */
+  /** Element family — the data-testid stem, or ``paint-def``. */
   family: string
   fill: string
   stroke: string
   opacity: string
   strokeOpacity: string
   strokeWidth: string
-  /** Path data with every coordinate rounded to 2 dp. */
+  /**
+   * Path data with every coordinate rounded to 2 dp — or, for a
+   * ``paint-def``, that definition's own attributes serialised.
+   */
   d: string
 }
 
@@ -235,6 +238,29 @@ export function computeScreenSnapshot(scene: Cs1Scene = loadCs1Scene()): FrozenE
       strokeOpacity: el.getAttribute('stroke-opacity') ?? '',
       strokeWidth: el.getAttribute('stroke-width') ?? '',
       d: roundPath(d),
+    })
+  }
+  // PAINT DEFINITIONS — the <defs> the painted elements refer to.
+  //
+  // A hatch <path> only says fill="url(#id)"; everything the eye actually
+  // sees of that texture — its ink, spacing, rotation, stroke width — lives
+  // in the <pattern> under <defs>, which carries no data-testid and no `d`
+  // and was therefore skipped entirely. Demonstrated (audit finding,
+  // 2026-08-23, reproduced by hand): changing UNBANDED_HATCH_INK from slate
+  // to magenta left the gate GREEN. A definition is part of the picture.
+  for (const def of Array.from(container.querySelectorAll('pattern, pattern *'))) {
+    const attrs = Array.from(def.attributes)
+      .map((a) => `${a.name}=${a.value}`)
+      .sort()
+      .join(' ')
+    out.push({
+      family: `paint-def:${def.tagName.toLowerCase()}`,
+      fill: def.getAttribute('fill') ?? '',
+      stroke: def.getAttribute('stroke') ?? '',
+      opacity: def.getAttribute('opacity') ?? '',
+      strokeOpacity: def.getAttribute('stroke-opacity') ?? '',
+      strokeWidth: def.getAttribute('stroke-width') ?? '',
+      d: attrs,
     })
   }
   cleanup()
