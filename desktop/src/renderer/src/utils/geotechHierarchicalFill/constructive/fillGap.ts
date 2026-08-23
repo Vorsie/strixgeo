@@ -209,6 +209,13 @@ function pickDominant(
     // the two faces together squared off against the mid-gap seam into the
     // quad he circled.
     //
+    // THE HATCH THIS LEAVES IS ACCEPTED (owner, 2026-08-23: "hatch is fine,
+    // leave it"). On CS1 it moves 13.365 m2 — three faces, all in gap 19, all
+    // sand — from a class to the correlate-me hatch, because every construct
+    // in that run is closed and no open mass can answer the shadow. Those
+    // faces are frozen into the CS1 golden master as the baseline: they are
+    // the ruling, not a defect. See docs/design/geotech-stage.md.
+    //
     // This is NOT the retired "exclude every shaped band from the remainder"
     // rule (2026-08-21) — that one barred an onlapping mass from ground
     // ELSEWHERE in its cover and painted his spiked comb. A band may still
