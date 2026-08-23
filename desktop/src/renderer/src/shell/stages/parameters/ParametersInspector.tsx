@@ -156,9 +156,14 @@ export default function ParametersInspector(): JSX.Element {
       if (selectedId === null) return
       const trimmed = raw.trim()
       // An empty field is the CLEAR gesture — undo the engineer's value.
-      const parsed = trimmed === '' ? null : tryParseNumeric(trimmed)
+      // NEGATIVES are accepted: the depth is measured down from the collar,
+      // so water standing ABOVE it reads negative — the offshore case, where
+      // the collar is the seabed (owner ruling 2026-08-23). The server bounds
+      // it at +/-500 m; anything past that is a typo, and its 422 message is
+      // what the catch below surfaces.
+      const parsed = trimmed === '' ? null : tryParseNumeric(trimmed, { allowNegative: true })
       if (trimmed !== '' && parsed === null) {
-        toast('error', 'Water table must be a depth in metres below ground surface.')
+        toast('error', 'Water table must be a number in metres — negative if the water is above the surface.')
         return
       }
       setSaving(true)
@@ -175,9 +180,9 @@ export default function ParametersInspector(): JSX.Element {
         log.info('cpt', `water table set: ${selectedId} → ${parsed ?? 'cleared'}`)
       } catch (err) {
         log.error('cpt', `patchWaterTable(${selectedId}) failed`, err)
-        // Surface the SERVER's reason. The range guard 422s on a negative or
-        // absurd depth, and "Could not save" alone leaves the engineer with no
-        // idea that -2 m was the problem.
+        // Surface the SERVER's reason. The range guard 422s on an absurd
+        // depth (past +/-500 m), and "Could not save" alone leaves the
+        // engineer with no idea that 5000 m was the problem.
         toast(
           'error',
           err instanceof Error && err.message
