@@ -2302,7 +2302,12 @@ export default function PartitionFillOverlay({
     if (!lithoFrame || !showBands) return empty
 
     // --- the LITHO partition, hoisted above the fill memo for the clip. -----
-    const { lithoRegions, lithoValid: valid, lithoScreenByInv } = lithoFramePartition
+    const {
+      lithoRegions,
+      lithoValid: valid,
+      lithoScreenByInv,
+      lithoAlongM,
+    } = lithoFramePartition
     if (lithoRegions.length === 0 || valid.length < 2) return empty
     const lithoGapXs = Array.from({ length: valid.length - 1 }, (_, i) => ({
       leftX: (lithoScreenByInv.get(valid[i]) as ColumnScreen).rightX,
@@ -2370,7 +2375,16 @@ export default function PartitionFillOverlay({
     // changes — or the frame's outer envelope — draw; internal seams between
     // touching same-soil litho units dissolve. One path per gap.
     const segsByGap = new Map<number, string[]>()
-    for (const s of lithoOutlineEdges(lithoRegions, lithoFrame.lithoSoilByFormationId)) {
+    // The outline's column-line guard is METRIC (see lithoOutlineEdges), so it
+    // needs each gap's true along-section width, not its screen width — the
+    // offset it absorbs is the arrangement's 1 mm snap in metres.
+    const gapWidthM = (gapIndex: number): number =>
+      Math.abs((lithoAlongM[gapIndex + 1] ?? NaN) - (lithoAlongM[gapIndex] ?? NaN))
+    for (const s of lithoOutlineEdges(
+      lithoRegions,
+      lithoFrame.lithoSoilByFormationId,
+      gapWidthM,
+    )) {
       const g = lithoGapXs[s.gapIndex]
       if (!g || g.rightX - g.leftX < 1) continue // degenerate-gap guard (mirror-spill)
       const px = (q: { fraction: number; elevation: number }): string => {

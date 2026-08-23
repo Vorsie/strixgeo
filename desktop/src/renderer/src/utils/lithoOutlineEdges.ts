@@ -26,18 +26,44 @@ export interface OutlineSegment {
 const KEY_DECIMALS = 6
 
 /**
- * How close to a gap's own edge a VERTICAL segment must be to count as
- * lying on the column line rather than inside the ground.
+ * How close to a gap's own edge a VERTICAL segment must be to count as lying
+ * on the column line rather than inside the ground — in METRES.
  *
- * Exact equality is wrong: the v2 arrangement snaps its vertices, so a
- * gap's column edges land a hair inside it rather than at exactly 0 and 1.
- * MEASURED on the owner's real model, all 14 sections: of 465 vertical
- * outline segments, 464 sit at a column edge with a worst offset of
- * 1.228e-3, and the ONE genuine interior vertical sits at fraction 0.5 —
- * the law's own mid-gap "two statements meet" seam. This threshold sits 8×
- * above the worst column offset and 50× below that seam.
+ * Exact equality is wrong: the v2 arrangement snaps its vertices to a 1 mm
+ * grid (``partitionFillV2/types.SNAP_GRID_M``), so a gap's column edges land a
+ * hair inside it rather than at exactly 0 and 1.
+ *
+ * THE TOLERANCE IS METRIC BECAUSE THE ERROR IS (audit finding, 2026-08-23).
+ * The first version of this guard was a flat FRACTION, 0.01 — but fraction
+ * space is normalised per gap, so a fixed fraction scales with gap width while
+ * the error it absorbs does not. Its real headroom was ``0.5 mm / gapWidth``,
+ * wrong at both ends:
+ *
+ *  * NARROW gaps LEAK. ``partitionFillV2/columnSeparation`` forces a paired
+ *    station (a CPT and a borehole drilled at one spot) apart to
+ *    ``MIN_COLUMN_SEPARATION_M`` = 20 mm, and the dev model has a 42 mm pair on
+ *    Tie-section 8. At 42 mm the snap error is 0.5/42 = 0.012 of the width —
+ *    past the old 0.01 — so the column verticals drew again and the black line
+ *    this guard exists to remove came back, contiguously stacked, exactly
+ *    where two tests sit at one station.
+ *  * WIDE gaps OVER-EAT. On a 150 m gap 0.01 was 1.5 m of ground in which a
+ *    genuine near-column contact would have been silently dissolved.
+ *
+ * 2 mm is twice the snap grid and four times the worst offset measured across
+ * the owner's 14 sections (every gap's own worst was <= 0.5 mm once converted
+ * back to metres). The only genuine interior vertical in that model — the
+ * law's own mid-gap "two statements meet" seam — sits at fraction 0.5, orders
+ * of magnitude away at every width.
  */
-const COLUMN_LINE_FRACTION_EPS = 0.01
+const COLUMN_LINE_TOLERANCE_M = 0.002
+
+/**
+ * Ceiling on the converted fraction, so a degenerate gap cannot let the guard
+ * eat the ground. At the 20 mm separation floor 2 mm is already a tenth of the
+ * gap; below that the whole gap is sub-centimetre and carries nothing
+ * meaningful, but the guard still must not swallow it whole.
+ */
+const COLUMN_LINE_MAX_FRACTION = 0.25
 
 interface EdgeOwners {
   gapIndex: number
@@ -62,7 +88,14 @@ interface EdgeOwners {
 export function lithoOutlineEdges(
   regions: readonly SectionRegion[],
   soilByFormationId: ReadonlyMap<string, string | null>,
+  gapWidthM: (gapIndex: number) => number,
 ): OutlineSegment[] {
+  /** This gap's column-line tolerance, converted from metres into its own fraction space. */
+  const epsFor = (gapIndex: number): number => {
+    const width = gapWidthM(gapIndex)
+    if (!Number.isFinite(width) || width <= 0) return COLUMN_LINE_MAX_FRACTION
+    return Math.min(COLUMN_LINE_TOLERANCE_M / width, COLUMN_LINE_MAX_FRACTION)
+  }
   const edges = new Map<string, EdgeOwners>()
   const keyOf = (p: { fraction: number; elevation: number }): string =>
     `${p.fraction.toFixed(KEY_DECIMALS)},${p.elevation.toFixed(KEY_DECIMALS)}`
@@ -90,11 +123,11 @@ export function lithoOutlineEdges(
       // the v2 arrangement's snap puts a gap's column edges a hair inside it
       // — 4.9e-5 on his CS1 — so every column vertical sailed past the guard
       // and drew, stacking contiguously into one line per column edge. See
-      // {@link COLUMN_LINE_FRACTION_EPS} for the measurement.
+      // {@link COLUMN_LINE_TOLERANCE_M} for the measurement, and for why
+      // the tolerance is metric rather than a flat fraction.
       if (Math.abs(a.fraction - b.fraction) < 1e-9) {
-        const onColumn =
-          Math.abs(a.fraction) < COLUMN_LINE_FRACTION_EPS ||
-          Math.abs(a.fraction - 1) < COLUMN_LINE_FRACTION_EPS
+        const eps = epsFor(r.gapIndex)
+        const onColumn = Math.abs(a.fraction) < eps || Math.abs(a.fraction - 1) < eps
         if (onColumn) continue
       }
       const key = ka < kb ? `${r.gapIndex}|${ka}|${kb}` : `${r.gapIndex}|${kb}|${ka}`
