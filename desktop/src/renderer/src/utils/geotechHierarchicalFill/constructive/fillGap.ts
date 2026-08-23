@@ -184,6 +184,7 @@ function pickDominant(
   massKeyOf: (band: RunBand) => string,
   drawnTies: readonly RunTie[],
   closureBars: ReadonlyMap<string, readonly number[]>,
+  shapedByLayer: ReadonlyMap<string, BandConstruct>,
 ): { band: RunBand | null; split: boolean } {
   let best: RunBand | null = null
   let bestScore: [number, number, number, number] | null = null
@@ -197,6 +198,35 @@ function pickDominant(
     // ground across one.
     const bars = closureBars.get(band.layerId)
     if (bars !== undefined && bars.some((barX) => (x - barX) * (band.x - barX) < 0)) continue
+    // WHERE A BAND'S OWN CONSTRUCT SPEAKS, IT SPEAKS COMPLETELY (owner,
+    // 2026-08-22: *"The loose sand has a bottom tie, not a top tie that is
+    // why it is an onlap and should be a triangle and not a quad"*).
+    //
+    // ci19's ZAND-5 rides its BASE tie and pinches its free top down onto it
+    // — the engine drew that triangle correctly. Then the remainder handed
+    // the band the wedge directly ABOVE its own pinching top: still inside
+    // its nominal 11.06..10.65 window, so it won the ``ownsLevel`` rank, and
+    // the two faces together squared off against the mid-gap seam into the
+    // quad he circled.
+    //
+    // This is NOT the retired "exclude every shaped band from the remainder"
+    // rule (2026-08-21) — that one barred an onlapping mass from ground
+    // ELSEWHERE in its cover and painted his spiked comb. A band may still
+    // answer anywhere its construct does not reach. What it may never do is
+    // re-take ground its OWN shape, at THIS x, has already declared it does
+    // not occupy. ``closureBars`` says the same thing along x, past the
+    // apex; this says it along y, inside the wedge's own shadow.
+    // ONLAP ONLY. A LENS keeps its existing level-scoped treatment (owner
+    // 2026-08-21: *"Only a LENS drops out, and only at the levels it closed
+    // on"*) — barring it here too left the ground in his gap 19 with NO
+    // candidate at all and un-tiled the cover outright (CF6).
+    const shaped = shapedByLayer.get(band.layerId)
+    if (shaped !== undefined && shaped.emit === 'onlap' && shaped.apexX !== undefined) {
+      const span = shaped.apexX - shaped.band.x
+      const here = x - shaped.band.x
+      const withinOwnSpan = span !== 0 && here * span >= 0 && Math.abs(here) < Math.abs(span)
+      if (withinOwnSpan && !claims(shaped, x, y)) continue
+    }
     // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
     // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
     // top tie line — over the D|MD correlation, and below S10 whose base is
@@ -549,6 +579,15 @@ export function fillGap(input: GapFillInput): GapFillResult {
     if (construct.emit === 'nothing') continue
     closedAtMiddle.add(construct.band.layerId)
   }
+  // A band's own shaped construct, by layer — the remainder consults it so a
+  // closed shape is never re-inflated by the ground above its own pinch (see
+  // pickDominant). Nearest-apex wins if a layer somehow shapes twice.
+  const shapedByLayer = new Map<string, BandConstruct>()
+  for (const construct of constructs) {
+    if (construct.emit !== 'onlap' || construct.apexX === undefined) continue
+    const prev = shapedByLayer.get(construct.band.layerId)
+    if (prev === undefined) shapedByLayer.set(construct.band.layerId, construct)
+  }
   const middleX = run === null ? Number.NaN : (run.left.x + run.right.x) / 2
 
   const labelled: LabelledFace<RunBand>[] = []
@@ -649,7 +688,24 @@ export function fillGap(input: GapFillInput): GapFillResult {
       let dominant: { band: RunBand | null; split: boolean } | null = null
       for (const [candidates, walls, isLastRung] of rungs) {
         if (candidates.length === 0) continue
-        dominant = pickDominant(candidates, closedAtMiddle, middleX, lo, hi, x, y, massKeyOf, walls, closureBars)
+        dominant = pickDominant(
+          candidates,
+          closedAtMiddle,
+          middleX,
+          lo,
+          hi,
+          x,
+          y,
+          massKeyOf,
+          walls,
+          closureBars,
+          // The own-shape guard holds on EVERY rung, the last one included.
+          // Dropping it there (as the walls do) reopens the defect outright:
+          // in his gap 19 every band in the run is closed, so the ground in
+          // the onlap own shadow falls all the way through and the onlap
+          // takes it back. The cost is measured and accepted below.
+          shapedByLayer,
+        )
         if (isLastRung) dominant = { ...dominant, band: lastRungMustBeRelevant(dominant.band) }
         if (dominant.band !== null) break
       }
