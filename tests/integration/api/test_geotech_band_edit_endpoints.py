@@ -1255,6 +1255,61 @@ async def test_se3_a_second_divide_with_skip_keeps_the_hand_classed_borehole(
 
 
 @pytest.mark.asyncio
+async def test_se4_a_machine_placed_borehole_is_replanned_not_skipped(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SE4 — owner ruling 2026-08-23: *"you only decide how the boreholes get
+    divided after user review"*.
+
+    First-subdivision-wins protects the ENGINEER's work, not the machine's
+    first guess. A borehole carrying only machine-placed bands must be
+    RE-PLANNED on the next press, because the review that follows step 4 can
+    otherwise never reach it: step 4 derives ties of its own AFTER placing its
+    bands, so the first pass is planned against a thinner tie set than the one
+    the engineer ends up approving.
+
+    Measured on the dev model the day of the ruling: 1411-GEO-23/126-B8 was
+    banded at 18:23:28 in the same run that wrote 145 ties, and kept one fat
+    ``NAD 6`` band from 10.97 to 16.00 m where a re-plan against the finished
+    tie set reads 6 / 5 / 7 / 6 / 8. A CPT-to-CPT span across it also survived,
+    because a mid-band crossing has no contact to land on — one fat band, two
+    visible defects.
+
+    SE3 is the other half and must stay green: touch the borehole by hand and
+    it is protected again. The predicate is ``source == 'manual'``, which every
+    band-edit writer stamps (set-class, merge, split, move-boundary,
+    move-restated-contact), so it is not specific to the set-class verb.
+    """
+    gid, _rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+
+    divide = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={"skip_existing": True},
+    )
+    assert divide.status_code == 200, divide.text
+    assert divide.json().get("skipped_existing_borehole_count", 0) == 0, (
+        "a borehole the engineer never touched must be re-planned, not "
+        "imported as-is — otherwise pressing 4 again is a no-op forever"
+    )
+    # And it must still HAVE bands afterwards: re-planned, not merely deleted.
+    db_session.expire_all()
+    remaining = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.id).where(
+                    LithoLayerOrm.model_id == UUID(gid),
+                    LithoLayerOrm.borehole_id == band_scene["bh_id"],
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(remaining) > 0, "the re-plan must leave the borehole banded"
+
+
+@pytest.mark.asyncio
 async def test_cl1_clear_subdivision_empties_one_column_and_only_that_column(
     band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
