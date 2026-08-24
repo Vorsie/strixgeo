@@ -317,7 +317,7 @@ export function emitCurves(section: SectionInput): EmittedCurves {
     const corr0Diamonds: Corr0Diamond[] = []
     emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans, corr0Diamonds)
     collectEnclosedLensDiamonds(survivingSection, ties, corr0Diamonds)
-    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves, corr0Diamonds)
+    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves, corr0Diamonds, bridgeGapAnchored)
     // S41.c (ruling 8p / finding F1): the asymmetric ``emitRuledBands`` pass is DELETED. It
     // invented same-formation band contours from formation-OVERLAP authority (a unit's own
     // contact ↔ HALF a facing same-formation run), NOT from the two actual bracket ties bounding
