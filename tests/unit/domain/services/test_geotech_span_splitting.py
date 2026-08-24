@@ -21,9 +21,12 @@ missing quad (the surviving sub-TD segment is a tie the fill can band).
 
 from uuid import UUID
 
+import pytest
+
 from groundmodel.domain.services.geotech_span_splitting import (
     SpanColumn,
     SpanTie,
+    crossings_through_banded_range,
     split_span,
 )
 
@@ -219,3 +222,75 @@ def test_sp11_a_span_without_soils_falls_back_to_nearest() -> None:
     plan = split_span(_tie("s6", 14.86, "s13", 14.66), [S6, _b6_with_soils(), S13])
     assert plan is not None
     assert plan[1].depth_m == 14.75
+
+
+# --- what still crosses a borehole after the split (owner ruling 2026-08-24) --
+#
+# *"i also had to manually deleted a correlation spanning a borehole from cpt to
+# cpt over borehole, write a check that checks if all those are gone after
+# divide boreholes"* and *"if no hops can be made, you just auto delete the
+# crossing correlation, user will notice something weird in the fill if he/she
+# needs to subdivide"*.
+#
+# The split is the first answer: where hops CAN be made, the span becomes the
+# chain.  These cases are the second: what the split leaves standing, still
+# passing through a borehole's own banded range, is a crossing — and a crossing
+# is deleted, not kept.  Sub-TD stays untouched, which is the rule the earlier
+# ruling bought and this one must not spend.
+
+
+def test_xt1_a_span_from_cpt_to_cpt_over_a_borehole_that_cannot_land_is_a_crossing() -> None:
+    """XT1: the span crosses the borehole mid-band — no hop can be made there,
+    so the tie is reported as crossing it (and the caller deletes it)."""
+    b2 = SpanColumn(
+        investigation_id="b2",
+        along_m=45.0,
+        collar_elev_m=13.05,
+        contacts_m=(8.8, 11.23, 17.5),
+        deepest_base_m=17.5,
+    )
+    tie = _tie("s6", 14.02, "s13", 14.09)
+    # Same tie, same scene as SP8: the splitter can make no hop here.
+    assert split_span(tie, [S6, b2, S13]) is None
+    crossings = crossings_through_banded_range(tie, [S6, b2, S13], crossable_ids={"b2"})
+    assert [c.investigation_id for c in crossings] == ["b2"]
+    # The line passes b2 at elevation ≈ -0.81, inside its banded extent
+    # (+4.25 down to -4.45).
+    assert crossings[0].crossing_elev_m == pytest.approx(-0.805, abs=0.01)
+
+
+def test_xt2_a_span_passing_below_the_boreholes_data_is_not_a_crossing() -> None:
+    """XT2: sub-TD — the borehole's bands end above the crossing elevation, so
+    the span is the only way the statement can be made and it stands."""
+    tie = _tie("s6", 11.68, "s13", 13.56)
+    assert crossings_through_banded_range(tie, [S6, S7A, S13], crossable_ids={"s7a"}) == []
+
+
+def test_xt3_a_span_that_can_hop_becomes_the_chain_and_never_reaches_the_delete() -> None:
+    """XT3: where hops CAN be made the span is replaced by chain pieces — the
+    delete pass only ever judges what the split left standing."""
+    tie = _tie("s6", 11.68, "s13", 13.56)
+    plan = split_span(tie, ORDER)
+    assert plan is not None
+    assert [node.investigation_id for node in plan] == ["s6", "b6", "b4", "s13"]
+
+
+def test_xt4_a_cpt_to_cpt_tie_over_no_borehole_is_not_a_crossing() -> None:
+    """XT4: nothing crossable lies between the two CPTs — the tie is left alone."""
+    tie = _tie("b4", 15.5, "s13", 15.16)
+    assert crossings_through_banded_range(tie, ORDER, crossable_ids={"b6", "b4"}) == []
+
+
+def test_xt5_a_borehole_outside_the_runs_scope_is_not_a_crossing() -> None:
+    """XT5: this press divided other columns; a borehole it did not touch is
+    not this run's business."""
+    tie = _tie("s6", 11.68, "s13", 13.56)
+    assert crossings_through_banded_range(tie, ORDER, crossable_ids=set()) == []
+
+
+def test_xt6_a_tie_that_ends_on_the_borehole_does_not_cross_it() -> None:
+    """XT6: a tie ANCHORED on a borehole states something about it; only a tie
+    passing OVER one crosses it."""
+    tie = _tie("b6", 12.59, "s13", 13.56)
+    crossings = crossings_through_banded_range(tie, ORDER, crossable_ids={"b6", "b4"})
+    assert [c.investigation_id for c in crossings] == ["b4"]
