@@ -38,6 +38,7 @@
 
 import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
 import { terminationApexOverride } from './apexOverride'
+import { bothSidesCloseAtTheMiddle, buildGapClosure, type GapClosure } from './bothSidesClosed'
 import { applyContactBend, collectContactBends, type ContactBend } from './contactOverride'
 import { isDeclaredMeeting } from './declaredMeetings'
 import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
@@ -98,6 +99,13 @@ function tieLandsOn(tie: ResolvedTie, side: 'left' | 'right', ui: number): boole
  *     verticals stamp the face — but kept for signature parity with the sweep/substrate).
  * out : InputCurve[]
  *     Curve accumulator (appended to).
+ * corr0Diamonds : readonly Corr0Diamond[]
+ *     The corr-0 lens diamonds a band contour detours around (ruling 8s stage B).
+ * bridgeGapAnchored : ReadonlySet<string>, optional
+ *     The DIRECTIONAL bridge-anchor set (``gapIndex|side|ui|contact``). Read only by the
+ *     both-closed seam rule, so its 2/1/0 arithmetic is the sweep's own — a bridge-anchored
+ *     contact must read TIED here too, or a band the bridge carries would look closed and
+ *     take a seam through it. Absent (legacy callers) → the plain tie arithmetic.
  */
 export function emitEnclosingFlood(
   section: SectionInput,
@@ -106,6 +114,7 @@ export function emitEnclosingFlood(
   lensLabels: Map<string, LensLabel>,
   out: InputCurve[],
   corr0Diamonds: readonly Corr0Diamond[] = [],
+  bridgeGapAnchored?: ReadonlySet<string>,
 ): void {
   void bridgeAnchored
   void lensLabels
@@ -130,7 +139,7 @@ export function emitEnclosingFlood(
     // SHARE bends that ONE shared ``bandc`` contour so both bands follow (design §8 line 88). Empty
     // when no override targets a shared contact → the no-override contour is byte-identical.
     const contactBends = collectContactBends(gi, left, right, activeTies, section.lensApexOverrides)
-    emitGapFlood(gi, left, right, activeTies, bands, contactBends, section.lensApexOverrides, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds)
+    emitGapFlood(gi, left, right, activeTies, bands, contactBends, section.lensApexOverrides, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds, bridgeGapAnchored)
   }
 }
 
@@ -148,6 +157,7 @@ function emitGapFlood(
   nextBandSeamId: () => string,
   out: InputCurve[],
   corr0Diamonds: readonly Corr0Diamond[],
+  bridgeGapAnchored: ReadonlySet<string> | undefined,
 ): void {
   const leftTD = left.units[left.units.length - 1].baseElev
   const rightTD = right.units[right.units.length - 1].baseElev
@@ -235,11 +245,15 @@ function emitGapFlood(
   // anchor, not the flood's full-width closure.
   const bandFids = new Set(bands.map((b) => b.formationId))
 
+  // The gap's 2/1/0 arithmetic, once — read by the both-closed seam rule below
+  // (``bothSidesClosed``: who terminates before the middle and who runs through).
+  const closure = buildGapClosure(gapIndex, left, right, activeTies, bridgeGapAnchored)
+
   for (let bi = 0; bi + 1 < uniq.length; bi++) {
     const top = uniq[bi]
     const base = uniq[bi + 1]
     if (mid(top) <= shallowTD + ELEV_EPS) continue // fully sub-TD — substrate owns it
-    closeInterval(left, right, top, base, bandFids, activeTies, nextBandSeamId, nextFloodId, out, gapIndex, overrides)
+    closeInterval(left, right, top, base, bandFids, activeTies, closure, nextBandSeamId, nextFloodId, out, gapIndex, overrides)
   }
 
   // Close the flood from below at the shallow TD floor (sub-TD stays empty — substrate owns it).
@@ -312,6 +326,7 @@ function closeInterval(
   base: FloodBracket,
   bandFids: ReadonlySet<string>,
   activeTies: readonly ResolvedTie[],
+  closure: GapClosure,
   nextBandSeamId: () => string,
   nextFloodId: () => string,
   out: InputCurve[],
@@ -359,7 +374,23 @@ function closeInterval(
       left.units[leftEncl.unitIndex]?.layerId,
       right.units[rightEncl.unitIndex]?.layerId,
     )
-  if (!declared) return
+  // THE SECOND JUSTIFICATION FOR THE SAME LINE — BOTH PACKAGES CLOSED AT THE MIDDLE
+  // (owner, 2026-08-24: *"yes in this case i'd rather have a vertical line"*). Where every
+  // mass of BOTH columns terminates inside this window, nobody declared a meeting but
+  // nobody runs through either, and the ground between the two closed packages belongs to
+  // neither class alone — without the line one of them floods the whole gap over the
+  // other's closed loops (CS2 gap 0: B1's loose sand painted across S34's own sand/silt
+  // package, which never read a loose sand at all). A single OPEN mass on either side
+  // answers no, which is what keeps the ruled SF-silt fill-through (2026-08-21) intact.
+  // See ``bothSidesClosed``.
+  const bothClosed = bothSidesCloseAtTheMiddle(
+    closure,
+    top.leftElev,
+    base.leftElev,
+    top.rightElev,
+    base.rightElev,
+  )
+  if (!declared && !bothClosed) return
 
   // MISMATCHED enclosing → the no-auto-facies MIDPOINT SEAM separates the two sides. Each half's
   // face is bounded by its own column vertical (its enclosing litho) + the seam + the brackets,
