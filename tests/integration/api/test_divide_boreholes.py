@@ -1060,8 +1060,7 @@ async def test_db6_preview_reports_the_ties_the_commit_carries(
         # 3 — see DB4 (the split chain piece counts too). What this test is
         # really guarding is the line below: whatever the count is, the preview
         # and the commit must agree on it.
-        f"DB6: preview should see the hand tie, the restatement and the split "
-        f"piece, got {preview}"
+        f"DB6: preview should see the hand tie, the restatement and the split piece, got {preview}"
     )
 
     second = await DivideBoreholes(db_session).execute(
@@ -1273,6 +1272,132 @@ async def test_db8_a_manual_span_over_the_borehole_splits_into_the_chain(
 
 
 @pytest.mark.asyncio
+async def test_db10_a_span_that_cannot_hop_over_the_borehole_is_deleted(
+    divide_boreholes_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """DB10 — owner rulings 2026-08-24: *"i also had to manually deleted a
+    correlation spanning a borehole from cpt to cpt over borehole, write a
+    check that checks if all those are gone after divide boreholes"* and *"if
+    no hops can be made, you just auto delete the crossing correlation, user
+    will notice something weird in the fill if he/she needs to subdivide"*.
+
+    A span from CPT-A to CPT-B drawn at a depth BH-S covers, but passing
+    mid-band 2 m from BH-S's nearest seam, can make no hop.  After the divide
+    it is GONE — and so is every other accepted CPT↔CPT tie over BH-S, whose
+    column is banded end to end.  Ties that END on the borehole are untouched:
+    only a tie passing OVER one is a crossing.
+    """
+    project = divide_boreholes_scene["project"]
+    litho_model_id = UUID(divide_boreholes_scene["litho_model_id"])
+    bh_s_id = divide_boreholes_scene["bh_s_id"]
+    cpt_a_id = divide_boreholes_scene["cpt_a_id"]
+    cpt_b_id = divide_boreholes_scene["cpt_b_id"]
+    section_id = UUID(divide_boreholes_scene["section_id"])
+
+    sab_result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    geotech_model_id = sab_result.geotech_model_id
+    await db_session.commit()
+
+    async def _bands(inv_col, inv_id):
+        return (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm)
+                    .where(
+                        LithoLayerOrm.model_id == geotech_model_id,
+                        inv_col == inv_id,
+                    )
+                    .order_by(LithoLayerOrm.depth_top_m)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    a_bands = await _bands(LithoLayerOrm.cpt_id, cpt_a_id)
+    b_bands = await _bands(LithoLayerOrm.cpt_id, cpt_b_id)
+    assert len(a_bands) >= 2 and len(b_bands) >= 2
+
+    # The span: CPT-A's matig TOP (0.0 m) to CPT-B's dicht TOP (5.0 m).  Half
+    # way across, over BH-S, the line sits at 2.5 m depth — 2.0 m from BH-S's
+    # nearest contact (its ~4.5 m split), so no landing is within reach and the
+    # splitter can make no hop.  Clear the machine's claim on the pair first,
+    # exactly as DB8 does.
+    await db_session.execute(
+        delete(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+            LithoContactCorrelationEdgeOrm.layer_a_id.in_([a_bands[0].id, b_bands[1].id]),
+            LithoContactCorrelationEdgeOrm.layer_b_id.in_([a_bands[0].id, b_bands[1].id]),
+        )
+    )
+    span = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=geotech_model_id,
+        section_id=section_id,
+        layer_a_id=min(a_bands[0].id, b_bands[1].id),
+        layer_b_id=max(a_bands[0].id, b_bands[1].id),
+        layer_a_side="top",
+        layer_b_side="top",
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add(span)
+    await db_session.commit()
+    span_id = span.id
+    cpt_band_ids = {band.id for band in [*a_bands, *b_bands]}
+
+    result = await DivideBoreholes(db_session).execute(
+        project_id=project.id, litho_model_id=litho_model_id
+    )
+    await db_session.commit()
+    db_session.expire_all()
+
+    # DB10-1: the span that could not hop was deleted, not kept.
+    assert result.deleted_crossing_span_count >= 1
+    remaining = (
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert span_id not in {e.id for e in remaining}, (
+        "a cpt-to-cpt correlation over a borehole that cannot land must be gone "
+        "after divide boreholes"
+    )
+
+    # DB10-2: "all those are gone" — BH-S is banded over its whole column, so
+    # EVERY accepted CPT↔CPT tie here passes through its banded range.
+    bh_bands = await _bands(LithoLayerOrm.borehole_id, bh_s_id)
+    assert bh_bands, "setup: BH-S must be banded for the crossing rule to apply"
+    survivors_over_the_borehole = [
+        e
+        for e in remaining
+        if e.user_approved and e.layer_a_id in cpt_band_ids and e.layer_b_id in cpt_band_ids
+    ]
+    assert survivors_over_the_borehole == [], (
+        "no accepted cpt-to-cpt tie may still span the banded borehole: "
+        f"{[(str(e.id), e.source) for e in survivors_over_the_borehole]}"
+    )
+
+    # DB10-3: a tie that ENDS on the borehole is not a crossing and survives.
+    bh_ids = {band.id for band in bh_bands}
+    touching_the_borehole = [
+        e
+        for e in remaining
+        if e.user_approved and ((e.layer_a_id in bh_ids) != (e.layer_b_id in bh_ids))
+    ]
+    assert touching_the_borehole, "ties anchored on the borehole must be left alone"
+
+
+@pytest.mark.asyncio
 async def test_db9_a_base_base_tie_steers_placement_like_its_top_top_twin(
     divide_boreholes_scene: dict,
     db_session: AsyncSession,
@@ -1334,9 +1459,7 @@ async def test_db9_a_base_base_tie_steers_placement_like_its_top_top_twin(
             LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
         )
     )
-    lo, hi = (
-        (a_bands[0], b_bands[0]) if a_bands[0].id < b_bands[0].id else (b_bands[0], a_bands[0])
-    )
+    lo, hi = (a_bands[0], b_bands[0]) if a_bands[0].id < b_bands[0].id else (b_bands[0], a_bands[0])
     db_session.add(
         LithoContactCorrelationEdgeOrm(
             id=uuid7(),
@@ -1356,9 +1479,7 @@ async def test_db9_a_base_base_tie_steers_placement_like_its_top_top_twin(
         project_id=project.id, litho_model_id=litho_model_id
     )
     matig_pair = {str(a_bands[0].id), str(b_bands[0].id)}
-    consumed = [
-        pair for pair in plan.replaced_tie_layer_pairs if set(pair) == matig_pair
-    ]
+    consumed = [pair for pair in plan.replaced_tie_layer_pairs if set(pair) == matig_pair]
     assert consumed, (
         "the base-base tie must be consumed by the placement (mode unit_ties), "
         f"got replaced pairs: {plan.replaced_tie_layer_pairs!r}"
