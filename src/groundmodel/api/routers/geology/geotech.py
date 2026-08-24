@@ -677,7 +677,9 @@ async def divide_boreholes(
         f"layers={result.layer_count} "
         f"ties_reanchored={result.reanchored_tie_count} "
         f"ties_need_review={result.review_tie_reasons} "
-        f"ties_lost={result.lost_tie_count} {result.lost_tie_reasons}"
+        f"ties_lost={result.lost_tie_count} {result.lost_tie_reasons} "
+        f"spans_replaced={result.replaced_span_count} "
+        f"crossing_spans_deleted={result.deleted_crossing_span_count}"
     )
     return DivideBoreholeResponse(
         geotech_model_id=result.geotech_model_id,
@@ -694,6 +696,7 @@ async def divide_boreholes(
         skipped_existing_borehole_count=result.skipped_existing_borehole_count,
         crossing_tie_count=result.crossing_tie_count,
         replaced_span_count=result.replaced_span_count,
+        deleted_crossing_span_count=result.deleted_crossing_span_count,
     )
 
 
