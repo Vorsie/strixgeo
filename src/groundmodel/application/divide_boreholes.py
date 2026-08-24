@@ -91,7 +91,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
@@ -177,6 +177,7 @@ from groundmodel.domain.services.geotech_jump_tie_supersession import (
 from groundmodel.domain.services.geotech_span_splitting import (
     SpanColumn,
     SpanTie,
+    crossings_through_banded_range,
     split_span,
 )
 from groundmodel.domain.services.geotech_tie_donors import (
@@ -1375,6 +1376,11 @@ class DivideBoreholeResult:
         by chains landing on those columns' nearest contacts (owner ruling
         2026-08-17 night). Sub-TD spans are kept — there the span is the only
         way the statement can be made.
+    deleted_crossing_span_count : int
+        Accepted CPT↔CPT ties DELETED because they still passed through a
+        borehole's own banded range after the split (owner ruling 2026-08-24:
+        *"if no hops can be made, you just auto delete the crossing
+        correlation"*).  Sub-TD spans are not counted here — they are kept.
     crossing_tie_count : int
         MACHINE ties deleted because they crossed another tie in the same gap
         (owner ruling 2026-08-17: *"ties shouldn't be able to cross"*).  Legacy
@@ -1397,6 +1403,24 @@ class DivideBoreholeResult:
     skipped_existing_borehole_count: int = 0
     crossing_tie_count: int = 0
     replaced_span_count: int = 0
+    deleted_crossing_span_count: int = 0
+
+
+@dataclass(frozen=True)
+class SpanPassCounts:
+    """What the Phase 8.6 span pass did, in its two halves.
+
+    Parameters
+    ----------
+    replaced : int
+        Spanning ties replaced by a chain of hops at columns with data.
+    deleted_crossings : int
+        Surviving CPT↔CPT ties deleted for still crossing a borehole inside
+        its banded range (owner ruling 2026-08-24).
+    """
+
+    replaced: int
+    deleted_crossings: int
 
 
 class DivideBoreholes(GeotechBoreholeMaterialiser):
@@ -2338,14 +2362,30 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             borehole_names=borehole_names,
         )
 
-    async def _split_spanning_ties(self, *, geotech_model_id: UUID, project_id: UUID) -> int:
-        """Split accepted spanning ties at every column with data at the line.
+    async def _resolve_spanning_ties(
+        self,
+        *,
+        geotech_model_id: UUID,
+        project_id: UUID,
+        borehole_ids: set[UUID] | None,
+    ) -> SpanPassCounts:
+        """Split accepted spanning ties, then delete what still crosses data.
 
         The application half of
-        :func:`~groundmodel.domain.services.geotech_span_splitting.split_span`
-        — load, judge, write the chain, delete the span, report.  Runs after
-        Phase 8.5 has written the borehole bands and BEFORE the dedup and the
-        crossing sweep, so both passes judge the post-split model.
+        :mod:`~groundmodel.domain.services.geotech_span_splitting` — load,
+        judge, write the chain, delete the span, report.  Runs after Phase 8.5
+        has written the borehole bands and BEFORE the dedup and the crossing
+        sweep, so both passes judge the post-split model.
+
+        Two rulings in sequence.  First (2026-08-17) the split: a span over a
+        column that HAS data at the line becomes the chain of hops that column
+        expresses.  Then (2026-08-24) the sweep: *"if no hops can be made, you
+        just auto delete the crossing correlation"* — whatever the split left
+        standing that still passes through a borehole's own banded range is
+        deleted, because it welds one body straight across bands that disagree
+        with it and the fill draws that weld.  Sub-TD spans survive both: there
+        the borehole says nothing at that depth, and the span is the only way
+        the statement can be made.
 
         Parameters
         ----------
@@ -2353,12 +2393,16 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             The geotech model just divided.
         project_id : UUID
             Its project — the section placements live per project.
+        borehole_ids : set[UUID] | None
+            The run's borehole scope.  Only a borehole this press could have
+            divided is grounds for deleting a tie; ``None`` = every borehole.
 
         Returns
         -------
-        int
-            How many spanning ties were replaced by chains.  0 in the ordinary
-            no-spans case.
+        SpanPassCounts
+            How many spans were replaced by chains and how many surviving
+            CPT↔CPT ties were deleted for crossing a banded borehole.  Both 0
+            in the ordinary no-spans case.
         """
         await self._session.flush()
         band_rows = (
@@ -2409,12 +2453,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         placement_by_section = {UUID(pl.section_id): pl for pl in placements}
         collar_rows = (
             await self._session.execute(
-                select(CptOrm.id, CptOrm.elevation_m).where(CptOrm.app_project_id == project_id)
+                select(CptOrm.id, CptOrm.name, CptOrm.elevation_m).where(
+                    CptOrm.app_project_id == project_id
+                )
             )
         ).all()
         bh_rows = (
             await self._session.execute(
-                select(BoreholeOrm.id, BoreholeOrm.elevation_m).where(
+                select(BoreholeOrm.id, BoreholeOrm.name, BoreholeOrm.elevation_m).where(
                     BoreholeOrm.app_project_id == project_id
                 )
             )
@@ -2424,6 +2470,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             for row in [*collar_rows, *bh_rows]
             if row.elevation_m is not None
         }
+        # Names, not ids, in the deletion warnings: the engineer has to be able
+        # to find the tie he lost in the section without a database round-trip.
+        names = {str(row.id): row.name for row in [*collar_rows, *bh_rows]}
 
         # ALL edges, not accepted-only: the dedup registry below must know the
         # PENDING rows too, or a chain piece collides with a machine proposal
@@ -2474,22 +2523,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
             return resolved
 
-        replaced = 0
-        pieces_created = 0
-        doomed_spans: list[UUID] = []
-        for edge in edges:
-            home_a = band_home.get(str(edge.layer_a_id))
-            home_b = band_home.get(str(edge.layer_b_id))
-            if home_a is None or home_b is None:
-                continue
-            placement = placement_by_section.get(edge.section_id)
-            if placement is None:
-                continue
-            depth_a = home_a[1] if edge.layer_a_side == "top" else home_a[2]
-            depth_b = home_b[1] if edge.layer_b_side == "top" else home_b[2]
-            columns = []
+        def _span_columns(
+            placement: SectionPlacement, endpoints: tuple[str, str]
+        ) -> list[SpanColumn]:
+            """Every column of a section, as the span geometry needs to see it."""
+            columns: list[SpanColumn] = []
             for inv, along in placement.along_m.items():
-                if inv not in collars and inv not in (home_a[0], home_b[0]):
+                if inv not in collars and inv not in endpoints:
                     continue
                 seam_depths, seam_soils = _column_seams(stacks.get(inv, []))
                 columns.append(
@@ -2504,6 +2544,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                         contact_soils=seam_soils,
                     )
                 )
+            return columns
+
+        replaced = 0
+        pieces_created = 0
+        doomed_spans: list[UUID] = []
+        for edge in edges:
+            home_a = band_home.get(str(edge.layer_a_id))
+            home_b = band_home.get(str(edge.layer_b_id))
+            if home_a is None or home_b is None:
+                continue
+            placement = placement_by_section.get(edge.section_id)
+            if placement is None:
+                continue
+            depth_a = home_a[1] if edge.layer_a_side == "top" else home_a[2]
+            depth_b = home_b[1] if edge.layer_b_side == "top" else home_b[2]
+            columns = _span_columns(placement, (home_a[0], home_b[0]))
             plan = split_span(
                 SpanTie(
                     edge_id=edge.id,
@@ -2581,7 +2637,160 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 f"DivideBoreholes: Phase 8.6 — {replaced} spanning tie(s) replaced by "
                 f"{pieces_created} chain piece(s) at columns with data; sub-TD spans kept"
             )
-        return replaced
+
+        deleted_crossings = await self._delete_ties_crossing_banded_boreholes(
+            geotech_model_id=geotech_model_id,
+            borehole_ids=borehole_ids,
+            band_rows=band_rows,
+            band_home=band_home,
+            placement_by_section=placement_by_section,
+            span_columns=_span_columns,
+            names=names,
+        )
+        self.info(
+            f"DivideBoreholes: Phase 8.6 done — replaced={replaced} pieces={pieces_created} "
+            f"crossing_ties_deleted={deleted_crossings}"
+        )
+        return SpanPassCounts(replaced=replaced, deleted_crossings=deleted_crossings)
+
+    async def _delete_ties_crossing_banded_boreholes(
+        self,
+        *,
+        geotech_model_id: UUID,
+        borehole_ids: set[UUID] | None,
+        band_rows: Sequence[Any],
+        band_home: dict[str, tuple[str, float, float]],
+        placement_by_section: dict[UUID, SectionPlacement],
+        span_columns: Callable[[SectionPlacement, tuple[str, str]], list[SpanColumn]],
+        names: dict[str, str],
+    ) -> int:
+        """Delete every surviving CPT↔CPT tie that crosses a banded borehole.
+
+        Owner ruling 2026-08-24: *"i also had to manually deleted a correlation
+        spanning a borehole from cpt to cpt over borehole, write a check that
+        checks if all those are gone after divide boreholes"* and *"if no hops
+        can be made, you just auto delete the crossing correlation, user will
+        notice something weird in the fill if he/she needs to subdivide"*.
+
+        The split above is the first answer; this is the second.  The edges are
+        re-read from the database, so the verdict is passed on the POST-split
+        model: the spans the split consumed are already gone, and a chain piece
+        it wrote that itself jumps a borehole the line could not land on is
+        judged like any other tie.
+
+        Sub-TD ties are untouched — deliberately.  Where the borehole's bands
+        stop above the line it says nothing at that depth, so the span is the
+        only way the correlation can be stated at all, and deleting it would
+        destroy a statement rather than replace one.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotech model just divided.
+        borehole_ids : set[UUID] | None
+            The run's borehole scope; ``None`` = every borehole.
+        band_rows : Sequence[Any]
+            The model's geotech band rows, used to tell CPT columns from
+            borehole columns.
+        band_home : dict[str, tuple[str, float, float]]
+            Band id → (column id, top depth, base depth).
+        placement_by_section : dict[UUID, SectionPlacement]
+            Along-positions per section — a tie is judged on its OWN section.
+        span_columns : Callable
+            Builds the section's columns for the span geometry.
+        names : dict[str, str]
+            Column id → display name, for the deletion warnings.
+
+        Returns
+        -------
+        int
+            How many ties were deleted.  0 when nothing crosses.
+        """
+        cpt_invs = {str(row.cpt_id) for row in band_rows if row.cpt_id is not None}
+        crossable = {str(row.borehole_id) for row in band_rows if row.borehole_id is not None}
+        if borehole_ids is not None:
+            # A borehole this press did not divide is not this press's business:
+            # its bands are whatever an earlier run left, and the engineer's tie
+            # over them was not invalidated by anything that happened here.
+            crossable &= {str(b) for b in borehole_ids}
+        if not crossable or not cpt_invs:
+            self.info(
+                "DivideBoreholes: Phase 8.6 crossing sweep skipped — "
+                f"crossable_boreholes={len(crossable)} banded_cpts={len(cpt_invs)}"
+            )
+            return 0
+
+        await self._session.flush()
+        surviving = (
+            (
+                await self._session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == geotech_model_id,
+                        LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        self.info(
+            f"DivideBoreholes: Phase 8.6 crossing sweep over {len(surviving)} accepted tie(s), "
+            f"crossable_boreholes={len(crossable)} "
+            f"(scope={'ALL' if borehole_ids is None else len(borehole_ids)})"
+        )
+        doomed: list[UUID] = []
+        unplaced = 0
+        total = len(surviving)
+        for index, edge in enumerate(surviving, 1):
+            home_a = band_home.get(str(edge.layer_a_id))
+            home_b = band_home.get(str(edge.layer_b_id))
+            if home_a is None or home_b is None:
+                continue
+            if home_a[0] not in cpt_invs or home_b[0] not in cpt_invs:
+                continue  # only a CPT↔CPT tie can pass OVER a borehole
+            placement = placement_by_section.get(edge.section_id)
+            if placement is None:
+                # No column geometry for the tie's own section: the crossing is
+                # not judgeable, so the tie stands.
+                unplaced += 1
+                continue
+            crossings = crossings_through_banded_range(
+                SpanTie(
+                    edge_id=edge.id,
+                    inv_a=home_a[0],
+                    depth_a_m=home_a[1] if edge.layer_a_side == "top" else home_a[2],
+                    inv_b=home_b[0],
+                    depth_b_m=home_b[1] if edge.layer_b_side == "top" else home_b[2],
+                ),
+                span_columns(placement, (home_a[0], home_b[0])),
+                crossable_ids=crossable,
+            )
+            if not crossings:
+                continue
+            for crossing in crossings:
+                bh_name = names.get(crossing.investigation_id, crossing.investigation_id)
+                self.warning(
+                    f"[{index}/{total}] DivideBoreholes: deleting tie {edge.id} — "
+                    f"{names.get(home_a[0], home_a[0])} <-> {names.get(home_b[0], home_b[0])} "
+                    f"crosses borehole {bh_name} at elevation "
+                    f"{crossing.crossing_elev_m:.2f} m, inside its banded range; "
+                    f"no hop could be made there (source={edge.source}, section={edge.section_id})"
+                )
+            doomed.append(edge.id)
+
+        if doomed:
+            await self._session.execute(
+                delete(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.id.in_(doomed)
+                )
+            )
+        self.info(
+            f"DivideBoreholes: Phase 8.6 crossing sweep — {len(doomed)} CPT-to-CPT tie(s) "
+            f"deleted for crossing a banded borehole out of {total} accepted tie(s) "
+            f"(unplaced_sections={unplaced}); sub-TD spans kept"
+        )
+        return len(doomed)
 
     async def _load_section_placements(self, project_id: UUID) -> list[SectionPlacement]:
         """Load every section's along-positions once, for the flanking rule.
@@ -3266,10 +3475,20 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # re-express a correlation that was already accepted) and machine-     #
         # owned (source='auto'); the original span is deleted, no tombstone —  #
         # this is the model's housekeeping, not his judgement.                 #
+        #                                                                      #
+        # Then, 2026-08-24: "if no hops can be made, you just auto delete the  #
+        # crossing correlation, user will notice something weird in the fill   #
+        # if he/she needs to subdivide."  What the split leaves standing and   #
+        # still runs through a borehole's own banded range is deleted — the    #
+        # invariant this verb now guarantees is that NO accepted CPT-to-CPT    #
+        # tie passes through data that disagrees with it.  Sub-TD stays.       #
         # ------------------------------------------------------------------ #
-        replaced_span_count = await self._split_spanning_ties(
-            geotech_model_id=geotech_model_id, project_id=project_id
+        span_counts = await self._resolve_spanning_ties(
+            geotech_model_id=geotech_model_id,
+            project_id=project_id,
+            borehole_ids=borehole_ids,
         )
+        replaced_span_count = span_counts.replaced
 
         # Re-run the resolver over the geotech model so body_id spans the newly
         # connected borehole chains. This is what fixes an orphan borehole band
@@ -3281,7 +3500,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # zero emitted — and gating the resolver on that count alone silently
         # skipped the re-resolve, leaving a borehole band tied but body-less and
         # its samples unanchored (integration SA-5, caught 2026-08-15).
-        if edge_totals.edges_emitted or hops_written:
+        # A deleted crossing tie also has to re-resolve: it REMOVED connectivity
+        # (the split's chains preserve it by construction, the delete does not),
+        # so a body welded across the borehole by that tie must fall apart here
+        # rather than at whatever later verb happens to resolve next.
+        if edge_totals.edges_emitted or hops_written or span_counts.deleted_crossings:
             await ResolveLithoInstances(self._session).execute(
                 model_id=geotech_model_id, commit=False
             )
@@ -3453,6 +3676,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             skipped_existing_borehole_count=len(plan.skipped_existing_borehole_ids),
             crossing_tie_count=crossing_dropped,
             replaced_span_count=replaced_span_count,
+            deleted_crossing_span_count=span_counts.deleted_crossings,
         )
         self.success(
             f"DivideBoreholes: geotech_model={geotech_model_id} "
@@ -3461,6 +3685,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"layers={total_layers} "
             f"borehole_ties_reanchored={len(reanchor_plan.matched)}/{len(captured_ties)} "
             f"borehole_ties_lost={len(reanchor_plan.lost)} "
+            f"spans_replaced={replaced_span_count} "
+            f"crossing_spans_deleted={span_counts.deleted_crossings} "
             f"elapsed={elapsed:.1f}s"
         )
         return result
