@@ -21,6 +21,14 @@ that crossed the new borehole-mediated ties are themselves re-expressed
 through the same columns; and the missing quad returns because the surviving
 sub-TD segment is an ordinary tie the fill engine can band.
 
+What the split leaves standing is judged a second time, by
+:func:`crossings_through_banded_range` (owner ruling 2026-08-24): *"if no hops
+can be made, you just auto delete the crossing correlation, user will notice
+something weird in the fill if he/she needs to subdivide"*.  A tie that still
+runs through a borehole's own banded range after the split states continuity
+straight through data that disagrees with it — the fill draws that weld, and
+the engineer was deleting them by hand.  Sub-TD is untouched by both verdicts.
+
 Pure module: no session, no I/O, no logging.  The application half
 (``DivideBoreholes``) owns the loads, the row writes, and the deletion of the
 original span.
@@ -28,14 +36,17 @@ original span.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 __all__ = [
     "SPAN_LANDING_TOLERANCE_M",
     "SpanColumn",
+    "SpanCrossing",
     "SpanNode",
     "SpanTie",
+    "crossings_through_banded_range",
     "split_span",
 ]
 
@@ -118,6 +129,130 @@ class SpanNode:
     depth_m: float
 
 
+@dataclass(frozen=True)
+class SpanCrossing:
+    """One column a tie passes over inside that column's own banded range."""
+
+    investigation_id: str
+    crossing_elev_m: float
+
+
+@dataclass(frozen=True)
+class _SpanLine:
+    """The tie as a straight line between two placed columns."""
+
+    col_a: SpanColumn
+    col_b: SpanColumn
+    elev_a: float
+    elev_b: float
+
+    def elevation_at(self, along_m: float) -> float:
+        """Elevation of the line at an along-section position."""
+        fraction = (along_m - self.col_a.along_m) / (self.col_b.along_m - self.col_a.along_m)
+        return self.elev_a + fraction * (self.elev_b - self.elev_a)
+
+    def spans(self, along_m: float) -> bool:
+        """Whether an along-position lies STRICTLY between the two endpoints."""
+        return (
+            min(self.col_a.along_m, self.col_b.along_m)
+            < along_m
+            < max(self.col_a.along_m, self.col_b.along_m)
+        )
+
+
+def _span_line(tie: SpanTie, section_order: Sequence[SpanColumn]) -> _SpanLine | None:
+    """The tie's line in (along, elevation) space, or ``None`` when unplaceable."""
+    by_inv = {col.investigation_id: col for col in section_order}
+    col_a = by_inv.get(tie.inv_a)
+    col_b = by_inv.get(tie.inv_b)
+    if col_a is None or col_b is None or col_a.investigation_id == col_b.investigation_id:
+        return None
+    if col_b.along_m == col_a.along_m:
+        return None
+    return _SpanLine(
+        col_a=col_a,
+        col_b=col_b,
+        elev_a=col_a.collar_elev_m - tie.depth_a_m,
+        elev_b=col_b.collar_elev_m - tie.depth_b_m,
+    )
+
+
+def crossings_through_banded_range(
+    tie: SpanTie,
+    section_order: Sequence[SpanColumn],
+    *,
+    crossable_ids: Collection[str] | None = None,
+) -> list[SpanCrossing]:
+    """Every column the tie passes OVER inside that column's banded range.
+
+    Owner ruling, 2026-08-24: *"i also had to manually deleted a correlation
+    spanning a borehole from cpt to cpt over borehole, write a check that
+    checks if all those are gone after divide boreholes"* / *"if no hops can be
+    made, you just auto delete the crossing correlation, user will notice
+    something weird in the fill if he/she needs to subdivide"*.
+
+    This is the verdict the DELETE runs on, and it is asked only of the ties
+    :func:`split_span` left standing: where hops can be made the span becomes
+    the chain, and only what survives that is judged here.  A column is crossed
+    when the tie's straight line reaches it at an elevation inside its own
+    banded extent — the column HAS data there and still carries no contact the
+    span could land on, so the tie states continuity straight through bands
+    that disagree with it.
+
+    Outside that extent the answer is no, in both directions.  Below it is the
+    sub-TD case the 2026-08-17 ruling protects (*"otherwise it is a subTD
+    tie"*): the column stops above the line, so the span is the only way the
+    statement can be made at all.  Above it the column is equally silent — it
+    begins below the line — and silence is never grounds for deleting the
+    engineer's work.
+
+    Parameters
+    ----------
+    tie : SpanTie
+        The surviving tie, endpoints as (column, depth below that collar).
+    section_order : Sequence[SpanColumn]
+        Every column the section draws, any order.
+    crossable_ids : Collection[str] | None, optional
+        Only these columns may be crossed — the run's borehole scope.  ``None``
+        means every column in *section_order* is a candidate.
+
+    Returns
+    -------
+    list[SpanCrossing]
+        One entry per crossed column with the elevation the line reaches it at,
+        ordered along the section.  Empty when the tie crosses nothing: it is
+        adjacent, an endpoint is not on this section, every intermediate is
+        sub-TD, or none is in scope.
+    """
+    line = _span_line(tie, section_order)
+    if line is None:
+        return []
+
+    crossings: list[SpanCrossing] = []
+    for col in sorted(section_order, key=lambda c: c.along_m):
+        # An endpoint is not crossed by its own tie: a tie ANCHORED on a column
+        # states something about it, only a tie passing OVER one crosses it.
+        if col.investigation_id in (tie.inv_a, tie.inv_b):
+            continue
+        if crossable_ids is not None and col.investigation_id not in crossable_ids:
+            continue
+        if not line.spans(col.along_m):
+            continue
+        if col.deepest_base_m is None or not col.contacts_m:
+            continue  # bandless — no banded range to cross
+        crossing_elev = line.elevation_at(col.along_m)
+        top_elev = col.collar_elev_m - min(col.contacts_m)
+        base_elev = col.collar_elev_m - col.deepest_base_m
+        # Millimetre slack, the same grid tolerance the landing test uses: both
+        # sides come off the same mm depths.
+        if not (base_elev - _DATA_TOL_M <= crossing_elev <= top_elev + _DATA_TOL_M):
+            continue
+        crossings.append(
+            SpanCrossing(investigation_id=col.investigation_id, crossing_elev_m=crossing_elev)
+        )
+    return crossings
+
+
 def split_span(tie: SpanTie, section_order: list[SpanColumn]) -> list[SpanNode] | None:
     """The chain a spanning tie becomes, or ``None`` to keep it as drawn.
 
@@ -137,25 +272,16 @@ def split_span(tie: SpanTie, section_order: list[SpanColumn]) -> list[SpanNode] 
         on this section, or every intermediate is sub-TD relative to the line
         (*"otherwise it is a subTD tie"*).
     """
-    by_inv = {col.investigation_id: col for col in section_order}
-    col_a = by_inv.get(tie.inv_a)
-    col_b = by_inv.get(tie.inv_b)
-    if col_a is None or col_b is None or col_a.investigation_id == col_b.investigation_id:
+    line = _span_line(tie, section_order)
+    if line is None:
         return None
-
-    elev_a = col_a.collar_elev_m - tie.depth_a_m
-    elev_b = col_b.collar_elev_m - tie.depth_b_m
-    along_lo, along_hi = sorted((col_a.along_m, col_b.along_m))
-    span = col_b.along_m - col_a.along_m
-    if span == 0:
-        return None
+    col_a, col_b = line.col_a, line.col_b
 
     intermediates = sorted(
         (
             col
             for col in section_order
-            if along_lo < col.along_m < along_hi
-            and col.investigation_id not in (tie.inv_a, tie.inv_b)
+            if line.spans(col.along_m) and col.investigation_id not in (tie.inv_a, tie.inv_b)
         ),
         key=lambda col: col.along_m,
     )
@@ -164,9 +290,7 @@ def split_span(tie: SpanTie, section_order: list[SpanColumn]) -> list[SpanNode] 
     for col in intermediates:
         if col.deepest_base_m is None or not col.contacts_m:
             continue  # bandless — the span keeps spanning it
-        fraction = (col.along_m - col_a.along_m) / span
-        line_elev = elev_a + fraction * (elev_b - elev_a)
-        line_depth = col.collar_elev_m - line_elev
+        line_depth = col.collar_elev_m - line.elevation_at(col.along_m)
         # "If the borehole has data" — the line must pass through the column's
         # banded extent. Above the first band or below the deepest base, the
         # column cannot speak at this depth and the tie is sub-TD there.
