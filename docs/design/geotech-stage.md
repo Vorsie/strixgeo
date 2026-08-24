@@ -556,6 +556,35 @@ Not preventable by rule: his S13↔B4 case, where the machine landed on the
 geometrically nearest of two same-class candidates and he wanted the other —
 geological judgement; the tombstone remembers his deletion.
 
+### 4a-iii. What the split leaves standing over a borehole is DELETED (2026-08-24)
+
+Owner: *"i also had to manually deleted a correlation spanning a borehole from
+cpt to cpt over borehole, write a check that checks if all those are gone after
+divide boreholes"* and *"if no hops can be made, you just auto delete the
+crossing correlation, user will notice something weird in the fill if he/she
+needs to subdivide"*.
+
+The split (4a-ii) answers the case where hops CAN be made. Phase 8.6 now runs a
+second pass over what it left: every ACCEPTED CPT↔CPT edge whose straight line
+reaches a borehole strictly between its endpoints, at an elevation inside that
+borehole's own banded extent, is deleted
+(`crossings_through_banded_range` → `_delete_ties_crossing_banded_boreholes`).
+The invariant the verb now guarantees: **no accepted CPT↔CPT tie passes through
+a borehole's banded data**. It welds one body across bands that disagree with
+it and the fill draws the weld — which is why the owner was deleting them by
+hand after every press.
+
+Kept, deliberately: **sub-TD** (the borehole's bands stop above the line — it
+says nothing at that depth, so the span is the only way the correlation can be
+stated), a line ABOVE the shallowest band (same silence), a tie ANCHORED on the
+borehole (only passing OVER one is a crossing), a borehole outside the run's
+`borehole_ids` scope, and every PENDING edge (the emit-time guard owns those).
+The judgement is pure geometry in the domain (XT1–XT6); the DB pass re-reads
+the edges after the split, so a chain piece that itself jumps a borehole it
+could not land on is judged like any other tie. A deletion removes
+connectivity, so the pass also triggers the resolver re-run. Reported as
+`deleted_crossing_span_count` on the result and the response (DB10).
+
 ## 4b. The packing-tie litho-body guard is a SURFACE rule (owner, 2026-08-04)
 
 A contact touches the band above it and the band below it — up to TWO litho
