@@ -37,6 +37,7 @@ import { FILL_ORDER, massKey, type Mass } from './emitKernel'
 import { fillGapProbe, type ProbeFace } from './fillGapProbe'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { nearestFamilyColumns } from './nearestFamilyColumns'
+import { pickRemainder } from './remainderLadder'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
 
@@ -162,157 +163,6 @@ function areaM2(ring: readonly { fraction: number; elevation: number }[], width:
     twice += a.fraction * b.elevation - b.fraction * a.elevation
   }
   return (Math.abs(twice) / 2) * Math.abs(width)
-}
-
-/**
- * *"fill in the rest with the dominant lithology"* — of the tests that read
- * this ground, the band that occupies most of the loop's own levels owns it.
- *
- * Where two tests read the same levels and disagree, the overlap alone cannot
- * choose — and that is exactly the case his law draws a VERTICAL LINE IN THE
- * MIDDLE for, so the loop already lies on one side of it and the test on that
- * side owns it. Counted (``splitRemainders``) so the case stays visible.
- */
-function pickDominant(
-  candidates: readonly RunBand[],
-  closedAtMiddle: ReadonlySet<string>,
-  middle: number,
-  lo: number,
-  hi: number,
-  x: number,
-  y: number,
-  massKeyOf: (band: RunBand) => string,
-  drawnTies: readonly RunTie[],
-  closureBars: ReadonlyMap<string, readonly number[]>,
-  shapedByLayer: ReadonlyMap<string, BandConstruct>,
-): { band: RunBand | null; split: boolean } {
-  let best: RunBand | null = null
-  let bestScore: [number, number, number, number] | null = null
-  let split = false
-  for (const band of candidates) {
-    // A CLOSURE'S STATEMENT ENDS AT ITS PINCH, RUN-WIDE. The per-gap middle
-    // rule below only knows the closures THIS gap drew; a band that closed a
-    // loop (lens or onlap) in another gap read as open here and its ground
-    // walked past its own pinch (S8's D answering the sub-TD window two gaps
-    // over). The bar list is absolute: no rung, walls on or off, hands
-    // ground across one.
-    const bars = closureBars.get(band.layerId)
-    if (bars !== undefined && bars.some((barX) => (x - barX) * (band.x - barX) < 0)) continue
-    // WHERE A BAND'S OWN CONSTRUCT SPEAKS, IT SPEAKS COMPLETELY (owner,
-    // 2026-08-22: *"The loose sand has a bottom tie, not a top tie that is
-    // why it is an onlap and should be a triangle and not a quad"*).
-    //
-    // ci19's ZAND-5 rides its BASE tie and pinches its free top down onto it
-    // — the engine drew that triangle correctly. Then the remainder handed
-    // the band the wedge directly ABOVE its own pinching top: still inside
-    // its nominal 11.06..10.65 window, so it won the ``ownsLevel`` rank, and
-    // the two faces together squared off against the mid-gap seam into the
-    // quad he circled.
-    //
-    // THE HATCH THIS LEAVES IS ACCEPTED (owner, 2026-08-23: "hatch is fine,
-    // leave it"). On CS1 it moves 13.365 m2 — three faces, all in gap 19, all
-    // sand — from a class to the correlate-me hatch, because every construct
-    // in that run is closed and no open mass can answer the shadow. Those
-    // faces are frozen into the CS1 golden master as the baseline: they are
-    // the ruling, not a defect. See docs/design/geotech-stage.md.
-    //
-    // This is NOT the retired "exclude every shaped band from the remainder"
-    // rule (2026-08-21) — that one barred an onlapping mass from ground
-    // ELSEWHERE in its cover and painted his spiked comb. A band may still
-    // answer anywhere its construct does not reach. What it may never do is
-    // re-take ground its OWN shape, at THIS x, has already declared it does
-    // not occupy. ``closureBars`` says the same thing along x, past the
-    // apex; this says it along y, inside the wedge's own shadow.
-    // ONLAP ONLY. A LENS keeps its existing level-scoped treatment (owner
-    // 2026-08-21: *"Only a LENS drops out, and only at the levels it closed
-    // on"*) — barring it here too left the ground in his gap 19 with NO
-    // candidate at all and un-tiled the cover outright (CF6).
-    const shaped = shapedByLayer.get(band.layerId)
-    if (shaped !== undefined && shaped.emit === 'onlap' && shaped.apexX !== undefined) {
-      const span = shaped.apexX - shaped.band.x
-      const here = x - shaped.band.x
-      const withinOwnSpan = span !== 0 && here * span >= 0 && Math.abs(here) < Math.abs(span)
-      if (withinOwnSpan && !claims(shaped, x, y)) continue
-    }
-    // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
-    // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
-    // top tie line — over the D|MD correlation, and below S10 whose base is
-    // tied both ways). A candidate separated from this ground by any drawn
-    // correlation line answers nothing here; level lines are not walls (the
-    // sub-TD reach below a band's own untied base stays legal).
-    const bandMid = (band.top + band.base) / 2
-    const separated = drawnTies.some((tie) => {
-      const atSample = y - tieElevAt(tie, x)
-      const atBand = bandMid - tieElevAt(tie, band.x)
-      return atSample !== 0 && atBand !== 0 && atSample > 0 !== atBand > 0
-    })
-    if (separated) continue
-    // NO PER-SLIVER "IS THIS BAND'S OWN RANGE CLOSED" CHECK HERE (owner
-    // code-hunt finding C2, 2026-08-22, "two agreeing tests must not have
-    // their stack inverted mid-gap"): there used to be one, comparing a
-    // band's ORIGINAL [base,top] window against the CURRENT LOOP's span —
-    // but near a lens's own apex the loop has already narrowed past the
-    // band's nominal window, so that check excluded the band from a sliver
-    // that was still, geometrically, its own ground, while an UNRELATED
-    // band (whose own closed range simply didn't happen to overlap that
-    // narrow sliver) slipped through as "open" and won by default — a full
-    // stack swap between two identical, uncorrelated logs. The callers
-    // (below) already exclude every genuinely-closed band from the OPEN
-    // rungs by full-band identity (``closedAtMiddle``, whole-band, not
-    // sliver-overlap); once a rung falls through to candidates that MAY be
-    // closed, the ordinary scoring (own-level, covers, nearest, thickest)
-    // decides — the enclosing-mass case it used to protect resolves the
-    // same way via thickness, without a separate exclusion to get wrong.
-    // A CLOSED STATEMENT ENDS AT THE MIDDLE. *"if it is different then vertical
-    // line in the middle"* — the line is where the two masses stop, so a band
-    // that drew a lens, an onlap or a vertical may not be handed remainder
-    // ground on the FAR side of it either. Without this the very dense sand's
-    // vertical construct stopped at the middle exactly as the law says, and
-    // then the fill walked it across anyway and painted the facing test's own
-    // half (his S12 scene, ZAND-8 where ZAND-6 stands).
-    if (closedAtMiddle.has(band.layerId) && (x - middle) * (band.x - middle) < 0) continue
-    const covers = Math.min(band.top, hi) - Math.max(band.base, lo)
-    const gapToLevel = covers > 0 ? 0 : Math.max(lo - band.top, band.base - hi)
-    // 1. DOES THIS MASS OWN THIS VERY LEVEL — not merely overlap the loop's
-    //    span. Ranking on the span let a thick neighbour that reaches into the
-    //    loop outrank the band the sample is actually inside, and that painted
-    //    over thin logs at their own test (11 own-column samples on his model).
-    //    The own-column rule is absolute and outranks thickness.
-    // 2. the nearer test, because a test owns the ground beside it;
-    // 3. how big the mass is — *"fill in the rest with the dominant lithology"*,
-    //    which is what tells his 5.6 m SF silt from a 0.5 m interbed on the
-    //    facing test whose own loop has already closed.
-    const ownsLevel = y <= band.top && y >= band.base
-    const score: [number, number, number, number] = [
-      ownsLevel ? 1 : 0,
-      covers > 0 ? 1 : -gapToLevel,
-      -Math.abs(band.x - x),
-      band.top - band.base,
-    ]
-    let better = bestScore === null
-    if (bestScore !== null) {
-      for (let k = 0; k < score.length; k++) {
-        if (score[k] > bestScore[k] + 1e-9) {
-          better = true
-          break
-        }
-        if (score[k] < bestScore[k] - 1e-9) break
-      }
-    }
-    if (
-      best !== null &&
-      bestScore !== null &&
-      score.every((v, k) => Math.abs(v - (bestScore as number[])[k]) <= 1e-9) &&
-      massKeyOf(best) !== massKeyOf(band)
-    ) {
-      split = true
-    }
-    if (better) {
-      best = band
-      bestScore = score
-    }
-  }
-  return { band: best, split }
 }
 
 /**
@@ -648,78 +498,30 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // is thicker over there. Beside its own test, a band's own levels are the
       // ones that count (owner, 2026-08-20 — a test owns the ground beside it).
       const { lo, hi } = ringSpanAt(face.ring, face.sample.fraction)
-      // *"the remainder of each closed loop goes to the OPEN mass"* — and that
-      // is ABSOLUTE (owner 2026-08-21, again on the S12|S7 quad: a lens'
-      // level-scoped exclusion let it take ground OUTSIDE its own levels, and
-      // a closed SILT interbed painted the SF cover below its neighbour's
-      // base). While ANY open band can answer, only open bands are asked; a
-      // closed construct is consulted solely in the nobody-open-can fallback
-      // (the CF4/CF6 all-closed holes).
-      // THE RUN'S OTHER TESTS ANSWER WHERE THE FLANKS CANNOT (owner
-      // 2026-08-21, the S8|S6 deep VD passing under two shallow tests): the
-      // correlated band's ground runs through gaps whose flanking tests never
-      // reached it, and its owners stand on the run's other columns.
-      //
-      // So the ground asks in widening circles — the two flanks first, then
-      // the whole family; open masses first, then closed ones — and the WALLS
-      // hold in every circle. Only when every circle is walled out does the
-      // last one drop the walls, because a wall chooses BETWEEN candidates and
-      // may never un-class ground (measured: 345 cells of KLEI-23 went to
-      // hatch without that last resort).
-      const familyBands = columns.flatMap((c) => c.bands)
-      const open = (bs: readonly RunBand[]): RunBand[] =>
-        bs.filter((b) => !closedAtMiddle.has(b.layerId))
-      // THE LAST RUNG'S WALL-DROP IS FOR A POCKET SOME OTHER TIE WALLS OFF BY
-      // ACCIDENT, NEVER FOR GROUND GENUINELY ON THE FAR SIDE OF ITS OWN
-      // CORRELATION (owner code-hunt finding B4, 2026-08-22): dropping the
-      // wall lets the ladder pick the nearest candidate BY ELIMINATION even
-      // when nothing actually relates to this ground positionally — undivided
-      // head above a tie, near the far test, picked up the class that exists
-      // only BELOW that same tie. So the last rung answers only when its
-      // winner genuinely owns or covers the sample's own levels; a winner
-      // that is merely "closest, nothing else was left" is refused, same as
-      // finding nothing at all.
-      const lastRungMustBeRelevant = (winner: RunBand | null): RunBand | null => {
-        if (winner === null) return null
-        const ownsLevel = y <= winner.top && y >= winner.base
-        const covers = Math.min(winner.top, hi) - Math.max(winner.base, lo) > 0
-        return ownsLevel || covers ? winner : null
-      }
-      const rungs: [readonly RunBand[], readonly RunTie[], boolean][] = [
-        [open(allBands), drawnTies, false],
-        [open(familyBands), drawnTies, false],
-        [allBands, drawnTies, false],
-        [familyBands, drawnTies, false],
-        [familyBands, [], true],
-      ]
-      let dominant: { band: RunBand | null; split: boolean } | null = null
-      for (const [candidates, walls, isLastRung] of rungs) {
-        if (candidates.length === 0) continue
-        dominant = pickDominant(
-          candidates,
-          closedAtMiddle,
-          middleX,
-          lo,
-          hi,
-          x,
-          y,
-          massKeyOf,
-          walls,
-          closureBars,
-          // The own-shape guard holds on EVERY rung, the last one included.
-          // Dropping it there (as the walls do) reopens the defect outright:
-          // in his gap 19 every band in the run is closed, so the ground in
-          // the onlap own shadow falls all the way through and the onlap
-          // takes it back. The cost is measured and accepted below.
-          shapedByLayer,
-        )
-        if (isLastRung) dominant = { ...dominant, band: lastRungMustBeRelevant(dominant.band) }
-        if (dominant.band !== null) break
-      }
-      band = dominant?.band ?? null
+      // WHO OWNS THE REST — the widening circles, the closed-loop rule and the
+      // 2026-08-24 seam all live in ``remainderLadder.ts``. The own-shape guard
+      // it applies holds on EVERY rung, the last one included: dropping it
+      // there (as the walls do) reopens the defect outright — in his gap 19
+      // every band in the run is closed, so the ground in the onlap own shadow
+      // falls all the way through and the onlap takes it back.
+      const dominant = pickRemainder({
+        flankBands: allBands,
+        familyBands: columns.flatMap((c) => c.bands),
+        closedAtMiddle,
+        middle: middleX,
+        lo,
+        hi,
+        x,
+        y,
+        massKeyOf,
+        drawnTies,
+        closureBars,
+        shapedByLayer,
+      })
+      band = dominant.band
       if (band !== null) {
         remainderAreaM2 += areaM2(face.ring, width)
-        if (dominant?.split === true) splitRemainders += 1
+        if (dominant.split) splitRemainders += 1
       }
     }
     if (fillGapProbe.enabled) {
