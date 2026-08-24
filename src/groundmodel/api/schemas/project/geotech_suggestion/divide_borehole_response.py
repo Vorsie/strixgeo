@@ -49,6 +49,10 @@ class DivideBoreholeResponse(BaseModel):
     replaced_span_count : int
         Spanning ties replaced by chains at data-bearing columns; sub-TD spans
         kept.
+    deleted_crossing_span_count : int
+        Accepted CPT↔CPT ties deleted because they still ran through a
+        borehole's own banded range after the split (owner ruling 2026-08-24).
+        Sub-TD spans are not counted — they are kept.
     crossing_tie_count : int
         Machine ties deleted for crossing another tie in the same gap.  Legacy
         rows only: the emit-time guard refuses a crossing candidate.  Hand-drawn
@@ -138,6 +142,16 @@ class DivideBoreholeResponse(BaseModel):
             "Accepted ties spanning columns that now have data at the line, "
             "replaced by chains landing on those columns' nearest packing "
             "contacts (owner ruling 2026-08-17). Sub-TD spans are kept."
+        ),
+    )
+    deleted_crossing_span_count: int = Field(
+        0,
+        description=(
+            "Accepted CPT-to-CPT ties deleted because they still passed through a "
+            "borehole's banded range after the split (owner ruling 2026-08-24: "
+            "'if no hops can be made, you just auto delete the crossing "
+            "correlation'). Sub-TD spans are kept and never counted here. "
+            "Additive and defaulted: a client that predates the field ignores it."
         ),
     )
     crossing_tie_count: int = Field(
