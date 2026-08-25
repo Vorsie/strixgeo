@@ -16,6 +16,7 @@
  */
 
 import { bandContinuations } from './bandContinuation'
+import type { BandCarry } from './carriedTaper'
 import { fillGap, type GapFillInput } from './fillGap'
 import {
   buildGapConstructs,
@@ -210,12 +211,24 @@ export function planFamily(
   // flat pass-through or the one real pinch on its own). Computed once per
   // run, gathered by gap, so the per-gap loop below can splice by lookup.
   const continuationsByGap = new Map<number, RunBand[]>()
+  // ...and WHERE THE CARRIED SHAPE SLOPES (owner ruling 2026-08-25, *"one
+  // smooth taper"* — see ``carriedTaper.ts``). Kept per gap and per layer
+  // rather than on the band itself, because one band can carry in BOTH
+  // directions with a different apex each way; the two gap sets are disjoint
+  // (one lies entirely left of the band's own column, the other entirely
+  // right), so a gap never has to choose between them.
+  const carryByGap = new Map<number, Map<string, BandCarry>>()
   for (const candidate of resolved) {
     for (const splice of bandContinuations(candidate.columns, candidate.ties)) {
       for (const gap of splice.gaps) {
         let bands = continuationsByGap.get(gap)
         if (bands === undefined) continuationsByGap.set(gap, (bands = []))
         bands.push(splice.band)
+      }
+      for (const gap of splice.taperGaps) {
+        let byLayer = carryByGap.get(gap)
+        if (byLayer === undefined) carryByGap.set(gap, (byLayer = new Map()))
+        if (!byLayer.has(splice.band.layerId)) byLayer.set(splice.band.layerId, splice.carry)
       }
     }
   }
@@ -285,12 +298,27 @@ export function planFamily(
       if (carried.length === 0) return column
       return { ...column, bands: [...column.bands, ...carried].sort((a, b) => b.top - a.top) }
     }
+    // A carried band's SHAPE in this gap — stamped last, so it reaches the band
+    // however it got here: standing on its own column as a flank (its own gap),
+    // or spliced in from beyond it (any gap further along the carry).
+    const carriedHere = carryByGap.get(gap)
+    const withCarry = (column: RunColumn): RunColumn => {
+      if (carriedHere === undefined) return column
+      let changed = false
+      const bands = column.bands.map((b) => {
+        const carry = carriedHere.get(b.layerId)
+        if (carry === undefined) return b
+        changed = true
+        return { ...b, carry }
+      })
+      return changed ? { ...column, bands } : column
+    }
     const runWithAdopted =
       run === null
         ? null
         : {
-            left: withAdopted(withContinuation(run.left, run.right)),
-            right: withAdopted(withContinuation(run.right, run.left)),
+            left: withCarry(withAdopted(withContinuation(run.left, run.right))),
+            right: withCarry(withAdopted(withContinuation(run.right, run.left))),
           }
     out.plans.push({
       gapIndex: gap,
