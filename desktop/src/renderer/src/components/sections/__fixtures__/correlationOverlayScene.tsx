@@ -129,6 +129,8 @@ export interface GeotechAxisHandlers {
   onRequestDeleteEdge?: (edge: LithoContactCorrelationEdge) => void
   onRequestConfirmEdgeReview?: (edge: LithoContactCorrelationEdge) => void
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
+  /** Edge the pending-tie chip just centred, and which must therefore pulse. */
+  flashEdgeId?: string | null
 }
 
 export function renderGeotechAxis(
@@ -162,6 +164,7 @@ export function renderGeotechAxis(
         // overlay what the geotech axis actually does, or the wording under test
         // is the test's own.
         acceptEdgeLabel="Accept tie"
+        flashEdgeId={handlers.flashEdgeId ?? null}
       />
     </svg>,
   )
