@@ -515,13 +515,16 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // exactly the same error only the geometry is mirrored along x and y axis
   // ( well more or less)"*). He is exactly right, and the mirror is literal: the
   // upper wedge held a stale flat on its BASE and reached right, this one holds
-  // a stale flat on its TOP and reaches left. What hid it is that this band is
-  // not classed an onlap at all — it carries one tie, its far end is a clearly
-  // thicker mass, so the bidirectional collision makes it YIELD and the law
-  // emits a lens (CS3 gap 1: loose 1.46 m against medium 3.84 m, 2.63x). That
-  // ruling is untouched here. But a lens states its own contacts by its FLANKS,
-  // drawn above, exactly as an onlap states its free one: it leaves both of them
-  // at its own column and closes between them at its apex. Reading only the
+  // a stale flat on its TOP and reaches left. What hid it is that this band was
+  // not classed an onlap at all — it carries one tie, its far end was a clearly
+  // thicker mass (CS3 gap 1: loose 1.46 m against medium 3.84 m, 2.63x), so the
+  // retired collision made it stand down and the law emitted a lens. Since the
+  // owner's 2026-08-25 ruling — *"no it has one tie on top, so it should onlap
+  // that same tie"* — it is an onlap like any other one-tie band. The rule
+  // below is written for BOTH shapes deliberately, because it is the same rule:
+  // a lens states its own contacts by its FLANKS, drawn above, exactly as an
+  // onlap states its free one, leaving both of them at its own column and
+  // closing between them at its apex. Reading only the
   // ``topTied``/``baseTied`` flags counted it as a flat-holder, so its contact
   // kept the whole-gap-width horizontal, that horizontal vetoed the suppression
   // the ONLAP on the other side of the shared contact had asked for, and the
