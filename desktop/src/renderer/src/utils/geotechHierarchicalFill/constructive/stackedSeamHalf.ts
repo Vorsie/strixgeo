@@ -21,7 +21,8 @@
  *
  *  * **SCOPE** — both facing packages CLOSED (nothing runs through) and both
  *    STACKED (two bands or more each). One mass facing one mass keeps whatever
- *    the collision rule already draws; so does a stack facing a single band.
+ *    the emit law already draws — two one-tie onlaps meeting at the middle; so
+ *    does a stack facing a single band.
  *  * **GEOMETRY** — inside such a half, a band runs from its own test to the
  *    seam at CONSTANT mTAW. Not a wedge, not a rescale: the elevations measured
  *    at the test, held flat. The step where the two stacks meet at the seam is
