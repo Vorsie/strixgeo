@@ -34,7 +34,7 @@ export interface Props {
    * Centre the next conflict in the viewport (owner ask 2026-08-23: *"make that
    * clickable so it zooms to the first one, and then when it is resolved it
    * takes the second one"*). The caller owns which one is next — see
-   * ``crossingTieNav.nextConflictIndex``.
+   * ``tieVisitNav.nextVisitIndex``.
    *
    * OMITTED keeps the original passive chip: ``pointerEvents: 'none'``, no
    * focus, no click steal. Only a caller that can actually pan supplies this,
