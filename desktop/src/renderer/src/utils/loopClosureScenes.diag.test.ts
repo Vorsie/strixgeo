@@ -441,11 +441,12 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // contact, a different packing at the other end, so it onlaps along that
     // line and terminates at about half the gap (his 2026-08-20 clause).
     //
-    // CHECKED under his 2026-08-21 collision ruling rather than assumed: this
-    // sand is 1.44 m and the mass facing it on that tie is 2.19 m — 1.52x, BELOW
-    // CLEAR_THICKER_RATIO — so neither is clearly thicker, both onlap, and the
-    // middle stands as the tie-break. His sentence holds under ratio-2 without a
-    // special case.
+    // UNCONDITIONAL since 2026-08-25 — *"no it has one tie on top, so it should
+    // onlap that same tie"*. It used to need checking against the 2026-08-21
+    // clearly-thicker-wins collision (this sand is 1.44 m against 2.19 m, 1.52x,
+    // which fell below the retired ratio and so onlapped anyway); with that rule
+    // deleted the thicknesses are not consulted and his sentence holds directly.
+    // Measured emit for this band: onlap, base tied, terminating at f = 0.500.
     // SAMPLES RE-DERIVED 2026-08-21 against his own ruled picture. He drew the
     // onlap as a wedge that PINCHES onto its line — *"the lesser packed second
     // top part of that sand should emit an onlap"*, vertices (1,2.87) (0.5,2.57)
@@ -467,13 +468,17 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     expect(geotechClassAt(scene, 0, 0.3, -1.0)).toBe('ZAND-6')
   })
 
-  it('S13b · gap 0 · the deep clay onlaps too, and yields past its own half', () => {
+  it('S13b · gap 0 · the deep clay onlaps too, and stops at its own half', () => {
     // Owner, 2026-08-19: *"same for the deep mf clay"* — one tie on its TOP
     // contact, a different packing at the far end, so it onlaps along that line.
     //
-    // Under his 2026-08-21 ruling it is 0.90 m against the 3.21 m clay facing it
-    // on that tie — 3.6x, so the facing mass is CLEARLY thicker and wins the
-    // contested window. What stays absolute is this test's own ground.
+    // WHY IT STOPS, restated 2026-08-25. This pin used to explain the far-half
+    // sample by the 2026-08-21 collision: 0.90 m against the 3.21 m clay facing
+    // it is 3.6x, so the facing mass was "clearly thicker" and took the window.
+    // That rule is retired — *"no it has one tie on top, so it should onlap that
+    // same tie"* — and the clay's measured emit is, and was, a plain onlap
+    // terminating at f = 0.500. The reason it keeps only its own half is the
+    // 2026-08-20 termination clause, which never depended on thickness.
     for (const [f, e] of [
       [0.98, -2.6],
       [0.9, -3.0],
@@ -630,11 +635,12 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // another packing type, emit onlap"*: SILT-14 12.22 .. 11.68, one tie on its
     // TOP contact, far end SILT-13 — a different packing, so it onlaps along the
     // line and terminates at about half the gap (2026-08-20 clause).
-    // The thicker-wins collision does NOT apply here, checked rather than
-    // assumed: it settles two onlaps facing each other on one tie, and after his
-    // 2026-08-21 ruling the SF silt across that tie has TWO tied contacts — a
-    // band, not an onlap — so there is no second onlap to weigh. This silt
-    // onlaps exactly as he said it does.
+    // Nothing weighs this silt against the mass across its tie: the thicker-wins
+    // collision that once could have is retired (owner 2026-08-25, *"no it has
+    // one tie on top, so it should onlap that same tie"*), and it never reached
+    // this band anyway — after his 2026-08-21 ruling the SF silt across that tie
+    // has TWO tied contacts, so it is a band and not a facing onlap. This silt
+    // onlaps exactly as he said it does, for the reason he gave.
     //
     // SAMPLES RE-DERIVED on the ruled shape: the wedge runs (0,12.22) (0,11.68)
     // (0.50,11.91) — it rides the tie down and its free base rises to meet that
@@ -702,10 +708,19 @@ describe('LOOP-CLOSURE scene pins (real CS1)', () => {
     // the dense sand is ZAND-7 on BOTH tests (S10 2.27..1.73, S6 1.45..0.71):
     // same litho and packing, so the law emits NOTHING and they weld into one
     // flat mass riding that line. The climbing wedge came from the contact ABOVE
-    // it — S10's dense top tied to S6's medium-dense (2.27 <-> 2.87) — which is a
-    // bidirectional collision: MD 1.42 m against D 0.54 m is 2.63x, so under
-    // CLEAR_THICKER_RATIO the MD wins that window and rides its line down to
-    // S10's contact, while the dense mass's top stays FLAT at its own 2.27.
+    // it — S10's dense top tied to S6's medium-dense (2.27 <-> 2.87).
+    //
+    // WHAT DECIDES THAT CONTACT, corrected 2026-08-25 against the probe rather
+    // than reasoned about. This comment used to call it a bidirectional
+    // collision — MD 1.42 m against D 0.54 m, 2.63x, the MD winning and riding
+    // its line down to S10's contact. Two things were wrong with that and the
+    // owner's ruling of this date retires the rule it invoked (*"no it has one
+    // tie on top, so it should onlap that same tie"*): S10's dense band carries
+    // TWO tied contacts, so the collision never reached it — the 2026-08-21
+    // two-tied-contacts rule makes it emit nothing and span — and S6's MD
+    // onlaps to the MIDDLE (measured apex f = 0.500), never to S10's contact.
+    // An onlap is a closed loop and does not cross the gap; that is what part
+    // (b) below actually checks, and it is why it passed under both laws.
     // (a) the two dense sands weld into ONE mass carrying both tests.
     const dense = scene.geotech.filter(
       (r) => r.gapIndex === 0 && scene.classOf(r.formationId) === 'ZAND-7' && inPolygon(0.5, 1.3, r.polygon),
