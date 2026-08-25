@@ -1439,6 +1439,65 @@ landed) the helpers degrade to the bare model total rather than claiming "0
 sections pending" beside a disabled button, and the gate over-gates on that
 total rather than sending a press the server will 422.
 
+#### The pending chip ANSWERS its count (owner ask 2026-08-25)
+
+*"now i get a one pending notification but i don't see any pending ties? Why
+don't we make that clickable so it highlights the tie?"*
+
+The count and the canvas disagree by construction, and both are right. The
+count is per SECTION — it comes from `pending_by_section`, keyed on the edge's
+own `section_id`. The canvas draws per RENDERED COLUMN —
+`CorrelationEdgesOverlay` resolves both endpoints through the placed-column map
+and `return null`s when either is missing. **A tie whose endpoint column is not
+drawn counts and renders nothing.** In the reported scene the pending tie ran
+between a CPT the section drew and a borehole it did not.
+
+So the chip is now pressable whenever the OPEN section has a pending tie, and
+answers either way. It is a native `<button>` (Enter / Space / focus ring come
+from the platform; the crossing chip hand-rolls a keydown handler only because
+an SVG `<g>` gets none of that). With every pending tie on another section it
+stays the plain label it has always been — the passive-unless-it-can-act
+contract `CrossingTieWarningChip` established.
+
+**Whether** and **why** are answered by different surfaces, on purpose, so they
+cannot disagree:
+
+* **Whether** — `SectionPanel`, the only surface that knows where a column is
+  drawn. The request names INVESTIGATIONS and an edge id, never a position or
+  an index (`components/sections/sectionColumnReveal.ts`); `resolveColumnReveal`
+  then centres on the midpoint of the two columns' `nudgedX`, so packing and
+  nudging are respected, and `TieFlashHalo` pulses the tie for
+  `FLASH_HIGHLIGHT_MS` tracing the tie's OWN points string. Half a tie is never
+  revealed: one missing end means no pan at all.
+* **Why** — the shell, which alone sees the project-level gates the panel never
+  receives. `utils/pendingTieReveal.ts` walks them in the order the render path
+  fires them and reports the FIRST that hit, because a column dropped upstream
+  is trivially "not projected" too and blaming the corridor would send the
+  engineer to widen one that is fine:
+
+  1. not in the project's investigation list at all
+  2. the project-local removed set (Data stage "X this row")
+  3. the App-level manifest gate — in the database but not in the opened
+     project file, i.e. imported in a session that was never saved
+  4. the active axis model's `excluded_borehole_ids` ("Boreholes in model")
+  5. the cross-section's own `excluded_*_ids`
+  6. outside the projection corridor — tested through `investigationsOnSection`
+     itself, so the answer cannot drift from what the canvas did
+  7. column focus is on
+  8. unknown — reported honestly rather than guessed at
+
+An undrawable tie surfaces as one amber toast naming both ends with their band
+depths and then the absent end again beside its reason, e.g. *"Pending tie:
+GEO-10/170-S4 18.29–18.52 m ↔ 1411-GEO-23/126-B6 13.90–18.05 m —
+1411-GEO-23/126-B6 is not drawn here: …"*. A revealed tie is silent: the pan and
+the pulse already answered on screen.
+
+`SectionsToolbar` and `SectionsCanvas` are sibling zone components with no
+shared parent below the shell, so the press crosses on a module ref
+(`pendingTieRevealBridge.ts`) — the same device `sectionsDividePartitionCallback`
+already uses for step 4. Cycling reuses `tieVisitNav.nextVisitIndex`, shared with
+the crossing chip (renamed from `crossingTieNav` when the second caller arrived).
+
 ### 9a. All four steps follow the open section (owner rulings 2026-08-15)
 
 **Owner rulings.** *"I also see that this is model wide and not per section, i
