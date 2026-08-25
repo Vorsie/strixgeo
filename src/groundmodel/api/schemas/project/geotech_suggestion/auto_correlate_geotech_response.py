@@ -29,6 +29,18 @@ class AutoCorrelateGeotechResponse(BaseModel):
         nothing could be tied automatically.
     skipped_empty_stack : int
         Correlated litho units where one column carries no geotech bands at all.
+    investigations_off_section : int
+        Columns that appeared as a litho-tie endpoint on a section that does
+        not draw them, and were therefore excluded from the derivation (owner
+        ruling 2026-08-25).  The backend log names them.
+    offsection_ties_deleted : int
+        Mis-scoped machine PROPOSALS removed — unapproved ``source='auto'``
+        rows tying a column their section does not draw.  The pair itself is
+        re-proposed by the run of the section that DOES draw both columns.
+    offsection_ties_retained : int
+        Mis-scoped ties left standing because they are ACCEPTED or hand-drawn.
+        Non-zero means the engineer has a decision to make; the backend log
+        names each one.
     """
 
     edges_proposed: int
@@ -37,3 +49,6 @@ class AutoCorrelateGeotechResponse(BaseModel):
     sections_processed: int
     skipped_no_lcs: int = 0
     skipped_empty_stack: int = 0
+    investigations_off_section: int = 0
+    offsection_ties_deleted: int = 0
+    offsection_ties_retained: int = 0
