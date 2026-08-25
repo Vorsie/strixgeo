@@ -117,6 +117,14 @@ class EdgeDerivationCounts:
     # same pass. The standalone auto-correlate verb toasts this so the engineer
     # can tell "nothing new to propose" from "nothing matched".
     skipped_existing_pair: int = 0
+    # Candidates suppressed because a row with the SAME identity — the exact
+    # (pair, sides) tuple ``uq_litho_contact_corr_triple`` keys on — is already
+    # accounted for. Counted apart from ``skipped_existing_pair`` because the
+    # pair-only key is a deliberate conservatism while this one is the database
+    # constraint itself: every hit here would have been an IntegrityError (owner
+    # dogfeed 2026-08-25 — a litho bottom tie and the tie one unit below it both
+    # name the same packing contact, so both restate onto the same two bands).
+    skipped_duplicate_row: int = 0
     # Candidates refused because they would CROSS a tie already standing in the
     # same gap (owner §8 Q4: a crossing is a hard conflict — neither side bands
     # and the section warns until it is resolved)). Counted separately from
@@ -148,6 +156,7 @@ class EdgeDerivationCounts:
         self.skipped_no_lcs += other.skipped_no_lcs
         self.skipped_empty_stack += other.skipped_empty_stack
         self.skipped_existing_pair += other.skipped_existing_pair
+        self.skipped_duplicate_row += other.skipped_duplicate_row
         self.skipped_crossing_tie += other.skipped_crossing_tie
         self.skipped_tombstoned += other.skipped_tombstoned
         self.skipped_below_lens += other.skipped_below_lens
@@ -666,11 +675,18 @@ async def derive_geotech_edges_from_litho(
         keeps the 2026-08-13 behaviour (every direct pair treated as
         top↔top-tied; no sided restatements) for legacy callers.
     seen_sided_edges : set[tuple[UUID, UUID, str, str]] | None
-        Dedup set for sided restatements, MUTATED in place — separate from
-        ``seen_layer_pairs`` on purpose: the pair-only key deliberately lets
-        an existing tie suppress a top↔top PROPOSAL, but a single-band unit
-        must be able to carry its top, base and mixed restatements on one
-        layer pair.  ``None`` starts an empty per-call set.
+        The ROW-IDENTITY registry, MUTATED in place: every row this pass writes
+        is keyed here by the exact ``(pair, sides)`` tuple
+        ``uq_litho_contact_corr_triple`` enforces, and every emit path — sided
+        restatements, aligned pairs, interior proposals — checks it before
+        adding.  Separate from ``seen_layer_pairs`` on purpose: the pair-only
+        key deliberately lets an existing tie suppress a top↔top PROPOSAL, but
+        a single-band unit must be able to carry its top, base and mixed
+        restatements on one layer pair.  Preload it from the section's
+        persisted edges (``load_existing_geotech_sided_edges_by_section``) and
+        a re-press adds only what is genuinely new; ``None`` starts an empty
+        per-call set, which is correct only for a caller that has just deleted
+        the section's edges.
     existing_accepted_sided_edges : set[tuple[UUID, UUID, str, str]] | None
         Already-APPROVED geotech edges on this section, ``(min_id, max_id,
         side_of_min, side_of_max)``, used to seed the crossing guard.  The
@@ -701,6 +717,14 @@ async def derive_geotech_edges_from_litho(
     EdgeDerivationCounts
         Emitted + per-reason skip counts for this section.
     """
+    log.debug(
+        f"derive_geotech_edges_from_litho: section={section_id} "
+        f"{len(litho_approved_edges)} litho pair(s), "
+        f"{len(litho_sided_edges or ())} sided litho tie(s), "
+        f"{sum(len(v) for v in geotech_layer_by_inv_depth.values())} band(s) across "
+        f"{len(geotech_layer_by_inv_depth)} column(s), "
+        f"{len(seen_layer_pairs)} pair(s) + {len(seen_sided_edges or ())} row(s) preloaded"
+    )
     sorted_geotech: dict[str, list[tuple[float, float, UUID, UUID, int | None]]] = {
         inv_id: sorted(intervals, key=lambda t: t[0])
         for inv_id, intervals in geotech_layer_by_inv_depth.items()
@@ -850,11 +874,96 @@ async def derive_geotech_edges_from_litho(
 
     direct = direct_litho_pairs if direct_litho_pairs is not None else litho_approved_edges
     sided_seen = seen_sided_edges if seen_sided_edges is not None else set()
+    # Rows this pass has added itself, by identity — so a second candidate for
+    # the same row can PROMOTE the standing one's approval instead of losing it
+    # to iteration order (``litho_approved_edges`` is a set; which of two litho
+    # ties reaches a shared contact first is arbitrary). Distinct from
+    # ``sided_seen``, which also carries the caller's preloaded DB rows: those
+    # are already persisted and this pass must not touch them.
+    emitted_rows: dict[tuple[UUID, UUID, str, str], LithoContactCorrelationEdgeOrm] = {}
     # Sided litho edges grouped by canonical pair, for the per-pair loop.
     sided_by_pair: dict[tuple[UUID, UUID], list[tuple[str, str]]] = {}
     if litho_sided_edges is not None:
         for a, b, sa, sb in litho_sided_edges:
             sided_by_pair.setdefault((a, b), []).append((sa, sb))
+
+    def _row_key(
+        band_a: UUID, band_b: UUID, side_a: str, side_b: str
+    ) -> tuple[UUID, UUID, str, str]:
+        """The row's identity, ordered exactly as every writer stores it.
+
+        ``uq_litho_contact_corr_triple`` is NOT symmetric — it keys on the
+        columns as written — so a registry keyed the other way round would
+        miss the collision.  Every emit path here canonicalises the endpoints
+        to ``(min, max)`` with the sides carried along, and both loaders
+        canonicalise the same way on read, so one canonical key covers the
+        constraint.  Canonicalising HERE rather than at each call site is what
+        keeps that true for a future emit path.
+        """
+        return (
+            (band_a, band_b, side_a, side_b)
+            if band_a < band_b
+            else (band_b, band_a, side_b, side_a)
+        )
+
+    def _row_claimed(key: tuple[UUID, UUID, str, str], approved: bool) -> bool:
+        """Whether a row with this identity is already accounted for.
+
+        The single gate every emit path passes through.  Two litho ties can
+        legitimately name ONE packing contact — a unit's base contact is the
+        next unit's top contact on a gap-free column — and the derivation
+        reaches that contact once from each of them.  The first emission
+        stands; the second is suppressed, counted, and logged.
+
+        A suppressed candidate that is APPROVED promotes a pending row this
+        same pass added, so the engineer's restatement is never demoted to a
+        machine proposal by iteration order.  A row the caller preloaded from
+        the database is left completely alone — this pass adds; it does not
+        reconcile.
+
+        Parameters
+        ----------
+        key : tuple[UUID, UUID, str, str]
+            The row identity from :func:`_row_key`.
+        approved : bool
+            Whether the suppressed candidate would have been born approved.
+
+        Returns
+        -------
+        bool
+            ``True`` when the caller must NOT emit.
+        """
+        if key not in sided_seen:
+            return False
+        counts.skipped_duplicate_row += 1
+        standing = emitted_rows.get(key)
+        if standing is None:
+            # Preloaded from the database, or written by an earlier derivation
+            # pass in this same transaction — either way not this pass's row to
+            # touch, so it is named but never modified.
+            log.debug(
+                f"derive_geotech_edges_from_litho: {key[0]}({key[2]})↔{key[1]}({key[3]}) "
+                f"already stands on this section — left untouched"
+            )
+            return True
+        if approved and not standing.user_approved:
+            # INFO: a restatement of the engineer's own tie arrived at a
+            # contact this pass had already claimed with a machine proposal.
+            # The approval wins, and which one arrived first is arbitrary.
+            standing.user_approved = True
+            counts.edges_accepted += 1
+            counts.edges_proposed -= 1
+            log.info(
+                f"derive_geotech_edges_from_litho: promoted the proposal at "
+                f"{key[0]}({key[2]})↔{key[1]}({key[3]}) to accepted — a litho "
+                f"restatement names the same packing contact"
+            )
+            return True
+        log.debug(
+            f"derive_geotech_edges_from_litho: {key[0]}({key[2]})↔{key[1]}({key[3]}) "
+            f"already emitted by this pass — two litho ties name one contact"
+        )
+        return True
 
     def _emit_sided_restatement(
         inv_a_str: str,
@@ -899,13 +1008,8 @@ async def derive_geotech_edges_from_litho(
         band_a, band_b = UUID(la_id), UUID(rb_id)
         if band_a == band_b:
             return  # intra-investigation edge — forbidden
-        key = (
-            (band_a, band_b, side_a, side_b)
-            if band_a < band_b
-            else (band_b, band_a, side_b, side_a)
-        )
-        if key in sided_seen:
-            counts.skipped_existing_pair += 1
+        key = _row_key(band_a, band_b, side_a, side_b)
+        if _row_claimed(key, approved):
             return
         if not _may_land(str(key[0]), key[2], str(key[1]), key[3], approved):
             return
@@ -922,23 +1026,23 @@ async def derive_geotech_edges_from_litho(
             # A DIRECT pair never registers — a single-band unit carries its
             # top AND base restatement on one band pair by design.
             seen_layer_pairs.add((min(band_a, band_b), max(band_a, band_b)))
-        session.add(
-            LithoContactCorrelationEdgeOrm(
-                id=uuid7(),
-                model_id=geotech_model_id,
-                section_id=section_id,
-                layer_a_id=key[0],
-                layer_b_id=key[1],
-                layer_a_side=key[2],
-                layer_b_side=key[3],
-                source=source,
-                # A DIRECT sided restatement carries the litho approval down —
-                # the engineer tied these very contact surfaces. A CHAINED one
-                # (walked through bandless columns) is derived, so it arrives
-                # pending for his step-3 review.
-                user_approved=approved,
-            )
+        row = LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=geotech_model_id,
+            section_id=section_id,
+            layer_a_id=key[0],
+            layer_b_id=key[1],
+            layer_a_side=key[2],
+            layer_b_side=key[3],
+            source=source,
+            # A DIRECT sided restatement carries the litho approval down —
+            # the engineer tied these very contact surfaces. A CHAINED one
+            # (walked through bandless columns) is derived, so it arrives
+            # pending for his step-3 review.
+            user_approved=approved,
         )
+        session.add(row)
+        emitted_rows[key] = row
         counts.edges_emitted += 1
         if approved:
             counts.edges_accepted += 1
@@ -1128,6 +1232,14 @@ async def derive_geotech_edges_from_litho(
             if not restates_litho_tie and _extents_disjoint(la, rb):
                 counts.skipped_disjoint_extent += 1
                 continue
+            # The pair-only key above is deliberately conservative but blind to
+            # the sides, so it cannot see a restatement that already claimed
+            # exactly this row from a NEIGHBOURING litho pair — the unit above's
+            # base contact IS this unit's top contact. That gate is the row
+            # identity itself.
+            row_key = _row_key(canonical_a, canonical_b, "top", "top")
+            if _row_claimed(row_key, approved):
+                continue
             # A refused candidate is NOT added to ``seen_layer_pairs``: it was
             # never emitted, so a later pass with different neighbours (a
             # re-derive after the engineer resolves the conflict) must be free
@@ -1135,19 +1247,20 @@ async def derive_geotech_edges_from_litho(
             if not _may_land(str(canonical_a), "top", str(canonical_b), "top", approved):
                 continue
             seen_layer_pairs.add((canonical_a, canonical_b))
-            session.add(
-                LithoContactCorrelationEdgeOrm(
-                    id=uuid7(),
-                    model_id=geotech_model_id,
-                    section_id=section_id,
-                    layer_a_id=canonical_a,
-                    layer_b_id=canonical_b,
-                    layer_a_side="top",
-                    layer_b_side="top",
-                    source=source,
-                    user_approved=approved,
-                )
+            sided_seen.add(row_key)
+            row = LithoContactCorrelationEdgeOrm(
+                id=uuid7(),
+                model_id=geotech_model_id,
+                section_id=section_id,
+                layer_a_id=canonical_a,
+                layer_b_id=canonical_b,
+                layer_a_side="top",
+                layer_b_side="top",
+                source=source,
+                user_approved=approved,
             )
+            session.add(row)
+            emitted_rows[row_key] = row
             counts.edges_emitted += 1
             if approved:
                 counts.edges_accepted += 1
@@ -1191,31 +1304,52 @@ async def derive_geotech_edges_from_litho(
                 if (canonical_a, canonical_b) in seen_layer_pairs:
                     counts.skipped_existing_pair += 1
                     continue
+                row_key = _row_key(canonical_a, canonical_b, "top", "top")
+                if _row_claimed(row_key, born_accepted):
+                    continue
                 if not _may_land(str(canonical_a), "top", str(canonical_b), "top", born_accepted):
                     continue
                 seen_layer_pairs.add((canonical_a, canonical_b))
-                session.add(
-                    LithoContactCorrelationEdgeOrm(
-                        id=uuid7(),
-                        model_id=geotech_model_id,
-                        section_id=section_id,
-                        layer_a_id=canonical_a,
-                        layer_b_id=canonical_b,
-                        layer_a_side="top",
-                        layer_b_side="top",
-                        source=source,
-                        # An interior body pair is a machine claim — pending,
-                        # per ruling A. Under ``born_accepted`` (the divide's
-                        # own hops) it is instead a re-expression of the
-                        # engineer's correlation and lands approved.
-                        user_approved=born_accepted,
-                    )
+                sided_seen.add(row_key)
+                row = LithoContactCorrelationEdgeOrm(
+                    id=uuid7(),
+                    model_id=geotech_model_id,
+                    section_id=section_id,
+                    layer_a_id=canonical_a,
+                    layer_b_id=canonical_b,
+                    layer_a_side="top",
+                    layer_b_side="top",
+                    source=source,
+                    # An interior body pair is a machine claim — pending,
+                    # per ruling A. Under ``born_accepted`` (the divide's
+                    # own hops) it is instead a re-expression of the
+                    # engineer's correlation and lands approved.
+                    user_approved=born_accepted,
                 )
+                session.add(row)
+                emitted_rows[row_key] = row
                 counts.edges_emitted += 1
                 if born_accepted:
                     counts.edges_accepted += 1
                 else:
                     counts.edges_proposed += 1
 
+    # Exit summary. The two suppression counts are load-bearing and mean
+    # different things: ``skipped_existing_pair`` is the conservative pair-only
+    # key declining to add a second tie between two bands, while
+    # ``skipped_duplicate_row`` is the row identity the database enforces —
+    # every one of those was an IntegrityError before 2026-08-25.
+    log.info(
+        f"derive_geotech_edges_from_litho: section={section_id} emitted "
+        f"{counts.edges_emitted} edge(s) ({counts.edges_accepted} accepted, "
+        f"{counts.edges_proposed} proposed); suppressed "
+        f"{counts.skipped_duplicate_row} duplicate row(s), "
+        f"{counts.skipped_existing_pair} existing pair(s); skipped "
+        f"{counts.skipped_no_lcs} no-LCS, {counts.skipped_empty_stack} empty-stack, "
+        f"{counts.skipped_no_litho_depth} no-litho-depth, "
+        f"{counts.skipped_crossing_tie} crossing, {counts.skipped_tombstoned} tombstoned, "
+        f"{counts.skipped_below_lens} below-lens, "
+        f"{counts.skipped_disjoint_extent} disjoint-extent"
+    )
     await session.flush()
     return counts
