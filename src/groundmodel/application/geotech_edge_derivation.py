@@ -34,6 +34,17 @@ A third caller, ``AutoCorrelateGeotechEdges``, re-runs the same derivation on
 demand without touching any existing geotech data, preloading
 ``seen_layer_pairs`` from every persisted edge so the pass only ever ADDS.
 
+Section membership
+------------------
+All three callers read their input through
+:func:`load_approved_litho_edge_sets`, which takes the section's member
+investigations as a REQUIRED argument and drops any litho tie reaching a column
+the section does not draw (owner ruling 2026-08-25: *"yeah make it section
+scoped ofcourse"*).  None of them resolved membership before, and the litho
+edge table still carries rows written when an in-corridor column past the end
+of the line counted as on-section — so gating one caller would only leave the
+next press to put the same tie back.
+
 Approval on emitted edges follows the owner's 2026-08-06 refinement of ruling
 A: an edge that RESTATES a litho tie (its litho pair is a direct approved
 litho edge — not a bridged jump pair — and its endpoints are the topmost
@@ -244,7 +255,8 @@ class ApprovedLithoEdgeSets:
     ----------
     pairs : set[tuple[UUID, UUID]]
         Canonical ``(min, max)`` layer pairs of EVERY approved litho edge on
-        the section, any sides — the alignment driver.
+        the section, any sides — the alignment driver.  Membership-filtered:
+        a tie reaching a column the section does not draw is absent.
     sided_edges : set[tuple[UUID, UUID, str, str]]
         Every approved litho edge as ``(min_id, max_id, side_of_min,
         side_of_max)`` — the full tie vocabulary: top↔top band ties,
@@ -254,20 +266,40 @@ class ApprovedLithoEdgeSets:
         consistency should be 100%" — the side-blind loader silently
         restated a mixed tie as top↔top, an approval the engineer never
         gave).
+    off_section_investigations : frozenset[UUID]
+        Columns that appeared as an endpoint of one of the section's litho
+        ties but are NOT drawn on it, so their ties were filtered out.  Carried
+        on the result so every caller can NAME them in its log instead of
+        silently deriving less than the press before.
     """
 
     pairs: set[tuple[UUID, UUID]]
     sided_edges: set[tuple[UUID, UUID, str, str]]
+    off_section_investigations: frozenset[UUID] = frozenset()
 
 
 async def load_approved_litho_edge_sets(
-    session: AsyncSession, litho_model_id: UUID, section_id: UUID
+    session: AsyncSession,
+    litho_model_id: UUID,
+    section_id: UUID,
+    *,
+    section_member_investigation_ids: set[UUID],
+    litho_layer_depths: dict[UUID, tuple[str, float, float]],
 ) -> ApprovedLithoEdgeSets:
-    """Load a section's approved litho edges WITH their bottom-tie subset.
+    """Load a section's approved litho edges, filtered to the columns it draws.
 
     The retired pair-only loader discarded the sides, which made a litho
     bottom tie indistinguishable from a top tie — the derivation then
     restated every litho tie as ``top/top`` only.
+
+    The membership filter is applied HERE rather than at each of the three call
+    sites (owner ruling 2026-08-25: *"yeah make it section scoped ofcourse"*).
+    All three geotech writers — ``SubdivideAllBodies``, ``DivideBoreholes`` and
+    ``AutoCorrelateGeotechEdges`` — read their derivation input through this
+    one function, and none of them resolved membership before; gating one
+    caller would leave the next press to put the same tie back.  Making the
+    membership set a REQUIRED argument is the point: a future caller cannot
+    forget it.
 
     Parameters
     ----------
@@ -277,11 +309,20 @@ async def load_approved_litho_edge_sets(
         The litho model.
     section_id : UUID
         The section (edges are section-scoped).
+    section_member_investigation_ids : set[UUID]
+        The investigations this section actually draws — in its corridor AND
+        between its endpoints (see
+        :func:`~groundmodel.application.section_membership.load_members_by_section`).
+    litho_layer_depths : dict[UUID, tuple[str, float, float]]
+        ``litho_layer_id → (investigation_id_str, top_m, base_m)``; the map
+        that says which column each tie endpoint sits on.
 
     Returns
     -------
     ApprovedLithoEdgeSets
-        All approved pairs plus the base↔base subset.
+        The approved pairs and their sided identities for the ties whose BOTH
+        columns are on the section, plus the off-section columns that were
+        filtered out.
     """
     rows = (
         await session.execute(
@@ -297,9 +338,87 @@ async def load_approved_litho_edge_sets(
             )
         )
     ).all()
+    return _restrict_litho_edges_to_section_members(
+        ApprovedLithoEdgeSets(
+            pairs={(min(a, b), max(a, b)) for a, b, _sa, _sb in rows},
+            sided_edges={(a, b, sa, sb) if a < b else (b, a, sb, sa) for a, b, sa, sb in rows},
+        ),
+        litho_layer_depths,
+        section_member_investigation_ids,
+    )
+
+
+def _restrict_litho_edges_to_section_members(
+    edge_sets: ApprovedLithoEdgeSets,
+    litho_layer_depths: dict[UUID, tuple[str, float, float]],
+    member_investigation_ids: set[UUID],
+) -> ApprovedLithoEdgeSets:
+    """Keep only the litho ties whose BOTH columns are drawn on the section.
+
+    Owner ruling, 2026-08-25 — shown a pending machine tie from GEO-10/170-S4
+    to 1411-GEO-23/126-B6 on Tie-section 7, a section that does not draw B6:
+    *"yeah make it section scoped ofcourse"*.
+
+    The geotech derivation never resolved membership itself; it restated
+    whatever litho edges carried the section's id.  That table still holds rows
+    written before the projection filter gained its between-the-endpoints clamp
+    (2026-08-03), when an in-corridor column past the end of the line counted as
+    on-section.  Every such row is re-derived into a geotech proposal on every
+    press, onto a gap the engineer cannot see, review or resolve.  Filtering
+    here — on the derivation's own inputs — makes the geotech axis obey the
+    membership rule regardless of what the litho table says.
+
+    A tie with ONE off-section endpoint is dropped outright rather than bridged
+    across: the column is not on this section, so there is no gap here to walk
+    through, and manufacturing a jump pair out of a mis-scoped row would invent
+    geometry from the very data being distrusted.
+
+    Parameters
+    ----------
+    edge_sets : ApprovedLithoEdgeSets
+        The section's approved litho edges as loaded by
+        :func:`load_approved_litho_edge_sets`.
+    litho_layer_depths : dict[UUID, tuple[str, float, float]]
+        ``litho_layer_id → (investigation_id_str, top_m, base_m)``, the map that
+        says which column each endpoint sits on.  A layer absent from it is
+        UNPLACEABLE, not off-section, and its tie passes through untouched — the
+        derivation counts and logs it as ``skipped_no_litho_depth``, and
+        swallowing it here would trade a diagnosed skip for a silent one.
+    member_investigation_ids : set[UUID]
+        The investigations the section actually draws (see
+        :func:`~groundmodel.application.section_membership.load_members_by_section`).
+
+    Returns
+    -------
+    ApprovedLithoEdgeSets
+        The filtered edge sets, carrying the off-section investigations that
+        appeared as an endpoint — named in the caller's log, because a press
+        that silently derives less than the one before is the surprise the
+        engineer must never have to diagnose himself.
+    """
+    members = {str(inv_id) for inv_id in member_investigation_ids}
+
+    def _column_of(layer_id: UUID) -> str | None:
+        entry = litho_layer_depths.get(layer_id)
+        return None if entry is None else entry[0]
+
+    dropped_columns: set[str] = set()
+
+    def _both_on_section(layer_a: UUID, layer_b: UUID) -> bool:
+        off_section = {
+            column
+            for column in (_column_of(layer_a), _column_of(layer_b))
+            if column is not None and column not in members
+        }
+        dropped_columns.update(off_section)
+        return not off_section
+
     return ApprovedLithoEdgeSets(
-        pairs={(min(a, b), max(a, b)) for a, b, _sa, _sb in rows},
-        sided_edges={(a, b, sa, sb) if a < b else (b, a, sb, sa) for a, b, sa, sb in rows},
+        pairs={(a, b) for a, b in edge_sets.pairs if _both_on_section(a, b)},
+        sided_edges={
+            (a, b, sa, sb) for a, b, sa, sb in edge_sets.sided_edges if _both_on_section(a, b)
+        },
+        off_section_investigations=frozenset(UUID(column) for column in dropped_columns),
     )
 
 
