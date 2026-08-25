@@ -1,6 +1,6 @@
 /**
- * THE BRIDGE — carrying a band's story across a blind SAME-family column, the
- * geotech constructive arm's other half of the law
+ * THE BRIDGE — carrying a band's story across a column that read NOTHING at its
+ * levels, the geotech constructive arm's other half of the law
  * ``partitionFillV2/emitContinuation.ts`` already carries on the litho side
  * (see ``terminationRun.ts``'s header for the full law).
  *
@@ -9,10 +9,9 @@
  * gap) pair), so the law's consequence is realised differently here — but it
  * needs only ONE new idea, not a parallel set of rules: **splice the band,
  * carrying its own true ``.x``, into every gap between its own column and
- * the true reading column.** ``buildGapConstructs``'s EXISTING
- * ``facingHasData`` check (``constructs.ts``) is evaluated FRESH, per gap,
- * against the SECTION-WIDE ``stacks`` — so it already, correctly, and
- * without any change here, sorts each spliced gap into:
+ * the true reading column.** ``buildGapConstructs``'s ``facingHasData`` check
+ * (``constructs.ts``) is evaluated FRESH, per gap, against the SECTION-WIDE
+ * ``stacks`` — so it sorts each spliced gap into:
  *
  *  * a flat, full-thickness ``extendsToFar`` pass-through, for every gap
  *    whose own immediate flank is STILL blind to the band (``extendsToFar``
@@ -25,6 +24,15 @@
  *    (``band.x + reach * (xFar - band.x)``) that already runs for an
  *    adjacent 0-tie lens, now simply given a real, once-distant ``xFar`` to
  *    reach for.
+ *
+ * WHAT COUNTS AS BLIND is the SECTION-WIDE stack, asked through the very
+ * predicate ``facingHasData`` uses (``columnReading.ts``, owner ruling
+ * 2026-08-25: *"If there is a column then it goed 0.45 to column B and doesn't
+ * paint right of that column"*). While this module asked a family-scoped
+ * question and ``facingHasData`` asked a section-wide one, a column carrying
+ * another family's soil at the band's own levels answered BOTH ways: the band
+ * closed against it in its own gap AND was spliced past it to close a second
+ * time in the next — the ghost wedge. One predicate makes that unrepresentable.
  *
  * This module decides WHERE the band must be visible; it never decides HOW
  * it is drawn there — that stays entirely ``constructs.ts``'s law, untouched.
@@ -43,11 +51,10 @@
  */
 
 import type { BandCarry } from './carriedTaper'
+import { readsWindow } from './columnReading'
 import type { RunBand, RunColumn, RunTie } from './constructs'
 import { terminationRun } from './terminationRun'
 
-/** Vertical overlap (metres) below which a facing band is a contact touch, not a reading. */
-const OVERLAP_EPS = 1e-6
 /** Elevation tolerance (m) at which a tie's endpoint IS a given contact. */
 const CONTACT_EPS = 1e-6
 
@@ -131,23 +138,23 @@ function tiedAcrossGap(
   })
 }
 
-/** Does this column's own bands overlap the given window at all? */
-function reads(column: RunColumn, top: number, base: number): boolean {
-  return column.bands.some((b) => Math.min(b.top, top) - Math.max(b.base, base) > OVERLAP_EPS)
-}
-
 /**
  * Work out every band in this run that must be carried across a blind
- * SAME-family column, and where.
+ * column, and where.
  *
  * @param runColumns The family's run, left to right (one run, not the whole section).
  * @param ties The run's surviving packing ties — a direction is untouched
  *   when a tie crosses the band's own immediate gap that way (the 0-tie
  *   lens law alone), scoped per direction, not per band.
+ * @param stacks EVERY packing band per FRAME column index, whatever family owns
+ *   it — the SAME question ``constructs.ts``'s ``facingHasData`` asks, so the
+ *   two can never disagree about whether a column read this ground (owner
+ *   ruling 2026-08-25, see ``columnReading.ts``).
  */
 export function bandContinuations(
   runColumns: readonly RunColumn[],
   ties: readonly RunTie[],
+  stacks: ReadonlyMap<number, readonly RunBand[]>,
 ): ContinuationSplice[] {
   const splices: ContinuationSplice[] = []
   for (let i = 0; i < runColumns.length; i++) {
@@ -169,8 +176,14 @@ export function bandContinuations(
         ) {
           continue
         }
-        if (reads(runColumns[immediateIndex], band.top, band.base)) continue
-        const run = terminationRun(runColumns, i, dir, band.top, band.base)
+        // DATA THAT DISAGREES IS STILL DATA (owner ruling 2026-08-25): the
+        // neighbour blocks the carry when it measured ANYTHING at these levels,
+        // not merely when it measured some of THIS family. Asking the family's
+        // own bands here while ``facingHasData`` asked the whole column's let
+        // one band close twice — once in its own gap against this neighbour,
+        // and again in the gap beyond it.
+        if (readsWindow(stacks.get(runColumns[immediateIndex].ci), band.top, band.base)) continue
+        const run = terminationRun(runColumns, i, dir, band.top, band.base, stacks)
         if (!run.reads || run.columnIndex === immediateIndex) continue
         const ciImmediate = runColumns[immediateIndex].ci
         const ciFar = runColumns[run.columnIndex].ci
