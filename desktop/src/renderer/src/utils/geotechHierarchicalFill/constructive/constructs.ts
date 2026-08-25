@@ -87,6 +87,17 @@ export interface BandConstruct {
   /** Along-x at which a lens closes. */
   apexX?: number
   /**
+   * The elevation of an ONLAP's apex — its two contacts' single shared vertex
+   * at {@link apexX}, computed ONCE (owner, 2026-08-25: *"if you draw the
+   * onlap into a triangle onto the tie, you just have to verify by
+   * coordinates, midpoint tie coordinate is end of onlap coordinate and you
+   * have a closed loop?"*). The fill's flank line ends on THIS value rather
+   * than re-deriving it, so the wedge closes exactly and no epsilon is
+   * involved. Lenses carry none: both their flanks are already drawn to the
+   * band's own mid-level, one value, shared by construction.
+   */
+  apexElev?: number
+  /**
    * The construct continues to the facing column instead of pinching — set
    * when the facing test has no band at any of this band's levels (sub-TD
    * ground: nothing over there to meet; owner 2026-08-21, "it should be a
@@ -554,27 +565,36 @@ export function buildGapConstructs(
         const span = apexX - band.x
         const t = (x: number): number =>
           Math.min(1, Math.max(0, Math.abs(span) < 1e-9 ? 1 : (x - band.x) / span))
+        // THE APEX IS ONE VERTEX, COMPUTED ONCE (owner's verification contract,
+        // 2026-08-25 — see ``apexElev``). ``free + 1 * (line - free)`` is
+        // algebraically the line, but it rounds a ULP away from it for about
+        // one pair of elevations in ten (measured), and a ULP-wide gap between
+        // the wedge's two edges is a loop the arrangement is entitled to mint.
+        // So the free contact returns the LINE's own value once it has arrived,
+        // and this same number is what the fill draws its flank onto.
+        const apexElev = tieElevAt(tie, apexX)
+        // The free contact closes ONTO THE LINE ITSELF, not onto the line's
+        // height at the middle: interpolating to a fixed apex let a steeply
+        // dipping tie cross its own wedge and shut the onlap at a fifth of the
+        // gap. Here the two contacts can only meet where t = 1 — the
+        // termination — so the loop always pinches on its tie, and always at
+        // about the middle.
+        const closingFrom =
+          (free: number) =>
+          (x: number): number => {
+            const arrived = t(x)
+            return arrived >= 1 ? tieElevAt(tie, x) : free + arrived * (tieElevAt(tie, x) - free)
+          }
         out.push({
           band,
           emit,
           apexX,
+          apexElev,
           farX: xFar,
           topTied: topTie !== null,
           baseTied: baseTie !== null,
-          // The free contact closes ONTO THE LINE ITSELF, not onto the line's
-          // height at the middle: interpolating to a fixed apex let a steeply
-          // dipping tie cross its own wedge and shut the onlap at a fifth of
-          // the gap. Here the two contacts can only meet where t = 1 — the
-          // termination — so the loop always pinches on its tie, and always at
-          // about the middle.
-          topAt:
-            topTie !== null
-              ? (x) => tieElevAt(tie, x)
-              : (x) => band.top + t(x) * (tieElevAt(tie, x) - band.top),
-          baseAt:
-            baseTie !== null
-              ? (x) => tieElevAt(tie, x)
-              : (x) => band.base + t(x) * (tieElevAt(tie, x) - band.base),
+          topAt: topTie !== null ? (x) => tieElevAt(tie, x) : closingFrom(band.top),
+          baseAt: baseTie !== null ? (x) => tieElevAt(tie, x) : closingFrom(band.base),
         })
         continue
       }
