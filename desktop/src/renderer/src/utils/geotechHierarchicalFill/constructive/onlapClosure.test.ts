@@ -117,4 +117,92 @@ describe('the onlap-closure tripwire', () => {
     expect(terminations.get(0)?.get('GA2')).toBeCloseTo(0.5, 6)
     expect(onlapClosureViolations(out.regions, terminations)).toEqual([])
   })
+
+  it('OC5 — it fires on the MIRRORED quad too, the owner\'s own CS3 coordinates', () => {
+    // Owner, 2026-08-25, on the second loose sand of the same gap: *"in my eyes,
+    // the second loose sand on the bottom is exactly the same as the upper one,
+    // exactly the same error only the geometry is mirrored along x and y axis
+    // ( well more or less)"*. The ring the engine emitted for it: the mass rides
+    // its BASE tie up from -0.699 and its free TOP runs flat at +0.760 to the
+    // middle, where it was cut — the same 0.36 m riser as OC1, on the other
+    // contact, reaching the other way.
+    const mirrored = ring([0.5, 0.76], [0.5, 0.401], [1, -0.699], [1, 0.76])
+    const found = interiorVerticals(mirrored)
+    expect(found).toHaveLength(1)
+    expect(found[0].fraction).toBe(0.5)
+    expect(found[0].hi - found[0].lo).toBeCloseTo(0.359, 3)
+  })
+
+  it('OC6 — a mass that pinches leaves NO flat line on the contact it left', () => {
+    // THE MIRROR OF OC4, and the rule the owner\'s second loose sand breaks.
+    //
+    // Left test: dense over MEDIUM (6 m) over dense. Right test: dense over
+    // medium over LOOSE (2 m) over dense. One tie joins the left medium\'s BASE
+    // to the loose sand\'s BASE, so both carry exactly one tie, on the same
+    // line, each reading a different mass across it — the bidirectional
+    // collision. 6 m against 2 m is 3x, past ``CLEAR_THICKER_RATIO``, so the
+    // medium wins and the loose sand YIELDS: it emits a lens, not an onlap.
+    //
+    // That is the ruled outcome and this pin does not touch it. What it pins is
+    // the GEOMETRY the yield leaves behind: a lens pinches away from BOTH of its
+    // contacts exactly as an onlap pinches away from its free one, so neither of
+    // the loose sand\'s contacts is held flat. Counting a lens as a flat-holder
+    // drew a whole-gap-width horizontal through ground the lens had already
+    // vacated, and the merge welded the two halves back into the quad the owner
+    // circled — *"exactly the same error only the geometry is mirrored"*.
+    const lithoColumns = [
+      column('A', 10, [{ layerId: 'LA', formationId: SAND, top: 0, base: 15 }]),
+      column('B', 10, [{ layerId: 'LB', formationId: SAND, top: 0, base: 15 }]),
+    ]
+    const lithoEdges = [tie('LA', 'LB', 'top', 'top'), tie('LA', 'LB', 'base', 'base')]
+    fillGapProbe.enabled = true
+    fillGapProbe.entries.length = 0
+    let out!: ReturnType<typeof computeHierarchicalGeotechFill>
+    let probes: (typeof fillGapProbe)['entries']
+    try {
+      out = computeHierarchicalGeotechFill({
+        lithoColumns,
+        lithoEdges,
+        lithoRegions: computeSectionFillActive(lithoColumns, lithoEdges, undefined, PAIR),
+        geotechColumns: [
+          column('A', 10, [
+            { layerId: 'GA1', formationId: N7, top: 0, base: 2 },
+            { layerId: 'GA2', formationId: N6, top: 2, base: 8 },
+            { layerId: 'GA3', formationId: N7, top: 8, base: 15 },
+          ]),
+          column('B', 10, [
+            { layerId: 'GB1', formationId: N7, top: 0, base: 5 },
+            { layerId: 'GB2', formationId: N6, top: 5, base: 7 },
+            { layerId: 'GB3', formationId: N5, top: 7, base: 9 },
+            { layerId: 'GB4', formationId: N7, top: 9, base: 15 },
+          ]),
+        ],
+        geotechEdges: [tie('GA2', 'GB3', 'base', 'base')],
+        alongM: PAIR,
+        packingClassOf: PACKING,
+      })
+    } finally {
+      probes = [...fillGapProbe.entries]
+      fillGapProbe.entries.length = 0
+      fillGapProbe.enabled = false
+    }
+    // The scene has to actually produce the collision it is built on, or the
+    // sweep below passes by pinning nothing.
+    const sand = probes.find((p) => p.constructs.some((c) => c.layer === 'GB3'))
+    expect(sand?.constructs.find((c) => c.layer === 'GA2')?.emit, 'the winner did not onlap').toBe(
+      'onlap',
+    )
+    const loose = sand?.constructs.find((c) => c.layer === 'GB3')
+    expect(loose?.emit, 'the loose sand did not yield the collision').toBe('lens')
+    expect(loose?.baseTied, 'the mirror needs the tie on the BASE').toBe(true)
+    expect(loose?.topTied, 'the mirror needs the TOP free').toBe(false)
+    // THE INVARIANT. The loose sand\'s own mass closes to a point on the contact
+    // it rides. No vertical face anywhere between the two tests — *"should be a
+    // triangle and not a quad"*, mirrored.
+    const looseRegions = out.regions.filter(
+      (r) => r.gapIndex === 0 && (r.layerIds ?? []).includes('GB3'),
+    )
+    expect(looseRegions.length, 'the loose sand painted nothing').toBeGreaterThan(0)
+    expect(looseRegions.flatMap((r) => interiorVerticals(r.polygon))).toEqual([])
+  })
 })
