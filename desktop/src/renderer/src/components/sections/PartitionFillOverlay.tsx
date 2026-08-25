@@ -111,7 +111,7 @@ import {
 } from '../../utils/unbandedGeotechHatch'
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
-import { nextConflictIndex } from './crossingTieNav'
+import { nextVisitIndex } from './tieVisitNav'
 import ReviewFlagLayer, { type ReviewFlagMarker } from './ReviewFlagLayer'
 import { reviewFlagId } from '../../utils/reviewFlagPrefs'
 import { type ReviewFlag } from '../../utils/partitionFillV2'
@@ -3297,7 +3297,7 @@ export default function PartitionFillOverlay({
         onJump={
           onJumpToConflictGap
             ? () => {
-                const next = nextConflictIndex(conflictVisitRef.current, conflicts.length)
+                const next = nextVisitIndex(conflictVisitRef.current, conflicts.length)
                 if (next === null) return
                 conflictVisitRef.current = next
                 // Resolve the gap on the fill's OWN axis (see the prop's doc):
