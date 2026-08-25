@@ -27,6 +27,7 @@
  * @module utils/geotechHierarchicalFill/constructive/constructs
  */
 
+import { carryReachTies, taperBetween, type BandCarry } from './carriedTaper'
 import { collision, emitFor, sameMass, type Emit, type Mass } from './emitKernel'
 import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
@@ -54,6 +55,8 @@ export interface RunBand {
   /** Whether this contact of the band IS its parent litho unit's own contact. */
   atCoverTop?: boolean
   atCoverBase?: boolean
+  /** Set while the band is crossing ground no test read — see {@link BandCarry}. */
+  carry?: BandCarry
 }
 
 /** One banded column of a family. */
@@ -105,6 +108,15 @@ export interface BandConstruct {
    * these: the far half is nobody else's to answer.
    */
   extendsToFar?: boolean
+  /**
+   * The TRUE apex of a CARRIED band's taper — gaps away, past this gap's own far
+   * column (owner ruling 2026-08-25, *"one smooth taper"*; see
+   * ``carriedTaper.ts``). Set only alongside {@link extendsToFar}, and it does
+   * NOT replace {@link apexX}: that stays the far column, so the closure bar
+   * this construct contributes and the ownership rules that read it are exactly
+   * what they were. This field says only where the flank line is drawn TO.
+   */
+  carryApexX?: number
   /**
    * Whether each contact's line IS its tie — i.e. the construct RIDES it. A
    * contact that yielded a collision holds the band's own level instead, so it
@@ -613,25 +625,59 @@ export function buildGapConstructs(
           (b) => Math.min(b.top, band.top) - Math.max(b.base, band.base) > 0,
         )
         if (!facingHasData) {
+          // ...BUT IT IS STILL CLOSING WHILE IT CROSSES (owner ruling
+          // 2026-08-25, *"option 1, one smooth taper ofcourse"* — see
+          // ``carriedTaper.ts``). Where a column further out DOES read the
+          // band's levels, ``bandContinuation`` has already resolved which one,
+          // and the pinch this gap's ground belongs to is measured against THAT
+          // column. Running flat to the blind column and then starting the next
+          // gap part-pinched put a step in the band at the one place on the
+          // section where nothing was measured. The apex itself is untouched:
+          // the same ``lensReach`` question, asked of the same terminal gap's
+          // ties, so the carried gaps and the terminal gap draw ONE line.
+          //
+          // SCOPED TO THE BLIND FACING COLUMN, deliberately. Where the facing
+          // test DID read this ground — even as another family's soil — it has
+          // a statement of its own there, the termination clause applies with
+          // full force (*"an onlap can't paint over ground near test itself"*),
+          // and the band closes within its own half as it always has. Letting
+          // the carry govern that case too was measured on the owner's CS3 and
+          // pushed a lens's apex PAST the middle, where ``claims`` then cut it
+          // at the seam — a wedge cut instead of closed, which is the shape he
+          // has already reported five times.
+          //
+          // With no carry at all the blind column IS the run's own edge —
+          // nothing beyond it ever reads this ground, there is no apex to close
+          // on, and the flat curtain stays the final answer
+          // (``terminationRun``'s ``reads: false``).
+          //
+          // ``apexX`` deliberately stays the FAR COLUMN here: it is what this
+          // construct contributes as a closure bar and what ``claims`` cuts on,
+          // and neither of those meanings changed. The taper's own apex travels
+          // separately, in ``carryApexX``.
+          const carry: BandCarry | undefined = band.carry
+          const carried =
+            carry === undefined
+              ? null
+              : band.x +
+                lensReach(band, carryReachTies(ties, carry), carry.farX) * (carry.farX - band.x)
           out.push({
             band,
             emit,
             apexX: xFar,
             farX: xFar,
             extendsToFar: true,
+            carryApexX: carried ?? undefined,
             topTied: topTie !== null,
             baseTied: baseTie !== null,
-            topAt: flat(band.top),
-            baseAt: flat(band.base),
+            ...(carried === null
+              ? { topAt: flat(band.top), baseAt: flat(band.base) }
+              : taperBetween(band, carried)),
           })
           continue
         }
         const reach = lensReach(band, gapTies, xFar)
         const apexX = band.x + reach * (xFar - band.x)
-        const mid = (band.top + band.base) / 2
-        const span = apexX - band.x
-        const t = (x: number): number =>
-          Math.min(1, Math.max(0, Math.abs(span) < 1e-9 ? 1 : (x - band.x) / span))
         out.push({
           band,
           emit,
@@ -639,8 +685,7 @@ export function buildGapConstructs(
           farX: xFar,
           topTied: topTie !== null,
           baseTied: baseTie !== null,
-          topAt: (x) => band.top - t(x) * (band.top - mid),
-          baseAt: (x) => band.base + t(x) * (mid - band.base),
+          ...taperBetween(band, apexX),
         })
         continue
       }
