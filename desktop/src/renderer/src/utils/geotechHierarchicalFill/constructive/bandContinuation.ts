@@ -42,6 +42,7 @@
  * @module utils/geotechHierarchicalFill/constructive/bandContinuation
  */
 
+import type { BandCarry } from './carriedTaper'
 import type { RunBand, RunColumn, RunTie } from './constructs'
 import { terminationRun } from './terminationRun'
 
@@ -58,10 +59,25 @@ export interface ContinuationSplice {
    * Every frame gap index the band must be spliced into (in both directions
    * of ``buildGapConstructs``'s ``left``/``right`` AND the remainder
    * ladder's ``columns``) — from the true reading column's own gap up to,
-   * but never including, the band's own gap (today's ``extendsToFar``
-   * already covers that one, unchanged).
+   * but never including, the band's own gap (which the band already stands in
+   * as a flank of its own).
    */
   gaps: number[]
+  /**
+   * Every frame gap whose DRAWN shape must follow the carry taper instead of
+   * running flat — from the band's OWN gap up to, but excluding, the terminal
+   * one (owner ruling 2026-08-25, *"one smooth taper"*; see
+   * ``carriedTaper.ts``). The terminal gap is left out deliberately: it already
+   * draws the pinch, and {@link carry} exists only to reproduce ITS apex
+   * everywhere the band is seen earlier.
+   *
+   * Note this set starts at the band's own gap, which {@link gaps} never
+   * contains — the two are different questions. ``gaps`` asks where the band
+   * must be VISIBLE at all; this asks where what is drawn must slope.
+   */
+  taperGaps: number[]
+  /** Where the taper closes — see {@link BandCarry}. */
+  carry: BandCarry
 }
 
 /**
@@ -160,15 +176,38 @@ export function bandContinuations(
         const ciFar = runColumns[run.columnIndex].ci
         // Every gap from the resolved column's own edge up to, but
         // excluding, the band's own gap — buildGapConstructs' unchanged
-        // facingHasData sorts each one into a flat pass-through or the one
+        // facingHasData sorts each one into a pass-through or the one
         // real pinch on its own, per the module header.
+        //
+        // ...and every gap the band's SHAPE has to slope through on the way,
+        // which starts one gap earlier: the band's own. That gap's facing
+        // column is the blind one, so it takes the pass-through branch too, and
+        // before the 2026-08-25 ruling it drew flat — the step the owner saw
+        // stood exactly there.
         const gaps: number[] = []
+        const taperGaps: number[] = []
         if (dir === -1) {
           for (let g = ciFar; g <= ciImmediate - 1; g++) gaps.push(g)
+          for (let g = ciFar + 1; g <= column.ci - 1; g++) taperGaps.push(g)
         } else {
           for (let g = ciImmediate; g <= ciFar - 1; g++) gaps.push(g)
+          for (let g = column.ci; g <= ciFar - 2; g++) taperGaps.push(g)
         }
-        splices.push({ band, gaps })
+        // The terminal gap's own two run columns — ``lensReach`` is asked of
+        // THEIR ties so the carried gaps reproduce the apex that gap already
+        // draws, rather than computing a second one from their own.
+        const terminalNear = runColumns[run.columnIndex - dir]
+        const terminalFar = runColumns[run.columnIndex]
+        splices.push({
+          band,
+          gaps,
+          taperGaps,
+          carry: {
+            farX: terminalFar.x,
+            loCi: Math.min(terminalNear.ci, terminalFar.ci),
+            hiCi: Math.max(terminalNear.ci, terminalFar.ci),
+          },
+        })
       }
     }
   }
