@@ -23,10 +23,14 @@ case issues SELECTs and INSERTs only.  Endpoints are canonicalised to
 ``(min, max)`` on both the read and the write side, so a tie persisted the other
 way round is recognised as the same tie.
 
-The dedup key is the layer PAIR, not the ``(pair, sides)`` triple the DB unique
-constraint uses.  Two bands already joined by a base↔base bottom-tie therefore
-suppress the top↔top proposal rather than gaining a second edge beside it — the
-conservative direction, and the same key the two build passes already dedup on.
+Two dedup keys, both preloaded from the section's persisted edges and both
+required.  The layer PAIR is the conservative one: two bands already joined by a
+base↔base bottom-tie suppress the top↔top proposal rather than gaining a second
+edge beside it, which is the same key the two build passes dedup on.  The
+``(pair, sides)`` ROW IDENTITY is the DB unique constraint itself, and it catches
+what the pair key structurally cannot — a restatement and an aligned pair
+arriving at ONE packing contact from two different litho ties, which the pair key
+never sees because it is blind to the sides.
 
 The rule
 --------
@@ -85,9 +89,11 @@ class AutoCorrelateGeotechResult:
         tie (top sub-band pair of a direct litho edge) — the litho approval
         already vouches for exactly that connection.
     edges_skipped_existing : int
-        Candidate pairs left alone because an edge already joined those two
-        bands on that section — whether the engineer drew it by hand, accepted
-        it earlier, or a build pass wrote it.
+        Candidates left alone because an edge already covers them on that
+        section — whether the engineer drew it by hand, accepted it earlier, or
+        a build pass wrote it.  Sums the conservative pair-only suppression and
+        the row-identity one (two litho ties naming a single packing contact);
+        both mean "nothing added here", which is what the toast reports.
     sections_processed : int
         Sections that carried at least one approved litho edge and were
         therefore examined.
@@ -308,7 +314,8 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         self.success(
             f"AutoCorrelateGeotechEdges: proposed={totals.edges_proposed} "
             f"accepted_restatements={totals.edges_accepted} "
-            f"skipped_existing={totals.skipped_existing_pair} "
+            f"skipped_existing_pair={totals.skipped_existing_pair} "
+            f"skipped_duplicate_row={totals.skipped_duplicate_row} "
             f"sections={sections_processed}/{len(sections)} "
             f"skipped_no_lcs={totals.skipped_no_lcs} "
             f"skipped_empty_stack={totals.skipped_empty_stack} "
@@ -317,7 +324,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         return AutoCorrelateGeotechResult(
             edges_proposed=totals.edges_proposed,
             edges_accepted=totals.edges_accepted,
-            edges_skipped_existing=totals.skipped_existing_pair,
+            edges_skipped_existing=totals.skipped_existing_pair + totals.skipped_duplicate_row,
             sections_processed=sections_processed,
             skipped_no_lcs=totals.skipped_no_lcs,
             skipped_empty_stack=totals.skipped_empty_stack,
