@@ -10,14 +10,8 @@
 // at the one place a human can read the whole law in one screen.
 import { describe, expect, it } from 'vitest'
 
-import {
-  CLEAR_THICKER_RATIO,
-  collision,
-  emitFor,
-  massKey,
-  sameMass,
-  type Mass,
-} from './emitKernel'
+import * as kernel from './emitKernel'
+import { emitFor, massKey, sameMass, type Mass } from './emitKernel'
 
 const SAND_DENSE: Mass = { litho: 'ZAND', packing: 'D' }
 const SAND_MEDIUM: Mass = { litho: 'ZAND', packing: 'MD' }
@@ -80,59 +74,28 @@ describe('massKey — the fill-sweep weld identity', () => {
   })
 })
 
-describe('collision — "clearly thicker wins", ratio-gated', () => {
-  it('EK10: the documented deletion point is exactly 2', () => {
-    // Regression guard on the constant itself: the owner's whole mechanism —
-    // "delete the ratio 2 to make it option 1" — depends on this being the
-    // ONLY multiplier in the rule. If this drifts, `collision` may still pass
-    // its other tests while silently changing the owner's escape hatch.
-    expect(CLEAR_THICKER_RATIO).toBe(2)
+describe('the law weighs masses, never thicknesses', () => {
+  // Owner 2026-08-25, on his TS12 scene — a 0.41 m loose sand carrying one tie
+  // to a 4.26 m medium-dense sand, where the thin side had been made to stand
+  // down: *"no it has one tie on top, so it should onlap that same tie"*. That
+  // SUPERSEDES the 2026-08-21 "clearly thicker wins" collision (EK10–EK16 here,
+  // and `CLEAR_THICKER_RATIO` / `collision` in the kernel), which is deleted
+  // rather than left inert. These two pins are what is left of it: the answer
+  // for one tie is `onlap` at any thickness ratio, and the kernel offers no
+  // surface through which a thickness could be handed to it.
+  it('EK10: one tie, different mass -> onlap, and there is no thickness to pass', () => {
+    // The whole of the retired rule was a second input. `emitFor` takes the
+    // masses and NOTHING else, so a 10x mismatch and a 1.01x mismatch are the
+    // same call and must give the same answer.
+    expect(emitFor(SAND_DENSE, [SAND_MEDIUM])).toBe('onlap')
+    expect(emitFor(SAND_MEDIUM, [SAND_DENSE])).toBe('onlap')
+    expect(emitFor.length, 'emitFor grew a parameter — a thickness gate is back').toBe(2)
   })
-  it('EK11: strictly more than 2x wins', () => {
-    expect(collision(2.01, 1)).toBe('win')
-  })
-  it('EK12: exactly 2x is NOT clearly thicker — it meets, it does not win', () => {
-    // The boundary the owner's ratio actually draws: `mine > theirs * ratio`
-    // is a STRICT inequality, so a mass exactly twice as thick as its rival is
-    // NOT "clearly thicker" by this rule's own arithmetic. Pinned so a future
-    // `>=` "cleanup" is caught immediately instead of silently flipping every
-    // exactly-2x collision on real data from "meet" (both onlap, pinch at the
-    // middle) to "win" (one side takes the whole tie).
-    expect(collision(2, 1)).toBe('meet')
-  })
-  it('EK13: strictly less than half yields', () => {
-    expect(collision(1, 2.01)).toBe('yield')
-  })
-  it('EK14: within the 2x band on both sides is a meet', () => {
-    expect(collision(1.5, 1)).toBe('meet')
-    expect(collision(1, 1.5)).toBe('meet')
-  })
-  it('EK15: equal thickness always meets', () => {
-    expect(collision(3, 3)).toBe('meet')
-  })
-  it('EK16: collision is anti-symmetric — win one way is yield the other, at the same magnitudes', () => {
-    // A property, not a single case: for 200 random positive thickness pairs,
-    // swapping the arguments never produces the SAME verdict except 'meet'
-    // swapping to 'meet'. This catches an accidental one-sided `>=` that
-    // would let a pair "win" against itself from both directions.
-    let seed = 0x2026_0822
-    const rand = (): number => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff
-      return seed / 0x7fffffff
-    }
-    for (let i = 0; i < 200; i++) {
-      const a = 0.01 + rand() * 20
-      const b = 0.01 + rand() * 20
-      const forward = collision(a, b)
-      const backward = collision(b, a)
-      if (forward === 'meet') {
-        expect(backward, `a=${a} b=${b}`).toBe('meet')
-      } else if (forward === 'win') {
-        expect(backward, `a=${a} b=${b}`).toBe('yield')
-      } else {
-        expect(backward, `a=${a} b=${b}`).toBe('win')
-      }
-    }
+  it('EK11: the kernel exports no thickness-weighing rule at all', () => {
+    // A structural pin, so a re-introduction under any name is caught here
+    // rather than three layers down on real data. The kernel is the law and
+    // the law compares *"litho and packing density"* — full stop.
+    expect(Object.keys(kernel).sort()).toEqual(['FILL_ORDER', 'emitFor', 'massKey', 'sameMass'])
   })
 })
 
