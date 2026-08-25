@@ -10,9 +10,18 @@
  * Before this build: the band simply stopped at SHORT's own column line —
  * nothing of its story ever reached the FAR gap at all (see
  * ``extendsToFarCurtain.test.ts`` for the "before" pin on the 2-column case).
- * After: the band's own gap (SHORT|DEEP) is unchanged (today's extendsToFar,
- * full thickness); the far gap (FAR|SHORT) shows the ordinary, correctly-
- * scaled taper, ending in FAR's own class before reaching FAR's column.
+ * After: the band's story reaches the FAR gap (FAR|SHORT), where it closes on
+ * the correctly-scaled taper, ending in FAR's own class before reaching FAR's
+ * column.
+ *
+ * The band's own gap (SHORT|DEEP) used to draw that stretch FLAT, at full
+ * thickness, and the band then entered the far gap already part-pinched — a
+ * step at SHORT, the one column that read nothing of it. The owner ruled that
+ * out on 2026-08-25 (*"one smooth taper ofcourse"*, ``carriedTaper.ts``), so
+ * this gap now carries its own share of the same single taper. Every assertion
+ * below is unchanged by that: each samples the band's MID elevation, which the
+ * taper holds all the way to the apex — they pin where the band's story
+ * reaches and where it has closed, which is what this scene exists to prove.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -106,11 +115,13 @@ describe('bandContinuation, end to end — a band crosses a blind column and pin
       alongM,
     })
 
-    // Gap 1 (SHORT|DEEP), the band's own gap — UNCHANGED, today's
-    // extendsToFar: full thickness right up beside SHORT's own column.
+    // Gap 1 (SHORT|DEEP), the band's own gap — the band's story crosses it and
+    // is still open at SHORT's own column line. It is no longer full thickness
+    // there (it is closing along the one taper, per the 2026-08-25 ruling), but
+    // its mid level runs the whole way to the apex, so the band is present.
     expect(
       classAt(out.regions, 1, 0.05, 10),
-      "the band's own gap must still paint full thickness beside the blind column",
+      "the band's own gap must still carry it right up beside the blind column",
     ).toBe(TARGET_CLASS)
 
     // Gap 0 (FAR|SHORT), the far gap — THE FIX. Near SHORT (fraction close
