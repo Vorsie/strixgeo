@@ -533,6 +533,34 @@ Depth vs elevation: the guard works in depth below collar, the renderer in
 elevation. They cannot disagree — both differences the test takes are within a
 single column, so the sign flip cancels in the product.
 
+### 4a-i-bis. The derivation emits each row at most once
+
+`derive_geotech_edges_from_litho` carries TWO dedup keys, and both are load
+bearing because they answer different questions.
+
+* **`seen_layer_pairs` — the layer PAIR, sides discarded.** Deliberately
+  conservative: two bands already joined by a `base↔base` bottom tie suppress
+  the `top↔top` proposal rather than gaining a second edge beside it.
+* **`seen_sided_edges` — the ROW IDENTITY `(pair, sides)`, canonicalised
+  `(min, max)`.** This is `uq_litho_contact_corr_triple` itself. Every emit
+  path — sided restatement, aligned pair, interior proposal — passes it before
+  `session.add`, because the pair key is structurally blind to the case that
+  matters: on a gap-free litho column a unit's BASE contact is the next unit's
+  TOP contact, so a bottom tie on one unit pair and the ordinary tie on the
+  pair below it restate onto the SAME two bands with the SAME two sides. The
+  derivation reaches that one contact once from each litho tie; the second
+  arrival is suppressed, counted (`skipped_duplicate_row`) and logged.
+
+Both are preloaded per section from the persisted edges by all three callers,
+which is what makes a re-press idempotent rather than a 500.
+
+**Approval is order-independent.** `litho_approved_edges` is a set, so which
+litho tie reaches a shared contact first is arbitrary. When the suppressed
+candidate is APPROVED and the standing row is a pending proposal THIS pass
+added, the standing row is promoted; a row the caller preloaded from the
+database is never touched (the pass adds, it does not reconcile). Pinned by
+DUP1–DUP3 in `tests/unit/application/test_geotech_edge_derivation.py`.
+
 ### 4a-ii. Two more machine-tie guards from the owner's deletions (2026-08-18)
 
 He asked for the pattern in his 13 tombstoned deletions; two guards encode it:
