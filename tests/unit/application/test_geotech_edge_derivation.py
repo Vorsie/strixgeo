@@ -11,6 +11,7 @@ observability) or shifts the 1 mm tolerance is caught without a DB.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -251,7 +252,10 @@ async def test_a_litho_bottom_tie_restates_as_a_base_base_geotech_edge() -> None
     base_edge = base_edges[0]
     assert {base_edge.layer_a_id, base_edge.layer_b_id} == {deep_a, deep_b}
     assert base_edge.user_approved is True
-    assert seen_base == {(min(deep_a, deep_b), max(deep_a, deep_b), "base", "base")}
+    # The registry records EVERY row this pass wrote, by the identity the DB
+    # uniqueness keys on — one entry per emitted row, the base↔base among them.
+    assert (min(deep_a, deep_b), max(deep_a, deep_b), "base", "base") in seen_base
+    assert len(seen_base) == counts.edges_emitted
 
 
 @pytest.mark.asyncio
@@ -1409,3 +1413,186 @@ async def test_de3_a_near_miss_within_one_band_thickness_stays_proposed() -> Non
         {call.args[0].layer_a_id, call.args[0].layer_b_id} for call in session.add.call_args_list
     ]
     assert {left_7, right_7} in emitted_pairs
+
+
+def _stacked_units_sharing_a_contact() -> dict[str, Any]:
+    """The real 2026-08-25 section shape, as derivation inputs.
+
+    Two CPT columns, two litho unit pairs stacked so the UPPER pair's base
+    contact is the LOWER pair's top contact — the ordinary gap-free litho
+    column.  The upper pair carries the engineer's bottom tie (``base↔base``)
+    on top of its ``top↔top``; the lower pair carries a plain ``top↔top``.
+    Both name the SAME two packing contacts, at 9.74 m on one column and
+    9.14 m on the other.
+
+    Depths and unit extents are the owner's own, from project section
+    ``019eb0b8-f0bf-74d4-aff5-f92811e715e4``.
+    """
+    upper_a, upper_b = uuid4(), uuid4()
+    lower_a, lower_b = uuid4(), uuid4()
+    band_upper_a, band_upper_b = uuid4(), uuid4()
+    # The two bands the 500 named: they meet the shared contact from below.
+    band_lower_a, band_lower_b = uuid4(), uuid4()
+    upper_pair = (min(upper_a, upper_b), max(upper_a, upper_b))
+    lower_pair = (min(lower_a, lower_b), max(lower_a, lower_b))
+    return {
+        "upper_pair": upper_pair,
+        "lower_pair": lower_pair,
+        "litho_approved_edges": {upper_pair, lower_pair},
+        "direct_litho_pairs": {upper_pair, lower_pair},
+        "litho_layer_depths": {
+            upper_a: ("cpt-north", 6.575, 9.74),
+            upper_b: ("cpt-south", 8.1, 9.14),
+            lower_a: ("cpt-north", 9.74, 10.62),
+            lower_b: ("cpt-south", 9.14, 9.68),
+        },
+        "geotech_layer_by_inv_depth": {
+            "cpt-north": [
+                (6.575, 9.74, band_upper_a, uuid4(), 21),
+                (9.74, 10.62, band_lower_a, uuid4(), 22),
+            ],
+            "cpt-south": [
+                (8.1, 9.14, band_upper_b, uuid4(), 21),
+                (9.14, 9.68, band_lower_b, uuid4(), 22),
+            ],
+        },
+        "litho_sided_edges": {
+            (upper_pair[0], upper_pair[1], "top", "top"),
+            (upper_pair[0], upper_pair[1], "base", "base"),
+            (lower_pair[0], lower_pair[1], "top", "top"),
+        },
+        "shared_contact_bands": (min(band_lower_a, band_lower_b), max(band_lower_a, band_lower_b)),
+    }
+
+
+def _emitted_row_identities(session: MagicMock) -> list[tuple[UUID, UUID, str, str]]:
+    """Every emitted row reduced to what the DB uniqueness sees."""
+    return [
+        (
+            call.args[0].layer_a_id,
+            call.args[0].layer_b_id,
+            call.args[0].layer_a_side,
+            call.args[0].layer_b_side,
+        )
+        for call in session.add.call_args_list
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dup1_two_litho_ties_naming_one_packing_contact_derive_one_edge() -> None:
+    """DUP1: when a bottom tie and the tie below it name the SAME packing
+    contact on both columns, the derivation emits ONE geotech tie there.
+
+    The engineer's bottom tie on the upper unit pair points at the depth
+    where the lower unit begins, so it restates onto the very bands the
+    lower pair's own tie restates onto.  Two statements about one contact
+    are one tie — a second row for the same two bands and the same two
+    sides is a row the database cannot hold.
+    """
+    session = _mock_session()
+    scene = _stacked_units_sharing_a_contact()
+    await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges=scene["litho_approved_edges"],
+        litho_layer_depths=scene["litho_layer_depths"],
+        geotech_layer_by_inv_depth=scene["geotech_layer_by_inv_depth"],
+        seen_layer_pairs=set(),
+        direct_litho_pairs=scene["direct_litho_pairs"],
+        litho_sided_edges=scene["litho_sided_edges"],
+        seen_sided_edges=set(),
+    )
+    identities = _emitted_row_identities(session)
+    assert len(identities) == len(set(identities)), (
+        f"the derivation emitted the same row twice: {identities}"
+    )
+    shared_a, shared_b = scene["shared_contact_bands"]
+    at_shared_contact = [
+        row
+        for row in identities
+        if {row[0], row[1]} == {shared_a, shared_b} and row[2:] == ("top", "top")
+    ]
+    assert len(at_shared_contact) == 1, (
+        f"one contact, one tie — got {len(at_shared_contact)} rows for it"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dup2_deriving_the_same_section_twice_adds_nothing_the_second_time() -> None:
+    """DUP2: a second press over an unchanged section proposes nothing new.
+
+    Re-running refreshes; it never duplicates and never fails.  Both
+    registries are carried forward exactly as a caller re-reads them from
+    the database on the next press.
+    """
+    session = _mock_session()
+    scene = _stacked_units_sharing_a_contact()
+    seen_pairs: set[tuple[UUID, UUID]] = set()
+    seen_sided: set[tuple[UUID, UUID, str, str]] = set()
+    common: dict[str, Any] = {
+        "geotech_model_id": uuid4(),
+        "section_id": uuid4(),
+        "litho_approved_edges": scene["litho_approved_edges"],
+        "litho_layer_depths": scene["litho_layer_depths"],
+        "geotech_layer_by_inv_depth": scene["geotech_layer_by_inv_depth"],
+        "direct_litho_pairs": scene["direct_litho_pairs"],
+        "litho_sided_edges": scene["litho_sided_edges"],
+    }
+    first = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        seen_layer_pairs=seen_pairs,
+        seen_sided_edges=seen_sided,
+        **common,
+    )
+    assert first.edges_emitted > 0
+    session.add.reset_mock()
+    second = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        seen_layer_pairs=seen_pairs,
+        seen_sided_edges=seen_sided,
+        **common,
+    )
+    assert second.edges_emitted == 0
+    session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dup3_a_restatement_wins_the_shared_contact_over_a_proposal() -> None:
+    """DUP3: where a restatement and a machine proposal meet at ONE contact,
+    the surviving tie is the accepted one.
+
+    The engineer drew the bottom tie; the pair below it was inferred by the
+    bridge and only proposes.  Which of the two the derivation happens to
+    reach first is arbitrary — the outcome must not be, or the engineer's
+    own line would arrive as a ghost on some runs and accepted on others.
+    """
+    session = _mock_session()
+    scene = _stacked_units_sharing_a_contact()
+    counts = await derive_geotech_edges_from_litho(
+        session,
+        _logger(),
+        geotech_model_id=uuid4(),
+        section_id=uuid4(),
+        litho_approved_edges=scene["litho_approved_edges"],
+        litho_layer_depths=scene["litho_layer_depths"],
+        geotech_layer_by_inv_depth=scene["geotech_layer_by_inv_depth"],
+        seen_layer_pairs=set(),
+        # Only the upper pair is the engineer's; the lower one came from the
+        # bridge, so its aligned pair is a proposal.
+        direct_litho_pairs={scene["upper_pair"]},
+        litho_sided_edges=scene["litho_sided_edges"],
+        seen_sided_edges=set(),
+    )
+    shared_a, shared_b = scene["shared_contact_bands"]
+    rows_at_contact = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if {call.args[0].layer_a_id, call.args[0].layer_b_id} == {shared_a, shared_b}
+    ]
+    assert len(rows_at_contact) == 1
+    assert rows_at_contact[0].user_approved is True
+    assert counts.edges_accepted + counts.edges_proposed == counts.edges_emitted
