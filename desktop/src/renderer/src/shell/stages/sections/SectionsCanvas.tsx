@@ -65,6 +65,8 @@ import { apiFailureMessage } from '../../../utils/apiFailureMessage'
 import { buildRestatedContactUndoCommand } from './restatedContactUndo'
 import { useFlaggedTiePrompt } from './useFlaggedTiePrompt'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
+import { useGeotechPendingTieReveal } from './useGeotechPendingTieReveal'
+import type { SectionColumnRevealFn } from '../../../components/sections/sectionColumnReveal'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
 import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
@@ -187,6 +189,7 @@ export default function SectionsCanvas(): JSX.Element {
       refreshSectionList,
       handleSectionCreated,
       backdropModelIdOverride,
+      sectionFocusedColumn,
       setSectionFocusedColumn,
       correlateMode,
       correlationSource,
@@ -237,6 +240,14 @@ export default function SectionsCanvas(): JSX.Element {
       bboxImportType,
       cancelBboxDraw,
       handleBboxDrawn,
+      // UNFILTERED lists + the project-local hide sets. Only the pending-tie
+      // reveal reads them, and only to explain why a column the canvas is NOT
+      // drawing was dropped — an answer ``visibleCpts`` / ``visibleBoreholes``
+      // cannot give, because those are the post-filter lists.
+      cpts: projectCpts,
+      boreholes: projectBoreholes,
+      removedCptIds,
+      removedBoreholeIds,
     },
     toasts: { toast },
     undo: undoStack,
@@ -1386,6 +1397,39 @@ export default function SectionsCanvas(): JSX.Element {
   const axisFormations = isLitho ? lithoFormations : isGeotech ? geotechFormations : formations
   const axisSurfacesByFormationId = isLitho ? lithoSurfacesByFormationId : surfacesByFormationId
   const axisExcludedBoreholeIds = activeAxisModel?.excluded_borehole_ids ?? []
+
+  // Slot the section panel publishes its column-reveal implementation into —
+  // the only way anything above the canvas can ask "is this column drawn, and
+  // centre it". See ``components/sections/sectionColumnReveal.ts``.
+  const columnRevealRef = useRef<SectionColumnRevealFn | null>(null)
+  // Id-only projections of the two post-filter lists, so the reveal's gate walk
+  // compares ids without re-deriving the filter it is explaining.
+  const visibleCptIdList = useMemo(() => visibleCpts.map(c => c.id), [visibleCpts])
+  const visibleBoreholeIdList = useMemo(() => visibleBoreholes.map(b => b.id), [visibleBoreholes])
+
+  // The geotech pending-tie chip's press (owner ask 2026-08-25). Declared here,
+  // AFTER every input it reads, because these are ``const`` bindings — a hook
+  // call above one of them is a temporal-dead-zone ReferenceError that neither
+  // tsc nor a unit test catches until the canvas actually renders.
+  //
+  // The panel below publishes its own reveal implementation into
+  // ``columnRevealRef``; this hook asks it whether a tie is drawn, and answers
+  // WHY it is not out of the shell state the panel cannot see.
+  useGeotechPendingTieReveal({
+    sectionId: selectedSectionId,
+    section: selectedSection ?? null,
+    edges: geotechPackingEdges,
+    geotechLayers,
+    excludedFromModelIds: axisExcludedBoreholeIds,
+    projectCpts,
+    projectBoreholes,
+    visibleCptIds: visibleCptIdList,
+    visibleBoreholeIds: visibleBoreholeIdList,
+    removedCptIds,
+    removedBoreholeIds,
+    columnFocusOn: sectionFocusedColumn !== null,
+    revealRef: columnRevealRef,
+  })
   // Litho axis left-click creates a ghost layer, not a committed contact.
   // The geological axis keeps the original committed-contact flow unchanged.
   // Geotech axis is view-only: no contact creation (undefined â†’ disabled).
@@ -2342,6 +2386,7 @@ export default function SectionsCanvas(): JSX.Element {
           // Lift the section-local focused column to the shell so
           // SectionsToolbar can use it for the litho-axis Suggest button.
           onFocusedColumnChange={setSectionFocusedColumn}
+          columnRevealRef={columnRevealRef}
           // Manual litho composition picker (Phase-1.5): the picker dialog
           // is shown instead of the geological FormationPicker when the
           // section is on the lithostratigraphic axis.
