@@ -85,19 +85,63 @@ async def load_section_member_investigation_ids(
             )
         ).all()
     ]
+    by_section = await load_members_by_section(
+        session, project_id=project_id, section_ids=section_ids
+    )
     members: set[UUID] = set()
-    for one_section_id in section_ids:
-        members |= set(
+    for one_section_members in by_section.values():
+        members |= one_section_members
+    return members
+
+
+async def load_members_by_section(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    section_ids: Collection[UUID],
+) -> dict[UUID, set[UUID]]:
+    """Return each section's member investigations, keyed by section.
+
+    Same rule, one section at a time: a verb that judges rows *per section* —
+    "does this correlation connect two columns THIS section draws?" — needs the
+    membership sets side by side, not unioned.  Answering it by calling
+    :func:`project_investigations_onto_section` once per section keeps the
+    arithmetic single-source; a batched re-implementation would be a second
+    copy of the corridor rule, which is exactly how a consumer drifts away from
+    what the section view draws.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Owning project — the scope guard for every section queried.
+    section_ids : Collection[UUID]
+        The sections to resolve.  A section absent from the project resolves to
+        an empty set rather than raising: the caller is asking a membership
+        question, and "nothing is on it" is the honest answer for a section
+        that is not there.
+
+    Returns
+    -------
+    dict[UUID, set[UUID]]
+        ``{section_id: {investigation_id, ...}}``, one entry per requested
+        section — including the empty ones, so a caller can tell "no members"
+        from "never asked".
+    """
+    return {
+        section_id: set(
             (
                 await project_investigations_onto_section(
                     session,
                     project_id=project_id,
-                    section_id=one_section_id,
+                    section_id=section_id,
                     missing_ok=True,
                 )
             ).keys()
         )
-    return members
+        for section_id in section_ids
+    }
 
 
 async def load_investigation_names(
@@ -129,3 +173,30 @@ async def load_investigation_names(
         for row in (await session.execute(select(orm.id, orm.name).where(orm.id.in_(ids)))).all():
             names[row.id] = row.name
     return names
+
+
+async def load_investigation_labels(
+    session: AsyncSession, investigation_ids: Collection[UUID]
+) -> str:
+    """Resolve a set of investigation ids to one sorted, comma-separated label.
+
+    The log-line shape of :func:`load_investigation_names`.  Three geotech
+    writers now report the columns they left off a section, and each of them
+    wants the same sentence fragment; an id that resolves to no row falls back
+    to its own uuid so the line never silently drops a row it is counting.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    investigation_ids : Collection[UUID]
+        Ids to name; may mix CPTs and boreholes, and may be empty.
+
+    Returns
+    -------
+    str
+        ``"B6, S12, S22"`` — sorted for a stable log line.  Empty string when
+        no ids were given.
+    """
+    names = await load_investigation_names(session, investigation_ids)
+    return ", ".join(sorted(names.get(inv_id, str(inv_id)) for inv_id in set(investigation_ids)))
