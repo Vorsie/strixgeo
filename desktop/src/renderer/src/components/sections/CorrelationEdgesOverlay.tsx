@@ -312,9 +312,19 @@ interface Props {
    * badge but can only be resolved by deleting.
    */
   onRequestConfirmEdgeReview?: (edge: LithoContactCorrelationEdge) => void
+  /**
+   * Correlation edge to pulse, or ``null``.
+   *
+   * Set transiently by ``SectionPanel`` after the geotech pending-tie chip
+   * centred a tie (owner ask 2026-08-25), and cleared on its own after
+   * ``FLASH_HIGHLIGHT_MS``. An id the overlay does not draw is simply not
+   * pulsed — the caller learns that from the reveal result, not from here.
+   */
+  flashEdgeId?: string | null
 }
 
 
+import TieFlashHalo from './TieFlashHalo'
 import {
   anchorId,
   bandRect,
@@ -390,6 +400,7 @@ export default function CorrelationEdgesOverlay({
   onRequestAcceptEdge,
   acceptEdgeLabel,
   onRequestConfirmEdgeReview,
+  flashEdgeId = null,
 }: Props): JSX.Element {
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
    *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
@@ -851,6 +862,10 @@ export default function CorrelationEdgesOverlay({
               const tiePts = warpAwareEdgePoints(tieX1, yA, ptA.along, tieX2, yB, ptB.along, placedColumns)
               return (
                 <g key={`tie-${ce.id}`}>
+                  {/* Landing pulse — BEHIND the tie so its dashes read through. */}
+                  {flashEdgeId === ce.id && (
+                    <TieFlashHalo points={tiePts} closed={false} edgeId={ce.id} />
+                  )}
                   {/* Transparent wide hit-line so the thin tie is right-clickable
                       to delete, like the ribbon's seam (dogfeed 2026-06-08). */}
                   <polyline
@@ -1028,25 +1043,37 @@ export default function CorrelationEdgesOverlay({
                     />
                   </>
                 ) : (
-                  <polygon
-                    data-testid={`ribbon-outline-${ce.id}`}
+                  (() => {
                     // WARP-AWARE, exactly like the accepted seam: a proposal that
                     // spans intervening columns bends at each one. Drawing the
                     // proposal straight and the accepted tie bent would tell the
                     // engineer the surface MOVES when he accepts it — and on the
                     // geotech axis a jump tie over an undivided borehole is the
                     // ordinary case, not the exception (pipeline step 2).
-                    points={warpAwareRibbonOutline(
+                    const outline = warpAwareRibbonOutline(
                       xA, topY_A, botY_A, ptA.along,
                       xB, topY_B, botY_B, ptB.along,
                       placedColumns,
-                    )}
-                    fill="none"
-                    stroke={UNAPPROVED_EDGE_COLOR}
-                    strokeWidth={1.4}
-                    strokeDasharray={UNAPPROVED_EDGE_DASH}
-                    pointerEvents="none"
-                  />
+                    )
+                    return (
+                      <>
+                        {/* Landing pulse — BEHIND the outline, tracing the SAME
+                            ring, so the halo can never drift from its tie. */}
+                        {flashEdgeId === ce.id && (
+                          <TieFlashHalo points={outline} closed edgeId={ce.id} />
+                        )}
+                        <polygon
+                          data-testid={`ribbon-outline-${ce.id}`}
+                          points={outline}
+                          fill="none"
+                          stroke={UNAPPROVED_EDGE_COLOR}
+                          strokeWidth={1.4}
+                          strokeDasharray={UNAPPROVED_EDGE_DASH}
+                          pointerEvents="none"
+                        />
+                      </>
+                    )
+                  })()
                 )}
                 {/* Seam interaction (#31). The seam is split at its midpoint
                     into two grabbable half-zones so each half drags its NEARER
