@@ -61,7 +61,6 @@ import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { resolveBandParents } from './geotechHierarchicalFill/bandParents'
-import { CLEAR_THICKER_RATIO } from './geotechHierarchicalFill/constructive/emitKernel'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
@@ -339,8 +338,6 @@ function auditSection(sec: RawSection): Violation[] {
   // Per (layerId, gap): the formationIds at the ties' far ends — same
   // formationId = same mass (the kernel's one comparison).
   const farForms = new Map<string, string[]>()
-  /** Per (layerId, gap): the far bands' layer ids, parallel to ``farForms``. */
-  const farLayers = new Map<string, string[]>()
   // Per (layerId, gap): the tied LINE as (elev at left column, elev at right column).
   const tieLines = new Map<string, [number, number][]>()
   for (const e of G.edges) {
@@ -424,18 +421,12 @@ function auditSection(sec: RawSection): Violation[] {
           // other, and the weld must not erase the onlap.
           const far = bandsOnContact(farCi, farElev).find((b) => b.above === near.above)
           const fars = farForms.get(key) ?? []
-          const farIds = farLayers.get(key) ?? []
-          // The two lists stay index-parallel; a welded entry's layer id is
-          // never consulted (the collision check skips same-class reads).
           if (far !== undefined) {
             fars.push(far.u.formationId)
-            farIds.push(far.u.layerId)
           } else if (weldedContacts.has(`${near.u.layerId}@${Math.round(nearElev * 1000)}`)) {
             fars.push(near.u.formationId)
-            farIds.push(near.u.layerId)
           }
           farForms.set(key, fars)
-          farLayers.set(key, farIds)
         }
       }
     }
@@ -622,22 +613,15 @@ function auditSection(sec: RawSection): Violation[] {
         // the law — it and its twin are one mass — so its ground runs the whole
         // way and the termination clause does not apply to it. The clause is
         // about a construct painting over ground ANOTHER mass measured.
-        // A CLEARLY THICKER onlap wins its bidirectional collision and rides its
-        // tie to the far contact (owner, 2026-08-21: *"Start with clearly
-        // thicker wins"*), so the middle is not its limit either. The gate has
-        // to count what the fill counts, or it audits a law the constructor was
-        // never given.
-        const thicknessOf = (layer: string): number => {
-          const home = unitOf.get(layer)
-          if (home === undefined) return 0
-          return home.u.baseDepthM - home.u.topDepthM
-        }
-        const wonCollision = (farForms.get(`${u.layerId}|${gap}`) ?? []).some((f, k) => {
-          if (classKeyOf(f) === classKeyOf(u.formationId)) return false
-          const far = (farLayers.get(`${u.layerId}|${gap}`) ?? [])[k]
-          if (far === undefined) return false
-          return thickness > thicknessOf(far) * CLEAR_THICKER_RATIO
-        })
+        //
+        // NO ONLAP IS EXEMPT (owner ruling 2026-08-25, *"no it has one tie on
+        // top, so it should onlap that same tie"* — superseding the 2026-08-21
+        // "clearly thicker wins" collision). This gate used to let a CLEARLY
+        // THICKER band ride its tie past the middle unaudited; with the
+        // collision retired every one-tie band onlaps and every onlap is a
+        // closed loop that terminates at the middle, so the exemption has
+        // nothing left to name and is deleted. The gate audits the law the
+        // constructor was actually given.
         const sameMassAcross =
           ties >= 1 &&
           (farForms.get(`${u.layerId}|${gap}`) ?? []).length > 0 &&
@@ -658,7 +642,7 @@ function auditSection(sec: RawSection): Violation[] {
           const base = G.columns[facingCi].surfaceElevM - v.baseDepthM
           return Math.min(top, myTop) - Math.max(base, myBase) > 0
         })
-        if (runLeft >= 0 && !sameMassAcross && !wonCollision && facingReads) {
+        if (runLeft >= 0 && !sameMassAcross && facingReads) {
           const middleX = (G.alongM[runLeft] + G.alongM[runRight]) / 2
           const width = G.alongM[gap + 1] - G.alongM[gap]
           const middle = Math.abs(width) < 1e-9 ? 0.5 : (middleX - G.alongM[gap]) / width
