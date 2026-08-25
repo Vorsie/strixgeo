@@ -1604,6 +1604,43 @@ Verified 2026-08-15 that the `DivideBoreholes` half was NOT redundant — before
 the guard, an off-section borehole sharing a body with an on-section CPT was
 filled from that CPT's transition surfaces.
 
+**The edge derivation obeys the same rule — since 2026-08-25, not before.** The
+three geotech writers (`SubdivideAllBodies`, `DivideBoreholes`,
+`AutoCorrelateGeotechEdges`) all read their derivation input from
+`load_approved_litho_edge_sets`, which used to select the parent model's
+approved litho edges by `section_id` alone and hand them straight to the
+aligner. That trusts the litho table's own scoping, and the litho table still
+carries rows written before `project_onto_section_corridor` gained its
+between-the-endpoints clamp (2026-08-03) — when a column inside the corridor but
+past the end of the line counted as on-section. On the owner's model that is 38
+approved litho edges across 5 tie-sections, and every geotech press restated the
+reachable ones onto gaps the section does not draw. Shown one of them (a pending
+`GEO-10/170-S4 ↔ 1411-GEO-23/126-B6` tie on Tie-section 7, where B6 projects at
+along = −1.84 m), the owner ruled: *"yeah make it section scoped ofcourse"*.
+
+`load_approved_litho_edge_sets` now takes the section's member set as a
+**required** keyword argument and drops any tie reaching a column the section
+does not draw, returning the excluded columns on
+`ApprovedLithoEdgeSets.off_section_investigations` so each caller names them at
+INFO. Required rather than optional on purpose: gating one caller would only
+leave the next press to put the same tie back, and `DivideBoreholes` writes its
+hops `born_accepted=True`, so a mis-scoped one enters the model looking like the
+engineer's own line. A tie with one off-section endpoint is DROPPED, never
+bridged across — the column is not on this section, so there is no gap here to
+walk through. An endpoint the depth map cannot place at all is *unplaceable*,
+not off-section: it passes through so the derivation still counts and logs it as
+`skipped_no_litho_depth`.
+
+**Legacy rows are swept, but only the machine's own proposals.**
+`geotech_offsection_sweep.sweep_offsection_pending_ties` runs at the end of
+auto-correlate (beside the crossing sweep, and for the same reason: a fixed
+emitter cannot reach a row already in the table). It deletes only
+`source='auto'` rows nobody has approved, scoped to the sections that press
+examined. An ACCEPTED or hand-drawn mis-scoped tie is counted, named at WARNING,
+and left exactly as it is — taking one back is the engineer's call. Reported on
+the verb's response as `investigations_off_section` / `offsection_ties_deleted`
+/ `offsection_ties_retained`.
+
 **The gate falls OPEN on an unanswered tie-status.** Only a LOADED count blocks:
 a 404, a network failure, or a backend predating the endpoint would otherwise
 disable step 4 permanently. The server enforces the gate regardless, so falling
