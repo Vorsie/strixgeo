@@ -96,6 +96,14 @@ export const WHEEL_ZOOM_FACTOR = 1.15
  * keeps tie-back diagonals readable even on tight profiles. */
 export const COLUMN_EDGE_GAP_PX = 4
 
+/** How long a "the camera landed here" pulse stays up, in ms.
+ *
+ * Shared by the Ctrl+F column find and the pending-tie chip's reveal, which are
+ * the same gesture on two different objects: pan, then pulse so the eye lands
+ * with the camera. Two seconds is long enough to find on a busy section and
+ * short enough that it never reads as a persistent selection. */
+export const FLASH_HIGHLIGHT_MS = 2000
+
 /** Minimum visual gap between two adjacent columns that carry a
  * correlation edge between them (dogfeed 2026-05-31). The gradient
  * ribbon spans the full gap; at the 4 px floor it collapses to a
