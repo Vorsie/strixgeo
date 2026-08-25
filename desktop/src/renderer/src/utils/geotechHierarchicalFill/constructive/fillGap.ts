@@ -391,9 +391,9 @@ export function fillGap(input: GapFillInput): GapFillResult {
         prev = next
       }
     }
-    // The lens flanks. An EXTENDED lens (facing sub-TD, continues full
-    // thickness — see ``extendsToFar``) has no pinch, so no flank: its own
-    // level horizontals below bound its window across the whole gap.
+    // The lens flanks — the two edges of the pinch, from the band's own column
+    // to its apex. An EXTENDED lens (see ``extendsToFar``) has no apex of its
+    // own in this gap, so it is answered by the carried pass below instead.
     for (const construct of constructs) {
       if (construct.emit !== 'lens' || construct.apexX === undefined) continue
       if (construct.extendsToFar === true) continue
@@ -404,6 +404,31 @@ export function fillGap(input: GapFillInput): GapFillResult {
         lines.push([
           { fraction: fa, elevation: y },
           { fraction: fb, elevation: mid },
+        ])
+      }
+    }
+    // THE CARRIED FLANKS (owner ruling 2026-08-25, *"one smooth taper"* — see
+    // ``carriedTaper.ts``). A carried band's apex lies BEYOND this gap: it is
+    // still closing when it leaves, so what this gap holds is a SEGMENT of the
+    // flank, not the whole of it. Drawing the raw home→apex line would put both
+    // endpoints outside the gap's own [0, 1], stating nothing the arrangement
+    // can cut on here. So the segment is clamped to the gap — plus the usual
+    // overshoot, so it crosses the cover's inset edges cleanly — and its
+    // elevations are read through the construct's OWN boundary functions rather
+    // than re-derived: the same discipline the bridged onlap above follows, and
+    // the reason two gaps of one taper cannot disagree about a shared point.
+    // The taper is linear in x over that domain, so two points state it exactly.
+    for (const construct of constructs) {
+      if (construct.carryApexX === undefined) continue
+      const fHome = toFraction(construct.band.x)
+      const fApex = toFraction(construct.carryApexX)
+      const fLo = Math.max(Math.min(fHome, fApex), -EXTEND)
+      const fHi = Math.min(Math.max(fHome, fApex), 1 + EXTEND)
+      if (!(fHi > fLo)) continue
+      for (const at of [construct.topAt, construct.baseAt]) {
+        lines.push([
+          { fraction: fLo, elevation: at(atFraction(fLo)) },
+          { fraction: fHi, elevation: at(atFraction(fHi)) },
         ])
       }
     }
