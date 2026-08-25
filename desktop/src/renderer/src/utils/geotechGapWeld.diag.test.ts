@@ -24,6 +24,14 @@
  *    the test FAILS on any of them. That is the check the owner should never
  *    have had to perform five times by looking at his own screen.
  *
+ * ...and a third pass, added 2026-08-25 after two shapes he circled turned out
+ * not to be the fill's at all: the AUTHORSHIP readout (``coverStatedEdges.ts``)
+ * places every region's sloping edges against its gap's LITHO cover. A region
+ * whose diagonals all lie on the cover drew none of its own, so no geotech
+ * ruling about triangles and quads reaches its silhouette — which is the answer
+ * to *"why is this a quad"* for every shape a pinching litho unit dictates.
+ * Report only: it states who drew a line, never whether the line is right.
+ *
  * Dormant unless GAP_WELD=1. Report: scripts/throwaway_gap_weld.txt.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -35,6 +43,7 @@ import {
   computeHierarchicalGeotechFill,
   type HierarchicalGeotechFillInput,
 } from './geotechHierarchicalFill'
+import { shapeAuthorship } from './geotechHierarchicalFill/constructive/coverStatedEdges'
 import { fillGapProbe } from './geotechHierarchicalFill/constructive/fillGapProbe'
 import {
   interiorVerticals,
@@ -175,6 +184,41 @@ describe('gap-weld replay — the live dump reproduces offline', () => {
       }
       if (violations.length === 0) lines.push('  (none)')
 
+      // WHO DREW THE DIAGONALS. Per gap: the regions whose whole silhouette the
+      // litho cover states (no geotech ruling reaches those), and the ones
+      // carrying a diagonal the fill drew itself (a construct flank or a tie —
+      // where the triangle/quad rulings DO apply).
+      const coverByGap = new Map<number, { fraction: number; elevation: number }[][]>()
+      for (const region of entry.inputs.lithoRegions as SectionRegion[]) {
+        const rings = coverByGap.get(region.gapIndex)
+        if (rings === undefined) coverByGap.set(region.gapIndex, [[...region.polygon]])
+        else rings.push([...region.polygon])
+      }
+      lines.push('', '=== shape authorship (LITHO-STATED = the fill drew no diagonal) ===')
+      let coverStatedShapes = 0
+      const authorship = shapeAuthorship(out.regions, coverByGap)
+      for (const verdict of authorship) {
+        const box = boxOf(verdict.region.polygon)
+        const cls = classOf.get(verdict.region.formationId) ?? verdict.region.formationId
+        if (verdict.ownDiagonals.length === 0) coverStatedShapes += 1
+        lines.push(
+          `  g${verdict.region.gapIndex} ${cls.padEnd(10)}` +
+            ` f=[${box.fa.toFixed(2)}..${box.fb.toFixed(2)}] e=[${box.lo.toFixed(2)}..${box.hi.toFixed(2)}]` +
+            `  ${verdict.ownDiagonals.length === 0 ? 'LITHO-STATED' : 'OWN-DIAGONAL '}` +
+            ` cover=${verdict.coverStated.length} own=${verdict.ownDiagonals.length}` +
+            verdict.ownDiagonals
+              .map(
+                (e) =>
+                  `  [${e.a.fraction.toFixed(3)},${e.a.elevation.toFixed(2)}->` +
+                  `${e.b.fraction.toFixed(3)},${e.b.elevation.toFixed(2)}]`,
+              )
+              .join(''),
+        )
+      }
+      lines.push(
+        `  ${coverStatedShapes} of ${authorship.length} shaped regions are the litho cover's own`,
+      )
+
       // Dump gap 0 (the scene this replay was cut for) plus every gap the scan
       // flagged, so a stub can be read against the constructs that made it.
       const focus = [...new Set([0, ...stubGaps])].sort((a, b) => a - b)
@@ -197,6 +241,7 @@ describe('gap-weld replay — the live dump reproduces offline', () => {
             lines.push(
               `    ${(label.get(c.layer) ?? c.layer.slice(-6)).padEnd(34)} emit=${c.emit.padEnd(7)}` +
                 ` topTied=${c.topTied ? 'Y' : 'n'} baseTied=${c.baseTied ? 'Y' : 'n'}` +
+                ` apexF=${c.apexFraction === undefined ? ' --- ' : c.apexFraction.toFixed(3)}` +
                 (c.extendsToFar === true ? ' EXTENDS_TO_FAR' : ''),
             )
           }
