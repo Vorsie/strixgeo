@@ -26,7 +26,14 @@
  * rendering pushes into >2000 elements range we'll revisit.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from 'react'
 import { Layers } from 'lucide-react'
 
 import { EmptyState } from '../shell/EmptyState'
@@ -65,6 +72,8 @@ import CanvasHints from './sections/CanvasHints'
 import ColumnContextMenu from './sections/ColumnContextMenu'
 import ColumnFindBar from './sections/ColumnFindBar'
 import { panViewportToScreenX, type ColumnFindEntry } from './sections/columnFind'
+import type { SectionColumnRevealFn } from './sections/sectionColumnReveal'
+import { resolveColumnReveal } from './sections/resolveColumnReveal'
 import { useColumnFindHotkey } from './sections/useColumnFindHotkey'
 import { buildRemoveFromSectionCommand } from './sections/removeFromSectionCommand'
 import ContactPickBar from './sections/ContactPickBar'
@@ -191,6 +200,7 @@ import {
   COLUMN_EDGE_GAP_PX,
   CORRELATED_PAIR_EDGE_GAP_PX,
   DEFAULT_LEVEL_RANGE,
+  FLASH_HIGHLIGHT_MS,
   MARGIN,
   VEX_DEFAULT,
   WHEEL_ZOOM_FACTOR,
@@ -254,6 +264,18 @@ interface Props {
    * render path.
    */
   onFocusedColumnChange?: (col: import('./sections/useFocusColumn').FocusTarget | null) => void
+  /**
+   * Slot the panel publishes its column-reveal implementation into.
+   *
+   * The geotech pending-tie chip lives in the toolbar and has no way to know
+   * where — or whether — a column is drawn. It names two INVESTIGATIONS and an
+   * edge; this panel answers, because it owns ``visibleColumns`` and the pan.
+   * A position or a column index must never cross that boundary the other way
+   * (see ``components/sections/sectionColumnReveal.ts``).
+   *
+   * Absent in the test-render path and wherever nothing needs to reveal.
+   */
+  columnRevealRef?: MutableRefObject<SectionColumnRevealFn | null>
   /** Active geological model's formation contacts — render as the
    * Phase 4 editor overlay (horizontal lines connecting picks per
    * formation across the projected investigations). Filtered by the
@@ -770,6 +792,7 @@ export default function SectionPanel({
   onSelectCpt,
   onSelectBorehole,
   onFocusedColumnChange,
+  columnRevealRef,
   onChangeVirtueleBoringPicker,
   onChangeVirtueleBoringShowOnSection,
   lithoGhostState,
@@ -986,10 +1009,17 @@ export default function SectionPanel({
   // the highlight lands on the column's POST-pan position, not where it was.
   const [findFlashId, setFindFlashId] = useState<string | null>(null)
   const findFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Which correlation edge to flash after the pending-tie chip centred it
+  // (owner ask 2026-08-25). Same shape and same lifetime as the Ctrl+F column
+  // flash above — a brief pulse so the eye lands with the camera — and declared
+  // beside it so no hook is added below an early return (the #201 trap).
+  const [flashEdgeId, setFlashEdgeId] = useState<string | null>(null)
+  const flashEdgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useColumnFindHotkey(() => setFindOpen(true))
   useEffect(
     () => () => {
       if (findFlashTimer.current !== null) clearTimeout(findFlashTimer.current)
+      if (flashEdgeTimer.current !== null) clearTimeout(flashEdgeTimer.current)
     },
     [],
   )
@@ -2045,7 +2075,7 @@ export default function SectionPanel({
       )
       setFindFlashId(target.id)
       if (findFlashTimer.current !== null) clearTimeout(findFlashTimer.current)
-      findFlashTimer.current = setTimeout(() => setFindFlashId(null), 2000)
+      findFlashTimer.current = setTimeout(() => setFindFlashId(null), FLASH_HIGHLIGHT_MS)
     },
     [plotWidth, scaleH],
   )
@@ -2068,6 +2098,46 @@ export default function SectionPanel({
     },
     [plotWidth, scaleH],
   )
+
+  // Bring a named pair of columns on screen and flash the tie between them —
+  // what the geotech "N pending here" chip presses (owner ask 2026-08-25:
+  // *"Why don't we make that clickable so it highlights the tie?"*).
+  //
+  // The caller names INVESTIGATIONS, never a position: this panel is the only
+  // surface that knows where — or whether — a column is drawn, and handing an
+  // index or an X across that boundary is what already cost a bug on the
+  // crossing chip. It resolves both ends through ``visibleColumns``, the same
+  // list the overlays draw from, so it cannot claim a reveal the canvas did not
+  // perform. Reuses the one-shot slide the Ctrl+F find uses, so the jump keeps
+  // whatever zoom the engineer had set.
+  const revealColumns = useCallback<SectionColumnRevealFn>(
+    ({ investigationIds, flashEdgeId: edgeId }) => {
+      const { centreX, missingInvestigationIds } = resolveColumnReveal(
+        investigationIds,
+        visibleColumns.map(c => ({ id: c.proj.item.id, nudgedX: c.nudgedX })),
+      )
+      if (centreX === null) return { revealed: false, missingInvestigationIds }
+      setViewport(prev =>
+        panViewportToScreenX(prev, centreX, MARGIN.left + plotWidth / 2, scaleH),
+      )
+      setFlashEdgeId(edgeId)
+      if (flashEdgeTimer.current !== null) clearTimeout(flashEdgeTimer.current)
+      flashEdgeTimer.current = setTimeout(() => setFlashEdgeId(null), FLASH_HIGHLIGHT_MS)
+      return { revealed: true, missingInvestigationIds }
+    },
+    [visibleColumns, plotWidth, scaleH],
+  )
+
+  // Publish it into the caller's slot. A ref, not a callback prop: this
+  // identity changes on every pan and zoom (it closes over the live column
+  // layout), and a state-setting publisher would loop.
+  useEffect(() => {
+    if (!columnRevealRef) return
+    columnRevealRef.current = revealColumns
+    return () => {
+      columnRevealRef.current = null
+    }
+  }, [columnRevealRef, revealColumns])
 
   // Mirror the layout state the wheel handler needs into ``layoutStateRef``.
   // handleWheel is declared far above these memos, so it can't close over them
@@ -3609,6 +3679,7 @@ export default function SectionPanel({
                 onRequestAcceptEdge={onRequestAcceptEdge}
                 acceptEdgeLabel={acceptEdgeLabel}
                 onRequestConfirmEdgeReview={onRequestConfirmEdgeReview}
+                flashEdgeId={flashEdgeId}
               />
             )}
 
