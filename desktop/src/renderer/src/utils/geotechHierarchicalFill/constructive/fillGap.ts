@@ -37,6 +37,7 @@ import { FILL_ORDER, massKey, type Mass } from './emitKernel'
 import { fillGapProbe, type ProbeFace } from './fillGapProbe'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { nearestFamilyColumns } from './nearestFamilyColumns'
+import { resolveIslands } from './pocketFaces'
 import { pickRemainder } from './remainderLadder'
 import { nadClassRank, seamHalfBand, stackedSeamOf, type StackedSeam } from './stackedSeamHalf'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
@@ -44,6 +45,18 @@ import type { SectionRegion } from '../../partitionFill'
 
 /** How far construct lines are drawn past the gap so they cross it cleanly. */
 const EXTEND = 0.02
+
+/**
+ * Below this, a loop holds no ground and is not a region (m²).
+ *
+ * A FLOOR, NOT A SLIVER FILTER — deliberately. The arrangement also mints
+ * genuine hairlines at the cover's inset edge (13 of them on his CS3, each
+ * about 7e-7 m²: three millimetres tall and half a millimetre wide), and
+ * sweeping those away pulled six regions in gap 5 back off their own column.
+ * They are debt #228 and they stay. This only refuses a loop with no area at
+ * all, which is not a body under any reading.
+ */
+const DEGENERATE_AREA_M2 = 1e-9
 
 /** Everything one (family, gap) needs. */
 export interface GapFillInput {
@@ -228,10 +241,18 @@ export function fillGap(input: GapFillInput): GapFillResult {
   const lines: { fraction: number; elevation: number }[][] = []
   let eLo = Infinity
   let eHi = -Infinity
+  // ...and where the cover's own two edges stand. NOT 0 and 1: the litho fill
+  // insets its regions by a metric amount, so a face sitting exactly beside a
+  // test lands at 0.9956 in one gap and 0.9996 in another. The pocket rule
+  // anchors on these (see ``pocketFaces.ts``).
+  let coverF0 = Infinity
+  let coverF1 = -Infinity
   for (const region of cover) {
     for (const p of region.polygon) {
       if (p.elevation < eLo) eLo = p.elevation
       if (p.elevation > eHi) eHi = p.elevation
+      if (p.fraction < coverF0) coverF0 = p.fraction
+      if (p.fraction > coverF1) coverF1 = p.fraction
     }
   }
   const horizontal = (elevation: number): void => {
@@ -572,13 +593,26 @@ export function fillGap(input: GapFillInput): GapFillResult {
     return null
   }
 
-  const labelled: LabelledFace<RunBand>[] = []
-  const preMerge: (SectionRegion & { role: 'construct' | 'fill' })[] = []
-  const residual: SectionRegion[] = []
+  /** One arrangement loop, decided but not yet owned — see the pocket pass. */
+  interface DecidedFace {
+    ring: { fraction: number; elevation: number }[]
+    sample: { fraction: number; elevation: number }
+    frame: SectionRegion
+    /** Null = the "correlate me" hatch; ``role`` says nothing about it. */
+    band: RunBand | null
+    role: 'construct' | 'fill'
+  }
+  const decided: DecidedFace[] = []
   let remainderAreaM2 = 0
   let splitRemainders = 0
-  const probeFaces: ProbeFace[] = []
   for (const face of faces) {
+    // A LOOP THAT HOLDS NO GROUND IS NOT A REGION. Collapsed faces do reach
+    // this far — his CS3 gap 7 shipped a ZAND|8 "region" whose three corners
+    // printed as the same point — and one that paints nothing still welds
+    // nothing and still reads as a body of its own in every audit. (That one is
+    // taken by the pocket rule below, which reaches it first; this guard is
+    // what catches the same shape where no single mass encloses it.)
+    if (areaM2(face.ring, width) <= DEGENERATE_AREA_M2) continue
     const frame = coverAt(framePaint, face.sample.fraction, face.sample.elevation)
     // Outside this family's litho cover, or inside a face another family owns.
     if (frame === null || !own.has(frame)) continue
@@ -631,36 +665,73 @@ export function fillGap(input: GapFillInput): GapFillResult {
         if (dominant.split) splitRemainders += 1
       }
     }
+    decided.push({
+      ring: face.ring,
+      sample: face.sample,
+      frame,
+      band,
+      role: answeredByConstruct ? 'construct' : 'fill',
+    })
+  }
+
+  // -------------------------------------------------------------- POCKETS --
+  // *"it should all be one dense sand body?"* — a face may never be an ISLAND
+  // detached from its winning band's own ground. See ``pocketFaces.ts`` for the
+  // rule and the three things it deliberately does not do (the SF-silt
+  // fill-through and every column-anchored lens are untouched by it).
+  const classed = decided.filter((d) => d.band !== null)
+  const owners = resolveIslands(
+    classed.map((d) => ({ key: massKeyOf(d.band as RunBand), ring: d.ring })),
+    { lo: coverF0, hi: coverF1 },
+  )
+  let next = 0
+  for (const entry of decided) {
+    if (entry.band === null) continue
+    const owner = classed[owners[next++]]
+    if (owner === entry) continue
+    entry.band = owner.band
+    // Re-owned ground is the OWNERSHIP step's answer, not a shape the law drew
+    // — the pre-merge audit measures construct envelopes, and this loop lies
+    // outside its new owner's.
+    if (entry.role === 'construct') remainderAreaM2 += areaM2(entry.ring, width)
+    entry.role = 'fill'
+  }
+
+  const labelled: LabelledFace<RunBand>[] = []
+  const preMerge: (SectionRegion & { role: 'construct' | 'fill' })[] = []
+  const residual: SectionRegion[] = []
+  const probeFaces: ProbeFace[] = []
+  for (const entry of decided) {
     if (fillGapProbe.enabled) {
       probeFaces.push({
-        owner: band === null ? null : band.layerId,
-        role: band === null ? 'residual' : answeredByConstruct ? 'construct' : 'fill',
-        sample: [face.sample.fraction, face.sample.elevation],
-        ring: face.ring.map((p) => [p.fraction, p.elevation]),
+        owner: entry.band === null ? null : entry.band.layerId,
+        role: entry.band === null ? 'residual' : entry.role,
+        sample: [entry.sample.fraction, entry.sample.elevation],
+        ring: entry.ring.map((p) => [p.fraction, p.elevation]),
       })
     }
-    if (band === null) {
+    if (entry.band === null) {
       residual.push({
         gapIndex,
-        formationId: frame.formationId,
-        bodyId: frame.bodyId,
+        formationId: entry.frame.formationId,
+        bodyId: entry.frame.bodyId,
         kind: 'quad',
-        polygon: face.ring,
+        polygon: entry.ring,
       })
       continue
     }
     // THE FILL SWEEP is the merge key: same litho + same packing IS one mass,
     // so a lens touching such a body welds into it and disappears. Within a
     // family the litho is one by construction, so the key is the packing class.
-    labelled.push({ key: massKeyOf(band), label: band, ring: face.ring })
+    labelled.push({ key: massKeyOf(entry.band), label: entry.band, ring: entry.ring })
     preMerge.push({
       gapIndex,
-      formationId: band.formationId,
-      bodyId: band.bodyId,
+      formationId: entry.band.formationId,
+      bodyId: entry.band.bodyId,
       kind: 'quad' as const,
-      polygon: face.ring,
-      layerIds: [band.layerId],
-      role: answeredByConstruct ? 'construct' : 'fill',
+      polygon: entry.ring,
+      layerIds: [entry.band.layerId],
+      role: entry.role,
     })
   }
 
