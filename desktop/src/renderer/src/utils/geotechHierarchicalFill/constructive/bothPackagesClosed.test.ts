@@ -270,11 +270,14 @@ describe('both packages closed at the middle — the leftover splits at the seam
     expect(fromC, "a band of C answered ground on A's own half").toEqual([])
   })
 
-  it('BC3: two onlaps of near-equal thickness on one tie MEET at the middle', () => {
-    // *"Start with clearly thicker wins"* — and A's dense 3.00 m against B's
-    // medium 3.00 m is nowhere near the ratio, so neither is clearly thicker:
-    // both onlap and pinch at the middle (``collision`` -> 'meet'). Each owns
-    // its own half of the tie and neither crosses it.
+  it('BC3: two onlaps facing each other on one tie MEET at the middle', () => {
+    // Owner 2026-08-25: *"no it has one tie on top, so it should onlap that
+    // same tie"* — so A's dense and B's medium both onlap the line they share
+    // and both pinch at the middle. (This scene's two bands are 3.00 m each, so
+    // it drew exactly this under the 2026-08-21 clearly-thicker-wins collision
+    // too; retiring that rule makes the outcome unconditional rather than a
+    // consequence of their being evenly matched.) Each owns its own half of the
+    // tie and neither crosses it.
     const out = run([tie('GA1', 'GB1', 'top', 'top'), ...HOPS_TO_C])
     expect(paintAt(out.regions, 0, 0.25, 9.0)?.formationId, "A's half of the tie").toBe(DENSE)
     expect(paintAt(out.regions, 0, 0.75, 9.0)?.formationId, "B's half of the tie").toBe(MEDIUM)
@@ -405,12 +408,13 @@ describe('a stacked seam half keeps mTAW level', () => {
   })
 
   it('SS3: one on one, both closed — *"if it is one on one the rule stays the same"*', () => {
-    // ONE band facing ONE band is explicitly OUT of scope: whatever the
-    // collision rule already draws there stands, WEDGES AND ALL. Two facing
-    // onlaps of equal thickness ``meet`` at the middle, so each is the triangle
-    // from its own full-thickness column edge to the seam — and the ground
-    // below the two triangles stays hatch. Pinned verbatim so the stacked rule
-    // cannot leak into the case he ruled out of it.
+    // ONE band facing ONE band is explicitly OUT of scope: whatever the emit
+    // law already draws there stands, WEDGES AND ALL. Two facing bands each
+    // carrying the one shared tie both onlap it (owner 2026-08-25: *"no it has
+    // one tie on top, so it should onlap that same tie"*) and meet at the
+    // middle, so each is the triangle from its own full-thickness column edge
+    // to the seam — and the ground below the two triangles stays hatch. Pinned
+    // verbatim so the stacked rule cannot leak into the case he ruled out of it.
     const out = oneOnOneScene()
     const shape = out.regions.map((r) => ({
       formationId: r.formationId,
