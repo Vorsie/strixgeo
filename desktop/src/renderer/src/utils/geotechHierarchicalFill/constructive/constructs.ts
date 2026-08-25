@@ -28,6 +28,7 @@
  */
 
 import { carryReachTies, taperBetween, type BandCarry } from './carriedTaper'
+import { readsWindow } from './columnReading'
 import { collision, emitFor, sameMass, type Emit, type Mass } from './emitKernel'
 import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
@@ -621,9 +622,10 @@ export function buildGapConstructs(
         // thickness. Adoption carries it on from there, and it still pinches
         // in the first gap whose facing test DID read that ground.
         const facingCi = column.ci === left.ci ? right.ci : left.ci
-        const facingHasData = (stacks.get(facingCi) ?? []).some(
-          (b) => Math.min(b.top, band.top) - Math.max(b.base, band.base) > 0,
-        )
+        // The SAME question ``bandContinuation`` asks of the same stack — one
+        // predicate, so a column can never read as "has data" here and "blind"
+        // there, which is what let a band close twice (``columnReading.ts``).
+        const facingHasData = readsWindow(stacks.get(facingCi), band.top, band.base)
         if (!facingHasData) {
           // ...BUT IT IS STILL CLOSING WHILE IT CROSSES (owner ruling
           // 2026-08-25, *"option 1, one smooth taper ofcourse"* — see
