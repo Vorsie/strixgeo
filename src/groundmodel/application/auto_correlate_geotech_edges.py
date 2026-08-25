@@ -18,10 +18,23 @@ The invariant
 **It adds; it does not reconcile.**  Every persisted edge of the geotech model
 is loaded up front (per section, any source, any approval state) and preloaded
 into the derivation's ``seen_layer_pairs``, so a candidate that already exists
-is skipped and counted.  Nothing is deleted, updated, or re-approved — the use
-case issues SELECTs and INSERTs only.  Endpoints are canonicalised to
-``(min, max)`` on both the read and the write side, so a tie persisted the other
-way round is recognised as the same tie.
+is skipped and counted.  Nothing is updated or re-approved.  Endpoints are
+canonicalised to ``(min, max)`` on both the read and the write side, so a tie
+persisted the other way round is recognised as the same tie.
+
+Two narrow exceptions, both sweeps of MACHINE rows an emit-time guard cannot
+reach, and neither able to touch a tie the engineer drew or approved: the
+crossing sweep (2026-08-17) and the off-section sweep (2026-08-25).
+
+Section scoping
+---------------
+A geotech tie is only derivable between two columns the section actually
+DRAWS — in its corridor AND between its endpoints, the same rule the section
+view, the exports and "Divide boreholes" use.  The derivation reads the parent
+model's litho edges by ``section_id`` alone, and that table still carries rows
+written before the projection filter gained its endpoint clamp, so membership
+is enforced here on the inputs rather than trusted from the litho table (owner
+ruling 2026-08-25: *"yeah make it section scoped ofcourse"*).
 
 Two dedup keys, both preloaded from the section's persisted edges and both
 required.  The layer PAIR is the conservative one: two bands already joined by a
@@ -65,8 +78,13 @@ from groundmodel.application.geotech_edge_derivation import (
     load_litho_layer_depths,
     load_project_sections,
 )
+from groundmodel.application.geotech_offsection_sweep import sweep_offsection_pending_ties
 from groundmodel.application.geotech_tie_tombstones import build_tombstone_gates
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.application.section_membership import (
+    load_investigation_labels,
+    load_members_by_section,
+)
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import AUTO_SOURCE
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -107,6 +125,16 @@ class AutoCorrelateGeotechResult:
     skipped_empty_stack : int
         Correlated litho units where one column carries no geotech bands at all
         (e.g. a column the build has not subdivided yet).
+    investigations_off_section : int
+        Distinct columns that appeared as a litho-tie endpoint on a section
+        that does not draw them, and were therefore excluded from the
+        derivation (owner ruling 2026-08-25).  The log names them.
+    offsection_ties_deleted : int
+        Mis-scoped machine PROPOSALS removed by the sweep — unapproved
+        ``source='auto'`` rows tying a column their section does not draw.
+    offsection_ties_retained : int
+        Mis-scoped ties left standing because they are ACCEPTED or hand-drawn.
+        Each is named at WARNING; taking one back is the engineer's call.
     """
 
     edges_proposed: int
@@ -116,6 +144,9 @@ class AutoCorrelateGeotechResult:
     skipped_no_lcs: int = 0
     skipped_empty_stack: int = 0
     crossing_tie_count: int = 0
+    investigations_off_section: int = 0
+    offsection_ties_deleted: int = 0
+    offsection_ties_retained: int = 0
 
 
 class AutoCorrelateGeotechEdges(GroundModelLogger):
@@ -156,11 +187,19 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             every section of the project, which is how the engineer regenerates
             the automatic ties for a whole multi-section model in one press.
 
+        Notes
+        -----
+        Only the columns a section DRAWS take part in its derivation: a litho
+        tie with an endpoint outside the section's membership is excluded and
+        its column named in the log, and any unapproved machine proposal
+        already stored on such a gap is swept.  Accepted and hand-drawn ties
+        are never removed by that sweep — they are counted and warned about.
+
         Returns
         -------
         AutoCorrelateGeotechResult
-            Proposed / skipped-existing counts plus the two diagnostic skip
-            reasons.
+            Proposed / skipped-existing counts, the two diagnostic skip
+            reasons, and the off-section exclusion / sweep counts.
 
         Raises
         ------
@@ -245,12 +284,38 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             f"{len(seen_pairs_by_section)} section(s) — these are left untouched"
         )
 
+        # Section membership, once per section in scope (owner ruling
+        # 2026-08-25: "yeah make it section scoped ofcourse"). It gates the
+        # derivation's inputs below AND the sweep at the end, so both halves
+        # judge by the same rule the section view draws with.
+        members_by_section = await load_members_by_section(
+            self._session, project_id=project_id, section_ids=[section.id for section in sections]
+        )
+
         totals = EdgeDerivationCounts()
         sections_processed = 0
+        off_section_investigations: set[UUID] = set()
         for index, section in enumerate(sections):
+            members = members_by_section.get(section.id, set())
             edge_sets = await load_approved_litho_edge_sets(
-                self._session, litho_model_id, section.id
+                self._session,
+                litho_model_id,
+                section.id,
+                section_member_investigation_ids=members,
+                litho_layer_depths=litho_layer_depths,
             )
+            off_section = edge_sets.off_section_investigations
+            if off_section:
+                off_section_investigations |= off_section
+                # NAMES, at INFO: the engineer is being told that a correlation
+                # he can see in the litho model produced no packing tie here,
+                # and the reason is that the column is not on this section.
+                self.info(
+                    f"[{index + 1}/{len(sections)}] AutoCorrelateGeotechEdges: "
+                    f"section={section.id} ({section.name!r}) excluded "
+                    f"{len(off_section)} litho-tie endpoint column(s) it does not draw: "
+                    f"{await load_investigation_labels(self._session, off_section)}"
+                )
             approved = edge_sets.pairs
             if not approved:
                 self.debug(
@@ -259,6 +324,15 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                 )
                 continue
             sections_processed += 1
+            # Defence in depth: the edge filter above already removes every tie
+            # that could reach an off-section column, but narrowing the band map
+            # to the same members makes the column invisible to the derivation
+            # by CONSTRUCTION — neither a terminal nor a transit hop for either
+            # bridging walk — rather than by an argument a future emit path
+            # could invalidate.
+            section_bands = {
+                inv_id: rows for inv_id, rows in geotech_bands.items() if UUID(inv_id) in members
+            }
             self.debug(
                 f"[{index + 1}/{len(sections)}] AutoCorrelateGeotechEdges: "
                 f"section={section.id} ({section.name!r}) "
@@ -269,7 +343,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             # packing. Bridge the litho chain across those columns so a section
             # drawn CPT–borehole–CPT proposes the CPT pair rather than nothing.
             bridged = bridge_edges_over_bandless_columns(
-                approved, litho_layer_depths, geotech_bands
+                approved, litho_layer_depths, section_bands
             )
             if len(bridged) > len(approved):
                 self.debug(
@@ -285,7 +359,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                     section_id=section.id,
                     litho_approved_edges=bridged,
                     litho_layer_depths=litho_layer_depths,
-                    geotech_layer_by_inv_depth=geotech_bands,
+                    geotech_layer_by_inv_depth=section_bands,
                     seen_layer_pairs=seen_pairs_by_section.setdefault(section.id, set()),
                     # Ruling A as refined 2026-08-06: only the pairs that
                     # RESTATE one of these direct litho ties are born
@@ -310,6 +384,18 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         # 2026-08-17 — "ties shouldn't be able to cross"; his own lines stand.
         crossing_dropped = await sweep_crossing_ties(self._session, self, model_id)
 
+        # Legacy mis-scoping, swept the same way and for the same reason: the
+        # input gate above stops the derivation MAKING one, but only a sweep
+        # can reach a proposal already stored on a gap the section never draws.
+        # Scoped to the sections this press examined, so a one-section run never
+        # reaches into a section the engineer did not ask about.
+        offsection = await sweep_offsection_pending_ties(
+            self._session,
+            self,
+            geotech_model_id=model_id,
+            members_by_section=members_by_section,
+        )
+
         await self._session.commit()
         self.success(
             f"AutoCorrelateGeotechEdges: proposed={totals.edges_proposed} "
@@ -319,7 +405,10 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             f"sections={sections_processed}/{len(sections)} "
             f"skipped_no_lcs={totals.skipped_no_lcs} "
             f"skipped_empty_stack={totals.skipped_empty_stack} "
-            f"crossing_ties_deleted={crossing_dropped}"
+            f"crossing_ties_deleted={crossing_dropped}; "
+            f"{len(off_section_investigations)} investigation(s) outside section membership "
+            f"excluded; {offsection.deleted} mis-scoped pending proposal(s) removed, "
+            f"{offsection.retained} accepted/hand-drawn mis-scoped tie(s) kept"
         )
         return AutoCorrelateGeotechResult(
             edges_proposed=totals.edges_proposed,
@@ -329,6 +418,9 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             skipped_no_lcs=totals.skipped_no_lcs,
             skipped_empty_stack=totals.skipped_empty_stack,
             crossing_tie_count=crossing_dropped,
+            investigations_off_section=len(off_section_investigations),
+            offsection_ties_deleted=offsection.deleted,
+            offsection_ties_retained=offsection.retained,
         )
 
     async def _load_geotech_bands(
