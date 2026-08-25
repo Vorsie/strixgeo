@@ -165,7 +165,9 @@ from groundmodel.application.geotech_view_state import read_geotech_min_thicknes
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.application.section_membership import (
+    load_investigation_labels,
     load_investigation_names,
+    load_members_by_section,
     load_section_member_investigation_ids,
 )
 from groundmodel.application.view_state_helpers import (
@@ -1067,10 +1069,34 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 self._session, geotech_model.id, project_id
             )
 
+            # Per-section membership (owner ruling 2026-08-25: "yeah make it
+            # section scoped ofcourse"). Phase 2's ``members`` is a UNION across
+            # the sections in scope, which cannot answer "does THIS section draw
+            # both ends of this tie?" — the question the derivation input needs.
+            members_by_section = await load_members_by_section(
+                self._session,
+                project_id=project_id,
+                section_ids=[section.id for section in sections],
+            )
+
             for section in sections:
                 edge_sets = await load_approved_litho_edge_sets(
-                    self._session, litho_model_id, section.id
+                    self._session,
+                    litho_model_id,
+                    section.id,
+                    section_member_investigation_ids=members_by_section.get(section.id, set()),
+                    litho_layer_depths=litho_layer_depths,
                 )
+                off_section = edge_sets.off_section_investigations
+                if off_section:
+                    # NAMES, at INFO: a litho correlation the engineer can see
+                    # produced no packing tie here, and the reason — the column
+                    # is not drawn on this section — is invisible in the result.
+                    self.info(
+                        f"SubdivideAllBodies: section={section.id} ({section.name!r}) excluded "
+                        f"{len(off_section)} litho-tie endpoint column(s) it does not draw: "
+                        f"{await load_investigation_labels(self._session, off_section)}"
+                    )
                 litho_approved_edges = edge_sets.pairs
                 if not litho_approved_edges:
                     continue
