@@ -139,17 +139,20 @@ describe('the onlap-closure tripwire', () => {
     // Left test: dense over MEDIUM (6 m) over dense. Right test: dense over
     // medium over LOOSE (2 m) over dense. One tie joins the left medium\'s BASE
     // to the loose sand\'s BASE, so both carry exactly one tie, on the same
-    // line, each reading a different mass across it — the bidirectional
-    // collision. 6 m against 2 m is 3x, past ``CLEAR_THICKER_RATIO``, so the
-    // medium wins and the loose sand YIELDS: it emits a lens, not an onlap.
+    // line, each reading a different mass across it — the bidirectional case.
     //
-    // That is the ruled outcome and this pin does not touch it. What it pins is
-    // the GEOMETRY the yield leaves behind: a lens pinches away from BOTH of its
-    // contacts exactly as an onlap pinches away from its free one, so neither of
-    // the loose sand\'s contacts is held flat. Counting a lens as a flat-holder
-    // drew a whole-gap-width horizontal through ground the lens had already
-    // vacated, and the merge welded the two halves back into the quad the owner
-    // circled — *"exactly the same error only the geometry is mirrored"*.
+    // BOTH ONLAP IT (owner ruling 2026-08-25: *"no it has one tie on top, so it
+    // should onlap that same tie"*, superseding the 2026-08-21 clearly-thicker-
+    // wins collision, under which 6 m against 2 m was 3x and the loose sand
+    // stood down as a lens). Thickness is not consulted: each rides the shared
+    // line from its own column and pinches onto it at the middle.
+    //
+    // What this pin is FOR is unchanged by that, and is the reason it survives
+    // the ruling: a mass that pinches states its contacts by its FLANKS and
+    // holds neither of them flat. Counting a pincher as a flat-holder drew a
+    // whole-gap-width horizontal through ground it had already vacated, and the
+    // merge welded the two halves back into the quad the owner circled —
+    // *"exactly the same error only the geometry is mirrored"*.
     const lithoColumns = [
       column('A', 10, [{ layerId: 'LA', formationId: SAND, top: 0, base: 15 }]),
       column('B', 10, [{ layerId: 'LB', formationId: SAND, top: 0, base: 15 }]),
@@ -186,14 +189,17 @@ describe('the onlap-closure tripwire', () => {
       fillGapProbe.entries.length = 0
       fillGapProbe.enabled = false
     }
-    // The scene has to actually produce the collision it is built on, or the
+    // The scene has to actually produce the facing pair it is built on, or the
     // sweep below passes by pinning nothing.
     const sand = probes.find((p) => p.constructs.some((c) => c.layer === 'GB3'))
-    expect(sand?.constructs.find((c) => c.layer === 'GA2')?.emit, 'the winner did not onlap').toBe(
-      'onlap',
-    )
+    expect(
+      sand?.constructs.find((c) => c.layer === 'GA2')?.emit,
+      'the thick medium did not onlap',
+    ).toBe('onlap')
     const loose = sand?.constructs.find((c) => c.layer === 'GB3')
-    expect(loose?.emit, 'the loose sand did not yield the collision').toBe('lens')
+    // *"it has one tie on top, so it should onlap that same tie"* — one tie, a
+    // different mass across it, so the thin side onlaps too.
+    expect(loose?.emit, 'the loose sand did not onlap its own tie').toBe('onlap')
     expect(loose?.baseTied, 'the mirror needs the tie on the BASE').toBe(true)
     expect(loose?.topTied, 'the mirror needs the TOP free').toBe(false)
     // THE INVARIANT. The loose sand\'s own mass closes to a point on the contact
