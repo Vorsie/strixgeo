@@ -310,6 +310,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     const FLANK_STEPS = 8
     for (const construct of constructs) {
       if (construct.emit !== 'onlap' || construct.apexX === undefined) continue
+      if (construct.apexElev === undefined) continue
       const freeAt = construct.topTied ? construct.baseAt : construct.topAt
       const rawHomeFraction = toFraction(construct.band.x)
       const bridged = rawHomeFraction < 0 || rawHomeFraction > 1
@@ -317,10 +318,16 @@ export function fillGap(input: GapFillInput): GapFillResult {
       const apexFraction = toFraction(construct.apexX)
       if (!bridged) {
         const free = construct.topTied ? construct.band.base : construct.band.top
-        const apex = freeAt(construct.apexX)
+        // THE APEX VERTEX IS THE CONSTRUCT'S OWN, not a second derivation of it
+        // (owner, 2026-08-25: *"midpoint tie coordinate is end of onlap
+        // coordinate and you have a closed loop"*). Re-reading it through
+        // ``freeAt`` walks a different arithmetic path to the same
+        // algebraic point and lands a ULP off it once in ten — which is a
+        // hair-wide loop between the flank and the tie for the arrangement to
+        // find. One value, drawn by both.
         lines.push([
           { fraction: homeFraction, elevation: free },
-          { fraction: apexFraction, elevation: apex },
+          { fraction: apexFraction, elevation: construct.apexElev },
         ])
         continue
       }
@@ -396,20 +403,57 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // it instead: the S10 bottom MD sand's own territory near S8 painted as
   // S11's VD sand.
   //
-  // Scoped to the BRIDGED case only (home column outside this gap's own
-  // [0, 1] — see the flank loop below): an ordinary onlap's own flat level
-  // sits exactly AT its own column edge, where the diagonal flank and the
-  // flat horizontal coincide by construction (t(x)=0 there) — suppressing it
-  // model-wide dropped a real boundary an owner-pinned real-data scene
-  // relies on (S13b/S14).
+  // ...AND THE SAME IS TRUE OF AN ORDINARY ONLAP (owner dogfeed 2026-08-25,
+  // Cross-section 3, GEO-06/092-S1 → GEO-10/117-B4: *"again i see 2 onlaps
+  // ending in a vertical edge"* — the fifth report of this shape). The
+  // reasoning that scoped the suppression to the bridged case — "the diagonal
+  // flank and the flat horizontal coincide by construction (t(x)=0 there)" —
+  // is true only exactly AT the band's own column; one step into the gap the
+  // two have already parted, and the flat line runs the WHOLE width. So the
+  // wedge the onlap vacates is cut in two: a sliver between the flank and the
+  // stale flat, and the rest below it. That sliver is a loop of its own, the
+  // ladder answers it on its own, and when it answers with a band of the
+  // onlap's own CLASS the merge welds the two and the triangle is a quad again
+  // with a vertical face at the termination — measured on his CS3 gap 1, where
+  // the loose sand's own shadow came back to it from a column outside the run.
+  // With the stale flat gone the vacated ground is ONE loop continuous with the
+  // mass below, and it falls to that mass by construction rather than by a rule.
+  //
+  // A CONTACT IS SHARED, so the suppression must not silence a level someone
+  // genuinely HOLDS. Where the band on the other side of the same contact keeps
+  // its own flat level, the horizontal is a real boundary and is still drawn —
+  // which is what protects the owner-pinned S13b/S14 scene the model-wide
+  // suppression broke. Only a contact BOTH of whose sides have re-sloped away
+  // from it (two onlaps leaving it in opposite directions, as on his CS3) loses
+  // its flat line. The bridged case keeps its own unconditional suppression:
+  // there the band's own column is not in this gap at all, so "t(x)=0 here" is
+  // not even available as a defence and the ruling that added it stands.
+  //
+  // A STACKED SEAM IS OUT OF ITS REACH. There the ruling is *"keep mtaw lvl"* —
+  // every band of each half runs to the seam at its own measured elevations, so
+  // every contact IS held flat by ruling whatever its construct would otherwise
+  // have drawn, and the horizontals are the boundaries the halves are made of.
+  // Suppressing them merged a half's bands into one face whose single sample
+  // then answered for all of them, and the hole above his interrupted sand took
+  // the DENSER neighbour instead of the *"least dense"* one (SS2).
   const onlapFlank = new Set<string>()
+  const flankUnlessHeldFlat = new Set<string>()
+  const holdsFlat = new Set<string>()
   for (const construct of constructs) {
-    if (construct.emit !== 'onlap' || construct.apexX === undefined) continue
-    const homeFraction = toFraction(construct.band.x)
-    if (homeFraction >= 0 && homeFraction <= 1) continue
-    const free = construct.topTied ? construct.band.base : construct.band.top
-    onlapFlank.add(contactKeyOf(construct.band.ci, free))
+    const onlap = construct.emit === 'onlap' && construct.apexX !== undefined
+    const bridged = onlap && (toFraction(construct.band.x) < 0 || toFraction(construct.band.x) > 1)
+    for (const [elevation, rides, isFreeContact] of [
+      [construct.band.top, construct.topTied, onlap && !construct.topTied],
+      [construct.band.base, construct.baseTied, onlap && !construct.baseTied],
+    ] as const) {
+      const key = contactKeyOf(construct.band.ci, elevation)
+      if (isFreeContact && bridged) onlapFlank.add(key)
+      else if (isFreeContact && stackedSeam === null) flankUnlessHeldFlat.add(key)
+      else if (!rides) holdsFlat.add(key)
+    }
   }
+  for (const key of holdsFlat) flankUnlessHeldFlat.delete(key)
+  for (const key of flankUnlessHeldFlat) onlapFlank.add(key)
   // A CONTACT IS SHARED, and the two bands meeting at it can disagree about
   // whose line it is: one rides the tie, the other holds its own level because
   // the mass over there closed its loop. Then the flat line is a real boundary
@@ -645,6 +689,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
         rightCi: t.rightCi,
         rightY: t.rightY,
       })),
+      stackedSeam: stackedSeam !== null,
       constructs: constructs.map((c) => ({
         layer: c.band.layerId,
         ci: c.band.ci,
@@ -654,6 +699,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
         topTied: c.topTied,
         baseTied: c.baseTied,
         extendsToFar: c.extendsToFar,
+        apexFraction: c.apexX === undefined ? undefined : toFraction(c.apexX),
       })),
       lines: lines.map((line) => line.map((p) => [p.fraction, p.elevation])),
       faces: probeFaces,
