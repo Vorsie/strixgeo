@@ -219,7 +219,7 @@ export function planFamily(
   // right), so a gap never has to choose between them.
   const carryByGap = new Map<number, Map<string, BandCarry>>()
   for (const candidate of resolved) {
-    for (const splice of bandContinuations(candidate.columns, candidate.ties)) {
+    for (const splice of bandContinuations(candidate.columns, candidate.ties, context.stacks)) {
       for (const gap of splice.gaps) {
         let bands = continuationsByGap.get(gap)
         if (bands === undefined) continuationsByGap.set(gap, (bands = []))
