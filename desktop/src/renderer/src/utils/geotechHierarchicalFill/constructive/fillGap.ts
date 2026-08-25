@@ -436,24 +436,49 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // Suppressing them merged a half's bands into one face whose single sample
   // then answered for all of them, and the hole above his interrupted sand took
   // the DENSER neighbour instead of the *"least dense"* one (SS2).
-  const onlapFlank = new Set<string>()
+  //
+  // ...AND A LENS PINCHES AWAY FROM BOTH OF ITS CONTACTS (owner dogfeed
+  // 2026-08-25, the SECOND loose sand of that same CS3 gap: *"in my eyes, the
+  // second loose sand on the bottom is exactly the same as the upper one,
+  // exactly the same error only the geometry is mirrored along x and y axis
+  // ( well more or less)"*). He is exactly right, and the mirror is literal: the
+  // upper wedge held a stale flat on its BASE and reached right, this one holds
+  // a stale flat on its TOP and reaches left. What hid it is that this band is
+  // not classed an onlap at all — it carries one tie, its far end is a clearly
+  // thicker mass, so the bidirectional collision makes it YIELD and the law
+  // emits a lens (CS3 gap 1: loose 1.46 m against medium 3.84 m, 2.63x). That
+  // ruling is untouched here. But a lens states its own contacts by its FLANKS,
+  // drawn above, exactly as an onlap states its free one: it leaves both of them
+  // at its own column and closes between them at its apex. Reading only the
+  // ``topTied``/``baseTied`` flags counted it as a flat-holder, so its contact
+  // kept the whole-gap-width horizontal, that horizontal vetoed the suppression
+  // the ONLAP on the other side of the shared contact had asked for, and the
+  // ground the two of them had jointly vacated was cut into a flat-topped strip
+  // that the ladder handed back to the loose sand's own class — welding the
+  // wedge into a quad with a vertical face at the termination. One rule, both
+  // shapes: a contact BOTH of whose sides have pinched away from it has no flat
+  // line left to draw. An EXTENDED lens is not a pinch — it runs its own levels
+  // to the facing column (see ``extendsToFar``), so it genuinely holds them.
+  const flankStated = new Set<string>()
   const flankUnlessHeldFlat = new Set<string>()
   const holdsFlat = new Set<string>()
   for (const construct of constructs) {
-    const onlap = construct.emit === 'onlap' && construct.apexX !== undefined
+    const pinches = construct.apexX !== undefined && construct.extendsToFar !== true
+    const onlap = construct.emit === 'onlap' && pinches
+    const lens = construct.emit === 'lens' && pinches
     const bridged = onlap && (toFraction(construct.band.x) < 0 || toFraction(construct.band.x) > 1)
-    for (const [elevation, rides, isFreeContact] of [
-      [construct.band.top, construct.topTied, onlap && !construct.topTied],
-      [construct.band.base, construct.baseTied, onlap && !construct.baseTied],
+    for (const [elevation, rides, pinchesAway] of [
+      [construct.band.top, construct.topTied, lens || (onlap && !construct.topTied)],
+      [construct.band.base, construct.baseTied, lens || (onlap && !construct.baseTied)],
     ] as const) {
       const key = contactKeyOf(construct.band.ci, elevation)
-      if (isFreeContact && bridged) onlapFlank.add(key)
-      else if (isFreeContact && stackedSeam === null) flankUnlessHeldFlat.add(key)
+      if (pinchesAway && bridged) flankStated.add(key)
+      else if (pinchesAway && stackedSeam === null) flankUnlessHeldFlat.add(key)
       else if (!rides) holdsFlat.add(key)
     }
   }
   for (const key of holdsFlat) flankUnlessHeldFlat.delete(key)
-  for (const key of flankUnlessHeldFlat) onlapFlank.add(key)
+  for (const key of flankUnlessHeldFlat) flankStated.add(key)
   // A CONTACT IS SHARED, and the two bands meeting at it can disagree about
   // whose line it is: one rides the tie, the other holds its own level because
   // the mass over there closed its loop. Then the flat line is a real boundary
@@ -465,8 +490,8 @@ export function fillGap(input: GapFillInput): GapFillResult {
     for (const band of column.bands) {
       const topKey = `${band.ci}@${Math.round(band.top * 1000)}`
       const baseKey = `${band.ci}@${Math.round(band.base * 1000)}`
-      if (!stated.has(topKey) && !onlapFlank.has(topKey)) horizontal(band.top)
-      if (!stated.has(baseKey) && !onlapFlank.has(baseKey)) horizontal(band.base)
+      if (!stated.has(topKey) && !flankStated.has(topKey)) horizontal(band.top)
+      if (!stated.has(baseKey) && !flankStated.has(baseKey)) horizontal(band.base)
     }
   }
 
