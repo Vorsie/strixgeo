@@ -20,6 +20,13 @@ export interface ProbeConstruct {
   topTied: boolean
   baseTied: boolean
   extendsToFar?: boolean
+  /**
+   * Where a closed construct terminates, in the gap's own fraction space —
+   * *"it terminates at 0.5 Distance approximately"*. The onlap-closure
+   * tripwire reads this: a vertical face HERE is a wedge that was cut instead
+   * of closed, while one anywhere else is a boundary of some other kind.
+   */
+  apexFraction?: number
 }
 
 /** One labelled face: who owns it, decided on which tier. */
@@ -43,6 +50,14 @@ export interface ProbeTie {
 export interface ProbeEntry {
   gapIndex: number
   coverLayers: string[]
+  /**
+   * Whether this run is a STACKED SEAM — both packages closed and stacked, the
+   * *"keep mtaw lvl"* fallback of 2026-08-25. There a vertical step at the seam
+   * is the ruling itself (*"The different height is acceptable"*), so the
+   * onlap-closure tripwire skips these runs rather than reporting the owner's
+   * own accepted geometry as a defect.
+   */
+  stackedSeam: boolean
   constructs: ProbeConstruct[]
   ties: ProbeTie[]
   lines: [number, number][][]
