@@ -1,14 +1,19 @@
 /**
- * The bridging pass: for a genuine 0-tie band whose immediate run-neighbour
- * is blind but a column further along the SAME run reads its ground, work
- * out which gaps the band must be spliced into so it becomes visible there
- * too. ``buildGapConstructs``'s EXISTING, unchanged ``facingHasData`` check
- * (evaluated fresh, per gap, against the section-wide ``stacks``) then
- * naturally sorts each spliced gap into a flat full-thickness pass-through
- * (``extendsToFar``, wherever that gap's own immediate flank is STILL
- * blind) or the ordinary, correctly-scaled pinch (the one gap whose flank
- * genuinely reads the ground) — this module only decides WHERE the band
- * must be visible, never HOW it is drawn there.
+ * The bridging pass: for a genuine 0-tie band whose immediate neighbour read
+ * NOTHING at its levels but a column further along the same run did, work out
+ * which gaps the band must be spliced into so it becomes visible there too.
+ * ``buildGapConstructs``'s ``facingHasData`` check (evaluated fresh, per gap,
+ * against the section-wide ``stacks``) then sorts each spliced gap into a flat
+ * full-thickness pass-through (``extendsToFar``, wherever that gap's own
+ * immediate flank is STILL blind) or the ordinary, correctly-scaled pinch (the
+ * one gap whose flank genuinely reads the ground) — this module only decides
+ * WHERE the band must be visible, never HOW it is drawn there.
+ *
+ * "Read nothing" is the SECTION-WIDE question, asked through the one predicate
+ * ``facingHasData`` also uses (``columnReading.ts``, owner ruling 2026-08-25) —
+ * so a column blind only to this family can never be carried past. BC9 is that
+ * pin; every other case here is a section where this family is the only one, so
+ * the run and the section give the same answer.
  *
  * Mirrors ``partitionFillV2/subTdContinuation.test.ts``'s scene 3 shape
  * (their real CS1 FAR/SHORT/DEEP columns) — a 3-column run where the
@@ -30,6 +35,15 @@ const band = (layerId: string, top: number, base: number, ci: number, x: number)
 })
 
 const col = (ci: number, x: number, bands: RunBand[]): RunColumn => ({ ci, x, bands })
+
+/**
+ * The section-wide stack of a run where this family is the ONLY one on the
+ * section — every column's stack is exactly its run bands. Each pin below was
+ * written against that world and keeps its original meaning under it; BC9 is
+ * the one case that deliberately hands a column MORE than its run carries.
+ */
+const stacksOf = (run: readonly RunColumn[]): Map<number, readonly RunBand[]> =>
+  new Map(run.map((c) => [c.ci, c.bands]))
 
 /** The splice for one specific band, or undefined if it never got one. */
 function spliceFor(splices: ReturnType<typeof bandContinuations>, layerId: string) {
@@ -53,7 +67,7 @@ describe('bandContinuations', () => {
       col(1, 50, []),
       col(2, 100, [band('deep-veen', 7.75, 6.65, 2, 100)]),
     ]
-    const splice = spliceFor(bandContinuations(run, []), 'deep-veen')
+    const splice = spliceFor(bandContinuations(run, [], stacksOf(run)), 'deep-veen')
     expect(splice?.gaps).toEqual([0])
   })
 
@@ -62,7 +76,7 @@ describe('bandContinuations', () => {
       col(0, 0, [band('near-unit', 10, 0, 0, 0)]),
       col(1, 100, [band('b', 10, 0, 1, 100)]),
     ]
-    expect(spliceFor(bandContinuations(run, []), 'b')).toBeUndefined()
+    expect(spliceFor(bandContinuations(run, [], stacksOf(run)), 'b')).toBeUndefined()
   })
 
   it('BC3 — nothing anywhere reads it: the run edge, no splice (today\'s curtain is final)', () => {
@@ -71,7 +85,7 @@ describe('bandContinuations', () => {
       col(1, 50, []),
       col(2, 100, [band('b', 10, 5, 2, 100)]),
     ]
-    expect(spliceFor(bandContinuations(run, []), 'b')).toBeUndefined()
+    expect(spliceFor(bandContinuations(run, [], stacksOf(run)), 'b')).toBeUndefined()
   })
 
   it('BC4 — a TIED band never gets a splice, even with a blind immediate neighbour', () => {
@@ -83,7 +97,7 @@ describe('bandContinuations', () => {
     const ties: RunTie[] = [
       { key: 't', leftCi: 1, rightCi: 2, leftX: 50, rightX: 100, leftY: 7.75, rightY: 7.75 },
     ]
-    expect(spliceFor(bandContinuations(run, ties), 'deep-veen')).toBeUndefined()
+    expect(spliceFor(bandContinuations(run, ties, stacksOf(run)), 'deep-veen')).toBeUndefined()
   })
 
   it('BC5 — two blind columns in a row: the band is spliced into BOTH gaps it must cross (0 and 1), gap 2 (its own) excluded', () => {
@@ -95,7 +109,7 @@ describe('bandContinuations', () => {
       col(2, 75, []),
       col(3, 100, [band('deep', 7, 5, 3, 100)]),
     ]
-    const splice = spliceFor(bandContinuations(run, []), 'deep')
+    const splice = spliceFor(bandContinuations(run, [], stacksOf(run)), 'deep')
     expect(splice?.gaps).toEqual([0, 1])
   })
 
@@ -105,7 +119,7 @@ describe('bandContinuations', () => {
       col(1, 50, []),
       col(2, 100, [band('far-unit', 8, 4, 2, 100)]),
     ]
-    const splice = spliceFor(bandContinuations(run, []), 'near')
+    const splice = spliceFor(bandContinuations(run, [], stacksOf(run)), 'near')
     expect(splice?.gaps).toEqual([1])
   })
 
@@ -127,7 +141,7 @@ describe('bandContinuations', () => {
     const ties: RunTie[] = [
       { key: 't', leftCi: 2, rightCi: 3, leftX: 100, rightX: 150, leftY: 7.75, rightY: 8 },
     ]
-    const splice = spliceFor(bandContinuations(run, ties), 'deep-veen')
+    const splice = spliceFor(bandContinuations(run, ties, stacksOf(run)), 'deep-veen')
     expect(splice?.gaps, 'the rightward tie must not block the leftward continuation').toEqual([0])
   })
 
@@ -159,10 +173,38 @@ describe('bandContinuations', () => {
     const ties: RunTie[] = [
       { key: 't', leftCi: 0, rightCi: 2, leftX: 0, rightX: 100, leftY: 8, rightY: 8 },
     ]
-    const splice = spliceFor(bandContinuations(run, ties), 'near')
+    const splice = spliceFor(bandContinuations(run, ties, stacksOf(run)), 'near')
     expect(
       splice?.gaps,
       'a tie skipping past the blind neighbour must not block the splice into that gap',
     ).toEqual([0])
+  })
+
+  it('BC9 — the blind neighbour is only blind to THIS FAMILY: its own stack read the levels, so there is no carry at all', () => {
+    // BC1's exact run — FAR reads, MID carries nothing of this family, NEAR
+    // holds the band — except that MID's own column stack carries a band of
+    // ANOTHER family straight across the window. Owner ruling 2026-08-25:
+    // *"If there is a column then it goed 0.45 to column B and doesn't paint
+    // right of that column"* — MID is a column, so the band closes against MID
+    // in its own gap and is never carried past it.
+    //
+    // This is the one pin where the run and the section disagree, which is the
+    // whole point: ``stacks`` is deliberately NOT ``stacksOf(run)`` here.
+    const run: RunColumn[] = [
+      col(0, 0, [band('far-unit', 8, 4, 0, 0)]),
+      col(1, 50, []),
+      col(2, 100, [band('near', 7.75, 6.65, 2, 100)]),
+    ]
+    const stacks = new Map<number, readonly RunBand[]>([
+      [0, run[0].bands],
+      // MID measured this ground — as another family's soil, which the ruling
+      // says makes no difference at all.
+      [1, [band('other-family', 9, 3, 1, 50)]],
+      [2, run[2].bands],
+    ])
+    expect(
+      spliceFor(bandContinuations(run, [], stacks), 'near'),
+      'a column that measured the levels blocks the carry, whatever it measured',
+    ).toBeUndefined()
   })
 })
