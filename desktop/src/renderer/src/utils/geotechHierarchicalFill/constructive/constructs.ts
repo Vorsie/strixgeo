@@ -29,7 +29,7 @@
 
 import { carryReachTies, taperBetween, type BandCarry } from './carriedTaper'
 import { readsWindow } from './columnReading'
-import { collision, emitFor, sameMass, type Emit, type Mass } from './emitKernel'
+import { emitFor, sameMass, type Emit, type Mass } from './emitKernel'
 import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
 
@@ -120,10 +120,10 @@ export interface BandConstruct {
   carryApexX?: number
   /**
    * Whether each contact's line IS its tie — i.e. the construct RIDES it. A
-   * contact that yielded a collision holds the band's own level instead, so it
-   * is a boundary of its own and the fill must draw it: without that line the
-   * face ran on up to the tie the band had just yielded, and the mass climbed
-   * the very wedge the yield exists to prevent.
+   * contact that does not ride holds the band's own level instead, so it is a
+   * boundary of its own and the fill must draw it: without that line the face
+   * runs on up to a tie this band never claimed, and the mass climbs a wedge
+   * that is somebody else's statement.
    */
   topTied: boolean
   baseTied: boolean
@@ -451,7 +451,6 @@ export function buildGapConstructs(
       // The band sits BELOW its own top contact and ABOVE its own base contact.
       const farEnds: Mass[] = []
       const own = massOf(band)
-      let yielded = false
       // WHOSE LINE IS IT? *"follow tie"* moves a contact onto its line — but a
       // line the mass over there has already spoken for is not this band's to
       // ride. Three cases, and the third is the owner's vertical:
@@ -519,25 +518,16 @@ export function buildGapConstructs(
         // Open over there (two tied contacts of its own) = we meet in the
         // middle, so the line is shared and both ride it.
         contested[side] = !weldedAcross && farTiedContacts < 2
-        // THE BIDIRECTIONAL COLLISION, and only it (owner, 2026-08-21): both
-        // bands carry exactly ONE tie, the same tie, both far ends different —
-        // two onlaps facing each other on one line. *"Start with clearly thicker
-        // wins, but program it so that you just have to delete the ratio 2 to
-        // make it option 1."* The loser emits no onlap and closes at its own
-        // level; the winner's onlap still pinches at the middle.
-        const mineAlone = (topTie === null ? 0 : 1) + (baseTie === null ? 0 : 1) === 1
-        if (
-          mineAlone &&
-          farTiedContacts === 1 &&
-          collision(band.top - band.base, far.top - far.base) === 'yield'
-        ) {
-          yielded = true
-        }
       }
-      // *"the thinner side emits no onlap there"* — a closed shape at its own
-      // level is what a band with nothing to say draws, so the loser becomes a
-      // lens and, like every lens, never fills remainder ground.
-      const emit = yielded ? 'lens' : emitFor(own, farEnds)
+      // ONE TIE IS ONE ONLAP, AND THICKNESS IS NEVER CONSULTED (owner ruling
+      // 2026-08-25, on his TS12 scene — a 0.41 m loose sand carrying a single
+      // tie to a 4.26 m medium-dense sand): *"no it has one tie on top, so it
+      // should onlap that same tie."* Where both bands share that single tie
+      // and read different masses, BOTH onlap it and both pinch at the middle
+      // — *"both tests will emit onlaps in this case depending on what test you
+      // start from"*. So the law's own answer is the only answer here; nothing
+      // between the far-end read and the emit weighs the two masses.
+      const emit = emitFor(own, farEnds)
       const flat = (y: number) => () => y
       // A TWO-TIED-CONTACT BAND FOLLOWS BOTH ITS TIES, UNCONDITIONALLY (owner
       // code-hunt finding A4, 2026-08-22): the 2026-08-21 ruling — "two tied
