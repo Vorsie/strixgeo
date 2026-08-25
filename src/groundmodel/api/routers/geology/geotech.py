@@ -871,6 +871,14 @@ async def auto_correlate_geotech(
     session, unlike ``subdivide-all-bodies``, which wipes the whole geotech
     model before rebuilding it.
 
+    **It is section scoped.**  A tie is only derived between two columns the
+    section actually draws — in its corridor AND between its endpoints.  Litho
+    ties reaching a column the section does not draw are excluded
+    (``investigations_off_section``), and unapproved machine proposals already
+    stored on such a gap are swept (``offsection_ties_deleted``).  Accepted and
+    hand-drawn ties are never swept; they are counted in
+    ``offsection_ties_retained`` and named in the backend log.
+
     Parameters
     ----------
     project_id : UUID
@@ -925,7 +933,10 @@ async def auto_correlate_geotech(
         f"auto_correlate_geotech ok model={model_id} proposed={result.edges_proposed} "
         f"accepted_restatements={result.edges_accepted} "
         f"skipped_existing={result.edges_skipped_existing} "
-        f"sections={result.sections_processed}"
+        f"sections={result.sections_processed} "
+        f"off_section_investigations={result.investigations_off_section} "
+        f"offsection_ties_deleted={result.offsection_ties_deleted} "
+        f"offsection_ties_retained={result.offsection_ties_retained}"
     )
     return AutoCorrelateGeotechResponse(
         edges_proposed=result.edges_proposed,
@@ -934,6 +945,9 @@ async def auto_correlate_geotech(
         sections_processed=result.sections_processed,
         skipped_no_lcs=result.skipped_no_lcs,
         skipped_empty_stack=result.skipped_empty_stack,
+        investigations_off_section=result.investigations_off_section,
+        offsection_ties_deleted=result.offsection_ties_deleted,
+        offsection_ties_retained=result.offsection_ties_retained,
     )
 
 
