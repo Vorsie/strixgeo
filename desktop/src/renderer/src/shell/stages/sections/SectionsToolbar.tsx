@@ -72,6 +72,14 @@ import {
   pendingChipTitle,
   summarisePendingTies,
 } from '../../../utils/geotechPendingScope'
+import {
+  PENDING_TIE_NONE_HERE,
+  PENDING_TIE_NO_CANVAS,
+  PENDING_TIE_TOAST_KEY,
+} from '../../../utils/pendingTieReveal_constants'
+import PendingTieChip from '../../../components/sections/PendingTieChip'
+import { sectionsRevealPendingTieCallback } from './pendingTieRevealBridge'
+import type { PendingTieRevealOutcome } from './useGeotechPendingTieReveal'
 
 /**
  * Why steps 2, 3 and 4 are dead on a section that carries no packing yet.
@@ -1056,6 +1064,42 @@ export default function SectionsToolbar(): JSX.Element {
   const dividePending = pendingScope.sectionPending ?? pendingScope.modelPending
   const tiesBlockDivide = tieStatus.loaded && dividePending > 0
 
+  // Pressing the pending chip (owner ask 2026-08-25: *"now i get a one pending
+  // notification but i don't see any pending ties? Why don't we make that
+  // clickable so it highlights the tie?"*).
+  //
+  // The canvas does the work — it owns the edges, the columns and the pan — and
+  // hands back an outcome. Everything this has to decide is what to SAY, and
+  // the one case that must never be silent is ``undrawable``: that is the state
+  // the owner was staring at, a count with nothing on screen behind it.
+  //
+  // Reversible action, so it fires immediately with no confirmation
+  // (docs/ux.md). The replace key keeps a hammered chip to ONE toast that
+  // updates in place rather than a column of them.
+  const handleRevealPendingTie = useCallback(() => {
+    // An unregistered bridge and an unmounted panel are the same answer to the
+    // engineer — "there is no section on screen" — so they take the same door.
+    const outcome: PendingTieRevealOutcome = sectionsRevealPendingTieCallback.current?.() ?? {
+      kind: 'unavailable',
+    }
+    log.debug('sections', `revealPendingTie: ${outcome.kind}`)
+    switch (outcome.kind) {
+      case 'undrawable':
+        toast('warning', outcome.message, PENDING_TIE_TOAST_KEY)
+        break
+      case 'none':
+        toast('warning', PENDING_TIE_NONE_HERE, PENDING_TIE_TOAST_KEY)
+        break
+      case 'unavailable':
+        toast('warning', PENDING_TIE_NO_CANVAS, PENDING_TIE_TOAST_KEY)
+        break
+      case 'revealed':
+        // Silent on purpose: the pan and the pulse already answered on screen,
+        // and a toast on top of them would only cover the thing just revealed.
+        break
+    }
+  }, [toast])
+
   // Geotech correlation triad (auto-correlate + accept) — the geotech axis's
   // equivalent of the litho Correlate caret items. Extracted to its own hook
   // because this component is long past the 500-line threshold (debt #201).
@@ -1840,13 +1884,19 @@ export default function SectionsToolbar(): JSX.Element {
           {/* The pending chip — OUTSIDE the menu on purpose: it is the number
               step 4 is gated on and must be visible without opening anything. */}
           {tieStatus.loaded && tieStatus.pending > 0 && (
-            <span
-              data-testid="geotech-pending-tie-chip"
-              className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-status-amber border border-status-amber/40"
+            <PendingTieChip
+              label={pendingChipLabel(pendingScope)}
               title={pendingChipTitle(pendingScope, tieStatus.accepted)}
-            >
-              {pendingChipLabel(pendingScope)}
-            </span>
+              // Interactive only where this section HAS a pending tie to find.
+              // With the count scoped elsewhere in the model (the "0 pending
+              // here" case) there is nothing on this canvas to centre, so the
+              // chip stays the plain label it has always been.
+              onReveal={
+                pendingScope.sectionPending === null || pendingScope.sectionPending > 0
+                  ? handleRevealPendingTie
+                  : undefined
+              }
+            />
           )}
           {/* The hatched-ghost legend + clamped-band notice moved to the
               right-hand inspector (owner dogfeed 2026-08-05) — prose was
