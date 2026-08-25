@@ -125,7 +125,17 @@ at it and runs ``alembic upgrade head`` first. A
 ``pytest_collection_modifyitems`` guard in the integration conftest
 refuses to run if ``DATABASE_URL`` does not end in ``_integration``
 or ``_test``, so a forgotten env var fails loudly instead of
-silently destroying state. Usage:
+silently destroying state.
+
+**Only ONE integration run at a time.** The same per-test TRUNCATE
+means two concurrent runs wipe each other's rows mid-test, and the
+resulting failures look like logic bugs, not a race (FK violation on
+a row just created; ``StaleDataError: expected to update 1 row(s); 0
+were matched``; a 422 for a model the log shows being created 201).
+The wrapper takes a lock at ``.integration-test.lock`` (repo root,
+gitignored) and **ABORTS** — never waits, never kills — naming the
+holder's pid, its liveness, and the ``Remove-Item`` line for a lock
+left behind by a crash. Usage:
 
 ```
 .\scripts\run-integration-tests.ps1                     # full suite
