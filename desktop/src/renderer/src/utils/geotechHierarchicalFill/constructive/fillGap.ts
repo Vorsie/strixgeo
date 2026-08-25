@@ -39,6 +39,7 @@ import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { nearestFamilyColumns } from './nearestFamilyColumns'
 import { resolveIslands } from './pocketFaces'
 import { pickRemainder } from './remainderLadder'
+import { drapeHolds, seamDrapeOf, type SeamDrape } from './seamDrape'
 import { nadClassRank, seamHalfBand, stackedSeamOf, type StackedSeam } from './stackedSeamHalf'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
@@ -270,6 +271,24 @@ export function fillGap(input: GapFillInput): GapFillResult {
     ])
   }
 
+  // WHERE THE SEAM STOPS BEING A VERTICAL — see ``seamDrape.ts``. Read once,
+  // from the two stacks and the family's own cover, before any line is drawn:
+  // the join below is a line, and the ownership of the ground it cuts off
+  // follows it. Null on every seam without a facing construct in one of its own
+  // steps, which is every gap the accepted step of 2026-08-24 already answers.
+  const drape: SeamDrape | null =
+    stackedSeam === null
+      ? null
+      : seamDrapeOf({
+          seam: stackedSeam,
+          seamFraction,
+          coverRings: cover.map((r) => r.polygon),
+          coverEdges: { lo: coverF0, hi: coverF1 },
+          elevations: { lo: eLo, hi: eHi },
+          massKeyOf,
+          densityRankOf,
+        })
+
   /** The correlation lines actually drawn across this gap — the fill's walls. */
   const drawnTies: RunTie[] = []
   if (run !== null) {
@@ -295,6 +314,13 @@ export function fillGap(input: GapFillInput): GapFillResult {
     if (stackedSeam !== null || seamMeets(constructs, run.left.ci, run.right.ci)) {
       vertical(seamFraction)
     }
+    // THE DRAPE — *"follow the lens flank up to the flat tongue point"* (owner,
+    // 2026-08-25). Only the JOIN is pushed: the flank itself is one of the
+    // cover's own two edges at the notch, and the cover rings are already in the
+    // arrangement below, so drawing it again would only add a duplicate segment.
+    // The seam's own vertical stays drawn — inside the drape's window both sides
+    // of it are the same mass now, so the merge takes it back out.
+    if (drape !== null) lines.push([drape.path[0], drape.path[1]])
     // THE ONLAP FLANK — the free contact closing onto its tie at the
     // termination. Without this line the arrangement has no edge along the
     // wedge's underside: one face spans the wedge AND the ground beyond it, the
@@ -622,7 +648,22 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // constructs nor the ladder are consulted there: both draw shapes that
     // slope, and the ruling is that they do not. The half is its own test's
     // stack, flat, and its holes take the least dense neighbour.
-    const seamSide = stackedSeam === null ? null : x < middleX ? stackedSeam.left : stackedSeam.right
+    // ...and where a DRAPE replaced the seam's vertical, the halves meet on the
+    // drape rather than on the line: the ground it cuts off from the facing side
+    // is the near half's, which is the same mass the facing half already answers
+    // past the flank's own landing (*"the sand drapes the lens"*).
+    const drapedSide: readonly RunBand[] | null =
+      stackedSeam === null ||
+      drape === null ||
+      !drapeHolds(drape, face.sample.fraction, face.sample.elevation)
+        ? null
+        : drape.nearSide === 'left'
+          ? stackedSeam.left
+          : stackedSeam.right
+    const seamSide =
+      stackedSeam === null
+        ? null
+        : (drapedSide ?? (x < middleX ? stackedSeam.left : stackedSeam.right))
     let band: RunBand | null =
       seamSide === null ? constructOwner(x, y) : seamHalfBand(seamSide, y, densityRankOf)
     // A seam half is a FILL, not a construct: no line the law drew bounds it,
