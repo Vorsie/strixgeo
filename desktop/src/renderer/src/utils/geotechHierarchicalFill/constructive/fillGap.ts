@@ -38,6 +38,7 @@ import { fillGapProbe, type ProbeFace } from './fillGapProbe'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { nearestFamilyColumns } from './nearestFamilyColumns'
 import { pickRemainder } from './remainderLadder'
+import { nadClassRank, seamHalfBand, stackedSeamOf, type StackedSeam } from './stackedSeamHalf'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
 
@@ -190,6 +191,8 @@ export function fillGap(input: GapFillInput): GapFillResult {
   // split, the weld and the layer-id attribution all compare THIS, so two
   // formation rows of one class can never disagree about being one mass.
   const massKeyOf = (band: RunBand): string => massKey(massOf(band))
+  /** A band's NAD class — what *"least dense"* is read from in a seam half. */
+  const densityRankOf = (band: RunBand): number | null => nadClassRank(massOf(band).packing)
   const width = xb - xa
   if (cover.length === 0 || !Number.isFinite(width) || Math.abs(width) < 1e-9) {
     return { covered: [], residual: [...cover], remainderAreaM2: 0, splitRemainders: 0, preMerge: [] }
@@ -204,6 +207,24 @@ export function fillGap(input: GapFillInput): GapFillResult {
     run === null
       ? []
       : buildGapConstructs(run.left, run.right, ties, coverTies, stacks, massOf)
+  // *"this is only the rule for vertical seems with a stacked sequence on both
+  // side"* (owner, 2026-08-25) — see ``stackedSeamHalf.ts``. Decided from the
+  // constructs, before a single line is drawn, because the seam below and the
+  // ownership of every face in this gap both hang on it.
+  //
+  // ...AND ONLY WHERE THE SEAM IS ACTUALLY IN THIS GAP. His rule is *"vertical
+  // seems"* — a line in the middle with a half on either side of it. A run
+  // whose two tests bridge an excluded column has its middle OUTSIDE the gap
+  // it is filling, so there is no seam, no two halves, and every face would
+  // fall to whichever stack happens to lie on the middle's side. That is not
+  // the case he ruled on, and it keeps the ladder. ``vertical`` below applies
+  // the same test to the line it draws.
+  const middleX = run === null ? Number.NaN : (run.left.x + run.right.x) / 2
+  const seamFraction = toFraction(middleX)
+  const stackedSeam: StackedSeam | null =
+    run === null || !(seamFraction > 0 && seamFraction < 1)
+      ? null
+      : stackedSeamOf(constructs, run)
   const lines: { fraction: number; elevation: number }[][] = []
   let eLo = Infinity
   let eHi = -Infinity
@@ -246,8 +267,12 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // ``seamMeets`` for the rule (two statements MEETING from opposite
     // tests): a lone onlap or a lone open mass has nobody on the facing side
     // to meet, so no seam is drawn and the ground fills through instead.
-    if (seamMeets(constructs, run.left.ci, run.right.ci)) {
-      vertical(toFraction((run.left.x + run.right.x) / 2))
+    // ...and a STACKED SEAM always draws it: the ruling IS that the two stacks
+    // stop at a vertical line, whether or not the constructs on the two sides
+    // happen to be the matching pair ``seamMeets`` looks for (two lenses facing
+    // two onlaps close just as completely, and left no seam before this).
+    if (stackedSeam !== null || seamMeets(constructs, run.left.ci, run.right.ci)) {
+      vertical(seamFraction)
     }
     // THE ONLAP FLANK — the free contact closing onto its tie at the
     // termination. Without this line the arrangement has no edge along the
@@ -445,7 +470,38 @@ export function fillGap(input: GapFillInput): GapFillResult {
     const prev = shapedByLayer.get(construct.band.layerId)
     if (prev === undefined) shapedByLayer.set(construct.band.layerId, construct)
   }
-  const middleX = run === null ? Number.NaN : (run.left.x + run.right.x) / 2
+  /**
+   * *"emit lenses first, then emit onlaps"* — the construct that claims a
+   * sample, in the law's own order.
+   *
+   * Nearest test first where two of a kind cover the same point — and on ONE
+   * test, the band that owns this very level answers before its neighbours.
+   * Two spanning constructs of the same column both claim the ground between
+   * their lines where those lines cross a neighbour's window, and without this
+   * the stack order decided it: S6's own thin silt lost its own log to the big
+   * silt above it (S16c, at f=0.9 beside S6).
+   */
+  const constructOwner = (x: number, y: number): RunBand | null => {
+    for (const tier of FILL_ORDER.map((step) =>
+      step === 'lens' ? lenses : step === 'onlap' ? onlaps : spanning,
+    )) {
+      let best: [number, number] | null = null
+      let band: RunBand | null = null
+      for (const construct of tier) {
+        if (!claims(construct, x, y)) continue
+        const rank: [number, number] = [
+          y <= construct.band.top && y >= construct.band.base ? 1 : 0,
+          -Math.abs(construct.band.x - x),
+        ]
+        if (best === null || rank[0] > best[0] || (rank[0] === best[0] && rank[1] > best[1])) {
+          best = rank
+          band = construct.band
+        }
+      }
+      if (band !== null) return band
+    }
+    return null
+  }
 
   const labelled: LabelledFace<RunBand>[] = []
   const preMerge: (SectionRegion & { role: 'construct' | 'fill' })[] = []
@@ -459,38 +515,20 @@ export function fillGap(input: GapFillInput): GapFillResult {
     if (frame === null || !own.has(frame)) continue
     const x = atFraction(face.sample.fraction)
     const y = face.sample.elevation
-    // "emit lenses first, then emit onlaps" — nearest test first where two of a
-    // kind cover the same point.
-    let band: RunBand | null = null
-    // The law's own order: lenses, then onlaps, then the rest — and "the rest"
-    // is the ground between two masses a vertical stands in, then the dominant
-    // mass of whatever is left.
-    for (const tier of FILL_ORDER.map((step) =>
-      step === 'lens' ? lenses : step === 'onlap' ? onlaps : spanning,
-    )) {
-      // Nearest test first, because a test owns the ground beside it — and on
-      // ONE test, the band that owns this very level answers before its
-      // neighbours. Two spanning constructs of the same column both claim the
-      // ground between their lines where those lines cross a neighbour's
-      // window, and without this the stack order decided it: S6's own thin silt
-      // lost its own log to the big silt above it (S16c, at f=0.9 beside S6).
-      let best: [number, number] | null = null
-      for (const construct of tier) {
-        if (!claims(construct, x, y)) continue
-        const rank: [number, number] = [
-          y <= construct.band.top && y >= construct.band.base ? 1 : 0,
-          -Math.abs(construct.band.x - x),
-        ]
-        if (best === null || rank[0] > best[0] || (rank[0] === best[0] && rank[1] > best[1])) {
-          best = rank
-          band = construct.band
-        }
-      }
-      if (band !== null) break
-    }
-    const answeredByConstruct = band !== null
-    // "then fill in the rest with the dominant lithology"
-    if (band === null) {
+    // A STACKED SEAM HALF ANSWERS FOR ITSELF — *"keep mtaw lvl"*. Neither the
+    // constructs nor the ladder are consulted there: both draw shapes that
+    // slope, and the ruling is that they do not. The half is its own test's
+    // stack, flat, and its holes take the least dense neighbour.
+    const seamSide = stackedSeam === null ? null : x < middleX ? stackedSeam.left : stackedSeam.right
+    let band: RunBand | null =
+      seamSide === null ? constructOwner(x, y) : seamHalfBand(seamSide, y, densityRankOf)
+    // A seam half is a FILL, not a construct: no line the law drew bounds it,
+    // so the pre-merge audit must not measure it as a construct envelope.
+    const answeredByConstruct = seamSide === null && band !== null
+    if (seamSide !== null) {
+      if (band !== null) remainderAreaM2 += areaM2(face.ring, width)
+    } else if (band === null) {
+      // "then fill in the rest with the dominant lithology"
       // The loop's own extent AT THIS POINT'S vertical, not over its whole
       // width: a loop between two dipping tie lines is one band's ground at one
       // end and the facing band's at the other, and measuring the dominance
