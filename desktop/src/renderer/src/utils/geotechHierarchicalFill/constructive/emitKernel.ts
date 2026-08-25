@@ -24,23 +24,26 @@
  * emit. Everything around it — intersecting lines, tracing loops, clipping to
  * the litho cover, welding faces — is plumbing that DRAWS what this decides.
  *
- * ...and the BIDIRECTIONAL COLLISION, ruled 2026-08-21. Two onlaps facing each
- * other on ONE tie, both reading a different mass at the far end:
+ * ...and the BIDIRECTIONAL CASE, ruled 2026-08-25. Two bands facing each other
+ * across ONE shared tie, each reading a different mass at the other end. Shown
+ * his TS12 scene — S6's 0.41 m loose sand against S14's 4.26 m medium-dense,
+ * where the thin side had been made to stand down — the owner ruled:
  *
- *   *"Start with clearly thicker wins, but program it so that you just have to
- *    delete the ratio 2 to make it option 1."*
+ *   *"no it has one tie on top, so it should onlap that same tie"*
  *
- * SCOPE, narrowed 2026-08-21: this decides ONLY the true bidirectional case —
- * both bands carry exactly ONE tie, the SAME tie, and each reads a different
- * mass at the other end. CLEARLY thicker (MORE than {@link CLEAR_THICKER_RATIO}
- * times — exactly the ratio is still a tie) is the one whose onlap exists; the
- * thinner side emits none and closes at its own level. It does NOT extend the
- * winner's reach: *"the MD sand onlaps, that means it is a closed loop in that
- * gap and cannot fill the gap."* Below the ratio neither is clearly thicker,
- * so both onlap and pinch at the middle — the 2026-08-20
- * termination clause standing as the tie-break. Deleting the ratio (or setting
- * it to 1) degenerates the whole rule to plain thicker-wins, which is his
- * option 1, and that constant is the ONLY thing to touch.
+ * A BAND WITH ONE TIE ALWAYS ONLAPS THAT TIE. Thickness is not consulted, by
+ * either side, ever: both bands onlap the shared line and both pinch onto it
+ * per the 2026-08-20 termination clause. It is his standing CS3 statement made
+ * general — *"both tests will emit onlaps in this case depending on what test
+ * you start from"* — and it is the geometry this kernel already drew whenever
+ * the two masses were of comparable weight.
+ *
+ * This SUPERSEDES the 2026-08-21 *"clearly thicker wins"* collision for
+ * emission; that rule, its ratio, and the thin side's stand-down are deleted
+ * rather than left inert. What survives it untouched is the closed-loop clause
+ * of the same day — *"the MD sand onlaps, that means it is a closed loop in
+ * that gap and cannot fill the gap"* — so the thicker band gains no reach from
+ * the retirement: an onlap terminated at the middle before and does now.
  *
  * @module utils/geotechHierarchicalFill/constructive/emitKernel
  */
@@ -109,28 +112,4 @@ export const FILL_ORDER = ['lens', 'onlap', 'remainder'] as const
  */
 export function massKey(mass: Mass): string {
   return `${mass.litho}|${mass.packing}`
-}
-
-/**
- * *"Start with clearly thicker wins, but program it so that you just have to
- * delete the ratio 2 to make it option 1."*
- *
- * THE ONE DELETION POINT. Set this to 1 (or drop the multiplier from
- * {@link collision}) and every collision resolves by thickness alone.
- */
-export const CLEAR_THICKER_RATIO = 2
-
-/**
- * Which side of a bidirectional onlap collision yields.
- *
- * @param mine The band's own thickness at its own test.
- * @param theirs The opposing band's thickness at its own test.
- * @returns ``'win'`` (take the contested window, ride the tie to the far
- *   contact), ``'yield'`` (no onlap here — close at your own column), or
- *   ``'meet'`` (neither is CLEARLY thicker: both onlap to the middle).
- */
-export function collision(mine: number, theirs: number): 'win' | 'yield' | 'meet' {
-  if (mine > theirs * CLEAR_THICKER_RATIO) return 'win'
-  if (theirs > mine * CLEAR_THICKER_RATIO) return 'yield'
-  return 'meet'
 }
