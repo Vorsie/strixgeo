@@ -36,7 +36,7 @@ import {
  * -------
  * JSX.Element | null
  *     The toolbar button group, or null when no geotech model is active yet
- *     (run "Subdivide all bodies" on the 2D section view first).
+ *     (run "Subdivide all bodies" on the Sections stage first).
  */
 export default function GeotechnicalToolbar(): JSX.Element | null {
   const {
@@ -55,7 +55,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
   if (!activeGeotechModel) return null
 
   // Gate Build on geotech band presence: with zero geotech layers the voxel
-  // builder has nothing to project. The tooltip directs to the 2D view.
+  // builder has nothing to project. The tooltip directs to the Sections stage.
   const hasGeotechBands = geotechLayers.length > 0
 
   const buildModelLabel = geotechSolidsBuilding
@@ -80,7 +80,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
         testid="geotech-build-model-button"
         title={
           !hasGeotechBands
-            ? 'No geotech bands yet — run "Subdivide all bodies" on the 2D section view first, then Build'
+            ? 'No geotech bands yet — run "Subdivide all bodies" on the Sections stage (geotech axis) first, then Build'
             : geotechSolidsBuilding
               ? 'Building watertight NAD body solids…'
               : hasStaleGeotechSolid
