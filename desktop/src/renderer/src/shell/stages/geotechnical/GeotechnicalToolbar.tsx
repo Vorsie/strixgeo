@@ -26,6 +26,11 @@ import { Box, RefreshCw } from 'lucide-react'
 import { useShell } from '../../ShellContext'
 import { ToolbarButton } from '../../ToolbarPrimitives'
 import PendingTieChip from '../../../components/sections/PendingTieChip'
+import {
+  staleGeotechChipLabel,
+  staleGeotechChipTitle,
+  unionStaleGeotechColumns,
+} from '../../../utils/staleGeotechColumns'
 import GeotechBuildPreflightDialog from './GeotechBuildPreflightDialog'
 import { useGeotechBuildPreflight } from './useGeotechBuildPreflight'
 import {
@@ -59,6 +64,11 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       geotechSolidsBuilding,
       hasStaleGeotechSolid,
       hasGeotechSolids,
+      // Debt #266 — columns whose litho moved after their bands were made. The
+      // 3-D build bakes those bands into solids, so this is the last place the
+      // engineer sees the warning before it becomes an exportable model.
+      staleLithoGeotechColumns,
+      columnsNeedingRederive,
     },
   } = useShell()
 
@@ -84,6 +94,15 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
 
   const excludedCount = preflight.excludedFromLastBuild.length
   const excludedNames = preflight.excludedFromLastBuild.map(t => t.name).join(', ')
+
+  // Debt #266 — the same merged answer the Sections toolbar counts, so the two
+  // stages can never disagree about which columns are out of date. Names come
+  // from the server's half; a fit-only id falls back to itself.
+  const staleColumns = unionStaleGeotechColumns(
+    staleLithoGeotechColumns,
+    columnsNeedingRederive,
+    () => undefined,
+  )
 
   return (
     <>
@@ -126,6 +145,19 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           clickHint="Click to open the next one on a cross-section."
           ariaHint="Activate to open the next excluded test."
           onReveal={preflight.visitNextExcluded}
+        />
+      )}
+      {/* Debt #266 — packing standing on lithology that was edited after the
+          bands were made. Here as well as on the Sections toolbar because THIS
+          is the button that bakes those bands into a 3-D model an export ships:
+          the last chance to notice before the staleness stops being visible.
+          Passive — the columns can sit on any section, so there is no single
+          "next" thing this stage could centre; it names them instead. */}
+      {staleColumns.length > 0 && (
+        <PendingTieChip
+          testid="geotech-stale-litho-chip"
+          label={staleGeotechChipLabel(staleColumns.length)}
+          title={staleGeotechChipTitle(staleColumns)}
         />
       )}
       {hasGeotechSolids && (
