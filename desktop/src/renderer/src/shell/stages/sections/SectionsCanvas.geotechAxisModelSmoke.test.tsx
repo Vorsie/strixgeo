@@ -410,6 +410,14 @@ function makeGeotechCtx(
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
+      // Debt #266 — geotech columns standing on litho that has since moved.
+      staleLithoGeotechColumns: [],
+      staleLithoGeotechColumnIds: new Set<string>(),
+      staleLithoGeotechColumnCount: 0,
+      unstampedGeotechColumnCount: 0,
+      refreshGeotechLithoStaleness: vi.fn(),
+      // The geometric half of that same answer — read at RENDER time since #266.
+      columnsNeedingRederive: [],
       lithoStaleSurfaceCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
@@ -633,6 +641,11 @@ describe('SectionsCanvas — geotech axis model smoke (TDZ net)', () => {
       'lithoFormationColorById',
       'lithoSoilByFormationId',
       'nadMeta',
+      // Debt #266 — ids only, not a second copy of any edge or layer set. It
+      // says WHICH columns are out of date, never what they contain, so it
+      // cannot drift from the rows above it the way a pre-filtered edge list
+      // would.
+      'staleColumnIds',
     ])
   })
 
