@@ -20,7 +20,9 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
@@ -101,6 +103,19 @@ class ClearGeotechColumn(GroundModelLogger):
         # stale either way.
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
+        # A unit that lived only on this column is now vocabulary describing
+        # nothing — this verb rebuilds no bands to replace them. The project id
+        # is not a parameter here (the route scopes by model), so read it off
+        # the model; the sweep is project-scoped because a formation is shared
+        # project-wide, not owned by one model.
+        project_id = (
+            await self._session.execute(
+                select(GeologicalModelOrm.app_project_id).where(
+                    GeologicalModelOrm.id == geotech_model_id
+                )
+            )
+        ).scalar_one()
+        await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
         await self._session.commit()
         self.success(
             f"ClearGeotechColumn ok: investigation={investigation_id} deleted={count} band(s)"
