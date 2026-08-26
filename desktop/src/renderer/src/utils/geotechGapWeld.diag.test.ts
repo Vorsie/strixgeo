@@ -24,6 +24,13 @@
  *    the test FAILS on any of them. That is the check the owner should never
  *    have had to perform five times by looking at his own screen.
  *
+ * ...and a FOURTH pass, added 2026-08-26 after *"still not onlapping"*: the
+ * SILENCE tripwire (``silentConstructs``). The two passes above can only judge a
+ * wedge that DREW something. That morning's defect was a wedge that drew nothing
+ * at all — S6's loose sand emitted its onlap and every face of its run went to
+ * the medium sand beside it — so there was no vertical to find and no silhouette
+ * to attribute. Report only here, hard-asserted on the synthetic pins.
+ *
  * ...and a third pass, added 2026-08-25 after two shapes he circled turned out
  * not to be the fill's at all: the AUTHORSHIP readout (``coverStatedEdges.ts``)
  * places every region's sloping edges against its gap's LITHO cover. A region
@@ -49,6 +56,7 @@ import {
   interiorVerticals,
   onlapClosureViolations,
   onlapTerminationsByGap,
+  silentConstructs,
 } from './geotechHierarchicalFill/constructive/onlapClosure'
 import type { SectionRegion } from './partitionFill'
 
@@ -104,6 +112,7 @@ describe('gap-weld replay — the live dump reproduces offline', () => {
     let mismatched = 0
     let produced = 0
     let onlapViolations = 0
+    let silentEmitted = 0
     for (const key of Object.keys(dump)) {
       const entry = dump[key]
       const classOf = new Map(entry.inputs.packingClassOf)
@@ -183,6 +192,21 @@ describe('gap-weld replay — the live dump reproduces offline', () => {
         )
       }
       if (violations.length === 0) lines.push('  (none)')
+
+      // THE SILENCE TRIPWIRE — *"still not onlapping"* (2026-08-26). The sweep
+      // above needs a wedge that DREW something; this one catches the wedge that
+      // drew nothing at all and left its ground to the mass beside it, which is
+      // invisible to every other gate the engine has.
+      const silent = silentConstructs(probes)
+      silentEmitted += silent.length
+      lines.push('', '=== silent constructs (emitted, and drew nothing) ===')
+      for (const s of silent) {
+        lines.push(
+          `  g${s.gapIndex} ${s.emit.padEnd(7)} apexF=${s.apexFraction.toFixed(3)}` +
+            `  ${label.get(s.layerId) ?? s.layerId.slice(-6)}`,
+        )
+      }
+      if (silent.length === 0) lines.push('  (none)')
 
       // WHO DREW THE DIAGONALS. Per gap: the regions whose whole silhouette the
       // litho cover states (no geotech ruling reaches those), and the ones
@@ -277,5 +301,13 @@ describe('gap-weld replay — the live dump reproduces offline', () => {
     // the synthetic pins in ``onlapClosure.test.ts`` DO assert zero, where the
     // geometry admits only one reading.
     expect(onlapViolations).toBeGreaterThanOrEqual(0)
+    // REPORT, NOT GATE, for the same reason and one more of its own: a live dump
+    // carries runs whose constructs are legitimately answered elsewhere (a
+    // pocket resolved as an island, a face merged away below the degenerate-area
+    // floor), and turning those into a red here would gate on the dump's own
+    // scene rather than on the engine. The synthetic pins in
+    // ``onlapPlungingTie.test.ts`` and ``onlapClosure.test.ts`` DO assert zero,
+    // where the geometry admits only one reading. The count is printed above.
+    expect(silentEmitted).toBeGreaterThanOrEqual(0)
   })
 })
