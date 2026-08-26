@@ -78,12 +78,20 @@ export default function StageToolbar({
       className="flex items-center h-10 bg-surface-card border-b border-border-subtle flex-shrink-0"
     >
       {/* Left zone — stage-specific verb buttons.
-          ``toolbar-scrollable`` (debt #23) gives horizontal scroll when
-          the verb row exceeds the available width (narrow window,
-          split-screen, future verb additions), so the rightmost
-          buttons reach the user via a thin scrollbar instead of being
-          silently clipped. */}
-      <div className="flex items-center flex-1 toolbar-scrollable px-2 gap-1">
+          A stage that renders its verbs through ``ResponsiveToolbarRow``
+          (Sections, Geology) adapts inside this zone: it measures the zone
+          and decides which verbs keep their labels, which become icons, and
+          which fold into a ⋯ More menu.
+
+          ``toolbar-scrollable`` (debt #23) stays as the LAST RESORT beneath
+          that: a stage that has not adopted the responsive row, or a width
+          estimate that comes up short, overflows into a thin horizontal
+          scrollbar rather than being silently clipped.
+
+          ``min-w-0`` is what lets the zone shrink to the space the right
+          cluster leaves — without it the zone's automatic minimum is its
+          content's, and the toolbar as a whole would overflow the window. */}
+      <div className="flex items-center flex-1 min-w-0 toolbar-scrollable px-2 gap-1">
         {StageVerbs !== null && <StageVerbs />}
       </div>
 
