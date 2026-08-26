@@ -1855,8 +1855,26 @@ An eye per level hides that family / class / body. Family and class write
 body level writes a separate `hiddenBodyIds` set because only the solid render
 carries body identity. Consequence to know: **in Fence mode the per-body eye is
 inert** (solids are not drawn there at all) while the family / class eyes still
-bite; the body rows stay listed so the tree does not change shape when the user
-flips view mode.
+bite; the body rows stay listed there rather than disappearing mid-flip.
+
+**Only what the scene paints gets a row** (owner ruling 2026-08-26, on the
+shipped legend: *"why are there suboptions like this ... not yet classified?"*).
+A row whose eye cannot change anything is noise, and reads as a model the
+engineer failed to build rather than as nothing at all. "Paints" is read PER
+VIEW MODE, because the modes paint different things:
+
+* **Solid mode** — the class has at least one built body solid with geometry.
+* **Fence mode** — one of the class's units has a wall panel. Fence walls come
+  from the geotech layers + accepted ties with no Build involved, so a band
+  legitimately exists there with zero solids; conversely a built body with no
+  wall paints nothing in fence mode and gets no row.
+
+The mode signal is `fencePanels` (undefined = solid), passed from
+`Geology3DViewer` straight into the builder. Families follow their classes. The
+`nad_class = null` "not yet classified" row is not exempt — with a built body it
+stays (unclassified ground is content), with nothing built it goes. Accepted
+consequence: the tree changes shape when the engineer flips view mode, which is
+the point — each mode describes what that mode draws.
 
 The shape is built by the pure `utils/geotechLegendTree.ts`
 (`buildGeotechLegendTree`), rendered by `stages/geology/GeotechLayersTree.tsx`.
@@ -2016,9 +2034,33 @@ one file, the tree does not).
 no layer â€” never "has no class".** A unit with no packing class but real bands
 is unclassified GROUND and stays in the main tree; that row is the point. The
 definition is the frontend twin of 10a's orphan predicate on purpose: the row
-the pane files under "empty" is the row the next verb sweeps away. Empty rows
-sit behind a `show empty (N)` toggle and stay reachable â€” they are about to
-become the unclassified-ground ledger.
+the pane drops is the row the next verb sweeps away.
+
+**Empty rows are not listed, and there is no control to list them** (owner
+ruling 2026-08-26: *"The show empty is weird though, if a bin is empty that
+means there is nothing in it and nothing exists"*). The `show empty (N)` toggle
+and the `emptyCount` that fed its label are gone: a count of invisible rows was
+itself the thing that read as weird, and the orphan sweep deletes those units
+shortly in any case.
+
+**A colour the engineer picks wins over the automatic one.** The class-row
+swatch is a native colour input (label-wrapped, committed on blur, the same
+shape as the geological formation swatch in `GeologyInspector`), plus a reset
+that returns the row to automatic. Storage is
+`geological_formation.color_override`, nullable, NULL = "nobody chose" - the
+`body.display_color` shape, chosen over a flag or a comparison-against-default
+because `color` is a machine default (the materialiser copies the source litho
+unit's colour at create) and because the engineer is allowed to pick exactly the
+colour the NAD ramp would have produced. `utils/nadClasses.geotechUnitColor` is
+the ONE rule (`color_override ?? nadClassColor(nad_class)`) and every geotech
+surface asks it: the pane swatch, the section fills
+(`SectionPanel.formationColorById`,
+`contactsLayerGeometry.geotechDisplayFormation`), the 3-D solids (via
+`nadColoredFormations`) and the 3-D legend. A class row standing for several
+units shows a pick only when all of them agree — `utils/geotechRowColorOverride`
+is that ROW-level rule, shared by this pane and the 3-D legend so the two cannot
+disagree about one class. Editing a row writes every unit it stands for, so
+mixed picks can only arrive from outside the pane.
 
 ## Open dogfeed items (owner)
 
