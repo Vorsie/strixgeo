@@ -18,6 +18,7 @@
 import { bandContinuations } from './bandContinuation'
 import type { BandCarry } from './carriedTaper'
 import { fillGap, type GapFillInput } from './fillGap'
+import { totalityViolationOf, type TotalityViolation } from './fillTotality'
 import {
   buildGapConstructs,
   resolveRunTies,
@@ -92,6 +93,11 @@ export interface FillPlansResult {
   splitRemainders: number
   /** Cover left unclassed because nothing answered it, in m². */
   residualOutsideBandRangeM2: number
+  /**
+   * Gaps with a banded run that STILL kept ground — see ``fillTotality.ts``.
+   * Empty is the contract since the least-dense ruling of 2026-08-26.
+   */
+  totalityViolations: TotalityViolation[]
 }
 
 /** Ring area in square metres: fraction-space area scaled by the gap width. */
@@ -411,6 +417,7 @@ export function fillPlans(
     remainderAreaM2: 0,
     splitRemainders: 0,
     residualOutsideBandRangeM2: 0,
+    totalityViolations: [],
   }
   for (const plan of plans) {
     const filled = fillGap({ ...plan, closureBars })
@@ -420,6 +427,8 @@ export function fillPlans(
     out.remainderAreaM2 += filled.remainderAreaM2
     out.splitRemainders += filled.splitRemainders
     for (const r of filled.residual) out.residualOutsideBandRangeM2 += areaM2(r, alongM)
+    const violation = totalityViolationOf(plan, filled)
+    if (violation !== null) out.totalityViolations.push(violation)
   }
   return out
 }
