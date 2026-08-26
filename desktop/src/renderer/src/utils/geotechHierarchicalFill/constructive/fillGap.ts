@@ -35,6 +35,7 @@ import {
 } from './constructs'
 import { FILL_ORDER, massKey, type Mass } from './emitKernel'
 import { fillGapProbe, type ProbeFace } from './fillGapProbe'
+import { resolveLeftovers } from './leastDenseLeftover'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { nearestFamilyColumns } from './nearestFamilyColumns'
 import { resolveIslands } from './pocketFaces'
@@ -771,6 +772,38 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // outside its new owner's.
     if (entry.role === 'construct') remainderAreaM2 += areaM2(entry.ring, width)
     entry.role = 'fill'
+  }
+
+  // ------------------------------------------------------------- LEFTOVER --
+  // *"if 2 lenses are pointed to eachother and there is nothing else to fill the
+  // gap, no open band above or below, then you fill with the lowest density"*
+  // (owner, 2026-08-26). The LAST resort, and it runs last for that reason: the
+  // constructs have claimed what they claim, the ladder has declined the rest
+  // and the pocket rule has settled who owns what, so whatever is still null
+  // here is ground his ruling names — one piece, one owner, the least dense of
+  // the masses whose shapes bound it (see ``leastDenseLeftover.ts``).
+  //
+  // AFTER the pocket pass on purpose. The pocket rule reads unclassed ground as
+  // a side it cannot judge and leaves such a component alone; running this
+  // first would hand it a new neighbour and re-open scenes the owner has already
+  // signed off. Nothing is lost by the order: a leftover takes the class of a
+  // mass it borders, so it welds into that mass and is contiguous with it by
+  // construction — never an island of its own.
+  const leftoverOwners = resolveLeftovers(
+    decided.map((entry) => ({
+      key: entry.band === null ? null : massKeyOf(entry.band),
+      rank: entry.band === null ? null : densityRankOf(entry.band),
+      ring: entry.ring,
+    })),
+  )
+  for (let i = 0; i < decided.length; i++) {
+    const entry = decided[i]
+    if (entry.band !== null) continue
+    const winner = decided[leftoverOwners[i]].band
+    if (winner === null) continue
+    entry.band = winner
+    entry.role = 'fill'
+    remainderAreaM2 += areaM2(entry.ring, width)
   }
 
   const labelled: LabelledFace<RunBand>[] = []
