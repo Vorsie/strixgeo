@@ -20,7 +20,7 @@ class GeotechBandEditPlanResponse(BaseModel):
     kind : str
         ``"split"`` or ``"merge"``.
     parent_top_m : float
-        Top of the hard bounds this edit is confined to (the geo-bounded litho
+        Top of the hard bounds this edit is confined to (the litho
         body). A boundary moves freely inside this range and clamps at its edge.
     parent_base_m : float
         Base of the same hard bounds.
