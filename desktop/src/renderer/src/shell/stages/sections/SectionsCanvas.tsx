@@ -66,6 +66,7 @@ import { buildRestatedContactUndoCommand } from './restatedContactUndo'
 import { useFlaggedTiePrompt } from './useFlaggedTiePrompt'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
 import { useGeotechPendingTieReveal } from './useGeotechPendingTieReveal'
+import { useSectionColumnRevealBridge } from './useSectionColumnRevealBridge'
 import type { SectionColumnRevealFn } from '../../../components/sections/sectionColumnReveal'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
 import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
@@ -1431,6 +1432,10 @@ export default function SectionsCanvas(): JSX.Element {
     columnFocusOn: sectionFocusedColumn !== null,
     revealRef: columnRevealRef,
   })
+  // The same panel reveal, published for the SHELL rather than the toolbar —
+  // the Geotechnical stage's Build pre-flight deep-links a test here and needs
+  // its column centred + pulsed after the stage switch (owner 2026-08-26).
+  useSectionColumnRevealBridge(columnRevealRef)
   // Litho axis left-click creates a ghost layer, not a committed contact.
   // The geological axis keeps the original committed-contact flow unchanged.
   // Geotech axis is view-only: no contact creation (undefined â†’ disabled).
