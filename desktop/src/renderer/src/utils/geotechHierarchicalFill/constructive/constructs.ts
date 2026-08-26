@@ -22,20 +22,22 @@
  *    the sand ABOVE it, not the silt below.
  *  * **an untied contact holds the band's own level** — unless it IS the parent
  *    unit's own contact, where it follows the SOIL's own line (ruling A, litho
- *    approval carries down). A boundary only: 2/1/0 counts packing ties.
+ *    approval carries down). 2/1/0 counts packing ties — and, since 2026-08-26,
+ *    a cover boundary whose far band is the SAME MASS, which is a weld and not
+ *    a statement between packings (``coverWeld.ts``).
  *
  * @module utils/geotechHierarchicalFill/constructive/constructs
  */
 
 import { carryReachTies, taperBetween, type BandCarry } from './carriedTaper'
 import { readsWindow } from './columnReading'
+import { coverContactOf, type CoverContact } from './coverWeld'
 import { emitFor, sameMass, type Emit, type Mass } from './emitKernel'
+import { CONTACT_EPS, farBandOf } from './farBand'
 import { freeContactAt, restOnlapsOnPinches, type FreeVertex } from './onlapRestsOn'
 import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
 
-/** Elevation tolerance (m) at which two contacts are the same contact. */
-const CONTACT_EPS = 1e-6
 /** Smallest lens reach (fraction of the gap) — below this the lens is a hair. */
 const MIN_REACH_FRACTION = 1e-3
 /** Samples along a lens flank when testing it against a tie line. */
@@ -358,41 +360,6 @@ function fanWeldsSameMass(
 }
 
 /**
- * *"follow tie ... check litho and packing density on the other end"* — the
- * mass that continues past the tie, on the SAME SIDE of the contact.
- *
- * The tie lands on a contact of the facing test, and a contact has a band above
- * it and a band below it. A band sitting ABOVE its own contact continues as
- * whatever sits above the contact over there; below, below. Reading the wrong
- * side reads the neighbouring soil and calls a continuous mass a different one,
- * which is the owner's own worked example: the sand's tie lands on the facing
- * sand|silt contact and *"it is the same litho and packing density"*.
- *
- * @param tie The tie on the band's contact.
- * @param ci The band's own column index.
- * @param above Whether the band lies ABOVE the contact the tie is on.
- * @param stacks EVERY packing band per column — the far band may belong to a
- *   neighbouring family, and its mass still decides.
- * @returns The far band, or null when nothing lies on that side there.
- */
-function farBandOf(
-  tie: RunTie,
-  ci: number,
-  elevation: number,
-  above: boolean,
-  stacks: ReadonlyMap<number, readonly RunBand[]>,
-): RunBand | null {
-  const onLeft = tie.leftCi === ci && Math.abs(tie.leftY - elevation) <= CONTACT_EPS
-  const farCi = onLeft ? tie.rightCi : tie.leftCi
-  const farY = onLeft ? tie.rightY : tie.leftY
-  const stack = stacks.get(farCi) ?? []
-  const far = stack.find((b) =>
-    above ? Math.abs(b.base - farY) <= CONTACT_EPS : Math.abs(b.top - farY) <= CONTACT_EPS,
-  )
-  return far ?? null
-}
-
-/**
  * The lens reach: {@link LENS_PINCH_FRACTION}, HALVED while its diamond would
  * cross a tie line (the litho engine's own ruling 8t — *"just halve the length
  * to 0.225"*). A lens may never cross a correlation: the line is the statement.
@@ -443,27 +410,49 @@ export function buildGapConstructs(
   const out: BandConstruct[] = []
   for (const column of [left, right]) {
     const xFar = column.ci === left.ci ? right.x : left.x
+    const facing = column.ci === left.ci ? right : left
     for (const band of column.bands) {
       const topTie = tieOnContact(gapTies, band.ci, band.top, left, right)
       const baseTie = tieOnContact(gapTies, band.ci, band.base, left, right)
-      // RULING A, THE GEOMETRY HALF (owner code-hunt finding, 2026-08-22): an
-      // untied contact that IS the parent litho unit's own boundary follows
-      // the accepted LITHO tie there instead of holding the band's own flat
-      // level — "A boundary only: 2/1/0 counts packing ties" (module header):
-      // this never feeds ``farEnds``/``emitFor``/``contested``, it only
-      // replaces the flat fallback below with a line once the classification
-      // is already decided.
-      const topCoverTie =
-        topTie === null && band.atCoverTop === true
-          ? tieOnContact(gapCoverTies, band.ci, band.top, left, right)
-          : null
-      const baseCoverTie =
-        baseTie === null && band.atCoverBase === true
-          ? tieOnContact(gapCoverTies, band.ci, band.base, left, right)
-          : null
       // The band sits BELOW its own top contact and ABOVE its own base contact.
       const farEnds: Mass[] = []
       const own = massOf(band)
+      // RULING A, THE GEOMETRY HALF (owner code-hunt finding, 2026-08-22): an
+      // untied contact that IS the parent litho unit's own boundary follows the
+      // accepted LITHO tie there instead of holding the band's own flat level.
+      //
+      // ...AND THE WELD HALF (owner, 2026-08-26 — see ``coverWeld.ts``):
+      // *"the tops of all tests are connected? follow the tie, same nad class,
+      // emit nothing."* Where the far band across that boundary is the SAME
+      // MASS the contact counts as TIED for the law as well, because a weld is
+      // not a statement between packings — which is the one thing Ruling A
+      // exists to prevent, and the only case where it still applies in full.
+      const topCover =
+        topTie === null && band.atCoverTop === true
+          ? coverContactOf(
+              band,
+              'top',
+              tieOnContact(gapCoverTies, band.ci, band.top, left, right),
+              column,
+              facing,
+              stacks,
+              own,
+              massOf,
+            )
+          : null
+      const baseCover =
+        baseTie === null && band.atCoverBase === true
+          ? coverContactOf(
+              band,
+              'base',
+              tieOnContact(gapCoverTies, band.ci, band.base, left, right),
+              column,
+              facing,
+              stacks,
+              own,
+              massOf,
+            )
+          : null
       // WHOSE LINE IS IT? *"follow tie"* moves a contact onto its line — but a
       // line the mass over there has already spoken for is not this band's to
       // ride. Three cases, and the third is the owner's vertical:
@@ -532,6 +521,14 @@ export function buildGapConstructs(
         // middle, so the line is shared and both ride it.
         contested[side] = !weldedAcross && farTiedContacts < 2
       }
+      // A WELDED COVER BOUNDARY IS A TIED CONTACT. Its far end is the band's own
+      // mass by definition of the weld, so it can only ever say *"emit
+      // nothing"* — alone (one tied contact, same mass) or alongside a packing
+      // tie (two tied contacts is a band). It never turns anything into an
+      // onlap, and it never contests: nobody is disagreeing about the line.
+      for (const cover of [topCover, baseCover]) {
+        if (cover !== null && cover.welds) farEnds.push(own)
+      }
       // ONE TIE IS ONE ONLAP, AND THICKNESS IS NEVER CONSULTED (owner ruling
       // 2026-08-25, on his TS12 scene — a 0.41 m loose sand carrying a single
       // tie to a 4.26 m medium-dense sand): *"no it has one tie on top, so it
@@ -558,16 +555,22 @@ export function buildGapConstructs(
       const ridesTop = topTie !== null && (bothTied || !(contested.top && emit !== 'onlap'))
       const ridesBase = baseTie !== null && (bothTied || !(contested.base && emit !== 'onlap'))
       // An untied cover contact rides the accepted LITHO line instead of the
-      // band's own flat level (see ``topCoverTie``/``baseCoverTie`` above).
+      // band's own flat level (Ruling A) — or, where no litho tie is stored,
+      // the cover's own edge to the same-mass band it welds to. A stored line
+      // is ridden whatever the far mass reads, exactly as it has been since
+      // 2026-08-22; an IMPLICIT edge is nobody's drawn correlation and earns
+      // its line only by welding (``coverWeld.ts``).
+      const ridesCover = (cover: CoverContact | null): boolean =>
+        cover !== null && (cover.stored || cover.welds)
       const topAt = ridesTop
         ? (x: number) => tieElevAt(topTie as RunTie, x)
-        : topCoverTie !== null
-          ? (x: number) => tieElevAt(topCoverTie, x)
+        : ridesCover(topCover)
+          ? (x: number) => tieElevAt((topCover as CoverContact).tie, x)
           : flat(band.top)
       const baseAt = ridesBase
         ? (x: number) => tieElevAt(baseTie as RunTie, x)
-        : baseCoverTie !== null
-          ? (x: number) => tieElevAt(baseCoverTie, x)
+        : ridesCover(baseCover)
+          ? (x: number) => tieElevAt((baseCover as CoverContact).tie, x)
           : flat(band.base)
       // AN ONLAP PINCHES ONTO ITS OWN LINE (owner, 2026-08-21, on the picture he
       // then confirmed — *"Yes that's it, that has always been the rule, you got
@@ -718,12 +721,19 @@ export function buildGapConstructs(
         })
         continue
       }
+      // A WELDED cover contact reports TIED: its line is the cover's own edge,
+      // which the arrangement already carries as a cover-ring edge, so adding
+      // the band's flat horizontal there would cut a sliver off a boundary the
+      // band never held (``fillGap``'s "every band's own level" pass). A STORED
+      // cover tie that does NOT weld keeps reporting untied, exactly as it has
+      // since Ruling A: the two masses genuinely disagree about that line and
+      // the flat one is a real boundary.
       out.push({
         band,
         emit,
         farX: xFar,
-        topTied: ridesTop,
-        baseTied: ridesBase,
+        topTied: ridesTop || topCover?.welds === true,
+        baseTied: ridesBase || baseCover?.welds === true,
         topAt,
         baseAt,
       })
