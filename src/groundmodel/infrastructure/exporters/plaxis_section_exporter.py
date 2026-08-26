@@ -67,8 +67,13 @@ from groundmodel.infrastructure.exporters.plaxis_script_helpers import (
     emit_header,
     emit_imports_and_connect,
     emit_materials,
+    plaxis_mapping_rows,
 )
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
+from groundmodel.infrastructure.exporters.unit_identifier import format_mapping_table
+from groundmodel.infrastructure.exporters.unit_identifier_constants import (
+    MAPPING_TABLE_PLAXIS_MATERIAL_HEADING,
+)
 
 
 class PlaxisSectionExporter(SectionExporter):
@@ -156,9 +161,16 @@ class PlaxisSectionExporter(SectionExporter):
         lines.append("")
 
         script = "\n".join(lines)
+        # Identifier coverage (debt #104): "my geotech script has no NAD
+        # material names" must be diagnosable from the log alone — nad=0
+        # says the units were never classified, not that we dropped them.
+        named = sum(1 for f in formations_top_down if f.nad_class is not None)
+        with_soil = sum(1 for f in formations_top_down if f.litho_main_soil_code)
         self.success(
             f"Plaxis 2D script emitted: {len(script)} bytes "
-            f"({len(exportable)} columns, {skipped_no_z} skipped)"
+            f"({len(exportable)} columns, {skipped_no_z} skipped, "
+            f"{len(formations_top_down)} materials "
+            f"[nad-named {named}, soil-tagged {with_soil}])"
         )
         return script.encode("utf-8")
 
@@ -223,6 +235,12 @@ class PlaxisSectionExporter(SectionExporter):
                 "5. Run:  python <this_file>.py",
             ],
             notes,
+            # debt #104 — the unit identifiers a downstream tool maps onto
+            # material definitions. Rows follow the emitted material order.
+            format_mapping_table(
+                plaxis_mapping_rows(formations),
+                label_heading=MAPPING_TABLE_PLAXIS_MATERIAL_HEADING,
+            ),
         )
 
     def _emit_boreholes(
