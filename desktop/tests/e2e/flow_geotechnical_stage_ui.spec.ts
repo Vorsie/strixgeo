@@ -3,9 +3,11 @@
  *
  * The Geotechnical stage shipped with F1–F5 (NAD colour map, geotech data
  * layer, axis generalisation, "Subdivide all bodies" verb, and the NAD
- * inspector roster).  The old EmptyState placeholder is gone; the stage now
- * renders ``GeotechnicalCanvas`` (which mounts ``SectionsCanvas`` when a litho
- * model is present) and ``GeotechnicalInspector`` (the NAD unit roster).
+ * inspector roster).  The old EmptyState placeholder is gone; the stage is now
+ * the 3-D geotech room (``GeotechnicalCanvas`` → ``Geology3DViewer`` once
+ * solids are built, a guided Build hint before that) plus
+ * ``GeotechnicalInspector`` (the NAD unit roster).  The 2-D geotech band view
+ * moved to the Sections stage axis picker (owner ruling 2026-08-26).
  *
  * Architecture note — toolbar
  * ---------------------------
@@ -25,8 +27,8 @@
  *    the empty/populated branch is run-order-dependent (the companion spec
  *    ``flow_geotech_subdivide_all_bodies`` creates units that survive into
  *    this spec when both run in the same suite pass).
- * C. The GeotechnicalCanvas renders SectionsCanvas content when a litho model
- *    is active (the section view appears, not a blank canvas).
+ * C. The stage body renders without crashing (the workflow-stage navigation
+ *    survives), whichever of the 3-D viewer / Build hint the DB state yields.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
@@ -51,8 +53,8 @@ test.describe('flow_geotechnical_stage_ui', () => {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
 
       // A — Navigate to the Geotechnical stage (spine label: 'Geotech').
-      // GeotechnicalCanvas forces the axis to 'geotechnical' on mount; it
-      // mounts SectionsCanvas because the fixture has an active litho model.
+      // The canvas is 3-D only: with the fixture's litho model but no built
+      // geotech solids it shows the guided Build hint, never a section view.
       await goToStage(page, 'Geotech')
 
       // B — Inspector mounts with the "Geotech units" heading.  The heading
@@ -71,10 +73,10 @@ test.describe('flow_geotechnical_stage_ui', () => {
       const unitRow = page.locator('[data-testid^="geotech-unit-row-"]').first()
       await expect(emptyState.or(unitRow)).toBeVisible({ timeout: 10_000 })
 
-      // C — The SectionsCanvas mounts (not a blank div); the Map view or
-      // section canvas is present inside the stage body.  Verify by checking
-      // that the canvas/toolbar area renders and the stage did not crash with a
-      // white screen (the "Sections" nav link is still in the sidebar).
+      // C — The stage body renders (not a white screen): the workflow-stage
+      // navigation is still mounted.  Which canvas branch shows (3-D viewer vs
+      // Build hint) depends on whether a prior spec built solids, so the nav is
+      // the stable invariant here.
       await expect(
         page.getByRole('navigation', { name: 'Workflow stages' }),
       ).toBeVisible({ timeout: 5_000 })
