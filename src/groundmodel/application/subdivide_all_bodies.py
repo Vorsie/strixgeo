@@ -722,6 +722,16 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 # the other sections' bands are still there and were classified
                 # with it.
                 geotech_model.classified_with_statistic = None
+            # Debt #266 — the wipe took bands away, so the provenance map must
+            # stop vouching for the columns it took them from. Nothing was
+            # rebuilt, so this stamps nothing: it prunes the map down to the
+            # columns that still carry bands. A stale count that includes an
+            # empty column sends the engineer to press a verb with nothing to do.
+            await self._stamp_litho_provenance(
+                geotech_model=geotech_model,
+                litho_model_id=litho_model_id,
+                rebuilt_column_ids=(),
+            )
             # The wipe above is the most orphaning thing this verb does: every
             # band is gone and nothing replaces it, so every geotech unit the
             # prior run created now describes nothing. Sweep before the commit
@@ -1171,6 +1181,17 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # derived staleness (classified != representative) reads false again
         # (ruling 8: the ONLY thing that re-derives bands is this build).
         geotech_model.classified_with_statistic = statistic
+
+        # Debt #266 — record WHICH litho stack each rebuilt CPT column's bands
+        # came from, so a later litho contact drag can be seen. Only the columns
+        # this press materialised are re-stamped: the borehole columns belong to
+        # DivideBoreholes, and a column skip_existing protected really was built
+        # from the older stack, so it must keep saying so.
+        await self._stamp_litho_provenance(
+            geotech_model=geotech_model,
+            litho_model_id=litho_model_id,
+            rebuilt_column_ids=set(geotech_layer_by_inv_depth.keys()),
+        )
 
         # Phase 10b — retire the vocabulary the rebuild stopped using. The
         # delete pass wiped every band and the rebuild re-derived them from
