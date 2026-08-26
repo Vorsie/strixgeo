@@ -137,6 +137,26 @@ class SectionFormation:
         Editor sort hint — tie-broken by name. Exporters emit
         formations in this order so the user's preferred top-to-bottom
         sequence carries through to the export.
+    nad_class : int | None
+        Belgian NAD packing class (1..31) on a GEOTECHNICAL unit;
+        ``None`` on a geological formation, on a litho unit, and on an
+        unclassified geotech skeleton band. Together with
+        ``litho_main_soil_code`` this is the machine-usable identity a
+        downstream tool maps onto a material definition — see
+        ``infrastructure/exporters/unit_identifier.py`` (debt #104).
+        Pass-through from ``geological_formation.nad_class``, not
+        derived here.
+    litho_main_soil_code : str | None
+        BaseLithology token (ZAND / KLEI / SILT / GRIND / VEEN) on a
+        litho or geotech unit; ``None`` on a geological formation
+        (Boom Klei has no single lithology). Pass-through from
+        ``geological_formation.litho_main_soil_code``.
+    absorbed_unit_names : tuple[str, ...]
+        Display names of the units merged INTO this one by the export
+        thinning pass (debt #104b), in top-down order. Empty unless the
+        snapshot went through ``ThinExportUnits``. The mapping table
+        renders these so the litho / geological boundary the merge
+        erased stays auditable in the delivered artefact.
     """
 
     formation_id: UUID
@@ -144,6 +164,17 @@ class SectionFormation:
     code: str | None
     color: str
     display_order: int
+    # Optional with a null default so the many fixtures that construct
+    # SectionFormation positionally for geological-model tests stay
+    # valid — the three-level identifiers are additive (debt #104).
+    nad_class: int | None = None
+    litho_main_soil_code: str | None = None
+    # Names of the units this one absorbed during export thinning
+    # (debt #104b). Empty on every unthinned snapshot — the Plaxis path
+    # never thins, and the geological / litho levels have no identifier
+    # to thin on. A tuple, not a list, because the dataclass is frozen
+    # and a mutable default would be shared across instances.
+    absorbed_unit_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
