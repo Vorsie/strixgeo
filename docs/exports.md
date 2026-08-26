@@ -245,3 +245,51 @@ script headers state that no water table was exported. Endpoint:
 (mirrors the section DXF endpoint). Surfaced as a card in the
 Export stage hub alongside section DXF; the model-wide Plaxis 3D
 export stays its own card.
+
+**Fence-diagram DXF exporter — shipped 2026-08-26 (owner ballot, v1.0
+MVP).** `DxfFenceExporter` writes the 3-D fence diagram — the vertical
+cross-section walls standing in world space — as a DXF the engineer
+opens directly in AutoCAD / Civil3D. Endpoint:
+`POST /projects/{pid}/geology/models/{mid}/export/fence-dxf`; toolbar
+buttons on the Lithology and Geotechnical stages (never
+`SectionsToolbar` — the fence is a 3-D artefact).
+
+*Why DXF and not a scene screenshot.* A PNG is a picture: it cannot be
+measured, overlaid on a site plan, or dropped into the drawing set that
+is the actual deliverable. It is also the less robust option — a Cesium
+capture needs `preserveDrawingBuffer` (a cost on every rendered frame)
+and has no defined answer in the two-pane split view.
+
+*Why the geometry travels up in the request.* Fence walls are
+triangulated in the RENDERER by `buildProjectFence` → `buildFencePanels`
+from the section partition engine, which has no server-side twin. The
+request also carries the RENDERED name and colour per panel: both are
+presentation-boundary values (litho labels are translated from the raw
+soil code at render time; NAD packing colours override the inherited
+lithology colour and are never stored), so a server that re-derived
+them would produce a DXF disagreeing with the screen it was exported
+from.
+
+*Shape of the output.* One `3DFACE` per triangle, one layer per panel
+name (sanitised to the DXF layer charset, collisions disambiguated),
+layer true-colour from the panel. Interior edges — those shared by two
+triangles — are hidden via the 3DFACE per-edge invisibility flags, so
+CAD shows clean panel outlines rather than a triangle mesh; this is
+deterministic edge counting, without the multi-loop failure modes a
+boundary-walk would carry. Coordinates stay in the project CRS (metres,
+no reprojection); `$INSUNITS` is metres and the EPSG rides in the
+header as a custom property.
+
+*Refusals are loud.* A triangle index out of range for its panel is a
+422 naming the panel and index — a silently dropped face would ship a
+hole in a deliverable. The client refuses BEFORE the request when no
+panel carries geometry, because a valid empty DXF opens fine and reads
+as "the model is empty", which is the one failure a CAD user cannot
+detect by looking.
+
+`DxfFenceExporter` does NOT subclass `SectionExporter`: that ABC's
+`export` takes a `SectionSnapshot` (an application-layer output pulled
+from the DB), and a fence panel is the opposite shape — pre-triangulated
+client geometry. It takes a `FencePanelSource` Protocol instead, stated
+structurally so infrastructure never imports the API request schema.
+(Debt #109 covers splitting the ABC; this change does not attempt it.)
