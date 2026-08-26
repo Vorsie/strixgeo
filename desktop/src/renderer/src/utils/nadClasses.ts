@@ -5,9 +5,17 @@
  * integers (1..31) with the canonical DUTCH labels (``litho_constants.py``
  * NAD_CLASSES, ported verbatim from the NAD-NEN sheet); this module is the
  * single frontend translation point and renders them in ENGLISH (the app's UI
- * language). Density terms are the standard CPT classes (loose / medium dense /
- * dense / very dense); fines use firmness (slightly / moderately / fairly firm /
- * firm) — refine the exact geotech terminology here if preferred.
+ * language).
+ *
+ * The two vocabularies NEVER cross (owner ruling 2026-08-26: "moderately firm
+ * sand just does not exist"). A GRANULAR soil is described by how densely it is
+ * packed — GRAVEL + SAND take loose / medium dense / dense / very dense, the
+ * backend's ``los / matig / dicht / zeer dicht gp`` (gp = gepakt). A COHESIVE
+ * soil is described by how firm it is — SILT + CLAY + PEAT take slightly firm /
+ * moderately firm / fairly firm / firm, the backend's ``weinig vast / matig
+ * vast / vrij vast / vast``. Re-word these labels freely, but a sand may never
+ * be called firm and a clay may never be called dense; pins V1/V2 in
+ * ``nadClasses.test.ts`` hold the line.
  *
  * Colour ramp note: the palette below maps packing density to lightness within
  * each soil family (loosest = lightest, densest = darkest), reading the 31
@@ -36,7 +44,9 @@ import { LITHOLOGY_LABELS } from './lithoConstants'
  * only, so translating it here changes nothing downstream.
  */
 export const NAD_CLASS_NAMES: Readonly<Record<number, string>> = {
-  // GRAVEL — 4 density classes
+  // GRAVEL — 2 densities x clean/silty. The NAD table has no loose and no very
+  // dense gravel: ANB Tabel 2.1 gives gravel a single 20 MPa threshold where
+  // sand gets four bands (see nad_classification_constants.NAD_QC_BANDS).
   1: 'GRAVEL, medium dense',
   2: 'GRAVEL, dense',
   3: 'GRAVEL, silty/clayey, medium dense',
@@ -380,33 +390,60 @@ export function nadClassColor(n: number | null | undefined): string {
 }
 
 /**
- * Return copies of the given formations with each ``color`` replaced by its
- * NAD-class colour (``nadClassColor(nad_class)``).
+ * The colour a geotech unit is drawn in — the ONE rule, for every surface.
+ *
+ * An explicitly picked colour wins over the automatic NAD packing colour, on
+ * the pane swatch, the section fills, the 3-D solids and the legend alike.
+ * Owner ruling 2026-08-26: *"Colours on the right hand pane need to be
+ * choosable if user wants."*
+ *
+ * ``color_override`` is the pick and ``null`` means nobody picked, which is why
+ * the pick is a separate field rather than a value compared against the
+ * automatic colour: the engineer is allowed to choose exactly the colour the
+ * NAD ramp would have produced, and that choice must survive the unit later
+ * changing class. It is also why ``color`` is NOT consulted here — on a geotech
+ * unit that field holds the lithology colour ``GeotechBoreholeMaterialiser``
+ * copied from the source litho unit at create, a machine default that says
+ * nothing about intent.
+ *
+ * @param unit  A geotech unit (``nad_class`` + optional ``color_override``).
+ * @returns  A ``#rrggbb`` colour.
+ */
+export function geotechUnitColor(unit: {
+  nad_class: number | null | undefined
+  color_override?: string | null
+}): string {
+  return unit.color_override ?? nadClassColor(unit.nad_class)
+}
+
+/**
+ * Return copies of the given formations with each ``color`` replaced by the
+ * colour the unit is drawn in (``geotechUnitColor``).
  *
  * Presentation-boundary transform for the 3D geotech body viewer. A geotech
  * (``kind='geotechnical'``) formation stores the *lithology* colour it inherited
  * from its source litho formation (``SubdivideAllBodies._find_or_create_classified``
  * copies ``source_litho.color``), but a geotech body must be coloured by its NAD
- * packing class — the same translate-at-the-presentation-boundary rule the geotech
- * inspector applies per row (it draws ``nadClassColor(f.nad_class)``, never
- * ``f.color``). The 3D viewer (``Geology3DViewer``) colours each body solid by
- * ``solid.display_color ?? formation.color`` matched on ``formation_id``, so passing
- * NAD-coloured formations is the seam that makes the built geotech 3D bodies
- * NAD-coloured without any backend or viewer change.
+ * packing class — or by the engineer's own pick where he made one, which is what
+ * ``geotechUnitColor`` decides. The 3D viewer (``Geology3DViewer``) colours each
+ * body solid by ``solid.display_color ?? formation.color`` matched on
+ * ``formation_id``, so recolouring the formations here is the seam that reaches
+ * the built geotech 3D bodies without any backend or viewer change.
  *
  * The input is never mutated — a shallow copy is returned per formation. Non-colour
- * fields are carried through verbatim.
+ * fields are carried through verbatim, ``color_override`` included, so a consumer
+ * downstream can still tell a pick from a default.
  *
- * @typeParam T  Any object carrying a ``nad_class`` and a ``color`` field
- *               (e.g. ``GeologicalFormationResponse``).
+ * @typeParam T  Any object carrying ``nad_class`` and ``color`` (e.g.
+ *               ``GeologicalFormationResponse``), optionally ``color_override``.
  * @param formations  The geotech formations to recolour.
- * @returns  A new array of shallow copies with ``color`` set to the NAD-class
+ * @returns  A new array of shallow copies with ``color`` set to the drawn
  *           colour; ``[]`` for empty input.
  */
-export function nadColoredFormations<T extends { nad_class: number | null; color: string }>(
-  formations: readonly T[],
-): T[] {
-  return formations.map(f => ({ ...f, color: nadClassColor(f.nad_class) }))
+export function nadColoredFormations<
+  T extends { nad_class: number | null; color: string; color_override?: string | null },
+>(formations: readonly T[]): T[] {
+  return formations.map(f => ({ ...f, color: geotechUnitColor(f) }))
 }
 
 // Reverse map full NAD name → compact label, built once from the two parallel
