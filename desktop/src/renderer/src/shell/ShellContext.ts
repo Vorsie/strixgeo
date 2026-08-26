@@ -197,10 +197,26 @@ export interface Coordinator {
   sectionsDeepLinkTarget: {
     sectionId: string
     contactIds: readonly string[]
+    /**
+     * Investigation whose COLUMN to centre + pulse once the section is open —
+     * the Geotechnical stage's Build pre-flight sends this so "go to that test
+     * through one click" (owner ruling 2026-08-26) lands on the column itself.
+     *
+     * It rides the SAME payload as the contact deep-link because it wants the
+     * same three steps: switch stage, select section, act once the panel has
+     * had a beat to fetch. A caller sets one or the other, never both:
+     * ``contactIds`` is empty here, and ``handleFocusContacts`` no-ops on an
+     * empty list, so the two paths cannot fight over the camera.
+     */
+    revealInvestigationId?: string
   } | null
   /** Set or clear the sections deep-link target. */
   setSectionsDeepLinkTarget: (
-    target: { sectionId: string; contactIds: readonly string[] } | null,
+    target: {
+      sectionId: string
+      contactIds: readonly string[]
+      revealInvestigationId?: string
+    } | null,
   ) => void
   /**
    * Flag the project as having unsaved MUTATIONS of pre-existing rows.
