@@ -866,3 +866,66 @@ describe('SectionsToolbar Admixtures dropdown (dogfeed 2026-05-22)', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Owner dogfeed 2026-08-26 — the axis pill read "Geology | Litho | Geote" on a
+// fullscreen laptop. Root cause: the pill group carried `overflow-hidden`, and
+// per CSS Flexbox §4.5 a flex item's automatic minimum size is min-content
+// ONLY while its overflow is `visible` — so the pill's minimum collapsed to
+// zero, flexbox picked it as the one item free to absorb the whole width
+// deficit, and its own clip cut the last segment mid-word. These pins hold the
+// fix and the guarantee it protects.
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar axis pill — never truncated (owner dogfeed 2026-08-26)', () => {
+  it('AP-SHRINK — the pill refuses to shrink, so flexbox can never cut a segment mid-word', () => {
+    // This is THE root-cause fix. Without `shrink-0` the pill is the only
+    // flex item with a zero automatic minimum, so it soaks up every pixel of
+    // deficit on the row and clips itself.
+    const { container } = renderToolbar(makeCtx({ activeLithoModel: makeLithoModel() }))
+    const pill = container.querySelector('[role="group"][aria-label="Section model axis"]')
+    expect(pill).not.toBeNull()
+    expect(pill?.className, 'the axis pill must never be shrinkable').toContain('shrink-0')
+  })
+
+  it('AP-WORDS — every segment stays a whole word: no segment may wrap or be cut', () => {
+    const { container } = renderToolbar(makeCtx({ activeLithoModel: makeLithoModel() }))
+    const pill = container.querySelector('[role="group"][aria-label="Section model axis"]')
+    const segments = [...(pill?.querySelectorAll('button') ?? [])]
+    expect(segments.map(s => s.textContent)).toEqual(['Geology', 'Litho', 'Geotech'])
+    for (const segment of segments) {
+      expect(segment.className, `${segment.textContent ?? ''} may not wrap`).toContain(
+        'whitespace-nowrap',
+      )
+    }
+  })
+
+  it('AP-NAME — the Geology segment keeps its full accessible name, so the short form never strands a user on "Geo"', () => {
+    const { container } = renderToolbar(makeCtx({ activeLithoModel: makeLithoModel() }))
+    const pill = container.querySelector('[role="group"][aria-label="Section model axis"]')
+    const geology = pill?.querySelector('button')
+    expect(geology?.getAttribute('aria-label')).toBe('Geology')
+  })
+
+  it('AP-REACH — every declared verb is reachable: nothing is dropped by the responsive row', () => {
+    // The toolbar renders through ResponsiveToolbarRow now. In jsdom the
+    // container measures 0 px, which the planner reads as "unmeasured" and
+    // renders at full label — so the whole bar must still be present.
+    renderToolbar(
+      makeCtx({ activeLithoModel: makeLithoModel(), sectionModelAxis: 'lithostratigraphic' }),
+    )
+    for (const testid of [
+      'sections-undo',
+      'litho-suggest',
+      'correlate-mode',
+      'litho-bodies-dropdown',
+      'litho-admixtures-dropdown',
+      'suggest-tie-sections',
+      'sections-toolbar-export-dropdown',
+      'sections-recompute-bodies',
+    ]) {
+      expect(screen.queryByTestId(testid), `${testid} disappeared`).not.toBeNull()
+    }
+    // Nothing folded, so no ⋯ trigger.
+    expect(screen.queryByTestId('toolbar-overflow-more')).toBeNull()
+  })
+})
