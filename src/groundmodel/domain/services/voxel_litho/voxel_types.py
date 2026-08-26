@@ -10,11 +10,12 @@ The request-side objects (:class:`RegionInput`, :class:`SectionColumnInput`,
 :class:`SectionPartitionInput`) mirror the frontend ``SectionRegion`` /
 fence-column shapes one-for-one, in snake_case so they round-trip the API
 JSON unchanged.  :class:`LabelGrid` is the intermediate the labeller
-produces and the mesher consumes.
+produces and the mesher consumes, and it carries a :class:`LabelReport` of
+the structural anomalies the labelling had to paper over.
 
 Notes
 -----
-The approved exception to "one class per file" applies here: all four
+The approved exception to "one class per file" applies here: all the
 value objects are grouped in this single module because they form a
 single cohesive vocabulary (the build-request contract), analogous to
 ``shared/exceptions.py``.  Constants (if needed later) go in a sibling
@@ -219,6 +220,71 @@ class InvestigationColumn:
 
 
 @dataclass(frozen=True)
+class LabelReport:
+    """What the labelling had to paper over, so the caller can say it out loud.
+
+    The labeller is a pure function with no logger of its own, and three of the
+    situations below are invisible in the grid it returns: a closed void looks
+    like a contact, a truncated log looks like a shallow one, and a column the
+    fall-through rescued looks like any other column.  Each is counted here and
+    logged by the application layer.
+
+    Every field is zero / empty on a clean build, so a caller can treat a
+    default-constructed report as "nothing to report".
+
+    Parameters
+    ----------
+    beyond_fallthrough_columns : int
+        Columns BEYOND every section whose nearest section had nothing to say at
+        that position, so a farther one answered instead.  Not a defect — the
+        deliberate defer stance — but the count says how much of the model's
+        rim is carried by a section that is not the nearest.
+    beyond_void_columns : int
+        Columns inside the footprint that NO section could fill.  Each is a hole
+        in a model the owner requires to be gapless, so any non-zero value is a
+        finding, not a statistic.
+    projection_tie_rescues : int
+        Contests where two gaps of ONE section reached a query point at the same
+        distance (to within the projection tie window) and the one carrying
+        material was preferred over the empty one that fence order would have
+        picked.
+    layout_closed_voids : int
+        Column-instances where an interior void wider than the 2-D engine's snap
+        grid arrived on an input stack of the two-section blend and was closed by
+        the cumulative layout.  What such a void SHOULD look like between two
+        sections is an open geological ruling (docs/debt.md #268), so it is
+        reported rather than interpreted.
+    layout_closed_worst_m : float
+        Height of the tallest such void, in metres; ``0.0`` when none was closed.
+    layout_closed_worst_site : str or None
+        Human-readable ``"section {index} gap {index}"`` of that tallest void, or
+        ``None`` when none was closed.
+    hairline_gaps_over_limit : int
+        Interior gaps in a FINAL column stack taller than the hairline limit.
+        A surviving void is legitimate (the partition said unknown), but one this
+        tall is no longer the millimetre snapping of a flush contact.
+    hairline_worst_m : float
+        Height of the tallest interior gap in any final stack, in metres —
+        reported whether or not it passed the limit, so the margin is visible.
+    logs_below_grid_floor : tuple of (str, float)
+        ``(investigation_id, metres_below)`` for every honored investigation whose
+        log reaches deeper than the grid floor and is therefore truncated.  The
+        grid's elevation range comes from the section polygons alone, so a log
+        deeper than every section has nowhere to be labelled.
+    """
+
+    beyond_fallthrough_columns: int = 0
+    beyond_void_columns: int = 0
+    projection_tie_rescues: int = 0
+    layout_closed_voids: int = 0
+    layout_closed_worst_m: float = 0.0
+    layout_closed_worst_site: str | None = None
+    hairline_gaps_over_limit: int = 0
+    hairline_worst_m: float = 0.0
+    logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
+
+
+@dataclass(frozen=True)
 class LabelGrid:
     """A labelled 3-D voxel grid: every cell tagged with the body that fills it.
 
@@ -261,6 +327,10 @@ class LabelGrid:
         Maps each ``body_id`` to its ``formation_id`` (the body's
         lithology), so the mesher can colour each extracted body without
         re-walking the section regions.
+    report : LabelReport
+        The structural anomalies met while labelling.  Defaults to an
+        all-clear report so a hand-built grid (tests, fixtures) needs no
+        knowledge of it.
     """
 
     gx: np.ndarray
@@ -269,3 +339,4 @@ class LabelGrid:
     labels: np.ndarray
     body_id_by_index: tuple[str, ...]
     formation_by_body: dict[str, str]
+    report: LabelReport = LabelReport()
