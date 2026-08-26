@@ -116,6 +116,25 @@ class ClearGeotechColumn(GroundModelLogger):
             )
         ).scalar_one()
         await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
+        # Debt #266 — the column has no bands left, so the model must stop
+        # vouching for what they were built from. Left behind, the entry would
+        # keep counting a column with nothing on it toward the stale total and
+        # point the engineer at a re-press that has nothing to rebuild.
+        # Reassigned rather than mutated: SQLAlchemy does not track in-place
+        # changes to a plain JSONB value.
+        model = await self._session.get(GeologicalModelOrm, geotech_model_id)
+        if model is not None and model.derived_from_litho_digests:
+            remaining = {
+                column: digest
+                for column, digest in model.derived_from_litho_digests.items()
+                if column != str(investigation_id)
+            }
+            if len(remaining) != len(model.derived_from_litho_digests):
+                self.debug(
+                    f"ClearGeotechColumn: dropped the litho provenance stamp for "
+                    f"investigation={investigation_id}"
+                )
+            model.derived_from_litho_digests = remaining
         await self._session.commit()
         self.success(
             f"ClearGeotechColumn ok: investigation={investigation_id} deleted={count} band(s)"
