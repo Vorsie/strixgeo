@@ -52,7 +52,7 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Containment tolerance for matching a geotech band's depth range to the
 # parent litho layer that it subdivides.  The geotech band depths come from
-# the same arithmetic pipeline (divide_picks_by_geology + A3 segmenter), so
+# the same arithmetic pipeline (the litho picks + A3 segmenter), so
 # a tight numeric guard is sufficient.
 _DEPTH_CONTAINMENT_EPS_M: float = 1e-3
 
