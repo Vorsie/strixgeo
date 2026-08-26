@@ -110,13 +110,20 @@ export interface SectionScope {
    */
   openExtentLengthM?: number
   /**
-   * 3-D body solids from the litho model (already built + fetched by
-   * ``useLithoSolids``).  When present on the litho axis, a
-   * ``ModelFillOverlay`` is rendered as a sibling of ``PartitionFillOverlay``
-   * showing the geometric solid fill derived from the 3-D builder.  Absent /
-   * undefined on the geological axis or before any solids are built.
+   * 3-D body solids of the ACTIVE AXIS's built model (already built + fetched
+   * by ``useLithoSolids``, which is model-agnostic — one instance per model).
+   * When present, a ``ModelFillOverlay`` is rendered as a sibling of
+   * ``PartitionFillOverlay`` showing the geometric solid fill cut out of the
+   * 3-D build.
+   *
+   * SectionsCanvas resolves WHICH model's solids these are: the litho build on
+   * the litho axis, the geotech build on the geotech axis. Deliberately not
+   * named for either — handing one axis the other's solids would paint a
+   * different model's bodies under this axis's colours, which reads as correct
+   * and is not. Absent / undefined on the geological axis (it has no body
+   * build of its own) and before anything has been built.
    */
-  lithoSolids?: readonly LithoBodySolidResponse[]
+  modelSolids?: readonly LithoBodySolidResponse[]
   /**
    * When ``true`` (default) the model-fill overlay uses Mode B (section-plane
    * slice of the body solids via ``sliceSolidsAtPlane``).  When ``false`` it
@@ -125,7 +132,8 @@ export interface SectionScope {
    *
    * Read from ``view_state.litho_segmenter.section_fill_at_section_line``
    * by SectionsCanvas and passed in as a pre-resolved boolean to avoid
-   * introducing a shell dependency inside SectionPanel.
+   * introducing a shell dependency inside SectionPanel. One pref across both
+   * model axes: it describes how a build is CUT, not which build it is.
    */
   sectionFillAtSectionLine?: boolean
   /**
