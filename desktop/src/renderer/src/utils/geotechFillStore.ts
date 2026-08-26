@@ -39,15 +39,22 @@ import { createBooleanStore } from './createBooleanStore'
 // pair) as ``bandFillStore`` ↔ ``formationFillStore``: function refs only, used
 // at click time, safe under ESM/Vite.
 import { setLithoFillOnGeotech } from './lithoFillOnGeotechStore'
+// The built 3-D geotech model is the third fill this axis can paint, and the
+// one-fill-at-a-time rule covers it too (2026-08-26).
+import { setGeotechModelFill } from './geotechModelFillStore'
 
 const store = createBooleanStore(false)
 
 /** Flip the geotech fill visibility and notify subscribers.
- *  ON-transition auto-hides the litho fill (mutual exclusion); the
- *  OFF-transition never resurrects it — no fill is a legitimate state. */
+ *  ON-transition auto-hides the litho fill and the built-model fill (mutual
+ *  exclusion); the OFF-transition never resurrects them — no fill is a
+ *  legitimate state. */
 export function toggleGeotechFill(): void {
   store.toggle()
-  if (store.get()) setLithoFillOnGeotech(false)
+  if (store.get()) {
+    setLithoFillOnGeotech(false)
+    setGeotechModelFill(false)
+  }
 }
 
 /** Set the geotech fill visibility directly (no exclusion side effect). */
