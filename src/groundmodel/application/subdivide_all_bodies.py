@@ -4,7 +4,7 @@ Geotechnical stage — Slice B (spec
 ``docs/superpowers/specs/2026-06-23-geotech-stage-slice-1-design.md`` §0.1).
 
 ``SubdivideAllBodies`` is the **classify-and-materialise** step of the
-body-centric geotech flow.  It groups the geo-bounded litho
+body-centric geotech flow.  It groups the litho
 picks by ``(body_id, source_geo_formation_id)``, runs the A3 segmenter per
 CPT member, applies the B-policy aggregator to decide consistent-split vs
 one-class, interpolates split surfaces onto every column (CPTs + boreholes),
@@ -182,10 +182,7 @@ from groundmodel.domain.services.geotech_subdivision import (
     suggest_geotech_subdivision,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.litho_geo_bounding import (
-    divide_picks_by_geology,
-    mark_and_truncate_shallow_tests,
-)
+from groundmodel.domain.services.litho_geo_bounding import mark_and_truncate_shallow_tests
 from groundmodel.domain.services.representative_statistic import REPRESENTATIVE_STATISTICS
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
@@ -757,12 +754,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 skipped_off_section_labels=skipped_labels,
             )
 
-        # Phase 3 — geo-bound picks (same pipeline as C1, but a wider geotech
-        # snap tolerance so true near-coincident geo slivers snap to the litho
-        # contact instead of carving thin geotech sub-units).
-        snap_tol = await self._read_geotech_snap_tolerance_m(geotech_model.app_project_id)
+        # Phase 3 — flag the tests too shallow to floor the model. NOTHING cuts
+        # the picks here: the geological surfaces LABEL each segment in phase 5
+        # and divide none of it (owner, 2026-08-26 — "just drop the wall
+        # everywhere, user wil have to manually do it").
         geo_surfaces = await self._load_geo_surfaces_with_formation(litho_model.parent_model_id)
-        boundary_sampler = self._make_boundary_sampler(geo_surfaces)
         lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
 
         shallow = mark_and_truncate_shallow_tests(picks, lowest_sampler)
@@ -771,10 +767,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 f"SubdivideAllBodies: {len(shallow.marked_investigation_ids)} "
                 "shallow test(s) marked"
             )
-        divided = divide_picks_by_geology(shallow.picks, boundary_sampler, snap_tol)
+        divided = shallow.picks
         self.info(
-            f"SubdivideAllBodies: {len(divided)} geo-bounded segment(s) "
-            f"(snap_tol={snap_tol} m) [{time.monotonic() - t0:.1f}s]"
+            f"SubdivideAllBodies: {len(divided)} litho segment(s) uncut "
+            f"across {len(geo_surfaces)} geological surface(s) "
+            f"[{time.monotonic() - t0:.1f}s]"
         )
 
         # Phase 4 — idempotent reset: delete the geotech data this run rebuilds.
@@ -791,8 +788,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             [] if scoped_members is None else await tie_reanchor.surviving_bands(geotech_model.id)
         )
 
-        # Phase 5 — group geo-bounded segments by (body_id, source_geo_formation_id).
-        groups = await self._group_segments(divided, geo_surfaces)
+        # Phase 5 — LABEL each segment with its geological unit and group by
+        # (body_id, source_geo_formation_id). The label is derived, never a cut.
+        groups = self._group_segments(divided, geo_surfaces)
         self.info(f"SubdivideAllBodies: {len(groups)} body group(s) to process")
 
         # Phase 6 — anchor-kind lookup for ALL model investigations.
