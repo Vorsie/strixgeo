@@ -11,26 +11,38 @@ they live at module level rather than in a mixin class.
 Formation protocol
 ------------------
 Both exporter families receive a list of formation objects that differ in
-type (``FormationDisplay`` vs ``SectionFormation``) but share the two
-attributes these helpers care about: ``.name: str`` and
-``.display_order: int``.  We use ``typing.Protocol`` to express the
-structural constraint without coupling to either concrete type.
+type (``FormationDisplay`` vs ``SectionFormation``) but share the
+attributes these helpers care about: ``.name``, ``.display_order``, and
+the three-level unit identifiers ``.nad_class`` /
+``.litho_main_soil_code`` / ``.formation_id`` (debt #104).  We use
+``typing.Protocol`` to express the structural constraint without
+coupling to either concrete type.
 """
 
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 from typing import Protocol, TypeVar
+from uuid import UUID
+
+from groundmodel.infrastructure.exporters.unit_identifier import (
+    UnitMappingRow,
+    naming_identifier,
+)
+from groundmodel.infrastructure.exporters.unit_identifier_constants import (
+    DUPLICATE_MATERIAL_SUFFIX,
+    UNIT_ID_NAME_SEPARATOR,
+)
 
 KeyT = TypeVar("KeyT", bound=Hashable)
 
 
 class _HasNameAndOrder(Protocol):
-    """Structural protocol for objects with a name and a display order.
+    """Structural protocol for a formation as the shared emitters see it.
 
     Both ``FormationDisplay`` (``GroundModelSnapshot``) and
     ``SectionFormation`` (``SectionSnapshot``) satisfy this interface.
-    Only the two attributes consumed by the shared helpers need to be
+    Only the attributes consumed by the shared helpers need to be
     present; any extra attributes on the concrete types are ignored.
     """
 
@@ -44,6 +56,21 @@ class _HasNameAndOrder(Protocol):
         """Stratigraphic-age axis — lower is older."""
         ...
 
+    @property
+    def nad_class(self) -> int | None:
+        """Belgian NAD packing class on a geotechnical unit, else ``None``."""
+        ...
+
+    @property
+    def litho_main_soil_code(self) -> str | None:
+        """BaseLithology token on a litho / geotech unit, else ``None``."""
+        ...
+
+    @property
+    def formation_id(self) -> UUID | None:
+        """Source ``geological_formation`` row id, when the snapshot carries it."""
+        ...
+
 
 # Type alias used in helper signatures.
 Formation = _HasNameAndOrder
@@ -54,14 +81,16 @@ def emit_header(
     subject_lines: list[str],
     usage_lines: list[str],
     notes_lines: list[str],
+    mapping_table_lines: list[str] | None = None,
 ) -> list[str]:
     """Return the provenance docstring header for an emitted script.
 
     Both exporters open the script with the same skeleton — a triple-
     quoted docstring holding a title, a subject/provenance block, a
-    USAGE section, and a NOTES section. The variable content (field
-    lines, product name, per-exporter caveats) is supplied by the
-    caller; only the section order + fencing lives here.
+    USAGE section, an optional UNIT MAPPING TABLE, and a NOTES section.
+    The variable content (field lines, product name, per-exporter
+    caveats) is supplied by the caller; only the section order +
+    fencing lives here.
 
     Parameters
     ----------
@@ -75,6 +104,13 @@ def emit_header(
         Numbered how-to-run steps.
     notes_lines : list[str]
         Bullet caveats (placeholders, ordering, dropped columns, ...).
+    mapping_table_lines : list[str] | None
+        Pre-rendered unit mapping table (debt #104) — material -> NAD
+        class -> soil -> unit name -> formation id. Placed after USAGE
+        so the engineer meets it right after importing. ``None`` or
+        empty emits nothing, which is what a geological-model export
+        does: it has no identifiers to map, and the emitted script is
+        then byte-identical to the pre-#104 output.
 
     Returns
     -------
@@ -85,6 +121,9 @@ def emit_header(
     header.extend(subject_lines)
     header.extend(["", "USAGE", "-----"])
     header.extend(usage_lines)
+    if mapping_table_lines:
+        header.append("")
+        header.extend(mapping_table_lines)
     header.extend(["", "NOTES", "-----"])
     header.extend(notes_lines)
     header.extend(['"""', ""])
@@ -206,16 +245,24 @@ def emit_imports_and_connect() -> list[str]:
     ]
 
 
-def emit_materials(formations: list[Formation]) -> list[str]:
+def emit_materials(formations: Sequence[Formation]) -> list[str]:
     """Return one Mohr-Coulomb soilmat block per formation.
 
     The block is identical for Plaxis 2D and 3D — both create
     ``g_i.soilmat()`` placeholders with only the Identification name
     set (Phase 5 fills in parameters).
 
+    A unit carrying a NAD packing class is identified as
+    ``"NAD-06_ZAND - <unit name>"`` so the engineer can map the Plaxis
+    material onto a material definition without leaving the material
+    list (debt #104); every other level keeps the bare display name.
+    Names come from ``material_names`` so two units sharing a class and
+    a soil never collapse onto one Python variable or one PLAXIS
+    identification.
+
     Parameters
     ----------
-    formations : list[Formation]
+    formations : Sequence[Formation]
         Formations in the order the caller wants them emitted.
         Sorting is the caller's responsibility; this helper emits
         them verbatim.
@@ -229,19 +276,18 @@ def emit_materials(formations: list[Formation]) -> list[str]:
         "# ---- Soil materials (Mohr-Coulomb placeholders) ----",
         "materials = {}",
     ]
-    for f in formations:
-        var = material_variable_name(f.name)
+    for var, identification in material_names(formations):
         lines.append(f"{var} = g_i.soilmat()")
-        lines.append(f"{var}.Identification = {py_str(f.name)}")
+        lines.append(f"{var}.Identification = {py_str(identification)}")
         # SoilModel = 1 → Mohr-Coulomb in every PLAXIS release we
         # care about (2018+). The numeric enum has been stable.
         lines.append(f"{var}.SoilModel = 1")
-        lines.append(f"materials[{py_str(f.name)}] = {var}")
+        lines.append(f"materials[{py_str(identification)}] = {var}")
     lines.append("")
     return lines
 
 
-def emit_global_layers(formations: list[Formation]) -> list[str]:
+def emit_global_layers(formations: Sequence[Formation]) -> list[str]:
     """Return the global soil-layer stack — top-down, one per formation.
 
     Layer index ``i`` in the emitted code corresponds to
@@ -251,7 +297,7 @@ def emit_global_layers(formations: list[Formation]) -> list[str]:
 
     Parameters
     ----------
-    formations : list[Formation]
+    formations : Sequence[Formation]
         Formations already sorted youngest-first (highest
         ``display_order`` first).
 
@@ -266,8 +312,8 @@ def emit_global_layers(formations: list[Formation]) -> list[str]:
         "# stratigraphic order Strix exported. Plaxis layer 0 is the",
         "# topmost (youngest) formation in the soil column.",
     ]
-    for i, f in enumerate(formations):
-        mat_var = material_variable_name(f.name)
+    variables = [variable for variable, _ in material_names(formations)]
+    for i, (f, mat_var) in enumerate(zip(formations, variables, strict=True)):
         # soillayer(0) creates an empty global layer; the new layer
         # appears at the end of g_i.Soillayers. We assign material
         # via the last index regardless of the implementation
@@ -280,18 +326,148 @@ def emit_global_layers(formations: list[Formation]) -> list[str]:
     return lines
 
 
+def material_identification(formation: Formation) -> str:
+    """Return the PLAXIS ``Identification`` string for one unit.
+
+    A unit that carries a NAD packing class leads with its machine
+    identifier so the material list in PLAXIS is directly mappable:
+    ``"NAD-06_ZAND - Zand van Diest (NAD 6)"``. Every other level —
+    geological formations, litho units, unclassified geotech skeleton
+    bands — keeps the bare display name, byte-identical to the pre-#104
+    output; their identifiers travel through the mapping table instead.
+
+    Parameters
+    ----------
+    formation : Formation
+        The unit being emitted.
+
+    Returns
+    -------
+    str
+        The identification string to assign in the emitted script.
+    """
+    identifier = naming_identifier(
+        nad_class=formation.nad_class,
+        litho_main_soil_code=formation.litho_main_soil_code,
+    )
+    if identifier is None:
+        return formation.name
+    return f"{identifier}{UNIT_ID_NAME_SEPARATOR}{formation.name}"
+
+
+def material_names(formations: Sequence[Formation]) -> list[tuple[str, str]]:
+    """Return one collision-free ``(variable, identification)`` pair per unit.
+
+    Two units legitimately share a ``(nad_class, soil)`` pair — NAD 6
+    sand under two different geological parents is a normal model — and
+    two formations can share a display name (the seed-from-stratigraphy
+    flow leaves duplicates for the engineer to resolve). Either case
+    derived the SAME variable name for two materials, so the second
+    ``g_i.soilmat()`` silently overwrote the first and one unit vanished
+    from the imported model — and left PLAXIS showing two materials
+    under one identification, which is unmappable by hand.
+
+    Repeats therefore get an ordinal on BOTH halves of the pair, in
+    emission order, which is deterministic because the callers sort
+    their formation list before emitting. The first occurrence keeps the
+    bare names, so a model with no duplicates emits byte-identical
+    output to before debt #104.
+
+    The DXF exporter disambiguates its layer names with the formation's
+    short id instead. The two schemes differ on purpose: a DXF layer
+    name must stay under 255 characters and is compared case-folded, an
+    ordinal alone would not survive that, whereas a PLAXIS identification
+    has neither constraint and reads better with a plain ``#2``. The
+    mapping table carries the formation UUID in both artefacts, so the
+    ambiguity is always resolvable whichever one reached the engineer.
+
+    Parameters
+    ----------
+    formations : Sequence[Formation]
+        Formations in the order the caller will emit them.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        ``(python_variable, plaxis_identification)``, positionally
+        aligned with ``formations``.
+    """
+    pairs: list[tuple[str, str]] = []
+    used: dict[str, int] = {}
+    for f in formations:
+        # Derive from the IDENTIFIER when the unit is classified so the
+        # variable reads ``mat_nad_06_zand`` rather than repeating the
+        # display name; unclassified units keep their pre-#104 variable.
+        token = (
+            naming_identifier(
+                nad_class=f.nad_class,
+                litho_main_soil_code=f.litho_main_soil_code,
+            )
+            or f.name
+        )
+        variable = material_variable_name(token)
+        identification = material_identification(f)
+        seen = used.get(variable, 0)
+        used[variable] = seen + 1
+        if seen:
+            ordinal = seen + 1
+            variable = f"{variable}_{ordinal}"
+            identification = f"{identification}{DUPLICATE_MATERIAL_SUFFIX}{ordinal}"
+        pairs.append((variable, identification))
+    return pairs
+
+
+def plaxis_mapping_rows(formations: Sequence[Formation]) -> list[UnitMappingRow]:
+    """Build the unit mapping-table rows for an emitted Plaxis script.
+
+    Only units that actually carry an identifier are listed, so a
+    geological-model export yields an empty list and emits no table.
+    The ``export_label`` quotes the ``Identification`` the script
+    ACTUALLY assigns — disambiguating ordinal included — so a row matches
+    the PLAXIS material list verbatim.
+
+    Parameters
+    ----------
+    formations : Sequence[Formation]
+        Formations in the order the script emits them (top-down), so
+        the table reads in the same order as the material list.
+
+    Returns
+    -------
+    list[UnitMappingRow]
+        One row per identifier-carrying unit.
+    """
+    identifications = [identification for _, identification in material_names(formations)]
+    return [
+        UnitMappingRow(
+            export_label=identification,
+            nad_class=f.nad_class,
+            soil_code=f.litho_main_soil_code,
+            display_name=f.name,
+            formation_id=f.formation_id,
+        )
+        for f, identification in zip(formations, identifications, strict=True)
+        if f.nad_class is not None or f.litho_main_soil_code
+    ]
+
+
 def material_variable_name(name: str) -> str:
-    """Turn a formation name into a safe lowercase Python identifier.
+    """Turn a material identification into a safe lowercase Python identifier.
 
     Plaxis material identifiers accept spaces and Dutch accents, but the
     emitted Python variable cannot. Maps non-alphanumeric chars to ``_``,
     collapses runs of underscores, and prefixes ``mat_`` so the result is
     unambiguous and readable in the script.
 
+    Uniqueness is NOT this function's job — two inputs can sanitise to
+    the same identifier. Callers go through ``material_names``, which
+    resolves repeats.
+
     Parameters
     ----------
     name : str
-        Formation display name (e.g. ``"Boom Klei"``).
+        Material identification (e.g. ``"Boom Klei"`` or
+        ``"NAD-06_ZAND - Zand van Diest (NAD 6)"``).
 
     Returns
     -------
