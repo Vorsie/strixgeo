@@ -27,6 +27,7 @@ import {
   getBytes,
   patch,
   post,
+  postBytes,
   put,
 } from './shared'
 import { geotechBandsClient } from './geotechBands'
@@ -34,6 +35,7 @@ import { log } from '../../utils/log'
 import type { CrossSectionResponse } from './section'
 import type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
 import type { RecomputeBodiesRequest } from '../../utils/buildBodyRecomputePayload'
+import type { FenceExportRequest } from '../../utils/fenceExportRequest'
 
 // All request/response types live in geology.types.ts; re-export the
 // full catalogue so existing callers keep importing from this module.
@@ -71,6 +73,7 @@ import type {
   DiscoverFromStratigraphyResponse,
   DeduplicateContactsResponse,
   LithoBodySolidResponse,
+  ModelFootprintResponse,
   RebuildLithoSolidsResponse,
   RecomputeBodiesResponse,
   UpdateBodyColorResponse,
@@ -153,6 +156,54 @@ export const geologyClient = {
       `/projects/${projectId}/geology/models/${modelId}/export/plaxis3d`,
       'Plaxis export failed',
     ),
+
+  /**
+   * POST .../export/fence-dxf — the 3-D fence diagram as a DXF deliverable.
+   *
+   * The fence walls are triangulated in the RENDERER (the section partition
+   * engine has no server-side twin), so the geometry travels up in the request
+   * body rather than being named by the URL — hence POST, not GET.
+   *
+   * Parameters
+   * ----------
+   * projectId
+   *     Project scope guard.
+   * modelId
+   *     The model whose fence is being exported (litho or geotech).
+   * request
+   *     Panels assembled by ``buildFenceExportRequest`` — the geometry, names
+   *     and colours exactly as the viewer painted them.
+   *
+   * Returns the raw DXF bytes for the Electron save-dialog + write-file pair.
+   */
+  exportFenceDxf: (
+    projectId: string,
+    modelId: string,
+    request: FenceExportRequest,
+  ): Promise<ArrayBuffer> =>
+    postBytes(
+      `/projects/${projectId}/geology/models/${modelId}/export/fence-dxf`,
+      request,
+      'Fence export failed',
+    ),
+
+  /**
+   * GET .../footprint — the model's footprint boundary ring.
+   *
+   * The alpha hull the 3-D build clipped the labelling to, re-derived
+   * server-side from the persisted build payload. Answers 200 with an empty
+   * ``polygon`` + an ``unavailable_reason`` when the model was never built or
+   * its investigations do not frame an area — never an error for those.
+   *
+   * Parameters
+   * ----------
+   * projectId
+   *     Project scope guard.
+   * modelId
+   *     The model whose footprint is wanted.
+   */
+  getModelFootprint: (projectId: string, modelId: string): Promise<ModelFootprintResponse> =>
+    get(`/projects/${projectId}/geology/models/${modelId}/footprint`),
 
   // --- Formations vocabulary -------------------------------------------
   listFormations: (projectId: string): Promise<GeologicalFormationResponse[]> =>
