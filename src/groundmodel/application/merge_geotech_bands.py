@@ -59,6 +59,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     transfer_accepted_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import (
     GeotechBandEditError,
@@ -234,6 +235,10 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
+        # The heaviest case: every absorbed row is deleted and the survivor is
+        # re-pointed at the merged class, so an N-run merge can retire several
+        # formations in one gesture.
+        await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
         await self._session.commit()
 
         # The transferred ties were flagged BY the transfer; the revalidation
