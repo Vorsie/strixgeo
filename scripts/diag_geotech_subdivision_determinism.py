@@ -60,7 +60,6 @@ from groundmodel.domain.services.geotech_subdivision import (  # noqa: E402
     suggest_geotech_subdivision,
 )
 from groundmodel.domain.services.litho_geo_bounding import (  # noqa: E402
-    divide_picks_by_geology,
     mark_and_truncate_shallow_tests,
 )
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm  # noqa: E402
@@ -223,31 +222,30 @@ async def main() -> None:
         use_case = SubdivideAllBodies(session)
 
         # --- the exact knobs the use case reads ---------------------------
-        snap_tol = await use_case._read_geotech_snap_tolerance_m(geotech.app_project_id)
         min_thickness_m = await use_case._read_min_thickness_m(geotech.app_project_id)
         gradient_snap, gradient_snap_window_m = await use_case._read_gradient_snap(
             geotech.app_project_id
         )
         print(
-            f"  knobs: snap_tol={snap_tol} min_thickness_m={min_thickness_m} "
+            f"  knobs: min_thickness_m={min_thickness_m} "
             f"gradient_snap={gradient_snap} window_m={gradient_snap_window_m}"
         )
         report["knobs"] = {
-            "snap_tolerance_m": snap_tol,
             "min_thickness_m": min_thickness_m,
             "gradient_snap": gradient_snap,
             "gradient_snap_window_m": gradient_snap_window_m,
         }
 
-        # --- Phase 2 + 3: picks -> geo-bounded segments -------------------
+        # --- Phase 2 + 3: picks -> geo-LABELLED segments (never cut) ------
         picks = await use_case._litho_repo.load_body_picks(litho_model_id)
         geo_surfaces = await use_case._load_geo_surfaces_with_formation(litho_model.parent_model_id)
-        boundary_sampler = use_case._make_boundary_sampler(geo_surfaces)
         lowest_sampler = use_case._make_lowest_boundary_sampler(geo_surfaces)
         shallow = mark_and_truncate_shallow_tests(picks, lowest_sampler)
-        divided = divide_picks_by_geology(shallow.picks, boundary_sampler, snap_tol)
+        # The geological wall was dropped on 2026-08-26; the builder cuts
+        # nothing here, so neither does this reproduction of its call.
+        divided = shallow.picks
         print(
-            f"  {len(picks)} pick(s) -> {len(divided)} geo-bounded segment(s) "
+            f"  {len(picks)} pick(s) -> {len(divided)} uncut segment(s) "
             f"over {len(geo_surfaces)} geo surface(s)\n"
         )
 
