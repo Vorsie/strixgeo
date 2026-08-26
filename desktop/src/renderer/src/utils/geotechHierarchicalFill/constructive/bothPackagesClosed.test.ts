@@ -408,23 +408,41 @@ describe('a stacked seam half keeps mTAW level', () => {
   })
 
   it('SS3: one on one, both closed — *"if it is one on one the rule stays the same"*', () => {
-    // ONE band facing ONE band is explicitly OUT of scope: whatever the emit
-    // law already draws there stands, WEDGES AND ALL. Two facing bands each
-    // carrying the one shared tie both onlap it (owner 2026-08-25: *"no it has
-    // one tie on top, so it should onlap that same tie"*) and meet at the
-    // middle, so each is the triangle from its own full-thickness column edge
-    // to the seam — and the ground below the two triangles stays hatch. Pinned
-    // verbatim so the stacked rule cannot leak into the case he ruled out of it.
+    // ONE band facing ONE band is explicitly OUT of the STACKED-SEAM rule's
+    // scope: whatever the emit law already draws there stands, WEDGES AND ALL.
+    // Two facing bands each carrying the one shared tie both onlap it (owner
+    // 2026-08-25: *"no it has one tie on top, so it should onlap that same
+    // tie"*) and meet at the middle, so each is the triangle from its own
+    // full-thickness column edge to the seam. Pinned verbatim so the stacked
+    // rule cannot leak into the case he ruled out of it.
+    //
+    // ...AND THE GROUND BELOW THE TWO TRIANGLES IS NO LONGER HATCH (owner,
+    // 2026-08-26: *"if 2 lenses are pointed to eachother and there is nothing
+    // else to fill the gap, no open band above or below, then you fill with the
+    // lowest density"* — see ``leastDenseLeftover.ts``). This scene IS his
+    // scene: nothing runs through, both wedges close, and what they leave takes
+    // the LOWER of the two classes, NAD 6 against NAD 8. It stays ONE piece —
+    // splitting it at the middle and giving each half its own side is the
+    // reading he rejected that morning, *"a big NOOOO"*.
+    //
+    // NEITHER WEDGE MOVED. B's triangle is byte-identical below; A's own flank
+    // from (0, -4) to (0.5, 10) is still exactly where the law drew it and is
+    // now INTERIOR to A's region, because the leftover that welded onto it is
+    // the same mass — which is the ordinary fill sweep, not a new shape.
     const out = oneOnOneScene()
     const shape = out.regions.map((r) => ({
       formationId: r.formationId,
       ring: r.polygon.map((p) => [Number(p.fraction.toFixed(3)), Number(p.elevation.toFixed(2))]),
     }))
     expect(shape, 'the one-on-one collision shapes moved').toEqual([
-      { formationId: N6, ring: [[0, 10], [0, -4], [0.5, 10]] },
+      { formationId: N6, ring: [[0, -4], [0.5, -4], [1, -4], [0.5, 10], [0, 10]] },
       { formationId: N8, ring: [[0.5, 10], [1, -4], [1, 10]] },
     ])
     expect(paintAt(out.regions, 0, 0.25, 8.0)?.formationId, 'A owns the ground beside A').toBe(N6)
     expect(paintAt(out.regions, 0, 0.75, 8.0)?.formationId, 'B owns the ground beside B').toBe(N8)
+    // The leftover, on BOTH sides of the middle — one mass, no seam.
+    expect(paintAt(out.regions, 0, 0.25, -2.0)?.formationId, "A's half of the leftover").toBe(N6)
+    expect(paintAt(out.regions, 0, 0.75, -2.0)?.formationId, "B's half of the leftover").toBe(N6)
+    expect(out.lithoFallback, 'the one-on-one leftover is still hatch').toEqual([])
   })
 })
