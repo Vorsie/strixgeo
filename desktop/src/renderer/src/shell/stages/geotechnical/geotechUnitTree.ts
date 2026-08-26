@@ -13,8 +13,8 @@
  * themselves only when a class actually has more than one.
  *
  * All the arithmetic lives here rather than in the component so the grouping,
- * the sums, the badge roll-up and the show-empty partition are testable without
- * a DOM.
+ * the sums, the badge roll-up and the empty-row filter are testable without a
+ * DOM.
  *
  * What "band" counts
  * ------------------
@@ -26,6 +26,7 @@
  */
 
 import type { LithoLayerConfidence } from '../../../api/client'
+import { geotechRowColorOverride } from '../../../utils/geotechRowColorOverride'
 import {
   geotechUnitLabel,
   geotechUnitSoil,
@@ -105,6 +106,8 @@ export interface GeotechUnitRef {
   name?: string | null
   display_order: number
   source_litho_formation_id?: string | null
+  /** The colour the engineer picked for this unit; null when nobody has. */
+  color_override?: string | null
 }
 
 /** The field of an accepted geotech contact the tree reads. */
@@ -131,8 +134,6 @@ export interface GeotechUnitTreeInput {
    * Used to tell same-class instances apart when a class carries several.
    */
   sourceLithoNameById?: ReadonlyMap<string, string>
-  /** When true, zero-band units are included in the tree. Default false. */
-  showEmpty?: boolean
 }
 
 /** One unit instance under a NAD-class row. */
@@ -153,7 +154,17 @@ export interface GeotechClassRow {
   nadClass: number | null
   /** Firmness / density word only — the soil sits in the header above. */
   label: string
+  /** What to draw the swatch in: the picked colour, else the NAD colour. */
   color: string
+  /**
+   * The picked colour when one is in force across the whole row, else null.
+   *
+   * Separate from ``color`` because the row needs to know WHETHER a pick is in
+   * force, not just what to draw — that is what its reset-to-automatic control
+   * appears for, and a pick that happens to equal the NAD colour is still a
+   * pick (see ``geotechUnitColor``).
+   */
+  colorOverride: string | null
   /** Bands summed across every instance carrying this class. */
   bandCount: number
   /** Worst provenance among the instances. */
@@ -177,8 +188,6 @@ export interface GeotechUnitTree {
   groups: GeotechSoilGroup[]
   /** Units that describe something in this model — the "N with bands" figure. */
   unitCount: number
-  /** Units that describe nothing — the "show empty (N)" figure. Always computed. */
-  emptyCount: number
   /** Total bands across the units on the roster. */
   bandCount: number
 }
@@ -236,36 +245,39 @@ const UNCLASSIFIED_SORT_KEY = Number.MAX_SAFE_INTEGER
  *   putting it at the bottom keeps the classified reading uninterrupted.
  * * Instances by ``display_order``, then id, so the order is total.
  *
- * Empty rows
- * ----------
+ * Empty rows are DROPPED, unconditionally
+ * ---------------------------------------
  * "Empty" means the unit describes NOTHING in this model — no accepted bands
- * and no layers of any status. It deliberately does NOT mean "no class": a
- * unit with no packing class but real bands is unclassified GROUND, the row
- * the engineer needs in front of him, and it stays in the main tree.
+ * and no layers of any status. Such a unit is not listed and there is no lever
+ * to list it. Owner ruling, dogfeed 2026-08-26: "The show empty is weird
+ * though, if a bin is empty that means there is nothing in it and nothing
+ * exists". The pane is a description of the ground the model holds; a row for
+ * ground that is not there is nothing the engineer can act on, and the backend
+ * orphan sweep deletes those units shortly in any case.
+ *
+ * "Empty" deliberately does NOT mean "no class": a unit with no packing class
+ * but real bands is unclassified GROUND, the row the engineer most needs in
+ * front of him, and it stays in the tree.
  *
  * The definition is the frontend twin of the backend's orphan predicate
  * (``OrphanFormationSweep``: no layer, no contact, no body). Keeping the two
- * aligned means the row the pane files under "empty" is the row the next verb
- * sweeps away — if the pane hid on band count alone it would list a unit as
- * empty that the backend still considers live.
- *
- * ``emptyCount`` is computed whether the toggle is on or off, so the control
- * can always say how many it holds.
+ * aligned means the row the pane drops is the row the next verb sweeps away —
+ * if the pane hid on band count alone it would drop a unit the backend still
+ * considers live.
  *
  * Parameters
  * ----------
  * input
- *     Units, accepted contacts, layers, the optional source-name map, and the
- *     show-empty flag.
+ *     Units, accepted contacts, layers, and the optional source-name map.
  *
  * Returns
  * -------
  * GeotechUnitTree
- *     Groups plus the three header counters. Never throws; an empty ``units``
+ *     Groups plus the two header counters. Never throws; an empty ``units``
  *     yields an empty tree.
  */
 export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTree {
-  const { units, contacts, layers, sourceLithoNameById, showEmpty = false } = input
+  const { units, contacts, layers, sourceLithoNameById } = input
 
   // One pass each over the two big arrays — the flat roster re-filtered both
   // per row, which is O(units x rows) on a project with ~650 bands.
@@ -284,18 +296,12 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
   const describesNothing = (u: GeotechUnitRef): boolean =>
     (bandCountByUnit.get(u.id) ?? 0) === 0 && (confidencesByUnit.get(u.id)?.length ?? 0) === 0
 
-  // Header counters read every unit on the roster, including the ones the
-  // show-empty filter is about to drop.
-  let unitCount = 0
+  // The counters describe what the pane SHOWS, so they count the same rows the
+  // filter keeps — an empty unit contributes to neither.
+  const visible = units.filter(u => !describesNothing(u))
   let bandCount = 0
-  let emptyCount = 0
-  for (const u of units) {
-    bandCount += bandCountByUnit.get(u.id) ?? 0
-    if (describesNothing(u)) emptyCount += 1
-    else unitCount += 1
-  }
-
-  const visible = showEmpty ? units : units.filter(u => !describesNothing(u))
+  for (const u of visible) bandCount += bandCountByUnit.get(u.id) ?? 0
+  const unitCount = visible.length
 
   // Bucket by (soil, class). Insertion order is irrelevant — every level is
   // sorted explicitly below.
@@ -340,12 +346,17 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
       }
     })
 
+    // Shared with the 3-D legend so the two panes cannot disagree about the
+    // same class — see ``geotechRowColorOverride`` for the rule.
+    const colorOverride = geotechRowColorOverride(ordered)
+
     const row: GeotechClassRow = {
       key: `${bucket.soil}|${bucket.nadClass ?? ''}`,
       soil: bucket.soil,
       nadClass: bucket.nadClass,
       label: nadClassQualifier(bucket.nadClass),
-      color: nadClassColor(bucket.nadClass),
+      color: colorOverride ?? nadClassColor(bucket.nadClass),
+      colorOverride,
       bandCount: instances.reduce((sum, i) => sum + i.bandCount, 0),
       provenance: instances.reduce<ClassProvenance>(
         (acc, i) => worseProvenance(acc, i.provenance),
@@ -379,5 +390,5 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
         (a.soil < b.soil ? -1 : a.soil > b.soil ? 1 : 0),
     )
 
-  return { groups, unitCount, emptyCount, bandCount }
+  return { groups, unitCount, bandCount }
 }
