@@ -84,6 +84,15 @@ class _FakeSession:
             def scalar_one_or_none() -> None:
                 return None
 
+            @staticmethod
+            def all() -> list:
+                # ``OrphanFormationSweep`` runs before the commit and asks for
+                # the project's geotech formations first. This scene has none in
+                # the database, so the sweep finds no candidates and stops after
+                # this one query — which is also what makes it a genuine no-op
+                # here rather than something the test has to stub out.
+                return []
+
         return _Result()
 
     def add(self, obj: Any) -> None:
