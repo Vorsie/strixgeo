@@ -20,6 +20,14 @@ PATCH /models/{mid}/bodies/{body_id}/color
     route requires a non-empty ``name`` which makes it unsuitable as a
     colour-only target without a breaking contract change.
 
+GET  /models/{mid}/footprint
+    Re-derive the model's footprint ring (the alpha hull the last voxel
+    build clipped its labelling to) from the stored
+    ``LithoBuildGeneration`` payload, via ``GetModelFootprint``.  The 3-D
+    viewer draws it as a subtle closed ring so the model's edge reads as
+    an edge, not a hole (owner ballot 2026-08-26, v1.0 MVP).  Never 404s
+    for "nothing built yet" — see the handler docstring.
+
 These are the litho analogue of the geological TIN surfaces endpoints
 (``GET .../surfaces`` / ``POST .../surfaces/rebuild``).
 """
@@ -38,11 +46,13 @@ from groundmodel.api.schemas.project.body.update_body_color_request import (
     UpdateBodyColorResponse,
 )
 from groundmodel.api.schemas.project.litho_body_solid_response import LithoBodySolidResponse
+from groundmodel.api.schemas.project.model_footprint_response import ModelFootprintResponse
 from groundmodel.api.schemas.project.rebuild_litho_solids_response import (
     RebuildLithoSolidsResponse,
 )
 from groundmodel.api.schemas.project.voxel_build_request import VoxelBuildRequest
 from groundmodel.application.build_voxel_litho_model import BuildVoxelLithoModel
+from groundmodel.application.get_model_footprint import GetModelFootprint
 from groundmodel.application.litho_solid_persistence import LithoSolidsOutcome
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -460,3 +470,72 @@ async def update_body_color(
 
     logger.info(f"update_body_color: body={body_id} display_color={request.display_color!r}")
     return UpdateBodyColorResponse(body_id=body_id, display_color=body.display_color)
+
+
+# ---------------------------------------------------------------------------
+# GET /models/{model_id}/footprint
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/models/{model_id}/footprint",
+    response_model=ModelFootprintResponse,
+)
+async def get_model_footprint(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ModelFootprintResponse:
+    """Return the model's footprint ring, re-derived from its last voxel build.
+
+    The 3-D viewer draws this as a subtle closed ring so the model's edge
+    reads as an edge, not a hole (owner ballot 2026-08-26, v1.0 MVP). The ring
+    is re-derived from the persisted ``LithoBuildGeneration`` payload rather
+    than recomputed on the frontend, so it always matches the exact alpha hull
+    the build clipped its labelling to.
+
+    Never answers 404/500 for "nothing built yet" — a model that has not been
+    built, whose stored payload cannot frame a footprint, or whose payload was
+    written by an older/foreign builder all answer 200 with an empty
+    ``polygon`` and a plain-English ``unavailable_reason``. Only a model that
+    does not belong to the project is a 404.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The lithostratigraphic model — must belong to ``project_id``.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    ModelFootprintResponse
+        The ring (possibly empty) plus provenance / reason.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    logger.info(f"GET /projects/{project_id}/geology/models/{model_id}/footprint")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    outcome = await GetModelFootprint(session).execute(model_id)
+
+    logger.info(
+        f"get_model_footprint: project={project_id} model={model_id} — "
+        f"{len(outcome.polygon)}-vertex ring generation={outcome.generation_id} "
+        f"reason={outcome.unavailable_reason!r}"
+    )
+    return ModelFootprintResponse(
+        polygon=[[x, y] for x, y in outcome.polygon],
+        generation_id=outcome.generation_id,
+        built_at=outcome.built_at,
+        unavailable_reason=outcome.unavailable_reason,
+    )
