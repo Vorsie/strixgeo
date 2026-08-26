@@ -321,10 +321,24 @@ interface Props {
    * pulsed — the caller learns that from the reveal result, not from here.
    */
   flashEdgeId?: string | null
+  /**
+   * Order-invariant ``edgeKey``s of every tie currently in a crossing conflict.
+   *
+   * Owner ruling 2026-08-26 (*"mark the crossing ties"*). Two accepted ties that cross
+   * suspend EACH OTHER, and the fill engine that detects that is the only thing that
+   * knows — so the set arrives from it, via ``PartitionFillOverlay``, rather than being
+   * worked out again here. Re-deriving it would let the mark disagree with the chip that
+   * counts the same conflicts, which is the one failure this feature cannot have.
+   *
+   * Absent or empty = nothing is fighting, and no tie is marked.
+   */
+  conflictEdgeKeys?: ReadonlySet<string>
 }
 
 
 import TieFlashHalo from './TieFlashHalo'
+import TieConflictHalo from './TieConflictHalo'
+import { edgeKey } from '../../utils/partitionFillV2'
 import {
   anchorId,
   bandRect,
@@ -401,6 +415,7 @@ export default function CorrelationEdgesOverlay({
   acceptEdgeLabel,
   onRequestConfirmEdgeReview,
   flashEdgeId = null,
+  conflictEdgeKeys,
 }: Props): JSX.Element {
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
    *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
@@ -797,6 +812,20 @@ export default function CorrelationEdgesOverlay({
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
 
+            // Is this tie one of a crossing pair? Matched through the SAME ``edgeKey``
+            // the engine keyed the conflict with, so the mark and the warning chip can
+            // only ever name the same two ties.
+            const inConflict =
+              conflictEdgeKeys !== undefined
+              && conflictEdgeKeys.has(
+                edgeKey({
+                  a: ce.layer_a_id,
+                  b: ce.layer_b_id,
+                  aSide: ce.layer_a_side,
+                  bSide: ce.layer_b_side,
+                }),
+              )
+
             // Resolve Y for each endpoint based on the persisted side.
             // A base-side endpoint anchors at the band's base (botY); a
             // top-side endpoint anchors at the band's top (topY).
@@ -862,6 +891,12 @@ export default function CorrelationEdgesOverlay({
               const tiePts = warpAwareEdgePoints(tieX1, yA, ptA.along, tieX2, yB, ptB.along, placedColumns)
               return (
                 <g key={`tie-${ce.id}`}>
+                  {/* Crossing-conflict mark — furthest back, because it is a STATE the
+                      tie is in; the landing pulse is a momentary event and reads over
+                      it. Traces the tie's own points so it cannot drift. */}
+                  {inConflict && (
+                    <TieConflictHalo points={tiePts} closed={false} edgeId={ce.id} />
+                  )}
                   {/* Landing pulse — BEHIND the tie so its dashes read through. */}
                   {flashEdgeId === ce.id && (
                     <TieFlashHalo points={tiePts} closed={false} edgeId={ce.id} />
@@ -954,6 +989,13 @@ export default function CorrelationEdgesOverlay({
             const seamA = belowA ?? aboveA
             const seamB = belowB ?? aboveB
             const seamGradient = approved && !isInterpretive && seamA !== null && seamB !== null
+            // The seam line every branch below draws — hoisted because the third caller
+            // (the conflict mark) is the point at which three copies of one expression
+            // stop being a coincidence, and a mark computed from its own copy could
+            // drift off the seam it marks.
+            const seamPts = warpAwareEdgePoints(
+              xA, yA, ptA.along, xB, yB, ptB.along, placedColumns,
+            )
             return (
               <g
                 key={`ribbon-${ce.id}`}
@@ -962,6 +1004,11 @@ export default function CorrelationEdgesOverlay({
                 data-interpretive={isInterpretive ? 'true' : 'false'}
                 pointerEvents="none"
               >
+                {/* Crossing-conflict mark — first child, so every stripe, seam and
+                    handle of the ribbon reads over it. */}
+                {inConflict && (
+                  <TieConflictHalo points={seamPts} closed={false} edgeId={ce.id} />
+                )}
                 {RIBBON_STRIPES_ENABLED && (
                   <defs>
                     {showAbove && (
@@ -1007,7 +1054,7 @@ export default function CorrelationEdgesOverlay({
                      Warp-aware so it runs flat under a shallow test like the fill. */
                   <polyline
                     data-testid={`ribbon-seam-${ce.id}`}
-                    points={warpAwareEdgePoints(xA, yA, ptA.along, xB, yB, ptB.along, placedColumns)}
+                    points={seamPts}
                     fill="none"
                     stroke={BASE_TIE_COLOR}
                     strokeWidth={CONTACT_EDGE_WIDTH}
@@ -1035,7 +1082,7 @@ export default function CorrelationEdgesOverlay({
                     )}
                     <polyline
                       data-testid={`ribbon-seam-${ce.id}`}
-                      points={warpAwareEdgePoints(xA, yA, ptA.along, xB, yB, ptB.along, placedColumns)}
+                      points={seamPts}
                       fill="none"
                       stroke={seamGradient ? `url(#seam-grad-${ce.id})` : RIBBON_SEAM_COLOR}
                       strokeWidth={1.5}
