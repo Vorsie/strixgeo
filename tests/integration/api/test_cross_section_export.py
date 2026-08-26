@@ -35,6 +35,10 @@ from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.shared.constants.model_kind import (
+    MODEL_KIND_GEOTECHNICAL,
+    MODEL_KIND_LITHOSTRATIGRAPHIC,
+)
 
 
 @pytest_asyncio.fixture
@@ -408,3 +412,405 @@ async def test_export_404_when_section_in_different_project(
         params={"model_id": str(seeded_section["model_id"])},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Geotech-axis export — the unit identifiers survive the DB round trip.
+#
+# MISSING-LINK REGRESSION TEST (debt #104, added 2026-08-26). The naming
+# scheme itself is pinned at unit level (the exporters are pure
+# ``SectionSnapshot -> bytes`` transforms, so that is the right layer), and a
+# non-circular guard pins the snapshot fields against the real ORM columns.
+# Neither proves the MIDDLE link: that ``geological_formation.nad_class`` /
+# ``litho_main_soil_code`` actually reach a downloaded artefact through
+# BuildSectionSnapshot on a real geotech model. Every other export
+# integration test seeds a GEOLOGICAL model, where both columns are NULL by
+# definition — so a regression that dropped the identifiers on the way out
+# would have left the whole suite green. That is the gap these three close.
+#
+# NOTE ON TDD SHAPE: these pins were written AFTER the implementation. A
+# red-first run is impractical at integration level — the RED state needs a
+# checkout of develop without the change plus its own migrate-and-seed cycle
+# against the integration DB, and the wrapper holds an exclusive lock. The
+# unit-level pins in tests/unit/infrastructure/exporters/ WERE written
+# red-first (9 failed / 2 passed on the first run, the 2 green being the
+# geological control pins).
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def seeded_geotech_model(db_session: AsyncSession, seeded_section: dict) -> dict:
+    """Add a litho + geotech model to the seeded section's project.
+
+    Mirrors the real hierarchy — geological -> lithostratigraphic ->
+    geotechnical — with the geotech unit carrying the identity tuple
+    ``SubdivideAllBodies`` writes (``nad_class`` +
+    ``litho_main_soil_code`` + ``source_litho_formation_id``).
+
+    Seeds TWO geotech units on purpose, one classified and one
+    unclassified skeleton band, so a single round trip exercises both
+    halves of the naming rule: a class renames the unit, no class leaves
+    the name byte-identical.
+    """
+    project_id = seeded_section["project_id"]
+
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Litho",
+        description=None,
+        is_active=False,
+        kind=MODEL_KIND_LITHOSTRATIGRAPHIC,
+        parent_model_id=seeded_section["model_id"],
+    )
+    db_session.add(litho_model)
+    await db_session.flush()
+    geotech_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Geotech",
+        description=None,
+        is_active=False,
+        kind=MODEL_KIND_GEOTECHNICAL,
+        parent_model_id=litho_model.id,
+    )
+    db_session.add(geotech_model)
+
+    # The litho unit the geotech units subdivide.
+    litho_sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Zand van Diest",
+        code=None,
+        color="#e8c86a",
+        display_order=10,
+        litho_main_soil_code="ZAND",
+    )
+    db_session.add(litho_sand)
+    await db_session.flush()
+
+    # Classified geotech unit — the case debt #104 exists for.
+    geotech_sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Zand van Diest (NAD 6)",
+        code=None,
+        color="#e8c86a",
+        display_order=20,
+        nad_class=6,
+        litho_main_soil_code="ZAND",
+        source_litho_formation_id=litho_sand.id,
+    )
+    # Unclassified skeleton band — carries a soil code but no class, so
+    # its NAME must stay exactly what it is today.
+    geotech_skeleton = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Boom Klei skeleton",
+        code=None,
+        color="#8899aa",
+        display_order=15,
+        nad_class=None,
+        litho_main_soil_code="KLEI",
+        source_litho_formation_id=litho_sand.id,
+    )
+    db_session.add(geotech_sand)
+    db_session.add(geotech_skeleton)
+
+    # One contact per unit at each of the two in-corridor CPTs, so both
+    # units get a real surface polyline in the drawing.
+    for formation, depth in ((geotech_skeleton, 2.0), (geotech_sand, 6.0)):
+        for anchor in (seeded_section["cpt_left_id"], seeded_section["cpt_right_id"]):
+            db_session.add(
+                FormationContactOrm(
+                    id=uuid7(),
+                    model_id=geotech_model.id,
+                    formation_id=formation.id,
+                    cpt_id=anchor,
+                    depth_top_m=depth,
+                    source="manual_pick",
+                    confidence="medium",
+                )
+            )
+
+    await db_session.commit()
+
+    return {
+        "geotech_model_id": geotech_model.id,
+        "geotech_sand_id": geotech_sand.id,
+        "geotech_skeleton_id": geotech_skeleton.id,
+    }
+
+
+async def test_geotech_dxf_export_carries_the_nad_unit_identifiers(
+    async_client: AsyncClient, seeded_section: dict, seeded_geotech_model: dict
+) -> None:
+    """A geotech-model DXF must name its layers by NAD class + soil.
+
+    End-to-end proof of debt #104: the identifiers live only on
+    ``geological_formation``, and before this slice nothing carried them
+    from that row into a downloaded artefact.
+    """
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/dxf",
+        params={"model_id": str(seeded_geotech_model["geotech_model_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    layer_names = {layer.dxf.name for layer in doc.layers}
+
+    # The classified unit leads with its machine identifier.
+    assert "GeoModel-NAD-06_ZAND - Zand van Diest (NAD 6)" in layer_names
+    # ...and the class + soil are readable in CAD's layer properties.
+    classified = doc.layers.get("GeoModel-NAD-06_ZAND - Zand van Diest (NAD 6)")
+    assert "NAD class 6" in classified.description
+    assert "soil ZAND" in classified.description
+
+    # The unclassified skeleton band keeps its name byte-identical —
+    # a unit is renamed ONLY when it carries a nad_class.
+    assert "GeoModel-Boom Klei skeleton" in layer_names
+    assert not any(n.startswith("GeoModel-NAD-") and "skeleton" in n for n in layer_names)
+
+    # The drawing states its own mapping, naming the formation UUID so a
+    # downstream script can resolve two units that share a class.
+    text = "\n".join(e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT")
+    assert "UNIT MAPPING TABLE" in text
+    assert "NAD-06_ZAND" in text
+    assert str(seeded_geotech_model["geotech_sand_id"]) in text
+
+
+async def test_geotech_plaxis2d_export_carries_the_mapping_block(
+    async_client: AsyncClient, seeded_section: dict, seeded_geotech_model: dict
+) -> None:
+    """Same round trip for the Plaxis 2D script — material identity plus
+    the mapping block an engineer reads to assign materials."""
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/plaxis2d",
+        params={"model_id": str(seeded_geotech_model["geotech_model_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+    script = resp.content.decode("utf-8")
+
+    assert "mat_nad_06_zand = g_i.soilmat()" in script
+    assert "mat_nad_06_zand.Identification = 'NAD-06_ZAND - Zand van Diest (NAD 6)'" in script
+    # The skeleton band keeps its display-name-only identification.
+    assert "mat_boom_klei_skeleton.Identification = 'Boom Klei skeleton'" in script
+
+    header = script.split('"""')[1]
+    assert "UNIT MAPPING TABLE" in header
+    sand_row = next(line for line in header.splitlines() if "NAD-06_ZAND" in line)
+    assert "ZAND" in sand_row
+    assert str(seeded_geotech_model["geotech_sand_id"]) in sand_row
+
+    # The emitted script must still be valid Python.
+    compile(script, "<plaxis2d>", "exec")
+
+
+async def test_geological_dxf_layer_names_are_unaffected_by_the_geotech_model(
+    async_client: AsyncClient, seeded_section: dict, seeded_geotech_model: dict
+) -> None:
+    """Control pin: with geotech units present in the SAME project, the
+    geological-model export must still name its layers exactly as before
+    and emit no mapping table."""
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/dxf",
+        params={"model_id": str(seeded_section["model_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    model_layers = {n.dxf.name for n in doc.layers if n.dxf.name.startswith("GeoModel-")}
+    assert model_layers == {"GeoModel-Boom Klei", "GeoModel-Diest Zand"}
+    assert doc.layers.get("GeoModel-Boom Klei").description == "Formation 'Boom Klei' (code BmK)"
+    text = "\n".join(e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT")
+    assert "UNIT MAPPING TABLE" not in text
+
+
+# ---------------------------------------------------------------------------
+# Same-NAD thinning (debt #104b).
+#
+# Owner ruling 2026-08-26, verbatim: "thin in dxf and pdf, keep plaxis exact,
+# shallower parent name wins." The merge rule itself is pinned at unit level in
+# tests/unit/application/test_thin_export_units.py; these pins prove the ROUTING
+# — that the DXF and PDF handlers opt in and the Plaxis handler does not.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def seeded_stacked_same_class(db_session: AsyncSession, seeded_section: dict) -> dict:
+    """Two NAD-6 sand units stacked directly on each other, plus a clay above.
+
+    Two stacked units of one class means two different litho / geological
+    parents — which is exactly how the geotech stage produces them, since
+    its find-or-create keys on ``(nad_class, litho parent, geo parent)``.
+    """
+    project_id = seeded_section["project_id"]
+
+    litho_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Litho-thin",
+        description=None,
+        is_active=False,
+        kind=MODEL_KIND_LITHOSTRATIGRAPHIC,
+        parent_model_id=seeded_section["model_id"],
+    )
+    db_session.add(litho_model)
+    await db_session.flush()
+    geotech_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Geotech-thin",
+        description=None,
+        is_active=False,
+        kind=MODEL_KIND_GEOTECHNICAL,
+        parent_model_id=litho_model.id,
+    )
+    db_session.add(geotech_model)
+
+    clay = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Klei dek (NAD 21)",
+        code=None,
+        color="#8899aa",
+        display_order=30,
+        nad_class=21,
+        litho_main_soil_code="KLEI",
+    )
+    shallow_sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Zand Quartair (NAD 6)",
+        code=None,
+        color="#e8c86a",
+        display_order=20,
+        nad_class=6,
+        litho_main_soil_code="ZAND",
+    )
+    deep_sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Zand Diest (NAD 6)",
+        code=None,
+        color="#d8b85a",
+        display_order=10,
+        nad_class=6,
+        litho_main_soil_code="ZAND",
+    )
+    db_session.add_all([clay, shallow_sand, deep_sand])
+
+    for formation, depth in ((clay, 1.0), (shallow_sand, 4.0), (deep_sand, 8.0)):
+        for anchor in (seeded_section["cpt_left_id"], seeded_section["cpt_right_id"]):
+            db_session.add(
+                FormationContactOrm(
+                    id=uuid7(),
+                    model_id=geotech_model.id,
+                    formation_id=formation.id,
+                    cpt_id=anchor,
+                    depth_top_m=depth,
+                    source="manual_pick",
+                    confidence="medium",
+                )
+            )
+
+    await db_session.commit()
+    return {
+        "geotech_model_id": geotech_model.id,
+        "shallow_name": shallow_sand.name,
+        "deep_name": deep_sand.name,
+        "clay_name": clay.name,
+    }
+
+
+async def test_dxf_thins_adjacent_same_nad_units_by_default(
+    async_client: AsyncClient, seeded_section: dict, seeded_stacked_same_class: dict
+) -> None:
+    """Two stacked NAD-6 sands read as one material — the DXF shows one,
+    named after the SHALLOWER unit, and says what it absorbed."""
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/dxf",
+        params={"model_id": str(seeded_stacked_same_class["geotech_model_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    sand_layers = [n.dxf.name for n in doc.layers if "NAD-06" in n.dxf.name]
+    assert len(sand_layers) == 1, sand_layers
+    # Shallower parent name wins.
+    assert seeded_stacked_same_class["shallow_name"] in sand_layers[0]
+    assert seeded_stacked_same_class["deep_name"] not in sand_layers[0]
+    # The clay is a different class and must survive untouched.
+    assert any("NAD-21" in n.dxf.name for n in doc.layers)
+
+    # The merge erased a litho/geo boundary — the table keeps it auditable.
+    text = "\n".join(e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT")
+    assert "Absorbed units" in text
+    assert seeded_stacked_same_class["deep_name"] in text
+
+
+async def test_dxf_thinning_can_be_opted_out_of(
+    async_client: AsyncClient, seeded_section: dict, seeded_stacked_same_class: dict
+) -> None:
+    """A client whose CAD deliverable must show the parent boundaries can
+    ask for the exact model without a code change."""
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/dxf",
+        params={
+            "model_id": str(seeded_stacked_same_class["geotech_model_id"]),
+            "thin_units": "false",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    sand_layers = [n.dxf.name for n in doc.layers if "NAD-06" in n.dxf.name]
+    assert len(sand_layers) == 2, sand_layers
+
+
+async def test_plaxis_export_stays_exact_when_the_dxf_thins(
+    async_client: AsyncClient, seeded_section: dict, seeded_stacked_same_class: dict
+) -> None:
+    """Owner ruling: "keep plaxis exact". The script's global soillayer
+    stack cannot express an interleaved merge, so it never thins — both
+    NAD-6 units keep their own material and their own global layer."""
+    resp = await async_client.get(
+        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+        "/export/plaxis2d",
+        params={"model_id": str(seeded_stacked_same_class["geotech_model_id"])},
+    )
+    assert resp.status_code == 200, resp.text
+    script = resp.content.decode("utf-8")
+
+    assert seeded_stacked_same_class["shallow_name"] in script
+    assert seeded_stacked_same_class["deep_name"] in script
+    # One soilmat per unit — three units, none merged.
+    declared = [line for line in script.splitlines() if line.endswith("= g_i.soilmat()")]
+    assert len(declared) == 3, declared
+    # And the exact script never grows the thinning column.
+    assert "Absorbed units" not in script
+    compile(script, "<plaxis2d>", "exec")
+
+
+async def test_pdf_export_accepts_the_thinning_flag(
+    async_client: AsyncClient, seeded_section: dict, seeded_stacked_same_class: dict
+) -> None:
+    """The PDF handler is the second artefact the ruling names; it must
+    take the same flag and still render."""
+    for thin in ("true", "false"):
+        resp = await async_client.get(
+            f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
+            "/export/pdf",
+            params={
+                "model_id": str(seeded_stacked_same_class["geotech_model_id"]),
+                "thin_units": thin,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.content.startswith(b"%PDF"), thin
