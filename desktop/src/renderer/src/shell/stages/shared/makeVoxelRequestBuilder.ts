@@ -20,6 +20,7 @@ import {
 import { api } from '../../../api/client'
 import type { BodyBoundaryResponse } from '../../../api/clients/geology.types'
 import { buildVoxelRequest, type VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
+import { excludeInvestigationsFromBuild } from '../../../utils/excludeInvestigationsFromBuild'
 import { FREEDRAW_EDIT_ENABLED } from '../../../utils/freedrawEditFlag'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
@@ -66,6 +67,17 @@ export interface VoxelRequestBuilderParams {
 }
 
 /**
+ * The stage's "Build model" payload assembler, as the toolbar invokes it.
+ *
+ * The optional argument is the set of investigations to ignore for THIS build
+ * (owner ruling 2026-08-26: *"Build without them should produce the model that
+ * was there before the added tests"*). Omitting it is today's build, unchanged.
+ */
+export type VoxelRequestBuilder = (
+  excludedInvestigationIds?: ReadonlySet<string>,
+) => Promise<VoxelBuildRequest | null>
+
+/**
  * Build the async voxel-request callback for a stage's "Build model" button.
  *
  * The canvas assigns the returned function to its module-level voxel ref
@@ -79,8 +91,11 @@ export interface VoxelRequestBuilderParams {
  *
  * Returns
  * -------
- * () => Promise<VoxelBuildRequest | null>
- *     The builder; null result means "nothing to build".
+ * VoxelRequestBuilder
+ *     The builder; null result means "nothing to build". It takes an optional
+ *     set of investigation ids to EXCLUDE, applied to both the model's own
+ *     columns and the litho frame before anything is assembled, so the payload
+ *     is the one the model would have had before those tests were imported.
  *
  * Raises
  * ------
@@ -91,7 +106,7 @@ export interface VoxelRequestBuilderParams {
  */
 export function makeVoxelRequestBuilder(
   params: VoxelRequestBuilderParams,
-): () => Promise<VoxelBuildRequest | null> {
+): VoxelRequestBuilder {
   const {
     projectId,
     modelId,
@@ -105,8 +120,17 @@ export function makeVoxelRequestBuilder(
     packingClassOf,
   } = params
 
-  return async (): Promise<VoxelBuildRequest | null> => {
+  return async (
+    excludedInvestigationIds: ReadonlySet<string> = new Set<string>(),
+  ): Promise<VoxelBuildRequest | null> => {
     if (!projectId || !modelId || visibleSections.length === 0) return null
+    if (excludedInvestigationIds.size > 0) {
+      log.info(
+        logLabel,
+        `building without ${excludedInvestigationIds.size} excluded investigation(s): ` +
+          `${[...excludedInvestigationIds].join(', ')}`,
+      )
+    }
 
     // Fetch each section's approved correlation edges fresh (section-scoped).
     // A failed fetch yields an EMPTY edge list for that section, which is
@@ -134,11 +158,17 @@ export function makeVoxelRequestBuilder(
       )
     }
 
+    // "Just plain ignore them" — applied BEFORE assembly, per model, so the
+    // excluded tests leave no column, no layer and no dangling edge behind.
+    const own = excludeInvestigationsFromBuild(
+      { investigations, layers, edgesBySectionId },
+      excludedInvestigationIds,
+    )
     const sectionInputs = assembleLithoSectionInputs({
       visibleSections,
-      investigations,
-      lithoLayers: layers,
-      edgesBySectionId,
+      investigations: own.investigations,
+      lithoLayers: own.layers,
+      edgesBySectionId: own.edgesBySectionId,
     })
 
     // Every body's hand-drawn boundary, so the BUILD derives the same apex/contact
@@ -211,11 +241,22 @@ export function makeVoxelRequestBuilder(
             'Nothing was changed; retry the build.',
         )
       }
+      // The SAME exclusion on the frame. Dropping the test from the packing
+      // columns alone would leave its litho column splitting a gap the packing
+      // fill has no data for — the hole the ruling exists to close.
+      const frame = excludeInvestigationsFromBuild(
+        {
+          investigations,
+          layers: frameLayers,
+          edgesBySectionId: frameEdges.edgesBySectionId,
+        },
+        excludedInvestigationIds,
+      )
       frameSectionInputs = assembleLithoSectionInputs({
         visibleSections,
-        investigations,
-        lithoLayers: frameLayers,
-        edgesBySectionId: frameEdges.edgesBySectionId,
+        investigations: frame.investigations,
+        lithoLayers: frame.layers,
+        edgesBySectionId: frame.edgesBySectionId,
       })
       log.debug(
         logLabel,
