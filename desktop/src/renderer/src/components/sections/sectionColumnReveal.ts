@@ -23,9 +23,20 @@ export interface SectionColumnRevealRequest {
    * Correlation edge to highlight once the view has been centred.
    *
    * Passed through untouched: the panel only forwards it to the overlay that
-   * draws that edge, which resolves it against its own edge list.
+   * draws that edge, which resolves it against its own edge list. Omitted when
+   * the reveal is about a column rather than a tie between two.
    */
-  flashEdgeId: string
+  flashEdgeId?: string
+  /**
+   * Investigation whose COLUMN gets the landing pulse once the view has been
+   * centred — the same one-shot flash Ctrl+F lands with, so a reveal that is
+   * about one test looks like every other "here it is" in the section view.
+   *
+   * The Build pre-flight's one-click visit uses this (owner ruling 2026-08-26:
+   * *"make it so that user can go to those test through one click"*): there is
+   * no tie to mark, only a test he has to subdivide.
+   */
+  flashColumnId?: string
 }
 
 /** What the section view did — or could not do — with the request. */
