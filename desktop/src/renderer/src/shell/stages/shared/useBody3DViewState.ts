@@ -31,8 +31,18 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
+import type { LithoBodySolidResponse } from '../../../api/clients/geology'
 import { useShell } from '../../ShellContext'
-import type { SplitMode, SplitLine } from '../geology/Geology3DViewer'
+import type { SplitLine } from '../geology/Geology3DViewer'
+import {
+  SINGLE_VIEWPORT,
+  splitAfterCompare,
+  splitAfterCutDrawn,
+  splitAfterExit,
+  type SplitMode,
+  type SplitViewportState,
+} from './splitViewport'
+import { footprintRingPositions, resolveFootprintRingElevation } from '../../../utils/footprintRing'
 import {
   buildProjectFence,
   type FenceSectionInput,
@@ -64,6 +74,9 @@ export const EMPTY_SURFACES_MAP: ReadonlyMap<string, never> = new Map<string, ne
 /** Stable empty layer list for canvases that never build a fence (Geology). */
 const NO_LAYERS: readonly LithoLayerLike[] = []
 
+/** Stable empty solid list for canvases that render TIN sheets (Geology). */
+const NO_SOLIDS: readonly LithoBodySolidResponse[] = []
+
 /** Options for ``useBody3DViewState``. */
 export interface UseBody3DViewStateOptions {
   /** Active model id (litho / geotech / geological), or null when absent. */
@@ -83,6 +96,13 @@ export interface UseBody3DViewStateOptions {
    */
   layers?: readonly LithoLayerLike[]
   /**
+   * The model's built body solids. Used ONLY to place the footprint ring at
+   * the top of the model when there is no DEM ground surface to sit above —
+   * the litho / geotech panes often have none. Omit on Geology (which renders
+   * TIN sheets rather than solids and always has its own ground surface).
+   */
+  bodySolids?: readonly LithoBodySolidResponse[]
+  /**
    * Module-level reset-split ref shared with the stage toolbar; populated
    * every render with ``exitSplit`` while the canvas is mounted.
    */
@@ -98,6 +118,16 @@ export interface UseBody3DViewStateOptions {
    * ``false`` (no fence machinery at all).  Defaults to ``true`` (Lithology).
    */
   fenceActive?: boolean
+  /**
+   * Whether to fetch the model's footprint ring.  Defaults to ``true``.
+   *
+   * Geology passes ``false``: the footprint is the hull of a VOXEL build, and
+   * only litho / geotech models ever have one, so the request could never
+   * return a ring — it would only add a per-mount round trip and two "never
+   * built" server log lines to a stage that does not draw the ring anyway.
+   * Same shape as ``fenceActive`` above, for the same reason.
+   */
+  footprintActive?: boolean
   /**
    * Geotech formation id → canonical class key (``buildPackingClassOf``) for a
    * framed geotech fence — the same mass identity the geotech axis renders
@@ -122,10 +152,18 @@ export interface Body3DViewState {
   splitMode: SplitMode
   splitPlane: Cesium.Plane | null
   splitLine: SplitLine | null
-  /** Store the drawn split plane/line and enter split mode. */
+  /** Store the drawn split plane/line and enter the CUT split. */
   handleSplitPlaneDrawn: (plane: Cesium.Plane, line: SplitLine) => void
-  /** Collapse the split viewport back to single-viewport mode. */
+  /** Collapse either split back to a single whole viewport. */
   exitSplit: () => void
+  /** Show the counterpart model side by side, whole, at one viewpoint. */
+  enterCompare: () => void
+  /**
+   * Closed ring of ``[x_m, y_m, elevation_m]`` marking the model footprint,
+   * or ``undefined`` while it is unknown (not fetched yet, never built, or
+   * nothing rendered to place it above).
+   */
+  footprintRing: readonly (readonly number[])[] | undefined
   /** Ground-surface TIN for the model, or null (no model / DEM unavailable). */
   groundSurface: GroundSurfaceBuildResponse | null
   /** All visible CPTs + boreholes in the projection shape. */
@@ -154,11 +192,13 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
   const {
     modelId,
     layers = NO_LAYERS,
+    bodySolids = NO_SOLIDS,
     frameModelId = null,
     frameLayers,
     resetSplitViewportRef,
     voxelRequestRef,
     fenceActive = true,
+    footprintActive = true,
     packingClassOf,
   } = options
 
@@ -186,26 +226,33 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
 
   // -------------------------------------------------------------------------
   // Split-viewport state — session-ephemeral, not persisted to the bundle.
+  //
+  // ONE value, not three loose useStates: the viewer now has a third mode
+  // (compare), and three independent setters over a three-mode machine is
+  // exactly where "compare left a stale cut plane behind" lives — which would
+  // show half a model in each compare pane and read as a modelling gap. The
+  // transitions are pinned in splitViewport.test.ts.
   // -------------------------------------------------------------------------
 
-  const [splitMode, setSplitMode] = useState<SplitMode>('single')
-  const [splitPlane, setSplitPlane] = useState<Cesium.Plane | null>(null)
-  const [splitLine, setSplitLine] = useState<SplitLine | null>(null)
+  const [split, setSplit] = useState<SplitViewportState<Cesium.Plane, SplitLine>>(
+    SINGLE_VIEWPORT,
+  )
 
   function handleSplitPlaneDrawn(plane: Cesium.Plane, line: SplitLine): void {
-    setSplitPlane(plane)
-    setSplitLine(line)
-    setSplitMode('split')
+    setSplit(prev => splitAfterCutDrawn(prev, plane, line))
   }
 
   function exitSplit(): void {
-    setSplitMode('single')
-    setSplitPlane(null)
-    setSplitLine(null)
+    setSplit(splitAfterExit)
+  }
+
+  function enterCompare(): void {
+    setSplit(splitAfterCompare)
   }
 
   // Exposed so the stage toolbar Reset can collapse the split without a bus
-  // extension — populated every render while the canvas is mounted.
+  // extension — populated every render while the canvas is mounted. One verb
+  // closes BOTH split kinds, so the user never has to know which is open.
   resetSplitViewportRef.current = exitSplit
 
   // -------------------------------------------------------------------------
@@ -240,6 +287,50 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     // staleness (a server refresh returning a new model object with the same
     // id must not re-fire it).
   }, [projectId, modelId])
+
+  // -------------------------------------------------------------------------
+  // Model footprint polygon — the alpha hull the 3-D build clipped to.
+  //
+  // Fetched, never derived here. The backend replays the persisted build
+  // payload through the same hull the build used, so the ring the user sees is
+  // the build's OWN boundary. A hull re-implemented in TypeScript would be a
+  // second source of truth and could draw an edge the geometry does not have,
+  // which is worse than drawing no edge at all.
+  //
+  // Keyed on the model id alone, like the ground-surface fetch above: a build
+  // replaces the polygon, and the effect re-fires when the caller remounts /
+  // switches models. A stale ring after a rebuild in the same session is the
+  // known limit — the ring moves on the next model switch or reload. (Cheap to
+  // tighten later by keying on a build stamp, once one is on the bus.)
+  // -------------------------------------------------------------------------
+
+  const [footprintPolygon, setFootprintPolygon] = useState<number[][] | null>(null)
+
+  useEffect(() => {
+    if (!projectId || !modelId || !footprintActive) {
+      setFootprintPolygon(null)
+      return
+    }
+    let cancelled = false
+
+    api.geology
+      .getModelFootprint(projectId, modelId)
+      .then(result => {
+        if (cancelled) return
+        // The endpoint answers 200 with an empty polygon + a reason for every
+        // "no ring yet" state, so an empty array here is a normal answer.
+        setFootprintPolygon(result.polygon.length > 0 ? result.polygon : null)
+      })
+      .catch(() => {
+        // A footprint is decoration: a failed fetch must never degrade the
+        // model view. No ring, no toast.
+        if (!cancelled) setFootprintPolygon(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, modelId, footprintActive])
 
   // -------------------------------------------------------------------------
   // Per-section approved correlation edges — fetched lazily when Fence mode
@@ -413,6 +504,24 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs, packingClassOf],
   )
 
+  // The ring, placed at the top of whatever this pane actually renders. Split
+  // from the fetch because the elevation moves when the ground surface or the
+  // solids arrive, while the polygon does not.
+  const footprintRing = useMemo<readonly (readonly number[])[] | undefined>(() => {
+    if (!footprintPolygon) return undefined
+    const elevation = resolveFootprintRingElevation(
+      groundSurface?.vertices ?? [],
+      // A generator, not a flatMap: a built model carries tens of thousands of
+      // solid vertices and this runs whenever the solid list changes.
+      (function* () {
+        for (const solid of bodySolids) yield* solid.vertices
+      })(),
+    )
+    if (elevation === null) return undefined
+    const ring = footprintRingPositions(footprintPolygon, elevation)
+    return ring.length > 0 ? ring : undefined
+  }, [footprintPolygon, groundSurface, bodySolids])
+
   return {
     projectId,
     viewMode,
@@ -420,14 +529,16 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     wireframe,
     setWireframe,
     fenceLoading,
-    splitMode,
-    splitPlane,
-    splitLine,
+    splitMode: split.mode,
+    splitPlane: split.plane,
+    splitLine: split.line,
     handleSplitPlaneDrawn,
     exitSplit,
+    enterCompare,
     groundSurface,
     investigations,
     investigationXY,
     fencePanels,
+    footprintRing,
   }
 }
