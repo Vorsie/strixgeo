@@ -40,7 +40,7 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     GeotechBandEditError,
     IntervalOutcome,
 )
-from groundmodel.domain.services.nad_classifier import hand_settable_classes_for
+from groundmodel.domain.services.nad_classifier import hand_settable_classes_for, soil_family_of
 
 
 class SetGeotechBandClass(GeotechBoreholeMaterialiser):
@@ -114,8 +114,11 @@ class SetGeotechBandClass(GeotechBoreholeMaterialiser):
             # ``context.soil`` may arrive as the enum or its raw string value.
             soil_label = getattr(context.soil, "value", context.soil)
             raise GeotechBandEditError(
-                f"NAD class {nad_class} does not belong to {soil_label} — "
-                f"this band's soil offers {', '.join(str(c) for c in allowed)}."
+                f"NAD class {nad_class} belongs to {soil_family_of(nad_class)}, not to "
+                f"{soil_label}. The coupling between a unit's soil and its packing class "
+                "is absolute: a packing class describes one soil column and is never "
+                f"valid on another. This band's soil offers "
+                f"{', '.join(str(c) for c in allowed)}."
             )
 
         # TAKE THE PARTITION LOCK BEFORE THE FIRST WRITE, not after it — every
