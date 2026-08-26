@@ -364,18 +364,25 @@ export function fillGap(input: GapFillInput): GapFillResult {
       const homeFraction = Math.min(1, Math.max(0, rawHomeFraction))
       const apexFraction = toFraction(construct.apexX)
       if (!bridged) {
-        const free = construct.topTied ? construct.band.base : construct.band.top
-        // THE APEX VERTEX IS THE CONSTRUCT'S OWN, not a second derivation of it
-        // (owner, 2026-08-25: *"midpoint tie coordinate is end of onlap
-        // coordinate and you have a closed loop"*). Re-reading it through
-        // ``freeAt`` walks a different arithmetic path to the same
-        // algebraic point and lands a ULP off it once in ten — which is a
-        // hair-wide loop between the flank and the tie for the arrangement to
-        // find. One value, drawn by both.
-        lines.push([
-          { fraction: homeFraction, elevation: free },
-          { fraction: apexFraction, elevation: construct.apexElev },
-        ])
+        // THE FLANK IS THE CONSTRUCT'S OWN ``freeVertices``, not a second
+        // derivation of them (owner, 2026-08-25: *"midpoint tie coordinate is
+        // end of onlap coordinate and you have a closed loop"*). Re-deriving
+        // the endpoints walks a different arithmetic path to the same algebraic
+        // points and lands a ULP off once in ten — a hair-wide loop between the
+        // flank and the tie for the arrangement to find. One statement, drawn
+        // here and claimed by ``claims()``, which is also what keeps a RESTED
+        // free contact (``onlapRestsOn.ts``) from being drawn as the straight
+        // line it no longer is.
+        const vertices = construct.freeVertices ?? [
+          { x: construct.band.x, y: construct.topTied ? construct.band.base : construct.band.top },
+          { x: construct.apexX, y: construct.apexElev },
+        ]
+        for (let i = 0; i + 1 < vertices.length; i++) {
+          lines.push([
+            { fraction: toFraction(vertices[i].x), elevation: vertices[i].y },
+            { fraction: toFraction(vertices[i + 1].x), elevation: vertices[i + 1].y },
+          ])
+        }
         continue
       }
       // ``overlayFaces`` treats every entry in ``lines`` as a CLOSED ring
