@@ -20,6 +20,20 @@
  * The scenes are his gap 6 reduced: a dense sand whose flat mTAW tongue ends at
  * the seam one contact ABOVE where the same sand resumes on the facing side,
  * with a lens pinching back from that facing test between the two.
+ *
+ * WHY THE STACKS CARRY A THIN ODD BAND AT EACH COVER EDGE (2026-08-26). The
+ * stacked seam is the fallback for an UN-CORRELATED pair of packages — its own
+ * module says so: *"i will prolly tie the dense sand on one column to the dense
+ * sand on the second column anyway after this fix, but we need a decent
+ * fallback"*. Since the cover weld of 2026-08-26 (``coverWeld.ts``) a cover
+ * boundary whose far band is the same mass IS a tie, so a reduction whose two
+ * stacks happened to share their outermost classes was no longer un-correlated
+ * at all: both packages welded open and the gap left this rule's scope, exactly
+ * as its docstring says a tied package must. That made every assertion below
+ * pass for the wrong reason — the sand wrapped the cover's own lens with no
+ * drape drawn anywhere. A half-metre band of a THIRD class at each cover edge
+ * restores what the reduction always meant to say, and every assertion is
+ * unchanged from the day the owner ruled on them.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -34,12 +48,17 @@ const CLAY = 'f-clay'
 const N6 = 'g-zand-6'
 const N8 = 'g-zand-8'
 const K16 = 'g-silt-16'
+/** The two cover-edge classes that keep the packages un-correlated (header). */
+const N5 = 'g-zand-5'
+const N7 = 'g-zand-7'
 
 /** Without this every band keeps row identity and *"least dense"* has no order. */
 const PACKING = new Map<string, string>([
   [N6, 'ZAND|6'],
   [N8, 'ZAND|8'],
   [K16, 'SILT|16'],
+  [N5, 'ZAND|5'],
+  [N7, 'ZAND|7'],
 ])
 
 /** Two tests, his own S5 → S2 spacing rebased to 0. */
@@ -90,21 +109,25 @@ const LITHO_B_PLAIN = [{ layerId: 'LB', formationId: SAND, top: 0, base: 14 }]
 
 /** A's stack: medium down to +5, then the dense sand — the flat tongue. */
 const A_TONGUE_AT_5 = [
-  { layerId: 'GA1', formationId: N6, top: 0, base: 5 },
-  { layerId: 'GA2', formationId: N8, top: 5, base: 14 },
+  { layerId: 'GA0', formationId: N5, top: 0, base: 0.5 },
+  { layerId: 'GA1', formationId: N6, top: 0.5, base: 5 },
+  { layerId: 'GA2', formationId: N8, top: 5, base: 13.5 },
+  { layerId: 'GA3', formationId: N7, top: 13.5, base: 14 },
 ]
 
 /** B's stack around the lens: the dense sand resumes only at +3. */
 const B_RESUMES_AT_3_WITH_LENS = [
   { layerId: 'GB1', formationId: N6, top: 0, base: 5 },
   { layerId: 'GBC', formationId: K16, top: 5, base: 7 },
-  { layerId: 'GB2', formationId: N8, top: 7, base: 14 },
+  { layerId: 'GB2', formationId: N8, top: 7, base: 13.5 },
+  { layerId: 'GB3', formationId: N6, top: 13.5, base: 14 },
 ]
 
 /** The same step with no lens in it — B's medium simply runs down to +3. */
 const B_RESUMES_AT_3_PLAIN = [
   { layerId: 'GB1', formationId: N6, top: 0, base: 7 },
-  { layerId: 'GB2', formationId: N8, top: 7, base: 14 },
+  { layerId: 'GB2', formationId: N8, top: 7, base: 13.5 },
+  { layerId: 'GB3', formationId: N6, top: 13.5, base: 14 },
 ]
 
 /** The region painted at a point, with a readable failure. */
@@ -181,13 +204,48 @@ describe('a stacked seam drapes the facing construct instead of cliffing', () =>
     const out = scene(
       LITHO_B_WITH_LENS,
       [
-        { layerId: 'GA1', formationId: N6, top: 0, base: 6.5 },
-        { layerId: 'GA2', formationId: N8, top: 6.5, base: 14 },
+        { layerId: 'GA0', formationId: N5, top: 0, base: 0.5 },
+        { layerId: 'GA1', formationId: N6, top: 0.5, base: 6.5 },
+        { layerId: 'GA2', formationId: N8, top: 6.5, base: 13.5 },
+        { layerId: 'GA3', formationId: N7, top: 13.5, base: 14 },
       ],
       B_RESUMES_AT_3_WITH_LENS,
     )
     const verticals = interiorVerticals(regionOf(out, N8).polygon)
     expect(verticals.length, 'the near-miss step was draped anyway').toBe(1)
     expect([verticals[0].lo, verticals[0].hi], 'the near-miss step changed height').toEqual([3, 3.5])
+  })
+
+  it('SD5: two packages that WELD at both cover edges leave this rule behind entirely', () => {
+    // The scene the four above used to be, before the cover-edge classes were
+    // differentiated (see the header): A's medium and B's medium share the
+    // cover top, A's dense and B's dense share the cover base. Since
+    // 2026-08-26 each of those pairs is a TIED CONTACT, so both packages emit
+    // ``nothing``, span, and take the gap out of the stacked seam's scope —
+    // *"tied full-width bands are never touched by it"* (``stackedSeamHalf``).
+    //
+    // The RESULT is still the shape the owner asked for and there is no cliff:
+    // the dense sand is ONE body wrapping the litho lens, whose own triangle is
+    // untouched. It reaches that shape by welding rather than by draping.
+    const out = scene(
+      LITHO_B_WITH_LENS,
+      [
+        { layerId: 'GA1', formationId: N6, top: 0, base: 5 },
+        { layerId: 'GA2', formationId: N8, top: 5, base: 14 },
+      ],
+      [
+        { layerId: 'GB1', formationId: N6, top: 0, base: 5 },
+        { layerId: 'GBC', formationId: K16, top: 5, base: 7 },
+        { layerId: 'GB2', formationId: N8, top: 7, base: 14 },
+      ],
+    )
+    const dense = regionOf(out, N8)
+    expect(interiorVerticals(dense.polygon), 'the welded body ends in a cliff').toEqual([])
+    expect(vertices(regionOf(out, K16)).sort(), 'the facing lens lost its own shape').toEqual(
+      ['0.550,4.00', '1.000,3.00', '1.000,5.00'].sort(),
+    )
+    // One body from test to test: the weld is what "emit nothing" means.
+    expect(Math.min(...dense.polygon.map((p) => p.fraction))).toBeCloseTo(0, 6)
+    expect(Math.max(...dense.polygon.map((p) => p.fraction))).toBeCloseTo(1, 6)
   })
 })
