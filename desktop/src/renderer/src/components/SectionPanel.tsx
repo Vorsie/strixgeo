@@ -2121,7 +2121,7 @@ export default function SectionPanel({
   // perform. Reuses the one-shot slide the Ctrl+F find uses, so the jump keeps
   // whatever zoom the engineer had set.
   const revealColumns = useCallback<SectionColumnRevealFn>(
-    ({ investigationIds, flashEdgeId: edgeId }) => {
+    ({ investigationIds, flashEdgeId: edgeId, flashColumnId }) => {
       const { centreX, missingInvestigationIds } = resolveColumnReveal(
         investigationIds,
         visibleColumns.map(c => ({ id: c.proj.item.id, nudgedX: c.nudgedX })),
@@ -2130,9 +2130,19 @@ export default function SectionPanel({
       setViewport(prev =>
         panViewportToScreenX(prev, centreX, MARGIN.left + plotWidth / 2, scaleH),
       )
-      setFlashEdgeId(edgeId)
-      if (flashEdgeTimer.current !== null) clearTimeout(flashEdgeTimer.current)
-      flashEdgeTimer.current = setTimeout(() => setFlashEdgeId(null), FLASH_HIGHLIGHT_MS)
+      if (edgeId !== undefined) {
+        setFlashEdgeId(edgeId)
+        if (flashEdgeTimer.current !== null) clearTimeout(flashEdgeTimer.current)
+        flashEdgeTimer.current = setTimeout(() => setFlashEdgeId(null), FLASH_HIGHLIGHT_MS)
+      }
+      // A reveal that is about ONE test has no tie to mark, so it lands with the
+      // column pulse instead — the very same one-shot flash Ctrl+F uses, so the
+      // section view never grows a second "here it is" idiom.
+      if (flashColumnId !== undefined) {
+        setFindFlashId(flashColumnId)
+        if (findFlashTimer.current !== null) clearTimeout(findFlashTimer.current)
+        findFlashTimer.current = setTimeout(() => setFindFlashId(null), FLASH_HIGHLIGHT_MS)
+      }
       return { revealed: true, missingInvestigationIds }
     },
     [visibleColumns, plotWidth, scaleH],
