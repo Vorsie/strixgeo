@@ -14,15 +14,23 @@
 // GeotechnicalCanvas is not mounted, so a Build button there would never have
 // the callback and would be a permanent no-op. The 2D editing verbs (Subdivide
 // all bodies / Correlate packing) stay in the SectionsToolbar geotech branch.
+//
+// Since 2026-08-26 the press goes through a PRE-FLIGHT
+// (``useGeotechBuildPreflight``): a test imported after the packing subdivision
+// carries accepted litho and no bands, so the build would frame a gap around it
+// with nothing to fill it. On a finished model the pre-flight finds nothing and
+// the press is exactly what it always was.
 
 import { Box, RefreshCw } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { ToolbarButton } from '../../ToolbarPrimitives'
+import PendingTieChip from '../../../components/sections/PendingTieChip'
+import GeotechBuildPreflightDialog from './GeotechBuildPreflightDialog'
+import { useGeotechBuildPreflight } from './useGeotechBuildPreflight'
 import {
   resetGeotechCameraCallback,
   resetGeotechSplitViewportCallback,
-  geotechVoxelRequestCallback,
 } from './GeotechnicalCanvas'
 
 /**
@@ -31,6 +39,11 @@ import {
  * Renders a single "Build model" button (shown once a geotech model exists)
  * that builds the watertight 3-D NAD body solids from the geotech partition,
  * and a "Reset camera" button when at least one geotech solid has been built.
+ *
+ * The Build press runs the pre-flight first, and where it finds a test in the
+ * model with no packing bands the dialog asks what to do about it. After a
+ * "Build without them" an amber chip names what the last build left out, each
+ * one a press away.
  *
  * Returns
  * -------
@@ -46,9 +59,12 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       geotechSolidsBuilding,
       hasStaleGeotechSolid,
       hasGeotechSolids,
-      buildGeotechSolids,
     },
   } = useShell()
+
+  // Above every early return — the hook order must not depend on whether a
+  // geotech model exists yet (the TDZ / hook-order rule).
+  const preflight = useGeotechBuildPreflight()
 
   // No geotech model yet → nothing to build. "Subdivide all bodies" (the
   // SectionsToolbar geotech verb) creates the model first.
@@ -58,36 +74,60 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
   // builder has nothing to project. The tooltip directs to the Sections stage.
   const hasGeotechBands = geotechLayers.length > 0
 
-  const buildModelLabel = geotechSolidsBuilding
-    ? 'Building…'
-    : hasStaleGeotechSolid
-      ? 'Build model · stale'
-      : 'Build model'
+  const buildModelLabel = preflight.busy
+    ? 'Subdividing…'
+    : geotechSolidsBuilding
+      ? 'Building…'
+      : hasStaleGeotechSolid
+        ? 'Build model · stale'
+        : 'Build model'
+
+  const excludedCount = preflight.excludedFromLastBuild.length
+  const excludedNames = preflight.excludedFromLastBuild.map(t => t.name).join(', ')
 
   return (
     <>
-      {/* Single "Build model" button — calls buildGeotechSolids directly with
-          the canvas-populated voxel-request builder. Amber badge mirrors the
-          litho stale-count convention. Gated on geotech band presence so the
-          button is never a confusing no-op. */}
+      {/* Single "Build model" button — runs the pre-flight, which either builds
+          straight through or opens the dialog. Amber badge mirrors the litho
+          stale-count convention. Gated on geotech band presence so the button
+          is never a confusing no-op. */}
       <ToolbarButton
         icon={<Box size={13} />}
         label={buildModelLabel}
-        onClick={() => void buildGeotechSolids(geotechVoxelRequestCallback.current ?? undefined)}
-        disabled={geotechSolidsBuilding || !hasGeotechBands}
-        busy={geotechSolidsBuilding}
+        onClick={preflight.pressBuild}
+        disabled={geotechSolidsBuilding || preflight.busy || !hasGeotechBands}
+        busy={geotechSolidsBuilding || preflight.busy}
         amber={hasStaleGeotechSolid && hasGeotechBands}
         testid="geotech-build-model-button"
         title={
           !hasGeotechBands
             ? 'No geotech bands yet — run "Subdivide all bodies" on the Sections stage (geotech axis) first, then Build'
-            : geotechSolidsBuilding
-              ? 'Building watertight NAD body solids…'
-              : hasStaleGeotechSolid
-                ? 'One or more geotech body solids are stale — click to rebuild'
-                : 'Build the 3-D NAD body solids from the geotech partition'
+            : preflight.busy
+              ? 'Subdividing the tests that had no packing bands, then building…'
+              : geotechSolidsBuilding
+                ? 'Building watertight NAD body solids…'
+                : hasStaleGeotechSolid
+                  ? 'One or more geotech body solids are stale — click to rebuild'
+                  : 'Build the 3-D NAD body solids from the geotech partition'
         }
       />
+      {/* What the last build deliberately left out. Same chip contract as the
+          pending-tie one: it is a real button because it can act, and pressing
+          it walks the excluded tests one by one. */}
+      {excludedCount > 0 && (
+        <PendingTieChip
+          testid="geotech-excluded-tests-chip"
+          label={`${excludedCount} test${excludedCount === 1 ? '' : 's'} excluded`}
+          title={
+            `The last build ignored ${excludedNames} — ${excludedCount === 1 ? 'it has' : 'they have'} ` +
+            'no packing bands, so the model is the one you had before ' +
+            `${excludedCount === 1 ? 'it was' : 'they were'} imported.`
+          }
+          clickHint="Click to open the next one on a cross-section."
+          ariaHint="Activate to open the next excluded test."
+          onReveal={preflight.visitNextExcluded}
+        />
+      )}
       {hasGeotechSolids && (
         <ToolbarButton
           icon={<RefreshCw size={13} />}
@@ -101,6 +141,15 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           title="Collapse any split view and fly the camera back to the model extent"
         />
       )}
+      <GeotechBuildPreflightDialog
+        open={preflight.askingAbout !== null}
+        tests={preflight.askingAbout ?? []}
+        onVisitTest={preflight.visitTest}
+        onSubdivideAndBuild={() => void preflight.subdivideAndBuild()}
+        onBuildWithout={preflight.buildWithout}
+        onCancel={preflight.cancel}
+        busy={preflight.busy}
+      />
     </>
   )
 }
