@@ -3705,6 +3705,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # are visible to the survivor check — otherwise a unit this very run
         # rebuilt would read as unreferenced and be deleted out from under it.
         await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
+
+        # Debt #266 — record which litho stack each rebuilt borehole column's
+        # bands came from. Only the boreholes this run actually planned: a
+        # borehole ``skip_existing`` protected (it carries hand evidence) keeps
+        # its old provenance, because its bands really were made from the older
+        # stack, and every CPT column keeps the provenance SubdivideAllBodies
+        # gave it. After the sweep so the map is folded against the bands that
+        # survive the transaction, and before the single commit.
+        geotech_model = await self._session.get(GeologicalModelOrm, geotech_model_id)
+        if geotech_model is not None:
+            await self._stamp_litho_provenance(
+                geotech_model=geotech_model,
+                litho_model_id=litho_model_id,
+                rebuilt_column_ids={segment.investigation_id for segment in plan.segments},
+            )
+
         await self._session.commit()
 
         elapsed = time.monotonic() - t0
