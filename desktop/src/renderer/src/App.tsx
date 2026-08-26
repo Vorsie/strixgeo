@@ -351,9 +351,13 @@ export default function App() {
   // the sections stage, selects the chosen section, and triggers the
   // focus-contacts pulse so the section view pans + amber-pulses the
   // offending columns. Cleared after dispatch (single-fire).
+  // ``revealInvestigationId`` rides the same payload for the Geotechnical
+  // stage's Build pre-flight: same three steps (switch stage, select section,
+  // act after a beat), a column pulse instead of a contact pulse.
   const [sectionsDeepLinkTarget, setSectionsDeepLinkTarget] = useState<{
     sectionId: string
     contactIds: readonly string[]
+    revealInvestigationId?: string
   } | null>(null)
 
   // Correlation-edges refetch nonce (#163c). Auto-correlate is fired from
