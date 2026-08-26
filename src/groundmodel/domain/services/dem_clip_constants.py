@@ -21,3 +21,12 @@ KIND_CONTACT_ABOVE_DEM: Final = "contact_above_dem"
 # rather than the bed.  The vertex z is left unchanged because no reliable
 # clamp target is available.
 KIND_DEM_CELL_LOW_CONFIDENCE: Final = "dem_cell_low_confidence"
+
+# How far the ground surface is carried PAST the outermost investigation, in
+# metres.  The surface is a reference the user reads a vertical distance
+# against (interpreted model top vs terrain); a mesh that stops exactly at the
+# last borehole reads as a floating slab and gives the eye nothing to judge
+# "this is the ground" by.  50 m is roughly one screen-width of context at the
+# zoom a site of a few hundred metres is viewed at, and is negligible against
+# the WCS per-tile span cap (25 km).
+GROUND_SURFACE_MARGIN_M: Final = 50.0
