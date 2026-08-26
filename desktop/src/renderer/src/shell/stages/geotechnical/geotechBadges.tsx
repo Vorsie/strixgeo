@@ -1,0 +1,150 @@
+// The two badges the geotech roster puts on a row: where the packing class
+// came from, and how much the model trusts it.
+//
+// Shared by the NAD class row and by the unit instances under it, which is the
+// whole reason they live here: the class row shows the WORST value among its
+// instances, so the two levels must render the same vocabulary or the roll-up
+// stops being comparable to what it rolls up.
+
+import type { LithoLayerConfidence } from '../../../api/client'
+import type { ClassProvenance } from './geotechUnitTree'
+
+/**
+ * Tailwind classes for each confidence tier.
+ *
+ * B2 (WCAG): amber is reserved for unsaved-state markers (memory
+ * project_dirty_amber_color); red is reserved for errors. Neutral slate for
+ * medium and orange for low give attention without the error connotation.
+ */
+const CONFIDENCE_BADGE_CLASS: Record<LithoLayerConfidence, string> = {
+  high: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+  medium: 'bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
+  low: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+}
+
+/** Capitalised label for a confidence tier. */
+const CONFIDENCE_LABELS: Record<LithoLayerConfidence, string> = {
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+}
+
+/**
+ * Badge text, tooltip, test-id stem and colour per provenance value.
+ *
+ * The wording is load-bearing. A non-null NAD class does NOT imply a cone
+ * touched the soil: the borehole packing fill also emits ``body_min`` (the
+ * weakest class seen elsewhere in the body) and ``absolute_min`` (a lithology
+ * floor from ``geotech_subdivision_constants``). Both persist as confidence
+ * 'low' (``divide_boreholes._BOREHOLE_CONFIDENCE_MAP``), while CPT-derived
+ * bands persist 'high' / 'medium'. Stamping "derived from CPT qc series" on
+ * one of those presents an invented value as a measured one (Data Integrity
+ * rules 1 and 2) — and calling a unit with 141 cone bands and one fill band
+ * "No CPT" is its own untrue statement, which is why the mixture keeps a badge
+ * of its own rather than being rounded to either end.
+ *
+ * Neither tooltip says "fallback": owner, 2026-08-15, *"I don't really like
+ * the word fallback, this just means the model isn't ready."*
+ */
+const PROVENANCE_BADGES: Record<
+  ClassProvenance,
+  { text: string; title: string; testIdStem: string; className: string }
+> = {
+  cpt: {
+    text: 'CPT est.',
+    title: 'Classification derived from CPT qc series',
+    testIdStem: 'cpt-est-badge',
+    className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+  },
+  partial: {
+    text: 'CPT est. (partial)',
+    title:
+      'Most bands derived from CPT qc series. At least one had no cone in its body, so it took the weakest class seen there instead. Check the low-confidence bands before use.',
+    testIdStem: 'partial-cpt-badge',
+    className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+  },
+  none: {
+    text: 'No CPT',
+    title:
+      'No CPT data behind this class. It took the weakest class seen in the body, or the lithology floor. Verify before use.',
+    testIdStem: 'no-cpt-badge',
+    className: 'bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
+  },
+}
+
+/**
+ * Provenance badge for a class row or a unit instance.
+ *
+ * Suppressed when the row has no packing class: there is no classification to
+ * state a provenance for, and the row's own label already says so.
+ *
+ * Parameters
+ * ----------
+ * provenance
+ *     Where the class came from — ``'cpt'`` / ``'partial'`` / ``'none'``.
+ * nadClass
+ *     The row's NAD class; ``null`` suppresses the badge.
+ * idKey
+ *     Test-id suffix — the formation id for a single-unit row, the class key
+ *     otherwise.
+ *
+ * Returns
+ * -------
+ * JSX.Element | null
+ *     The badge, or ``null`` when there is no class to describe.
+ */
+export function ProvenanceBadge({
+  provenance,
+  nadClass,
+  idKey,
+}: {
+  provenance: ClassProvenance
+  nadClass: number | null
+  idKey: string
+}): JSX.Element | null {
+  if (nadClass === null) return null
+  const badge = PROVENANCE_BADGES[provenance]
+  return (
+    <span
+      className={`text-[10px] rounded px-1 py-0 flex-shrink-0 ${badge.className}`}
+      title={badge.title}
+      data-testid={`${badge.testIdStem}-${idKey}`}
+    >
+      {badge.text}
+    </span>
+  )
+}
+
+/**
+ * Confidence badge for a class row or a unit instance.
+ *
+ * Parameters
+ * ----------
+ * confidence
+ *     Aggregated confidence, or ``null`` to render nothing.
+ * idKey
+ *     Test-id suffix — see ``ProvenanceBadge``.
+ *
+ * Returns
+ * -------
+ * JSX.Element | null
+ *     The badge, or ``null`` when no layer backs the row.
+ */
+export function ConfidenceBadge({
+  confidence,
+  idKey,
+}: {
+  confidence: LithoLayerConfidence | null
+  idKey: string
+}): JSX.Element | null {
+  if (confidence === null) return null
+  return (
+    <span
+      className={`text-[10px] rounded px-1 py-0 flex-shrink-0 ${CONFIDENCE_BADGE_CLASS[confidence]}`}
+      title="Aggregated confidence of the packing-class assignment across all CPT layers"
+      data-testid={`confidence-badge-${idKey}`}
+    >
+      {CONFIDENCE_LABELS[confidence]}
+    </span>
+  )
+}
