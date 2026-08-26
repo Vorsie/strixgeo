@@ -734,17 +734,22 @@ async def _band_pair_at(
 async def test_gl1_moving_the_geo_contact_unlocks_the_band_merge_without_resubdivide(
     contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """GL1 — the packing verbs' geo wall reads the LIVE contacts, not stamps.
+    """GL1 (kept, re-aimed 2026-08-26) — a written band takes its geological parent LIVE.
 
-    Lives in this file for the ``contact_scene`` fixture; the verb under test is
-    the ordinary band merge. Dogfeed 2026-08-12 (GEO-23/125-S6): the engineer's
-    early geological-stage pick sat inside a sand unit, the build broke the
-    bands there, and after he moved the contact on the geology axis the merge
-    kept refusing — the wall read the build-time stamps, and its message
-    steered him toward a re-subdivide that deletes every hand edit. Moving the
-    contact must be enough: the wall follows the live position, and the written
-    union takes its geological parent from the live model, healing the stale
-    stamp on touch.
+    The wall half of this test is gone: the owner dropped the geological wall
+    (*"just drop the wall everywhere, user wil have to manually do it"*), so the
+    merge below no longer needs the contact to move out of the way — it would
+    succeed either way. What survives, and is still worth pinning, is the STAMP
+    half from the same 2026-08-12 dogfeed (GEO-23/125-S6): the union's
+    geological parent is read from the LIVE model, so a hand edit heals a stale
+    build-time stamp on touch instead of copying it forward.
+
+    The discriminator is real here: the BUILD stamps from geological SURFACES,
+    and this scene has none, so every band is built carrying ``None``. The merge
+    then stamps from the live CONTACT list and must produce ``GL-Formatie``. A
+    writer that copied the surviving row's build-time stamp forward would leave
+    ``None`` and fail. The 9.0 → 6.0 move is kept from the original test so the
+    live position it reads is unambiguously not the one the bands were built at.
     """
     # The contact exists BEFORE the build, so the bands break AND stamp at it.
     geo_contact_id = await _geo_contact_at(db_session, contact_scene, "GL-Formatie", 9.0)
@@ -782,26 +787,58 @@ async def test_gl1_moving_the_geo_contact_unlocks_the_band_merge_without_resubdi
 
 
 @pytest.mark.asyncio
-async def test_gl2_a_live_contact_between_the_bands_refuses_without_resubdivide_advice(
+async def test_gl2_a_live_contact_between_the_bands_no_longer_refuses(
     contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """GL2 — the wall itself stands; its advice stops destroying hand edits."""
-    await _geo_contact_at(db_session, contact_scene, "GL2-Formatie", 9.0)
+    """GL2 (INVERTED, 2026-08-26) — the merge crosses the geological line, at the database.
+
+    This asserted a 422 until the owner ruled the wall away: *"just drop the
+    wall everywhere, user wil have to manually do it"*. The geological contact
+    sits at 9.0 m, squarely between the two KLEI bands, and the merge must
+    simply happen.
+
+    It also pins the straddling-stamp rule end-to-end, which is new ground the
+    wall used to make unreachable: the union spans the contact, and its
+    geological parent is the unit holding the MAJORITY of its thickness. The
+    contact is placed at 7.0 m in a 6.0–12.0 m union — 1 m above it, 5 m below —
+    so the survivor must carry ``GL2-Formatie``, the deeper unit. (The exact
+    50/50 tie-break is pinned deterministically in the unit test GP5; putting a
+    contact on the midpoint here would ride on the segmenter's boundary landing
+    to the micrometre.)
+
+    Note the ORDER: the column is subdivided BEFORE the geological contact
+    exists. That is deliberate — under the ruling the contact cannot influence
+    the subdivision, so the test must not depend on it having done so. It also
+    frees the band pair from having to appear at a depth the geology dictated;
+    the pair here is the real qc packing change inside KLEI.
+    """
     gid = await _subdivide(async_client, contact_scene)
     upper_id, lower_id = await _band_pair_at(db_session, gid, contact_scene["cpt_id"], 9.0)
     band_count_before = len(await _bands(db_session, gid, contact_scene["cpt_id"]))
+
+    # The engineer picks a geological contact INSIDE the pair, after the fact.
+    geo_contact_id = await _geo_contact_at(db_session, contact_scene, "GL2-Formatie", 7.0)
+    geo_contact = await db_session.get(FormationContactOrm, geo_contact_id)
+    assert geo_contact is not None
+    gl2_formation_id = geo_contact.formation_id
 
     resp = await async_client.post(
         f"/projects/{contact_scene['project_id']}/geology/models/{gid}/geotech/bands/merge",
         json={"upper_band_id": str(upper_id), "lower_band_id": str(lower_id)},
     )
-    assert resp.status_code == 422, resp.text
-    message = resp.json()["detail"]["message"]
-    assert "geology axis" in message
-    assert "Subdivide" not in message, (
-        "the old advice sent the engineer into a re-subdivide that deletes "
-        "every hand edit on every column"
-    )
+    assert resp.status_code == 200, resp.text
 
     db_session.expire_all()
-    assert len(await _bands(db_session, gid, contact_scene["cpt_id"])) == band_count_before
+    assert len(await _bands(db_session, gid, contact_scene["cpt_id"])) == band_count_before - 1, (
+        "the merge must actually collapse the pair, not just answer 200"
+    )
+    survivor = await db_session.get(LithoLayerOrm, upper_id)
+    assert survivor is not None
+    assert survivor.depth_top_m == pytest.approx(6.0)
+    assert survivor.depth_base_m == pytest.approx(12.0)
+    formation = await db_session.get(GeologicalFormationOrm, survivor.formation_id)
+    assert formation is not None
+    assert formation.source_geo_formation_id == gl2_formation_id, (
+        "a band straddling a geological contact takes the unit holding the "
+        "majority of its thickness — here 5 m of 6 below the contact at 7.0 m"
+    )
