@@ -57,6 +57,13 @@ import { BasemapPanel } from './BasemapPanel'
 import { CesiumViewport } from './CesiumViewport'
 import { GeotechLayersTree } from './GeotechLayersTree'
 import { computeSplitPlane, type DrawState, type SplitLine } from './geology3DPrimitives'
+import {
+  GROUND_SURFACE_LEGEND,
+  computeGroundDaylight,
+  formatDaylightCaption,
+  summariseDaylight,
+} from './groundSurfaceLayer'
+import { canCompare, type CompareScene, type SplitMode } from '../shared/splitViewport'
 
 // Re-export for existing consumers (useBody3DViewState) — the type moved to
 // geology3DPrimitives in the #201 round-2 split.
@@ -69,8 +76,9 @@ export type { SplitLine } from './geology3DPrimitives'
 // Types
 // ---------------------------------------------------------------------------
 
-/** Operational mode of the viewer. */
-export type SplitMode = 'single' | 'split'
+// SplitMode moved to shared/splitViewport.ts alongside the transitions that
+// produce it; re-exported here so existing importers keep working.
+export type { SplitMode } from '../shared/splitViewport'
 
 export interface Geology3DViewerProps {
   /**
@@ -173,6 +181,27 @@ export interface Geology3DViewerProps {
    * ``bodySolids``); the geology pane fades its TIN surfaces instead and can
    * omit this. */
   investigationXY?: readonly (readonly [number, number])[]
+  /**
+   * Closed ring of ``[x_m, y_m, elevation_m]`` marking the model's footprint —
+   * the alpha hull the build clipped to, fetched from the backend.
+   *
+   * Without it a hull-trimmed edge is indistinguishable from a gap the
+   * interpretation deliberately left open; with it, "the model ends here"
+   * reads as an edge. Drawn in EVERY pane including the compare pane, and
+   * never clipped by the cut plane.
+   */
+  footprintRing?: readonly (readonly number[])[]
+  /**
+   * The counterpart model shown in the right-hand pane when
+   * ``splitMode === 'compare'`` — the litho model beside the geotech
+   * subdivision derived from it, or the reverse.
+   *
+   * Absent on the geology pane, which has no counterpart. When absent the
+   * Compare verb is not offered.
+   */
+  compareScene?: CompareScene | null
+  /** Enter the model comparison (the "Compare" button). Omit to hide it. */
+  onEnterCompare?: () => void
 }
 
 
@@ -236,7 +265,14 @@ export default function Geology3DViewer({
   bodySolids,
   bodySolidsWireframe = false,
   investigationXY,
+  footprintRing,
+  compareScene,
+  onEnterCompare,
 }: Geology3DViewerProps): JSX.Element {
+  // Camera link for compare mode: the primary pane leads, the compare pane
+  // follows. Refs, not state — the camera moves many times per second and
+  // routing it through React would re-render both panes on every mouse move.
+  const primaryCameraRef = useRef<Cesium.Camera | null>(null)
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
   // the two views share the user's last explicit pick).
@@ -343,6 +379,18 @@ export default function Geology3DViewer({
   const [basemapEnabled, setBasemapEnabled] = useState(true)
   // DEM ground-surface on/off (the "Ground surface" legend toggle). Default on.
   const [groundSurfaceVisible, setGroundSurfaceVisible] = useState(true)
+  // G7 daylight reading — the gap between the DEM ground and the model's
+  // interpreted top, summarised for the legend caption (owner ballot
+  // 2026-08-26; the H17 affordance: 47/58 tests sit below their collar).
+  const daylightCaption = useMemo(() => {
+    if (!groundSurface || groundSurface.triangles.length === 0) return null
+    const columns = (investigationXY ?? []).map(([x, y]) => ({ x, y }))
+    return formatDaylightCaption(
+      summariseDaylight(
+        computeGroundDaylight(groundSurface, [...surfacesByFormationId.values()], columns),
+      ),
+    )
+  }, [groundSurface, surfacesByFormationId, investigationXY])
   // Formation-surface TIN sheets on/off (the "Surfaces" legend toggle).
   // Default OFF in Fence mode (walls-only) and ON in Solid mode — reset on each
   // mode switch by the effect below; a manual toggle still persists WITHIN a
@@ -412,19 +460,31 @@ export default function Geology3DViewer({
   // Render
   // ---------------------------------------------------------------------------
 
+  // Both split kinds lay out two half-width panes; only the CUT split clips.
+  const isTwoPane = splitMode === 'split' || splitMode === 'compare'
+  // A comparison shows both models WHOLE, in BOTH panes. The mode is the
+  // authority here, not the plane prop: the state machine already clears the
+  // plane on entering compare, but a viewer that renders a half model whenever
+  // a caller passes both would put the invariant in the caller's hands, and a
+  // half model reads as a modelling gap rather than as a cut.
+  const activeClipPlane = splitMode === 'compare' ? null : splitPlane
+  const activeSplitLine = splitMode === 'compare' ? null : splitLine
+  const canOfferCompare =
+    splitMode === 'single' && onEnterCompare !== undefined && canCompare(compareScene)
+
   return (
     <div className="relative w-full h-full flex">
       {/* Primary (left / only) viewport */}
-      <div className={splitMode === 'split' ? 'w-1/2 h-full relative' : 'w-full h-full relative'}>
+      <div className={isTwoPane ? 'w-1/2 h-full relative' : 'w-full h-full relative'}>
         <CesiumViewport
           viewportKey="primary"
           formations={formations}
           surfacesByFormationId={surfacesByFormationId}
           activeBasemap={resolvedBasemap}
           projectEpsg={projectEpsg}
-          clippingPlane={splitPlane}
+          clippingPlane={activeClipPlane}
           invertClip={false}
-          splitLine={splitLine}
+          splitLine={activeSplitLine}
           cameraResetRef={resetCameraRef}
           onSceneClick={primaryClickHandler}
           groundSurface={groundSurface}
@@ -438,7 +498,21 @@ export default function Geology3DViewer({
           bodySolids={bodySolids}
           bodySolidsWireframe={bodySolidsWireframe}
           investigationXY={investigationXY}
+          footprintRing={footprintRing}
+          cameraRef={primaryCameraRef}
         />
+
+        {/* Compare pane caption — names which model the LEFT pane holds, so
+            the two halves are never guessed at. Only in compare mode: in
+            single / cut view the stage itself names the model. */}
+        {splitMode === 'compare' && (
+          <div
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg px-2 py-0.5 text-[11px] font-semibold text-text-primary pointer-events-none"
+            data-testid="geology3d-compare-label-primary"
+          >
+            This model
+          </div>
+        )}
 
         {/* Debt #26 offline banner — overlays the primary viewport when
             the browser reports no network connectivity AND the user
@@ -507,16 +581,21 @@ export default function Geology3DViewer({
                       className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default"
                       style={
                         groundSurfaceVisible
-                          ? { backgroundColor: 'rgb(140,133,122)' }
-                          : { borderColor: 'rgb(140,133,122)' }
+                          ? { backgroundColor: GROUND_SURFACE_LEGEND.swatchCss }
+                          : { borderColor: GROUND_SURFACE_LEGEND.swatchCss }
                       }
                     />
                     <span
                       className={`truncate ${!groundSurfaceVisible ? 'line-through text-text-muted' : 'text-text-primary'}`}
                     >
-                      Ground surface
+                      {GROUND_SURFACE_LEGEND.label}
                     </span>
                   </button>
+                  {groundSurfaceVisible && daylightCaption && (
+                    <div className="pl-7 pr-2 pb-1 text-[10px] leading-tight text-text-muted">
+                      {daylightCaption}
+                    </div>
+                  )}
                 </li>
               )}
               {/* The master "Surfaces" toggle was removed from the legend
@@ -575,14 +654,17 @@ export default function Geology3DViewer({
           </div>
         }
 
-        {/* Split control — explicit free-draw arm + collapse. */}
-        <div className="absolute bottom-9 left-1/2 -translate-x-1/2 z-10">
-          {splitMode === 'split' ? (
+        {/* Split control — explicit free-draw arm + collapse. One "Single
+            view" button closes BOTH split kinds, so the user never has to
+            know which one is open to get out of it. */}
+        <div className="absolute bottom-9 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+          {isTwoPane ? (
             <button
               type="button"
               onClick={() => onExitSplit?.()}
               className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page transition-colors shadow-lg"
-              title="Collapse the split back to a single view"
+              title="Collapse back to a single view"
+              data-testid="geology3d-single-view-button"
             >
               Single view
             </button>
@@ -611,6 +693,21 @@ export default function Geology3DViewer({
               ✂ Split model
             </button>
           )}
+          {/* Compare — the OTHER kind of two-pane view: two different models,
+              whole, at one viewpoint. Only offered when the counterpart model
+              would actually paint something; a button that opens a blank pane
+              reads as a broken viewer. */}
+          {canOfferCompare && (
+            <button
+              type="button"
+              onClick={() => onEnterCompare?.()}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page transition-colors shadow-lg"
+              title={`Show ${compareScene?.label} beside this model at the same viewpoint`}
+              data-testid="geology3d-compare-button"
+            >
+              ⇹ Compare with {compareScene?.label}
+            </button>
+          )}
         </div>
 
         {/* Split-line draw mode hint */}
@@ -623,20 +720,25 @@ export default function Geology3DViewer({
         )}
       </div>
 
-      {/* Secondary (right) viewport — split mode only */}
-      {splitMode === 'split' && (
+      {/* Secondary (right) viewport — the OTHER half of a cut split, or the
+          counterpart model in a comparison. */}
+      {isTwoPane && (
         <>
           <div className="w-px h-full bg-gray-300 dark:bg-gray-600 flex-shrink-0" aria-hidden="true" />
           <div className="w-1/2 h-full relative">
             <CesiumViewport
-              viewportKey="secondary"
-              formations={formations}
+              // Remount on mode change: the two modes hand this pane a
+              // different model AND a different camera regime, and reusing the
+              // widget would carry the cut pane's camera into the comparison
+              // before the first mirrored frame lands.
+              viewportKey={splitMode === 'compare' ? 'compare' : 'secondary'}
+              formations={splitMode === 'compare' && compareScene ? compareScene.formations : formations}
               surfacesByFormationId={surfacesByFormationId}
               activeBasemap={resolvedBasemap}
               projectEpsg={projectEpsg}
-              clippingPlane={splitPlane}
-              invertClip={true}
-              splitLine={splitLine}
+              clippingPlane={activeClipPlane}
+              invertClip={splitMode !== 'compare'}
+              splitLine={activeSplitLine}
               groundSurface={groundSurface}
               hiddenFormationIds={hiddenFormationIds}
               hiddenBodyIds={hiddenBodyIds}
@@ -644,11 +746,28 @@ export default function Geology3DViewer({
               groundSurfaceVisible={groundSurfaceVisible}
               surfacesVisible={surfacesVisible}
               showConfidenceFade={showConfidenceFade}
-              fencePanels={fencePanels}
-              bodySolids={bodySolids}
+              fencePanels={
+                splitMode === 'compare' && compareScene ? compareScene.fencePanels : fencePanels
+              }
+              bodySolids={
+                splitMode === 'compare' && compareScene ? compareScene.bodySolids : bodySolids
+              }
               bodySolidsWireframe={bodySolidsWireframe}
               investigationXY={investigationXY}
+              footprintRing={footprintRing}
+              // Only the comparison links cameras. The cut split keeps them
+              // independent on purpose: each pane is half of ONE model and the
+              // user wants to inspect each half on its own.
+              followCameraRef={splitMode === 'compare' ? primaryCameraRef : undefined}
             />
+            {splitMode === 'compare' && compareScene && (
+              <div
+                className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg px-2 py-0.5 text-[11px] font-semibold text-text-primary pointer-events-none"
+                data-testid="geology3d-compare-label-secondary"
+              >
+                {compareScene.label}
+              </div>
+            )}
           </div>
         </>
       )}
