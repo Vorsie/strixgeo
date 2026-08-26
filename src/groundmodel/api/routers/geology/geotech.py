@@ -136,7 +136,7 @@ async def subdivide_all_bodies(
     response says as much through ``edges_derived`` and ``proposed_tie_count``.
     ``subdivide-cpts`` is the same verb stopping after the bands.
 
-    Runs ``SubdivideAllBodies`` (Task E3) which groups geo-bounded litho picks
+    Runs ``SubdivideAllBodies`` (Task E3) which groups litho picks
     by ``(body_id, source_geo_formation_id)``, applies the B-policy aggregator
     to decide consistent-split vs one-class per group, interpolates split
     surfaces onto every column, and materialises real geotech spatial bodies
@@ -1179,7 +1179,7 @@ async def preview_merge_geotech_bands(
     HTTPException(422)
         When the model is not geotechnical, the bands sit on a borehole (no cone
         resistance, so no class can be re-derived), or the two bands are not
-        adjacent within one geo-bounded litho body.
+        adjacent within one litho body.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-merge "
