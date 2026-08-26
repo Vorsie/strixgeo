@@ -50,9 +50,12 @@ import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import { formationsYoungestFirst } from '../../../utils/formationOrder'
 import { formatLithoDisplayName } from '../../../utils/lithoLabels'
+import { isGeotechUnit } from '../../../utils/formationKind'
+import { buildGeotechLegendTree } from '../../../utils/geotechLegendTree'
 import type { FencePanel } from '../../../utils/fencePanels'
 import { BasemapPanel } from './BasemapPanel'
 import { CesiumViewport } from './CesiumViewport'
+import { GeotechLayersTree } from './GeotechLayersTree'
 import { computeSplitPlane, type DrawState, type SplitLine } from './geology3DPrimitives'
 
 // Re-export for existing consumers (useBody3DViewState) — the type moved to
@@ -282,6 +285,54 @@ export default function Geology3DViewer({
       return next
     })
   }, [])
+  // Bulk variant for the grouped geotech legend: a family / class row hides or
+  // shows every formation beneath it in ONE state write (a per-id loop would
+  // queue N updates and, worse, read a stale set inside the loop).
+  const toggleFormations = useCallback((ids: readonly string[], hide: boolean) => {
+    setHiddenFormationIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (hide) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Per-BODY 3D visibility — the geotech legend's third level. Session-
+  // ephemeral like hiddenFormationIds. Only the solid render honours it (fence
+  // walls carry no body identity), which is why it is a separate set rather
+  // than more entries in hiddenFormationIds.
+  // ---------------------------------------------------------------------------
+  const [hiddenBodyIds, setHiddenBodyIds] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleBody = useCallback((bodyId: string, hide: boolean) => {
+    setHiddenBodyIds(prev => {
+      const next = new Set(prev)
+      if (hide) next.add(bodyId)
+      else next.delete(bodyId)
+      return next
+    })
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Legend shape. A geotech model subdivides every litho unit into packing
+  // classes, so the flat list degenerates into dozens of identical-text rows —
+  // it gets the nested soil ▸ class ▸ body tree instead (owner 2026-08-26).
+  // The geological + litho panes keep the flat list: their formation names are
+  // already distinct, so grouping would only add clicks.
+  //
+  // ``isGeotechUnit`` (source_litho_formation_id) is the canonical
+  // discriminator — a nad_class probe would miss the borehole-only skeletons,
+  // which are exactly the rows the tree has to keep visible.
+  // ---------------------------------------------------------------------------
+  const geotechLegendTree = useMemo(
+    () =>
+      formations.some(isGeotechUnit)
+        ? buildGeotechLegendTree(formations, bodySolids ?? [])
+        : null,
+    [formations, bodySolids],
+  )
   // Basemap on/off (the user toggle). Default on.
   const [basemapEnabled, setBasemapEnabled] = useState(true)
   // DEM ground-surface on/off (the "Ground surface" legend toggle). Default on.
@@ -372,6 +423,7 @@ export default function Geology3DViewer({
           onSceneClick={primaryClickHandler}
           groundSurface={groundSurface}
           hiddenFormationIds={hiddenFormationIds}
+          hiddenBodyIds={hiddenBodyIds}
           basemapEnabled={basemapEnabled}
           groundSurfaceVisible={groundSurfaceVisible}
           surfacesVisible={surfacesVisible}
@@ -406,14 +458,17 @@ export default function Geology3DViewer({
         {/* Basemap picker — only on the primary viewport */}
         <BasemapPanel activeBasemapId={basemapId} onSelect={handleBasemapSelect} />
 
-        {/* Layer legend — basemap on/off + per-formation 3D visibility.
-            Click a row to hide/show that layer in the model. */}
+        {/* Layer legend — basemap on/off + per-layer 3D visibility.
+            Click a row to hide/show that layer in the model. The list is height-
+            capped + scrollable: a subdivided geotech model expands to more rows
+            than the viewport is tall, and a legend that runs off the bottom of
+            the screen takes its own toggles with it. */}
         {
-          <div className="absolute top-2 left-2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg max-w-[15rem] py-1 text-xs">
+          <div className="absolute top-2 left-2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg max-w-[16rem] py-1 text-xs">
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">
               Layers
             </div>
-            <ul>
+            <ul className="max-h-[60vh] overflow-y-auto">
               <li>
                 <button
                   type="button"
@@ -462,11 +517,22 @@ export default function Geology3DViewer({
                   (dogfeed 2026-06-16 — owner doesn't want it). ``surfacesVisible``
                   is still driven by fence mode (auto-off in fence) + read by the
                   render; per-formation rows below toggle individual sheets. */}
-              {/* Youngest-first (surface at top) so the legend reads like the
+              {/* Geotech pane: the nested soil ▸ NAD class ▸ body tree. */}
+              {geotechLegendTree !== null && (
+                <GeotechLayersTree
+                  tree={geotechLegendTree}
+                  hiddenFormationIds={hiddenFormationIds}
+                  hiddenBodyIds={hiddenBodyIds}
+                  onToggleFormations={toggleFormations}
+                  onToggleBody={toggleBody}
+                />
+              )}
+              {/* Geological / litho panes: the flat per-formation list.
+                  Youngest-first (surface at top) so the legend reads like the
                   GeologyInspector list / a borehole log. The TIN paint order
                   (ascending display_order) is unaffected — this reverses the
                   legend list only. */}
-              {formationsYoungestFirst(formations).map(f => {
+              {geotechLegendTree === null && formationsYoungestFirst(formations).map(f => {
                 const hidden = hiddenFormationIds.has(f.id)
                 const hex = f.color.startsWith('#') ? f.color : `#${f.color}`
                 return (
@@ -567,6 +633,7 @@ export default function Geology3DViewer({
               splitLine={splitLine}
               groundSurface={groundSurface}
               hiddenFormationIds={hiddenFormationIds}
+              hiddenBodyIds={hiddenBodyIds}
               basemapEnabled={basemapEnabled}
               groundSurfaceVisible={groundSurfaceVisible}
               surfacesVisible={surfacesVisible}
