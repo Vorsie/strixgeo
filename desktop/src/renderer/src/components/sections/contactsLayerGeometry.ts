@@ -35,7 +35,7 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
-import { nadClassColor, nadClassName } from '../../utils/nadClasses'
+import { geotechUnitColor, nadClassName } from '../../utils/nadClasses'
 import type { SectionLine2D } from '../../utils/sliceTin'
 import { columnMaxDepthM, depthAxisAtSurface, type PlacedColumn } from './utils'
 
@@ -403,9 +403,10 @@ export function formationDisplayLabel(formation: GeologicalFormationResponse): s
  * On the geotechnical axis a classified formation displays as its NAD
  * packing class: name = ``nadClassName(nad_class)`` (falling back to
  * the formation name while unclassified — ``nadClassName(null)``
- * yields ``""``), colour = ``nadClassColor(nad_class)`` (the packing
- * density ramp, matching the fill overlay). On every other axis the
- * stored ``name`` / ``color`` pass through unchanged.
+ * yields ``""``), colour = ``geotechUnitColor`` (the engineer's pick
+ * where he made one, else the packing density ramp — matching the fill
+ * overlay). On every other axis the stored ``name`` / ``color`` pass
+ * through unchanged.
  *
  * Note the colour override is opt-in per call site: the band-label
  * path keeps the stored formation colour for label contrast and only
@@ -424,7 +425,10 @@ export function geotechDisplayFormation(
   }
   return {
     name: nadClassName(formation.nad_class ?? null) || formation.name,
-    color: nadClassColor(formation.nad_class ?? null),
+    // ``geotechUnitColor``, not ``nadClassColor``: a colour the engineer picked
+    // on the units pane wins here too, or the section disagrees with the pane
+    // he picked it on (owner ruling 2026-08-26).
+    color: geotechUnitColor(formation),
   }
 }
 
