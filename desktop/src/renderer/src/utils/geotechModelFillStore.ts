@@ -7,13 +7,16 @@
  * needs its own switch: hiding the built geotech model on the geotech axis must
  * not blank the built litho model on the litho one.
  *
- * Defaults to ``true``, matching ``formationFillStore``: a model the engineer
- * has explicitly built shows itself. This is NOT the case ``geotechFillStore``
- * defaults OFF for — that fill turned itself on off the back of an accepted-tie
- * gate, mid-review; this one appears only after a deliberate press of Build.
+ * Defaults to ``false``, DELIBERATELY unlike ``formationFillStore`` (the litho
+ * peer, which has always defaulted on). Owner ruling, dogfeed 2026-08-26: "i
+ * want to keep the old show fill and wanted a new model fill next to it". A
+ * default-on model fill is not merely one more switch here — it EXCLUDES the
+ * packing fill (see below), so it silently took over the axis the engineer
+ * reloads onto. A new sibling switch arrives off; he asks for it. The litho
+ * axis is untouched by this ruling.
  *
  * Module-global by design (one section view at a time). Chrome, never persisted
- * — resetting to shown on reload is the desired behaviour.
+ * — resetting to hidden on reload is what puts him back on his own fill.
  */
 
 import { createBooleanStore } from './createBooleanStore'
@@ -27,7 +30,7 @@ import { createBooleanStore } from './createBooleanStore'
 import { setGeotechFill } from './geotechFillStore'
 import { setLithoFillOnGeotech } from './lithoFillOnGeotechStore'
 
-const store = createBooleanStore(true)
+const store = createBooleanStore(false)
 
 /** Flip the geotech model-fill visibility and notify subscribers.
  *  ON-transition auto-hides both 2-D fills (mutual exclusion); the
