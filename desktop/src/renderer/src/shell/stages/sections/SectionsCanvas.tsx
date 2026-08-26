@@ -42,6 +42,7 @@ import MoveRestatedContactDialog from '../../../components/MoveRestatedContactDi
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { readGeotechSubdivisionPrefs } from '../../../utils/geotechSubdivisionPrefs'
+import { unionStaleGeotechColumns } from '../../../utils/staleGeotechColumns'
 import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import GeotechBandEditDialog from '../../../components/sections/GeotechBandEditDialog'
@@ -136,6 +137,10 @@ export default function SectionsCanvas(): JSX.Element {
       geotechLayersVersion,
       geotechContacts,
       geotechFormations,
+      // Debt #266 — the two out-of-date signals the geotech axis marks columns
+      // with: the server's litho-provenance compare and the geometric fit check.
+      staleLithoGeotechColumns,
+      columnsNeedingRederive,
       requestGeotechLayersRefetch,
       // Ghost-accept: right-click ONE undivided borehole's ghosts -> commit
       // just that column (pipeline step 4, scoped).
@@ -581,8 +586,23 @@ export default function SectionsCanvas(): JSX.Element {
       nadMeta,
       lithoSoilByFormationId,
       lithoFormationColorById,
+      // Debt #266 — merged here, from the same two signals the toolbar chip
+      // counts, so the mark on the drawing and the number above it can never
+      // disagree about which columns are out of date.
+      staleColumnIds: new Set(
+        unionStaleGeotechColumns(staleLithoGeotechColumns, columnsNeedingRederive, () =>
+          undefined,
+        ).map(c => c.investigation_id),
+      ),
     }
-  }, [isGeotech, geotechFormations, lithoFormations, geotechLayers])
+  }, [
+    isGeotech,
+    geotechFormations,
+    lithoFormations,
+    geotechLayers,
+    staleLithoGeotechColumns,
+    columnsNeedingRederive,
+  ])
 
   // A restated-contact drag waiting for the engineer to accept its consequences.
   //
