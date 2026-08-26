@@ -87,7 +87,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47 *(#213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
+* **D. Phase-4 export step + post-launch / Phase 5:** #104 *(identifier half RESOLVED 2026-08-26; closed-polygon export remains)*, #105, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
 
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
@@ -2270,9 +2270,95 @@ falling through to the geological model on the geotech axis — which had made a
 engineer on the NAD axis silently export Quartair/Boom/Diest surfaces and zero
 geotech units. `hasModel` mirrors the same three-way selection, and both
 tooltips now name the level being written. Pinned by
-`SectionsToolbar.axisExport.test.tsx`. Still open here: the snapshot *content*
-gap — `SectionFormation` carries no `litho_main_soil_code` / `nad_class`, so
-the exported unit identifiers are still formation-level names.
+`SectionsToolbar.axisExport.test.tsx`.
+
+**Identifier slice landed 2026-08-26.** The snapshot *content* gap is closed:
+`SectionFormation` and `FormationDisplay` carry `nad_class` +
+`litho_main_soil_code` (`FormationDisplay` also gains `formation_id`), both
+build paths populate them, and every exporter reads them through one shared
+scheme module — `infrastructure/exporters/unit_identifier.py` +
+`unit_identifier_constants.py`. Contract and reasoning: **docs/exports.md §Unit
+identifiers**. In brief: token `NAD-06_ZAND` (zero-padded so CAD sorts it in
+class order, class-first so `NAD-06_*` wildcards); a unit's export NAME changes
+only when it carries a `nad_class`, so litho + geological naming is
+byte-identical (control-pinned); DXF gains the identifier in the layer name,
+the class + soil in the layer description, and a model-space mapping table;
+both PLAXIS exporters gain identifier-led material identifications, collision-
+free variables + identifications, and a `UNIT MAPPING TABLE` header block; the
+PDF legend leads with the token. Pins:
+`tests/unit/infrastructure/exporters/test_unit_identifier.py` +
+`test_export_unit_identifiers.py`.
+
+**Still open here.** Closed polygons / hatched soil bodies — the exports still
+carry contact polylines + per-column layer stacks, not filled units; the 2-D
+partition fill lives in the renderer and has no backend equivalent to export.
+*(The same-NAD thinning half of the ballot is #104b, RESOLVED 2026-08-26.)*
+
+## 104b. Export-level thinning of adjacent same-NAD units — RESOLVED 2026-08-26
+
+**Owner ruling, verbatim:** *"thin in dxf and pdf, keep plaxis exact,
+shallower parent name wins."*
+
+**Shipped.** `ThinExportUnits`
+(`application/thin_export_units.py`) merges vertically adjacent units
+that share a `unit_identifier()` (same NAD class + soil), applied in
+`_build_export_snapshot` (`api/routers/cross_section.py`) by the DXF and
+PDF handlers only — the helper's `thin_units` defaults to `False`, and
+the Plaxis handler carries a comment saying why it must never pass it.
+The shallower unit's name, colour and formation reference survive; the
+merge is a deletion of the deeper unit's top contacts, so the survivor's
+extent runs to whatever lay below without any recomputation. The
+survivor records `absorbed_unit_names`, and the mapping table grows an
+`Absorbed units` column *only* on a thinned artefact, so everything else
+stays byte-identical. Default ON for DXF/PDF with `?thin_units=false` as
+an opt-out, because the merge erases a litho/geo boundary the engineer
+drew. Full rule + the "adjacent" definition: **docs/exports.md §Same-NAD
+thinning**. Pins: `tests/unit/application/test_thin_export_units.py`
+(11, red-first) + 4 routing pins in
+`tests/integration/api/test_cross_section_export.py`.
+
+Both design questions the original entry raised were answered by the
+ruling: the Plaxis global-stack constraint is settled by "keep plaxis
+exact", and "what a merge erases" by "shallower parent name wins" plus
+the audit column. The original entry follows for the record.
+
+**What.** Merge vertically adjacent units carrying IDENTICAL NAD
+parameters into one export unit, so a report / DXF / Plaxis model does
+not show two materials the engineer treats as one.
+
+**Where it hooks.** ONE seam serves all three section artefacts:
+`_build_export_snapshot` in `api/routers/cross_section.py:99` — the
+shared loader behind the DXF (`:487`), PDF and Plaxis 2D (`:611`)
+handlers. A new application-layer pass would take the assembled
+`SectionSnapshot` and return a thinned one, behind an explicit opt-in
+query param (thinning discards a distinction the user drew, so it must
+never be the silent default). The grouping key already exists:
+two units merge iff `unit_identifier()` returns the same token.
+
+**Why it is NOT in the 2026-08-26 identifier slice.** The merge is not
+well-defined without an owner ruling on two points:
+
+1. **The Plaxis global-stack constraint.** Both Plaxis exporters emit a
+   single globally ordered `soillayer` stack, indexed once and reused by
+   every borehole. Merging two units that are *interleaved* — same NAD
+   class above and below a different unit somewhere on the section —
+   would need one global layer to appear twice in a column, which the
+   Plaxis model cannot express. So the merge is only safe when no other
+   unit interleaves between the two ANYWHERE on the section. Whether the
+   thinning should then (a) refuse, (b) merge only where safe, or (c)
+   merge in the DXF/PDF but not in Plaxis — leaving the artefacts
+   disagreeing about unit identity — is a product call.
+2. **What a merge erases.** Adjacent same-NAD units are almost always
+   two different litho or geological parents (the geotech find-or-create
+   keys on `(nad_class, source_litho_formation_id,
+   source_geo_formation_id)`, so same-class bands *within* one litho
+   parent already share a formation row). Merging therefore deletes a
+   litho/geo boundary from the export. Which display name, colour and
+   parent survive is the engineer's decision, not a default.
+
+**When to revisit.** ~~With the owner, when the geotech stage's export
+step is dogfed on a real report.~~ Answered by the 2026-08-26 ruling
+above; this entry is closed.
 
 ## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak)
 
