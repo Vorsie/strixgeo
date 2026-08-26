@@ -135,11 +135,6 @@ class GeotechColumnContext:
     source_geo_formation_id: UUID | None
     geo_contacts: tuple[tuple[float, UUID], ...] = ()
 
-    @property
-    def live_geo_depths_m(self) -> tuple[float, ...]:
-        """The live geological contact depths, for the planners' geo wall."""
-        return tuple(depth for depth, _fid in self.geo_contacts)
-
 
 def pre_edit_class_snapshot(context: GeotechColumnContext) -> dict[UUID, int | None]:
     """The column's PRE-edit ``layer_id → nad_class`` map, for the transition rule.
@@ -812,22 +807,32 @@ async def load_geotech_column_context(
     )
 
 
+_GEO_COINCIDENT_M = 0.0011
+"""The allowance within which a geological contact and a band depth are equal.
+
+Band depths are millimetre-rounded (``DEPTH_DECIMALS``) while contacts keep full
+floats, so one physical boundary is recorded at two precisions. Mirrors
+``_COINCIDENT_M`` in ``move_restated_contact`` and
+``COINCIDENT_DEPTH_TOLERANCE_M`` in the renderer.
+"""
+
+
 def live_geo_formation_id_at(
     top_m: float,
     geo_contacts: tuple[tuple[float, UUID], ...],
 ) -> UUID | None:
-    """The geological formation containing a band that starts at ``top_m``.
+    """The geological formation containing the depth ``top_m``.
 
     Reads the LIVE contacts: the deepest contact at or above ``top_m`` (within
-    the 1.1 mm coincidence — band tops are mm-rounded, contacts keep full
-    floats) names the geological band the interval sits in. ``None`` means the
+    the 1.1 mm coincidence — band depths are mm-rounded, contacts keep full
+    floats) names the geological band that depth sits in. ``None`` means the
     open shallow band above the first contact — the same meaning the build
     gives an unstamped band.
 
     Parameters
     ----------
     top_m : float
-        The written interval's top, metres below the collar.
+        A depth in metres below the collar.
     geo_contacts : tuple[tuple[float, UUID], ...]
         Live ``(depth_top_m, formation_id)`` pairs from the column context.
 
@@ -838,12 +843,14 @@ def live_geo_formation_id_at(
     """
     best: tuple[float, UUID] | None = None
     for depth, formation_id in geo_contacts:
-        if depth <= top_m + 0.0011 and (best is None or depth > best[0]):
+        if depth <= top_m + _GEO_COINCIDENT_M and (best is None or depth > best[0]):
             best = (depth, formation_id)
     return best[1] if best is not None else None
 
 
-def geo_parent_for_interval(context: GeotechColumnContext, top_m: float) -> UUID | None:
+def geo_parent_for_interval(
+    context: GeotechColumnContext, top_m: float, base_m: float
+) -> UUID | None:
     """The geological parent a written band should carry, live-first.
 
     Live contacts win when they exist; the build-time stamp is the fallback for
@@ -851,20 +858,37 @@ def geo_parent_for_interval(context: GeotechColumnContext, top_m: float) -> UUID
     this so a hand edit heals a stale stamp on touch instead of copying it
     forward.
 
+    A band may STRADDLE a geological contact since the owner dropped the
+    geological wall (2026-08-26) — before that it could not, so reading the
+    parent at the band's top was equivalent to any other rule and the question
+    never arose. The rule for a straddling band follows the A2 precedent
+    (``docs/domain-model.md``): geological attribution is a derived label taken
+    by thickness-weighted majority, which for an interval is simply the
+    formation containing its MIDPOINT. An exact tie resolves DOWNWARD, because
+    a geological contact is a top and the deeper unit owns the ground from its
+    top down.
+
+    This is the same rule the build applies
+    (``GeotechBoreholeMaterialiser._geo_formation_at_midpoint``), so a hand edit
+    and a re-subdivide cannot label the same band differently.
+
     Parameters
     ----------
     context : GeotechColumnContext
         The edited column.
     top_m : float
-        The written interval's top.
+        The written interval's top, metres below the collar.
+    base_m : float
+        The written interval's base, metres below the collar.
 
     Returns
     -------
     UUID | None
-        The parent geological formation id for ``formation_for_class``.
+        The parent geological formation id for ``formation_for_class``;
+        ``None`` for the open shallow band above the first contact.
     """
     if context.geo_contacts:
-        return live_geo_formation_id_at(top_m, context.geo_contacts)
+        return live_geo_formation_id_at(0.5 * (top_m + base_m), context.geo_contacts)
     return context.source_geo_formation_id
 
 
