@@ -10,6 +10,27 @@ describe('geotechSubdivisionPrefs', () => {
     expect(readGeotechSubdivisionPrefs(null)).toEqual(GEOTECH_SUBDIVISION_DEFAULTS)
   })
 
+  // Owner ruling 2026-08-26: the gradient snap is ON for a project that never
+  // chose. Asserted on the VALUE, not against GEOTECH_SUBDIVISION_DEFAULTS —
+  // comparing the read to the defaults object passes whichever way the default
+  // points, so it cannot hold a ruling about which way that is.
+  it('snaps a boundary to the sharp qc break when the project never chose', () => {
+    expect(GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapEnabled).toBe(true)
+    expect(readGeotechSubdivisionPrefs(null).gradientSnapEnabled).toBe(true)
+    expect(
+      readGeotechSubdivisionPrefs({ geotech_subdivision: { minimum_layer_thickness_m: 0.5 } })
+        .gradientSnapEnabled,
+    ).toBe(true)
+  })
+
+  it('keeps the snap off for a project that turned it off', () => {
+    // A default applies in the absence of a choice; it never overwrites one.
+    expect(
+      readGeotechSubdivisionPrefs({ geotech_subdivision: { gradient_snap_enabled: false } })
+        .gradientSnapEnabled,
+    ).toBe(false)
+  })
+
   it('reads persisted values', () => {
     const vs = {
       geotech_subdivision: {
