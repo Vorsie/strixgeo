@@ -1837,11 +1837,50 @@ miss exactly the skeleton rows the tree has to keep. **The geological and litho
 3-D legends keep their flat list** — their formation names are already distinct,
 so grouping there would only add clicks.
 
-## Open dogfeed items (owner)
+### 10a. The Build pre-flight — a test with no packing bands (owner ruling 2026-08-26)
 
-Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
-connect flow, the fraction-refinement render, the NAD `gradient_snap` default
-decision, the NAD-boundary line weight call, and the two §8 interpretations.
+A test imported AFTER the packing subdivision carries accepted litho and no
+bands. It still enters the **litho frame** the geotech build is framed on
+(`buildVoxelRequest` takes `lithoFrame.payloadColumns` as the payload's
+columns), so it splits a gap the packing fill has no data for. Owner: *"yes that
+suggestion is fine, these 2 tests… but ofcourse make it so that user can go to
+those test through one click. Build without them should produce the model that
+was there before the added tests, so just plain ignore them"* — serving *"I
+can't have gaps or fallbacks in the model unless users make mistakes."*
+
+**The check** (`utils/geotechBuildPreflight.ts`, pure) computes NOTHING of its
+own: it runs `assembleLithoSectionInputs` + `assembleSectionsWithCanonical`
+twice — once on the litho layers, once on the geotech bands — so the projection
+gate, the acceptance gate and the "fewer than two columns is not a gap" rule are
+the builder's own, never a restatement that can drift. A finding is an
+investigation that is a **litho-frame column on ≥ 1 frame-kept section** and is a
+**column of no section's geotech assembly**. Consequence reported alongside: a
+frame-kept section whose geotech assembly is NOT kept leaves the payload
+entirely (pinned against the builder in `makeVoxelRequestBuilder.exclusions`
+EX5, not against a reading of it).
+
+**The dialog** (`GeotechBuildPreflightDialog`) opens only on a non-empty result,
+so a finished model builds exactly as before — same unwrapped canvas builder,
+same payload. Every name is a `<button>` that deep-links to the test: the
+Sections stage, a section that carries it, column centred and pulsed, through
+the existing reveal machinery (`sectionColumnReveal` + `resolveColumnReveal`,
+extended with `flashColumnId`; the panel owns *whether*, the shell owns *why*,
+and only investigation ids cross the boundary). Focus sits on the DEFAULT
+action, not Cancel — nothing here is irreversible.
+
+**The three ways out.** *Subdivide them & build* runs `subdivideCpts`
+(`deriveEdges: false`, the verb that carries skip-existing) for flagged CPT
+columns and `divideBoreholes` scoped to the flagged boreholes with
+`skipExisting`, then **waits** for the bands to reach the renderer before
+building: the presses finish by bumping a refetch nonce whose GET runs on a
+later render, so building on the spot would post the pre-press payload. The wait
+is bounded (`GEOTECH_BAND_WAIT_MS`) and reports a stall instead of hanging.
+*Build without them* excludes those investigations from BOTH arms before
+assembly (`utils/excludeInvestigationsFromBuild.ts` — column, layers AND every
+edge anchored on one of those layers, so no dangling tie survives), which is
+byte-identical to a payload built from inputs the test was never in (EX1). A
+chip on the toolbar then names what the last build left out, cycling one press
+at a time. *Cancel* builds nothing.
 
 ## 11. The Geotech-units pane, and the vocabulary behind it (2026-08-26)
 
