@@ -166,6 +166,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleLoadBackdropSurfaces,
       refetchFormations,
       lithoSolids,
+      geotechSolids,
     },
     sections: {
       // WHY visibleSections not sections: both the map overlay and the section
@@ -2224,9 +2225,12 @@ export default function SectionsCanvas(): JSX.Element {
             openExtentLengthM,
             // 3-D model fill (litho-3D M3): prebuilt body solids feed the 2-D
             // section overlay so the geometric fill matches the 3-D viewer.
-            // Litho axis only - no ModelFillOverlay on the geological axis.
-            lithoSolids: isLitho ? lithoSolids : undefined,
-            sectionFillAtSectionLine: isLitho ? sectionFillAtSectionLine : undefined,
+            // Each model axis shows ITS OWN build (owner 2026-08-26: "can we
+            // show the actual 3D model on the 2d sections just like in litho
+            // stage") - the geological axis has no body build to show.
+            modelSolids: isLitho ? lithoSolids : isGeotech ? geotechSolids : undefined,
+            sectionFillAtSectionLine:
+              isLitho || isGeotech ? sectionFillAtSectionLine : undefined,
             // #133: contact-level correlation edges; CorrelationEdgesOverlay is
             // mounted on the litho/geotech axes only - zero geological regression.
             contactEdges: isLitho || isGeotech ? contactCorrelationEdges : undefined,
