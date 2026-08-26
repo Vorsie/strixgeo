@@ -17,11 +17,13 @@ Four rulings are encoded here, and nothing else:
    promise a reclassification the build never performs, and miss one it does —
    so the preview and the commit both take ``statistic`` from the model, and
    the UI copy must say "representative qc", not "average qc".
-3. **The two levels above are hard walls.** A packing boundary moves freely
-   inside its litho body and clamps at the edge; it can never move a litho
-   contact and never cross a geological one. Violations raise
+3. **The litho unit is the hard wall — and the only one.** A packing boundary
+   moves freely inside its litho body and clamps at the edge; it can never move
+   or cross a lithostratigraphic contact. Violations raise
    :class:`GeotechBandEditError` — the owner overrules the CLASS, not the
-   hierarchy.
+   hierarchy. A GEOLOGICAL contact is not a wall (owner, 2026-08-26: *"just
+   drop the wall everywhere, user wil have to manually do it"*); the geological
+   parent is carried as a derived label and refuses nothing.
 4. **Manual override always wins.** Everything else — a band below the minimum
    thickness, a boundary the qc does not support — is a WARNING, never a block.
 
@@ -64,12 +66,6 @@ _ADJACENCY_EPS_M = 0.01
 # band, not on its own edge).
 _DEPTH_EPS_M = 1e-6
 
-# The allowance within which a LIVE geological contact and a band edge are the
-# same depth: band boundaries are mm-rounded, contacts keep full floats, so one
-# boundary is recorded at two precisions. Mirrors ``_COINCIDENT_M`` in
-# ``move_restated_contact`` and ``COINCIDENT_DEPTH_TOLERANCE_M`` in the renderer.
-_LIVE_GEO_COINCIDENT_M = 0.0011
-
 # Warning codes. The UI switches on these; the message carries the prose.
 WARNING_QC_PULL_DOWN = "qc_pull_down"
 WARNING_QC_PULL_UP = "qc_pull_up"
@@ -92,8 +88,8 @@ KIND_MOVE = "move"
 class GeotechBandEditError(ValueError):
     """Raised when a hand edit would breach the three-level hierarchy.
 
-    The owner may overrule the derived CLASS; he may not move a litho contact or
-    cross a geological one from the geotech axis. Routers map this to a 422.
+    The owner may overrule the derived CLASS; he may not move or cross a
+    lithostratigraphic contact from the geotech axis. Routers map this to a 422.
     """
 
 
@@ -111,10 +107,12 @@ class GeotechBand:
         The NAD packing class the band carries TODAY, or ``None`` for a band
         flagged "needs review" (no class could be derived).
     source_litho_formation_id : str
-        The lithostratigraphic formation this band subdivides — a hard wall.
+        The lithostratigraphic formation this band subdivides — the hard wall.
     source_geo_formation_id : str | None
         The geological formation the band sits within (``None`` = the open
-        shallow band) — also a hard wall.
+        shallow band). A DERIVED LABEL, never a wall (owner, 2026-08-26) — it
+        is carried for provenance and for the formation's identity, and no edit
+        is refused or clamped by it.
     """
 
     band_id: str
@@ -123,11 +121,6 @@ class GeotechBand:
     nad_class: int | None
     source_litho_formation_id: str
     source_geo_formation_id: str | None
-
-    @property
-    def parentage(self) -> tuple[str, str | None]:
-        """The (litho, geological) parent pair that bounds this band."""
-        return (self.source_litho_formation_id, self.source_geo_formation_id)
 
 
 @dataclass(frozen=True)
@@ -243,8 +236,8 @@ class BandEditPlan:
     kind : str
         ``"split"`` or ``"merge"``.
     parent_top_m, parent_base_m : float
-        The hard walls the edit is confined to — the geo-bounded litho body the
-        edited band(s) belong to.
+        The hard walls the edit is confined to — the litho body the edited
+        band(s) belong to.
     intervals : tuple[IntervalOutcome, ...]
         The resulting intervals, top to bottom, each with its re-derived class.
     warnings : tuple[BandEditWarning, ...]
@@ -281,11 +274,16 @@ class BandEditPlan:
 def enclosing_litho_bounds(bands: Sequence[GeotechBand], index: int) -> tuple[float, float]:
     """The hard walls for a hand edit on ``bands[index]``.
 
-    A packing band is materialised inside one geo-bounded litho segment, so the
-    segment is recovered as the contiguous run of bands sharing the target's
-    ``(source_litho_formation_id, source_geo_formation_id)`` pair. The run ends
-    where either parent changes — i.e. exactly at a litho contact or a
-    geological contact, which is where a packing boundary must clamp.
+    A packing band is materialised inside one litho unit, so the unit is
+    recovered as the contiguous run of bands sharing the target's
+    ``source_litho_formation_id``. The run ends where that parent changes — at a
+    lithostratigraphic contact, which is where a packing boundary must clamp.
+
+    The geological parent is deliberately NOT part of the test (owner,
+    2026-08-26: *"just drop the wall everywhere"*). It used to be, which ended
+    the editable run mid-unit at a geological line and made the server clamp
+    tighter than the section editor's own (``geotechBandEdit.ts`` has always
+    clamped to the litho layer alone). The two now agree.
 
     Parameters
     ----------
@@ -297,13 +295,13 @@ def enclosing_litho_bounds(bands: Sequence[GeotechBand], index: int) -> tuple[fl
     Returns
     -------
     tuple[float, float]
-        ``(top_m, base_m)`` of the enclosing geo-bounded litho segment.
+        ``(top_m, base_m)`` of the enclosing litho unit.
     """
     target = bands[index]
     top_i = index
     while top_i > 0:
         above = bands[top_i - 1]
-        if above.parentage != target.parentage:
+        if above.source_litho_formation_id != target.source_litho_formation_id:
             break
         if abs(above.depth_base_m - bands[top_i].depth_top_m) > _ADJACENCY_EPS_M:
             break  # a real hole in the column ends the run
@@ -311,7 +309,7 @@ def enclosing_litho_bounds(bands: Sequence[GeotechBand], index: int) -> tuple[fl
     base_i = index
     while base_i < len(bands) - 1:
         below = bands[base_i + 1]
-        if below.parentage != target.parentage:
+        if below.source_litho_formation_id != target.source_litho_formation_id:
             break
         if abs(bands[base_i].depth_base_m - below.depth_top_m) > _ADJACENCY_EPS_M:
             break
@@ -332,9 +330,13 @@ def _assert_same_litho_body(
     lower: GeotechBand,
     *,
     verb: str = "Merge",
-    live_geo_depths_m: Sequence[float] | None = None,
 ) -> None:
-    """Refuse an edit that would swallow a litho or geological contact.
+    """Refuse an edit that would swallow a lithostratigraphic contact.
+
+    A geological contact is NOT a wall (owner, 2026-08-26: *"just drop the wall
+    everywhere, user wil have to manually do it"*). The engineer crosses a
+    geological line himself and re-divides by hand where he wants the division,
+    so this function judges the litho parent and nothing else.
 
     Parameters
     ----------
@@ -346,22 +348,11 @@ def _assert_same_litho_body(
         boundary that a MERGE was rejected describes a gesture he did not make,
         and reads as a bug in the app rather than a rule about the ground
         (dogfeed 2026-08-09).
-    live_geo_depths_m : Sequence[float] | None
-        The LIVE geological contact depths on this investigation. When given,
-        the geo wall judges these instead of the bands' build-time stamps —
-        dogfeed 2026-08-12 (GEO-23/125-S6): the engineer moved the geological
-        contact on its own axis and the stamp-reading wall kept refusing
-        forever; the only offered unlock was a re-subdivide that deletes every
-        hand edit. ``None`` (legacy callers, mostly tests) keeps the stamp
-        check; the application layer always passes the live list.
 
     Raises
     ------
     GeotechBandEditError
-        When the two bands sit in different litho units, or a geological
-        contact lies strictly inside their union. The message names WHICH wall
-        was hit, because the fix differs: a litho contact is edited on the
-        litho axis, a geological one on the geology axis.
+        When the two bands sit in different litho units.
     """
     if upper.source_litho_formation_id != lower.source_litho_formation_id:
         raise GeotechBandEditError(
@@ -370,27 +361,6 @@ def _assert_same_litho_body(
             "lithostratigraphic contact. Edit the contact on the litho axis, "
             "then re-run 'Packing pipeline → 1 · Subdivide CPTs' so the packing "
             "bands are rebuilt against it."
-        )
-    if live_geo_depths_m is not None:
-        span_top, span_base = upper.depth_top_m, lower.depth_base_m
-        inside = [
-            d
-            for d in live_geo_depths_m
-            if span_top + _LIVE_GEO_COINCIDENT_M < d < span_base - _LIVE_GEO_COINCIDENT_M
-        ]
-        if inside:
-            raise GeotechBandEditError(
-                f"{verb} rejected: a geological contact sits at {inside[0]:.2f} m, "
-                "inside the span of these bands — a packing band never crosses a "
-                "geological contact. Move that contact on the geology axis first; "
-                "the packing verbs follow its live position."
-            )
-    elif upper.source_geo_formation_id != lower.source_geo_formation_id:
-        raise GeotechBandEditError(
-            f"{verb} rejected: the two packing bands sit in different geological "
-            "units, and a packing band never crosses a geological contact. "
-            "Edit the contact on the geology axis, then re-run 'Packing pipeline "
-            "→ 1 · Subdivide CPTs' so the packing bands are rebuilt against it."
         )
 
 
@@ -780,8 +750,8 @@ def plan_split(
         raise GeotechBandEditError(
             f"Split rejected: {split_depth_m:.2f} m falls outside the band's own litho "
             f"body ({parent_top:.2f}–{parent_base:.2f} m). A packing boundary moves "
-            "freely inside its litho body and clamps at the edge — it never moves a "
-            "litho contact or crosses a geological one."
+            "freely inside its litho body and clamps at the edge — it never moves or "
+            "crosses a lithostratigraphic contact."
         )
     if not (target.depth_top_m + _DEPTH_EPS_M < split_depth_m < target.depth_base_m - _DEPTH_EPS_M):
         raise GeotechBandEditError(
@@ -822,7 +792,6 @@ def plan_merge(
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
     statistic: str = DEFAULT_STATISTIC,
-    live_geo_depths_m: Sequence[float] | None = None,
 ) -> BandEditPlan:
     """Plan a hand merge of two adjacent packing bands, reclassified as one.
 
@@ -868,7 +837,6 @@ def plan_merge(
         qc_mpa=qc_mpa,
         min_thickness_m=min_thickness_m,
         statistic=statistic,
-        live_geo_depths_m=live_geo_depths_m,
     )
 
 
@@ -882,7 +850,6 @@ def plan_merge_run(
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
     statistic: str = DEFAULT_STATISTIC,
-    live_geo_depths_m: Sequence[float] | None = None,
 ) -> BandEditPlan:
     """Plan a merge of an N-band CONTIGUOUS run into one reclassified band.
 
@@ -936,7 +903,7 @@ def plan_merge_run(
                 "Merge rejected: the two bands do not share a boundary "
                 f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
             )
-        _assert_same_litho_body(upper, lower, live_geo_depths_m=live_geo_depths_m)
+        _assert_same_litho_body(upper, lower)
     parent_top, parent_base = enclosing_litho_bounds(bands, indices[0])
     proposed = [ProposedInterval(run[0].depth_top_m, run[-1].depth_base_m, tuple(run))]
     outcomes = reclassify_intervals(
@@ -969,7 +936,6 @@ def plan_move(
     qc_mpa: Sequence[float | None],
     min_thickness_m: float,
     statistic: str = DEFAULT_STATISTIC,
-    live_geo_depths_m: Sequence[float] | None = None,
 ) -> BandEditPlan:
     """Plan dragging the shared boundary of two adjacent bands, both reclassified.
 
@@ -1031,7 +997,7 @@ def plan_move(
             "Move rejected: the two bands do not share a boundary "
             f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
         )
-    _assert_same_litho_body(upper, lower, verb="Move", live_geo_depths_m=live_geo_depths_m)
+    _assert_same_litho_body(upper, lower, verb="Move")
     rounded = round(new_depth_m, 3)
     # Strictly inside the pair, with both survivors at least the millimetre
     # grain the no-overlap exclusion stores. Not the min-thickness pref — that
