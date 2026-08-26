@@ -139,16 +139,26 @@ export function computeBasemapBounds(
   }
 }
 
+/** The minimum a TIN has to be for the sampler: projected vertices plus
+ * triangle indices. Widened from `FormationSurfaceResponse` so the DEM
+ * ground surface (`GroundSurfaceBuildResponse`) can be sampled by the same
+ * code — the two carry different metadata but identical geometry. */
+export interface TinLike {
+  vertices: [number, number, number][]
+  triangles: [number, number, number][]
+}
+
 /**
- * Sample a formation TIN's elevation at a projected (x, y) point by
- * locating the containing triangle (projected XY) and barycentric-
- * interpolating z. Returns ``null`` when the point is outside the
- * surface (pinch-out / absent).
+ * Sample a TIN's elevation at a projected (x, y) point by locating the
+ * containing triangle (projected XY) and barycentric-interpolating z.
+ * Returns ``null`` when the point is outside the surface (pinch-out /
+ * absent).
  *
  * Parameters
  * ----------
  * surface
- *     The formation TIN (projected vertices + triangle indices).
+ *     Any TIN (projected vertices + triangle indices) — a formation
+ *     surface or the DEM ground surface.
  * px, py
  *     Query point in the project's horizontal CRS.
  *
@@ -157,11 +167,7 @@ export function computeBasemapBounds(
  * number | null
  *     Interpolated z, or ``null`` if (px, py) is outside every triangle.
  */
-export function sampleTinZ(
-  surface: FormationSurfaceResponse,
-  px: number,
-  py: number,
-): number | null {
+export function sampleTinZ(surface: TinLike, px: number, py: number): number | null {
   for (const [i0, i1, i2] of surface.triangles) {
     const [ax, ay, az] = surface.vertices[i0]
     const [bx, by, bz] = surface.vertices[i1]
