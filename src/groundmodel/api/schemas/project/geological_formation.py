@@ -6,7 +6,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from groundmodel.domain.services.nad_classifier import class_belongs_to_soil, soil_family_of
 
 
 class GeologicalFormationCreateRequest(BaseModel):
@@ -72,6 +74,37 @@ class GeologicalFormationCreateRequest(BaseModel):
     parent_formation_id: UUID | None = None
     litho_main_soil_code: str | None = Field(default=None, max_length=20)
     litho_admixtures: list[dict] | None = None
+
+    @model_validator(mode="after")
+    def nad_class_must_belong_to_the_soil(self) -> GeologicalFormationCreateRequest:
+        """Refuse a packing class from a soil family other than this unit's.
+
+        Owner ruling 2026-08-26: *"no a zand body can never carry a silt
+        packing class"* — *"the nad coupling is absolute."* The two fields
+        arrive together on this request, so the coupling is checkable here and
+        the caller gets a 422 naming the family rather than a row that
+        contradicts itself.
+
+        Returns
+        -------
+        GeologicalFormationCreateRequest
+            The unchanged request when the class belongs to the soil, or when
+            either field is absent (a geological formation carries neither).
+
+        Raises
+        ------
+        ValueError
+            When both fields are present and the class belongs to a different
+            soil family. Pydantic surfaces this as a 422.
+        """
+        if not class_belongs_to_soil(self.nad_class, self.litho_main_soil_code):
+            raise ValueError(
+                f"NAD class {self.nad_class} belongs to "
+                f"{soil_family_of(self.nad_class)}, not to {self.litho_main_soil_code}. "
+                "The coupling between a unit's soil and its packing class is absolute: "
+                "a packing class describes one soil column and is never valid on another."
+            )
+        return self
 
 
 class GeologicalFormationUpdateRequest(BaseModel):
