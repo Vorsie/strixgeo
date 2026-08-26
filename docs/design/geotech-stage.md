@@ -1731,8 +1731,175 @@ ruling, not a defect, and they are frozen into the CS1 golden master as the
 baseline. S24 pins the neighbouring outcome positively (the MD sand above
 takes the ground at the sampled point, `ZAND-6`).
 
+## 10. Where the geotech stage lives, and its 3-D legend (owner ruling 2026-08-26)
+
+**The Geotechnical stage is the 3-D room. It has no 2-D half.** It shipped with
+a stage-local 2D ⟷ 3D pill whose 2-D side was `SectionsCanvas` with the axis
+forced to `'geotechnical'` — a second door onto a surface the Sections stage
+already owns. Owner: *"In geotech stage there is a 2D and 3D split... i don't
+think we need the 2D stage either, you can just go to data or cross section
+pane."* The pill is gone and so is the mount effect that reprogrammed the shared
+`sectionModelAxis` from a stage that no longer renders sections. The stages are
+now symmetric: **Sections = 2-D for every axis, Lithology / Geotechnical = the
+3-D room for their model.** `GeotechnicalCanvas` mirrors `LithologyCanvas`
+(`useBody3DViewState` + `BodyViewModePills` + `makeVoxelRequestBuilder`), with
+two guided empty states — no litho model (nothing to subdivide) and no built
+solids (run Build). Build stays on `GeotechnicalToolbar`.
+
+**The 3-D LAYERS legend is a tree, on the geotech pane only.** The flat
+per-formation list degenerates there: a subdivided model produces dozens of rows
+whose text is identical ("SAND", "SAND", "SAND", "CLAY", …) and whose only
+difference is an adjacent shade of one NAD ramp — unreadable, and unusable as a
+visibility control. Three levels, closed at soil level:
+
+* **soil family** — grouped on `litho_main_soil_code`, ordered by
+  `NAD_SOIL_FAMILY_ORDER` (GRAVEL → PEAT, strangers last); the swatch is the
+  colour of its most-populated class (within a family the palette is a lightness
+  ramp of ONE hue, so any member reads as the family, and the dominant packing is
+  the honest representative).
+* **NAD class** — labelled by **density / firmness only** (`nadPackingLabel`:
+  "medium dense", "silty/clayey, medium dense"), never a repeat of the soil word.
+  Two litho units subdivided to the same class share ONE row and the row's eye
+  hides both. A unit with no class yet (the borehole-only "(geotech)" skeletons,
+  `nad_class = null`) gets a neutral-grey `#9ca3af` **"not yet classified"** row —
+  shown, never dropped: it is real ground the viewer paints.
+* **body** — one row per built solid; the label names its unit when the class row
+  spans several units, so the third level cannot reproduce the identical-text
+  disease the tree exists to kill.
+
+An eye per level hides that family / class / body. Family and class write
+`hiddenFormationIds` (honoured by solids, fence walls and cut-face caps); the
+body level writes a separate `hiddenBodyIds` set because only the solid render
+carries body identity. Consequence to know: **in Fence mode the per-body eye is
+inert** (solids are not drawn there at all) while the family / class eyes still
+bite; the body rows stay listed so the tree does not change shape when the user
+flips view mode.
+
+The shape is built by the pure `utils/geotechLegendTree.ts`
+(`buildGeotechLegendTree`), rendered by `stages/geology/GeotechLayersTree.tsx`.
+The gate is `formations.some(isGeotechUnit)` — the canonical
+`source_litho_formation_id` discriminator, NOT a `nad_class` probe, which would
+miss exactly the skeleton rows the tree has to keep. **The geological and litho
+3-D legends keep their flat list** — their formation names are already distinct,
+so grouping there would only add clicks.
+
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` → Active Focus: visual/gesture dogfeed of the
 connect flow, the fraction-refinement render, the NAD `gradient_snap` default
 decision, the NAD-boundary line weight call, and the two §8 interpretations.
+
+## 11. The Geotech-units pane, and the vocabulary behind it (2026-08-26)
+
+The pane was a flat roster, one row per geotech formation. On the owner's
+project that read as ~94 rows: the same soil repeated dozens of times, rows with
+no bands between rows with hundreds, and two rows whose entire text was the
+character `0`. Three things changed, at three different layers.
+
+### 11a. A geotech formation is retired when nothing references it
+
+`geological_formation` rows are vocabulary â€” created on demand by the
+find-or-create paths in `geotech_borehole_materialiser`, and until now never
+deleted. Every verb that reshapes a model strands them: `SubdivideAllBodies` and
+`DivideBoreholes` wipe their bands and re-derive, so a class the fresh qc no
+longer produces is left with an empty formation; the band-edit verbs re-point
+bands one at a time and retire a class the moment its last band moves away. Of
+the owner's 94 rows, 62 were strays of exactly this kind, resurrected wholesale
+by the `.strix` restore.
+
+`application/orphan_formation_sweep.py` (`OrphanFormationSweep`) is the single
+predicate. It deletes a candidate formation when NO `litho_layer`, NO
+`formation_contact` **and NO `body`** references it, project-wide (not
+model-scoped â€” a unit shared with a sibling model still describes real ground).
+
+**The `body` term is load-bearing, not defensive.**
+`ResolveLithoInstances._run_resolver` deliberately preserves an orphan body when
+the engineer has NAMED it, so a formation can hold zero bands and zero contacts
+and still own a named body. `body.formation_id` is `ON DELETE CASCADE` and
+cascades on to `body_boundary_shape` â†’ `body_boundary_node`, so a two-term
+predicate would delete a hand-drawn body boundary silently.
+`litho_body_solid` also cascades; a built solid for a formation with no ground
+left is stale by definition, so the sweep counts those rows and reports them
+rather than letting them go unmentioned.
+
+Two scopes, one implementation: `sweep_geotech_units` (candidates =
+`source_litho_formation_id IS NOT NULL`) and `sweep_litho_vocabulary`
+(candidates = `litho_main_soil_code IS NOT NULL`). `ClearLithoModel`'s orphan
+pass is now the second of those â€” it used to carry its own two-term copy of the
+predicate, and the `body` term fixes it too.
+
+Hook points â€” inside the verb, after the resolver, before its own `commit()`,
+so the sweep is in the same transaction as the reshape that caused it and is
+covered by the body-partition lock the verb already holds:
+`SubdivideAllBodies` (both the main path and the empty-picks wipe),
+`DivideBoreholes`, `ClearGeotechColumn`, `SetGeotechBandClass`,
+`SplitGeotechBand`, `MergeGeotechBands`, `MoveGeotechBandBoundary`,
+`MoveRestatedContact`. `DivideBoreholes`' `pick_count == 0` early return is
+deliberately NOT swept: it reshapes nothing.
+
+**Why deleting is safe.** Nothing about a geotech formation is authored. Its
+identity is the find-or-create key â€” `(app_project_id, nad_class,
+source_litho_formation_id, source_geo_formation_id)`, matched at
+`geotech_borehole_materialiser.py:398-417` (classified) and `:492-511`
+(skeleton) â€” and every other column is copied from the source litho formation
+at create time (`:427-449`, `:517-537`). Hand edits go through the same
+function via `geotech_band_edit_helpers.formation_for_class`, so there is no
+parallel vocabulary of hand-made rows. A later divide that needs the class
+rebuilds an equivalent row. The `id` is NOT stable across a sweep (fresh
+`uuid7`), which is exactly why only unreferenced rows are ever touched.
+Pinned end-to-end by `OS3` in
+`tests/integration/api/test_geotech_band_edit_endpoints.py`, which compares
+find-or-create KEYS across a clear â†’ re-divide round trip.
+
+### 11b. An unclassified unit says which ground it is
+
+`nadClassName(null)` returns `""` by design â€” the section band overlay draws no
+label for an empty string. Every roster that asked IT for row text therefore
+rendered a blank row, which is where the bare `0` rows came from.
+
+`utils/nadClasses.ts` now carries the roster-side formatters, and
+`nadClassName` keeps its raw-lookup contract untouched:
+
+* `geotechUnitLabel(unit, sourceLithoName?)` â€” never empty. Classified â†’ the
+  packing name. Unclassified â†’ `"{SOIL} â€” not yet classified"`, plus the source
+  litho unit in parentheses when several units would otherwise read alike.
+* `geotechUnitSoil(unit)` â€” the one soil word per unit: the leading word of the
+  NAD class name when classified, the inherited `litho_main_soil_code` through
+  `LITHOLOGY_LABELS` otherwise. Both yield the same five words, so a skeleton
+  groups under the same header as its classified siblings.
+* `nadClassQualifier(n)` â€” the firmness/density half of the class name, DERIVED
+  from `NAD_CLASS_NAMES` rather than kept in a parallel table (`L13`
+  reconstructs all 31 full names from soil + qualifier).
+
+### 11c. The pane is a tree
+
+`shell/stages/geotechnical/geotechUnitTree.ts` builds soil â–¸ NAD class â–¸
+instances; `GeotechnicalUnitRoster.tsx` renders it; `geotechBadges.tsx` holds
+the two badges both levels share; `GeotechnicalInspector.tsx` keeps only the
+panel chrome and the selected-body readout (debt #201 â€” the flat list fitted in
+one file, the tree does not).
+
+* Class row label = the firmness/density word. The soil is the header above.
+* Bands are SUMMED per class across the unit instances carrying it.
+* Badges roll up to the WORST value in the group â€” the severity ladders for
+  both provenance and confidence are declared together at the top of
+  `geotechUnitTree.ts`, because they are one rule applied to two badges.
+* Instances render only when a class carries more than one. A class carried by
+  exactly one unit IS that unit and takes its test ids; several units share the
+  class key `"{SOIL}|{class}"` instead.
+* Soil groups start expanded (the class row is the level an engineer works at);
+  class rows start collapsed.
+
+**"Empty" means the unit describes NOTHING in this model â€” no accepted band and
+no layer â€” never "has no class".** A unit with no packing class but real bands
+is unclassified GROUND and stays in the main tree; that row is the point. The
+definition is the frontend twin of 10a's orphan predicate on purpose: the row
+the pane files under "empty" is the row the next verb sweeps away. Empty rows
+sit behind a `show empty (N)` toggle and stay reachable â€” they are about to
+become the unclassified-ground ledger.
+
+## Open dogfeed items (owner)
+
+Tracked in `CLAUDE.local.md` â†’ Active Focus: visual/gesture dogfeed of the
+connect flow, the fraction-refinement render, the NAD `gradient_snap` default
+decision, the NAD-boundary line weight call, and the two Â§8 interpretations.
