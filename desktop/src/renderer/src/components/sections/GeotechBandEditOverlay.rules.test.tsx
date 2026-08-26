@@ -835,6 +835,14 @@ describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 
     ['f-bh-band-1', 6],
     ['f-bh-band-2', 7],
   ])
+  // The soil is what the menu is built from. This fixture used to omit it and
+  // the family was inferred from the CURRENT class, which read the same for a
+  // band whose class already matched its ground — and hid the case where it
+  // does not (owner ruling 2026-08-26).
+  const soilCodes = new Map<string, string | null>([
+    ['f-bh-band-1', 'ZAND'],
+    ['f-bh-band-2', 'ZAND'],
+  ])
 
   it('right-click on a borehole band opens the class menu with the soil family', () => {
     const onRequestSetClass = vi.fn()
@@ -844,6 +852,7 @@ describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 
       placedColumns: [BOREHOLE_COLUMN],
       onRequestSetClass,
       nadClassByFormationId: nadClasses,
+      soilCodeByFormationId: soilCodes,
     })
     fireEvent.contextMenu(screen.getByTestId('geotech-borehole-band-bh-band-1'))
     // SAND family = classes 5..12; the current class (6) is named and inert.
@@ -863,6 +872,7 @@ describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 
     renderOverlay({
       onRequestSetClass: vi.fn(),
       nadClassByFormationId: new Map([['f-band-1', 6]]),
+      soilCodeByFormationId: new Map([['f-band-1', 'ZAND']]),
     })
     expect(screen.queryByTestId('geotech-borehole-band-band-1')).toBeNull()
   })
@@ -873,6 +883,90 @@ describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 
       lithoLayers: BOREHOLE_LITHO_LAYERS,
       placedColumns: [BOREHOLE_COLUMN],
       nadClassByFormationId: nadClasses,
+      soilCodeByFormationId: soilCodes,
+    })
+    expect(screen.queryByTestId('geotech-borehole-band-bh-band-1')).toBeNull()
+  })
+})
+
+describe('the class menu is built from the band\'s SOIL (owner ruling 2026-08-26)', () => {
+  // "no a zand body can never carry a silt packing class" — "the nad coupling
+  // is absolute". The menu used to be built from the band's CURRENT class, so
+  // a sand band that had been stamped with a silt class offered only more silt
+  // classes: the one state that needs correcting was the one state the UI
+  // could not correct.
+  const SAND_SOIL = new Map<string, string | null>([
+    ['f-bh-band-1', 'ZAND'],
+    ['f-bh-band-2', 'ZAND'],
+  ])
+
+  function openMenuOnFirstBand(
+    nadClassByFormationId: Map<string, number | null>,
+  ): ReturnType<typeof vi.fn> {
+    const onRequestSetClass = vi.fn()
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass,
+      nadClassByFormationId,
+      soilCodeByFormationId: SAND_SOIL,
+    })
+    fireEvent.contextMenu(screen.getByTestId('geotech-borehole-band-bh-band-1'))
+    return onRequestSetClass
+  }
+
+  it('S1 — a sand band wrongly carrying a SILT class still offers the SAND family', () => {
+    // The owner's case: NAD 14 on a ZAND unit. The menu must be the way back.
+    openMenuOnFirstBand(new Map([['f-bh-band-1', 14]]))
+    expect(screen.getByTestId('geotech-band-menu-set-class-5')).toBeTruthy()
+    expect(screen.getByTestId('geotech-band-menu-set-class-12')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-band-menu-set-class-21')).toBeNull()
+  })
+
+  it('S2 — the stranger class is shown too, flagged, so the state is visible', () => {
+    openMenuOnFirstBand(new Map([['f-bh-band-1', 14]]))
+    const stranger = screen.getByTestId('geotech-band-menu-set-class-14')
+    expect(stranger).toBeTruthy()
+    // It names its own (wrong) family, so the engineer reads WHY it is flagged
+    // rather than seeing an unexplained mark.
+    expect(stranger.textContent).toContain('SILT')
+    expect(stranger.getAttribute('data-foreign-class')).toBe('true')
+  })
+
+  it('S3 — choosing an own-family class heals the stranger', () => {
+    const onRequestSetClass = openMenuOnFirstBand(new Map([['f-bh-band-1', 14]]))
+    fireEvent.click(screen.getByTestId('geotech-band-menu-set-class-7'))
+    expect(onRequestSetClass).toHaveBeenCalledWith('bh-band-1', 7, 14)
+  })
+
+  it('S4 — an UNCLASSIFIED band is hand-settable, because that is now a real state', () => {
+    // The soil-family clamp answers "not yet classified" wherever the only
+    // evidence belonged to another soil. Those bands are the ones an engineer
+    // most needs to set, so they must not be the ones with no menu.
+    const onRequestSetClass = openMenuOnFirstBand(new Map([['f-bh-band-1', null]]))
+    expect(screen.getByTestId('geotech-band-menu-set-class-6')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('geotech-band-menu-set-class-6'))
+    expect(onRequestSetClass).toHaveBeenCalledWith('bh-band-1', 6, null)
+  })
+
+  it('S5 — an own-family class stays inert and unflagged, exactly as before', () => {
+    openMenuOnFirstBand(new Map([['f-bh-band-1', 6]]))
+    const current = screen.getByTestId('geotech-band-menu-set-class-6') as HTMLButtonElement
+    expect(current.disabled).toBe(true)
+    expect(current.getAttribute('data-foreign-class')).toBeNull()
+    expect(screen.queryByTestId('geotech-band-menu-set-class-14')).toBeNull()
+  })
+
+  it('S6 — a band whose soil the norm table does not know gets no menu, not a guess', () => {
+    const onRequestSetClass = vi.fn()
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass,
+      nadClassByFormationId: new Map([['f-bh-band-1', 6]]),
+      soilCodeByFormationId: new Map([['f-bh-band-1', 'SCHIST']]),
     })
     expect(screen.queryByTestId('geotech-borehole-band-bh-band-1')).toBeNull()
   })
