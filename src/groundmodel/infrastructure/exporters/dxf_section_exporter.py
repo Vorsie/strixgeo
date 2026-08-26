@@ -30,6 +30,16 @@ What the DXF carries
    name; the second one is given a short-id suffix instead of
    crashing the export (see ``_setup_layers``). Contacts are
    grouped by formation ID, never by name.
+
+   A unit that carries a NAD packing class is named
+   ``"GeoModel-NAD-06_ZAND - <unit name>"`` — the machine-usable
+   identifier goes in FRONT of the display name so one CAD wildcard
+   (``GeoModel-NAD-06_*``) selects every instance of one class
+   (debt #104). Units without a class — geological formations,
+   litho units, unclassified geotech skeleton bands — keep their
+   name byte-identical; their identifiers ride the layer
+   description and the mapping table instead. The scheme and the
+   reasoning behind it live in ``unit_identifier.py``.
 2. **Per-investigation columns** — for each projected column emit
    a vertical line from the surface elevation down to
    ``surface - total_depth``. Each carries a TEXT entity at the
@@ -39,6 +49,12 @@ What the DXF carries
    carries the project name, section name, and length. Drops into
    AutoCAD's model space at coordinates that don't conflict with
    typical site data.
+4. **Unit mapping table** — when any exported unit carries an
+   identifier, a block of TEXT entities under the title block lists
+   layer -> NAD class -> soil -> unit name -> formation id, so a DXF
+   that travels on its own still states how to map its layers onto
+   material definitions (debt #104). A geological-model export has no
+   identifiers, emits no table, and is byte-identical to before.
 
 What the DXF intentionally does NOT carry yet
 ---------------------------------------------
@@ -65,8 +81,18 @@ from uuid import UUID
 import ezdxf
 from ezdxf.colors import RGB
 
-from groundmodel.application.section_snapshot import SectionSnapshot
+from groundmodel.application.section_snapshot import SectionFormation, SectionSnapshot
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
+from groundmodel.infrastructure.exporters.unit_identifier import (
+    UnitMappingRow,
+    format_mapping_table,
+    naming_identifier,
+)
+from groundmodel.infrastructure.exporters.unit_identifier_constants import (
+    DXF_FORBIDDEN_LAYER_CHARS,
+    MAPPING_TABLE_DXF_LAYER_HEADING,
+    UNIT_ID_NAME_SEPARATOR,
+)
 
 # DXF layer name for the investigation column track. Single layer so
 # the user can toggle "show / hide all columns" in CAD without
@@ -121,7 +147,7 @@ class DxfSectionExporter(SectionExporter):
         dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(
             msp, snapshot, layer_by_formation_id
         )
-        self._draw_title_block(msp, snapshot)
+        self._draw_title_block(msp, snapshot, layer_by_formation_id)
 
         # ezdxf writes to a text stream; we wrap in StringIO and
         # encode to UTF-8 for the FastAPI byte-stream response.
@@ -147,13 +173,19 @@ class DxfSectionExporter(SectionExporter):
                 f"project={snapshot.project_name!r} project_id={snapshot.project_id} "
                 f"section={snapshot.section_name!r} section_id={snapshot.section_id}"
             )
+        # Identifier coverage (debt #104): "my geotech DXF has no NAD layer
+        # names" must be diagnosable from the log alone — nad=0 says the
+        # units were never classified, not that the exporter dropped them.
+        named = sum(1 for f in snapshot.formations if f.nad_class is not None)
+        with_soil = sum(1 for f in snapshot.formations if f.litho_main_soil_code)
         self.success(
             f"DXF section exported: project={snapshot.project_name!r} "
             f"project_id={snapshot.project_id} "
             f"section={snapshot.section_name!r} section_id={snapshot.section_id} "
             f"size={len(payload)} bytes "
             f"({len(snapshot.investigations)} columns, "
-            f"{len(snapshot.formations)} formations, "
+            f"{len(snapshot.formations)} formations "
+            f"[nad-named {named}, soil-tagged {with_soil}], "
             f"{drawn_contacts}/{len(snapshot.contacts)} contacts drawn, "
             f"{dropped_total} dropped [{dropped_no_level} no-level, "
             f"{dropped_no_formation} no-formation])"
@@ -204,7 +236,7 @@ class DxfSectionExporter(SectionExporter):
 
         layer_by_formation_id: dict[UUID, str] = {}
         for f in snapshot.formations:
-            layer_name = _formation_layer_name(f.name)
+            layer_name = _formation_layer_name(_layer_body(f))
             if doc.layers.has_entry(layer_name):
                 layer_name = _disambiguated_layer_name(
                     layer_name, f.formation_id, doc.layers.has_entry
@@ -230,6 +262,14 @@ class DxfSectionExporter(SectionExporter):
                 layer.description = f"Formation '{f.name}' (code {f.code})"
             else:
                 layer.description = f"Formation '{f.name}'"
+            # Append the three-level identifiers (debt #104). Metadata, not
+            # naming: a litho unit's LAYER NAME must stay byte-identical, so
+            # its soil code reaches CAD here instead. A geological formation
+            # carries neither field and its description is untouched.
+            if f.nad_class is not None:
+                layer.description += f" | NAD class {f.nad_class}"
+            if f.litho_main_soil_code:
+                layer.description += f" | soil {f.litho_main_soil_code}"
         return layer_by_formation_id
 
     # ------------------------------------------------------------------
@@ -348,12 +388,34 @@ class DxfSectionExporter(SectionExporter):
     # Title block — bottom-left text annotation.
     # ------------------------------------------------------------------
 
-    def _draw_title_block(self, msp, snapshot: SectionSnapshot) -> None:  # type: ignore[no-untyped-def]
+    def _draw_title_block(  # type: ignore[no-untyped-def]
+        self,
+        msp,
+        snapshot: SectionSnapshot,
+        layer_by_formation_id: dict[UUID, str],
+    ) -> None:
         """Bottom-left TEXT entity carrying project + section identity.
 
         Plain TEXT (not MTEXT) so old AutoCAD verticals render it.
         Position chosen at ``(0, lowest_level - 5)`` so it sits below
         the data without overlapping the section's vertical extent.
+
+        The unit mapping table (debt #104) is appended under the title
+        lines when any exported unit carries a NAD class or a soil code,
+        so a DXF that travels on its own still states how to map its
+        layers onto material definitions.
+
+        Parameters
+        ----------
+        msp
+            The ezdxf modelspace to draw into.
+        snapshot : SectionSnapshot
+            Materialised section geometry.
+        layer_by_formation_id : dict[UUID, str]
+            ``formation_id -> layer name`` from ``_setup_layers``. The
+            mapping table quotes the layer name the drawing ACTUALLY
+            carries, including any collision disambiguation, so the
+            reader can match a row against the CAD layer list verbatim.
         """
         # Find the lowest drawn level so the title sits clear below.
         lowest = 0.0
@@ -383,8 +445,23 @@ class DxfSectionExporter(SectionExporter):
                 f"NB: {len(no_z)} column(s) lack surface elevation; drawn at indicative position"
             )
 
+        mapping_lines = format_mapping_table(
+            _mapping_rows(snapshot, layer_by_formation_id),
+            label_heading=MAPPING_TABLE_DXF_LAYER_HEADING,
+        )
+        if mapping_lines:
+            # Blank spacer so the table reads as its own block in CAD
+            # rather than as more title lines.
+            title_lines.append("")
+            title_lines.extend(mapping_lines)
+
         line_height = 0.8
         for i, line in enumerate(title_lines):
+            # Blank entries only reserve vertical space (the spacer above);
+            # an empty TEXT entity renders as nothing in CAD but trips
+            # strict DXF validators, so skip drawing it.
+            if not line:
+                continue
             msp.add_text(
                 line,
                 dxfattribs={"layer": _INVESTIGATIONS_LAYER, "height": 0.5},
@@ -396,6 +473,80 @@ class DxfSectionExporter(SectionExporter):
 # ---------------------------------------------------------------------------
 
 
+def _layer_body(formation: SectionFormation) -> str:
+    """Compose the layer-name body for one unit — identifier + display name.
+
+    A unit that carries a NAD packing class leads with its machine
+    identifier (``NAD-06_ZAND-Zand van Diest``) so one CAD wildcard
+    selects every instance of one class. Every other level — geological
+    formations, litho units, unclassified geotech skeleton bands — keeps
+    the bare display name, byte-identical to before debt #104; their
+    identifiers travel through the layer description and the mapping
+    table, which no downstream consumer keys on.
+
+    Parameters
+    ----------
+    formation : SectionFormation
+        The unit whose layer name is being derived.
+
+    Returns
+    -------
+    str
+        The layer-name body, still unsanitised — the caller passes it
+        through ``_formation_layer_name`` for the prefix + strip +
+        truncate.
+    """
+    identifier = naming_identifier(
+        nad_class=formation.nad_class,
+        litho_main_soil_code=formation.litho_main_soil_code,
+    )
+    if identifier is None:
+        return formation.name
+    return f"{identifier}{UNIT_ID_NAME_SEPARATOR}{formation.name}"
+
+
+def _mapping_rows(
+    snapshot: SectionSnapshot, layer_by_formation_id: dict[UUID, str]
+) -> list[UnitMappingRow]:
+    """Build the mapping-table rows for the units the drawing carries.
+
+    Only units that actually carry an identifier are listed — a
+    geological-model export yields an empty list, which
+    ``format_mapping_table`` renders as no table at all.
+
+    Parameters
+    ----------
+    snapshot : SectionSnapshot
+        Materialised section geometry.
+    layer_by_formation_id : dict[UUID, str]
+        ``formation_id -> layer name`` from ``_setup_layers``.
+
+    Returns
+    -------
+    list[UnitMappingRow]
+        In snapshot order, so the table reads in the same order as the
+        formation list the exporter emitted.
+    """
+    rows: list[UnitMappingRow] = []
+    for f in snapshot.formations:
+        if f.nad_class is None and not f.litho_main_soil_code:
+            continue
+        layer_name = layer_by_formation_id.get(f.formation_id)
+        if layer_name is None:
+            continue
+        rows.append(
+            UnitMappingRow(
+                export_label=layer_name,
+                nad_class=f.nad_class,
+                soil_code=f.litho_main_soil_code,
+                display_name=f.name,
+                formation_id=f.formation_id,
+                absorbed=f.absorbed_unit_names,
+            )
+        )
+    return rows
+
+
 def _formation_layer_name(formation_name: str) -> str:
     """Sanitise a formation name into a DXF-safe layer name.
 
@@ -405,8 +556,7 @@ def _formation_layer_name(formation_name: str) -> str:
     slashes) read better with the character dropped than with a
     placeholder underscore.
     """
-    forbidden = set("<>/\\\":;?*|='")
-    safe = "".join(c for c in formation_name if c not in forbidden)
+    safe = "".join(c for c in formation_name if c not in DXF_FORBIDDEN_LAYER_CHARS)
     # AutoCAD truncates layer names at 255 chars; we use the prefix
     # + a generous body so the user sees ``GeoModel-Formation name``
     # in CAD without surprise truncation on common names.
