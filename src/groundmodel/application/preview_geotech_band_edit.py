@@ -181,7 +181,6 @@ class PreviewGeotechBandEdit(GroundModelLogger):
         plan = plan_merge_run(
             bands=context.bands,
             band_ids=[str(b) for b in run],
-            live_geo_depths_m=context.live_geo_depths_m,
             soil=context.soil,
             admixtures=context.admixtures,
             depth_m=context.depth_m,
@@ -243,7 +242,6 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             upper_band_id=str(upper_band_id),
             lower_band_id=str(lower_band_id),
             new_depth_m=new_depth_m,
-            live_geo_depths_m=context.live_geo_depths_m,
             soil=context.soil,
             admixtures=context.admixtures,
             depth_m=context.depth_m,
