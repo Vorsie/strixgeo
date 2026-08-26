@@ -337,6 +337,44 @@ export async function getBytes(
 }
 
 /**
+ * POST helper for binary export endpoints — sends JSON, returns raw bytes.
+ *
+ * The byte-pipe sibling of {@link getBytes}, for the exports whose INPUT is
+ * too large for a query string: the Deltares D-Series targets need the
+ * section's drawn partition fill, which is computed in the renderer and can
+ * run to thousands of polygons.
+ *
+ * Parameters
+ * ----------
+ * path : string
+ *   URL path relative to `_base`, including leading slash.
+ * body : unknown
+ *   Request payload, JSON-serialised by {@link request}.
+ * errorLabel : string, optional
+ *   Fallback error copy when the server sends no ``detail``.
+ *
+ * Returns
+ * -------
+ * Promise<ArrayBuffer>
+ *   Raw response bytes.
+ *
+ * Throws
+ * ------
+ * ApiError
+ *   On non-2xx HTTP status. The server's structured ``detail.message``
+ *   reaches the caller's toast verbatim — which is how the 422
+ *   "draw the section fill first" refusal becomes readable copy.
+ */
+export async function postBytes(
+  path: string,
+  body: unknown,
+  errorLabel = 'Export failed',
+): Promise<ArrayBuffer> {
+  const res = await request('POST', path, body, errorLabel)
+  return res.arrayBuffer()
+}
+
+/**
  * Typed GET helper.
  *
  * Parameters
