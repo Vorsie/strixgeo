@@ -4,13 +4,20 @@ Debt #268 asks how often the two-section blend has to represent "unknown": a
 void inside a single section's vertical stack is the input that makes
 ``_blend_stacks`` / ``_layout`` collapse the column. This script measures it.
 
-Method — the one #268's "How big it is today" quotes: slice every gap of every
-section at 21 evenly spaced fractions, read the stack the labeller itself reads
-(:func:`label_voxels._section_stack_at`), and report any elevation range between
-two consecutive entries that no entry covers. A separation below one snap cell
-is the 2-D engine's millimetre rounding of a flush contact, not an unknown
-interval, so it is counted separately (``sub_mm``) and NOT as a void — the same
-threshold :func:`label_voxels._column_labels` uses to open its void slot.
+Method: slice every gap of every section at 21 evenly spaced fractions, read the
+stack the labeller itself reads (:func:`label_voxels._section_stack_at`), and
+report any elevation range no entry covers via the labeller's OWN ruler
+(:func:`label_voxels._interior_gaps`). A separation below one snap cell is the
+2-D engine's millimetre rounding of a flush contact, not an unknown interval, so
+it is counted separately (``sub_mm``) and NOT as a void — the same threshold
+:func:`label_voxels._column_labels` uses to open its void slot.
+
+⚠ This is a PAYLOAD sweep, not a build sweep. It samples every gap at fixed
+fractions, including gaps no voxel column ever projects onto, so its counts are
+an upper bound on what a build actually meets and must not be quoted as "what
+``_layout`` closes" — that number now comes out of the build itself, on
+``LabelGrid.report``. The two disagree by an order of magnitude on the owner's
+model (77 sampled voids here, 6 sites reached by the labelling).
 
 Run (read-only; touches no database):
 
@@ -24,7 +31,10 @@ import json
 import sys
 from pathlib import Path
 
-from groundmodel.domain.services.voxel_litho.label_voxels import _section_stack_at
+from groundmodel.domain.services.voxel_litho.label_voxels import (
+    _interior_gaps,
+    _section_stack_at,
+)
 from groundmodel.domain.services.voxel_litho.snap_grid import SNAP_GRID_M
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
@@ -94,11 +104,14 @@ def sweep(path: str) -> None:
                 if not stack:
                     continue
                 stacks += 1
-                for upper, lower in zip(stack, stack[1:]):
-                    height = upper.base_elev - lower.top_elev
+                # The labeller's own walk, not a consecutive-pair one: comparing
+                # only neighbouring entries calls the space under a thin nested
+                # layer a void even though the entry above reaches through it.
+                for base, top in _interior_gaps(stack):
+                    height = top - base
                     if height > SNAP_GRID_M:
                         voids.append((si, gap, fraction, height))
-                    elif height > 0.0:
+                    else:
                         sub_mm += 1
     print(f"\n{path}")
     print(f"  sections           {len(sections)}")
