@@ -1,0 +1,302 @@
+"""The D-Sheet Piling export carries a 1-D profile through the drawn section.
+
+The rules these tests encode, in the words they were ruled in:
+
+* D-Sheet needs a 1-D soil profile at a position — so the export samples
+  the drawn section at a fraction along the line, mid-section by
+  default;
+* materials are named by unit identifier, same as every other export;
+* the same characterisation-only stance: no strength, no stiffness, no
+  unit weight;
+* what D-Sheet demands and we cannot honestly derive — the retaining
+  structure, the water levels, the surcharges — is stated as an explicit
+  TODO inside the file, never as an invented value;
+* a hole or an overlap in the sampled column is REPORTED, because
+  D-Sheet's profile has no void concept and would silently swallow one.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+from geolib.models import DSheetPilingModel
+
+from groundmodel.application.section_polygon_set import (
+    SectionPolygon,
+    SectionPolygonSet,
+    SectionPolygonUnit,
+)
+from groundmodel.infrastructure.exporters.dsheet_piling_exporter import (
+    DSheetPilingExporter,
+)
+
+_PROJECT_ID = UUID("11111111-1111-1111-1111-111111111111")
+_SECTION_ID = UUID("22222222-2222-2222-2222-222222222222")
+_SAND_ID = UUID("33333333-3333-3333-3333-333333333333")
+_CLAY_ID = UUID("44444444-4444-4444-4444-444444444444")
+
+# A 40 m section, two columns. Sand wedges from +5.0 down to 0.0 on the
+# left and +4.0 down to -1.0 on the right; clay carries on below it to
+# -8.0 / -9.0. At mid-section (x = 20 m) the stack is sand +4.5..-0.5
+# over clay -0.5..-8.5.
+_SAND_QUAD = SectionPolygon(
+    formation_id=_SAND_ID,
+    points=((0.0, 5.0), (40.0, 4.0), (40.0, -1.0), (0.0, 0.0)),
+    gap_index=0,
+)
+_CLAY_QUAD = SectionPolygon(
+    formation_id=_CLAY_ID,
+    points=((0.0, 0.0), (40.0, -1.0), (40.0, -9.0), (0.0, -8.0)),
+    gap_index=0,
+)
+
+
+def _sand() -> SectionPolygonUnit:
+    return SectionPolygonUnit(
+        formation_id=_SAND_ID,
+        name="Zand — NAD 6",
+        nad_class=6,
+        litho_main_soil_code="ZAND",
+        color="#e8c56a",
+        display_order=1,
+    )
+
+
+def _clay() -> SectionPolygonUnit:
+    return SectionPolygonUnit(
+        formation_id=_CLAY_ID,
+        name="Klei — NAD 21",
+        nad_class=21,
+        litho_main_soil_code="KLEI",
+        color="#7a8f6a",
+        display_order=2,
+    )
+
+
+def _polygon_set(
+    *,
+    units: tuple[SectionPolygonUnit, ...] = (),
+    polygons: tuple[SectionPolygon, ...] = (),
+) -> SectionPolygonSet:
+    return SectionPolygonSet(
+        project_id=_PROJECT_ID,
+        project_name="Quay 7",
+        section_id=_SECTION_ID,
+        section_name="A–A'",
+        section_length_m=40.0,
+        crs_epsg=31370,
+        vertical_datum_label="m TAW",
+        column_positions_m=(0.0, 40.0),
+        units=units,
+        polygons=polygons,
+    )
+
+
+def _two_layer_set() -> SectionPolygonSet:
+    return _polygon_set(units=(_sand(), _clay()), polygons=(_SAND_QUAD, _CLAY_QUAD))
+
+
+def _text(payload: bytes) -> str:
+    """Decode the ``.shi`` the way D-Sheet Piling writes it (cp1252)."""
+    return payload.decode("cp1252")
+
+
+# --- happy path -------------------------------------------------------
+
+
+def test_dp1_export_is_a_shi_geolib_parses_back(tmp_path: Path) -> None:
+    """A real .shi: GEOLib reads its own output back into a model."""
+    payload = DSheetPilingExporter().export(_two_layer_set())
+    target = tmp_path / "roundtrip.shi"
+    target.write_bytes(payload)
+
+    model = DSheetPilingModel()
+    model.parse(target)
+
+    names = {soil.name for soil in model.datastructure.input_data.soil_collection.soil}
+    assert names == {"NAD-06_ZAND", "NAD-21_KLEI"}
+
+
+def test_dp2_the_profile_is_sampled_at_mid_section_by_default() -> None:
+    """Mid-section of the wedge: sand top +4.5, clay top −0.5."""
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+
+    profile = text[text.index("[SOIL PROFILES]") : text.index("[END OF SOIL PROFILES]")]
+    sand_line = next(line for line in profile.splitlines() if "NAD-06_ZAND" in line)
+    clay_line = next(line for line in profile.splitlines() if "NAD-21_KLEI" in line)
+
+    assert "4.50" in sand_line
+    assert "-0.50" in clay_line
+
+
+def test_dp3_a_caller_given_fraction_moves_the_sample(tmp_path: Path) -> None:
+    """The rule: export the profile at a user-given fraction along the section."""
+    text = _text(DSheetPilingExporter().export(_two_layer_set(), fraction=0.0))
+
+    profile = text[text.index("[SOIL PROFILES]") : text.index("[END OF SOIL PROFILES]")]
+    sand_line = next(line for line in profile.splitlines() if "NAD-06_ZAND" in line)
+
+    assert "5.00" in sand_line, "at the section start the sand top is +5.0"
+
+
+def test_dp4_the_profile_stack_runs_top_down_in_the_drawn_order() -> None:
+    """Sand over clay, because that is how the engineer drew it."""
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+    profile = text[text.index("[SOIL PROFILES]") : text.index("[END OF SOIL PROFILES]")]
+
+    assert profile.index("NAD-06_ZAND") < profile.index("NAD-21_KLEI")
+
+
+def test_dp5_the_ground_surface_we_measured_is_exported() -> None:
+    """Surface elevation is a measurement, not a design input — it travels."""
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+    surfaces = text[text.index("[SURFACES]") : text.index("[END OF SURFACES]")]
+
+    assert "4.50" in surfaces
+
+
+def test_dp6_no_design_parameter_is_written(tmp_path: Path) -> None:
+    """The liability line, again: characterisation travels, design values do not.
+
+    GEOLib initialises a D-Sheet soil with cohesion 0, phi 0 and a
+    0.01 kN/m3 unit weight — its own placeholders, not values Strix
+    chose. Asserting them pins that the exporter never fills one in.
+    """
+    payload = DSheetPilingExporter().export(_two_layer_set())
+    target = tmp_path / "roundtrip.shi"
+    target.write_bytes(payload)
+    model = DSheetPilingModel()
+    model.parse(target)
+
+    soils = model.datastructure.input_data.soil_collection.soil
+    assert len(soils) == 2
+    for soil in soils:
+        assert soil.soilcohesion == 0.0
+        assert soil.soilphi == 0.0
+        assert soil.soilgamdry == 0.01
+        assert soil.soilgamwet == 0.01
+
+
+def test_dp7_the_file_states_what_strix_did_not_supply() -> None:
+    """Never invent a water level — say out loud that it is missing."""
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+
+    assert "TODO" in text
+    assert "water" in text.lower()
+    assert "StrixGeo" in text
+
+
+def test_dp14_the_water_level_the_file_must_carry_is_labelled_a_todo() -> None:
+    """GEOLib writes a [WATERLEVELS] block regardless — so label the placeholder.
+
+    A ``.shi`` cannot omit the water table, and 0.00 m TAW is a
+    perfectly plausible phreatic level in Flanders. The NAME is the only
+    thing that stops an engineer reading GEOLib's placeholder as an
+    exported measurement.
+    """
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+    block = text[text.index("[WATERLEVELS]") : text.index("[END OF WATERLEVELS]")]
+
+    assert "TODO set water level" in block
+
+
+def test_dp15_the_run_identification_fits_the_three_lines_dsheet_shows() -> None:
+    """A fourth TODO line is in the file and invisible — the same as absent.
+
+    D-Sheet Piling's GUI renders exactly three ``[RUN IDENTIFICATION]``
+    lines (GEOLib: "More than 3 lines in run_identification will be
+    ignored in the GUI"), so the whole message is budgeted to three.
+    """
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+    block = text[
+        text.index("[RUN IDENTIFICATION]") + len("[RUN IDENTIFICATION]") : text.index(
+            "[END OF RUN IDENTIFICATION]"
+        )
+    ]
+    lines = [line for line in block.splitlines() if line.strip()]
+
+    assert len(lines) == 3
+    assert lines[0].startswith("StrixGeo export")
+    assert all("TODO" in line for line in lines[1:])
+
+
+def test_dp8_the_file_names_the_project_the_section_and_the_sample_position() -> None:
+    """A profile without its position is unreviewable."""
+    text = _text(DSheetPilingExporter().export(_two_layer_set()))
+
+    assert "Quay 7" in text
+    assert "20.00" in text, "the sampled along-distance"
+
+
+# --- structural error paths -------------------------------------------
+
+
+def test_dp9_a_fraction_outside_the_section_is_refused() -> None:
+    """A profile off the end of the line samples nothing real."""
+    with pytest.raises(ValueError, match="fraction"):
+        DSheetPilingExporter().export(_two_layer_set(), fraction=1.4)
+
+
+def test_dp10_a_position_with_no_drawn_ground_is_refused() -> None:
+    """An empty profile is a plausible, completely wrong deliverable."""
+    with pytest.raises(ValueError, match="no drawn ground"):
+        DSheetPilingExporter().export(
+            _polygon_set(units=(_sand(),), polygons=(_SAND_QUAD,)),
+            fraction=1.0,
+        )
+
+
+def test_dp11_a_section_with_no_geometry_at_all_is_refused() -> None:
+    """Same refusal as D-Stability: never ship an empty artefact."""
+    with pytest.raises(ValueError, match="no drawn ground"):
+        DSheetPilingExporter().export(_polygon_set(units=(_sand(),)))
+
+
+# --- variant detection -------------------------------------------------
+
+
+def test_dp12_a_hole_in_the_sampled_column_is_reported(caplog) -> None:
+    """D-Sheet has no void, so an unfilled gap would vanish silently."""
+    floating = SectionPolygon(
+        formation_id=_CLAY_ID,
+        points=((0.0, -20.0), (40.0, -20.0), (40.0, -30.0), (0.0, -30.0)),
+        gap_index=0,
+    )
+    with caplog.at_level("WARNING"):
+        DSheetPilingExporter().export(
+            _polygon_set(units=(_sand(), _clay()), polygons=(_SAND_QUAD, floating))
+        )
+
+    assert any("unfilled" in record.message for record in caplog.records)
+
+
+def test_dp13_an_unclassified_unit_falls_back_to_its_soil_then_its_name(
+    tmp_path: Path,
+) -> None:
+    """Same identifier fallback chain as every other export."""
+    litho_only = SectionPolygonUnit(
+        formation_id=_SAND_ID,
+        name="Zand van Mol",
+        nad_class=None,
+        litho_main_soil_code="ZAND",
+        color="#e8c56a",
+        display_order=1,
+    )
+    geological = SectionPolygonUnit(
+        formation_id=_CLAY_ID,
+        name="Boom Klei",
+        nad_class=None,
+        litho_main_soil_code=None,
+        color="#7a8f6a",
+        display_order=2,
+    )
+    text = _text(
+        DSheetPilingExporter().export(
+            _polygon_set(units=(litho_only, geological), polygons=(_SAND_QUAD, _CLAY_QUAD))
+        )
+    )
+
+    assert "ZAND" in text
+    assert "Boom Klei" in text
