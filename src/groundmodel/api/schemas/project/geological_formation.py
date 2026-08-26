@@ -83,6 +83,11 @@ class GeologicalFormationUpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     color: str | None = Field(default=None, max_length=20)
+    # The engineer's own colour choice. Send a hex string to set it; send an
+    # explicit ``null`` to reset the unit to its automatic colour. Omitting the
+    # key leaves whatever choice was already made untouched (``exclude_unset``
+    # in the router is what makes the three cases distinct).
+    color_override: str | None = Field(default=None, max_length=20)
     code: str | None = Field(default=None, max_length=50)
     display_order: int | None = None
     # Debt #35: the drag-end reorder sends ``pinned_order=True``
@@ -136,6 +141,9 @@ class GeologicalFormationResponse(BaseModel):
     app_project_id: UUID
     name: str
     color: str
+    # ``None`` until the engineer picks a colour for this unit; his pick then
+    # wins over the automatic colour on every surface that draws the unit.
+    color_override: str | None = None
     code: str | None
     display_order: int
     pinned_order: bool
