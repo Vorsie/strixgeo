@@ -395,6 +395,76 @@ GET    /projects/{pid}/geology/models/{mid}/export/plaxis3d
                                                     project. 404 when the
                                                     model / project
                                                     resolution fails.
+POST   /projects/{pid}/geology/models/{mid}/export/fence-dxf
+                                                    Export the 3-D fence
+                                                    diagram as a DXF (owner
+                                                    ballot 2026-08-26, v1.0
+                                                    MVP). The walls are
+                                                    triangulated in the
+                                                    RENDERER — the section
+                                                    partition engine has no
+                                                    server-side twin — so the
+                                                    geometry travels UP in the
+                                                    body, which is why this is
+                                                    a POST. Body:
+                                                    ``{panels: [{formation_id,
+                                                    body_id, name, color,
+                                                    vertices: [[x,y,z]],
+                                                    triangles: [[i,j,k]]}]}``
+                                                    — ``name``/``color`` are
+                                                    the RENDERED label and
+                                                    colour (NAD colours are a
+                                                    presentation-boundary
+                                                    recolour the DB never
+                                                    stores), so the DXF cannot
+                                                    disagree with the screen.
+                                                    Coordinates stay in the
+                                                    project CRS; the EPSG
+                                                    rides in the DXF header.
+                                                    One 3DFACE per triangle,
+                                                    one layer per panel name,
+                                                    interior edges hidden via
+                                                    the 3DFACE invisibility
+                                                    flags so CAD shows clean
+                                                    panel outlines. A triangle
+                                                    index out of range for its
+                                                    panel is 422 (a dropped
+                                                    face would ship a hole in
+                                                    a deliverable). Empty
+                                                    ``panels`` is valid and
+                                                    yields a well-formed empty
+                                                    DXF. ``application/dxf``.
+GET    /projects/{pid}/geology/models/{mid}/footprint
+                                                    The model's footprint
+                                                    boundary — the alpha hull
+                                                    the last 3-D build clipped
+                                                    the labelling to, so the
+                                                    ring the viewer draws is
+                                                    the build's OWN edge and
+                                                    not a client-side guess.
+                                                    Re-derived by replaying
+                                                    the persisted
+                                                    ``litho_build_generation``
+                                                    payload through the same
+                                                    ``build_domain_from_sections``
+                                                    the build ran; no
+                                                    migration, nothing stored.
+                                                    Response: ``{polygon:
+                                                    [[x_m, y_m]], generation_id,
+                                                    built_at,
+                                                    unavailable_reason}`` —
+                                                    the ring carries NO
+                                                    repeated last vertex.
+                                                    NEVER errors for "no ring
+                                                    yet": never built, fewer
+                                                    than 3 non-collinear
+                                                    columns, and an unreadable
+                                                    stored payload all answer
+                                                    200 with an empty polygon
+                                                    and a plain-English
+                                                    reason. 404 only when the
+                                                    model is not in the
+                                                    project.
 
 POST   /projects/{pid}/geology/models/{mid}/correlations
                                                     Create a litho-correlation
