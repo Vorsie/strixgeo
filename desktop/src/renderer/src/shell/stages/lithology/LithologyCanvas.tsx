@@ -39,12 +39,15 @@
 //     In Fence mode the whole-project partition fill is projected to
 //     world-space panels and passed to Geology3DViewer via fencePanels.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Layers3 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
 import Geology3DViewer from '../geology/Geology3DViewer'
+import { nadColoredFormations } from '../../../utils/nadClasses'
+import type { CompareScene } from '../shared/splitViewport'
+import { exportFenceDxf } from '../shared/exportFenceDxf'
 import {
   useBody3DViewState,
   EMPTY_SURFACES_MAP,
@@ -101,6 +104,19 @@ export const lithoVoxelRequestCallback: React.MutableRefObject<VoxelRequestBuild
   current: null,
 }
 
+/**
+ * Export the litho fence diagram as DXF.
+ *
+ * Populated by ``LithologyCanvas`` while mounted; invoked by
+ * ``LithologyStage``'s "Export fence" toolbar button. Same module-ref bridge
+ * as ``lithoVoxelRequestCallback`` — the fence walls are canvas-local state
+ * that never reaches the shell bus, so the toolbar cannot assemble the export
+ * itself. ``null`` when the canvas is not mounted.
+ */
+export const lithoFenceExportCallback: React.MutableRefObject<(() => Promise<void>) | null> = {
+  current: null,
+}
+
 // ---------------------------------------------------------------------------
 // LithologyCanvas
 // ---------------------------------------------------------------------------
@@ -147,9 +163,12 @@ export default function LithologyCanvas(): JSX.Element {
       lithoSolids,
       hasLithoSolids,
       hideMarkers,
+      geotechFormations,
+      geotechSolids,
     },
     overlays: { showConfidenceFade },
     sections: { visibleSections },
+    toasts: { toast },
   } = useShell()
 
   // ---------------------------------------------------------------------------
@@ -182,16 +201,58 @@ export default function LithologyCanvas(): JSX.Element {
     splitLine,
     handleSplitPlaneDrawn,
     exitSplit,
+    enterCompare,
     groundSurface,
     investigations,
     investigationXY,
     fencePanels,
+    footprintRing,
   } = useBody3DViewState({
     modelId: lithoModelId,
     layers: lithoLayers,
+    bodySolids: lithoSolids,
     resetSplitViewportRef: resetLithoSplitViewportCallback,
     voxelRequestRef: lithoVoxelRequestCallback,
   })
+
+  // The comparison pane: the GEOTECH subdivision derived from this model, in
+  // its NAD colours (the presentation-boundary recolour — a geotech body must
+  // read its packing colour, not the inherited lithology colour). Solid view
+  // only; see the mirror comment in GeotechnicalCanvas.
+  const geotechCompareScene = useMemo<CompareScene>(
+    () => ({
+      label: 'Geotechnical',
+      formations: nadColoredFormations(geotechFormations),
+      bodySolids: geotechSolids,
+    }),
+    [geotechFormations, geotechSolids],
+  )
+
+  // Fence-DXF export bridge. Assigned every render while mounted, ABOVE the
+  // early return, so the toolbar button never holds a stale closure over an
+  // earlier fence; nulled on unmount so a click after a stage switch is a
+  // no-op rather than an export of a destroyed view's geometry.
+  lithoFenceExportCallback.current =
+    projectId && lithoModelId && fencePanels
+      ? () =>
+          exportFenceDxf({
+            projectId,
+            modelId: lithoModelId,
+            modelName: activeLithoModel?.name ?? 'lithostratigraphy',
+            panels: fencePanels,
+            // The SAME array the viewer paints with, so the DXF layer names
+            // and colours are what the user is looking at.
+            formations: lithoFormations,
+            toast,
+          })
+      : null
+
+  useEffect(
+    () => () => {
+      lithoFenceExportCallback.current = null
+    },
+    [],
+  )
 
   // ---------------------------------------------------------------------------
   // Voxel build payload — assembled on demand for the "Build model" toolbar
@@ -266,6 +327,9 @@ export default function LithologyCanvas(): JSX.Element {
           bodySolidsWireframe={wireframe}
           investigationXY={investigationXY}
           onExitSplit={exitSplit}
+          footprintRing={footprintRing}
+          compareScene={geotechCompareScene}
+          onEnterCompare={enterCompare}
         />
       </div>
     )
