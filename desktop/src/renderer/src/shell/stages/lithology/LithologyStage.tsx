@@ -19,7 +19,7 @@
 // resetSplitViewportCallback — the toolbar Reset button collapses the
 // split back to a single viewport.
 
-import { Rows3, RefreshCw, Box } from 'lucide-react'
+import { Rows3, RefreshCw, Box, Download } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
@@ -27,6 +27,7 @@ import LithologyCanvas, {
   resetLithoCameraCallback,
   resetLithoSplitViewportCallback,
   lithoVoxelRequestCallback,
+  lithoFenceExportCallback,
 } from './LithologyCanvas'
 import LithologyInspector from './LithologyInspector'
 import { ToolbarButton } from '../../ToolbarPrimitives'
@@ -98,6 +99,19 @@ function LithologyToolbar(): JSX.Element | null {
                 : 'Build the 3-D body solids from accepted contacts'
         }
       />
+      {/* Fence diagram -> DXF. Only offered once solids exist (the fence needs
+          a built model); the action itself refuses with a warning when the view
+          is not in Fence mode, because a silently empty DXF would read as a
+          successful export of an empty model. */}
+      {hasLithoSolids && (
+        <ToolbarButton
+          icon={<Download size={13} />}
+          label="Export fence"
+          onClick={() => void lithoFenceExportCallback.current?.()}
+          testid="litho-export-fence-button"
+          title="Save the 3-D fence diagram as a DXF (switch the view to Fence first)"
+        />
+      )}
       {hasLithoSolids && (
         <ToolbarButton
           icon={<RefreshCw size={13} />}
