@@ -61,7 +61,12 @@ import {
   enclosedLensAt,
   findSmallEnclosedLenses,
 } from './geotechLensSuggestion'
-import { NAD_CLASS_ABBR, nadClassFamily } from '../../utils/nadClasses'
+import {
+  NAD_CLASS_ABBR,
+  nadClassIsForeignToSoil,
+  nadClassesForSoil,
+  nadSoilFamilyName,
+} from '../../utils/nadClasses'
 import type { PlacedColumn } from './utils'
 
 /** Height in px of the strip that sits on a shared band boundary (drag + right-click). */
@@ -148,11 +153,27 @@ export interface Props {
    */
   nadClassByFormationId?: ReadonlyMap<string, number | null>
   /**
+   * Geotech formation id → the ``litho_main_soil_code`` of the litho unit it
+   * subdivides (``refinement.nadMeta`` flattened on its other field).
+   *
+   * This is what the class menu is built from, never the band's current class:
+   * a packing class describes one soil column, so the GROUND says which classes
+   * exist here (owner ruling 2026-08-26, *"the nad coupling is absolute"*).
+   * Absent, or a soil the norm table does not know → no menu, because there is
+   * no family to offer and guessing one is the failure being fixed.
+   */
+  soilCodeByFormationId?: ReadonlyMap<string, string | null>
+  /**
    * Set a BOREHOLE band's NAD class by hand (owner ask 2026-08-18). Offered on
    * borehole bands ONLY — a CPT band's class is measured from its own qc, and
    * the server refuses it there. Absent → borehole bands stay view-only.
+   *
+   * ``previousClass`` is ``null`` for a band nothing had classified yet — the
+   * state the soil-family clamp produces wherever the only evidence belonged to
+   * another soil, and precisely the state an engineer reaches for this verb to
+   * settle.
    */
-  onRequestSetClass?: (bandId: string, nadClass: number, previousClass: number) => void
+  onRequestSetClass?: (bandId: string, nadClass: number, previousClass: number | null) => void
   /**
    * The model's "thinnest packing band kept" preference — the badge's size gate. The
    * MENU offers the absorb on any enclosed lens regardless (the enclosure is real either
@@ -251,10 +272,21 @@ type MenuState =
       clientX: number
       clientY: number
       bandId: string
-      /** The band's class today — the undo anchor the handler carries. */
-      currentClass: number
-      /** The soil family's classes, the only legal hand choices. */
+      /**
+       * The band's class today — the undo anchor the handler carries. ``null``
+       * for a band nothing has classified yet, which the soil-family clamp
+       * makes a normal state rather than a rarity.
+       */
+      currentClass: number | null
+      /** The band's OWN soil family's classes — the only legal hand choices. */
       family: readonly number[]
+      /**
+       * The band's current class when it belongs to another soil family — a
+       * legacy row written before the coupling was enforced. Listed alongside
+       * the family so the engineer can SEE the state; never selectable, because
+       * choosing it would restate the thing that is wrong.
+       */
+      foreignClass: number | null
     }
 
 /**
@@ -317,6 +349,7 @@ export default function GeotechBandEditOverlay({
   onRequestMoveBoundary,
   onRequestAbsorbLens,
   nadClassByFormationId,
+  soilCodeByFormationId,
   onRequestSetClass,
   smallLensThicknessM,
   suspended = false,
@@ -452,7 +485,12 @@ export default function GeotechBandEditOverlay({
    * drag — geometry on a borehole column stays exactly as view-only as before.
    */
   const boreholeColumns = useMemo(() => {
-    if (suspended || onRequestSetClass === undefined || nadClassByFormationId === undefined)
+    // The soil map is what the verb now depends on — the menu is built from the
+    // band's ground, so without it there is no family to offer. The class map
+    // only supplies the undo anchor, and a band that carries no class is a
+    // normal state the clamp produces, so its absence is never a reason to
+    // withhold the verb.
+    if (suspended || onRequestSetClass === undefined || soilCodeByFormationId === undefined)
       return []
     const out: {
       investigationId: string
@@ -482,7 +520,7 @@ export default function GeotechBandEditOverlay({
   }, [
     suspended,
     onRequestSetClass,
-    nadClassByFormationId,
+    soilCodeByFormationId,
     placedColumns,
     levelToScreen,
     geotechLayers,
@@ -637,9 +675,19 @@ export default function GeotechBandEditOverlay({
         <g key={`gbe-bh-${column.investigationId}`}>
           {column.bands.map(band => {
             const currentClass = nadClassByFormationId?.get(band.formationId) ?? null
-            if (currentClass === null) return null
-            const family = nadClassFamily(currentClass)
+            // The GROUND decides what this band may be, not the class it
+            // happens to carry (owner ruling 2026-08-26: "the nad coupling is
+            // absolute"). Keying off the class made a band stamped with a
+            // foreign one offer only more of that wrong family — the one state
+            // that needs correcting was the one the UI could not correct. It
+            // also left every unclassified band with no menu at all, which the
+            // clamp turned from a rarity into a normal state.
+            const soilCode = soilCodeByFormationId?.get(band.formationId) ?? null
+            const family = nadClassesForSoil(soilCode)
             if (family.length === 0) return null
+            const foreignClass = nadClassIsForeignToSoil(currentClass, soilCode)
+              ? currentClass
+              : null
             const top = Math.max(plotTop, column.surfaceY + band.topDepthM * column.pxPerMetre)
             const bottom = Math.min(
               plotBottom,
@@ -667,6 +715,7 @@ export default function GeotechBandEditOverlay({
                     bandId: band.layerId,
                     currentClass,
                     family,
+                    foreignClass,
                   })
                 }}
               >
@@ -1131,9 +1180,9 @@ export default function GeotechBandEditOverlay({
                 </>
               ) : menu.kind === 'setClass' ? (
                 <>
-                  {/* The soil family's classes, current one named and inert. The server
-                      re-validates against the norm table, so this list can never offer
-                      more than the band's soil allows. */}
+                  {/* The band's own SOIL family, current one named and inert. Built
+                      from litho_main_soil_code, so this list is exactly what the
+                      server's own soil check would accept. */}
                   {menu.family.map(cls => (
                     <button
                       key={`gbe-set-class-${cls}`}
@@ -1154,6 +1203,24 @@ export default function GeotechBandEditOverlay({
                       {cls === menu.currentClass ? ' (current)' : ''}
                     </button>
                   ))}
+                  {/* A legacy row whose class belongs to another soil. Shown so the
+                      engineer can see WHAT the band says today and that it is wrong —
+                      a menu that silently omitted it would leave him choosing a
+                      replacement for a value he cannot see. Never selectable: picking
+                      it would restate the contradiction. Any item above heals it. */}
+                  {menu.foreignClass !== null && (
+                    <button
+                      key={`gbe-set-class-foreign-${menu.foreignClass}`}
+                      type="button"
+                      data-testid={`geotech-band-menu-set-class-${menu.foreignClass}`}
+                      data-foreign-class="true"
+                      disabled
+                      style={{ ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }}
+                    >
+                      {NAD_CLASS_ABBR[menu.foreignClass] ?? `NAD ${menu.foreignClass}`}
+                      {` (current — a ${nadSoilFamilyName(menu.foreignClass)} class on this soil)`}
+                    </button>
+                  )}
                 </>
               ) : (
                 <button
