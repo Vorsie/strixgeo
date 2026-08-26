@@ -23,6 +23,7 @@ import {
   rebuildSurfacePrimitives,
   type SplitLine,
 } from './geology3DPrimitives'
+import { useCameraLink } from './useCameraLink'
 
 // Single-viewport Cesium widget
 // ---------------------------------------------------------------------------
@@ -76,6 +77,27 @@ export interface CesiumViewportProps {
   /** Investigation (x, y) positions in project CRS — the distance metric for the
    * confidence fade of body solids (threaded from Geology3DViewerProps). */
   investigationXY?: readonly (readonly [number, number])[]
+  /** Closed ring of ``[x_m, y_m, elevation_m]`` marking the model footprint —
+   * threaded from Geology3DViewerProps, drawn last and never clipped. */
+  footprintRing?: readonly (readonly number[])[]
+  /**
+   * Ref this viewport publishes its camera on while mounted, so a sibling
+   * viewport can mirror it (compare mode). Null when the viewport unmounts.
+   *
+   * A ref rather than a prop because the camera is a mutable Cesium object
+   * that changes many times per second: routing it through React state would
+   * re-render both panes on every mouse move.
+   */
+  cameraRef?: React.MutableRefObject<Cesium.Camera | null>
+  /**
+   * When set, this viewport MIRRORS the camera published on that ref instead
+   * of being driven independently — the compare panes must show one viewpoint
+   * or the two models cannot be compared.
+   *
+   * The mirroring viewport is the follower: it copies pose every frame and
+   * never writes back, so there is no feedback loop.
+   */
+  followCameraRef?: React.MutableRefObject<Cesium.Camera | null>
 }
 
 /**
@@ -138,6 +160,9 @@ export function CesiumViewport({
   bodySolids,
   bodySolidsWireframe = false,
   investigationXY,
+  footprintRing,
+  cameraRef,
+  followCameraRef,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -155,6 +180,11 @@ export function CesiumViewport({
   // trigger a fly-to (fixes solid-mode secondary viewport staying on
   // the bare globe when surfaces are empty but bodySolids arrive).
   const lastSplitHadContentRef = useRef<boolean>(false)
+  // The mounted widget's scene, as STATE rather than only ``widgetRef``: the
+  // camera-link effects must re-run once the widget exists, and a ref write
+  // does not re-render. Every other effect here reads ``widgetRef`` inside its
+  // own body and re-runs on its data deps, so only the link needs this.
+  const [mountedScene, setMountedScene] = useState<Cesium.Scene | null>(null)
 
   // ---------------------------------------------------------------------------
   // Mount / unmount the CesiumWidget
@@ -215,10 +245,12 @@ export function CesiumViewport({
     lastFitKeyRef.current = null
     lastSplitPlaneRef.current = null
     lastSplitHadContentRef.current = false
+    setMountedScene(widget.scene)
 
     return () => {
       widget.destroy()
       widgetRef.current = null
+      setMountedScene(null)
       // Null the camera reset ref so callers get null rather than a stale
       // callback pointing at the destroyed widget's scene.camera.
       if (cameraResetRef) cameraResetRef.current = null
@@ -266,6 +298,7 @@ export function CesiumViewport({
       bodySolidsWireframe,
       investigationXY,
       hiddenBodyIds,
+      footprintRing,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -370,6 +403,10 @@ export function CesiumViewport({
     // Investigation positions: rebuild so the confidence fade of body solids
     // re-evaluates when the in-corridor investigation set changes.
     investigationXY,
+    // Footprint ring: rebuild when the backend answers with the hull, when the
+    // model changes, or when the ring elevation moves because the ground
+    // surface / solids finished loading.
+    footprintRing,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -377,6 +414,10 @@ export function CesiumViewport({
   // see buildBasemapLid. The old whole-ellipsoid tiled-imagery effect
   // was removed: the Geopunt GoogleMapsVL matrixset never tiled right
   // under Cesium → 400-storm + edge-on smear instead of a cutout.)
+
+  // Camera link (compare mode) — see useCameraLink for why the follower
+  // mirrors in preRender rather than on the camera's `changed` event.
+  useCameraLink(mountedScene, cameraRef, followCameraRef)
 
   // ---------------------------------------------------------------------------
   // Wire click handler for split-line draw interaction
