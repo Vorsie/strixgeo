@@ -1406,6 +1406,32 @@ export interface RestatedContactMoveResponse extends GeotechBandEditResponse {
   geo_contact_id: string | null
 }
 
+/**
+ * Response from ``GET .../models/{model_id}/footprint``.
+ *
+ * The model's footprint boundary — the alpha hull the 3-D build clipped the
+ * labelling to, re-derived server-side from the persisted build payload so the
+ * ring the viewer draws is the build's OWN boundary and not a client-side
+ * approximation of it.
+ *
+ * Never an error state: a model that was never built, whose investigations do
+ * not frame an area, or whose stored payload cannot be read all answer 200
+ * with an empty ``polygon`` and a plain-English ``unavailable_reason``.
+ */
+export interface ModelFootprintResponse {
+  /**
+   * Closed ring of ``[x_m, y_m]`` in the project CRS, WITHOUT a repeated last
+   * vertex. Empty when no ring is available — see ``unavailable_reason``.
+   */
+  polygon: number[][]
+  /** The build generation the ring came from; null when never built. */
+  generation_id: string | null
+  /** That generation's timestamp; null alongside ``generation_id``. */
+  built_at: string | null
+  /** Why ``polygon`` is empty, when it is. Null when a ring was returned. */
+  unavailable_reason: string | null
+}
+
 /** The statistic state of a geotech model after a change (rulings 7+8). */
 export interface GeotechStatisticResponse {
   /** The choice now stored on the model. */
