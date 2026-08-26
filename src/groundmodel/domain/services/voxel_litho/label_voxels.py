@@ -898,8 +898,9 @@ def _clip_stack_to_band(
     """Clip a section stack to a geological band's ``(base, top)`` extent.
 
     A litho is confined to its geological band by the **snap-or-divide** rule
-    (the same rule ``litho_geo_bounding.divide_picks_by_geology`` applies to
-    picks): a band surface is a genuine **cut** of an entry only when it crosses the
+    (this builder's own rule — the geotech stage no longer has a counterpart,
+    see ``litho_geo_bounding``): a band surface is a genuine **cut** of an entry
+    only when it crosses the
     entry's span STRICTLY INSIDE it AND is farther than ``snap_tol`` from BOTH
     the entry's top and base.  When a band surface is a cut, the entry is
     DIVIDED at it and only the part inside this band survives.  When a band
