@@ -11,7 +11,9 @@ Each test below paraphrases one ruling in the ruling's own words:
   (``geotech_subdivision`` line 444), so a warning computed on the mean would
   promise a reclassification that never happens;
 * a packing boundary moves freely INSIDE its litho body and clamps at the edge —
-  the litho contact and the geological contact are hard walls;
+  the litho contact is the hard wall, and the ONLY one; a geological contact is
+  not (owner, 2026-08-26: "just drop the wall everywhere, user wil have to
+  manually do it");
 * manual override always wins: a band thinner than the minimum is ALLOWED with a
   warning, never blocked;
 * qc that cannot answer yields "cannot answer", never a plausible class.
@@ -241,37 +243,55 @@ def test_a_merge_across_a_litho_boundary_is_rejected() -> None:
         )
 
 
-def test_a_merge_across_a_geological_boundary_is_rejected() -> None:
-    """A packing band never crosses a geological contact either."""
+def test_a_merge_across_a_geological_boundary_is_allowed() -> None:
+    """A packing band DOES cross a geological contact (owner, 2026-08-26).
+
+    This test asserted the refusal until the owner dropped the geological wall:
+    *"just drop the wall everywhere, user wil have to manually do it"*. Inverted
+    rather than deleted, so the pair with
+    ``test_a_merge_across_a_litho_boundary_is_rejected`` above states both halves
+    of the rule side by side — litho refuses, geology does not.
+    """
     depths, qc = _series([(0.0, 4.0, 5.0)])
     bands = [
         _band("b1", 0.0, 2.0, 6, geo=GEO_1),
         _band("b2", 2.0, 4.0, 6, geo=GEO_2),
     ]
-    with pytest.raises(GeotechBandEditError, match="geological"):
-        plan_merge(
-            bands=bands,
-            upper_band_id="b1",
-            lower_band_id="b2",
-            soil="ZAND",
-            admixtures=(),
-            depth_m=depths,
-            qc_mpa=qc,
-            min_thickness_m=0.35,
-        )
+    plan = plan_merge(
+        bands=bands,
+        upper_band_id="b1",
+        lower_band_id="b2",
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+
+    assert plan.kind == KIND_MERGE
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (0.0, 4.0)
 
 
-def test_the_litho_body_is_the_contiguous_run_sharing_the_same_parents() -> None:
-    """The hard walls are where the litho OR geological parent changes."""
+def test_the_litho_body_is_the_contiguous_run_sharing_the_same_litho_parent() -> None:
+    """The hard wall is where the LITHO parent changes — the geological one is not a wall.
+
+    Owner, 2026-08-26: *"just drop the wall everywhere, user wil have to manually
+    do it"*. A geological line no longer ends the run a boundary may move in, so
+    b1..b3 are one body even though the geological parent changes at 3.0 m; the
+    litho change at 1.0 m still ends it.
+    """
     bands = [
         _band("b0", 0.0, 1.0, 6, litho=LITHO_B, geo=GEO_1),
         _band("b1", 1.0, 2.0, 6, litho=LITHO_A, geo=GEO_1),
         _band("b2", 2.0, 3.0, 7, litho=LITHO_A, geo=GEO_1),
         _band("b3", 3.0, 4.0, 7, litho=LITHO_A, geo=GEO_2),
     ]
-    assert enclosing_litho_bounds(bands, 1) == (1.0, 3.0)
-    assert enclosing_litho_bounds(bands, 2) == (1.0, 3.0)
-    assert enclosing_litho_bounds(bands, 3) == (3.0, 4.0)
+    assert enclosing_litho_bounds(bands, 1) == (1.0, 4.0)
+    assert enclosing_litho_bounds(bands, 2) == (1.0, 4.0)
+    assert enclosing_litho_bounds(bands, 3) == (1.0, 4.0)
+    # CONTROL: the litho wall is untouched — b0 sits in its own unit.
+    assert enclosing_litho_bounds(bands, 0) == (0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1208,25 +1228,32 @@ def test_pt1_the_edit_window_is_the_builds_window_to_the_last_sample() -> None:
 
 
 # ---------------------------------------------------------------------------
-# GW — the geo wall reads the LIVE geological contacts, not build-time stamps
+# GW — the geological wall is GONE; the lithostratigraphic one stands
 # ---------------------------------------------------------------------------
 #
-# Owner dogfeed 2026-08-12 (GEO-23/125-S6): his early geological-stage pick sat
-# ~1 m below the litho clay base, so the build broke the sand bands there and
-# stamped the sides Holoceen/Pleistoceen. Moving the geological contact on the
-# geology axis changed NOTHING — the wall read the stamps, so the only offered
-# unlock was a full re-subdivide, which deletes every hand edit. With
-# ``live_geo_depths_m`` provided, the wall judges the LIVE contacts; the stamps
-# stay authoritative only for legacy callers that pass nothing.
+# Owner, 2026-08-26: *"just drop the wall everywhere, user wil have to manually
+# do it"*. A geological line is no longer structure for the packing bands: the
+# machine never cuts at one and the editor never refuses one. Five clays in his
+# project were cut by the wall — GEO-05/040-S3's clay 0.05-1.48 m was cut at
+# 0.57 m into NAD 21 over NAD 21, twin halves of one band and a pure artefact.
+# The Tertiary case he DOES want divided (GEO-10/171-B9, Kortrijk top at
+# 18.00 m) becomes a hand split; the split tool already exists.
+#
+# The GW1-GW4 pins below were written on 2026-08-12, when the wall stood and
+# only its data source was in question. Each is retired or inverted here
+# deliberately, and named so the history is legible.
 
 
-def test_gw1_a_merge_across_stale_stamps_is_allowed_when_no_live_contact_remains() -> None:
-    """GW1 — stamps disagree, the live geological model has moved on: merge."""
+def test_gw1_a_merge_whose_stamps_disagree_is_allowed() -> None:
+    """GW1 (kept, wall-independent) — a build-time stamp never refuses a merge.
+
+    This was the 2026-08-12 pin that stale stamps must not wall an edit. It
+    survives the 2026-08-26 ruling unchanged in intent: no geological datum,
+    live or stamped, refuses anything now.
+    """
     depths, qc = _series([(0.0, 10.0, 5.0)])
     bands = [
         _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
-        # Build-time stamp says the OTHER formation — the contact sat at 4.0 m
-        # when the bands were built, and the engineer has since moved it away.
         _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
     ]
 
@@ -1239,7 +1266,6 @@ def test_gw1_a_merge_across_stale_stamps_is_allowed_when_no_live_contact_remains
         depth_m=depths,
         qc_mpa=qc,
         min_thickness_m=0.1,
-        live_geo_depths_m=[0.0],  # the live contact now coincides with the top
     )
 
     assert plan.kind == KIND_MERGE
@@ -1247,39 +1273,18 @@ def test_gw1_a_merge_across_stale_stamps_is_allowed_when_no_live_contact_remains
     assert (survivor.depth_top_m, survivor.depth_base_m) == (0.0, 7.0)
 
 
-def test_gw2_a_live_contact_inside_the_union_still_refuses_without_resubdivide_advice() -> None:
-    """GW2 — the wall itself stands; only its data source and its advice change."""
+def test_gw2_a_geological_contact_inside_the_union_no_longer_refuses() -> None:
+    """GW2 (INVERTED, 2026-08-26) — a merge across a geological line is allowed.
+
+    The 2026-08-12 version of this test asserted the refusal and only argued
+    about which depths the wall should read. The owner has since ruled the wall
+    away entirely: he merges across the geological line himself, and re-splits
+    by hand where he wants the division.
+    """
     depths, qc = _series([(0.0, 10.0, 5.0)])
     bands = [
+        # The geological contact sits at 4.00 m, squarely between the two bands.
         _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
-        _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
-    ]
-
-    with pytest.raises(GeotechBandEditError) as err:
-        plan_merge(
-            bands=bands,
-            upper_band_id="upper",
-            lower_band_id="lower",
-            soil="ZAND",
-            admixtures=(),
-            depth_m=depths,
-            qc_mpa=qc,
-            min_thickness_m=0.1,
-            live_geo_depths_m=[4.0],  # the contact really is between them
-        )
-    message = str(err.value)
-    assert "geology axis" in message
-    assert "Subdivide" not in message, (
-        "the old advice steered the engineer into a re-subdivide that deletes "
-        "every hand edit — the live-reading wall must not repeat it"
-    )
-
-
-def test_gw3_a_live_contact_on_the_unions_outer_edge_does_not_refuse() -> None:
-    """GW3 — coinciding with the union's own edge is the legal resting place."""
-    depths, qc = _series([(0.0, 10.0, 5.0)])
-    bands = [
-        _band("upper", 2.0, 4.0, 6, litho=LITHO_A, geo=GEO_2),
         _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
     ]
 
@@ -1292,17 +1297,25 @@ def test_gw3_a_live_contact_on_the_unions_outer_edge_does_not_refuse() -> None:
         depth_m=depths,
         qc_mpa=qc,
         min_thickness_m=0.1,
-        # One contact exactly on the union top, one on its base (band
-        # boundaries are mm-rounded, contacts keep full floats — 1.1 mm apart
-        # is the same depth).
-        live_geo_depths_m=[2.0005, 7.0],
     )
 
     assert plan.kind == KIND_MERGE
+    (survivor,) = plan.intervals
+    assert (survivor.depth_top_m, survivor.depth_base_m) == (0.0, 7.0)
 
 
-def test_gw4_a_move_across_stale_stamps_is_allowed_when_no_live_contact_remains() -> None:
-    """GW4 — the move verb reads the same live wall as the merge."""
+# GW3 (RETIRED, 2026-08-26) — "a live contact on the union's outer edge does not
+# refuse" pinned the tolerance band of a wall that no longer exists. Nothing is
+# refused at any position now, so the case is covered by GW2 above.
+
+
+def test_gw4_a_move_across_a_geological_contact_is_allowed() -> None:
+    """GW4 (INVERTED, 2026-08-26) — the drag reads no geological datum either.
+
+    The merge and the move shared one wall, so dropping it must free both
+    gestures. Dragging the 4.00 m boundary down to 5.00 m carries it across the
+    geological contact that used to pin it there.
+    """
     depths, qc = _series([(0.0, 10.0, 5.0)])
     bands = [
         _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
@@ -1319,8 +1332,117 @@ def test_gw4_a_move_across_stale_stamps_is_allowed_when_no_live_contact_remains(
         depth_m=depths,
         qc_mpa=qc,
         min_thickness_m=0.1,
-        live_geo_depths_m=[0.0],
     )
 
     assert plan.kind == KIND_MOVE
     assert len(plan.intervals) == 2
+    assert [(i.depth_top_m, i.depth_base_m) for i in plan.intervals] == [(0.0, 5.0), (5.0, 7.0)]
+
+
+def test_gw5_the_split_reports_the_whole_litho_unit_as_its_walls() -> None:
+    """GW5 (2026-08-26) — the third gesture: the walls a split reports widen too.
+
+    The split verb never read a geological datum directly, but it reports the
+    walls it clamps to, and the section editor draws the amber "stopped here"
+    readout from them. Those walls used to end at the geological parent change,
+    so the engineer was stopped mid-unit by a line he is now free to cross. The
+    band being split sits above the geological change at 4.00 m; its reported
+    walls must still reach the base of the litho unit at 7.00 m.
+    """
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_A, geo=GEO_2),
+    ]
+
+    plan = plan_split(
+        bands=bands,
+        band_id="upper",
+        split_depth_m=2.0,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.1,
+    )
+
+    assert (plan.parent_top_m, plan.parent_base_m) == (0.0, 7.0)
+    assert [(i.depth_top_m, i.depth_base_m) for i in plan.intervals] == [(0.0, 2.0), (2.0, 4.0)]
+
+
+# --- CONTROL: the LITHOSTRATIGRAPHIC wall is untouched ----------------------
+#
+# "THE LITHO WALL STAYS: a packing boundary still never moves/crosses a LITHO
+# contact and stays inside its litho body." These three pins fail if dropping
+# the geological wall took the litho one with it.
+
+
+def test_gw6_control_a_merge_across_a_litho_contact_is_still_refused() -> None:
+    """GW6 — the litho contact still refuses the merge, and says which wall it is."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_B, geo=GEO_1),
+    ]
+
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_merge(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
+    message = str(err.value)
+    assert "lithostratigraphic" in message
+    assert "litho axis" in message
+
+
+def test_gw7_control_a_move_across_a_litho_contact_is_still_refused() -> None:
+    """GW7 — the drag stops at the litho contact, naming the gesture the owner made."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_B, geo=GEO_1),
+    ]
+
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_move(
+            bands=bands,
+            upper_band_id="upper",
+            lower_band_id="lower",
+            new_depth_m=5.0,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
+    assert "Move rejected" in str(err.value)
+    assert "lithostratigraphic" in str(err.value)
+
+
+def test_gw8_control_a_split_outside_the_litho_body_is_still_refused() -> None:
+    """GW8 — the split still clamps at the litho unit's own edge."""
+    depths, qc = _series([(0.0, 10.0, 5.0)])
+    bands = [
+        _band("upper", 0.0, 4.0, 6, litho=LITHO_A, geo=GEO_1),
+        _band("lower", 4.0, 7.0, 7, litho=LITHO_B, geo=GEO_1),
+    ]
+
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_split(
+            bands=bands,
+            band_id="upper",
+            # 5.00 m is inside the COLUMN but past the litho contact at 4.00 m.
+            split_depth_m=5.0,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.1,
+        )
+    assert "litho" in str(err.value).lower()
