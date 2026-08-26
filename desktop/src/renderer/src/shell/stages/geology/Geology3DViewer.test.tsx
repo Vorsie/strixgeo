@@ -88,10 +88,20 @@ function solid(bodyId: string, formationId: string, ordinal = 0): LithoBodySolid
   } as unknown as LithoBodySolidResponse
 }
 
-/** The hiddenBodyIds set is the LAST positional arg of rebuildSurfacePrimitives. */
+/**
+ * Position of ``hiddenBodyIds`` in rebuildSurfacePrimitives' argument list.
+ *
+ * Indexed explicitly, not read off the end: this used to be the LAST argument
+ * and silently became the second-to-last when ``footprintRing`` was appended,
+ * which would have turned a real assertion into one comparing a ring against a
+ * Set. An 18-positional-arg signature is the underlying problem (debt #201).
+ */
+const REBUILD_ARG_HIDDEN_BODY_IDS = 17
+
+/** The hiddenBodyIds set passed to the most recent rebuildSurfacePrimitives call. */
 function lastHiddenBodyIds(): ReadonlySet<string> | undefined {
   const call = rebuildSpy.mock.calls.at(-1)
-  return call?.[call.length - 1] as ReadonlySet<string> | undefined
+  return call?.[REBUILD_ARG_HIDDEN_BODY_IDS] as ReadonlySet<string> | undefined
 }
 
 function baseProps(splitMode: SplitMode = 'single') {
