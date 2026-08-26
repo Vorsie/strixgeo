@@ -8360,7 +8360,21 @@ user's view toggles is the same class of surprise).
 **When to revisit.** In the same change that wires the renderer to seed lumping from
 `ProjectResponse` — that is the moment the divergence becomes user-visible.
 
-## 268. Blending two section stacks cannot represent "unknown" — a void between them is closed up (high — fires on the geotech axis today; needs an owner ruling)
+## 268. Blending two section stacks cannot represent "unknown" — a void between them is closed up (RE-MEASURED 2026-08-26: mm-scale, reported on every build; the metre-scale numbers below were a broken ruler)
+
+**Correction (2026-08-26, two independent re-measurements + a labeller-side
+census).** The "4 interior voids, worst 2.420 m" this entry reports came from
+`diag_section_stack_voids.py` walking stack entries pairwise across
+zero-thickness seam slivers AND sampling 21 fixed fractions per gap that no
+voxel column projects onto — both since fixed. Overlap-aware, column-true
+measurement: the old payload had 0 real interior voids; the current geotech
+payload has 6 distinct (section, gap) sites where `_layout` closes a void,
+ALL millimetre-scale, worst **13.9 mm** at `GEO-10/117-B1 → GEO-05/040-S1`
+(2,979 column-instances). Since 2026-08-26 the build REPORTS these on every
+press (`LabelReport.layout_closed_voids`, WARNING) instead of hiding them.
+The mechanism below is still real and the ruling on what an inter-section
+void should look like is still open — but at today's magnitudes it is a
+tripwired cosmetic, not a metre-scale defect.
 
 **What.** `label_voxels._blend_stacks` matches the two nearest sections' bodies and hands the
 result to `_layout`, which lays every entry out cumulatively (`base = cur - thickness;
