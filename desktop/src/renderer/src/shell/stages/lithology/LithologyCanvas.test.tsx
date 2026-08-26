@@ -75,6 +75,15 @@ vi.mock('../../../api/client', async () => {
         listLenses: vi.fn().mockResolvedValue([]),
         getBodyBoundary: vi.fn().mockResolvedValue({ nodes: [] }),
         listLithoSolids: vi.fn().mockResolvedValue([]),
+        // Debt #266 — the geotech axis reads which columns stand on edited litho.
+        geotechLithoStaleness: vi.fn().mockResolvedValue({
+          geotech_model_id: '',
+          litho_model_id: null,
+          stale_columns: [],
+          stale_column_count: 0,
+          banded_column_count: 0,
+          unstamped_column_count: 0,
+        }),
         buildVoxelLithoModel: vi.fn().mockResolvedValue({
           bodies_considered: 0,
           bodies_built: 0,
@@ -385,6 +394,12 @@ function makeCtx(overrides: {
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
+      // Debt #266 — geotech columns standing on litho that has since moved.
+      staleLithoGeotechColumns: [],
+      staleLithoGeotechColumnIds: new Set<string>(),
+      staleLithoGeotechColumnCount: 0,
+      unstampedGeotechColumnCount: 0,
+      refreshGeotechLithoStaleness: vi.fn(),
     },
     sections: {
       sections: [],
