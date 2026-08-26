@@ -206,6 +206,48 @@ export function nadClassName(n: number | null | undefined): string {
   return NAD_CLASS_NAMES[n] ?? `NAD ${n}`
 }
 
+// The canonical names are ``"{SOIL}, {packing}"`` — "SAND, medium dense",
+// "SILT, sandy, fairly firm". Splitting at the FIRST comma is therefore the
+// soil/packing boundary for all 31 entries, and it keeps NAD_CLASS_NAMES the
+// single source of truth (a parallel table would be a second place to edit
+// when a label is refined).
+const _NAD_NAME_SPLIT = ', '
+
+/**
+ * Return the SOIL-family word of a NAD class ("SAND" for 5..12).
+ *
+ * Presentation helper for grouped legends: the family header shows the soil,
+ * the rows beneath it show the packing (``nadPackingLabel``), so neither
+ * repeats the other.
+ *
+ * @param n  NAD class (1..31), null, or undefined.
+ * @returns  The upper-case soil word; ``""`` for null/undefined; the whole
+ *           fallback string for an out-of-range integer.
+ */
+export function nadSoilFamilyName(n: number | null | undefined): string {
+  const full = nadClassName(n)
+  const i = full.indexOf(_NAD_NAME_SPLIT)
+  return i === -1 ? full : full.slice(0, i)
+}
+
+/**
+ * Return the PACKING (density / firmness) part of a NAD class label.
+ *
+ * "SAND, medium dense" → ``"medium dense"``; "SILT, sandy, fairly firm" →
+ * ``"sandy, fairly firm"`` (the admixture variant belongs to the packing side,
+ * because it is what distinguishes class 18 from class 14 within one soil).
+ *
+ * @param n  NAD class (1..31), null, or undefined.
+ * @returns  The packing phrase; ``""`` for null/undefined (the caller decides
+ *           what an unclassified row says); the whole fallback string
+ *           ``"NAD {n}"`` for an out-of-range integer.
+ */
+export function nadPackingLabel(n: number | null | undefined): string {
+  const full = nadClassName(n)
+  const i = full.indexOf(_NAD_NAME_SPLIT)
+  return i === -1 ? full : full.slice(i + _NAD_NAME_SPLIT.length)
+}
+
 /**
  * Return a deterministic ``#rrggbb`` colour for a NAD class number.
  *
@@ -293,6 +335,18 @@ const NAD_FAMILY_RANGES: ReadonlyArray<readonly [number, number]> = [
   [21, 28], // CLAY
   [29, 31], // PEAT
 ]
+
+/**
+ * The soil-family words in NAD class-number order — GRAVEL, SAND, SILT, CLAY,
+ * PEAT.
+ *
+ * Derived from the ranges above rather than hand-listed, so it can never drift
+ * from ``NAD_CLASS_NAMES``. Grouped legends sort their family rows by this
+ * order (the norm's own order, which is also loosest-soil-last).
+ */
+export const NAD_SOIL_FAMILY_ORDER: readonly string[] = NAD_FAMILY_RANGES.map(
+  ([lo]) => nadSoilFamilyName(lo),
+)
 
 /**
  * Every class in the same soil family as ``nadClass``.
