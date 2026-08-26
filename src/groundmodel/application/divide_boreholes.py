@@ -133,6 +133,7 @@ from groundmodel.application.geotech_view_state import (
     DEFAULT_MIN_THICKNESS_M,
     read_geotech_min_thickness_m,
 )
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.project_investigations_onto_section import (
     project_investigations_onto_section,
 )
@@ -3693,6 +3694,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         crossing_dropped = await sweep_crossing_ties(self._session, self, geotech_model_id)
 
         await self._session.flush()
+        # Retire the vocabulary this run stopped using. Phase 7 deleted every
+        # borehole band in scope and the re-plan re-created only the classes
+        # the fresh donors produced, so a class that dropped out leaves its
+        # formation with nothing in it. After the flush so the re-created bands
+        # are visible to the survivor check — otherwise a unit this very run
+        # rebuilt would read as unreferenced and be deleted out from under it.
+        await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
         await self._session.commit()
 
         elapsed = time.monotonic() - t0
