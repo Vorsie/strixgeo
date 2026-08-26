@@ -230,6 +230,7 @@ See [docs/subagents.md](docs/subagents.md) — The 9 project-scoped subagents (s
 | ORM | SQLAlchemy + Alembic | migrations |
 | Data | Polars | fast series processing; PostGIS for spatial |
 | Performance | Numba (`@njit`) | adopted Phase 4 for the voxel mesh hotspot; Cython / Rust+PyO3 still deferred |
+| D-Series export | `d-geolib` 2.9.1 | writes D-Stability `.stix` + D-Sheet Piling `.shi` in-process; no D-Series install needed. Quirk table in [docs/exports.md](docs/exports.md) |
 | Testing | pytest, pytest-asyncio, factory-boy | |
 | Frontend | Electron + React | desktop first, SaaS later |
 | 3D | CesiumJS | geographic context |
@@ -449,7 +450,7 @@ See [docs/performance.md](docs/performance.md) — escape order Numba → Cython
 
 ## Export System
 
-See [docs/exports.md](docs/exports.md) — `BaseExporter` ABC; Plaxis 2D/3D (emits a runnable `plxscripting` script), D-Series via GEOLib, and the geometry contract. Load before touching an exporter.
+See [docs/exports.md](docs/exports.md) — the three exporter ABCs (`ProjectExporter` / `SectionExporter` / `SectionGeometryExporter`); Plaxis 2D/3D (a runnable `plxscripting` script); **D-Stability `.stix` + D-Sheet Piling `.shi` via GEOLib** — the CLOSED-geometry family, which consumes a renderer-POSTed partition (`SectionPolygonSet`), writes NO design parameter, and refuses rather than shipping an empty artefact; and the GEOLib quirk table. Load before touching an exporter.
 
 ---
 
