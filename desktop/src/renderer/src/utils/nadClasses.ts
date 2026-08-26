@@ -20,6 +20,8 @@
  * unsaved-state indicator throughout the Strix UI.
  */
 
+import { LITHOLOGY_LABELS } from './lithoConstants'
+
 // ---------------------------------------------------------------------------
 // Name table (31 entries, 1-indexed)
 // ---------------------------------------------------------------------------
@@ -246,6 +248,119 @@ export function nadPackingLabel(n: number | null | undefined): string {
   const full = nadClassName(n)
   const i = full.indexOf(_NAD_NAME_SPLIT)
   return i === -1 ? full : full.slice(i + _NAD_NAME_SPLIT.length)
+}
+
+/**
+ * The wording a unit with no packing class shows instead of nothing.
+ *
+ * A geotech unit exists before it is classified: the borehole materialiser
+ * creates one per litho unit it subdivides and leaves ``nad_class`` null when
+ * no cone reached that soil. ``nadClassName`` answers ``""`` for null by
+ * design (the band overlay draws no label for an empty string), so every
+ * roster that asked IT for the row text rendered a blank row — the bare "0"
+ * rows in the owner's Geotech-units pane, 2026-08-26.
+ *
+ * Blank is the one thing these rows must not be: they are the ledger of
+ * ground the model has not classified yet, so the row has to name the ground
+ * and state the gap.
+ */
+const UNCLASSIFIED_QUALIFIER = 'not yet classified'
+
+/** Joins the soil word to the unclassified qualifier ("SAND — not yet classified"). */
+const UNCLASSIFIED_SEPARATOR = ' — '
+
+/**
+ * Return the soil-family word for a geotech unit ("SAND", "CLAY", ...).
+ *
+ * A geotech unit knows its soil twice over and the two answers must agree, so
+ * this is the single place that picks between them:
+ *
+ * * **Classified** (``nad_class`` set) → ``nadSoilFamilyName`` (the leading
+ *   word of the class name; the split is exact for all 31 entries, pinned by
+ *   ``L13``).
+ * * **Unclassified** → the inherited ``litho_main_soil_code`` translated
+ *   through ``LITHOLOGY_LABELS`` and upper-cased, which yields the SAME five
+ *   words (ZAND → SAND, KLEI → CLAY, ...). A skeleton therefore groups under
+ *   the same header as the classified units of its own ground.
+ * * Neither available → the stored ``name``, so the unit is still identified
+ *   rather than reduced to an empty header.
+ *
+ * @param unit  A geotech formation (``nad_class`` / ``litho_main_soil_code`` / ``name``).
+ * @returns  The soil-family word used as the roster group header.
+ */
+export function geotechUnitSoil(unit: {
+  nad_class: number | null | undefined
+  litho_main_soil_code?: string | null
+  name?: string | null
+}): string {
+  if (unit.nad_class != null && NAD_CLASS_NAMES[unit.nad_class] !== undefined) {
+    return nadSoilFamilyName(unit.nad_class)
+  }
+  const soilCode = unit.litho_main_soil_code
+  if (soilCode != null && soilCode !== '') {
+    return (LITHOLOGY_LABELS[soilCode] ?? soilCode).toUpperCase()
+  }
+  return unit.name ?? ''
+}
+
+/**
+ * Return the firmness / density part of a NAD class name — the soil word removed.
+ *
+ * The roster nests NAD classes under a soil header, so repeating the soil on
+ * every child row ("SAND ▸ SAND, medium dense") is noise. Classified values
+ * delegate to ``nadPackingLabel`` (one split, one source of truth); the null
+ * case answers the unclassified wording instead of ``""`` because a ROSTER
+ * row, unlike a band label, must never be blank.
+ *
+ * @param n  NAD class (1..31), or null for a unit with no class yet.
+ * @returns  The qualifier for a known class; ``"not yet classified"`` for
+ *           null; ``"NAD {n}"`` for an out-of-range integer.
+ */
+export function nadClassQualifier(n: number | null | undefined): string {
+  if (n == null) return UNCLASSIFIED_QUALIFIER
+  if (NAD_CLASS_NAMES[n] === undefined) return `NAD ${n}`
+  return nadPackingLabel(n)
+}
+
+/**
+ * Return the roster display name for a geotech unit — never the empty string.
+ *
+ * This is the formatter every geotech ROSTER surface uses (inspector rows,
+ * the selected-body panel, the 3D body legend). ``nadClassName`` stays the raw
+ * 1..31 table lookup and keeps answering ``""`` for null, because the section
+ * band overlay relies on an empty label meaning "draw no text".
+ *
+ * * Classified → the packing-class name, unchanged ("SAND, medium dense").
+ * * Unclassified → ``"{SOIL} — not yet classified"``, optionally followed by
+ *   the source litho unit in parentheses.
+ *
+ * ``sourceLithoName`` is a DISAMBIGUATOR, passed only when several
+ * unclassified units of the same soil are on screen together — the owner
+ * project carries five separate "KLEI (geotech)" skeletons, each born from a
+ * different litho formation, which read as five copies of one row without it.
+ * Passing it unconditionally would put a parenthetical on rows that have
+ * nothing to be told apart from.
+ *
+ * @param unit  A geotech formation (``nad_class`` / ``litho_main_soil_code`` / ``name``).
+ * @param sourceLithoName  Display name of the source litho unit, or null/undefined
+ *                         when there is nothing to disambiguate against.
+ * @returns  A non-empty display label.
+ */
+export function geotechUnitLabel(
+  unit: {
+    nad_class: number | null | undefined
+    litho_main_soil_code?: string | null
+    name?: string | null
+  },
+  sourceLithoName?: string | null,
+): string {
+  if (unit.nad_class != null) {
+    const full = NAD_CLASS_NAMES[unit.nad_class]
+    if (full !== undefined) return full
+  }
+  const soil = geotechUnitSoil(unit)
+  const base = `${soil}${UNCLASSIFIED_SEPARATOR}${nadClassQualifier(unit.nad_class)}`
+  return sourceLithoName == null || sourceLithoName === '' ? base : `${base} (${sourceLithoName})`
 }
 
 /**
