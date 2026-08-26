@@ -36,7 +36,7 @@ callable (not the grid object) keeps the domain pure — it never imports from
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from groundmodel.domain.services.dem_clip_constants import (
@@ -45,6 +45,24 @@ from groundmodel.domain.services.dem_clip_constants import (
 )
 from groundmodel.domain.services.tin_surface import ContactPoint3D, TinSurface, compute_tin
 from groundmodel.domain.value_objects.gap_issue import GapIssue
+
+
+@dataclass(frozen=True)
+class GroundPoint:
+    """One location whose ground elevation matters — an investigation collar.
+
+    Attributes
+    ----------
+    label : str
+        Human-readable investigation name, used verbatim in issue text so the
+        user can find the test without looking up a UUID.
+    x_m, y_m : float
+        Location in the project's horizontal CRS (metres).
+    """
+
+    label: str
+    x_m: float
+    y_m: float
 
 
 @dataclass(frozen=True)
@@ -167,13 +185,24 @@ def build_ground_surface_tin(
     dem_sample: Callable[[float, float], float | None],
     hull_points: list[tuple[float, float]],
     grid_spacing_m: float = 10.0,
+    margin_m: float | None = None,
 ) -> TinSurface:
     """Build a TIN surface representing the terrain over the model's hull.
 
     Samples the DEM on a regular grid over the axis-aligned bounding box of
-    ``hull_points`` (the model's investigation locations), then triangulates
-    the valid samples into a ``TinSurface``.  This TIN is rendered as the
-    scene base in ``Geology3DViewer`` in place of the flat ellipsoid.
+    ``hull_points`` (the model's investigation locations) plus a margin, and
+    ALSO at each investigation location itself, then triangulates the valid
+    samples into a ``TinSurface``.  This TIN is rendered as the scene base in
+    ``Geology3DViewer`` in place of the flat ellipsoid.
+
+    Why the investigation locations are sampled on top of the grid: the
+    surface exists so the user can read the vertical distance between the
+    terrain and the interpreted model top AT A COLUMN.  A regular grid alone
+    puts the nearest ground vertex up to half a grid step away, so the ground
+    drawn directly above a test is an interpolation of its neighbours — on a
+    1 m DEM with a 10 m grid a local dip or bund between nodes is averaged
+    away, and the daylight the user reads is wrong by that amount.  Anchoring
+    a vertex at each test makes the on-screen distance the measured one.
 
     The function is pure (callable-in / TinSurface-out) — no I/O.
 
@@ -182,13 +211,19 @@ def build_ground_surface_tin(
     dem_sample : Callable[[float, float], float | None]
         DEM sampler; same contract as in ``clip_tin_to_dem``.
     hull_points : list[tuple[float, float]]
-        (x, y) locations of all investigations in the project.  Used to
-        derive the bounding box to cover.
+        (x, y) locations of all investigations in the project.  Used both to
+        derive the bounding box and as anchor vertices.
     grid_spacing_m : float, optional
         Spacing between sample grid nodes in metres, default 10 m.  Coarser
         than the DEM native resolution but fine enough for a visual terrain
         mesh at typical project extents (a few km²).  The caller may pass a
         tighter spacing for small projects.
+    margin_m : float | None, optional
+        How far the grid extends past the outermost investigation, in metres.
+        ``None`` (default) keeps the historical behaviour of one grid step —
+        just enough to cover a test sitting exactly on the boundary.  Callers
+        that want the terrain to read as ground rather than as a slab pass
+        ``GROUND_SURFACE_MARGIN_M``.
 
     Returns
     -------
@@ -210,32 +245,99 @@ def build_ground_surface_tin(
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
 
-    # Extend the bbox by one grid step so the mesh covers all investigation
-    # locations even when they sit exactly on the boundary.
-    min_x -= grid_spacing_m
-    min_y -= grid_spacing_m
-    max_x += grid_spacing_m
-    max_y += grid_spacing_m
+    margin = grid_spacing_m if margin_m is None else margin_m
+    min_x -= margin
+    min_y -= margin
+    max_x += margin
+    max_y += margin
 
-    # Sample on a regular grid.
     contacts: list[ContactPoint3D] = []
-    x = min_x
     idx = 0
+
+    def _add(px: float, py: float) -> None:
+        nonlocal idx
+        z = dem_sample(px, py)
+        if z is None:
+            # No reliable ground here — drop the node rather than invent one.
+            # The hole is reported separately by ``assess_ground_coverage``;
+            # the Delaunay step spans it, which is why the report matters.
+            return
+        contacts.append(
+            ContactPoint3D(
+                contact_id=f"_dem_{idx}",
+                x_m=px,
+                y_m=py,
+                elevation_m=z,
+            )
+        )
+        idx += 1
+
+    # Regular grid over the padded bbox.
+    x = min_x
     while x <= max_x + 1e-6:
         y = min_y
         while y <= max_y + 1e-6:
-            z = dem_sample(x, y)
-            if z is not None:
-                contacts.append(
-                    ContactPoint3D(
-                        contact_id=f"_dem_{idx}",
-                        x_m=x,
-                        y_m=y,
-                        elevation_m=z,
-                    )
-                )
-                idx += 1
+            _add(x, y)
             y += grid_spacing_m
         x += grid_spacing_m
 
+    # Anchor vertices at the investigations themselves. Deduplicated against
+    # the grid so a test that happens to land exactly on a node does not
+    # produce a coincident point (qhull rejects duplicates).
+    on_grid = {(c.x_m, c.y_m) for c in contacts}
+    for px, py in dict.fromkeys(hull_points):
+        if (px, py) not in on_grid:
+            _add(px, py)
+
     return compute_tin(contacts)
+
+
+def assess_ground_coverage(
+    dem_sample: Callable[[float, float], float | None],
+    points: Sequence[GroundPoint],
+) -> list[GapIssue]:
+    """Report the investigations the DEM has no ground elevation for.
+
+    The ground-surface TIN triangulates only the nodes the DEM could answer
+    for, so a NoData region (outside coverage, or a water body whose cells the
+    provider masks) is spanned by Delaunay rather than left as a hole — the
+    rendered surface LOOKS complete over water.  This function is what says
+    otherwise, per Data Integrity Rule §5: record the finding, don't raise.
+
+    Scoped to the investigation locations rather than every grid node on
+    purpose — one issue per test is actionable ("the ground under B7 is a
+    guess"), whereas one per grid node would emit thousands of rows for a
+    site beside a river and drown the signal.  Bed geometry for water bodies
+    is out of G7's scope (debt #27); flagging the affected tests is the
+    honest half we can ship.
+
+    Parameters
+    ----------
+    dem_sample : Callable[[float, float], float | None]
+        DEM sampler; same contract as in ``clip_tin_to_dem``.
+    points : Sequence[GroundPoint]
+        Investigation locations to check, each carrying a display label.
+
+    Returns
+    -------
+    list[GapIssue]
+        One ``dem_cell_low_confidence`` issue per uncovered location, naming
+        the investigation.  Empty list = the DEM answered for every test.
+    """
+    issues: list[GapIssue] = []
+    for point in points:
+        if dem_sample(point.x_m, point.y_m) is None:
+            issues.append(
+                GapIssue(
+                    kind=KIND_DEM_CELL_LOW_CONFIDENCE,
+                    detail=(
+                        f"No DEM ground elevation at {point.label} "
+                        f"({point.x_m:.1f}, {point.y_m:.1f}) — the cell is NoData "
+                        "(outside coverage, or a water body). The ground surface is "
+                        "interpolated across this location; treat the terrain shown "
+                        "above this test as unverified."
+                    ),
+                    depth_m=None,
+                )
+            )
+    return issues
