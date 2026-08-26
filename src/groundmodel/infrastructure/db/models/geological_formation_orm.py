@@ -53,6 +53,21 @@ class GeologicalFormationOrm(Base):
     # Hex string ("#aabbcc"). Defaulted at the API layer so the column
     # can be NOT NULL without forcing every test fixture to set it.
     color: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # The colour the ENGINEER picked, when he picked one. NULL means "nobody
+    # chose — use the automatic colour", which for a geotech unit is its NAD
+    # packing colour and for every other kind is ``color`` above.
+    #
+    # Owner ruling 2026-08-26: "Colours on the right hand pane need to be
+    # choosable if user wants", and a pick must win everywhere it shows.
+    # Nullability IS the provenance here — the same shape ``body.display_color``
+    # already uses, and the reason it is a second column rather than a flag on
+    # ``color``: ``color`` is a DEFAULT the machine stamps (the materialiser
+    # copies the source litho unit's colour at create), so a value sitting in
+    # it proves nothing about intent. Comparing against the computed default
+    # would be worse still: the engineer is allowed to pick exactly the
+    # automatic colour, and that decision must survive a later class change.
+    color_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Top-to-bottom hint for the legend / borelog ordering. Ties are
     # tolerated and broken by name in the UI.
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
