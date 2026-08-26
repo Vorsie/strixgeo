@@ -29,12 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
-from groundmodel.application.view_state_helpers import (
-    load_project_view_state,
-    read_view_state_float,
-)
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.litho_geo_bounding import BoundarySampler
 from groundmodel.domain.services.tin_surface import evaluate_tin_at
 from groundmodel.domain.value_objects.tin_surface import TinSurface
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -44,16 +39,6 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# Geo↔litho snap tolerance for the geotech geo-bounding.  When a geological
-# surface crosses a litho unit within this distance of a litho contact, the
-# division SNAPS to the contact instead of carving a thin sliver.  Geotech uses
-# a wider default (0.3 m) than the litho stage's 0.20 m so true near-coincident
-# slivers snap, while a genuine mid-unit geo boundary further than 0.3 m from
-# any contact still divides (a 0.44 m division is real, not a sliver — owner).
-# Read from ``view_state["geotech_subdivision"]``, kept separate from the litho
-# stage's ``litho_segmenter.litho_snap_tolerance_m``.
-_DEFAULT_GEOTECH_SNAP_TOLERANCE_M: float = 0.30
 
 
 @dataclass
@@ -101,19 +86,26 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
     # Grouping helper
     # ------------------------------------------------------------------
 
-    async def _group_segments(
+    def _group_segments(
         self,
-        divided: list[BodyLayerPick],
+        segments: list[BodyLayerPick],
         geo_surfaces: list[_GeoSurface],
     ) -> dict[tuple[str, UUID | None], list[BodyLayerPick]]:
-        """Group geo-bounded segments by ``(body_id, source_geo_formation_id)``.
+        """Group litho picks by ``(body_id, source_geo_formation_id)``.
+
+        The picks arrive WHOLE — nothing has cut them at a geological surface
+        since the owner dropped that wall (2026-08-26). This pass is where the
+        geological model gets its say, and its say is a LABEL: each pick is
+        attributed to the geological unit it mostly lies in
+        (:meth:`_geo_formation_at_midpoint`), never divided by one.
 
         Parameters
         ----------
-        divided : list[BodyLayerPick]
-            Geo-bounded picks from ``divide_picks_by_geology``.
+        segments : list[BodyLayerPick]
+            Body-assigned litho picks, already shallow-test flagged.
         geo_surfaces : list[_GeoSurface]
-            Parent geology band surfaces.
+            Parent geology band surfaces; empty when the litho model has no
+            geological parent, which labels every pick ``None``.
 
         Returns
         -------
@@ -121,7 +113,7 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
             Keyed by ``(body_id_str, source_geo_formation_id)``.
         """
         groups: dict[tuple[str, UUID | None], list[BodyLayerPick]] = defaultdict(list)
-        for seg in divided:
+        for seg in segments:
             geo_fid = self._geo_formation_at_midpoint(seg, geo_surfaces)
             groups[(seg.body_id, geo_fid)].append(seg)
         return dict(groups)
@@ -250,21 +242,6 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         nearest = min(surface.tin.vertices, key=lambda v: (v[0] - x) ** 2 + (v[1] - y) ** 2)
         return nearest[2]
 
-    def _make_boundary_sampler(self, geo_surfaces: list[_GeoSurface]) -> BoundarySampler:
-        """Build the ``(x, y) -> [(formation_id, elevation), ...]`` sampler.
-
-        The list is sorted by elevation DESCENDING (top surface first) — the shape
-        ``divide_picks_by_geology`` expects.  The geological ``formation_id`` is
-        carried as a string so it round-trips back to a UUID in the segment loop.
-        """
-
-        def sample(x: float, y: float) -> list[tuple[str, float]]:
-            pairs = [(str(s.formation_id), self._evaluate(s, x, y)) for s in geo_surfaces]
-            pairs.sort(key=lambda fe: fe[1], reverse=True)
-            return pairs
-
-        return sample
-
     def _make_lowest_boundary_sampler(
         self, geo_surfaces: list[_GeoSurface]
     ) -> Callable[[float, float], float | None]:
@@ -282,15 +259,23 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
     ) -> UUID | None:
         """Geological formation the segment sits within = lowest surface above its midpoint.
 
-        Mirrors ``divide_picks_by_geology``'s ``band_key`` rule: the segment's
-        geological band is the formation of the lowest geological surface still
-        ABOVE the segment midpoint; ``None`` (the open shallow band) when no
-        surface is above it.
+        The segment's geological band is the formation of the lowest geological
+        surface still ABOVE the segment midpoint; ``None`` (the open shallow
+        band) when no surface is above it.
+
+        Reading the MIDPOINT is the thickness-weighted majority rule (the A2
+        precedent in ``docs/domain-model.md``): where one surface crosses the
+        segment, the midpoint lies in whichever side is thicker, exactly. That
+        only started to matter on 2026-08-26, when the owner dropped the
+        geological wall and segments became able to straddle a surface at all.
+        The hand-edit writers apply the same rule over their written interval
+        (``geotech_band_edit_helpers.geo_parent_for_interval``), so a re-subdivide
+        cannot relabel a band the engineer just touched.
 
         Parameters
         ----------
         seg : BodyLayerPick
-            One geo-bounded segment (already divided).
+            One litho pick, whole — nothing cuts it at a geological surface.
         geo_surfaces : list[_GeoSurface]
             The parent geology band surfaces.
 
@@ -589,31 +574,3 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         for cid in cpt_ids:
             kinds[str(cid)] = "cpt"
         return kinds
-
-    async def _read_geotech_snap_tolerance_m(self, project_id: UUID) -> float:
-        """Read the geotech geo↔litho snap tolerance from the project view-state.
-
-        Reads ``view_state["geotech_subdivision"]["litho_snap_tolerance_m"]`` —
-        a GEOTECH-specific, WIDER tolerance than the litho stage's, so a
-        geological surface that crosses a litho unit within this distance of a
-        litho contact snaps to the contact (no sliver) rather than dividing.
-
-        Parameters
-        ----------
-        project_id : UUID
-            Owning project id.
-
-        Returns
-        -------
-        float
-            The configured geotech snap tolerance, or
-            ``_DEFAULT_GEOTECH_SNAP_TOLERANCE_M`` (0.30 m) when absent,
-            non-positive, or non-numeric.
-        """
-        view_state = await load_project_view_state(self._session, project_id)
-        return read_view_state_float(
-            view_state,
-            "geotech_subdivision",
-            "litho_snap_tolerance_m",
-            _DEFAULT_GEOTECH_SNAP_TOLERANCE_M,
-        )
