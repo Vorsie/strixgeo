@@ -11,7 +11,7 @@ Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
   own column, so no other column can be re-derived. This use case writes exactly
   two rows: the band being split (resized to the upper half) and one new row for
   the lower half.
-* **Hard bounds** — a split depth outside the band's geo-bounded litho body is
+* **Hard bounds** — a split depth outside the band's litho body is
   refused by :func:`plan_split` before anything is written. The owner overrules
   the CLASS, not the hierarchy.
 * **Manual override always wins** — a resulting band thinner than the configured
@@ -161,7 +161,9 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             nad_class=upper_outcome.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
             # Live-first, so a hand edit heals a stale build-time stamp on touch.
-            source_geo_formation_id=geo_parent_for_interval(context, upper_outcome.depth_top_m),
+            source_geo_formation_id=geo_parent_for_interval(
+                context, upper_outcome.depth_top_m, upper_outcome.depth_base_m
+            ),
         )
         target.depth_base_m = boundary_m
         target.formation_id = upper_formation.id
@@ -173,7 +175,9 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             project_id=project_id,
             nad_class=lower_outcome.nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
-            source_geo_formation_id=geo_parent_for_interval(context, lower_outcome.depth_top_m),
+            source_geo_formation_id=geo_parent_for_interval(
+                context, lower_outcome.depth_top_m, lower_outcome.depth_base_m
+            ),
         )
         lower_row = LithoLayerOrm(
             id=uuid7(),
