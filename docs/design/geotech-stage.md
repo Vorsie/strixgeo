@@ -552,6 +552,35 @@ Depth vs elevation: the guard works in depth below collar, the renderer in
 elevation. They cannot disagree — both differences the test takes are within a
 single column, so the sign flip cancels in the product.
 
+**The section SHOWS the fighting pair (owner ruling 2026-08-26, "mark the
+crossing ties").** The guard above stops the machine from BORN-crossing a tie;
+a crossing the engineer drew by hand still happens, and until now the only
+evidence was the chip's count. Both ties of every reported conflict now draw a
+`TieConflictHalo` — a fat dashed orange-600 stroke BEHIND the tie, so the tie
+keeps its own colour and dash and still says which kind of tie it is while it
+says it is suspended.
+
+The hue is what is left after the eliminations, and the eliminations are the
+reasoning: amber is unsaved-dirty AND is already the pending tie on this very
+overlay (painting an ACCEPTED tie amber would state the opposite of the truth),
+red is reserved for destructive intent, violet is the review flag. Orange is
+Primer's `severe` tier and already reads as "degraded, act on it" in this stage
+(the low-confidence badge). Colour is not the carrier in any case: the halo's
+presence is binary, and its `2 5` dash matches no other dash a section draws
+(pending `4 4`, interpretive `6 3`, review `7 3`, packing `5 4`, stale `8 4`).
+
+The keys travel `PartitionFillOverlay` -> `SectionPanel` -> `CorrelationEdges-
+Overlay` as `edgeKey`s taken from the SAME `TieConflict[]` the chip counts, and
+are matched with the same `edgeKey` function. Nothing is recomputed: a mark
+derived separately could name a different pair than the chip centres, which
+would invite the engineer to delete the wrong tie. The publish is guarded on a
+content signature, because a caller passing an inline callback would otherwise
+loop (pinned by CK4).
+
+ALL conflicting pairs are marked, not just the one the chip last centred: the
+chip's cursor is deliberately a ref so advancing does not re-render, and every
+marked pair is one the chip will centre.
+
 ### 4a-i-bis. The derivation emits each row at most once
 
 `derive_geotech_edges_from_litho` carries TWO dedup keys, and both are load
@@ -1994,5 +2023,24 @@ become the unclassified-ground ledger.
 ## Open dogfeed items (owner)
 
 Tracked in `CLAUDE.local.md` â†’ Active Focus: visual/gesture dogfeed of the
-connect flow, the fraction-refinement render, the NAD `gradient_snap` default
-decision, the NAD-boundary line weight call, and the two Â§8 interpretations.
+connect flow, the fraction-refinement render, and the two Â§8 interpretations.
+
+Two items came off this list on 2026-08-26, both ruled by the owner and both
+found ALREADY SHIPPED when the ruling was traced to the code:
+
+* **NAD `gradient_snap` default = ON.** Ruled ON; it has defaulted ON since the
+  knobs were first wired (`subdivide_all_bodies._read_gradient_snap`, the
+  domain signature, and `GEOTECH_SUBDIVISION_DEFAULTS` all agree). A project
+  that stored OFF keeps OFF -- a default applies in the absence of a choice,
+  never over one. Both halves are now pinned
+  (`tests/unit/application/test_geotech_gradient_snap_default.py`,
+  `geotechSubdivisionPrefs.test.ts`); before that, the only frontend case
+  compared the read against the defaults object, which passes whichever way
+  the default points.
+* **NAD-boundary line weight.** Ruled "lighten"; the subordinate treatment
+  shipped 2026-08-09 (`d3d8cdd1d`) and is described above -- a within-unit
+  packing boundary is mid-slate `#94a3b8`, dashed `5 4`, 1 px, against the
+  litho contact's `#0f172a` solid 1.75 px. It was UNPINNED until
+  `ContactsLayer.boundaryKinds.test.tsx`. In the gap fill the two never shared
+  a stroke: the NAD sub-band seam is self-coloured at 0.75 px, and the
+  near-black `#0d1117` outline is built from LITHO regions only.
