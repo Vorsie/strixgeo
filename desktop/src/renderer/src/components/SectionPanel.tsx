@@ -333,7 +333,11 @@ interface Props {
    * bands only — a CPT band's class is measured from its own qc. Absent →
    * borehole bands stay view-only.
    */
-  onRequestGeotechSetBandClass?: (bandId: string, nadClass: number, previousClass: number) => void
+  onRequestGeotechSetBandClass?: (
+    bandId: string,
+    nadClass: number,
+    previousClass: number | null,
+  ) => void
   /**
    * Clear ONE test's packing subdivision (owner ask 2026-08-18) — offered in
    * the column label's right-click menu on the geotech axis, only where the
@@ -970,6 +974,16 @@ export default function SectionPanel({
     if (geotechModel === undefined) return undefined
     const out = new Map<string, number | null>()
     for (const [formationId, meta] of geotechModel.nadMeta) out.set(formationId, meta.nadClass)
+    return out
+  }, [geotechModel])
+  // The band-edit class menu is built from the band's SOIL, never from the
+  // class it carries (owner ruling 2026-08-26: "the nad coupling is absolute").
+  // Flattened on its own so the overlay's column memo sees a stable identity,
+  // exactly as the class map above is.
+  const geotechSoilCodeByFormationId = useMemo(() => {
+    if (geotechModel === undefined) return undefined
+    const out = new Map<string, string | null>()
+    for (const [formationId, meta] of geotechModel.nadMeta) out.set(formationId, meta.soilCode)
     return out
   }, [geotechModel])
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
@@ -3507,6 +3521,7 @@ export default function SectionPanel({
                 onRequestAbsorbLens={onRequestGeotechAbsorbLens}
                 onRequestSetClass={onRequestGeotechSetBandClass}
                 nadClassByFormationId={geotechNadClassByFormationId}
+                soilCodeByFormationId={geotechSoilCodeByFormationId}
                 smallLensThicknessM={geotechSmallLensThicknessM}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
               />
