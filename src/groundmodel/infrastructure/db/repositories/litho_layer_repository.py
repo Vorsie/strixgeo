@@ -31,6 +31,10 @@ from groundmodel.domain.services.investigation_kind_constants import (
     KIND_CPT,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.litho_column_digest import (
+    LithoColumnInterval,
+    litho_column_digest,
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -427,6 +431,105 @@ class LithoLayerRepository(GroundModelLogger):
             )
 
         return picks
+
+    async def load_column_digests(self, model_id: UUID) -> dict[str, str]:
+        """Digest every column's accepted litho stack in one query (debt #266).
+
+        The read a geotech band-set is compared against: for each column in
+        *model_id* that carries accepted litho, the digest of its stack as it
+        stands right now.  Columns with no accepted litho are absent — which is
+        what makes bands over them read stale rather than unknown.
+
+        Projects the five columns the digest is made of — anchor pair, both
+        depths, formation — never whole rows: this runs on every geotech render
+        and the rest of the row (notes, confidence, timestamps) says nothing
+        about where the ground is.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The LITHOSTRATIGRAPHIC model to read.  Passing a geotech model id
+            digests the bands themselves, which is meaningless — callers go
+            through the parent link, never a raw id.
+
+        Returns
+        -------
+        dict[str, str]
+            Column id (``str(UUID)``) → digest of that column's stack.
+        """
+        rows = (
+            await self._session.execute(
+                select(
+                    LithoLayerOrm.borehole_id,
+                    LithoLayerOrm.cpt_id,
+                    LithoLayerOrm.depth_top_m,
+                    LithoLayerOrm.depth_base_m,
+                    LithoLayerOrm.formation_id,
+                ).where(
+                    LithoLayerOrm.model_id == model_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+            )
+        ).all()
+
+        by_column: dict[str, list[LithoColumnInterval]] = {}
+        for borehole_id, cpt_id, depth_top_m, depth_base_m, formation_id in rows:
+            anchor = cpt_id or borehole_id
+            if anchor is None:
+                # The anchor XOR CHECK makes this unreachable; a row that got
+                # past it would silently share a bucket with every other
+                # anchorless row, so drop it loudly instead.
+                self.warning(
+                    f"load_column_digests: model={model_id} — skipping an accepted layer "
+                    f"with neither borehole_id nor cpt_id (top={depth_top_m})"
+                )
+                continue
+            by_column.setdefault(str(anchor), []).append(
+                LithoColumnInterval(
+                    depth_top_m=depth_top_m,
+                    depth_base_m=depth_base_m,
+                    formation_id=str(formation_id),
+                )
+            )
+
+        digests = {
+            column: litho_column_digest(intervals) for column, intervals in by_column.items()
+        }
+        self.debug(
+            f"load_column_digests: model={model_id} — {len(digests)} column(s) digested "
+            f"from {len(rows)} accepted layer(s)"
+        )
+        return digests
+
+    async def banded_column_ids(self, model_id: UUID) -> set[str]:
+        """List the columns carrying at least one band / layer in *model_id*.
+
+        Used against a GEOTECH model to answer "which columns have bands right
+        now" — the set a press folds its fresh digests into, and the set a
+        cleared column drops out of.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model to scan (geotech in every current caller).
+
+        Returns
+        -------
+        set[str]
+            Column ids as ``str(UUID)``.
+        """
+        rows = (
+            await self._session.execute(
+                select(LithoLayerOrm.borehole_id, LithoLayerOrm.cpt_id)
+                .where(LithoLayerOrm.model_id == model_id)
+                .distinct()
+            )
+        ).all()
+        columns = {
+            str(cpt_id or borehole_id) for borehole_id, cpt_id in rows if (cpt_id or borehole_id)
+        }
+        self.debug(f"banded_column_ids: model={model_id} — {len(columns)} column(s) carry bands")
+        return columns
 
     async def mark_litho_solids_stale(self, model_id: UUID) -> int:
         """Flip ``is_stale=True`` on every cached solid for a model.
