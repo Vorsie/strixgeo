@@ -2091,14 +2091,35 @@ export default function SectionsToolbar(): JSX.Element {
 
   // Built only on the geotech axis: these initialisers read
   // axis-scoped state the other axes never populate.
+  //
+  // The three fills lead the menu, contiguously, and the two the owner named
+  // are adjacent — dogfeed 2026-08-26: "i want to keep the old show fill and
+  // wanted a new model fill next to it". They exclude one another, so the menu
+  // has to read as a set to pick ONE from; scattering the model fill four items
+  // down (where it shipped) made it look like an unrelated switch that had
+  // helped itself to his axis.
   const geotechDisplayMenuItems: ToolbarDropdownItem[] = !isGeotech ? [] : [
               {
                 label: geotechFillVisible ? 'Hide fill' : 'Show fill',
                 icon: geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
                 onClick: () => toggleGeotechFill(),
                 title:
-                  'Show or hide the NAD packing-band fill, so you can inspect the correlation ribbons underneath.',
+                  'Show or hide the NAD packing-band fill — the LIVE packing classes, as the pipeline last wrote them. One fill renders at a time.',
                 testid: 'geotech-toggle-fill',
+              },
+              {
+                // Show / hide the ModelFillOverlay — the cross-section fill cut
+                // out of the built 3-D GEOTECH solids. The peer of the litho
+                // axis's own "Show model fill" (Bodies menu), added on the
+                // owner's ask 2026-08-26: "can we show the actual 3D model on
+                // the 2d sections just like in litho stage". Appears once the
+                // geotech 3-D model has been built (Geotechnical stage → Build).
+                label: geotechModelFillVisible ? 'Hide model fill' : 'Show model fill',
+                icon: geotechModelFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
+                onClick: () => toggleGeotechModelFill(),
+                title:
+                  'Show or hide the fill cut out of the BUILT 3-D geotechnical solids — the model as of the last Build, not the live bands. One fill renders at a time.',
+                testid: 'geotech-toggle-model-fill',
               },
               {
                 label: lithoFillOnGeotech ? 'Hide litho fill' : 'Show litho fill',
@@ -2118,20 +2139,6 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Preview the packing bands "4 · Divide boreholes" would commit, hatched over the borehole columns. Nothing is written.',
                 testid: 'geotech-toggle-borehole-preview',
-              },
-              {
-                // Show / hide the ModelFillOverlay — the cross-section fill cut
-                // out of the built 3-D GEOTECH solids. The peer of the litho
-                // axis's own "Show model fill" (Bodies menu), added on the
-                // owner's ask 2026-08-26: "can we show the actual 3D model on
-                // the 2d sections just like in litho stage". Appears once the
-                // geotech 3-D model has been built (Geotechnical stage → Build).
-                label: geotechModelFillVisible ? 'Hide model fill' : 'Show model fill',
-                icon: geotechModelFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
-                onClick: () => toggleGeotechModelFill(),
-                title:
-                  'Show or hide the cross-section fill sampled from the built 3-D geotechnical solids. Toggles on / off.',
-                testid: 'geotech-toggle-model-fill',
               },
               {
                 label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
