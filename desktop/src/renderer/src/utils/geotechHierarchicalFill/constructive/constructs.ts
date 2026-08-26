@@ -30,6 +30,7 @@
 import { carryReachTies, taperBetween, type BandCarry } from './carriedTaper'
 import { readsWindow } from './columnReading'
 import { emitFor, sameMass, type Emit, type Mass } from './emitKernel'
+import { freeContactAt, restOnlapsOnPinches, type FreeVertex } from './onlapRestsOn'
 import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
 
@@ -101,6 +102,18 @@ export interface BandConstruct {
    * band's own mid-level, one value, shared by construction.
    */
   apexElev?: number
+  /**
+   * An ONLAP's FREE contact, stated ONCE, as a polyline from the band's own
+   * column to {@link apexX} (see ``onlapRestsOn.ts``). Two vertices for the
+   * ordinary straight closing line; three where the ruling of 2026-08-26 rests
+   * it on the construct it shares that contact with.
+   *
+   * {@link topAt}/{@link baseAt} evaluate THIS on the free side, and
+   * ``fillGap``'s flank pass draws THIS — line and claim state one shape by
+   * construction rather than by two parallel derivations, which is exactly what
+   * the plunging-tie bug was.
+   */
+  freeVertices?: readonly FreeVertex[]
   /**
    * The construct continues to the facing column instead of pinching — set
    * when the facing test has no band at any of this band's levels (sub-TD
@@ -565,9 +578,6 @@ export function buildGapConstructs(
       if (emit === 'onlap') {
         const tie = (topTie ?? baseTie) as RunTie
         const apexX = (band.x + xFar) / 2
-        const span = apexX - band.x
-        const t = (x: number): number =>
-          Math.min(1, Math.max(0, Math.abs(span) < 1e-9 ? 1 : (x - band.x) / span))
         // THE APEX IS ONE VERTEX, COMPUTED ONCE (owner's verification contract,
         // 2026-08-25 — see ``apexElev``). ``free + 1 * (line - free)`` is
         // algebraically the line, but it rounds a ULP away from it for about
@@ -602,26 +612,29 @@ export function buildGapConstructs(
         // fill has always DRAWN for this construct (see ``fillGap``'s onlap
         // flank pass). Line and claim now state one shape instead of two.
         //
-        // ``arrived >= 1`` returns the shared vertex itself: the wedge has
-        // closed there and ``free + 1·(apexElev − free)`` rounds a ULP off it
-        // about once in ten pairs, which is a hair-wide loop for the
-        // arrangement to find (owner's verification contract — see ``apexElev``).
-        const closingFrom =
-          (free: number) =>
-          (x: number): number => {
-            const arrived = t(x)
-            return arrived >= 1 ? apexElev : free + arrived * (apexElev - free)
-          }
+        // The free contact is stated ONCE, as the polyline ``freeVertices``, and
+        // evaluated by ``freeContactAt`` — whose arithmetic over two vertices is
+        // exactly the interpolation this comment describes, and which the
+        // 2026-08-26 ruling then gives a middle vertex where the closing line
+        // would otherwise wrap under the construct below (``onlapRestsOn.ts``).
+        // ``fillGap`` draws the same vertices, so there is no second derivation
+        // of this shape anywhere.
+        const freeVertices: FreeVertex[] = [
+          { x: band.x, y: topTie !== null ? band.base : band.top },
+          { x: apexX, y: apexElev },
+        ]
+        const freeAt = (x: number): number => freeContactAt(freeVertices, x)
         out.push({
           band,
           emit,
           apexX,
           apexElev,
+          freeVertices,
           farX: xFar,
           topTied: topTie !== null,
           baseTied: baseTie !== null,
-          topAt: topTie !== null ? (x) => tieElevAt(tie, x) : closingFrom(band.top),
-          baseAt: baseTie !== null ? (x) => tieElevAt(tie, x) : closingFrom(band.base),
+          topAt: topTie !== null ? (x) => tieElevAt(tie, x) : freeAt,
+          baseAt: baseTie !== null ? (x) => tieElevAt(tie, x) : freeAt,
         })
         continue
       }
@@ -716,7 +729,14 @@ export function buildGapConstructs(
       })
     }
   }
-  return out
+  // AN ONLAP RESTS ON WHAT IT SITS ON (owner, 2026-08-26 — see
+  // ``onlapRestsOn.ts``). A SECOND PASS deliberately: the ruling compares an
+  // onlap's free contact against the FINISHED construct sharing that contact,
+  // and the loop above builds a column's bands shallowest first, so the mass
+  // below an onlap does not exist yet when the onlap is emitted. Nothing about
+  // the law's own decisions is revisited here — only where one already-emitted
+  // free contact is drawn.
+  return restOnlapsOnPinches(out)
 }
 
 /**
