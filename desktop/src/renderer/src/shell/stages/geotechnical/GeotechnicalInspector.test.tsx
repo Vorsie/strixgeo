@@ -27,6 +27,7 @@ import type {
   LithoLayerResponse,
 } from '../../../api/client'
 import GeotechnicalInspector from './GeotechnicalInspector'
+import { nadClassColor } from '../../../utils/nadClasses'
 import { selectGeotechBody } from '../../../utils/geotechBodySelectionStore'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,16 @@ vi.mock('../../../utils/log', () => ({
     success: vi.fn(),
   },
 }))
+
+const updateFormation = vi.fn(async (_p: string, id: string, body: unknown) => ({ id, body }))
+
+vi.mock('../../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    api: { geology: { updateFormation: (...args: unknown[]) => updateFormation(...(args as [string, string, unknown])) } },
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Sentinel factories
@@ -463,6 +474,7 @@ beforeEach(() => {
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   // Reset the selection store so tests that set a selection don't bleed.
   selectGeotechBody(null)
+  updateFormation.mockClear()
 })
 
 afterEach(() => {
@@ -539,24 +551,11 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
     expect(screen.getByTestId('no-cpt-badge-f-fb').textContent).toBe('No CPT')
   })
 
-  it('a classified unit with nothing in the model waits behind "show empty", and still refuses to claim CPT', () => {
-    // Two claims, and they belong together: the row is out of the way by
-    // default (owner: the pane had rows with "0" between rows with hundreds of
-    // bands) but it is REACHABLE, and when the engineer goes looking for it, it
-    // is still honest about having no cone behind its class.
-    const formation = makeFormation('f-bare', { nad_class: 6, display_order: 0 })
-    renderInspector(
-      makeCtx({ geotechFormations: [formation], geotechContacts: [], geotechLayers: [] }),
-    )
-
-    expect(screen.queryByTestId('geotech-unit-row-f-bare')).toBeNull()
-
-    fireEvent.click(screen.getByTestId('geotech-show-empty-toggle'))
-
-    expect(screen.getByTestId('geotech-unit-row-f-bare')).toBeTruthy()
-    expect(screen.queryByTestId('cpt-est-badge-f-bare')).toBeNull()
-    expect(screen.getByTestId('no-cpt-badge-f-bare')).toBeTruthy()
-  })
+  // RETIRED 2026-08-26: 'a classified unit with nothing in the model waits
+  // behind "show empty", and still refuses to claim CPT'. Its first claim is
+  // the lever the owner removed ("if a bin is empty ... nothing exists"), and
+  // its second is already pinned verbatim by the fallback test directly above,
+  // on a unit that HAS content. Nothing is left for it to say.
 
   // Owner's reading of the roster: "No CPT" has to mean there was no cone. On the dev
   // model 9 of the 14 NAD units carry at least one borehole-fill band among dozens of
@@ -969,8 +968,9 @@ describe('GeotechnicalInspector assignment source panel (PI)', () => {
 // "Same tree shape as the legend, so the two panes read as one system. One row
 // per NAD class with bands SUMMED across its unit instances; provenance
 // collapses to the worst badge in the group (partial/low bubbles up — that is
-// the one you need to see). Zero-band units and the blank rows hide behind
-// 'show empty'."
+// the one you need to see)." Zero-content units first went behind a 'show
+// empty' lever; the owner overturned that the same day (GT4) and they are now
+// simply not listed.
 // ---------------------------------------------------------------------------
 
 describe('GeotechnicalInspector unit tree (GT)', () => {
@@ -1036,7 +1036,12 @@ describe('GeotechnicalInspector unit tree (GT)', () => {
     expect(screen.queryByTestId('geotech-class-expander-SAND|6')).toBeNull()
   })
 
-  it('GT4 — units with nothing in this model are behind the toggle, and the toggle counts them', () => {
+  it('GT4 — a bin with nothing in it is off the pane, and no lever brings it back', () => {
+    // Owner, dogfeed 2026-08-26: "The show empty is weird though, if a bin is
+    // empty that means there is nothing in it and nothing exists". So the pane
+    // lists ground, full stop. RETIRES the pair of pins that encoded the
+    // "show empty (N)" lever — the count of invisible rows was itself the thing
+    // that read as weird, and the orphan sweep deletes those units shortly.
     const formations = [
       makeFormation('live', { nad_class: 6, display_order: 0 }),
       makeFormation('gone-a', { nad_class: 7, display_order: 1 }),
@@ -1046,24 +1051,25 @@ describe('GeotechnicalInspector unit tree (GT)', () => {
       makeCtx({ geotechFormations: formations, geotechContacts: [makeContact('c-1', 'live')] }),
     )
 
-    expect(screen.getByTestId('geotech-roster-summary').textContent).toContain('1 with bands')
-    const toggle = screen.getByTestId('geotech-show-empty-toggle')
-    expect(toggle.textContent).toContain('show empty (2)')
+    expect(screen.getByTestId('geotech-unit-row-live')).toBeTruthy()
     expect(screen.queryByTestId('geotech-unit-row-gone-a')).toBeNull()
-
-    fireEvent.click(toggle)
-
-    // Reachable, not gone — this is about to be the unclassified-ground ledger.
-    expect(screen.getByTestId('geotech-unit-row-gone-a')).toBeTruthy()
-    expect(screen.getByTestId('geotech-unit-row-gone-b')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-unit-row-gone-b')).toBeNull()
+    expect(screen.queryByTestId('geotech-show-empty-toggle')).toBeNull()
   })
 
-  it('GT5 — no empty units means no toggle to press', () => {
-    const formation = makeFormation('live', { nad_class: 6, display_order: 0 })
+  it('GT5 — an unclassified unit that HAS bands is content, and stays on the pane', () => {
+    // The control for GT4: "no class" is not "no content". This row is real
+    // ground the geotech stage has not classified, and hiding it would hide
+    // the very thing the engineer has to go and act on.
+    const formation = makeFormation('skeleton', { nad_class: null, display_order: 0 })
     renderInspector(
-      makeCtx({ geotechFormations: [formation], geotechContacts: [makeContact('c-1', 'live')] }),
+      makeCtx({
+        geotechFormations: [formation],
+        geotechContacts: [makeContact('c-1', 'skeleton')],
+      }),
     )
 
+    expect(screen.getByTestId('geotech-unit-row-skeleton')).toBeTruthy()
     expect(screen.queryByTestId('geotech-show-empty-toggle')).toBeNull()
   })
 
@@ -1150,5 +1156,112 @@ describe('GeotechnicalInspector unit tree (GT)', () => {
     fireEvent.click(screen.getByTestId('geotech-class-expander-SAND|6'))
     expect(screen.getByTestId('geotech-unit-row-sel').className).toContain('bg-blue-50')
     expect(screen.getByTestId('geotech-unit-row-other').className).not.toContain('bg-blue-50')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// CP — the engineer picks the colour
+//
+// Owner ruling, dogfeed 2026-08-26: "Colours on the right hand pane need to be
+// choosable if user wants." The swatch that was read-only becomes the control,
+// following the geological formation swatch already in GeologyInspector: a
+// label wrapping a native colour input, committed on blur so one decision is
+// one write rather than one per step of a colour wheel.
+// ---------------------------------------------------------------------------
+
+describe('the colour is choosable on the pane (CP)', () => {
+  it('CP1 — the swatch is a colour control, showing what the unit is drawn in', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [makeFormation('f-1', { nad_class: 6, display_order: 0 })],
+        geotechContacts: [makeContact('c-1', 'f-1')],
+      }),
+    )
+
+    const input = screen.getByTestId('geotech-unit-color-input-f-1') as HTMLInputElement
+    expect(input.getAttribute('type')).toBe('color')
+    expect(input.value).toBe(nadClassColor(6))
+  })
+
+  it('CP2 — picking a colour records it as the engineer’s own, not as the unit colour', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [makeFormation('f-1', { nad_class: 6, display_order: 0 })],
+        geotechContacts: [makeContact('c-1', 'f-1')],
+      }),
+    )
+    const input = screen.getByTestId('geotech-unit-color-input-f-1')
+
+    fireEvent.change(input, { target: { value: '#ff00ff' } })
+    fireEvent.blur(input)
+
+    expect(updateFormation).toHaveBeenCalledTimes(1)
+    expect(updateFormation).toHaveBeenCalledWith('proj-1', 'f-1', { color_override: '#ff00ff' })
+  })
+
+  it('CP3 — a row standing for several units writes the colour to every one of them', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [
+          makeFormation('a', { nad_class: 6, display_order: 0 }),
+          makeFormation('b', { nad_class: 6, display_order: 1 }),
+        ],
+        geotechContacts: [makeContact('c-1', 'a'), makeContact('c-2', 'b')],
+      }),
+    )
+    const input = screen.getByTestId('geotech-unit-color-input-SAND|6')
+
+    fireEvent.change(input, { target: { value: '#ff00ff' } })
+    fireEvent.blur(input)
+
+    expect(updateFormation).toHaveBeenCalledTimes(2)
+    expect(updateFormation).toHaveBeenCalledWith('proj-1', 'a', { color_override: '#ff00ff' })
+    expect(updateFormation).toHaveBeenCalledWith('proj-1', 'b', { color_override: '#ff00ff' })
+  })
+
+  it('CP4 — blurring without changing anything writes nothing', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [makeFormation('f-1', { nad_class: 6, display_order: 0 })],
+        geotechContacts: [makeContact('c-1', 'f-1')],
+      }),
+    )
+    const input = screen.getByTestId('geotech-unit-color-input-f-1')
+
+    fireEvent.change(input, { target: { value: nadClassColor(6) } })
+    fireEvent.blur(input)
+
+    expect(updateFormation).not.toHaveBeenCalled()
+  })
+
+  it('CP5 — a unit he has coloured offers to go back to automatic', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [
+          makeFormation('f-1', { nad_class: 6, display_order: 0, color_override: '#ff00ff' }),
+        ],
+        geotechContacts: [makeContact('c-1', 'f-1')],
+      }),
+    )
+
+    const swatch = screen.getByTestId('geotech-unit-color-input-f-1') as HTMLInputElement
+    expect(swatch.value).toBe('#ff00ff')
+
+    fireEvent.click(screen.getByTestId('geotech-unit-color-reset-f-1'))
+
+    // Clearing the pick, NOT writing the automatic colour into it — otherwise
+    // the unit would be frozen at today's NAD colour forever.
+    expect(updateFormation).toHaveBeenCalledWith('proj-1', 'f-1', { color_override: null })
+  })
+
+  it('CP6 — a unit nobody has coloured has nothing to reset', () => {
+    renderInspector(
+      makeCtx({
+        geotechFormations: [makeFormation('f-1', { nad_class: 6, display_order: 0 })],
+        geotechContacts: [makeContact('c-1', 'f-1')],
+      }),
+    )
+
+    expect(screen.queryByTestId('geotech-unit-color-reset-f-1')).toBeNull()
   })
 })
