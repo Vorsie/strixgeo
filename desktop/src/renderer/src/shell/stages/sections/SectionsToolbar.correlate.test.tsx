@@ -358,6 +358,14 @@ function makeCtx(overrides: {
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
+      // Debt #266 — geotech columns standing on litho that has since moved.
+      staleLithoGeotechColumns: [],
+      staleLithoGeotechColumnIds: new Set<string>(),
+      staleLithoGeotechColumnCount: 0,
+      unstampedGeotechColumnCount: 0,
+      refreshGeotechLithoStaleness: vi.fn(),
+      // The geometric half of that same answer — read at RENDER time since #266.
+      columnsNeedingRederive: [],
       lithoStaleSurfaceCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
