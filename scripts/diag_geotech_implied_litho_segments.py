@@ -33,7 +33,6 @@ from sqlalchemy import select  # noqa: E402
 
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies  # noqa: E402
 from groundmodel.domain.services.litho_geo_bounding import (  # noqa: E402
-    divide_picks_by_geology,
     mark_and_truncate_shallow_tests,
 )
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm  # noqa: E402
@@ -77,15 +76,15 @@ async def main() -> None:
         assert litho_model is not None and litho_model_id is not None
 
         use_case = SubdivideAllBodies(session)
-        snap_tol = await use_case._read_geotech_snap_tolerance_m(geotech.app_project_id)
         picks = await use_case._litho_repo.load_body_picks(litho_model_id)
         geo_surfaces = await use_case._load_geo_surfaces_with_formation(litho_model.parent_model_id)
         shallow = mark_and_truncate_shallow_tests(
             picks, use_case._make_lowest_boundary_sampler(geo_surfaces)
         )
-        divided = divide_picks_by_geology(
-            shallow.picks, use_case._make_boundary_sampler(geo_surfaces), snap_tol
-        )
+        # Nothing cuts the picks at a geological surface any more (owner,
+        # 2026-08-26). This mirrors what the builder now does, so the replay
+        # stays a faithful reproduction of its call.
+        divided = shallow.picks
 
         # Today's segments per investigation, with their (litho fid, geo fid) key.
         today: dict[str, list[tuple[float, float, UUID, UUID | None]]] = {}
