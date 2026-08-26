@@ -324,14 +324,20 @@ export default function Geology3DViewer({
   //
   // ``isGeotechUnit`` (source_litho_formation_id) is the canonical
   // discriminator — a nad_class probe would miss the borehole-only skeletons,
-  // which are exactly the rows the tree has to keep visible.
+  // whose rows are as real as any other once the scene paints them.
+  //
+  // ``fencePanels`` is passed straight through: the builder lists only what the
+  // CURRENT mode paints (owner ruling 2026-08-26 — "why are there suboptions
+  // like this ... not yet classified?"), and in fence mode that is the walls,
+  // not the solids the fence render skips. Undefined = solid mode, which is the
+  // same signal ``isFenceMode`` below reads.
   // ---------------------------------------------------------------------------
   const geotechLegendTree = useMemo(
     () =>
       formations.some(isGeotechUnit)
-        ? buildGeotechLegendTree(formations, bodySolids ?? [])
+        ? buildGeotechLegendTree(formations, bodySolids ?? [], fencePanels)
         : null,
-    [formations, bodySolids],
+    [formations, bodySolids, fencePanels],
   )
   // Basemap on/off (the user toggle). Default on.
   const [basemapEnabled, setBasemapEnabled] = useState(true)
