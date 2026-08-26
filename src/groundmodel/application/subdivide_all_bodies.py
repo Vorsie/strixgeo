@@ -42,10 +42,12 @@ The new design:
 6. Materialises ``litho_layer`` rows ONCE per (investigation, sub-band) —
    each investigation appears in at most one group per geo-band so there is
    no double-materialisation.
-6b. **Borehole extrapolation (NEW):** for each borehole-only sub-body,
-    finds the nearest CPT of the SAME lithology with a classified sub-body
-    overlapping that depth range and assigns its nad_class.  Falls back to
-    nearest CPT of any lithology, then (last resort) nad_class=None.
+6b. **Borehole columns are left unclassified here** (``nad_class=None``) —
+    ``DivideBoreholes`` classifies them later, from donors the engineer's own
+    ties and the section flanks name.  Every donor rule there is SAME-SOIL:
+    a packing class describes one soil column, so no borehole ever borrows
+    one from a test of another lithology (owner ruling 2026-08-26, *"no a
+    zand body can never carry a silt packing class"*).
 7. **Edges — PER SECTION:** loads each project section's approved litho edges
    and derives geotech edges by LCS packing match within each litho body
    (``_derive_geotech_edges_from_litho``): for each correlated litho-unit pair,
@@ -100,22 +102,20 @@ The re-anchored ties are written BEFORE the per-section derivation pass, whose
 dedup set is preloaded from them, so the auto pass never proposes a duplicate
 of a tie that was just restored.
 
-Borehole extrapolation — nearest-CPT same-lithology rule
----------------------------------------------------------
-Boreholes carry lithology but not packing-class (no qc series).  After all
-CPT-bearing groups are classified, each borehole-only sub-body is resolved:
+Boreholes are not classified in this use case
+----------------------------------------------
+Boreholes carry lithology but not packing class (no qc series), and this use
+case does not guess one for them: every borehole column leaves here with
+``nad_class=None``.  ``DivideBoreholes`` classifies them afterwards, so the
+bands reflect the ties accepted since the last press.
 
-1. Find every CPT in the model whose classified geotech sub-body has the SAME
-   ``litho_main_soil_code`` AND overlaps the borehole's depth range
-   (``top_a < base_b`` and ``top_b < base_a``).
-2. Among those candidates, pick the one closest in map-plane xy distance to
-   the borehole.
-3. Assign the candidate CPT's ``nad_class`` to the borehole sub-body.
-4. Fallback 1: if no same-lithology CPT candidate exists, pick the nearest
-   CPT candidate of any lithology at that depth.
-5. Fallback 2: if the model has zero CPTs at all, keep ``nad_class=None``
-   (last resort; the frontend should not show a "No qc" ghost when a
-   same-lithology CPT exists anywhere in the model).
+The rule it applies is SAME-SOIL throughout — donors are filtered by
+``litho_main_soil_code`` (``layer_donor_picks``), the conservative floors are
+derived from the unit's own soil (``loosest_class_for``), and a class from
+another soil family never reaches a band.  There is no "nearest CPT of any
+lithology" fallback: a silt's firmness is not evidence about a sand, so where
+no same-soil column speaks the answer is the soil's own floor, not a
+neighbour's class.
 
 Edge derivation — LCS packing match
 -------------------------------------
@@ -984,8 +984,14 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                         cpt_id=inv_uuid,
                     )
                     self._session.add(layer)
+                    # The formation, not the plan, is the authority on the
+                    # class that was actually stamped: the materialiser's
+                    # soil-family clamp can turn a foreign class into a
+                    # skeleton, and everything keyed on this index (tie
+                    # re-anchor, edge derivation) must see the band as it was
+                    # written.
                     geotech_layer_by_inv_depth[inv_id].append(
-                        (top_m, base_m, layer.id, formation.id, nad_class)
+                        (top_m, base_m, layer.id, formation.id, formation.nad_class)
                     )
                     total_layers += 1
 
@@ -1208,8 +1214,18 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             f"ties_proposed={edge_totals.edges_emitted} (derive_edges={derive_edges}) "
             f"accepted_ties_reanchored={len(reanchor_plan.matched)}/{len(captured_ties)} "
             f"accepted_ties_lost={len(reanchor_plan.lost)} "
+            f"unclassified_foreign_family={self._family_clamp_count} "
             f"elapsed={elapsed:.1f}s"
         )
+        if self._family_clamp_count:
+            # Never let a press that dropped classes read like a clean one. The
+            # per-band WARNINGs above name each unit and its soil; this is the
+            # count to notice in a log that scrolls.
+            self.warning(
+                f"SubdivideAllBodies: {self._family_clamp_count} band(s) left unclassified "
+                "because the only class offered belonged to another soil family — see the "
+                "per-band warnings above for which units and set them by hand"
+            )
         return result
 
     # ------------------------------------------------------------------
@@ -1369,8 +1385,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         segmentation (``profile.splits``) — its own band depths AND its own NAD
         class per band — so a test segments by its qc independently of its
         neighbours (no body-consensus collapse). Boreholes (no qc) get one band
-        over their geo-bounded extent with ``nad_class = None``, resolved later by
-        Phase-8b extrapolation from the nearest CPT.
+        over their geo-bounded extent with ``nad_class = None``, resolved later
+        by ``DivideBoreholes`` from same-soil donors.
 
         Parameters
         ----------
@@ -1421,8 +1437,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
 
             if not sub_intervals:
                 # Borehole (no qc), or a CPT with no usable segmentation → ONE band
-                # spanning the geo-bounded extent, classified later by Phase-8b
-                # extrapolation (nearest CPT). ``None`` flags the skeleton path.
+                # spanning the geo-bounded extent, classified later by
+                # DivideBoreholes from same-soil donors. ``None`` flags the
+                # skeleton path.
                 # Same mm grid as the split path, so a skeleton band meets its
                 # neighbours exactly; only a sub-millimetre extent keeps the raw
                 # pair (rounding would degenerate it into a zero-width row).
