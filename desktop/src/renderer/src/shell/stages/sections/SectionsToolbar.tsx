@@ -4,6 +4,14 @@
 // Export Plaxis 3D, New cross-section, Delete section) into one place for the
 // Sections stage.  All handlers are sourced from useShell() — no props accepted
 // (matches the StageDescriptor.ToolbarComponent contract).
+//
+// The verbs are declared as ``ToolbarItemSpec``s rather than rendered
+// straight into a flex row, so ``ResponsiveToolbarRow`` can decide what fits
+// (owner dogfeed 2026-08-26: the axis pill read "Geology | Litho | Geote" on
+// a fullscreen laptop). Each spec states a priority, how to render at each
+// presentation, and the rows it contributes to the ⋯ More menu when it folds
+// — for a dropdown that is simply its own menu, so a folded dropdown loses
+// nothing. See ``shell/toolbarOverflow.ts`` for the ladder and its rationale.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers, PaintBucket, Network, Eye, EyeOff, SplitSquareVertical, RefreshCw } from 'lucide-react'
@@ -15,6 +23,14 @@ import ConfirmDialog from '../../../components/ui/ConfirmDialog'
 import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton, SplitToolbarButton } from '../../ToolbarPrimitives'
+import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
+import ResponsiveToolbarRow, { type ToolbarItemSpec } from '../../ResponsiveToolbarRow'
+import { DEFAULT_TOOLBAR_METRICS } from '../../toolbarOverflow_constants'
+import {
+  AXIS_PILL_COMPACT_PX,
+  AXIS_PILL_FULL_PX,
+  PENDING_CHIP_BASE_PX,
+} from './sectionsToolbar_constants'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
@@ -1137,25 +1153,79 @@ export default function SectionsToolbar(): JSX.Element {
       ? 'all'
       : 'disabled'
 
-  return (
-    <div className="flex items-center gap-1">
-      {/* Undo — the model-edit undo stack is keyboard-wired (Ctrl+Z)
-          but otherwise invisible. This button surfaces it. Covers every
-          undoable mutation, incl. accept-litho (dogfeed 2026-05-22). */}
-      <ToolbarButton
-        icon={<Undo2 size={13} />}
-        label="Undo"
-        onClick={() => void undoStack.undo()}
-        disabled={!undoStack.canUndo || undoStack.busy}
-        title={
-          undoStack.canUndo
-            ? 'Undo the last model edit (Ctrl+Z)'
-            : 'Nothing to undo'
-        }
-        data-testid="sections-undo"
-      />
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+  const undoTitle = undoStack.canUndo
+    ? 'Undo the last model edit (Ctrl+Z)'
+    : 'Nothing to undo'
 
+  // Declared in render order; assembled at the bottom of this function.
+  // Keeping the three axis blocks as separate consts avoids a temporal-dead-
+  // zone read — each is defined before the array that spreads it.
+  const headItems: ToolbarItemSpec[] = [
+    // Undo — the model-edit undo stack is keyboard-wired (Ctrl+Z) but
+    // otherwise invisible. This button surfaces it. Covers every undoable
+    // mutation, incl. accept-litho (dogfeed 2026-05-22).
+    //
+    // 'medium', and the FIRST verb to give up its label: the gesture already
+    // has a keyboard binding, so the button is a discoverability aid rather
+    // than the primary path, and a curved arrow is the most self-explanatory
+    // icon on the bar.
+    {
+      id: 'sections-undo',
+      priority: 'medium',
+      kind: 'button',
+      label: 'Undo',
+      overflowItems: [
+        {
+          label: 'Undo last model edit',
+          icon: <Undo2 size={12} />,
+          onClick: () => void undoStack.undo(),
+          disabled: !undoStack.canUndo || undoStack.busy,
+          title: undoTitle,
+        },
+      ],
+      render: p => (
+        <ToolbarButton
+          icon={<Undo2 size={13} />}
+          label="Undo"
+          iconOnly={p === 'icon'}
+          onClick={() => void undoStack.undo()}
+          disabled={!undoStack.canUndo || undoStack.busy}
+          title={undoTitle}
+          testid="sections-undo"
+        />
+      ),
+    },
+
+    // The stage/axis pill — 'pinned'. Everything else on this bar changes
+    // MEANING with it, so it can never fold and can never be reduced to an
+    // icon; its only concession is the designed short form ("Geo | Litho |
+    // Geotech" — the last segment is spelled out at every width, because
+    // truncating it was the reported bug).
+    {
+      id: 'sections-axis-pill',
+      priority: 'pinned',
+      kind: 'custom',
+      label: 'Section model axis',
+      separatorBefore: true,
+      // Three segments at px-2 plus the group's 1 px border on each side.
+      // Explicit because the estimator models icon+label controls, not a
+      // segmented group.
+      widthPx: { full: AXIS_PILL_FULL_PX, compact: AXIS_PILL_COMPACT_PX },
+      overflowItems: [],
+      render: p => renderAxisPill(p === 'compact'),
+    },
+  ]
+
+  /**
+   * The segmented Geology / Litho / Geotech control.
+   *
+   * ``short`` swaps "Geology" for "Geo" — the ONLY segment with a designed
+   * short form. "Litho" is already short, and "Geotech" is the segment the
+   * owner watched get cut, so it is spelled out at every width.
+   */
+  function renderAxisPill(short: boolean): JSX.Element {
+    return (
+      <>
       {/* Geology ↔ Lithology segmented toggle (slice 2, #55).
           Disabled on the litho segment when no litho model exists yet.
           Reads/writes sectionModelAxis from the sections slice. Uses
@@ -1170,10 +1240,19 @@ export default function SectionsToolbar(): JSX.Element {
           to the span instead, restoring the expected UX. The span is
           purely presentational (role="presentation", no tabIndex) so it
           does not break the radiogroup/radio semantics or keyboard nav. */}
+      {/* ``shrink-0`` is load-bearing and MUST NOT be dropped. Per CSS
+          Flexbox §4.5 a flex item's automatic minimum size is min-content
+          only while its overflow is ``visible``; ``overflow-hidden`` (here
+          for the rounded corners) collapses that minimum to zero, so
+          flexbox picked this group as the one item free to absorb the whole
+          width deficit and its own clip then cut the last segment mid-word
+          — the owner's "Geology | Litho | Geote" (dogfeed 2026-08-26).
+          ``shrink-0`` refuses the shrink; ResponsiveToolbarRow decides the
+          pill's form instead, and it only ever picks a DESIGNED one. */}
       <div
         role="group"
         aria-label="Section model axis"
-        className="flex items-center rounded border border-border-default overflow-hidden text-xs"
+        className="flex items-center rounded border border-border-default overflow-hidden text-xs shrink-0"
       >
         <button
           type="button"
@@ -1181,14 +1260,18 @@ export default function SectionsToolbar(): JSX.Element {
           aria-checked={!isLitho && !isGeotech}
           onClick={() => handleAxisChange('geological')}
           className={[
-            'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap',
             !isLitho && !isGeotech
               ? 'bg-accent text-text-on-accent'
               : 'bg-surface-card text-text-secondary hover:text-text-primary',
           ].join(' ')}
+          // The full word stays in the tooltip + accessible name when the
+          // short form is showing, so "Geo" is never the only thing a user
+          // (or a screen reader) has to go on.
+          aria-label="Geology"
           title="Edit the geological model contacts on this section"
         >
-          Geology
+          {short ? 'Geo' : 'Geology'}
         </button>
         {/* Span wrapper surfaces the tooltip on hover when the button is
             disabled — Chromium suppresses mouse events (incl. title) on
@@ -1209,7 +1292,7 @@ export default function SectionsToolbar(): JSX.Element {
             disabled={activeLithoModel === null}
             onClick={() => handleAxisChange('lithostratigraphic')}
             className={[
-              'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap',
               isLitho
                 ? 'bg-accent text-text-on-accent'
                 : activeLithoModel === null
@@ -1248,7 +1331,7 @@ export default function SectionsToolbar(): JSX.Element {
             onClick={() => handleAxisChange('geotechnical')}
             data-testid="axis-geotech"
             className={[
-              'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap',
               isGeotech
                 ? 'bg-accent text-text-on-accent'
                 : activeGeotechModel === null && activeLithoModel === null
@@ -1275,263 +1358,131 @@ export default function SectionsToolbar(): JSX.Element {
           token (defined in index.css as --color-text-muted, used in
           SectionsInspector, GeologyInspector, EmptyState, etc.). */}
       {activeLithoModel === null && (
-        <p className="text-xs text-text-muted">
+        <p className="text-xs text-text-muted whitespace-nowrap">
           No lithostratigraphic model — create one in the Lithology stage.
         </p>
       )}
+      </>
+    )
+  }
 
-      {/* Separator */}
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+  // -- Litho-axis verbs -----------------------------------------------------
 
-      {/* Suggest split-button (debt #97). Primary action = single-anchor
-          Suggest litho on the focused column; caret menu items = the
-          bulk variants (all in section / for new tests). Collapses the
-          previous Suggest×3 widgets into one toolbar slot — the most
-          common verb stays one click away, the variants are one
-          additional click. Pending-state pills (Accept all / Clear)
-          stay as transient widgets that only render while ghosts
-          exist. */}
-      {isLitho && (
-        <>
-          <SplitToolbarButton
-            icon={<Sparkles size={13} />}
-            label={
-              lithoSuggesting || bulkLithoSuggesting
-                ? 'Suggesting…'
-                : suggestPrimaryMode === 'all'
-                  ? `Suggest all${bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''}`
-                  : 'Suggest'
-            }
-            onClick={
-              suggestPrimaryMode === 'all'
-                ? () => setBulkConfirmOpen(true)
-                : () => void handleSuggest()
-            }
-            disabled={
-              suggestPrimaryMode === 'disabled' ||
-              lithoSuggesting ||
-              bulkLithoSuggesting
-            }
-            busy={lithoSuggesting || bulkLithoSuggesting}
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : !hasSection
-                  ? 'Open a cross-section to use Suggest'
-                  : lithoSuggesting
-                    ? 'Fetching suggestions…'
-                    : suggestPrimaryMode === 'all'
-                      ? `Right-click a column to focus one, or click to suggest layers for every investigation in this section (${bulkAnchors.length})`
-                      : suggestPrimaryMode === 'disabled'
-                        ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest'
-                        : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
-            }
-            testid="litho-suggest"
-            items={[
-              {
-                label: `Suggest all in this section${
-                  bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''
-                }`,
-                icon: <Sparkles size={12} />,
-                onClick: () => setBulkConfirmOpen(true),
-                disabled:
-                  !activeLithoModel ||
-                  !hasSection ||
-                  bulkLithoSuggesting ||
-                  lithoSuggesting,
-                title:
-                  !activeLithoModel
-                    ? 'Create a lithostratigraphic model first'
-                    : !hasSection
-                      ? 'Open a cross-section first'
-                      : bulkLithoSuggesting
-                        ? 'Running segmenter on every investigation in this section…'
-                        : 'Suggest lithostratigraphic layers for every investigation in this section at once',
-                testid: 'litho-suggest-all',
-              },
-              {
-                label: activeLithoModel
-                  ? `Suggest for new tests (${newTestAnchors.length})`
-                  : 'Suggest for new tests',
-                icon: <Sparkles size={12} />,
-                onClick: () => void handleSuggestNewTests(),
-                disabled:
-                  !activeLithoModel ||
-                  bulkLithoSuggesting ||
-                  lithoSuggesting ||
-                  newTestAnchors.length === 0,
-                title:
-                  !activeLithoModel
-                    ? 'Create a lithostratigraphic model first'
-                    : bulkLithoSuggesting
-                      ? 'Running segmenter…'
-                      : newTestAnchors.length === 0
-                        ? 'All visible investigations already have litho contacts — import new tests to use this'
-                        : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`,
-                testid: 'litho-suggest-new-tests',
-              },
-            ]}
-          />
-          {hasSuggestions && (
-            <>
-              {/* Accept all pending (non-rejected) layers in one bulk call. */}
-              <ToolbarButton
-                icon={<Sparkles size={13} />}
-                label={acceptingAll ? 'Accepting…' : 'Accept all'}
-                onClick={() => void handleAcceptAll()}
-                disabled={acceptingAll}
-                busy={acceptingAll}
-                testid="litho-accept-all"
-                title={
-                  acceptingAll
-                    ? 'Committing all suggestion layers…'
-                    : 'Accept all non-rejected suggestion layers as lithostratigraphic contacts'
-                }
-              />
-              <ToolbarButton
-                icon={<Eraser size={13} />}
-                label="Clear"
-                onClick={clearLithoSuggestions}
-                title="Dismiss the current litho suggestion overlay"
-              />
-            </>
-          )}
-          {bulkAnchorCount > 0 && (
-            <>
-              <ToolbarButton
-                icon={<Sparkles size={13} />}
-                label={acceptingAllBulk ? 'Accepting…' : 'Accept all (bulk)'}
-                onClick={() => void handleAcceptAllBulk()}
-                disabled={acceptingAllBulk}
-                busy={acceptingAllBulk}
-                testid="litho-accept-all-bulk"
-                title={
-                  acceptingAllBulk
-                    ? 'Committing all bulk suggestion layers…'
-                    : `Accept every non-rejected suggestion across all ${bulkAnchorCount} bulk-ghost investigation${bulkAnchorCount === 1 ? '' : 's'}`
-                }
-              />
-              <ToolbarButton
-                icon={<Eraser size={13} />}
-                label="Clear bulk"
-                onClick={clearBulkLithoGhosts}
-                title="Dismiss the bulk-suggest ghost overlays for every investigation"
-              />
-            </>
-          )}
-          {/* Correlation triad collapsed into a SplitToolbarButton
-              (#141 dogfeed 2026-05-27).  Primary verb = Correlate mode
-              toggle (single click to enter/exit — preserves the existing
-              ergonomics CT4/CT5 pin).  Caret items = Auto-correlate +
-              Accept correlations.  Three buttons → one toolbar slot.
-              The mode-active affordance (amber tint when correlateMode
-              is on) stays on the primary half so the user always sees
-              "you're in correlate mode" without opening the menu. */}
-          <SplitToolbarButton
-            icon={<GitMerge size={13} />}
-            label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate'}
-            onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
-            // While correlate mode is on, keep the primary clickable so
-            // the user can exit even with 0 contacts on the section
-            // (debt #139 CT8); otherwise the only escape is Esc, which
-            // isn't discoverable.
-            disabled={
-              !activeLithoModel
-              || !hasSection
-              || (!correlateMode && !sectionHasLithoContacts)
-            }
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : !hasSection
-                  ? 'Open a cross-section to correlate units'
-                  : !correlateMode && !sectionHasLithoContacts
-                    ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
-                    : correlateMode
-                      ? 'Exit correlate mode (Esc)'
-                      : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
-            }
-            amber={correlateMode}
-            testid="correlate-mode"
-            items={[
-              {
-                icon: <Zap size={13} />,
-                label: autoCorrelating ? 'Correlating…' : 'Auto-correlate',
-                onClick: () => { void handleAutoCorrelateWithCheck() },
-                disabled:
-                  !activeLithoModel
-                  || autoCorrelating
-                  || !sectionHasLithoContacts,
-                title:
-                  !activeLithoModel
-                    ? 'Create a lithostratigraphic model first'
-                    : !sectionHasLithoContacts
-                      ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
-                      : autoCorrelating
-                        ? 'Running auto-correlate…'
-                        : 'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.',
-                testid: 'litho-auto-correlate',
-              },
-              {
-                icon: <CheckCheck size={13} />,
-                label: acceptingCorrelations ? 'Accepting…' : 'Accept correlations',
-                onClick: () => { void handleAcceptCorrelations() },
-                disabled:
-                  !activeLithoModel
-                  || !hasSection
-                  || acceptingCorrelations
-                  || !sectionHasLithoContacts,
-                title:
-                  !activeLithoModel
-                    ? 'Create a lithostratigraphic model first'
-                    : !hasSection
-                      ? 'Open a cross-section to accept correlations'
-                      : !sectionHasLithoContacts
-                        ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
-                        : acceptingCorrelations
-                          ? 'Accepting correlations…'
-                          : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals',
-                testid: 'litho-accept-correlations',
-              },
-              {
-                // Clear correlation suggestions (#179, moved under the
-                // Correlate caret per dogfeed 2026-05-29). Gated only on the
-                // model — NOT on section contacts — so the user can clear
-                // model-wide / off-section stale suggestions even when the
-                // current section has none. Because this item stays enabled
-                // when the section has 0 contacts, the Correlate primary then
-                // acts as a caret-fallback (opens this menu) rather than being
-                // fully disabled. Reversible via Auto-correlate.
-                icon: <Trash2 size={13} />,
-                label: 'Clear correlation suggestions',
-                onClick: () => {
-                  void handleClearSuggestions()
-                },
-                disabled: !activeLithoModel,
-                title: !activeLithoModel
-                  ? 'Create a lithostratigraphic model first'
-                  : 'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.',
-                testid: 'litho-clear-suggestions',
-              },
-            ]}
-          />
-          {/* Bodies dropdown (dogfeed 2026-06-01) — congregates every body /
-              lens action under one trigger to keep the toolbar uncluttered:
-              Detect lenses, Suggest pinch-outs, and the bulk "Delete all
-              detected lenses". Each item keeps its
-              original testid + busy-aware label; the destructive delete opens
-              a confirmation modal (irreversible). */}
-          <ToolbarDropdown
-            icon={<Layers size={13} />}
-            label="Bodies"
-            disabled={!activeLithoModel}
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : 'Detect, suggest, materialise, or clear body (lens) wedges'
-            }
-            testid="litho-bodies-dropdown"
-            items={[
+  const suggestLabel =
+    lithoSuggesting || bulkLithoSuggesting
+      ? 'Suggesting…'
+      : suggestPrimaryMode === 'all'
+        ? `Suggest all${bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''}`
+        : 'Suggest'
+
+  // Hoisted out of the JSX because a folded control hands its own menu to
+  // the ⋯ More menu — the caret items ARE the overflow rows, so declaring
+  // them once keeps the two in step by construction.
+  // Built only on the litho axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const lithoSuggestMenuItems: ToolbarDropdownItem[] = !isLitho ? [] : [
+    {
+      label: `Suggest all in this section${
+        bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''
+      }`,
+      icon: <Sparkles size={12} />,
+      onClick: () => setBulkConfirmOpen(true),
+      disabled: !activeLithoModel || !hasSection || bulkLithoSuggesting || lithoSuggesting,
+      title: !activeLithoModel
+        ? 'Create a lithostratigraphic model first'
+        : !hasSection
+          ? 'Open a cross-section first'
+          : bulkLithoSuggesting
+            ? 'Running segmenter on every investigation in this section…'
+            : 'Suggest lithostratigraphic layers for every investigation in this section at once',
+      testid: 'litho-suggest-all',
+    },
+    {
+      label: activeLithoModel
+        ? `Suggest for new tests (${newTestAnchors.length})`
+        : 'Suggest for new tests',
+      icon: <Sparkles size={12} />,
+      onClick: () => void handleSuggestNewTests(),
+      disabled:
+        !activeLithoModel ||
+        bulkLithoSuggesting ||
+        lithoSuggesting ||
+        newTestAnchors.length === 0,
+      title: !activeLithoModel
+        ? 'Create a lithostratigraphic model first'
+        : bulkLithoSuggesting
+          ? 'Running segmenter…'
+          : newTestAnchors.length === 0
+            ? 'All visible investigations already have litho contacts — import new tests to use this'
+            : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`,
+      testid: 'litho-suggest-new-tests',
+    },
+  ]
+
+
+  // Built only on the litho axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const lithoCorrelateMenuItems: ToolbarDropdownItem[] = !isLitho ? [] : [
+    {
+      icon: <Zap size={13} />,
+      label: autoCorrelating ? 'Correlating…' : 'Auto-correlate',
+      onClick: () => {
+        void handleAutoCorrelateWithCheck()
+      },
+      disabled: !activeLithoModel || autoCorrelating || !sectionHasLithoContacts,
+      title: !activeLithoModel
+        ? 'Create a lithostratigraphic model first'
+        : !sectionHasLithoContacts
+          ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+          : autoCorrelating
+            ? 'Running auto-correlate…'
+            : 'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.',
+      testid: 'litho-auto-correlate',
+    },
+    {
+      icon: <CheckCheck size={13} />,
+      label: acceptingCorrelations ? 'Accepting…' : 'Accept correlations',
+      onClick: () => {
+        void handleAcceptCorrelations()
+      },
+      disabled:
+        !activeLithoModel || !hasSection || acceptingCorrelations || !sectionHasLithoContacts,
+      title: !activeLithoModel
+        ? 'Create a lithostratigraphic model first'
+        : !hasSection
+          ? 'Open a cross-section to accept correlations'
+          : !sectionHasLithoContacts
+            ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+            : acceptingCorrelations
+              ? 'Accepting correlations…'
+              : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals',
+      testid: 'litho-accept-correlations',
+    },
+    {
+      // Clear correlation suggestions (#179, moved under the
+      // Correlate caret per dogfeed 2026-05-29). Gated only on the
+      // model — NOT on section contacts — so the user can clear
+      // model-wide / off-section stale suggestions even when the
+      // current section has none. Because this item stays enabled
+      // when the section has 0 contacts, the Correlate primary then
+      // acts as a caret-fallback (opens this menu) rather than being
+      // fully disabled. Reversible via Auto-correlate.
+      icon: <Trash2 size={13} />,
+      label: 'Clear correlation suggestions',
+      onClick: () => {
+        void handleClearSuggestions()
+      },
+      disabled: !activeLithoModel,
+      title: !activeLithoModel
+        ? 'Create a lithostratigraphic model first'
+        : 'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.',
+      testid: 'litho-clear-suggestions',
+    },
+  ]
+
+  // Built only on the litho axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const lithoBodiesMenuItems: ToolbarDropdownItem[] = !isLitho ? [] : [
               {
                 // Explicit, finish-then-click verb — colour every body's closed
                 // loop with its lithology. Do this AFTER correlating + pinch-outs;
@@ -1589,24 +1540,11 @@ export default function SectionsToolbar(): JSX.Element {
                 testidPrefix: 'litho',
                 iconSize: 12,
               }),
-            ]}
-          />
-          {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
-              admixtures on the ghost suggestions before accepting. The
-              CPT segmenter's admixtures are noisier than the borehole
-              observation-log ones, so "strip all → reseed boreholes" is
-              a common cleanup. Operates on ghost state only. */}
-          <ToolbarDropdown
-            icon={<FlaskConical size={13} />}
-            label="Admixtures"
-            disabled={cptGhostCount === 0 && boreholeGhostCount === 0}
-            title={
-              cptGhostCount === 0 && boreholeGhostCount === 0
-                ? 'Suggest litho layers first — admixture edits act on ghost suggestions'
-                : 'Strip or reseed admixtures on the current ghost suggestions'
-            }
-            testid="litho-admixtures-dropdown"
-            items={[
+            ]
+
+  // Built only on the litho axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const lithoAdmixtureMenuItems: ToolbarDropdownItem[] = !isLitho ? [] : [
               {
                 label: `Strip CPT admixtures${cptGhostCount > 0 ? ` (${cptGhostCount})` : ''}`,
                 icon: <Eraser size={12} />,
@@ -1648,44 +1586,332 @@ export default function SectionsToolbar(): JSX.Element {
                     : 'Restore the segmenter’s admixtures on borehole ghosts (undo a strip)',
                 testid: 'litho-reseed-borehole',
               },
-            ]}
-          />
-          {/* Separator after litho-specific actions */}
-          <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-        </>
-      )}
+            ]
 
-      {/* Geotechnical axis verbs — visible only when the geotech axis is
-          active.  "Subdivide all bodies" is the headline verb: it creates
-          the geotechnical model (if none exists) and materialises NAD
-          packing-class bodies from the litho layer stack.  Gated on the
-          litho model (the source) and a selected section (scope), NOT on
-          activeGeotechModel — the verb must be reachable on the first run
-          before any geotech model exists. */}
-      {isGeotech && (
-        <>
-          {/* FIRST in the geotech bar, ahead of the pipeline, because it is a choice
-              made BEFORE subdividing rather than a view option after it (owner,
-              2026-08-09: "add it before subdivide cpt's ... the user chooses before
-              subdividing"). It is a per-model choice and part of that model's
-              provenance.
+  const lithoItems: ToolbarItemSpec[] = !isLitho
+    ? []
+    : [
+      /* Suggest split-button (debt #97). Primary action = single-anchor
+          Suggest litho on the focused column; caret menu items = the
+          bulk variants (all in section / for new tests). Collapses the
+          previous Suggest×3 widgets into one toolbar slot — the most
+          common verb stays one click away, the variants are one
+          additional click. Pending-state pills (Accept all / Clear)
+          stay as transient widgets that only render while ghosts
+          exist.
 
-              The current token is in the LABEL, not only inside the menu: the whole
-              point of putting it first is that the engineer can see what the next
-              subdivide will classify with, without opening anything. */}
-          <ToolbarDropdown
-            icon={<FlaskConical size={13} />}
-            label={`qc: ${geotechStatistic}`}
-            title={
-              'Which representative qc the NAD classifier reads, chosen BEFORE you ' +
-              'subdivide: median (spike-robust default), arithmetic, harmonic ' +
-              '(conservative — weighted toward the low values that govern bearing and ' +
-              'settlement) or geometric. Nothing re-classifies when you change it: the ' +
-              'choice applies to the NEXT "1 · Subdivide CPTs", and bands already on ' +
-              'screen keep the statistic they were built with until you re-run it.'
+          'high' — the litho stage's entry verb. It is pressed on every
+          column of every section, so it holds its label longest. */
+      {
+        id: 'litho-suggest',
+        priority: 'high',
+        kind: 'split',
+        label: suggestLabel,
+        separatorBefore: true,
+        overflowItems: [
+          {
+            label: suggestLabel,
+            icon: <Sparkles size={12} />,
+            onClick:
+              suggestPrimaryMode === 'all'
+                ? () => setBulkConfirmOpen(true)
+                : () => void handleSuggest(),
+            disabled:
+              suggestPrimaryMode === 'disabled' || lithoSuggesting || bulkLithoSuggesting,
+          },
+          ...lithoSuggestMenuItems,
+        ],
+        render: p => (
+          <SplitToolbarButton
+            iconOnly={p === 'icon'}
+            icon={<Sparkles size={13} />}
+            label={suggestLabel}
+            onClick={
+              suggestPrimaryMode === 'all'
+                ? () => setBulkConfirmOpen(true)
+                : () => void handleSuggest()
             }
-            testid="geotech-statistic-menu"
-            items={[
+            disabled={
+              suggestPrimaryMode === 'disabled' ||
+              lithoSuggesting ||
+              bulkLithoSuggesting
+            }
+            busy={lithoSuggesting || bulkLithoSuggesting}
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : !hasSection
+                  ? 'Open a cross-section to use Suggest'
+                  : lithoSuggesting
+                    ? 'Fetching suggestions…'
+                    : suggestPrimaryMode === 'all'
+                      ? `Right-click a column to focus one, or click to suggest layers for every investigation in this section (${bulkAnchors.length})`
+                      : suggestPrimaryMode === 'disabled'
+                        ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest'
+                        : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
+            }
+            testid="litho-suggest"
+            items={lithoSuggestMenuItems}
+          />
+        ),
+      },
+
+      // The transient accept / clear pills. They render ONLY while ghosts are
+      // pending, and they are the resolution of that pending state, so they
+      // are 'high': hiding the way to commit or dismiss work-in-progress is
+      // worse than hiding a standing verb.
+      ...(hasSuggestions
+        ? [
+            {
+              id: 'litho-accept-all',
+              priority: 'high' as const,
+              kind: 'button' as const,
+              label: acceptingAll ? 'Accepting…' : 'Accept all',
+              overflowItems: [
+                {
+                  label: 'Accept all suggestions',
+                  icon: <Sparkles size={12} />,
+                  onClick: () => void handleAcceptAll(),
+                  disabled: acceptingAll,
+                },
+              ],
+              render: (p: 'full' | 'compact' | 'icon') => (
+                /* Accept all pending (non-rejected) layers in one bulk call. */
+                <ToolbarButton
+                  icon={<Sparkles size={13} />}
+                  label={acceptingAll ? 'Accepting…' : 'Accept all'}
+                  iconOnly={p === 'icon'}
+                  onClick={() => void handleAcceptAll()}
+                  disabled={acceptingAll}
+                  busy={acceptingAll}
+                  testid="litho-accept-all"
+                  title={
+                    acceptingAll
+                      ? 'Committing all suggestion layers…'
+                      : 'Accept all non-rejected suggestion layers as lithostratigraphic contacts'
+                  }
+                />
+              ),
+            },
+            {
+              id: 'litho-clear',
+              priority: 'high' as const,
+              kind: 'button' as const,
+              label: 'Clear',
+              overflowItems: [
+                {
+                  label: 'Clear litho suggestions',
+                  icon: <Eraser size={12} />,
+                  onClick: clearLithoSuggestions,
+                },
+              ],
+              render: (p: 'full' | 'compact' | 'icon') => (
+                <ToolbarButton
+                  icon={<Eraser size={13} />}
+                  label="Clear"
+                  iconOnly={p === 'icon'}
+                  onClick={clearLithoSuggestions}
+                  title="Dismiss the current litho suggestion overlay"
+                />
+              ),
+            },
+          ]
+        : []),
+      ...(bulkAnchorCount > 0
+        ? [
+            {
+              id: 'litho-accept-all-bulk',
+              priority: 'high' as const,
+              kind: 'button' as const,
+              label: acceptingAllBulk ? 'Accepting…' : 'Accept all (bulk)',
+              overflowItems: [
+                {
+                  label: 'Accept all bulk suggestions',
+                  icon: <Sparkles size={12} />,
+                  onClick: () => void handleAcceptAllBulk(),
+                  disabled: acceptingAllBulk,
+                },
+              ],
+              render: (p: 'full' | 'compact' | 'icon') => (
+                <ToolbarButton
+                  icon={<Sparkles size={13} />}
+                  label={acceptingAllBulk ? 'Accepting…' : 'Accept all (bulk)'}
+                  iconOnly={p === 'icon'}
+                  onClick={() => void handleAcceptAllBulk()}
+                  disabled={acceptingAllBulk}
+                  busy={acceptingAllBulk}
+                  testid="litho-accept-all-bulk"
+                  title={
+                    acceptingAllBulk
+                      ? 'Committing all bulk suggestion layers…'
+                      : `Accept every non-rejected suggestion across all ${bulkAnchorCount} bulk-ghost investigation${bulkAnchorCount === 1 ? '' : 's'}`
+                  }
+                />
+              ),
+            },
+            {
+              id: 'litho-clear-bulk',
+              priority: 'high' as const,
+              kind: 'button' as const,
+              label: 'Clear bulk',
+              overflowItems: [
+                {
+                  label: 'Clear bulk ghost overlays',
+                  icon: <Eraser size={12} />,
+                  onClick: clearBulkLithoGhosts,
+                },
+              ],
+              render: (p: 'full' | 'compact' | 'icon') => (
+                <ToolbarButton
+                  icon={<Eraser size={13} />}
+                  label="Clear bulk"
+                  iconOnly={p === 'icon'}
+                  onClick={clearBulkLithoGhosts}
+                  title="Dismiss the bulk-suggest ghost overlays for every investigation"
+                />
+              ),
+            },
+          ]
+        : []),
+
+      /* Correlation triad collapsed into a SplitToolbarButton
+          (#141 dogfeed 2026-05-27).  Primary verb = Correlate mode
+          toggle (single click to enter/exit — preserves the existing
+          ergonomics CT4/CT5 pin).  Caret items = Auto-correlate +
+          Accept correlations.  Three buttons → one toolbar slot.
+          The mode-active affordance (amber tint when correlateMode
+          is on) stays on the primary half so the user always sees
+          "you're in correlate mode" without opening the menu.
+
+          'high', and NEVER icon-only: the label doubles as the mode
+          read-out ("Correlate · click 2 bands"), so an icon would hide
+          the one thing that tells the user why their next click behaves
+          differently. It folds to a labelled menu row instead. */
+      {
+        id: 'correlate-mode',
+        priority: 'high',
+        kind: 'split',
+        label: correlateMode ? 'Correlate · click 2 bands' : 'Correlate',
+        iconOnly: false,
+        overflowItems: [
+          {
+            icon: <GitMerge size={12} />,
+            label: correlateMode ? 'Exit correlate mode' : 'Enter correlate mode',
+            onClick: () => (correlateMode ? exitCorrelateMode() : enterCorrelateMode()),
+            disabled:
+              !activeLithoModel || !hasSection || (!correlateMode && !sectionHasLithoContacts),
+          },
+          ...lithoCorrelateMenuItems,
+        ],
+        render: p => (
+          <SplitToolbarButton
+            iconOnly={p === 'icon'}
+            icon={<GitMerge size={13} />}
+            label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate'}
+            onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
+            // While correlate mode is on, keep the primary clickable so
+            // the user can exit even with 0 contacts on the section
+            // (debt #139 CT8); otherwise the only escape is Esc, which
+            // isn't discoverable.
+            disabled={
+              !activeLithoModel
+              || !hasSection
+              || (!correlateMode && !sectionHasLithoContacts)
+            }
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : !hasSection
+                  ? 'Open a cross-section to correlate units'
+                  : !correlateMode && !sectionHasLithoContacts
+                    ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                    : correlateMode
+                      ? 'Exit correlate mode (Esc)'
+                      : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
+            }
+            amber={correlateMode}
+            testid="correlate-mode"
+            items={lithoCorrelateMenuItems}
+          />
+        ),
+      },
+
+      /* Bodies dropdown (dogfeed 2026-06-01) — congregates every body /
+          lens action under one trigger to keep the toolbar uncluttered:
+          Detect lenses, Suggest pinch-outs, and the bulk "Delete all
+          detected lenses". Each item keeps its
+          original testid + busy-aware label; the destructive delete opens
+          a confirmation modal (irreversible).
+
+          'medium' — view switches and one-off body maintenance, reached a
+          few times per section rather than per column. */
+      {
+        id: 'litho-bodies-dropdown',
+        priority: 'medium',
+        kind: 'dropdown',
+        label: 'Bodies',
+        overflowItems: lithoBodiesMenuItems,
+        render: p => (
+          <ToolbarDropdown
+            iconOnly={p === 'icon'}
+            icon={<Layers size={13} />}
+            label="Bodies"
+            disabled={!activeLithoModel}
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : 'Detect, suggest, materialise, or clear body (lens) wedges'
+            }
+            testid="litho-bodies-dropdown"
+            items={lithoBodiesMenuItems}
+          />
+        ),
+      },
+
+      /* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
+          admixtures on the ghost suggestions before accepting. The
+          CPT segmenter's admixtures are noisier than the borehole
+          observation-log ones, so "strip all → reseed boreholes" is
+          a common cleanup. Operates on ghost state only.
+
+          'low' — a cleanup pass run occasionally, and the first litho verb
+          to give ground. */
+      {
+        id: 'litho-admixtures-dropdown',
+        priority: 'low',
+        kind: 'dropdown',
+        label: 'Admixtures',
+        overflowItems: lithoAdmixtureMenuItems,
+        render: p => (
+          <ToolbarDropdown
+            iconOnly={p === 'icon'}
+            icon={<FlaskConical size={13} />}
+            label="Admixtures"
+            disabled={cptGhostCount === 0 && boreholeGhostCount === 0}
+            title={
+              cptGhostCount === 0 && boreholeGhostCount === 0
+                ? 'Suggest litho layers first — admixture edits act on ghost suggestions'
+                : 'Strip or reseed admixtures on the current ghost suggestions'
+            }
+            testid="litho-admixtures-dropdown"
+            items={lithoAdmixtureMenuItems}
+          />
+        ),
+      },
+    ]
+
+  // -- Geotech-axis verbs ---------------------------------------------------
+
+  // Geotechnical axis verbs — built only when the geotech axis is active.
+  // "1 · Subdivide CPTs" is the headline verb: it creates the geotechnical
+  // model (if none exists) and materialises NAD packing-class bodies from the
+  // litho layer stack. Gated on the litho model (the source) and a selected
+  // section (scope), NOT on activeGeotechModel — the verb must be reachable
+  // on the first run before any geotech model exists.
+
+  // Built only on the geotech axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const geotechStatisticMenuItems: ToolbarDropdownItem[] = !isGeotech ? [] : [
               {
                 // Stated inside the menu as well as in the tooltip. A tooltip is not
                 // read before a click, and the one thing that surprises here is that
@@ -1712,37 +1938,11 @@ export default function SectionsToolbar(): JSX.Element {
                 testid: `geotech-statistic-${token}`,
                 onClick: () => handleSetGeotechStatistic(token),
               })),
-            ]}
-          />
-          {/* THE FOUR-STEP PIPELINE, folded into one dropdown (owner dogfeed
-              2026-08-05 — the four inline buttons crowded the bar, debt #23).
-              The pending chip stays OUTSIDE the menu: it is the number step 4
-              is gated on and must be visible without opening anything. Gate
-              info that used to live in hover tooltips moves onto visible tag
-              pills — a disabled menu item cannot show a title in Chromium. */}
-          <ToolbarDropdown
-            icon={<SplitSquareVertical size={13} />}
-            label={
-              subdividingBodies
-                ? 'Subdividing…'
-                : autoCorrelatingGeotech
-                  ? 'Correlating…'
-                  : acceptingGeotechCorrelations
-                    ? 'Accepting…'
-                    : dividingBoreholes
-                      ? 'Dividing…'
-                      : 'Packing pipeline'
-            }
-            title={
-              'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, ' +
-              '3 review and accept them, 4 divide the boreholes. All four act on ' +
-              'the section you have open and leave every other section as it is, ' +
-              'so you can finish one cross-section while the next still has ' +
-              'proposals waiting. Step 4 stays locked until this section’s ties ' +
-              'are all accepted or deleted.'
-            }
-            testid="geotech-pipeline"
-            items={[
+            ]
+
+  // Built only on the geotech axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const geotechPipelineMenuItems: ToolbarDropdownItem[] = !isGeotech ? [] : [
               {
                 // No "on this section" qualifier: after the owner deleted the
                 // all-sections twin (2026-08-15, "it's ugly and confusing"),
@@ -1879,63 +2079,11 @@ export default function SectionsToolbar(): JSX.Element {
                   })
                 },
               },
-            ]}
-          />
-          {/* The pending chip — OUTSIDE the menu on purpose: it is the number
-              step 4 is gated on and must be visible without opening anything. */}
-          {tieStatus.loaded && tieStatus.pending > 0 && (
-            <PendingTieChip
-              label={pendingChipLabel(pendingScope)}
-              title={pendingChipTitle(pendingScope, tieStatus.accepted)}
-              // Interactive only where this section HAS a pending tie to find.
-              // With the count scoped elsewhere in the model (the "0 pending
-              // here" case) there is nothing on this canvas to centre, so the
-              // chip stays the plain label it has always been.
-              onReveal={
-                pendingScope.sectionPending === null || pendingScope.sectionPending > 0
-                  ? handleRevealPendingTie
-                  : undefined
-              }
-            />
-          )}
-          {/* The hatched-ghost legend + clamped-band notice moved to the
-              right-hand inspector (owner dogfeed 2026-08-05) — prose was
-              overflowing the toolbar. See SectionsInspector's Borehole
-              preview section. */}
-          {/* "Correlate packing" — manual same-class/same-body packing connection.
-              Reuses the litho correlate state machine (correlateMode) on the geotech
-              axis so clicking a packing band arms a source; clicking a neighbour's
-              same-class-same-body band connects them. Right-click a connection to
-              disconnect (Disconnect verb in the correlation-edge context menu).
-              Gated on activeGeotechModel: the geotech model must exist (i.e. the
-              user has run "Subdivide all bodies" at least once) for there to be
-              packing bands to correlate. */}
-          <ToolbarButton
-            icon={<GitMerge size={13} />}
-            label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing'}
-            onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
-            // Keep clickable while correlateMode is on so the user can exit even
-            // when no packing contacts exist on the section (mirrors litho CT8).
-            disabled={activeGeotechModel === null && !correlateMode}
-            title={
-              activeGeotechModel === null
-                ? 'Run “1 · Subdivide CPTs” first to create packing bands'
-                : correlateMode
-                  ? 'Exit packing-correlate mode (Esc)'
-                  : 'Connect same-class packing bands across investigations within the same litho body — the hand correlation the pipeline’s step 2 automates'
-            }
-            amber={correlateMode}
-            testid="geotech-correlate-packing"
-          />
-          {/* View toggles folded into one Display dropdown (owner dogfeed
-              2026-08-05 — two standing toggle buttons were toolbar weight for
-              verbs used occasionally). Same testids, same behaviour. */}
-          <ToolbarDropdown
-            icon={<Eye size={13} />}
-            label="Display"
-            title="Show or hide layers of the section view"
-            testid="geotech-display-menu"
-            items={[
+            ]
+
+  // Built only on the geotech axis: these initialisers read
+  // axis-scoped state the other axes never populate.
+  const geotechDisplayMenuItems: ToolbarDropdownItem[] = !isGeotech ? [] : [
               {
                 label: geotechFillVisible ? 'Hide fill' : 'Show fill',
                 icon: geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
@@ -1977,57 +2125,218 @@ export default function SectionsToolbar(): JSX.Element {
                 testidPrefix: 'geotech',
                 iconSize: 13,
               }),
-            ]}
-          />
-          {/* Separator after geotech-specific actions */}
-          <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-        </>
-      )}
+            ]
 
-      {/* New cross-section — primary entry action, visually distinct from
-          the secondary verbs so first-time users can find it immediately.
-          Accent-filled button separates it from the grey text-only verbs
-          that follow. */}
-      <PrimaryToolbarButton
-        icon={<Plus size={13} />}
-        label={creating ? 'Creating…' : 'New cross-section'}
-        onClick={handleNew}
-        disabled={!canCreate || creating}
-        busy={creating}
-        title={
-          crsBlockReason !== null
-            ? crsBlockReason
-            : creating
-              ? 'Creating…'
-              : 'Create a new cross-section (placeholder endpoints)'
-        }
-      />
+  const geotechPipelineLabel = subdividingBodies
+    ? 'Subdividing…'
+    : autoCorrelatingGeotech
+      ? 'Correlating…'
+      : acceptingGeotechCorrelations
+        ? 'Accepting…'
+        : dividingBoreholes
+          ? 'Dividing…'
+          : 'Packing pipeline'
 
-      {/* Tie-sections collapsed into one SplitToolbarButton (dogfeed
-          2026-06-10). Primary = Suggest ↔ Clear toggle (amber while ghosts
-          are pending so the user always sees there are suggestions to act
-          on, and always has a visible way to dismiss them). Caret =
-          Accept all ties. Three verbs → one toolbar slot, mirroring the
-          correlation triad. */}
-      <SplitToolbarButton
-        icon={<Network size={13} />}
-        label={suggestedTies.length > 0 ? 'Clear tie suggestions' : 'Suggest tie-sections'}
-        onClick={() =>
-          suggestedTies.length > 0
-            ? handleClearTieSuggestions()
-            : handleSuggestTies(visibleCpts, visibleBoreholes)
-        }
-        disabled={sections.length < 2}
-        title={
-          sections.length < 2
-            ? 'Need at least 2 sections to tie together'
-            : suggestedTies.length > 0
-              ? 'Clear the current tie-section suggestions'
-              : 'Suggest perpendicular connector sections between existing sections (no crossings, no shared tests)'
-        }
-        amber={suggestedTies.length > 0}
-        testid="suggest-tie-sections"
-        items={[
+  const geotechItems: ToolbarItemSpec[] = !isGeotech
+    ? []
+    : [
+        /* FIRST in the geotech bar, ahead of the pipeline, because it is a
+            choice made BEFORE subdividing rather than a view option after it
+            (owner, 2026-08-09: "add it before subdivide cpt's ... the user
+            chooses before subdividing"). It is a per-model choice and part of
+            that model's provenance.
+
+            The current token is in the LABEL, not only inside the menu: the
+            whole point of putting it first is that the engineer can see what
+            the next subdivide will classify with, without opening anything.
+
+            That ruling is exactly why ``iconOnly: false`` — an icon-only form
+            would hide the token and defeat the reason the control sits here.
+            'high' because it gates every subsequent press; when the bar does
+            run out of room it folds to a labelled menu row, token intact. */
+        {
+          id: 'geotech-statistic-menu',
+          priority: 'high',
+          kind: 'dropdown',
+          label: `qc: ${geotechStatistic}`,
+          iconOnly: false,
+          separatorBefore: true,
+          overflowItems: geotechStatisticMenuItems,
+          render: () => (
+            <ToolbarDropdown
+              icon={<FlaskConical size={13} />}
+              label={`qc: ${geotechStatistic}`}
+              title={
+                'Which representative qc the NAD classifier reads, chosen BEFORE you ' +
+                'subdivide: median (spike-robust default), arithmetic, harmonic ' +
+                '(conservative — weighted toward the low values that govern bearing and ' +
+                'settlement) or geometric. Nothing re-classifies when you change it: the ' +
+                'choice applies to the NEXT "1 · Subdivide CPTs", and bands already on ' +
+                'screen keep the statistic they were built with until you re-run it.'
+              }
+              testid="geotech-statistic-menu"
+              items={geotechStatisticMenuItems}
+            />
+          ),
+        },
+
+        /* THE FOUR-STEP PIPELINE, folded into one dropdown (owner dogfeed
+            2026-08-05 — the four inline buttons crowded the bar, debt #23).
+            The pending chip stays OUTSIDE the menu: it is the number step 4
+            is gated on and must be visible without opening anything. Gate
+            info that used to live in hover tooltips moves onto visible tag
+            pills — a disabled menu item cannot show a title in Chromium.
+
+            'high' — this IS the geotech stage's work. It is the last control
+            on this bar to give up its label. */
+        {
+          id: 'geotech-pipeline',
+          priority: 'high',
+          kind: 'dropdown',
+          label: geotechPipelineLabel,
+          overflowItems: geotechPipelineMenuItems,
+          render: p => (
+            <ToolbarDropdown
+              iconOnly={p === 'icon'}
+              icon={<SplitSquareVertical size={13} />}
+              label={geotechPipelineLabel}
+              title={
+                'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, ' +
+                '3 review and accept them, 4 divide the boreholes. All four act on ' +
+                'the section you have open and leave every other section as it is, ' +
+                'so you can finish one cross-section while the next still has ' +
+                'proposals waiting. Step 4 stays locked until this section’s ties ' +
+                'are all accepted or deleted.'
+              }
+              testid="geotech-pipeline"
+              items={geotechPipelineMenuItems}
+            />
+          ),
+        },
+
+        /* The pending chip — OUTSIDE the pipeline menu on purpose: it is the
+            number step 4 is gated on and must be visible without opening
+            anything. 'high' + never an icon and never folded (empty
+            overflowItems): a count that is only visible after two clicks is
+            not a gate read-out any more. It renders only while a tie is
+            actually pending, so it is never standing weight. */
+        ...(tieStatus.loaded && tieStatus.pending > 0
+          ? [
+              {
+                id: 'geotech-pending-tie-chip',
+                priority: 'high' as const,
+                kind: 'custom' as const,
+                label: pendingChipLabel(pendingScope),
+                iconOnly: false,
+                widthPx: {
+                  full:
+                    PENDING_CHIP_BASE_PX +
+                    pendingChipLabel(pendingScope).length *
+                      DEFAULT_TOOLBAR_METRICS.charAdvancePx,
+                },
+                overflowItems: [],
+                render: () => (
+                  <PendingTieChip
+                    label={pendingChipLabel(pendingScope)}
+                    title={pendingChipTitle(pendingScope, tieStatus.accepted)}
+                    // Interactive only where this section HAS a pending tie to
+                    // find. With the count scoped elsewhere in the model (the
+                    // "0 pending here" case) there is nothing on this canvas to
+                    // centre, so the chip stays the plain label it has always been.
+                    onReveal={
+                      pendingScope.sectionPending === null || pendingScope.sectionPending > 0
+                        ? handleRevealPendingTie
+                        : undefined
+                    }
+                  />
+                ),
+              },
+            ]
+          : []),
+
+        /* The hatched-ghost legend + clamped-band notice moved to the
+            right-hand inspector (owner dogfeed 2026-08-05) — prose was
+            overflowing the toolbar. See SectionsInspector's Borehole
+            preview section. */
+        /* "Correlate packing" — manual same-class/same-body packing connection.
+            Reuses the litho correlate state machine (correlateMode) on the geotech
+            axis so clicking a packing band arms a source; clicking a neighbour's
+            same-class-same-body band connects them. Right-click a connection to
+            disconnect (Disconnect verb in the correlation-edge context menu).
+            Gated on activeGeotechModel: the geotech model must exist (i.e. the
+            user has run "Subdivide all bodies" at least once) for there to be
+            packing bands to correlate.
+
+            'high', never icon-only: like the litho Correlate, the label is the
+            mode read-out ("Correlate · click 2 bands"). */
+        {
+          id: 'geotech-correlate-packing',
+          priority: 'high',
+          kind: 'button',
+          label: correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing',
+          iconOnly: false,
+          overflowItems: [
+            {
+              icon: <GitMerge size={12} />,
+              label: correlateMode
+                ? 'Exit packing-correlate mode'
+                : 'Correlate packing by hand',
+              onClick: () => (correlateMode ? exitCorrelateMode() : enterCorrelateMode()),
+              disabled: activeGeotechModel === null && !correlateMode,
+            },
+          ],
+          render: () => (
+            <ToolbarButton
+              icon={<GitMerge size={13} />}
+              label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing'}
+              onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
+              // Keep clickable while correlateMode is on so the user can exit even
+              // when no packing contacts exist on the section (mirrors litho CT8).
+              disabled={activeGeotechModel === null && !correlateMode}
+              title={
+                activeGeotechModel === null
+                  ? 'Run “1 · Subdivide CPTs” first to create packing bands'
+                  : correlateMode
+                    ? 'Exit packing-correlate mode (Esc)'
+                    : 'Connect same-class packing bands across investigations within the same litho body — the hand correlation the pipeline’s step 2 automates'
+              }
+              amber={correlateMode}
+              testid="geotech-correlate-packing"
+            />
+          ),
+        },
+
+        /* View toggles folded into one Display dropdown (owner dogfeed
+            2026-08-05 — two standing toggle buttons were toolbar weight for
+            verbs used occasionally). Same testids, same behaviour.
+
+            'medium' — pure view state; hiding it costs the engineer a click,
+            never a step of the pipeline. */
+        {
+          id: 'geotech-display-menu',
+          priority: 'medium',
+          kind: 'dropdown',
+          label: 'Display',
+          overflowItems: geotechDisplayMenuItems,
+          render: p => (
+            <ToolbarDropdown
+              iconOnly={p === 'icon'}
+              icon={<Eye size={13} />}
+              label="Display"
+              title="Show or hide layers of the section view"
+              testid="geotech-display-menu"
+              items={geotechDisplayMenuItems}
+            />
+          ),
+        },
+      ]
+
+  // -- Verbs shared by every axis -------------------------------------------
+
+  const tieSectionsLabel =
+    suggestedTies.length > 0 ? 'Clear tie suggestions' : 'Suggest tie-sections'
+
+  const tieSectionsMenuItems: ToolbarDropdownItem[] = [
           {
             icon: <Sparkles size={13} />,
             label: acceptingAllTies ? 'Accepting…' : 'Accept all ties',
@@ -2049,50 +2358,9 @@ export default function SectionsToolbar(): JSX.Element {
                   : 'Create a cross-section for every proposed tie',
             testid: 'tie-accept-all',
           },
-        ]}
-      />
+        ]
 
-      {/* Separator — visually groups the entry action from the
-          section-scoped destructive verb */}
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-
-      {/* Delete section — only active when one is selected */}
-      <ToolbarButton
-        icon={<Trash2 size={13} />}
-        label={deleting ? 'Deleting…' : 'Delete'}
-        onClick={handleDelete}
-        disabled={!hasSection || deleting}
-        busy={deleting}
-        danger
-        title={
-          !hasSection
-            ? 'Select a cross-section to delete it'
-            : deleting
-              ? 'Deleting…'
-              : `Delete "${selectedSection.name}"`
-        }
-      />
-
-      {/* Separator */}
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-
-      {/* Debt #93: Export DXF + Plaxis 3D collapsed under one "Export ▾"
-          dropdown to declutter the main toolbar.  Both verbs are still
-          one click away (trigger + item) but the toolbar no longer
-          dedicates two slots to them.  The trigger disables when
-          neither item would be reachable. */}
-      <ToolbarDropdown
-        icon={<FileOutput size={13} />}
-        label="Export"
-        disabled={
-          (!hasSection || !hasModel || exportingDxf) &&
-          (geoVerbDisabled || exportingPlaxis)
-        }
-        title={
-          exportingDxf || exportingPlaxis ? 'Exporting…' : 'Export the model or this section'
-        }
-        testid="sections-toolbar-export-dropdown"
-        items={[
+  const exportMenuItems: ToolbarDropdownItem[] = [
           {
             label: exportingDxf ? 'Exporting DXF…' : 'Section DXF',
             icon: <FileOutput size={12} />,
@@ -2138,29 +2406,227 @@ export default function SectionsToolbar(): JSX.Element {
                     : `Generate a PDF report of this section's ${axisLevelLabel} model`,
             testid: 'export-section-pdf',
           },
-        ]}
-      />
-      {/* Manual body-identity recompute (slice 5) — acts on the ACTIVE axis's
-          model (litho / geotech). The debounced background recompute usually
-          keeps identity current; this is the explicit "do it now" escape hatch
-          (and the one path that toasts recompute errors). */}
-      {(isLitho || isGeotech) && (
-        <ToolbarButton
-          icon={<RefreshCw size={13} />}
-          label={recomputingBodies ? 'Recomputing…' : 'Recompute bodies'}
-          onClick={() => void handleRecomputeBodies()}
-          disabled={recomputeModelId === null || recomputingBodies}
-          busy={recomputingBodies}
+        ]
+
+  const recomputeTitle =
+    recomputeModelId === null
+      ? `No active ${isGeotech ? 'geotech' : 'lithostratigraphic'} model to recompute`
+      : recomputingBodies
+        ? 'Recomputing…'
+        : 'Re-derive the persisted geometric body identity from the current sections now'
+
+  const tailItems: ToolbarItemSpec[] = [
+    /* New cross-section — primary entry action, visually distinct from
+        the secondary verbs so first-time users can find it immediately.
+        Accent-filled button separates it from the grey text-only verbs
+        that follow.
+
+        'high' — the one verb a user with an empty project needs to find,
+        and the accent fill is the toolbar's single strongest signal. */
+    {
+      id: 'sections-new',
+      priority: 'high',
+      kind: 'button',
+      label: creating ? 'Creating…' : 'New cross-section',
+      separatorBefore: true,
+      overflowItems: [
+        {
+          label: 'New cross-section',
+          icon: <Plus size={12} />,
+          onClick: handleNew,
+          disabled: !canCreate || creating,
+          title: crsBlockReason ?? undefined,
+        },
+      ],
+      render: p => (
+        <PrimaryToolbarButton
+          iconOnly={p === 'icon'}
+          icon={<Plus size={13} />}
+          label={creating ? 'Creating…' : 'New cross-section'}
+          onClick={handleNew}
+          disabled={!canCreate || creating}
+          busy={creating}
           title={
-            recomputeModelId === null
-              ? `No active ${isGeotech ? 'geotech' : 'lithostratigraphic'} model to recompute`
-              : recomputingBodies
-                ? 'Recomputing…'
-                : 'Re-derive the persisted geometric body identity from the current sections now'
+            crsBlockReason !== null
+              ? crsBlockReason
+              : creating
+                ? 'Creating…'
+                : 'Create a new cross-section (placeholder endpoints)'
           }
-          testid="sections-recompute-bodies"
         />
-      )}
+      ),
+    },
+
+    /* Tie-sections collapsed into one SplitToolbarButton (dogfeed
+        2026-06-10). Primary = Suggest ↔ Clear toggle (amber while ghosts
+        are pending so the user always sees there are suggestions to act
+        on, and always has a visible way to dismiss them). Caret =
+        Accept all ties. Three verbs → one toolbar slot, mirroring the
+        correlation triad.
+
+        'medium' — run once per project layout, not per section. */
+    {
+      id: 'suggest-tie-sections',
+      priority: 'medium',
+      kind: 'split',
+      label: tieSectionsLabel,
+      overflowItems: [
+        {
+          icon: <Network size={12} />,
+          label: tieSectionsLabel,
+          onClick: () =>
+            suggestedTies.length > 0
+              ? handleClearTieSuggestions()
+              : handleSuggestTies(visibleCpts, visibleBoreholes),
+          disabled: sections.length < 2,
+        },
+        ...tieSectionsMenuItems,
+      ],
+      render: p => (
+        <SplitToolbarButton
+          iconOnly={p === 'icon'}
+          icon={<Network size={13} />}
+          label={tieSectionsLabel}
+          onClick={() =>
+            suggestedTies.length > 0
+              ? handleClearTieSuggestions()
+              : handleSuggestTies(visibleCpts, visibleBoreholes)
+          }
+          disabled={sections.length < 2}
+          title={
+            sections.length < 2
+              ? 'Need at least 2 sections to tie together'
+              : suggestedTies.length > 0
+                ? 'Clear the current tie-section suggestions'
+                : 'Suggest perpendicular connector sections between existing sections (no crossings, no shared tests)'
+          }
+          amber={suggestedTies.length > 0}
+          testid="suggest-tie-sections"
+          items={tieSectionsMenuItems}
+        />
+      ),
+    },
+
+    /* Delete section — only active when one is selected.
+        ``iconOnly: false`` per docs/ux.md: a bare trash icon is not an
+        acceptable presentation for an irreversible verb — a mis-click costs
+        the user a cross-section and every contact placed on it. It keeps its
+        label, or becomes the fully-spelled "Delete cross-section" menu row. */
+    {
+      id: 'sections-delete',
+      priority: 'medium',
+      kind: 'button',
+      label: deleting ? 'Deleting…' : 'Delete',
+      iconOnly: false,
+      separatorBefore: true,
+      overflowItems: [
+        {
+          label: 'Delete cross-section…',
+          icon: <Trash2 size={12} />,
+          onClick: handleDelete,
+          disabled: !hasSection || deleting,
+          title: hasSection
+            ? `Delete "${selectedSection.name}" — asks for confirmation first`
+            : 'Select a cross-section to delete it',
+        },
+      ],
+      render: () => (
+        <ToolbarButton
+          icon={<Trash2 size={13} />}
+          label={deleting ? 'Deleting…' : 'Delete'}
+          onClick={handleDelete}
+          disabled={!hasSection || deleting}
+          busy={deleting}
+          danger
+          title={
+            !hasSection
+              ? 'Select a cross-section to delete it'
+              : deleting
+                ? 'Deleting…'
+                : `Delete "${selectedSection.name}"`
+          }
+        />
+      ),
+    },
+
+    /* Debt #93: Export DXF + Plaxis 3D collapsed under one "Export ▾"
+        dropdown to declutter the main toolbar.  Both verbs are still
+        one click away (trigger + item) but the toolbar no longer
+        dedicates two slots to them.  The trigger disables when
+        neither item would be reachable.
+
+        'medium' — the deliverable step, run at the end of a session. */
+    {
+      id: 'sections-toolbar-export-dropdown',
+      priority: 'medium',
+      kind: 'dropdown',
+      label: 'Export',
+      separatorBefore: true,
+      overflowItems: exportMenuItems,
+      render: p => (
+        <ToolbarDropdown
+          iconOnly={p === 'icon'}
+          icon={<FileOutput size={13} />}
+          label="Export"
+          disabled={
+            (!hasSection || !hasModel || exportingDxf) && (geoVerbDisabled || exportingPlaxis)
+          }
+          title={
+            exportingDxf || exportingPlaxis ? 'Exporting…' : 'Export the model or this section'
+          }
+          testid="sections-toolbar-export-dropdown"
+          items={exportMenuItems}
+        />
+      ),
+    },
+
+    /* Manual body-identity recompute (slice 5) — acts on the ACTIVE axis's
+        model (litho / geotech). The debounced background recompute usually
+        keeps identity current; this is the explicit "do it now" escape hatch
+        (and the one path that toasts recompute errors).
+
+        'low' — an escape hatch for a job that normally runs itself. It is the
+        first control on the whole bar to give up its label, and the first to
+        fold into ⋯ More. */
+    ...(isLitho || isGeotech
+      ? [
+          {
+            id: 'sections-recompute-bodies',
+            priority: 'low' as const,
+            kind: 'button' as const,
+            label: recomputingBodies ? 'Recomputing…' : 'Recompute bodies',
+            overflowItems: [
+              {
+                label: 'Recompute bodies',
+                icon: <RefreshCw size={12} />,
+                onClick: () => void handleRecomputeBodies(),
+                disabled: recomputeModelId === null || recomputingBodies,
+                title: recomputeTitle,
+              },
+            ],
+            render: (p: 'full' | 'compact' | 'icon') => (
+              <ToolbarButton
+                iconOnly={p === 'icon'}
+                icon={<RefreshCw size={13} />}
+                label={recomputingBodies ? 'Recomputing…' : 'Recompute bodies'}
+                onClick={() => void handleRecomputeBodies()}
+                disabled={recomputeModelId === null || recomputingBodies}
+                busy={recomputingBodies}
+                title={recomputeTitle}
+                testid="sections-recompute-bodies"
+              />
+            ),
+          },
+        ]
+      : []),
+  ]
+
+  return (
+    <>
+      <ResponsiveToolbarRow
+        items={[...headItems, ...lithoItems, ...geotechItems, ...tailItems]}
+        overflowMenuLabel="More section actions"
+      />
       <ReportMetadataDialog
         open={pdfDialogOpen}
         defaultTitle={pdfDefaultTitle}
@@ -2345,6 +2811,6 @@ export default function SectionsToolbar(): JSX.Element {
           testid: 'reset-manual-points-confirm',
         }}
       />
-    </div>
+    </>
   )
 }
