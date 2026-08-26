@@ -14,17 +14,20 @@ export interface GeotechSubdivisionPrefs {
   /** Max distance a boundary may snap. Range 0.1–2.0 m. Default 0.5. */
   gradientSnapWindowM: number
   /**
-   * Geotech geo↔litho snap tolerance, m. A geological surface crossing a litho
-   * unit within this distance of a litho contact snaps to the contact instead
-   * of dividing it (no sliver). Range 0.01–2.0 m. Default 0.30.
+   * Geotech geo↔litho snap tolerance, m. Range 0.01–2.0 m. Default 0.30.
    *
-   * Read by the BACKEND planner (``DivideBoreholes.plan`` /
-   * ``SubdivideAllBodies`` via ``_read_geotech_snap_tolerance_m``), which is
-   * why it is mirrored here even though no settings control edits it yet: the
-   * patch below overwrites the whole ``geotech_subdivision`` bag, so a key this
-   * module does not know about is silently dropped on the next prefs save —
-   * which would reset the planner's tolerance behind the engineer's back. It
-   * also lets the borehole packing preview refetch when the value changes.
+   * ⚠ INERT since 2026-08-26. It governed how close a geological surface had to
+   * be to a litho contact before the builders snapped to the contact rather
+   * than DIVIDING the unit there. The owner dropped that division entirely
+   * (*"just drop the wall everywhere, user wil have to manually do it"*), so no
+   * backend reads this value any more — ``_read_geotech_snap_tolerance_m`` was
+   * deleted with it.
+   *
+   * Kept because the patch below overwrites the whole ``geotech_subdivision``
+   * bag, so dropping the field here would silently strip the key from every
+   * project's stored ``view_state`` on the next prefs save. No settings control
+   * has ever edited it. Delete the field and the key together, deliberately,
+   * when someone is willing to accept that rewrite.
    */
   lithoSnapToleranceM: number
 }
