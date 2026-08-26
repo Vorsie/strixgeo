@@ -140,7 +140,9 @@ class SetGeotechBandClass(GeotechBoreholeMaterialiser):
             nad_class=nad_class,
             source_litho_formation_id=context.source_litho_formation_id,
             # Live-first, so a hand edit heals a stale build-time stamp on touch.
-            source_geo_formation_id=geo_parent_for_interval(context, band.depth_top_m),
+            source_geo_formation_id=geo_parent_for_interval(
+                context, band.depth_top_m, band.depth_base_m
+            ),
         )
         target.formation_id = formation.id
         # The class is the engineer's own statement now — provenance must say
