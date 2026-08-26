@@ -1,18 +1,19 @@
-// Behavioral net for GeotechnicalCanvas (F4 bootstrap requirement).
+// Behavioral net for GeotechnicalCanvas — the 3D-only geotech room
+// (owner ruling 2026-08-26: the 2D ⟷ 3D pill is retired, the 2D geotech band
+// view lives on the Sections stage axis picker).
 //
 // Claims pinned here:
 //   GC1  When activeLithoModel is null → EmptyState renders with the hint
 //        directing the user to the Lithology stage.
-//   GC2  When activeLithoModel is present (even if activeGeotechModel is
-//        null) → SectionsCanvas renders; EmptyState does NOT render.
-//        This is the F4 bootstrap requirement: the "Subdivide all bodies"
-//        verb must be reachable BEFORE any geotech model exists.
-//   GC3  On mount the canvas calls setSectionModelAxis('geotechnical') when
-//        the current axis is NOT already 'geotechnical'.
-//   GC4  setSectionModelAxis is NOT called when axis is already 'geotechnical'
-//        (idempotency guard).
+//   GC2  Litho model present but no built geotech solids → the guided Build
+//        empty state renders (mirrors the litho stage's hasLithoSolids gate);
+//        the 3D viewer does not.
+//   GC3  Litho model + built solids → the 3D viewer renders IMMEDIATELY, with
+//        no dimension toggle to click first, fed NAD-coloured formations.
+//   GC4  The stage never opens the 2D section surface and never mutates the
+//        shared section axis — the retired pill's two side-effects.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -22,8 +23,10 @@ import { nadClassColor } from '../../../utils/nadClasses'
 import GeotechnicalCanvas from './GeotechnicalCanvas'
 
 // ---------------------------------------------------------------------------
-// Module mocks — SectionsCanvas imports Leaflet + fetch hooks; mock it
-// as a sentinel so jsdom does not need WebGL or network.
+// Module mocks — the canvas no longer imports SectionsCanvas (the 2D half is
+// retired), but the sentinel stays mocked so GC4's "the 2D surface never opens
+// here" assertion keeps its teeth if someone re-imports it: a real
+// SectionsCanvas would drag Leaflet + fetch into jsdom and fail loudly.
 // ---------------------------------------------------------------------------
 
 vi.mock('../sections/SectionsCanvas', () => ({
@@ -432,62 +435,28 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('GeotechnicalCanvas (F4 bootstrap requirement)', () => {
+describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
   it('GC1 — no litho model: EmptyState renders with the Lithology-stage hint', () => {
     renderCanvas(makeCtx({ activeLithoModel: null }))
     // EmptyState title
     expect(screen.getByText('No lithostratigraphic model yet')).toBeTruthy()
-    // SectionsCanvas sentinel must be absent
-    expect(screen.queryByTestId('sections-canvas')).toBeNull()
+    expect(screen.queryByTestId('geology-3d-viewer')).toBeNull()
   })
 
-  it('GC2 — litho model present, no geotech model: SectionsCanvas renders (bootstrap path)', () => {
+  it('GC2 — litho model but nothing built: the guided Build empty state, not the viewer', () => {
     // activeGeotechModel is null by default in makeCtx — the canvas must NOT
-    // gate on it; the "Subdivide all bodies" verb must be reachable here.
-    renderCanvas(makeCtx({ activeLithoModel: makeLithoModel() }))
-    expect(screen.getByTestId('sections-canvas')).toBeTruthy()
-    expect(screen.queryByText('No lithostratigraphic model yet')).toBeNull()
-  })
-
-  it('GC3 — on mount calls setSectionModelAxis("geotechnical") when axis is not yet geotech', () => {
-    const setSectionModelAxis = vi.fn()
-    renderCanvas(
-      makeCtx({
-        activeLithoModel: makeLithoModel(),
-        sectionModelAxis: 'geological',
-        setSectionModelAxis,
-      }),
-    )
-    expect(setSectionModelAxis).toHaveBeenCalledWith('geotechnical')
-  })
-
-  it('GC4 — does NOT call setSectionModelAxis when axis is already "geotechnical"', () => {
-    const setSectionModelAxis = vi.fn()
-    renderCanvas(
-      makeCtx({
-        activeLithoModel: makeLithoModel(),
-        sectionModelAxis: 'geotechnical',
-        setSectionModelAxis,
-      }),
-    )
-    expect(setSectionModelAxis).not.toHaveBeenCalled()
-  })
-
-  it('GC5 — toggling to 3D with no built solids shows the Build hint, not the viewer', () => {
+    // gate on it; the user who still has to run "Subdivide all bodies" gets
+    // the Build hint, not a blank stage.
     renderCanvas(makeCtx({ activeLithoModel: makeLithoModel(), hasGeotechSolids: false }))
-    // 2D is the default — SectionsCanvas renders.
-    expect(screen.getByTestId('sections-canvas')).toBeTruthy()
-    fireEvent.click(screen.getByTestId('geotech-view-3d'))
-    // No solids yet → guided Build hint, not the 3D viewer.
     expect(screen.getByText('No geotech body model yet')).toBeTruthy()
     expect(screen.queryByTestId('geology-3d-viewer')).toBeNull()
-    expect(screen.queryByTestId('sections-canvas')).toBeNull()
   })
 
-  it('GC6 — toggling to 3D with built solids renders the viewer fed NAD-coloured formations', () => {
+  it('GC3 — built solids: the 3D viewer renders straight away, NAD-coloured', () => {
     // A geotech formation stores its inherited LITHOLOGY colour (#123456); the
     // 3D pane must recolour it by NAD class (nadColoredFormations) before
     // handing it to the viewer — proving the geotech NAD-colour seam is wired.
+    // No dimension toggle is clicked first: the stage IS the 3D room.
     const geotechFormations = [{ id: 'g-1', nad_class: 6, color: '#123456' }]
     const geotechSolids = [{ body_id: 'b-1', is_flagged: false }]
     renderCanvas(
@@ -498,7 +467,6 @@ describe('GeotechnicalCanvas (F4 bootstrap requirement)', () => {
         geotechFormations,
       }),
     )
-    fireEvent.click(screen.getByTestId('geotech-view-3d'))
     const viewer = screen.getByTestId('geology-3d-viewer')
     expect(viewer).toBeTruthy()
     // bodySolids forwarded.
@@ -506,5 +474,28 @@ describe('GeotechnicalCanvas (F4 bootstrap requirement)', () => {
     // Formation colour is the NAD-class colour, NOT the inherited litho colour.
     expect(viewer.getAttribute('data-first-formation-color')).toBe(nadClassColor(6))
     expect(viewer.getAttribute('data-first-formation-color')).not.toBe('#123456')
+  })
+
+  it('GC4 — never opens the 2D section surface and never mutates the section axis', () => {
+    // The retired pill did both: it rendered SectionsCanvas in its 2D half and
+    // forced sectionModelAxis to 'geotechnical' on mount. A stage that no
+    // longer owns the 2D view must not reach across and reprogram the Sections
+    // stage's axis picker behind the user's back.
+    const setSectionModelAxis = vi.fn()
+    renderCanvas(
+      makeCtx({
+        activeLithoModel: makeLithoModel(),
+        hasGeotechSolids: true,
+        geotechSolids: [{ body_id: 'b-1', is_flagged: false }],
+        geotechFormations: [{ id: 'g-1', nad_class: 6, color: '#123456' }],
+        sectionModelAxis: 'geological',
+        setSectionModelAxis,
+      }),
+    )
+    expect(setSectionModelAxis).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('sections-canvas')).toBeNull()
+    // The dimension pill itself is gone.
+    expect(screen.queryByTestId('geotech-view-2d')).toBeNull()
+    expect(screen.queryByTestId('geotech-view-3d')).toBeNull()
   })
 })
