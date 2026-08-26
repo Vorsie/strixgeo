@@ -94,8 +94,10 @@ from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import
 from groundmodel.domain.services.voxel_litho.true_column_positions import (
     apply_true_column_positions,
 )
+from groundmodel.domain.services.voxel_litho.voxel_constants import HAIRLINE_LIMIT_M
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
+    LabelReport,
     SectionPartitionInput,
 )
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
@@ -751,6 +753,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"{len(grid.gx)}x{len(grid.gy)}x{len(grid.gz)} grid, "
                 f"{len(grid.body_id_by_index)} body slots"
             )
+            self._report_label_anomalies(model_id, grid.report)
 
             # Phase 3: extract the greedy-meshed watertight per-body solids. Inside
             # the same lock as phase 2 — it holds the label grid AND the mesher's
@@ -849,6 +852,67 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             marked_test_ids=[],
             uncovered_test_ids=uncovered,
         )
+
+    def _report_label_anomalies(self, model_id: UUID, report: LabelReport) -> None:
+        """Say out loud what the labeller had to paper over.
+
+        ``label_voxels`` is a pure domain function with no logger of its own, so
+        every structural anomaly it meets rides out on its report and is voiced
+        here.  Four of them are otherwise invisible: a closed void looks like a
+        contact, a truncated log looks like a shallow one, a rescued column looks
+        like any other column, and a void column looks like ground outside the
+        model.  The owner's standing ruling is that the model is gapless and a hole
+        is never silent — this is where that is honoured.
+
+        Aggregate counts only, never per-column lines: the worst site alone is hit
+        by 2 415 grid columns on the real model, and 2 415 identical WARNINGs would
+        bury every other line in the build log.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model being built (for the log line).
+        report : LabelReport
+            The labeller's anomaly counters.
+        """
+        if report.beyond_void_columns:
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — {report.beyond_void_columns} "
+                "voxel column(s) INSIDE the footprint could not be filled by any "
+                "section; they are holes in the 3-D model. The partition says nothing "
+                "at those positions — correlate across the gap, or extend a section."
+            )
+        if report.layout_closed_voids:
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — the two-section blend closed "
+                f"an interior 2-D void on {report.layout_closed_voids} column(s); worst "
+                f"{report.layout_closed_worst_m * 1000:.1f} mm at "
+                f"{report.layout_closed_worst_site}. Everything below such a void is laid "
+                "out that much shallower than the partition drew it (docs/debt.md #268)."
+            )
+        if report.hairline_gaps_over_limit:
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — "
+                f"{report.hairline_gaps_over_limit} column stack(s) carry an interior gap "
+                f"over {HAIRLINE_LIMIT_M * 1000:.0f} mm (worst "
+                f"{report.hairline_worst_m * 1000:.1f} mm); too tall to be the 2-D "
+                "engine's millimetre snapping, so those voxels are genuinely unlabelled."
+            )
+        for investigation_id, metres in report.logs_below_grid_floor:
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — {investigation_id} logs "
+                f"{metres:.2f} m below the grid floor and is TRUNCATED there. The grid's "
+                "elevation range comes from the section polygons, so a log deeper than "
+                "every section has no voxel to land in."
+            )
+        if report.beyond_fallthrough_columns or report.projection_tie_rescues:
+            self.debug(
+                f"BuildVoxelLithoModel: model={model_id} — "
+                f"{report.beyond_fallthrough_columns} column(s) beyond the sections were "
+                f"filled by a section that is not the nearest, and "
+                f"{report.projection_tie_rescues} equidistant gap contest(s) went to the "
+                "gap carrying material"
+            )
 
     def _warn_sub_voxel_investigations(
         self,
