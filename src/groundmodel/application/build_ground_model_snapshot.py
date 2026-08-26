@@ -209,6 +209,13 @@ class BuildGroundModelSnapshot(GroundModelLogger):
                     code=f.code,
                     display_order=f.display_order,
                     color=f.color,
+                    # Three-level unit identifiers (debt #104). NULL on a
+                    # geological formation; the exporters read the null as
+                    # "no machine identifier" and keep their display-name-
+                    # only naming for that level.
+                    nad_class=f.nad_class,
+                    litho_main_soil_code=f.litho_main_soil_code,
+                    formation_id=f.id,
                 )
             )
         # Sort by display_order then name for stable output. Plaxis
