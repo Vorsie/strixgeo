@@ -155,7 +155,11 @@ export interface UseGeotechBandEditResult {
    * whose re-derived outcome the engineer cannot see coming. Here the outcome
    * IS the choice.
    */
-  onRequestSetBandClass?: (bandId: string, nadClass: number, previousClass: number) => void
+  onRequestSetBandClass?: (
+    bandId: string,
+    nadClass: number,
+    previousClass: number | null,
+  ) => void
   /**
    * Clear ONE test's subdivision (owner ask 2026-08-18) — the escape hatch of
    * first-subdivision-wins: the pipeline presses import already-banded
@@ -338,9 +342,12 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
   )
 
   const onRequestSetBandClass = useCallback(
-    (bandId: string, nadClass: number, previousClass: number): void => {
+    (bandId: string, nadClass: number, previousClass: number | null): void => {
       if (modelId === null) return
-      log.info('section', `band-set-class: band=${bandId} ${previousClass} → ${nadClass}`)
+      log.info(
+        'section',
+        `band-set-class: band=${bandId} ${previousClass ?? 'unclassified'} → ${nadClass}`,
+      )
       setBusy(true)
       // Write + view fan-out, shared by the first commit and both undo
       // closures. Deliberately NOT settleAfterWrite: its markBoreholesStale
@@ -359,15 +366,24 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
       }
       void commit(nadClass)
         .then(flagged => {
-          undoStack.push({
-            description: 'Set packing class',
-            revert: async () => {
-              await commit(previousClass)
-            },
-            reapply: async () => {
-              await commit(nadClass)
-            },
-          })
+          // Undo restores the class the band had. A band that had NONE — the
+          // state the soil-family clamp leaves where the only evidence belonged
+          // to another soil — cannot be restored: ``set-class`` takes a class,
+          // and there is no verb that un-classifies a band. Pushing an entry
+          // that quietly reverted to some other class would be worse than
+          // having no entry, so the first classification of a band is not
+          // undoable (a re-divide, or another hand class, is the way back).
+          if (previousClass !== null) {
+            undoStack.push({
+              description: 'Set packing class',
+              revert: async () => {
+                await commit(previousClass)
+              },
+              reapply: async () => {
+                await commit(nadClass)
+              },
+            })
+          }
           toast(
             'success',
             flagged === 0
