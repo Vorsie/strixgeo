@@ -18,6 +18,10 @@
 //         flips the LITHO switch only. Control: the litho axis is unchanged.
 //   GMT5  The geotech menu offers exactly one model-fill item — the litho item
 //         is not duplicated onto this axis.
+//   GMT6  The model fill sits DIRECTLY BESIDE the fill he always had. Owner,
+//         dogfeed 2026-08-26: "i want to keep the old show fill and wanted a
+//         new model fill next to it" — the two are siblings in one menu, read
+//         as a pair, and picking between them is the whole gesture.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -77,7 +81,9 @@ function openViewMenu(axis: 'geotech' | 'litho'): void {
 
 beforeEach(() => {
   // Both stores are module-global; start every case from the shipped default.
-  setGeotechModelFill(true)
+  // They differ on purpose: the litho model fill has always been on, the geotech
+  // one arrives off so it cannot displace the packing fill on reload (GMF1).
+  setGeotechModelFill(false)
   setFormationFill(true)
 })
 
@@ -92,11 +98,11 @@ describe('SectionsToolbar — the built model on the geotech axis', () => {
     openViewMenu('geotech')
 
     fireEvent.click(screen.getByTestId('geotech-toggle-model-fill'))
-    expect(getGeotechModelFillVisible()).toBe(false)
+    expect(getGeotechModelFillVisible()).toBe(true)
 
     openViewMenu('geotech')
     fireEvent.click(screen.getByTestId('geotech-toggle-model-fill'))
-    expect(getGeotechModelFillVisible()).toBe(true)
+    expect(getGeotechModelFillVisible()).toBe(false)
   })
 
   it('GMT2: flipping it leaves the litho axis’s own switch alone', () => {
@@ -112,12 +118,12 @@ describe('SectionsToolbar — the built model on the geotech axis', () => {
     renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
     openViewMenu('geotech')
 
-    // Default is ON, so the item offers to hide.
-    expect(screen.getByTestId('geotech-toggle-model-fill').textContent).toMatch(/hide model fill/i)
+    // Default is OFF, so the item offers to show.
+    expect(screen.getByTestId('geotech-toggle-model-fill').textContent).toMatch(/show model fill/i)
 
     fireEvent.click(screen.getByTestId('geotech-toggle-model-fill'))
     openViewMenu('geotech')
-    expect(screen.getByTestId('geotech-toggle-model-fill').textContent).toMatch(/show model fill/i)
+    expect(screen.getByTestId('geotech-toggle-model-fill').textContent).toMatch(/hide model fill/i)
   })
 
   it('GMT4: the litho Bodies menu still flips the LITHO model fill only', () => {
@@ -127,7 +133,7 @@ describe('SectionsToolbar — the built model on the geotech axis', () => {
     fireEvent.click(screen.getByTestId('litho-toggle-model-fill'))
 
     expect(getFormationFillVisible()).toBe(false)
-    expect(getGeotechModelFillVisible()).toBe(true)
+    expect(getGeotechModelFillVisible()).toBe(false)
   })
 
   it('GMT5: the geotech menu carries no second, litho-labelled model-fill item', () => {
@@ -135,5 +141,20 @@ describe('SectionsToolbar — the built model on the geotech axis', () => {
     openViewMenu('geotech')
 
     expect(screen.queryByTestId('litho-toggle-model-fill')).toBeNull()
+  })
+
+  it('GMT6: the model fill sits directly beside the fill he always had', () => {
+    renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
+    openViewMenu('geotech')
+
+    const order = Array.from(document.querySelectorAll('[data-testid^="geotech-toggle-"]')).map(el =>
+      el.getAttribute('data-testid'),
+    )
+
+    // Both are on the menu at once — neither replaced the other.
+    expect(order).toContain('geotech-toggle-fill')
+    expect(order).toContain('geotech-toggle-model-fill')
+    // And nothing sits between them: they read as one pair to pick from.
+    expect(order.indexOf('geotech-toggle-model-fill')).toBe(order.indexOf('geotech-toggle-fill') + 1)
   })
 })
