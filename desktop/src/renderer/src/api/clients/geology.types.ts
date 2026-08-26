@@ -1110,6 +1110,14 @@ export interface DivideBoreholeResponse {
    * response from a backend that predates the field still parses.
    */
   superseded_jump_tie_count?: number
+  /**
+   * Accepted CPT↔CPT ties Phase 8.6 auto-deleted because they still crossed a
+   * borehole's banded range after the split and no hop could be made (owner
+   * ruling 2026-08-24: "if no hops can be made, you just auto delete the
+   * crossing correlation"). Optional so a response from a backend that
+   * predates the field still parses.
+   */
+  deleted_crossing_span_count?: number
 }
 
 /**
