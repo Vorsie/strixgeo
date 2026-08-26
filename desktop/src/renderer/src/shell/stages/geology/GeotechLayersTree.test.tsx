@@ -30,6 +30,10 @@ function makeTree() {
     [
       { body_id: 'b1', formation_id: 's1', body_ordinal: 0, triangles: [[0, 1, 2]] },
       { body_id: 'b2', formation_id: 's3', body_ordinal: 0, triangles: [[0, 1, 2]] },
+      // The unclassified CLAY unit is BUILT: since 2026-08-26 the builder lists
+      // only what the scene paints, so a skeleton with no solid would not reach
+      // this component at all and TR8 would be pinning an unreachable row.
+      { body_id: 'b3', formation_id: 'c1', body_ordinal: 0, triangles: [[0, 1, 2]] },
     ],
   )
 }
@@ -139,13 +143,53 @@ describe('GeotechLayersTree', () => {
     expect(nadClassColor(null)).toBe('#9ca3af')
   })
 
-  it('TR9 — a family with no bodies built yet still lists its classes', () => {
-    // Fence mode and the pre-Build state both have zero solids; the legend must
-    // still describe the model rather than emptying out.
-    renderTree()
+  it('TR9 — a unit with nothing built has no row to reach', () => {
+    // REPLACES 'a family with no bodies built yet still lists its classes'.
+    // Owner, dogfeed 2026-08-26: "why are there suboptions like this ... not yet
+    // classified?" A row the scene paints nothing for is noise; the builder now
+    // drops it, so the component never sees it.
+    render(
+      <GeotechLayersTree
+        tree={buildGeotechLegendTree(
+          [
+            { id: 's1', name: 'ZAND (geotech)', color: '#000', nad_class: 6, litho_main_soil_code: 'ZAND' },
+            { id: 'c1', name: 'KLEI (geotech)', color: '#000', nad_class: null, litho_main_soil_code: 'KLEI' },
+          ],
+          [{ body_id: 'b1', formation_id: 's1', body_ordinal: 0, triangles: [[0, 1, 2]] }],
+        )}
+        hiddenFormationIds={new Set()}
+        hiddenBodyIds={new Set()}
+        onToggleFormations={vi.fn()}
+        onToggleBody={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('geotech-legend-family-ZAND')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-legend-family-KLEI')).toBeNull()
+  })
+
+  it('TR10 — in fence mode a walled band is a row, with nothing to expand', () => {
+    // Bands exist without solids, so the fence legend still has the family rows
+    // it needs to drive hiding — and a class with no built body has no caret,
+    // because there is no third level to open.
+    render(
+      <GeotechLayersTree
+        tree={buildGeotechLegendTree(
+          [
+            { id: 'c1', name: 'KLEI (geotech)', color: '#000', nad_class: 22, litho_main_soil_code: 'KLEI' },
+          ],
+          [],
+          [{ formationId: 'c1', triangles: [[0, 1, 2]] }],
+        )}
+        hiddenFormationIds={new Set()}
+        hiddenBodyIds={new Set()}
+        onToggleFormations={vi.fn()}
+        onToggleBody={vi.fn()}
+      />,
+    )
+
     fireEvent.click(screen.getByTestId('geotech-legend-caret-KLEI'))
-    expect(screen.getByTestId('geotech-legend-class-KLEI:none')).toBeTruthy()
-    // No caret on a class with no bodies — nothing to expand.
-    expect(screen.queryByTestId('geotech-legend-caret-KLEI:none')).toBeNull()
+    expect(screen.getByTestId('geotech-legend-class-KLEI:22')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-legend-caret-KLEI:22')).toBeNull()
   })
 })
