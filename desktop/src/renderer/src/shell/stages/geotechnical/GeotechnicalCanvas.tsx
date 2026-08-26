@@ -38,14 +38,16 @@ import { Box, Layers } from 'lucide-react'
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
 import Geology3DViewer from '../geology/Geology3DViewer'
-import type { VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import {
   useBody3DViewState,
   EMPTY_SURFACES_MAP,
 } from '../shared/useBody3DViewState'
 import { BodyViewModePills } from '../shared/BodyViewModePills'
-import { makeVoxelRequestBuilder } from '../shared/makeVoxelRequestBuilder'
+import {
+  makeVoxelRequestBuilder,
+  type VoxelRequestBuilder,
+} from '../shared/makeVoxelRequestBuilder'
 import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 
 // ---------------------------------------------------------------------------
@@ -83,10 +85,14 @@ export const resetGeotechSplitViewportCallback: React.MutableRefObject<
  * ``lithoVoxelRequestCallback``). Async because the geotech correlation edges
  * are section-scoped and fetched fresh at click time. Resolves to ``null`` when
  * there is nothing to build (no geotech model / no sections).
+ *
+ * It takes the set of investigations to IGNORE for this build — the Build
+ * pre-flight's "Build without them" arm (owner ruling 2026-08-26). Omitting the
+ * argument is the ordinary whole-model build.
  */
-export const geotechVoxelRequestCallback: React.MutableRefObject<
-  (() => Promise<VoxelBuildRequest | null>) | null
-> = { current: null }
+export const geotechVoxelRequestCallback: React.MutableRefObject<VoxelRequestBuilder | null> = {
+  current: null,
+}
 
 // ---------------------------------------------------------------------------
 // GeotechnicalCanvas
