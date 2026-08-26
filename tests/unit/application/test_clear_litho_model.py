@@ -61,19 +61,27 @@ def _make_execute_side_effects(
 
     The use case issues these ``session.execute`` calls in order:
 
-    1. SELECT DISTINCT formation_id for candidate litho formations.
-    2. DELETE LithoContactCorrelationEdge (edges-first, see use case).
-    3. DELETE FormationContact.
-    4. DELETE LithoLayer (Shape A — A4 cleanup, picks up
+    1. DELETE LithoContactCorrelationEdge (edges-first, see use case).
+    2. DELETE FormationContact.
+    3. DELETE LithoLayer (Shape A — A4 cleanup, picks up
        pending/rejected layers the FC cascade left behind).
-    5. DELETE FormationSurface.
-    5b. DELETE BodyOrm (body rows with stale null-FK anchors after layer delete).
-    6. SELECT DISTINCT surviving formation_id from formation_contact.
-    7. SELECT DISTINCT surviving formation_id from litho_layer (A4 cleanup).
-    8. DELETE GeologicalFormation (orphans only; skipped when no orphans).
+    4. DELETE FormationSurface.
+    4b. DELETE BodyOrm (body rows with stale null-FK anchors after layer delete).
 
-    When ``candidate_fids`` is empty calls 6 + 7 + 8 are skipped.
-    When all candidates are still referenced, call 8 is skipped.
+    then ``OrphanFormationSweep.sweep_litho_vocabulary`` (the orphan pass moved
+    there so the geotech verbs share one predicate) issues:
+
+    5. SELECT (id, name) for the candidate litho formations.
+    6. SELECT DISTINCT surviving formation_id from litho_layer.
+    7. SELECT DISTINCT surviving formation_id from formation_contact.
+    8. SELECT DISTINCT surviving formation_id from body.
+    9. SELECT count(litho_body_solid) about to cascade (orphans only).
+    10. DELETE GeologicalFormation (orphans only).
+
+    The sweep runs AFTER the deletes now, not before — the survivor check has
+    to read the post-delete state — so the candidate SELECT is call 5, not
+    call 1.  When ``candidate_fids`` is empty calls 6-10 are skipped; when
+    every candidate is still referenced, calls 9 + 10 are skipped.
 
     ``surviving_fids_from_ll`` defaults to empty — a formation referenced
     only by a pending/rejected layer on a sibling model survives.
@@ -85,6 +93,18 @@ def _make_execute_side_effects(
         scalars.all.return_value = values
         result = MagicMock()
         result.scalars.return_value = scalars
+        return result
+
+    def _rows_result(rows: list[tuple]) -> MagicMock:
+        """Mock that mimics ``(await session.execute(stmt)).all()``."""
+        result = MagicMock()
+        result.all.return_value = rows
+        return result
+
+    def _scalar_one_result(value: int) -> MagicMock:
+        """Mock that mimics ``(await session.execute(stmt)).scalar_one()``."""
+        result = MagicMock()
+        result.scalar_one.return_value = value
         return result
 
     def _rowcount_result(n: int) -> MagicMock:
@@ -102,20 +122,22 @@ def _make_execute_side_effects(
     ll_survivors = surviving_fids_from_ll if surviving_fids_from_ll is not None else []
     effects: list = [
         _lock_result(),  # 0 — the body-partition advisory lock
-        _scalars_result(candidate_fids),  # 1 — candidate litho fids
-        _rowcount_result(n_edges),  # 2 — DELETE edges (edges-first)
-        _rowcount_result(n_contacts),  # 3 — DELETE contacts
-        _rowcount_result(0),  # 4 — DELETE litho_layer (rowcount unused)
-        _rowcount_result(n_surfaces),  # 5 — DELETE surfaces
-        _rowcount_result(n_bodies),  # 5b — DELETE bodies
+        _rowcount_result(n_edges),  # 1 — DELETE edges (edges-first)
+        _rowcount_result(n_contacts),  # 2 — DELETE contacts
+        _rowcount_result(0),  # 3 — DELETE litho_layer (rowcount unused)
+        _rowcount_result(n_surfaces),  # 4 — DELETE surfaces
+        _rowcount_result(n_bodies),  # 4b — DELETE bodies
+        _rows_result([(fid, f"unit {i}") for i, fid in enumerate(candidate_fids)]),  # 5
     ]
     if candidate_fids:
-        effects.append(_scalars_result(surviving_fids))  # 6 — survivors from FC
-        effects.append(_scalars_result(ll_survivors))  # 7 — survivors from LL
+        effects.append(_scalars_result(ll_survivors))  # 6 — survivors from litho_layer
+        effects.append(_scalars_result(surviving_fids))  # 7 — survivors from FC
+        effects.append(_scalars_result([]))  # 8 — survivors from body (none in these scenes)
         combined = set(surviving_fids) | set(ll_survivors)
         if len(candidate_fids) > len(combined & set(candidate_fids)):
-            # Some orphans exist — formation DELETE fires.
-            effects.append(_rowcount_result(n_formations))  # 8 — DELETE formations
+            # Some orphans exist — the solid count then the formation DELETE fire.
+            effects.append(_scalar_one_result(0))  # 9 — stale solids about to cascade
+            effects.append(_rowcount_result(n_formations))  # 10 — DELETE formations
     return effects
 
 
@@ -214,9 +236,10 @@ async def test_geological_formations_not_touched() -> None:
 
     assert result.contacts == 3
     assert result.formations == 0
-    # 7 execute calls: the body-partition advisory lock, the candidate-fid
-    # SELECT, and 5 DELETEs (edges, contacts, litho_layer, surfaces, bodies).
-    # No survivor SELECTs or formation DELETE because candidate_fids was empty.
+    # 7 execute calls: the body-partition advisory lock, 5 DELETEs (edges,
+    # contacts, litho_layer, surfaces, bodies), and the sweep's candidate
+    # SELECT.  The sweep stops right there — no survivor SELECTs and no
+    # formation DELETE, because the project has no litho formations at all.
     assert session.execute.call_count == 7
 
 
