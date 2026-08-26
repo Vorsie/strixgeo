@@ -1,18 +1,20 @@
 // The hard-bounds rules for hand editing packing sub-bands, in the owner's words.
 //
-// Ruling 2 (docs/debt.md #227, 2026-08-01): "A packing boundary moves freely inside its
-// litho body and clamps at the edge. It can never move a litho contact and never cross a
-// geological one." The hierarchy constrains downward; the owner overrules the CLASS, never
-// the hierarchy.
+// Ruling 2 (docs/debt.md #227, 2026-08-01, amended 2026-08-26): "A packing boundary moves
+// freely inside its litho body and clamps at the edge. It can never move a litho contact."
+// The hierarchy constrains downward; the owner overrules the CLASS, never the hierarchy.
 //
 // These cases are about the GESTURE, not the commit. The backend rejects an out-of-body
 // depth (`plan_split`), but a rejection the owner only meets after releasing the mouse is a
 // worse answer than a boundary that visibly refuses to go there. So the clamp is pinned
 // here, on the pure function the drag reads every frame.
 //
-// A litho body on this axis is already geo-bounded — the litho model never spans a
-// geological contact — so "inside one litho body" is the single test that enforces both
-// walls ruling 2 names.
+// There is ONE wall to pin: the litho unit. A geological contact stopped being a wall on
+// 2026-08-26 (owner: "just drop the wall everywhere, user wil have to manually do it"), so
+// a litho body on this axis may now span one and the clamp must not care. Nothing below
+// changes as a result — this module never read a geological datum — but the reason these
+// tests are sufficient did: it is that there is only one wall, not that one test happened
+// to cover two.
 
 import { describe, expect, it } from 'vitest'
 
