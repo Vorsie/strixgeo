@@ -37,8 +37,12 @@ class Band:
         Geotech resolver connected-component body_id, or ``None`` when the
         band was filled by a conservative fallback (``body_min`` /
         ``absolute_min``) and no same-class CPT exists in the group.
-    nad_class : int
-        NAD packing class 1–31.
+    nad_class : int | None
+        NAD packing class 1–31, or ``None`` for a band the model has not
+        classified. A band left unclassified by the soil-family clamp is the
+        case that produces ``None`` here, and the sample must inherit the gap
+        rather than a class: ``assign_sample_to_band`` already answers
+        ``int | None`` and ``sample.geotech_nad_class`` is nullable.
     source : str
         Provenance tag: ``"cpt_interpolated"`` | ``"body_min"`` |
         ``"absolute_min"``.
@@ -47,7 +51,7 @@ class Band:
     top: float
     base: float
     body_id: str | None
-    nad_class: int
+    nad_class: int | None
     source: str
 
 
