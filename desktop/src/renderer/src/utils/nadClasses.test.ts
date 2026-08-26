@@ -10,8 +10,11 @@ import { describe, expect, it } from 'vitest'
 import {
   NAD_CLASS_ABBR,
   NAD_CLASS_NAMES,
+  geotechUnitLabel,
+  geotechUnitSoil,
   nadClassColor,
   nadClassName,
+  nadClassQualifier,
   nadColoredFormations,
   nadCompactFromName,
 } from './nadClasses'
@@ -188,5 +191,137 @@ describe('NAD_CLASS_NAMES', () => {
     const keys = Object.keys(NAD_CLASS_NAMES).map(Number)
     expect(keys.every((k) => k >= 1 && k <= 31)).toBe(true)
     expect(keys.length).toBe(31)
+  })
+})
+
+// ---- the unclassified-unit label -------------------------------------------
+//
+// The owner pasted his "Geotech units" pane and two of its rows were literally
+// just the character "0" — no name, no swatch meaning, nothing to act on. Those
+// rows are geotech units the materialiser created without a packing class
+// (nad_class stays null when no cone reached the soil). The pane asked
+// nadClassName for their label and got "" back.
+//
+// The rule these pins encode: a unit with no packing class still has to SAY
+// WHICH GROUND IT IS. It is about to become the unclassified-ground ledger —
+// the row an engineer clicks to find the hole in his model — so a blank is the
+// one thing it must never be.
+
+/** Skeleton geotech unit shorthand for the label tests. */
+function unit(
+  overrides: Partial<{
+    nad_class: number | null
+    litho_main_soil_code: string | null
+    name: string
+  }> = {},
+): { nad_class: number | null; litho_main_soil_code: string | null; name: string } {
+  return {
+    nad_class: null,
+    litho_main_soil_code: 'ZAND',
+    name: 'ZAND (geotech)',
+    ...overrides,
+  }
+}
+
+describe('geotechUnitLabel — an unclassified unit is never blank (L)', () => {
+  it('L1 — a unit with no packing class does not render as the empty string', () => {
+    // The bare "0" row from the owner's paste.
+    expect(geotechUnitLabel(unit())).not.toBe('')
+  })
+
+  it('L2 — it names the ground it is, and says the class is still missing', () => {
+    expect(geotechUnitLabel(unit())).toBe('SAND — not yet classified')
+  })
+
+  it('L2b — the soil word comes from the unit own lithology, not from sand always', () => {
+    expect(geotechUnitLabel(unit({ litho_main_soil_code: 'KLEI' }))).toBe(
+      'CLAY — not yet classified',
+    )
+    expect(geotechUnitLabel(unit({ litho_main_soil_code: 'VEEN' }))).toBe(
+      'PEAT — not yet classified',
+    )
+  })
+
+  it('L3 — a classified unit keeps the packing-class name it already had', () => {
+    expect(geotechUnitLabel(unit({ nad_class: 6 }))).toBe('SAND, medium dense')
+    expect(geotechUnitLabel(unit({ nad_class: 21, litho_main_soil_code: 'KLEI' }))).toBe(
+      'CLAY, slightly firm',
+    )
+  })
+
+  it('L4 — same-soil unclassified units are told apart by their source litho unit', () => {
+    // Five identical "KLEI (geotech)" skeletons exist on the owner project, each
+    // born from a DIFFERENT litho formation. Without the source name on the row
+    // they read as five copies of one thing.
+    expect(geotechUnitLabel(unit({ litho_main_soil_code: 'KLEI' }), 'CLAY | sandy')).toBe(
+      'CLAY — not yet classified (CLAY | sandy)',
+    )
+  })
+
+  it('L5 — with nothing to disambiguate against, no parenthetical is added', () => {
+    expect(geotechUnitLabel(unit(), null)).toBe('SAND — not yet classified')
+    expect(geotechUnitLabel(unit(), undefined)).toBe('SAND — not yet classified')
+  })
+
+  it('L6 — a unit with neither class nor soil code still names itself, never blank', () => {
+    const nameless = unit({ litho_main_soil_code: null, name: 'Odd unit' })
+    expect(geotechUnitLabel(nameless)).toBe('Odd unit — not yet classified')
+  })
+
+  it('L7 — nadClassName keeps returning "" for null (the band overlay skips blanks)', () => {
+    // Deliberate: the partition-fill overlay draws no label for an empty
+    // string. geotechUnitLabel is the ROSTER formatter and is the only one
+    // that must speak; the raw table lookup stays raw.
+    expect(nadClassName(null)).toBe('')
+  })
+})
+
+describe('geotechUnitSoil — one soil word per unit, classified or not (L)', () => {
+  it('L8 — a classified unit and a skeleton of the same ground answer the same word', () => {
+    expect(geotechUnitSoil(unit({ nad_class: 6 }))).toBe('SAND')
+    expect(geotechUnitSoil(unit({ nad_class: null }))).toBe('SAND')
+  })
+
+  it('L9 — every one of the 31 classes answers one of the five soil families', () => {
+    const families = new Set<string>()
+    for (let n = 1; n <= 31; n++) {
+      families.add(geotechUnitSoil(unit({ nad_class: n, litho_main_soil_code: null })))
+    }
+    expect([...families].sort()).toEqual(['CLAY', 'GRAVEL', 'PEAT', 'SAND', 'SILT'])
+  })
+})
+
+describe('nadClassQualifier — the class row says firmness, never the soil again (L)', () => {
+  it('L10 — the class row under SAND reads "medium dense", not "SAND, medium dense"', () => {
+    expect(nadClassQualifier(6)).toBe('medium dense')
+  })
+
+  it('L11 — an admixture variant keeps its variant, still without the soil', () => {
+    expect(nadClassQualifier(10)).toBe('silty/clayey, medium dense')
+    expect(nadClassQualifier(25)).toBe('sandy, slightly firm')
+  })
+
+  it('L12 — no class yet reads "not yet classified" (the soil sits in the group header)', () => {
+    expect(nadClassQualifier(null)).toBe('not yet classified')
+  })
+
+  it('L13 — soil + qualifier reconstructs the full name for all 31 classes', () => {
+    // Structural pin on the split: the qualifier is DERIVED from
+    // NAD_CLASS_NAMES rather than kept in a second 31-entry table, so this is
+    // what proves the derivation never loses or duplicates a word.
+    for (let n = 1; n <= 31; n++) {
+      const f = unit({ nad_class: n, litho_main_soil_code: null })
+      expect(`${geotechUnitSoil(f)}, ${nadClassQualifier(n)}`).toBe(NAD_CLASS_NAMES[n])
+    }
+  })
+
+  it('L14 — no qualifier is empty, and none starts with its own soil word', () => {
+    for (let n = 1; n <= 31; n++) {
+      const q = nadClassQualifier(n)
+      expect(q.length).toBeGreaterThan(0)
+      expect(q.startsWith(geotechUnitSoil(unit({ nad_class: n, litho_main_soil_code: null })))).toBe(
+        false,
+      )
+    }
   })
 })
