@@ -16,7 +16,7 @@
 // it would need a callback-capturing harness asserting against stub geometry,
 // which proves nothing real; left for a future richer-mock pass.
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('cesium', async () => {
@@ -25,10 +25,74 @@ vi.mock('cesium', async () => {
 })
 // The widgets stylesheet resolves to a real file; css:false makes it inert.
 
+// rebuildSurfacePrimitives is the ONLY place the legend's hide sets reach the
+// scene, so spying on it is how a jsdom test can prove the eye toggles are
+// wired all the way down (Geology3DViewer → CesiumViewport → primitives).
+// Everything else in the module stays real (computeSplitPlane is used inline).
+const rebuildSpy = vi.fn()
+vi.mock('./geology3DPrimitives', async () => {
+  const actual =
+    await vi.importActual<typeof import('./geology3DPrimitives')>('./geology3DPrimitives')
+  return { ...actual, rebuildSurfacePrimitives: (...args: unknown[]) => rebuildSpy(...args) }
+})
+
+import type { GeologicalFormationResponse } from '../../../api/client'
+import type { LithoBodySolidResponse } from '../../../api/clients/geology'
 import Geology3DViewer from './Geology3DViewer'
 import type { SplitMode } from './Geology3DViewer'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  rebuildSpy.mockClear()
+})
+
+/** A geotech unit — discriminated by source_litho_formation_id, not nad_class. */
+function geotechUnit(
+  id: string,
+  nadClass: number | null,
+  soil = 'ZAND',
+): GeologicalFormationResponse {
+  return {
+    id,
+    name: `${soil} (geotech)`,
+    color: '#d4b84a',
+    nad_class: nadClass,
+    litho_main_soil_code: soil,
+    litho_admixtures: [],
+    source_litho_formation_id: 'litho-1',
+    display_order: 0,
+  } as unknown as GeologicalFormationResponse
+}
+
+/** A plain litho unit — no geotech discriminator, so it keeps the flat legend. */
+function lithoUnit(id: string, soil = 'ZAND'): GeologicalFormationResponse {
+  return {
+    id,
+    name: `${soil} unit`,
+    color: '#fbbf24',
+    nad_class: null,
+    litho_main_soil_code: soil,
+    litho_admixtures: [],
+    source_litho_formation_id: null,
+    display_order: 0,
+  } as unknown as GeologicalFormationResponse
+}
+
+function solid(bodyId: string, formationId: string, ordinal = 0): LithoBodySolidResponse {
+  return {
+    body_id: bodyId,
+    formation_id: formationId,
+    body_ordinal: ordinal,
+    vertices: [[0, 0, 0]],
+    triangles: [[0, 0, 0]],
+  } as unknown as LithoBodySolidResponse
+}
+
+/** The hiddenBodyIds set is the LAST positional arg of rebuildSurfacePrimitives. */
+function lastHiddenBodyIds(): ReadonlySet<string> | undefined {
+  const call = rebuildSpy.mock.calls.at(-1)
+  return call?.[call.length - 1] as ReadonlySet<string> | undefined
+}
 
 function baseProps(splitMode: SplitMode = 'single') {
   return {
@@ -79,5 +143,46 @@ describe('Geology3DViewer shell smoke (#41b)', () => {
     expect(() =>
       rerender(<Geology3DViewer {...props} splitMode="single" showConfidenceFade={false} />),
     ).not.toThrow()
+  })
+})
+
+describe('Geology3DViewer LAYERS legend — nested tree on the geotech pane', () => {
+  it('G3D-6 — geotech formations render the nested soil tree, closed at soil level', () => {
+    render(
+      <Geology3DViewer
+        {...baseProps('single')}
+        formations={[geotechUnit('g1', 6), geotechUnit('g2', 8)]}
+        bodySolids={[solid('b1', 'g1'), solid('b2', 'g2')]}
+      />,
+    )
+    // One family row for SAND; its classes are behind the caret.
+    expect(screen.getByTestId('geotech-legend-family-ZAND')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-legend-class-ZAND:6')).toBeNull()
+  })
+
+  it('G3D-7 — non-geotech formations keep the flat per-formation list', () => {
+    // Scope guard: the litho / geology legends are NOT redesigned by this work.
+    render(
+      <Geology3DViewer {...baseProps('single')} formations={[lithoUnit('l1'), lithoUnit('l2')]} />,
+    )
+    expect(screen.queryByTestId('geotech-legend-family-ZAND')).toBeNull()
+    expect(screen.getAllByTitle('Hide in 3D')).toHaveLength(2)
+  })
+
+  it('G3D-8 — a body eye reaches the scene: the hidden id lands in the primitive rebuild', () => {
+    render(
+      <Geology3DViewer
+        {...baseProps('single')}
+        formations={[geotechUnit('g1', 6)]}
+        bodySolids={[solid('b1', 'g1')]}
+      />,
+    )
+    expect(lastHiddenBodyIds()?.size ?? 0).toBe(0)
+
+    fireEvent.click(screen.getByTestId('geotech-legend-caret-ZAND'))
+    fireEvent.click(screen.getByTestId('geotech-legend-caret-ZAND:6'))
+    fireEvent.click(screen.getByTestId('geotech-legend-body-b1'))
+
+    expect(lastHiddenBodyIds()?.has('b1')).toBe(true)
   })
 })
