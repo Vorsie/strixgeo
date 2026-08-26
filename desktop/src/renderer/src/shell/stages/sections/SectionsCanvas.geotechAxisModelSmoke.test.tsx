@@ -66,12 +66,16 @@ import SectionsCanvas from './SectionsCanvas'
 import { useSectionScope } from '../../../components/sections/SectionScopeContext'
 
 let capturedGeotechModel: GeotechAxisModel | undefined = undefined
+/** Body ids of the built solids the canvas handed the panel for the active axis. */
+let capturedSolidBodyIds: string[] | undefined = undefined
 
 // The refinement bundle rides SectionScopeContext since the #201 round-2
 // rerouting — the mock reads it from the scope, not from a prop.
 vi.mock('../../../components/SectionPanel', () => ({
   default: () => {
-    capturedGeotechModel = useSectionScope().geotechModel
+    const scope = useSectionScope()
+    capturedGeotechModel = scope.geotechModel
+    capturedSolidBodyIds = scope.modelSolids?.map(s => s.body_id)
     return null
   },
 }))
@@ -236,7 +240,13 @@ function makeSection() {
  * Copied from SectionsCanvas.geotechGuard.test.tsx (the proven harness that
  * renders the real SectionsCanvas) with the three data arrays filled in.
  */
-function makeGeotechCtx(): ShellContextValue {
+function makeGeotechCtx(
+  overrides: {
+    axis?: SectionModelAxis
+    lithoSolids?: unknown[]
+    geotechSolids?: unknown[]
+  } = {},
+): ShellContextValue {
   const section = makeSection()
   const geotechModel = makeGeotechModel()
 
@@ -382,7 +392,7 @@ function makeGeotechCtx(): ShellContextValue {
       handleDeleteLithoModel: noopAsync,
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
-      lithoSolids: [],
+      lithoSolids: overrides.lithoSolids ?? [],
       lithoSolidsLoading: false,
       lithoSolidsBuilding: false,
       hasLithoSolids: false,
@@ -391,7 +401,7 @@ function makeGeotechCtx(): ShellContextValue {
       setBodyColor: vi.fn(),
       hideMarkers: false,
       setHideMarkers: vi.fn(),
-      geotechSolids: [],
+      geotechSolids: overrides.geotechSolids ?? [],
       geotechSolidsLoading: false,
       geotechSolidsBuilding: false,
       hasGeotechSolids: false,
@@ -423,7 +433,7 @@ function makeGeotechCtx(): ShellContextValue {
       focusedContactIds: [],
       visibleSections: [section],
       effectiveHorizontalEpsg: 31370,
-      sectionModelAxis: 'geotechnical' as SectionModelAxis,
+      sectionModelAxis: (overrides.axis ?? 'geotechnical') as SectionModelAxis,
       setSectionModelAxis: vi.fn(),
       backdropModelIdOverride: null,
       setBackdropModelIdOverride: vi.fn(),
@@ -548,6 +558,7 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   capturedGeotechModel = undefined
+  capturedSolidBodyIds = undefined
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -623,5 +634,58 @@ describe('SectionsCanvas — geotech axis model smoke (TDZ net)', () => {
       'lithoSoilByFormationId',
       'nadMeta',
     ])
+  })
+
+  it('SC-TDZ-4 — the geotech axis hands the panel the GEOTECH model’s built solids', () => {
+    // Owner 2026-08-26: "can we show the actual 3D model on the 2d sections
+    // just like in litho stage". "The actual 3D model" on this axis is the
+    // geotech build, so the geotech solids must be what reaches the section —
+    // handing over the litho ones would paint a different model's bodies under
+    // the geotech axis's NAD colours, which reads as correct and is not.
+    render(
+      <ShellContext.Provider
+        value={makeGeotechCtx({
+          lithoSolids: [{ body_id: 'litho-body', triangles: [], vertices: [] }],
+          geotechSolids: [{ body_id: 'geotech-body', triangles: [], vertices: [] }],
+        })}
+      >
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    expect(capturedSolidBodyIds).toEqual(['geotech-body'])
+  })
+
+  it('SC-TDZ-5 — the litho axis still hands over the LITHO model’s built solids', () => {
+    // Control: the axis each build belongs to is the axis it paints on.
+    render(
+      <ShellContext.Provider
+        value={makeGeotechCtx({
+          axis: 'lithostratigraphic',
+          lithoSolids: [{ body_id: 'litho-body', triangles: [], vertices: [] }],
+          geotechSolids: [{ body_id: 'geotech-body', triangles: [], vertices: [] }],
+        })}
+      >
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    expect(capturedSolidBodyIds).toEqual(['litho-body'])
+  })
+
+  it('SC-TDZ-6 — the geological axis has no model of its own to paint', () => {
+    render(
+      <ShellContext.Provider
+        value={makeGeotechCtx({
+          axis: 'geological',
+          lithoSolids: [{ body_id: 'litho-body', triangles: [], vertices: [] }],
+          geotechSolids: [{ body_id: 'geotech-body', triangles: [], vertices: [] }],
+        })}
+      >
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    expect(capturedSolidBodyIds).toBeUndefined()
   })
 })
