@@ -193,6 +193,7 @@ const GEOTECH_MODEL: GeotechAxisModel = {
   nadMeta: new Map(),
   lithoSoilByFormationId: new Map(),
   lithoFormationColorById: new Map(),
+  staleColumnIds: new Set<string>(),
 }
 
 /**
