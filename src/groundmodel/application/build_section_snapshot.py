@@ -236,6 +236,12 @@ class BuildSectionSnapshot(GroundModelLogger):
                     code=f.code,
                     color=f.color,
                     display_order=f.display_order,
+                    # Three-level unit identifiers (debt #104). NULL on a
+                    # geological formation; the exporters read the null as
+                    # "no machine identifier" and keep their display-name-
+                    # only naming for that level.
+                    nad_class=f.nad_class,
+                    litho_main_soil_code=f.litho_main_soil_code,
                 )
             )
         formations.sort(key=lambda f: (f.display_order, f.name))
@@ -253,10 +259,19 @@ class BuildSectionSnapshot(GroundModelLogger):
         )
         datum_label = _vertical_datum_label(z_epsg)
 
+        # Identifier coverage on the success line (debt #104): an export
+        # that silently carries display names only is the exact failure
+        # this slice closed, so the counts state what WAS found — a
+        # geotech-model snapshot reporting nad=0 means the units were
+        # never classified, not that the exporter dropped them.
+        with_nad = sum(1 for f in formations if f.nad_class is not None)
+        with_soil = sum(1 for f in formations if f.litho_main_soil_code is not None)
         self.success(
             f"Section snapshot built: section={section_id} "
             f"investigations={len(investigations)} "
-            f"contacts={len(contacts)} formations={len(formations)}"
+            f"contacts={len(contacts)} formations={len(formations)} "
+            f"unit_identifiers=[nad={with_nad}/{len(formations)} "
+            f"soil={with_soil}/{len(formations)}]"
         )
 
         return SectionSnapshot(
