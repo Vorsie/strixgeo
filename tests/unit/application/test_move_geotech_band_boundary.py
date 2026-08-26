@@ -58,6 +58,14 @@ class _FakeSession:
                 # ``pg_try_advisory_xact_lock`` — the uncontended answer.
                 return True
 
+            @staticmethod
+            def all() -> list:
+                # ``OrphanFormationSweep`` runs before the commit and asks for
+                # the project's geotech formations first. This scene has none in
+                # the database, so the sweep finds no candidates and stops after
+                # this one query.
+                return []
+
         return _Result()
 
     def add(self, obj: Any) -> None:
