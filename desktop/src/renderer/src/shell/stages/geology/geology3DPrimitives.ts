@@ -1164,6 +1164,9 @@ export function buildTinPrimitiveWithVertexColor(
  * groundSurface
  *     Optional DEM ground-surface TIN.  When provided and non-empty, rendered
  *     as an earth-tone semi-transparent mesh below the formation surfaces.
+ * hiddenBodyIds
+ *     Body ids toggled off in the legend's per-body level.  Only the body-solid
+ *     loops honour it — fence walls and TIN sheets have no body identity.
  */
 export function rebuildSurfacePrimitives(
   scene: Cesium.Scene,
@@ -1183,6 +1186,7 @@ export function rebuildSurfacePrimitives(
   bodySolids?: LithoBodySolidResponse[],
   bodySolidsWireframe: boolean = false,
   investigationXY?: readonly (readonly [number, number])[],
+  hiddenBodyIds?: ReadonlySet<string>,
 ): void {
   scene.primitives.removeAll()
 
@@ -1476,8 +1480,10 @@ export function rebuildSurfacePrimitives(
   // Mirrors the split-clip block below, which already carries this guard.
   if (fencePanels === undefined && bodySolids && bodySolids.length > 0) {
     for (const solid of bodySolids) {
-      // Skip hidden lithologies and empty (flagged) slabs.
+      // Skip hidden lithologies, individually hidden bodies, and empty
+      // (flagged) slabs.
       if (hiddenFormationIds?.has(solid.formation_id)) continue
+      if (hiddenBodyIds?.has(solid.body_id)) continue
       if (solid.triangles.length === 0) continue
 
       // Resolve colour: per-body override wins, fall back to the formation
@@ -1592,6 +1598,7 @@ export function rebuildSurfacePrimitives(
 
       for (const solid of bodySolids) {
         if (hiddenFormationIds?.has(solid.formation_id)) continue
+        if (hiddenBodyIds?.has(solid.body_id)) continue
         if (solid.is_flagged === true) continue // flagged marker disks → no meaningful cap
         if (solid.triangles.length === 0) continue
 
