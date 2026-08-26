@@ -156,12 +156,14 @@ function formation(
   id: string,
   nadClass: number | null,
   color: string,
+  colorOverride: string | null = null,
 ): GeologicalFormationResponse {
   return {
     id,
     app_project_id: 'P',
     name: id,
     color,
+    color_override: colorOverride,
     code: null,
     display_order: 0,
     pinned_order: false,
@@ -298,6 +300,22 @@ describe('SectionPanel — the built model on the geotech section', () => {
 
     expect(fills.get('body-dense')).toBe(nadClassColor(8))
     expect(fills.get('body-dense')).not.toBe(INHERITED_LITHO_COLOR)
+  })
+
+  it('GMP2b: a colour the engineer picked beats the NAD colour on the section', async () => {
+    // Owner ruling 2026-08-26: "Colours on the right hand pane need to be
+    // choosable if user wants." He picks on the pane and looks at the section,
+    // so the pick has to reach the fill or the two disagree in front of him.
+    const fills = await paintedFills(
+      'geotechnical',
+      [boxSolid('body-dense', DENSE_SAND_ID, 100, 300, 4, -2)],
+      [
+        formation(DENSE_SAND_ID, 8, INHERITED_LITHO_COLOR, '#ff00ff'),
+        formation(UNCLASSIFIED_ID, null, INHERITED_LITHO_COLOR),
+      ],
+    )
+
+    expect(fills.get('body-dense')).toBe('#ff00ff')
   })
 
   it('GMP3: a unit with no NAD class paints the neutral grey', async () => {
