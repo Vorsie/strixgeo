@@ -5,7 +5,11 @@
 //   GT2  Geotech model + bands → "Build model" button renders, enabled.
 //   GT3  Geotech model but NO bands (0 geotech layers) → Build disabled.
 //   GT4  Clicking Build calls buildGeotechSolids with the canvas-populated
-//        voxel-request callback (the module-ref bridge).
+//        voxel-request callback (the module-ref bridge) — the CONTROL for the
+//        2026-08-26 pre-flight: a model with nothing missing builds exactly as
+//        it always did, and no dialog appears.
+//   GT5  A test in the model with accepted litho and no packing bands stops the
+//        press and opens the pre-flight dialog instead.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -44,27 +48,70 @@ function makeGeotechModel(): GeologicalModelResponse {
   }
 }
 
+/** One accepted layer on ``investigationId``, spanning the whole column. */
+function layer(investigationId: string, suffix: string): Record<string, unknown> {
+  return {
+    id: `${investigationId}-${suffix}`,
+    cpt_id: investigationId,
+    borehole_id: null,
+    formation_id: `f-${suffix}`,
+    body_id: null,
+    depth_top_m: 0,
+    depth_base_m: 5,
+    status: 'accepted',
+  }
+}
+
+/** Two CPTs on one section — the smallest model that fills anything. */
+const CTX_INVESTIGATIONS = [
+  { id: 'S1', name: 'S1', location_x: 0, location_y: 0, elevation_m: 5 },
+  { id: 'S2', name: 'S2', location_x: 50, location_y: 0, elevation_m: 5 },
+]
+const CTX_SECTION = {
+  id: 'cs1',
+  name: 'Cross-section 1',
+  start_x: 0,
+  start_y: 0,
+  end_x: 100,
+  end_y: 0,
+  projection_buffer_m: 10,
+  excluded_cpt_ids: [],
+  excluded_borehole_ids: [],
+}
+const CTX_LITHO = [layer('S1', 'litho'), layer('S2', 'litho')]
+/** Both columns banded — the complete-model control. */
+const CTX_GEOTECH_COMPLETE = [layer('S1', 'nad'), layer('S2', 'nad')]
+
 /**
- * Minimal ShellContextValue — only the geoModel fields the toolbar reads are
- * meaningful; everything else is cast through unknown.
+ * Minimal ShellContextValue — only the fields the toolbar and its pre-flight
+ * read are meaningful; everything else is cast through unknown.
  */
 function makeCtx(overrides: {
   activeGeotechModel?: GeologicalModelResponse | null
   geotechLayers?: unknown[]
+  lithoLayers?: unknown[]
   buildGeotechSolids?: (builder?: () => Promise<unknown>) => Promise<void>
   geotechSolidsBuilding?: boolean
   hasStaleGeotechSolid?: boolean
   hasGeotechSolids?: boolean
 } = {}): ShellContextValue {
   return {
+    visibleCpts: CTX_INVESTIGATIONS,
+    visibleBoreholes: [],
+    sections: { visibleSections: [CTX_SECTION] },
+    coordinator: { setSectionsDeepLinkTarget: () => {} },
+    toasts: { toast: () => {} },
     geoModel: {
       activeGeotechModel:
         overrides.activeGeotechModel === undefined ? makeGeotechModel() : overrides.activeGeotechModel,
-      geotechLayers: overrides.geotechLayers ?? [{ id: 'gl-1' }],
+      lithoLayers: overrides.lithoLayers ?? CTX_LITHO,
+      geotechLayers: overrides.geotechLayers ?? CTX_GEOTECH_COMPLETE,
       geotechSolidsBuilding: overrides.geotechSolidsBuilding ?? false,
       hasStaleGeotechSolid: overrides.hasStaleGeotechSolid ?? false,
       hasGeotechSolids: overrides.hasGeotechSolids ?? false,
       buildGeotechSolids: overrides.buildGeotechSolids ?? noopAsync,
+      handleSubdivideAllBodies: noopAsync,
+      handleDivideBoreholes: noopAsync,
     },
   } as unknown as ShellContextValue
 }
@@ -101,12 +148,47 @@ describe('GeotechnicalToolbar (Task 4 — geotech 3D Build verb)', () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('GT4 — clicking Build calls buildGeotechSolids with the voxel-request callback', () => {
+  it('GT4 — a complete model builds exactly as it did before the pre-flight', () => {
     const buildGeotechSolids = vi.fn().mockResolvedValue(undefined)
     renderToolbar(makeCtx({ buildGeotechSolids }))
     fireEvent.click(screen.getByTestId('geotech-build-model-button'))
     expect(buildGeotechSolids).toHaveBeenCalledTimes(1)
-    // The canvas-populated voxel-request callback is forwarded as the builder.
+    // The canvas-populated voxel-request callback is forwarded as the builder,
+    // unwrapped — nothing about the payload can have changed.
     expect(buildGeotechSolids).toHaveBeenCalledWith(voxelBuilderSentinel)
+    // ...and the engineer is asked nothing.
+    expect(screen.queryByTestId('geotech-build-preflight-dialog')).toBeNull()
+    expect(screen.queryByTestId('geotech-excluded-tests-chip')).toBeNull()
+  })
+
+  it('GT5 — a test with no packing bands stops the press and asks instead', () => {
+    const buildGeotechSolids = vi.fn().mockResolvedValue(undefined)
+    renderToolbar(
+      makeCtx({
+        buildGeotechSolids,
+        // S2 was imported after the subdivision: accepted litho, no bands.
+        geotechLayers: [layer('S1', 'nad')],
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-build-model-button'))
+    expect(buildGeotechSolids).not.toHaveBeenCalled()
+    expect(screen.getByTestId('geotech-build-preflight-dialog')).toBeTruthy()
+    expect(screen.getByTestId('geotech-preflight-visit-S2').textContent).toContain('S2')
+  })
+
+  it('GT6 — "Build without them" builds and leaves a chip naming what was left out', () => {
+    const buildGeotechSolids = vi.fn().mockResolvedValue(undefined)
+    renderToolbar(makeCtx({ buildGeotechSolids, geotechLayers: [layer('S1', 'nad')] }))
+    fireEvent.click(screen.getByTestId('geotech-build-model-button'))
+    fireEvent.click(screen.getByTestId('geotech-preflight-build-without'))
+
+    expect(buildGeotechSolids).toHaveBeenCalledTimes(1)
+    // Wrapped this time — the exclusion set has to travel with the build, so it
+    // is NOT the bare canvas callback.
+    expect(buildGeotechSolids).not.toHaveBeenCalledWith(voxelBuilderSentinel)
+    const chip = screen.getByTestId('geotech-excluded-tests-chip')
+    expect(chip.textContent).toBe('1 test excluded')
+    // A real button, so it can be walked by keyboard like the pending chip.
+    expect(chip.tagName).toBe('BUTTON')
   })
 })
