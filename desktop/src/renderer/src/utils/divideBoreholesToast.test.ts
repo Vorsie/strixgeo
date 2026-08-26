@@ -46,4 +46,21 @@ describe('divideBoreholesToastMessage', () => {
     const msg = divideBoreholesToastMessage(base, false)
     expect(msg).toBe('Borehole divided — 3 split, 1 single-band.')
   })
+
+  // Owner ruling 2026-08-24: "if no hops can be made, you just auto delete the
+  // crossing correlation". Phase 8.6 deletes them silently in the DB, so the
+  // toast owns the count — same contract as the jump-tie deletion above.
+  it('names the crossing ties the divide auto-deleted', () => {
+    const msg = divideBoreholesToastMessage({ ...base, deleted_crossing_span_count: 2 }, true)
+    expect(msg).toBe(
+      'Boreholes divided — 3 split, 1 single-band, 2 crossing ties auto-deleted.',
+    )
+  })
+
+  it('speaks singular for one auto-deleted crossing tie', () => {
+    const msg = divideBoreholesToastMessage({ ...base, deleted_crossing_span_count: 1 }, true)
+    expect(msg).toBe(
+      'Boreholes divided — 3 split, 1 single-band, 1 crossing tie auto-deleted.',
+    )
+  })
 })
