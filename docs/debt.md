@@ -996,17 +996,61 @@ so they don't get re-filed as new items):
 
 ---
 
-## 64. Litho 3D viewer — split-viewport mode — RESOLVED 2026-06-01
+## 64. 3-D split viewport — RESOLVED 2026-06-01 (cut) + 2026-08-26 (compare)
 
-`LithologyCanvas` now wires `splitMode` / `splitPlane` / `splitLine`
-state identically to `GeologyCanvas`. The `Geology3DViewer` "Split
-model" button arms the two-click draw interaction; the litho toolbar
-Reset button collapses the split via `resetLithoSplitViewportCallback`
-(same pattern as `resetSplitViewportCallback` in `GeologyCanvas`).
-`onExitSplit` is wired so the "Single view" button inside the viewer
-also collapses. No code added to `Geology3DViewer.tsx` — the wiring
-was purely in `LithologyCanvas.tsx` + `LithologyStage.tsx`. C3 test
-pins the exported callback. 53 vitest + tsc clean 2026-06-01.
+Two different things are called "split" in the 3-D viewer, and the
+entry covers both.
+
+**CUT split — RESOLVED 2026-06-01.** One model, two viewports, each
+showing one half of a user-drawn plane. `LithologyCanvas` wires
+`splitMode` / `splitPlane` / `splitLine` state identically to
+`GeologyCanvas`. The `Geology3DViewer` "Split model" button arms the
+two-click draw interaction; the litho toolbar Reset button collapses
+the split via `resetLithoSplitViewportCallback` (same pattern as
+`resetSplitViewportCallback` in `GeologyCanvas`). `onExitSplit` is
+wired so the "Single view" button inside the viewer also collapses.
+No code added to `Geology3DViewer.tsx` — the wiring was purely in
+`LithologyCanvas.tsx` + `LithologyStage.tsx`. C3 test pins the
+exported callback. 53 vitest + tsc clean 2026-06-01.
+
+**COMPARE split — RESOLVED 2026-08-26.** The owner ballot re-listed
+"3-D split viewport (#64)" as an MVP item after the cut split had
+shipped. The remaining, genuinely-unbuilt half is a MODEL comparison:
+the litho model and the geotech subdivision derived from it, side by
+side, whole, at one viewpoint. "Does the NAD subdivision respect the
+litho units?" is the question the geotech stage exists to answer and
+it cannot be answered by flipping between stages — the eye does not
+hold a 3-D shape across a stage switch.
+
+* `SplitMode` gained `'compare'` and moved to
+  `shared/splitViewport.ts`, together with the three transitions
+  (`splitAfterCutDrawn` / `splitAfterCompare` / `splitAfterExit`) and
+  the `canCompare` predicate. The three loose `useState`s in
+  `useBody3DViewState` collapsed into ONE `SplitViewportState` value:
+  three independent setters over a three-mode machine is where
+  "compare left a stale cut plane behind" lives, and a half model in
+  each compare pane reads as a modelling gap.
+* Entering compare DROPS any cut plane, and `Geology3DViewer` treats
+  the MODE as the authority rather than trusting the plane prop — a
+  component test caught the primary pane still clipping when both were
+  passed.
+* Cameras are LINKED in compare mode only (`useCameraLink`, mirroring
+  in `postRender`, follower-never-writes-back). The cut split keeps
+  independent cameras on purpose: each pane is half of one model.
+* One "Single view" button closes either kind, so the user never has
+  to know which is open.
+* The Compare verb is offered only when the counterpart model would
+  actually paint something — a button opening a blank pane reads as a
+  broken viewer.
+
+Known limit: the comparison pane offers SOLIDS only. Fence walls are
+built per model from that model's own correlations, and each canvas
+holds only its own fence, so captioning the other model's pane with
+this model's walls would be a lie. Revisit if a user asks to compare
+fences — it needs the counterpart's edge fetch, not just its rows.
+
+Pins: `splitViewport.test.ts` (transitions + `canCompare`),
+`Geology3DViewer.compare.test.tsx` CMP1–CMP10.
 
 ---
 
