@@ -38,6 +38,13 @@ export interface GeologicalFormationResponse {
   app_project_id: string
   name: string
   color: string
+  // The colour the ENGINEER picked, or null when nobody has. It wins over the
+  // automatic colour wherever the unit is drawn — see ``geotechUnitColor``.
+  // Separate from ``color`` because ``color`` is a machine default (the geotech
+  // materialiser copies the source litho unit's colour at create), so a value
+  // sitting there says nothing about intent. Optional on the type so pre-change
+  // fixtures still typecheck; the API always sends it.
+  color_override?: string | null
   code: string | null
   display_order: number
   // Debt #35: true once the user has manually drag-reordered this
@@ -114,6 +121,10 @@ export interface GeologicalFormationCreatePayload {
 export interface GeologicalFormationUpdatePayload {
   name?: string | null
   color?: string | null
+  // Send a hex string to set the engineer's colour, an explicit null to reset
+  // the unit to its automatic colour. Omit the key to leave his choice alone —
+  // the backend PATCH is ``exclude_unset``, so those three cases are distinct.
+  color_override?: string | null
   code?: string | null
   display_order?: number | null
   pinned_order?: boolean | null
