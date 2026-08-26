@@ -77,7 +77,9 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     DivideBoreholePreviewResponse,
     DivideBoreholeResponse,
     DivideBoreholesRequest,
+    GeotechLithoStalenessResponse,
     GeotechTieStatusResponse,
+    StaleGeotechColumnItem,
     SubdivideAllBodiesRequest,
     SubdivideAllBodiesResponse,
 )
@@ -85,6 +87,7 @@ from groundmodel.application.auto_correlate_geotech_edges import AutoCorrelateGe
 from groundmodel.application.clear_geotech_column import ClearGeotechColumn
 from groundmodel.application.divide_boreholes import DivideBoreholes
 from groundmodel.application.geotech_band_edit_helpers import GeotechBandEditResult
+from groundmodel.application.geotech_litho_staleness import GeotechLithoStaleness
 from groundmodel.application.geotech_tie_status import load_geotech_tie_status
 from groundmodel.application.merge_geotech_bands import MergeGeotechBands
 from groundmodel.application.move_geotech_band_boundary import MoveGeotechBandBoundary
@@ -491,6 +494,74 @@ async def subdivide_cpts(
         section_id=request.section_id,
         representative_statistic=request.representative_statistic,
         skip_existing=request.skip_existing,
+    )
+
+
+@router.get(
+    "/models/{model_id}/geotech/litho-staleness",
+    response_model=GeotechLithoStalenessResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Which columns' litho moved after their packing bands were made",
+    tags=["geotech"],
+)
+async def geotech_litho_staleness(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechLithoStalenessResponse:
+    """Report the geotech columns standing on litho that has since been edited.
+
+    Debt #266.  Packing bands are derived from the litho stack under them, and
+    until this shipped nothing linked the two: an engineer could drag a litho
+    contact and the geotech axis would keep drawing the old bands as though they
+    were current, right through to a client-facing export.
+
+    Derived on every read (stamped digest vs today's litho), so re-pressing the
+    named columns clears it and there is no state to reset.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model.  A litho model has nothing under it to have
+        moved, so any other kind is 422.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechLithoStalenessResponse
+        The stale columns to re-press, plus the counts an export guard reads.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='geotechnical'``.
+    """
+    model = await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    require_model_kind(model, "geotechnical", "geotech/litho-staleness")
+    result = await GeotechLithoStaleness(session).execute(geotech_model_id=model_id)
+    logger.info(
+        f"geotech_litho_staleness model={model_id} stale={len(result.stale_columns)} "
+        f"banded={result.banded_column_count} unstamped={result.unstamped_column_count}"
+    )
+    return GeotechLithoStalenessResponse(
+        geotech_model_id=result.geotech_model_id,
+        litho_model_id=result.litho_model_id,
+        stale_columns=[
+            StaleGeotechColumnItem(investigation_id=column.investigation_id, label=column.label)
+            for column in result.stale_columns
+        ],
+        stale_column_count=len(result.stale_columns),
+        banded_column_count=result.banded_column_count,
+        unstamped_column_count=result.unstamped_column_count,
     )
 
 
