@@ -7,7 +7,8 @@
  *
  * @module clients/section
  */
-import { del, get, getBytes, patch, post } from './shared'
+import type { SectionPartitionInput } from '../../utils/buildVoxelRequest'
+import { del, get, getBytes, patch, post, postBytes } from './shared'
 
 // ---------------------------------------------------------------------------
 // DEM types
@@ -242,4 +243,56 @@ export const sectionClient = {
     getBytes(
       `/projects/${projectId}/sections/${sectionId}/export/plaxis2d?model_id=${modelId}`,
     ),
+
+  /**
+   * Download the section as a Deltares D-Stability ``.stix`` (v1.0 gate,
+   * owner ballot 2026-08-26).
+   *
+   * A POST, unlike every other section export: D-Stability's geometry IS the
+   * section's closed polygons, and the fill that produces them is computed
+   * here in the renderer — so the drawn partition travels in the body. Pass
+   * the SAME ``SectionPartitionInput`` shape the voxel build sends
+   * (``buildVoxelRequest(...).sections[i]``), so the exported model and the
+   * built 3-D model describe the same ground.
+   *
+   * Rejects with an ``ApiError`` carrying
+   * ``detail.code = 'dstability_export_refused'`` when the section has no
+   * closed geometry — its ``message`` is engineer-readable and belongs in
+   * the toast unchanged.
+   */
+  exportDstability: (
+    projectId: string,
+    sectionId: string,
+    modelId: string,
+    partition: SectionPartitionInput,
+  ): Promise<ArrayBuffer> =>
+    postBytes(
+      `/projects/${projectId}/sections/${sectionId}/export/dstability?model_id=${modelId}`,
+      { partition },
+    ),
+
+  /**
+   * Download a 1-D soil profile through the section as a Deltares D-Sheet
+   * Piling ``.shi`` (v1.0 gate, owner ballot 2026-08-26).
+   *
+   * ``fraction`` is where along the section line to sample — 0.0 at the
+   * section's start endpoint, 1.0 at its end, mid-section when omitted.
+   *
+   * Rejects with ``detail.code = 'dsheetpiling_export_refused'`` when
+   * nothing is drawn at the sampled position.
+   */
+  exportDsheetPiling: (
+    projectId: string,
+    sectionId: string,
+    modelId: string,
+    partition: SectionPartitionInput,
+    fraction?: number,
+  ): Promise<ArrayBuffer> => {
+    const params = new URLSearchParams({ model_id: modelId })
+    if (fraction !== undefined) params.set('fraction', String(fraction))
+    return postBytes(
+      `/projects/${projectId}/sections/${sectionId}/export/dsheetpiling?${params.toString()}`,
+      { partition },
+    )
+  },
 }
