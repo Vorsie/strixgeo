@@ -79,7 +79,13 @@ desktop/src/
     │   ├── StageToolbar.tsx   Horizontal toolbar slot above the stage canvas.
     │   ├── Inspector.tsx      Right-hand inspector panel slot.
     │   ├── EmptyState.tsx     Shared empty / loading state primitives.
-    │   ├── ToolbarPrimitives.tsx  SplitToolbarButton + busy-spinner utilities.
+    │   ├── ToolbarPrimitives.tsx  SplitToolbarButton + busy-spinner + iconOnly utilities.
+    │   ├── ResponsiveToolbarRow.tsx  Stage-verb row: measures its space, renders the plan,
+    │   │                  owns the "⋯ More" overflow menu. Every stage toolbar goes through it.
+    │   ├── toolbarOverflow.ts     Pure planner — (item widths, available px) → which verbs are
+    │   │                  full / short-form / icon / folded. No DOM reads, so no layout feedback
+    │   │                  loop. See docs/ux.md "Stage toolbars" for the priority ladder.
+    │   ├── toolbarOverflow_constants.ts  Text + chrome metrics the estimator measures with.
     │   ├── ShellContext.ts    React context + useShellContextValue hook for cross-stage state.
     │   ├── useShellState.ts   Core shell state: active stage, section selection, model axis.
     │   └── stages/
