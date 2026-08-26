@@ -37,6 +37,7 @@ import {
   type TexVert,
 } from './cesiumGeometry'
 import type { FencePanel } from '../../../utils/fencePanels'
+import { buildFootprintRingPrimitive } from './footprintRingPrimitive'
 
 // Disable Cesium ion. All basemaps and terrain come from our own providers.
 Cesium.Ion.defaultAccessToken = ''
@@ -1167,6 +1168,11 @@ export function buildTinPrimitiveWithVertexColor(
  * hiddenBodyIds
  *     Body ids toggled off in the legend's per-body level.  Only the body-solid
  *     loops honour it — fence walls and TIN sheets have no body identity.
+ * footprintRing
+ *     Closed ring of ``[x_m, y_m, elevation_m]`` marking the model's footprint
+ *     boundary — the alpha hull the build clipped to, fetched from the backend
+ *     (never re-derived here).  Drawn last and never clipped, so the ring reads
+ *     as "the model ends here" rather than as another modelled surface.
  */
 export function rebuildSurfacePrimitives(
   scene: Cesium.Scene,
@@ -1187,6 +1193,7 @@ export function rebuildSurfacePrimitives(
   bodySolidsWireframe: boolean = false,
   investigationXY?: readonly (readonly [number, number])[],
   hiddenBodyIds?: ReadonlySet<string>,
+  footprintRing?: readonly (readonly number[])[],
 ): void {
   scene.primitives.removeAll()
 
@@ -1615,6 +1622,18 @@ export function rebuildSurfacePrimitives(
         if (cap) scene.primitives.add(cap)
       }
     }
+  }
+
+  // Model-footprint ring — LAST, so it draws over the lid and the surfaces.
+  //
+  // Deliberately NOT clipped in split view: the ring states the extent of the
+  // whole model, which does not change because the user cut the scene in half.
+  // Clipping it would put a ring end on the cut face, where it would read as a
+  // second model boundary.
+  if (footprintRing) {
+    // The builder owns the too-few-points case — one guard, not two.
+    const ringPrimitive = buildFootprintRingPrimitive(footprintRing, projectEpsg)
+    if (ringPrimitive) scene.primitives.add(ringPrimitive)
   }
 }
 
