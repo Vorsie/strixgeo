@@ -95,6 +95,7 @@ import type {
   DivideBoreholePreviewResponse,
   DivideBoreholeResponse,
   AutoCorrelateGeotechResponse,
+  GeotechLithoStalenessResponse,
   GeotechTieStatusResponse,
 } from './geology.types'
 
@@ -964,6 +965,21 @@ export const geologyClient = {
   ): Promise<GeotechTieStatusResponse> =>
     get(
       `/projects/${projectId}/geology/models/${geotechModelId}/geotech/tie-status`,
+    ),
+
+  /**
+   * GET .../geotech/litho-staleness — which columns stand on edited litho (#266).
+   *
+   * Takes the GEOTECHNICAL model id (like ``geotechTieStatus``). Read after any
+   * litho edit and after each geotech press: the answer is derived server-side
+   * every time, so re-pressing the named columns is what clears it.
+   */
+  geotechLithoStaleness: (
+    projectId: string,
+    geotechModelId: string,
+  ): Promise<GeotechLithoStalenessResponse> =>
+    get(
+      `/projects/${projectId}/geology/models/${geotechModelId}/geotech/litho-staleness`,
     ),
 
   /**
