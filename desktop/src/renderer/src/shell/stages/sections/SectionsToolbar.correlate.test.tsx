@@ -373,6 +373,11 @@ function makeCtx(overrides: {
       // Read by the re-subdivide confirmation's hand-edit count. Always an
       // array on the real bus; this stub predates the field.
       geotechLayers: [],
+      // Read by the D-Series export rows — the packing-class identity map and
+      // the litho frame the geotech fill is drawn on. Same story as
+      // ``geotechLayers``: always arrays on the real bus.
+      geotechFormations: [],
+      lithoLayers: [],
       requestCorrelationEdgesRefetch: overrides.requestCorrelationEdgesRefetch ?? vi.fn(),
     },
     sections: {
