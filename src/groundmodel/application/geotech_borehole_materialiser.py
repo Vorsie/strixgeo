@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.nad_classifier import clamp_class_to_soil, soil_family_of
 from groundmodel.domain.services.tin_surface import evaluate_tin_at
 from groundmodel.domain.value_objects.tin_surface import TinSurface
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -81,6 +82,13 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         self._session = session
         self._litho_repo = LithoLayerRepository(session)
         self._repo = GeologyRepository(session)
+        self._family_clamp_count = 0
+        """Bands this press left unclassified because the class was foreign.
+
+        A per-band WARNING already names each one; this is what lets the press
+        say how many there were in one line, so a run that silently dropped
+        forty classes cannot read like a clean one.
+        """
 
     # ------------------------------------------------------------------
     # Grouping helper
@@ -327,7 +335,11 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         created_formation_ids : list[UUID]
             Accumulator of classified formation ids created (mutated).
         nad_class : int | None
-            NAD packing class, or ``None`` for a skeleton carry-through.
+            NAD packing class, or ``None`` for a skeleton carry-through. A
+            class outside the source litho unit's own soil family is treated
+            as ``None`` — see the clamp below. Callers that record the class
+            alongside the row must read it back off the returned formation,
+            never from what they passed in.
         source_litho_formation_id : UUID
             The litho formation this geotech unit subdivides.
         source_geo_formation_id : UUID | None
@@ -336,8 +348,33 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         Returns
         -------
         GeologicalFormationOrm
-            The found-or-created formation row.
+            The found-or-created formation row. A class from another soil
+            family yields the SKELETON row, not a classified one.
         """
+        if nad_class is not None:
+            soil_code = await self._source_litho_soil_code(source_litho_formation_id)
+            if clamp_class_to_soil(nad_class, soil_code) is None:
+                # Owner ruling 2026-08-26: *"no a zand body can never carry a
+                # silt packing class"* — *"the nad coupling is absolute."*
+                # Every geotech band in the model is minted here, so this is
+                # the one door the invariant has to hold at, whatever chose
+                # the class upstream.
+                #
+                # The band becomes UNCLASSIFIED rather than being nudged into
+                # the right family. A silt's firmness is not evidence about a
+                # sand's density, so there is no same-rank substitute to reach
+                # for; inventing one would dress a guess as a reading (the
+                # no-guessing rule, Data Integrity Rule 3). "Not yet
+                # classified" is the honest state, it is visible in the
+                # roster, and the engineer can set it by hand.
+                self.warning(
+                    f"_find_or_create_formation: NAD {nad_class} is "
+                    f"{soil_family_of(nad_class)} but litho unit "
+                    f"{source_litho_formation_id} is {soil_code!r} — leaving the band "
+                    "unclassified (a packing class belongs to its own soil column)"
+                )
+                self._family_clamp_count += 1
+                nad_class = None
         if nad_class is None:
             return await self._find_or_create_skeleton(
                 project_id=project_id,
@@ -544,6 +581,34 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
     # ------------------------------------------------------------------
     # DB helpers
     # ------------------------------------------------------------------
+
+    async def _source_litho_soil_code(self, source_litho_formation_id: UUID) -> str | None:
+        """The main soil of the litho unit a geotech band subdivides.
+
+        The row is almost always already in the session's identity map (the
+        caller has just grouped by it), so this is a dict hit rather than a
+        query on every band.
+
+        Parameters
+        ----------
+        source_litho_formation_id : UUID
+            The litho formation the geotech unit subdivides.
+
+        Returns
+        -------
+        str | None
+            ``litho_main_soil_code``, or ``None`` when the row is missing or
+            carries none — in which case there is no NAD family to judge a
+            class against and the clamp stays silent.
+        """
+        row = await self._session.get(GeologicalFormationOrm, source_litho_formation_id)
+        if row is None:
+            self.warning(
+                f"_source_litho_soil_code: litho formation {source_litho_formation_id} "
+                "is not in the database — the soil-family clamp cannot judge this band"
+            )
+            return None
+        return row.litho_main_soil_code
 
     async def _resolve_anchor_kinds(self, investigation_ids: set[UUID]) -> dict[str, str]:
         """Classify each investigation id as ``"borehole"`` or ``"cpt"``.
