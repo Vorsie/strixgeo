@@ -60,6 +60,99 @@ layer's own top. Omitting it left the deepest unit — usually the
 founding layer — running to whatever base PLAXIS defaults to instead
 of to the depth the investigation reached (audit 2026-08-02).
 
+## Unit identifiers — the three-level export contract (debt #104)
+
+An export has to let a downstream tool map each unit onto a **material
+definition**, which display names alone cannot do. Every exporter
+therefore reads the two machine-usable fields off the unit —
+`nad_class` (Belgian NAD packing class 1..31) and
+`litho_main_soil_code` (BaseLithology token) — through ONE shared
+module, `infrastructure/exporters/unit_identifier.py`. Its constants
+live in `unit_identifier_constants.py`; nothing else may re-derive the
+scheme.
+
+**The token.** `unit_identifier()` builds one string per unit:
+
+| Level | nad_class | soil | Token |
+|---|---|---|---|
+| geotech, classified | 6 | ZAND | `NAD-06_ZAND` |
+| geotech, no soil on the litho parent | 6 | – | `NAD-06` |
+| litho | – | ZAND | `ZAND` |
+| geological | – | – | `None` |
+
+The class is **zero-padded** because CAD layer managers and PLAXIS
+material lists sort as text — `NAD-06` must sort above `NAD-21`. The
+class leads so the token is a stable prefix: `NAD-06_*` wildcard-selects
+every instance of one class. The token is stripped against the DXF
+forbidden-character set, so it is always safe to splice into a layer
+name.
+
+**The naming rule — one predicate, `naming_identifier()`.** A unit's
+*name* in an export changes ONLY when the unit carries a `nad_class`.
+Geological formations, litho units and unclassified geotech skeleton
+bands keep byte-identical names; their identifiers ride metadata
+channels instead (DXF layer description, the mapping table, the PDF
+legend). The DXF layer name, the PLAXIS material identification and the
+PLAXIS Python variable all ask that one function, so they cannot
+disagree about which units were renamed.
+
+**What each artefact carries.**
+
+* **DXF** — layer `GeoModel-NAD-06_ZAND - <unit name>`; layer description
+  gains `| NAD class 6 | soil ZAND`; a mapping table in model-space TEXT
+  under the title block.
+* **PLAXIS 2D + 3D** — material `Identification = "NAD-06_ZAND - <unit
+  name>"`, variable `mat_nad_06_zand`, and a `UNIT MAPPING TABLE` block
+  in the script's docstring header (after USAGE) listing material → NAD
+  class → soil → unit name → formation UUID.
+* **PDF section report** — the figure legend leads with the token.
+
+### Same-NAD thinning — DXF and PDF only (debt #104b)
+
+Owner ruling 2026-08-26, verbatim: *"thin in dxf and pdf, keep plaxis
+exact, shallower parent name wins."*
+
+Two stacked units of the same NAD class mean two different litho or
+geological parents — the geotech find-or-create keys on `(nad_class,
+litho parent, geo parent)`, so same-class bands *within* one parent
+already share a formation row. That boundary is real geology but carries
+no NAD meaning, and in a delivered DXF or PDF it reads as two materials
+where the engineer has one.
+
+* **Where** — `ThinExportUnits` (`application/thin_export_units.py`),
+  applied in `_build_export_snapshot` (`api/routers/cross_section.py`).
+  The DXF and PDF handlers pass `thin_units=True`; the helper defaults
+  to `False`, so a new caller gets the exact snapshot.
+* **Plaxis never thins.** Both Plaxis exporters index ONE global
+  `soillayer` stack that every borehole reuses, so an interleaved merge
+  would need one global layer twice in a column — inexpressible. The
+  script's mapping table names every unit separately instead.
+* **"Adjacent"** is defined once, in that module's docstring: at a
+  column, B is directly below A iff B's contact is A's immediate
+  successor by depth. A and B merge iff they share the identifier, share
+  at least one column, and B is directly below A at *every* column where
+  both appear. One column with a third unit wedged between them vetoes
+  the merge.
+* **Shallower wins** — name, colour and formation reference all come
+  from the shallower unit. The merge is a deletion of the deeper unit's
+  top contacts, so the survivor's extent runs down to whatever lay
+  below; nothing is recomputed.
+* **Auditable** — the survivor carries `absorbed_unit_names`, and the
+  mapping table grows an `Absorbed units` column *only* when something
+  merged, so unthinned artefacts stay byte-identical.
+* **Default ON with an opt-out** — `?thin_units=false` on the DXF and
+  PDF endpoints. The merge erases a boundary the engineer drew, so a
+  client whose CAD deliverable must show parent boundaries can get them
+  without a code change.
+
+**Collisions are expected, not defensive.** Two units legitimately share
+a `(nad_class, soil)` pair — NAD 6 sand under two different geological
+parents. The token is therefore not unique on its own; each exporter
+disambiguates in its own namespace (DXF appends the formation short id,
+because layer names are case-folded and capped at 255 chars; PLAXIS
+appends ` #2`, because an identification has neither constraint) and the
+mapping table carries the formation UUID, which is the real resolver.
+
 **Plaxis 2D per-section exporter — shipped 2026-05-16 (debt #29).**
 `PlaxisSectionExporter` consumes a `SectionSnapshot` (investigations
 already projected onto the section line) and emits the same shape of
