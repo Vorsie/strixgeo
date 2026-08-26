@@ -34,10 +34,13 @@ NO ``kind`` / ``overlay_tier`` fields, so we do NOT reconstruct band/onlap/lens
 kinds.  The midline pinch between two sections is purely geometric (present on
 one stack, absent on the other) and needs no kind.  For the BEYOND rule (a
 voxel beyond all its nearest sections but inside the domain footprint) we take
-the simple faithful choice: **extend the nearest section's stack laterally**
-(horizontal extrapolation within the hull — consistent with the
-litho-extrapolated-horizontally stance).  A voxel OUTSIDE the domain footprint
-is void (-1).
+the simple faithful choice: **extend laterally the stack of the nearest section
+that HAS one** (horizontal extrapolation within the hull — consistent with the
+litho-extrapolated-horizontally stance).  Silence is not an answer on that path
+any more than on the between path: a section with nothing to say at the
+projected point is passed over for the next one out.  A voxel OUTSIDE the domain
+footprint is void (-1), and so is one no section could fill — the latter is
+counted onto the returned report, because the model is meant to be gapless.
 
 Pure domain module — scipy/numpy only, no I/O, no logging, no framework
 imports.  The helpers compute; they do not act, so nothing inherits
@@ -71,10 +74,15 @@ from groundmodel.domain.services.voxel_litho.snap_grid import (
     SNAP_GRID_M,
     gap_edge_fraction_margin,
 )
+from groundmodel.domain.services.voxel_litho.voxel_constants import (
+    HAIRLINE_LIMIT_M,
+    PROJECTION_TIE_EPS_M,
+)
 from groundmodel.domain.services.voxel_litho.voxel_grid_budget import check_voxel_grid_budget
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelGrid,
+    LabelReport,
     SectionPartitionInput,
 )
 
@@ -92,6 +100,7 @@ slice's top — so this is a float-noise guard, not a tunable.  Widening it woul
 joining intervals across genuinely thin layers of another body, which is the #228
 sliver problem and must be fixed there rather than absorbed here.
 """
+
 
 CONTACT_GOES_TO_THE_BODY_ABOVE = """A voxel exactly on a contact belongs to the SHALLOWER body.
 
@@ -175,6 +184,83 @@ class _SectionProjection:
     foot_y: float
     full_stack: list[_Entry]
     reach_stack: tuple[tuple[str, str, float, float], ...]
+
+
+@dataclass
+class _LabelTally:
+    """Mutable accumulator for :class:`LabelReport`, owned by :func:`label_voxels`.
+
+    The labelling helpers are pure functions and this is the only state they are
+    handed: a scratch counter that never leaves the call, so it cannot become the
+    module-level mutable state the package's no-logger stance exists to avoid.
+    """
+
+    beyond_fallthrough_columns: int = 0
+    beyond_void_columns: int = 0
+    projection_tie_rescues: int = 0
+    layout_closed_voids: int = 0
+    layout_closed_worst_m: float = 0.0
+    layout_closed_worst_site: str | None = None
+    hairline_gaps_over_limit: int = 0
+    hairline_worst_m: float = 0.0
+    logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
+
+    def note_closed_void(self, height_m: float, section_index: int, gap_index: int) -> None:
+        """Record one interior void the cumulative layout is about to close."""
+        self.layout_closed_voids += 1
+        if height_m > self.layout_closed_worst_m:
+            self.layout_closed_worst_m = height_m
+            self.layout_closed_worst_site = f"section {section_index} gap {gap_index}"
+
+    def to_report(self) -> LabelReport:
+        """Freeze the accumulator into the value object the caller logs."""
+        return LabelReport(
+            beyond_fallthrough_columns=self.beyond_fallthrough_columns,
+            beyond_void_columns=self.beyond_void_columns,
+            projection_tie_rescues=self.projection_tie_rescues,
+            layout_closed_voids=self.layout_closed_voids,
+            layout_closed_worst_m=self.layout_closed_worst_m,
+            layout_closed_worst_site=self.layout_closed_worst_site,
+            hairline_gaps_over_limit=self.hairline_gaps_over_limit,
+            hairline_worst_m=self.hairline_worst_m,
+            logs_below_grid_floor=self.logs_below_grid_floor,
+        )
+
+
+def _interior_gaps(stack: list[_Entry]) -> list[tuple[float, float]]:
+    """Elevation ranges inside a shallow→deep stack that NO entry covers.
+
+    Walks deep → shallow tracking the deepest elevation covered so far, exactly as
+    :func:`_column_labels` builds its boundary edges, so what this reports and what
+    the labeller turns into void voxels are the same intervals.  Tracking the running
+    coverage is what separates a real hole from a body that simply re-enters lower:
+    comparing only CONSECUTIVE entries calls the space under a thin nested layer a
+    void even though the entry above it reaches straight through.
+
+    Every gap is returned regardless of height — the callers apply their own
+    thresholds (the snap grid for "is this rounding", the hairline limit for "is this
+    worth a word").
+
+    Parameters
+    ----------
+    stack : list of _Entry
+        The vertical body intervals, shallow → deep.
+
+    Returns
+    -------
+    list of (float, float)
+        ``(base, top)`` of each uncovered range, deep → shallow.  Empty when the
+        stack tiles (or is empty).
+    """
+    if not stack:
+        return []
+    gaps: list[tuple[float, float]] = []
+    covered_to = stack[-1].base_elev
+    for e in reversed(stack):
+        if e.base_elev > covered_to:
+            gaps.append((covered_to, e.base_elev))
+        covered_to = max(covered_to, e.top_elev)
+    return gaps
 
 
 def _th(e: _Entry) -> float:
@@ -293,6 +379,11 @@ def _project_to_section_fence(
     fraction (0 or 1), so the section extends its end stack laterally —
     consistent with the 2-D model and the loft's beyond rule.
 
+    Purely geometric, and deliberately so: it answers *where* on this fence, never
+    *what is drawn* there.  Where two gaps reach the point equally well the answer
+    is a tie geometry cannot break; :func:`_projected_stack` breaks it on evidence,
+    at the one place that needs the slices anyway.
+
     Parameters
     ----------
     section : SectionPartitionInput
@@ -347,6 +438,84 @@ def _project_to_section_fence(
             best_px = px
             best_py = py
     return best_gap, best_frac, best_dist, best_px, best_py
+
+
+def _projected_stack(
+    section: SectionPartitionInput,
+    x: float,
+    y: float,
+    gap_index: int,
+    fraction: float,
+    perp_dist: float,
+    tally: _LabelTally | None = None,
+) -> tuple[int, float, list[_Entry]]:
+    """The section's stack at its projected foot, letting a tied gap answer a blank one.
+
+    Two consecutive gaps reach a point off their SHARED column through that very
+    column, so their perpendicular distances are equal but for float noise, and
+    :func:`_project_to_section_fence` — which can only compare distances — settles
+    it on fence order.  Where the winning gap is blank and the tied one is drawn,
+    fence order alone decides whether the section has anything to say here.  On the
+    owner's first real geotech build it decided that 129 times, including the one
+    in-footprint column of 37 707 that came back with no section stack at all —
+    (88 074.3, 164 745.3) under ``GEO-06/092-S1``, whose material stopped 0.75 m
+    short of the neighbouring column's.  Distance cannot separate a tie, so evidence
+    does.
+
+    Only a BLANK winner starts the search, and the search only slices gaps within
+    :data:`PROJECTION_TIE_EPS_M` of the winner's distance, so a section that has
+    something to say costs exactly the one slice the caller needed anyway.  That is
+    why the rule lives here and not inside the projection: there it would have to
+    slice to know, and the slice would then be thrown away and recomputed — measured
+    at +43 % on the labelling phase of the real build (docs/debt.md #245).
+
+    Parameters
+    ----------
+    section : SectionPartitionInput
+        The section being read.
+    x, y : float
+        The map-plane query point (metres, project CRS).
+    gap_index : int
+        The gap :func:`_project_to_section_fence` chose.
+    fraction : float
+        The gap-local fraction it chose.
+    perp_dist : float
+        Its perpendicular distance — what the tie window is measured from.
+    tally : _LabelTally or None, optional
+        Scratch accumulator to count rescues into.  ``None`` still applies the rule.
+
+    Returns
+    -------
+    tuple[int, float, list of _Entry]
+        ``(gap_index, fraction, stack)`` — the gap actually read and its slice.  An
+        empty stack means no equally-near gap is drawn either, which is the section
+        genuinely having nothing to say at this point.
+    """
+    stack = _section_stack_at(section, gap_index, fraction)
+    if stack:
+        return gap_index, fraction, stack
+    cols = section.columns
+    for gi in range(len(cols) - 1):
+        if gi == gap_index:
+            continue
+        a = cols[gi]
+        b = cols[gi + 1]
+        along, dist, _px, _py = _project_point_to_segment(
+            x, y, a.world_x, a.world_y, b.world_x, b.world_y
+        )
+        # The projection already found the minimum, so a candidate is never nearer —
+        # only equal within the window, or farther and therefore not a tie at all.
+        if dist > perp_dist + PROJECTION_TIE_EPS_M:
+            continue
+        seg_len = math.hypot(b.world_x - a.world_x, b.world_y - a.world_y)
+        frac = 0.0 if seg_len < _EPS else along / seg_len
+        frac = min(max(frac, 0.0), 1.0)
+        tied = _section_stack_at(section, gi, frac)
+        if tied:
+            if tally is not None:
+                tally.projection_tie_rescues += 1
+            return gi, frac, tied
+    return gap_index, fraction, stack
 
 
 def _section_stack_at(
@@ -472,11 +641,17 @@ def _layout(specs: list[tuple[float, str | None, str, float]], top: float | None
     because what "unknown on one section, clay on the other" should look like
     between them is a geological ruling nobody has given yet.
 
-    It DOES fire today, on the geotech axis: ``scripts/diag_section_stack_voids.py``
-    finds 4 interior voids in the captured geotech payload's section stacks (worst
-    2.420 m, section 2 gap 3) against 0 in the litho payload, and none of them
-    reaches :func:`_column_labels` — this function closed every one.  See
-    docs/debt.md #268 — do NOT invent an answer here.
+    It DOES fire today, on the geotech axis, and the numbers this docstring used to
+    quote (4 voids, worst 2.420 m at section 2 gap 3) were the wrong ones — they came
+    from sampling 21 fractions per gap of the whole payload, which counts voids in
+    gaps no voxel column ever reads.  Re-measured 2026-08-26 over the actual
+    labelling — every in-footprint column of the owner's real geotech build, at the
+    two sections each column actually projects onto — it is 6 distinct
+    ``(section, gap)`` sites, worst 13.9 mm at ``GEO-10/117-B1 -> GEO-05/040-S1``,
+    and this function closes every one.  Sub-metre, but not rounding, and never
+    silent again: each closure is counted onto :class:`_LabelTally` in
+    :func:`_stack_at` and reported out on the grid.  See docs/debt.md #268 — report
+    it, do NOT invent an answer here.
 
     Ported from ``loft_field._layout``.
 
@@ -794,6 +969,7 @@ def _stack_at(
     y: float,
     terminations: dict[str, tuple[Termination, ...]] | None = None,
     reach_to_evidence: bool = False,
+    tally: _LabelTally | None = None,
 ) -> list[_Entry]:
     """Return the vertical body stack at map-plane point ``(x, y)``.
 
@@ -817,6 +993,14 @@ def _stack_at(
         The project's cross-sections with their 2-D partitions.
     x, y : float
         Map-plane query coordinates (metres, project CRS).
+    terminations : dict of str to tuple of Termination, or None
+        Every body's measured pinch-outs, or ``None`` to keep the midline rule.
+    reach_to_evidence : bool
+        Let a one-sided body reach the contradicting section instead of dying at
+        the equidistance midline.
+    tally : _LabelTally or None, optional
+        Scratch accumulator for the structural anomalies met on the way.  ``None``
+        (the default) changes no answer; it only drops the bookkeeping.
 
     Returns
     -------
@@ -851,8 +1035,8 @@ def _stack_at(
 
     if between:
         i2, s2, gap2, frac2, d2, _px2, _py2 = projs[1]
-        stack1 = _section_stack_at(s1, gap1, frac1)
-        stack2 = _section_stack_at(s2, gap2, frac2)
+        gap1, frac1, stack1 = _projected_stack(s1, x, y, gap1, frac1, d1, tally)
+        gap2, frac2, stack2 = _projected_stack(s2, x, y, gap2, frac2, d2, tally)
         # An EMPTY stack is no information, not an interpretation of "no material
         # here".  It happens routinely: the projection clamps to a section's end
         # column, or lands in a gap the partition never filled.  Blending against
@@ -866,6 +1050,16 @@ def _stack_at(
             return stack1
         if not stack1:
             return stack2
+        # Both sections speak, so ``_blend_stacks`` -> ``_layout`` runs and lays the
+        # result out cumulatively downward: a void inside either input is not a spec,
+        # contributes nothing, and everything below it rises by its height.  What that
+        # void SHOULD look like between two sections is an open geological ruling
+        # (docs/debt.md #268), so it is reported here rather than answered.
+        if tally is not None:
+            for section_index, gap_index, stack in ((i1, gap1, stack1), (i2, gap2, stack2)):
+                for base, top in _interior_gaps(stack):
+                    if top - base > SNAP_GRID_M:
+                        tally.note_closed_void(top - base, section_index, gap_index)
         denom = d1 + d2
         w1 = 0.5 if denom < _EPS else d2 / denom
         here = (x, y)
@@ -880,7 +1074,25 @@ def _stack_at(
 
     # Beyond rule: horizontal extrapolation of the nearest section's stack
     # (no kind to ramp; extend it faithfully within the domain footprint).
-    return _section_stack_at(s1, gap1, frac1)
+    #
+    # An empty slice is no information here either — the same stance the between
+    # branch above takes, and for the same reasons: the projection clamps to an end
+    # column, or lands in a gap the partition never filled.  Taking that silence as
+    # an answer left the column with nothing but whatever log was honored on it, so
+    # it stopped short of the ground beside it: at (88 074.3, 164 745.3) on the
+    # owner's first real geotech build — the ONE in-footprint column of 37 707 whose
+    # section stack came back empty — the material ended at -10.72 while the
+    # neighbouring column carried it to -11.47.  So keep walking outward until a
+    # section answers; only when none does is the column genuinely unknown.
+    for rank, (_index, section, gap, fraction, dist, _fx, _fy) in enumerate(projs):
+        _gap, _frac, stack = _projected_stack(section, x, y, gap, fraction, dist, tally)
+        if stack:
+            if tally is not None and rank > 0:
+                tally.beyond_fallthrough_columns += 1
+            return stack
+    if tally is not None:
+        tally.beyond_void_columns += 1
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1207,7 +1419,7 @@ def _column_stack_geo(
     projections: list[_SectionProjection] = []
     for s in sections:
         gap, frac, perp, fx, fy = _project_to_section_fence(s, x, y)
-        full = _section_stack_at(s, gap, frac)
+        _gap, _frac, full = _projected_stack(s, x, y, gap, frac, perp)
         reach_stack = tuple(
             (e.body_id or "", e.formation_id, e.top_elev, e.base_elev) for e in full
         )
@@ -1320,13 +1532,18 @@ def _column_labels(
     thread a line of void voxels through a contact.  Sub-millimetre is rounding,
     not a statement that the interval is unknown.
 
-    Measured on BOTH captured payloads (``scripts/diag_section_stack_voids.py``):
-    the litho payload's section stacks are hole-free at every sampled fraction,
-    and the geotech payload's 4 interior voids never arrive here — :func:`_layout`
-    closes them upstream (debt #268).  Of 30 802 labelled geotech columns, 0
-    carried a gap over a millimetre and 8 carried one below it, so this guard is
-    what the change is worth on today's data.  Both builds are byte-identical
-    (label-grid SHA-256) to before the void slot existed.
+    Re-measured 2026-08-26 over the owner's real geotech build, per labelled column
+    rather than per sampled fraction (the earlier "4 voids, worst 2.420 m" figure
+    counted gaps in parts of the payload no voxel column reads — see
+    :func:`_layout`): NO final stack reaches this function with a gap over a
+    millimetre.  The worst is 0.999 mm, exactly one snap cell, over 5 144 columns —
+    so on today's data this guard is what keeps a line of void voxels out of a
+    contact, and the void slot itself has never yet been opened by a real build.
+    Voids over a millimetre DO exist on the input stacks; :func:`_layout` closes
+    them one step upstream (6 sites, worst 13.9 mm, debt #268) and now reports each.
+    A gap over :data:`HAIRLINE_LIMIT_M` in any final stack is counted onto the
+    grid's report by :func:`label_voxels`, because at that height snapping can no
+    longer explain it.
 
     Parameters
     ----------
@@ -1636,7 +1853,11 @@ def label_voxels(
     -------
     LabelGrid
         The labelled grid: regular axes ``gx`` / ``gy`` / ``gz``, the dense
-        ``labels`` array (body index or ``-1``), and the body→formation lookup.
+        ``labels`` array (body index or ``-1``), the body→formation lookup, and a
+        :class:`~groundmodel.domain.services.voxel_litho.voxel_types.LabelReport`
+        of the structural anomalies met.  This module has no logger of its own
+        (pure domain), so the report is how a closed void, a truncated log or a
+        void column reaches the engineer instead of disappearing into the grid.
 
     Raises
     ------
@@ -1655,8 +1876,8 @@ def label_voxels(
     Notes
     -----
     The BEYOND rule (a voxel beyond all its nearest sections but inside the
-    footprint) extends the nearest section's stack laterally — horizontal
-    extrapolation within the hull, consistent with the
+    footprint) extends laterally the stack of the nearest section that HAS one —
+    horizontal extrapolation within the hull, consistent with the
     litho-extrapolated-horizontally stance.  We deliberately do NOT reconstruct
     band/onlap/lens ramps (our ``RegionInput`` carries no ``kind``).
 
@@ -1808,6 +2029,17 @@ def label_voxels(
     terminations: dict[str, tuple[Termination, ...]] | None = (
         body_terminations(sections) if measured_pinch else None
     )
+    tally = _LabelTally()
+    # The grid's elevation range comes from the SECTION polygons alone, so an
+    # honored log that reaches deeper than every section has no grid node to be
+    # labelled on and is silently truncated at the floor — a borehole that would
+    # read flat-bottomed in the 3-D view with nothing to say why.  Zero on the
+    # owner's model today; named the day it is not.
+    tally.logs_below_grid_floor = tuple(
+        (inv.investigation_id, zmin - min(base for _b, _f, _t, base in inv.intervals))
+        for inv in investigation_columns
+        if inv.intervals and min(base for _b, _f, _t, base in inv.intervals) < zmin - SNAP_GRID_M
+    )
     for i in range(nx):
         x = float(gx[i])
         for j in range(ny):
@@ -1829,8 +2061,17 @@ def label_voxels(
                 )
                 labeller = _column_labels_gapped
             else:
-                stack = _stack_at(sections, x, y, terminations, reach_to_evidence)
+                stack = _stack_at(sections, x, y, terminations, reach_to_evidence, tally)
                 labeller = _column_labels
+            # A void the partition MEANT stays void, so this measures rather than
+            # closes.  It separates the two ways a stack can be discontinuous: the
+            # 2-D engine's millimetre snapping of a contact drawn flush (rounding),
+            # and a gap tall enough that rounding cannot explain it.
+            for base, top in _interior_gaps(stack):
+                if top - base > tally.hairline_worst_m:
+                    tally.hairline_worst_m = top - base
+                if top - base > HAIRLINE_LIMIT_M:
+                    tally.hairline_gaps_over_limit += 1
             honored = honored_by_cell.get((i, j))
             if honored is not None:
                 labels[i, j, :] = _honored_column_labels(
@@ -1850,4 +2091,5 @@ def label_voxels(
         labels=labels,
         body_id_by_index=body_id_by_index,
         formation_by_body=formation_by_body,
+        report=tally.to_report(),
     )
