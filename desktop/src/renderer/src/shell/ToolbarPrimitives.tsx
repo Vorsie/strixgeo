@@ -16,6 +16,24 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type React from 'react'
 
+/**
+ * Accessible name + tooltip for a control that may render icon-only.
+ *
+ * The NAME is the short verb, not the long description: a voice-control user
+ * says "click Bodies", and a screen-reader user scanning a toolbar wants the
+ * verb list, not five sentences. The description stays where a description
+ * belongs — the tooltip.
+ */
+function iconOnlyProps(
+  iconOnly: boolean | undefined,
+  label: string,
+  title: string | undefined,
+): { title: string | undefined; 'aria-label': string | undefined } {
+  return iconOnly === true
+    ? { title: title ?? label, 'aria-label': label }
+    : { title, 'aria-label': undefined }
+}
+
 interface PrimaryToolbarButtonProps {
   icon: React.ReactNode
   label: string
@@ -28,6 +46,11 @@ interface PrimaryToolbarButtonProps {
   busy?: boolean
   /** Optional data-testid passthrough for e2e harnesses. */
   testid?: string
+  /** Drop the text label and render icon-only (the narrow-width rung of the
+   *  ``ResponsiveToolbarRow`` ladder). The label is not lost: it moves into
+   *  the tooltip and the accessible name, so the control is still announced
+   *  and still hoverable. */
+  iconOnly?: boolean
 }
 
 /**
@@ -63,6 +86,7 @@ export function PrimaryToolbarButton({
   title,
   busy,
   testid,
+  iconOnly,
 }: PrimaryToolbarButtonProps): JSX.Element {
   return (
     <button
@@ -70,7 +94,9 @@ export function PrimaryToolbarButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      aria-label={title}
+      // Non-icon-only keeps the pre-existing contract (name = the full
+      // description). Icon-only takes the short verb — see ``iconOnlyProps``.
+      aria-label={iconOnly === true ? label : title}
       aria-busy={busy}
       data-testid={testid}
       className={[
@@ -82,7 +108,7 @@ export function PrimaryToolbarButton({
       ].join(' ')}
     >
       {busy ? <RefreshCw size={13} className="animate-spin" /> : icon}
-      {label}
+      {iconOnly === true ? null : label}
     </button>
   )
 }
@@ -103,6 +129,8 @@ interface ToolbarButtonProps {
   busy?: boolean
   /** Optional data-testid passthrough for e2e harnesses. */
   testid?: string
+  /** Render icon-only — see ``PrimaryToolbarButtonProps.iconOnly``. */
+  iconOnly?: boolean
 }
 
 /**
@@ -144,13 +172,14 @@ export function ToolbarButton({
   danger,
   busy,
   testid,
+  iconOnly,
 }: ToolbarButtonProps): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title}
+      {...iconOnlyProps(iconOnly, label, title)}
       aria-busy={busy}
       data-testid={testid}
       className={[
@@ -166,7 +195,7 @@ export function ToolbarButton({
       ].join(' ')}
     >
       {busy ? <RefreshCw size={13} className="animate-spin" /> : icon}
-      {label}
+      {iconOnly === true ? null : label}
     </button>
   )
 }
@@ -363,6 +392,8 @@ interface ToolbarDropdownProps {
   items: readonly ToolbarDropdownItem[]
   /** Optional data-testid on the trigger button. */
   testid?: string
+  /** Render icon + caret only — see ``PrimaryToolbarButtonProps.iconOnly``. */
+  iconOnly?: boolean
 }
 
 /**
@@ -383,6 +414,7 @@ export function ToolbarDropdown({
   disabled,
   items,
   testid,
+  iconOnly,
 }: ToolbarDropdownProps): JSX.Element {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const { open, anchorRect, toggle, close } = usePortalMenu(triggerRef)
@@ -399,7 +431,7 @@ export function ToolbarDropdown({
         type="button"
         onClick={handleTriggerClick}
         disabled={disabled}
-        title={title}
+        {...iconOnlyProps(iconOnly, label, title)}
         aria-haspopup="menu"
         aria-expanded={open}
         data-testid={testid}
@@ -412,7 +444,7 @@ export function ToolbarDropdown({
         ].join(' ')}
       >
         {icon}
-        {label}
+        {iconOnly === true ? null : label}
         <ChevronDown size={11} aria-hidden="true" />
       </button>
       {open && anchorRect !== null && (
@@ -463,6 +495,9 @@ interface SplitToolbarButtonProps {
   /** Optional data-testid for the primary half. The caret half uses
    *  ``${testid}-caret`` when supplied. */
   testid?: string
+  /** Render the primary half icon-only, caret unchanged — see
+   *  ``PrimaryToolbarButtonProps.iconOnly``. */
+  iconOnly?: boolean
 }
 
 /**
@@ -503,6 +538,7 @@ export function SplitToolbarButton({
   amber,
   items,
   testid,
+  iconOnly,
 }: SplitToolbarButtonProps): JSX.Element {
   const caretRef = useRef<HTMLButtonElement>(null)
   const { open, anchorRect, toggle: handleCaretClick, close } = usePortalMenu(caretRef)
@@ -598,13 +634,16 @@ export function SplitToolbarButton({
           title={
             primaryActsAsCaret
               ? `${title ?? label} — click for options`
-              : title
+              : iconOnly === true
+                ? (title ?? label)
+                : title
           }
+          aria-label={iconOnly === true ? label : undefined}
           data-testid={testid}
           className={primaryClasses}
         >
           {busy ? <RefreshCw size={13} className="animate-spin" /> : icon}
-          {label}
+          {iconOnly === true ? null : label}
         </button>
         <button
           ref={caretRef}
