@@ -43,16 +43,8 @@
  * @module utils/geotechHierarchicalFill/constructive/pocketFaces
  */
 
+import { connectedComponents, dedupe, sharedEdgePairs } from './faceAdjacency'
 import type { FacePoint } from './mergeFaces'
-
-/**
- * Vertex quantisation — the SAME grid ``mergeFaces`` welds on.
- *
- * Two faces are adjacent here exactly when the merge would call their shared
- * edge interior, so a pocket re-owned by this pass welds into its new mass
- * rather than landing beside it as a second region with an invisible seam.
- */
-const GRID = 1e7
 
 /**
  * How close to the cover's own edge a vertex must be to count as touching it.
@@ -89,16 +81,6 @@ export interface CoverEdges {
   hi: number
 }
 
-const vertexKey = (p: FacePoint): string =>
-  `${Math.round(p.fraction * GRID)}:${Math.round(p.elevation * GRID)}`
-
-/** Undirected identity of one ring edge. */
-const edgeKey = (a: FacePoint, b: FacePoint): string => {
-  const ka = vertexKey(a)
-  const kb = vertexKey(b)
-  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`
-}
-
 /**
  * Re-own every pocket to the mass that encloses it.
  *
@@ -113,31 +95,12 @@ export function resolveIslands(faces: readonly PocketFace[], edges: CoverEdges):
   const n = rings.length
   const owner = faces.map((_, i) => i)
   // Components: faces of the same mass that share an edge.
-  const parent = rings.map((_, i) => i)
-  const find = (i: number): number => {
-    let root = i
-    while (parent[root] !== root) root = parent[root]
-    parent[i] = root
-    return root
-  }
-  const seen = new Map<string, number>()
-  const shared: [number, number][] = []
-  for (let i = 0; i < n; i++) {
-    const ring = rings[i]
-    for (let v = 0; v < ring.length; v++) {
-      const key = edgeKey(ring[v], ring[(v + 1) % ring.length])
-      const other = seen.get(key)
-      if (other === undefined) {
-        seen.set(key, i)
-        continue
-      }
-      shared.push([other, i])
-      if (faces[other].key !== faces[i].key) continue
-      const ra = find(other)
-      const rb = find(i)
-      if (ra !== rb) parent[ra] = rb
-    }
-  }
+  const shared = sharedEdgePairs(rings)
+  const roots = connectedComponents(
+    n,
+    shared.filter(([a, b]) => faces[a].key === faces[b].key),
+  )
+  const find = (i: number): number => roots[i]
   // Per component: whether it reaches a column, and which other components lie
   // against it.
   const anchored = new Map<number, boolean>()
@@ -200,16 +163,4 @@ export function resolveIslands(faces: readonly PocketFace[], edges: CoverEdges):
     for (const face of component) owner[face] = enclosing
   }
   return owner
-}
-
-/** Drop consecutive duplicate vertices, and the wrap-around duplicate. */
-function dedupe(ring: readonly FacePoint[]): FacePoint[] {
-  const out: FacePoint[] = []
-  for (const p of ring) {
-    const prev = out[out.length - 1]
-    if (prev !== undefined && vertexKey(prev) === vertexKey(p)) continue
-    out.push(p)
-  }
-  while (out.length > 1 && vertexKey(out[0]) === vertexKey(out[out.length - 1])) out.pop()
-  return out
 }
