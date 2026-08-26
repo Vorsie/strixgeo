@@ -7840,7 +7840,17 @@ So all three of this campaign's "drilled gate failures" turned out to be faults 
 gate: the footprint hull, the paired stations, and this. Worth remembering the next time
 the gate reports a model defect.
 
-## 259. `_section_stack_at` returns nothing at the edges of half the gaps — RESOLVED 2026-07-31
+## 259. `_section_stack_at` returns nothing at the edges of half the gaps — RESOLVED 2026-07-31 (ghost recurred 2026-08-26, re-refuted)
+
+**2026-08-26 note.** The same ruler error (fraction shortfall × SECTION length
+instead of × GAP width) resurfaced in the gapless-map sweep as "H14: 2/69
+geotech gaps emit 25 mm short of the edge". Re-measured mechanically with both
+rulers: 0/69 unsafe on both arms, worst true shortfall 0.7 mm vs the 2 mm
+margin. No fix shipped (edge-forcing is the lens-dragging invention this entry
+already rejected); instead `geotechHierarchicalFill/edgeReach.ts` now trips —
+cover-stated, so a genuinely pinching lens is followed, never "corrected" —
+and `GEOTECH_EDGE_REACH=1` prints BOTH rulers side by side so the denominator
+substitution can never be made silently again.
 
 **What.** The query fraction is clamped to `1 - _FRAC_EPS`, and in **33 of 69 gaps** the
 region polygons do not reach that far, so the section reports an EMPTY column. 15 of 69
