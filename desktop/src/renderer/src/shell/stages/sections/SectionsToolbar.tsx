@@ -104,6 +104,7 @@ import {
   unionStaleGeotechColumns,
 } from '../../../utils/staleGeotechColumns'
 import { sectionsRevealPendingTieCallback } from './pendingTieRevealBridge'
+import { useDseriesExportItems } from './useDseriesExportItems'
 import type { PendingTieRevealOutcome } from './useGeotechPendingTieReveal'
 
 /**
@@ -911,6 +912,16 @@ export default function SectionsToolbar(): JSX.Element {
     isLitho || isGeotech
       ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
       : null
+  // The two closed-geometry exports (D-Stability / D-Sheet Piling). They own
+  // their own busy state and handlers because, unlike DXF / PDF / Plaxis, they
+  // POST the drawn partition rather than letting the backend rebuild it — see
+  // ``useDseriesExportItems``.
+  const dseriesExportItems = useDseriesExportItems({
+    axisModel: axisModelForExport(),
+    selectedSection,
+    isGeotech,
+    axisLevelLabel,
+  })
   // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions
   // for the focused column in the active section. On the litho axis the
   // source is the section-local focused column (right-click → Focus in the
@@ -2495,6 +2506,7 @@ export default function SectionsToolbar(): JSX.Element {
                     : `Generate a PDF report of this section's ${axisLevelLabel} model`,
             testid: 'export-section-pdf',
           },
+          ...dseriesExportItems,
         ]
 
   const recomputeTitle =
