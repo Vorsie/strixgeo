@@ -20,8 +20,13 @@ import { describe, expect, it } from 'vitest'
 
 import { computeHierarchicalGeotechFill } from '../index'
 import { column, tie } from '../scene.test-helpers'
-import { fillGapProbe } from './fillGapProbe'
-import { interiorVerticals, onlapClosureViolations, onlapTerminationsByGap } from './onlapClosure'
+import { fillGapProbe, type ProbeConstruct, type ProbeEntry, type ProbeFace } from './fillGapProbe'
+import {
+  interiorVerticals,
+  onlapClosureViolations,
+  onlapTerminationsByGap,
+  silentConstructs,
+} from './onlapClosure'
 import { computeSectionFillActive } from '../../partitionEngineSelect'
 import type { SectionRegion } from '../../partitionFill'
 
@@ -210,5 +215,92 @@ describe('the onlap-closure tripwire', () => {
     )
     expect(looseRegions.length, 'the loose sand painted nothing').toBeGreaterThan(0)
     expect(looseRegions.flatMap((r) => interiorVerticals(r.polygon))).toEqual([])
+  })
+})
+
+/** One probe construct, with the fields the silence check reads. */
+const probed = (layer: string, emit: string, apexFraction?: number, extendsToFar?: boolean): ProbeConstruct => ({
+  layer,
+  ci: 0,
+  top: 8,
+  base: 6,
+  emit,
+  topTied: true,
+  baseTied: false,
+  apexFraction,
+  extendsToFar,
+})
+
+/** One probe face, owned by ``owner``. Its ring is never read by this check. */
+const owned = (owner: string | null): ProbeFace => ({
+  owner,
+  role: 'construct',
+  sample: [0.5, 7],
+  ring: [],
+})
+
+/** One (family, gap) probe run. */
+const entry = (
+  constructs: ProbeConstruct[],
+  faces: ProbeFace[],
+  stackedSeam = false,
+): ProbeEntry => ({
+  gapIndex: 0,
+  coverLayers: ['cover'],
+  stackedSeam,
+  constructs,
+  ties: [],
+  lines: [],
+  faces,
+})
+
+describe('the silent-construct tripwire — "emitted, and drew nothing"', () => {
+  it('SC1 — it fires on the 2026-08-26 shape: an onlap that owns no face', () => {
+    // The dogfeed itself. S6's loose sand emitted its onlap, terminating at the
+    // middle, and every face of its run went to the medium sand beside it. No
+    // vertical anywhere, so the closure sweep had nothing to see — and the owner
+    // reported *"still not onlapping"* for the second morning.
+    const found = silentConstructs([
+      entry([probed('loose', 'onlap', 0.5), probed('medium', 'nothing')], [owned('medium')]),
+    ])
+    expect(found).toHaveLength(1)
+    expect(found[0].layerId).toBe('loose')
+    expect(found[0].emit).toBe('onlap')
+    expect(found[0].apexFraction).toBe(0.5)
+  })
+
+  it('SC2 — and it stays quiet the moment that construct owns ground', () => {
+    // *"where a band's own construct speaks, it speaks completely"* — one face
+    // of its own is the whole requirement. This check says nothing about the
+    // face's shape; that is the closure sweep's job.
+    expect(
+      silentConstructs([
+        entry([probed('loose', 'onlap', 0.5)], [owned('medium'), owned('loose')]),
+      ]),
+    ).toEqual([])
+  })
+
+  it('SC3 — a lens is held to the same rule as an onlap', () => {
+    // Both are closed shapes that terminate inside the gap, so both hold ground
+    // between their own column and their apex.
+    const found = silentConstructs([entry([probed('thin', 'lens', 0.55)], [owned('other')])])
+    expect(found).toHaveLength(1)
+    expect(found[0].emit).toBe('lens')
+  })
+
+  it('SC4 — what is NOT silence: a stacked seam, an extended taper, an open mass', () => {
+    // A STACKED-SEAM run answers from the tests' own stacks and never asks a
+    // construct anything (*"keep mtaw lvl"*, 2026-08-25), so a construct owning
+    // no face there is the ruling working, not a defect.
+    expect(
+      silentConstructs([entry([probed('loose', 'onlap', 0.5)], [owned('medium')], true)]),
+    ).toEqual([])
+    // An EXTENDED construct is still closing when it leaves this gap — its apex
+    // belongs to a gap further out, so this gap holds no wedge of its own.
+    expect(
+      silentConstructs([entry([probed('carried', 'lens', 1, true)], [owned('medium')])]),
+    ).toEqual([])
+    // An OPEN mass emits no closed shape at all and has no apex to answer for.
+    expect(silentConstructs([entry([probed('span', 'nothing')], [owned('medium')])])).toEqual([])
   })
 })
