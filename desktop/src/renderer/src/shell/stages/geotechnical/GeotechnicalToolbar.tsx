@@ -21,7 +21,7 @@
 // with nothing to fill it. On a finished model the pre-flight finds nothing and
 // the press is exactly what it always was.
 
-import { Box, RefreshCw } from 'lucide-react'
+import { Box, Download, RefreshCw } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { ToolbarButton } from '../../ToolbarPrimitives'
@@ -34,6 +34,7 @@ import {
 import GeotechBuildPreflightDialog from './GeotechBuildPreflightDialog'
 import { useGeotechBuildPreflight } from './useGeotechBuildPreflight'
 import {
+  geotechFenceExportCallback,
   resetGeotechCameraCallback,
   resetGeotechSplitViewportCallback,
 } from './GeotechnicalCanvas'
@@ -145,6 +146,19 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           clickHint="Click to open the next one on a cross-section."
           ariaHint="Activate to open the next excluded test."
           onReveal={preflight.visitNextExcluded}
+        />
+      )}
+      {/* Fence diagram → DXF. Only offered once solids exist (the fence needs
+          a built model), and the action itself refuses with a warning when the
+          view is not in Fence mode — a silently empty DXF would read as a
+          successful export of an empty model. */}
+      {hasGeotechSolids && (
+        <ToolbarButton
+          icon={<Download size={13} />}
+          label="Export fence"
+          onClick={() => void geotechFenceExportCallback.current?.()}
+          testid="geotech-export-fence-button"
+          title="Save the 3-D fence diagram as a DXF (switch the view to Fence first)"
         />
       )}
       {/* Debt #266 — packing standing on lithology that was edited after the
