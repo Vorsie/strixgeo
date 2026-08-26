@@ -47,6 +47,10 @@ import {
 import { toggleFormationFill, useFormationFillVisible } from '../../../utils/formationFillStore'
 import { toggleGeotechFill, useGeotechFillVisible } from '../../../utils/geotechFillStore'
 import {
+  toggleGeotechModelFill,
+  useGeotechModelFillVisible,
+} from '../../../utils/geotechModelFillStore'
+import {
   toggleLithoFillOnGeotech,
   useLithoFillOnGeotech,
 } from '../../../utils/lithoFillOnGeotechStore'
@@ -137,6 +141,10 @@ export default function SectionsToolbar(): JSX.Element {
   // its historical formationFill name — see formationFillStore.)
   const formationFillVisible = useFormationFillVisible()
   const geotechFillVisible = useGeotechFillVisible()
+  // The same overlay as ``formationFillVisible``, on the geotech axis: the
+  // section fill cut out of the built 3-D GEOTECH solids. Its own switch so
+  // hiding one axis's model never blanks the other's.
+  const geotechModelFillVisible = useGeotechModelFillVisible()
   const lithoFillOnGeotech = useLithoFillOnGeotech()
   const boreholePreviewOn = useBoreholePreviewOn()
   // Lab-sample view toggles — the markers and their grain-size hover card draw
@@ -2110,6 +2118,20 @@ export default function SectionsToolbar(): JSX.Element {
                 title:
                   'Preview the packing bands "4 · Divide boreholes" would commit, hatched over the borehole columns. Nothing is written.',
                 testid: 'geotech-toggle-borehole-preview',
+              },
+              {
+                // Show / hide the ModelFillOverlay — the cross-section fill cut
+                // out of the built 3-D GEOTECH solids. The peer of the litho
+                // axis's own "Show model fill" (Bodies menu), added on the
+                // owner's ask 2026-08-26: "can we show the actual 3D model on
+                // the 2d sections just like in litho stage". Appears once the
+                // geotech 3-D model has been built (Geotechnical stage → Build).
+                label: geotechModelFillVisible ? 'Hide model fill' : 'Show model fill',
+                icon: geotechModelFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
+                onClick: () => toggleGeotechModelFill(),
+                title:
+                  'Show or hide the cross-section fill sampled from the built 3-D geotechnical solids. Toggles on / off.',
+                testid: 'geotech-toggle-model-fill',
               },
               {
                 label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
