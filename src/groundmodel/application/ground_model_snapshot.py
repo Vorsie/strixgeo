@@ -100,12 +100,33 @@ class FormationDisplay:
     color : str
         Hex colour string (e.g. ``"#ff8800"``). DXF / map exporters
         map this to their nearest palette entry; Plaxis ignores it.
+    nad_class : int | None
+        Belgian NAD packing class (1..31) on a GEOTECHNICAL unit;
+        ``None`` on a geological formation, a litho unit, and an
+        unclassified geotech skeleton band. Together with
+        ``litho_main_soil_code`` this is the machine-usable identity a
+        downstream tool maps onto a material definition — see
+        ``infrastructure/exporters/unit_identifier.py`` (debt #104).
+    litho_main_soil_code : str | None
+        BaseLithology token (ZAND / KLEI / SILT / GRIND / VEEN) on a
+        litho or geotech unit; ``None`` on a geological formation.
+    formation_id : UUID | None
+        Source ``geological_formation`` row id. Carried so the exported
+        mapping table can name the one globally unique handle on a unit
+        — two units legitimately share a NAD class and a soil. ``None``
+        on fixtures built before debt #104; the mapping table then
+        renders the absent marker rather than a wrong id.
     """
 
     name: str
     code: str | None
     display_order: int
     color: str
+    # Optional with null defaults so fixtures that construct
+    # FormationDisplay positionally stay valid — additive (debt #104).
+    nad_class: int | None = None
+    litho_main_soil_code: str | None = None
+    formation_id: UUID | None = None
 
 
 @dataclass(frozen=True)
