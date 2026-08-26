@@ -43,7 +43,7 @@ import {
   type InvestigationLocation,
   type LithoLayerLike,
 } from '../../../utils/assembleLithoSectionInputs'
-import type { VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
+import type { VoxelRequestBuilder } from './makeVoxelRequestBuilder'
 import {
   fetchApprovedEdgesBySection,
   type ApprovedEdgePair,
@@ -91,7 +91,7 @@ export interface UseBody3DViewStateOptions {
    * Module-level voxel-request ref shared with the stage toolbar; nulled on
    * unmount here (assignment happens in the canvas, which owns the builder).
    */
-  voxelRequestRef?: React.MutableRefObject<(() => Promise<VoxelBuildRequest | null>) | null>
+  voxelRequestRef?: React.MutableRefObject<VoxelRequestBuilder | null>
   /**
    * Extra gate ANDed into the fence-edge fetch + panel build.  Geotech passes
    * ``dimension === '3d'`` (its fence only exists in 3D mode); Geology passes
