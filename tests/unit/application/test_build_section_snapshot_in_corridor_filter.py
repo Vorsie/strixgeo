@@ -84,6 +84,10 @@ _FORMATION = SimpleNamespace(
     code="BmK",
     color="#a8a29e",
     display_order=0,
+    # Three-level unit identifiers (debt #104) — NULL on a geological
+    # formation, which is what this fixture models.
+    nad_class=None,
+    litho_main_soil_code=None,
 )
 
 _BOREHOLE = SimpleNamespace(
