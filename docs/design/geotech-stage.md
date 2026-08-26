@@ -1721,15 +1721,69 @@ Scoped to ONLAP constructs, and held on every rung:
   defect: in CS1 gap 19 every band in the run is closed, so the ground falls
   through and the onlap takes it back.
 
-**THE ACCEPTED COST.** On CS1 this moves **13.365 m²** — three faces, all in
-gap 19, all on the sand — from a class to the "correlate me" hatch, because
-every construct in that run is closed and no open mass can answer the shadow.
-That is 0.071 % of the section's cover. The owner ruled it acceptable: hatch
-is the honest render for ground no test states, and it invites the correlation
-that would resolve it. **Do not "fix" those three hatch faces** — they are the
-ruling, not a defect, and they are frozen into the CS1 golden master as the
-baseline. S24 pins the neighbouring outcome positively (the MD sand above
-takes the ground at the sampled point, `ZAND-6`).
+The guard's cost used to be hatch: the shadow under a closed onlap had no
+candidate left and rendered "correlate me". The owner accepted that in 2026-08-23
+(*"hatch is fine, leave it"*) and withdrew the concession three days later — see
+the two rulings below, which between them leave the guard intact and the shadow
+classed. S24 pins the neighbouring outcome positively (the MD sand above takes
+the ground at the sampled point, `ZAND-6`).
+
+### The leftover between two closed constructs (owner ruling 2026-08-26)
+
+**Owner ruling:** *"if 2 lenses are pointed to eachother and there is nothing
+else to fill the gap, no open band above or below, then you fill with the lowest
+density"* — and, on the alternative put to him the same morning (split the
+leftover at the vertical middle, each half to its own side): *"a big NOOOO"*.
+
+The ground is a piece of litho cover trapped between two legally-closed facing
+constructs where EVERY rung of `remainderLadder.ts` declines: the flanks are
+closed, the closure bars stand between the sample and every band that might own
+it, and the own-shape guard above refuses each band the shadow under its own
+pinch. Real sand, plainly inside one body, rendered as hatch because no rule had
+been written for it.
+
+**The rule** (`constructive/leastDenseLeftover.ts`), applied at the ladder-null
+site and nowhere else:
+
+* **ONE region.** A connected run of leftover faces — the seam's own vertical
+  cuts the owner's in two — is one piece with one owner, so the merge welds it
+  and no seam appears where the law drew no line.
+* **The LOWEST DENSITY among the masses that BOUND it.** "Bound" is defined in
+  exactly one place, the module's header: every classed face that shares an edge
+  of the arrangement with the leftover (`constructive/faceAdjacency.ts`). On his
+  own scene that is the two facing constructs, whose flanks are its two walls;
+  where a third band of the family lies against it, that band counts too. It is
+  deliberately NOT "the facing pair" by name — the engine cannot know which pair
+  a leftover faces until it looks at what touches it. Least dense is his own
+  precedent from the stacked-seam holes (*"least dense yeah"*, 2026-08-25): the
+  lowest NAD class number, read through the same `nadClassRank`.
+* **Last resort only.** It runs after the constructs, after the ladder and after
+  the pocket rule. An open mass takes the ground first (the SF-silt fill-through,
+  2026-08-21) and a same-class facing pair is welded before a construct is drawn
+  (`coverWeld.ts`), so *"nothing else to fill the gap, no open band above or
+  below"* is a precondition the engine enforces by ordering rather than by test.
+* **It redraws nothing.** The bounding constructs' rings are its boundaries; the
+  wedges do not move.
+
+**Measured** over all 14 sections of the owner's model plus the live canvas dump:
+11 leftover faces classed, 455.2 m² in total, area conserved to the tenth of a
+square metre on every section, and CS1 / CS2 / CS3 unchanged (CS1's own leftover
+was already answered by the cover weld, so the golden master needed no re-freeze).
+Region counts fall by one on the two sections where the leftover welded into an
+existing body.
+
+### The totality tripwire
+
+With that rule in place the fill is TOTAL: on any gap a banded RUN spans, every
+square metre of the family's cover has an owner. So residual there is no longer
+an accounting line, it is a DEFECT — and `constructive/fillTotality.ts` says so
+by name, reported on `diagnostics.totalityViolations`.
+
+It is deliberately silent where no banded run spans the gap. One of those tests
+carries the family and has not been divided (the 2026-08-15 ruling: an un-divided
+borehole shows visibly EMPTY ground), or no test on that side carries the family
+at all. Blank is the correct answer there, and a tripwire that cried wolf on it
+would be switched off within a week.
 
 ## 10. Where the geotech stage lives, and its 3-D legend (owner ruling 2026-08-26)
 
