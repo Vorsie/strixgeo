@@ -29,7 +29,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.domain.services.dem_clip import build_ground_surface_tin
+from groundmodel.domain.services.dem_clip import (
+    GroundPoint,
+    assess_ground_coverage,
+    build_ground_surface_tin,
+)
+from groundmodel.domain.services.dem_clip_constants import GROUND_SURFACE_MARGIN_M
 from groundmodel.domain.value_objects.gap_issue import GapIssue
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -92,12 +97,14 @@ class BuildGroundSurface(GroundModelLogger):
         provider: DemProvider,
         *,
         grid_spacing_m: float = 10.0,
+        margin_m: float = GROUND_SURFACE_MARGIN_M,
     ) -> None:
         """Initialise the use case."""
         super().__init__(__name__)
         self._session = session
         self._provider = provider
         self._grid_spacing_m = grid_spacing_m
+        self._margin_m = margin_m
 
     async def execute(
         self,
@@ -151,7 +158,8 @@ class BuildGroundSurface(GroundModelLogger):
         """
         self.info(f"build ground surface: project={project_id} model={model_id}")
 
-        hull_points = await self._load_hull_points(model_id)
+        ground_points = await self._load_hull_points(model_id)
+        hull_points = [(p.x_m, p.y_m) for p in ground_points]
         if not hull_points:
             self.warning(
                 f"build ground surface: model={model_id} has no in-scope investigations "
@@ -185,11 +193,15 @@ class BuildGroundSurface(GroundModelLogger):
             f"provider={self._provider.provider_id} model={model_id}"
         )
 
+        # The tile must cover the MARGIN too, not just the investigation
+        # extent — otherwise every grid node in the skirt samples outside the
+        # raster and silently drops out, and the surface stops at the last
+        # borehole after all.
         grid: DemZGrid = await self._provider.fetch_grid(
-            min_x,
-            min_y,
-            max_x,
-            max_y,
+            min_x - self._margin_m,
+            min_y - self._margin_m,
+            max_x + self._margin_m,
+            max_y + self._margin_m,
         )
 
         self.debug(
@@ -201,29 +213,48 @@ class BuildGroundSurface(GroundModelLogger):
             dem_sample=grid.sample_at,
             hull_points=hull_points,
             grid_spacing_m=self._grid_spacing_m,
+            margin_m=self._margin_m,
         )
+
+        # The TIN spans NoData rather than leaving a hole, so a surface over
+        # water still LOOKS complete. Naming the affected tests is the only
+        # thing that says otherwise (Data Integrity Rule §5).
+        issues = assess_ground_coverage(grid.sample_at, ground_points)
+        if issues:
+            self.warning(
+                f"build ground surface: model={model_id} — the DEM has no ground "
+                f"under {len(issues)} of {len(ground_points)} investigation(s); "
+                "the terrain is interpolated across them"
+            )
+            for issue in issues:
+                self.debug(f"build ground surface: {issue.detail}")
 
         self.success(
             f"build ground surface: model={model_id} "
             f"{len(tin.vertices)} vertices {len(tin.triangles)} triangles "
+            f"{len(issues)} issue(s) "
             f"provider={self._provider.provider_id} from_cache={grid.from_cache}"
         )
 
         return GroundSurfaceResult(
             vertices=tin.vertices,
             triangles=tin.triangles,
-            issues=[],
+            issues=issues,
             provider_id=self._provider.provider_id,
             from_cache=grid.from_cache,
         )
 
-    async def _load_hull_points(self, model_id: UUID) -> list[tuple[float, float]]:
-        """Load (x, y) locations for all investigations anchored to this model.
+    async def _load_hull_points(self, model_id: UUID) -> list[GroundPoint]:
+        """Load labelled locations for all investigations anchored to this model.
 
         Queries the ``formation_contact`` table for distinct borehole and CPT
-        ids in the model, then joins to the geometry columns for each.
+        ids in the model, then joins to the name + geometry columns for each.
         Investigations with NULL x/y are silently skipped — they cannot
         contribute to the hull.
+
+        The name travels with the location because the coverage report has to
+        name the test the DEM could not answer for; a UUID in that message
+        would be unusable in the UI.
 
         Parameters
         ----------
@@ -232,8 +263,9 @@ class BuildGroundSurface(GroundModelLogger):
 
         Returns
         -------
-        list[tuple[float, float]]
-            Deduplicated (x, y) pairs in the project's native CRS.
+        list[GroundPoint]
+            Deduplicated locations in the project's native CRS, each labelled
+            with its investigation name.
         """
         # Collect distinct borehole ids from contacts.
         bh_rows = (
@@ -263,30 +295,37 @@ class BuildGroundSurface(GroundModelLogger):
             .all()
         )
 
-        points: list[tuple[float, float]] = []
+        points: list[GroundPoint] = []
 
         if bh_rows:
             bh_locs = (
                 await self._session.execute(
-                    select(BoreholeOrm.location_x, BoreholeOrm.location_y).where(
-                        BoreholeOrm.id.in_(bh_rows)
-                    )
+                    select(
+                        BoreholeOrm.name,
+                        BoreholeOrm.location_x,
+                        BoreholeOrm.location_y,
+                    ).where(BoreholeOrm.id.in_(bh_rows))
                 )
             ).all()
-            for x, y in bh_locs:
+            for name, x, y in bh_locs:
                 if x is not None and y is not None:
-                    points.append((float(x), float(y)))
+                    points.append(GroundPoint(label=str(name), x_m=float(x), y_m=float(y)))
 
         if cpt_rows:
             cpt_locs = (
                 await self._session.execute(
-                    select(CptOrm.location_x, CptOrm.location_y).where(CptOrm.id.in_(cpt_rows))
+                    select(CptOrm.name, CptOrm.location_x, CptOrm.location_y).where(
+                        CptOrm.id.in_(cpt_rows)
+                    )
                 )
             ).all()
-            for x, y in cpt_locs:
+            for name, x, y in cpt_locs:
                 if x is not None and y is not None:
-                    points.append((float(x), float(y)))
+                    points.append(GroundPoint(label=str(name), x_m=float(x), y_m=float(y)))
 
-        # Deduplicate — multiple contacts at the same anchor produce the
-        # same (x, y); the TIN sampler does not benefit from exact duplicates.
-        return list({p: None for p in points}.keys())
+        # Deduplicate on location — multiple contacts at the same anchor
+        # produce the same (x, y); qhull rejects coincident points.
+        seen: dict[tuple[float, float], GroundPoint] = {}
+        for point in points:
+            seen.setdefault((point.x_m, point.y_m), point)
+        return list(seen.values())
