@@ -141,12 +141,39 @@ function pickDominant(
     // 2026-08-21: *"Only a LENS drops out, and only at the levels it closed
     // on"*) — barring it here too left the ground in his gap 19 with NO
     // candidate at all and un-tiled the cover outright (CF6).
+    //
+    // ...AND ONLY INSIDE THE BAND'S OWN NOMINAL WINDOW (ruled 2026-08-26).
+    // The shadow this rule protects is the one described above: ground the
+    // band's construct vacated that is STILL within its measured
+    // ``base..top``, which is why it won the ``ownsLevel`` rank and squared
+    // the wedge back into a quad. Ground wholly OUTSIDE that window was never
+    // this rule's business, and barring it there collided head-on with the
+    // both-closed ruling of 2026-08-24 — *"yes in this case i'd rather have a
+    // vertical line"*, the ground between two closed loops going left half to
+    // the left column's masses, right half to the right's (rung 2, plus the
+    // middle rule in ``pickDominant``).
+    //
+    // His CS1 gap 2 is exactly that collision: two bands each spanning the
+    // WHOLE litho cover at their own test, both riding one plunging tie, both
+    // onlapping. The strip left under the litho top on the right half sits at
+    // 6.1..6.7 while the right band is 7.130..7.509 — not one millimetre of
+    // overlap — so the guard was refusing the very band the both-closed
+    // ruling names, and the cover read "correlate me" down its middle against
+    // the owner's own S9/S9b pins. The mirror strip on the left half was
+    // already answered this way.
+    //
+    // Zero overlap is deliberately NOT barred: a loop lying exactly against a
+    // contact is the adjacency case ``relatesToTheseLevels`` explicitly
+    // allows — *"the wedge that onlap pinches away from is taken by the mass
+    // immediately above it"* (his S24). ``COVER_EPS`` keeps a 1e-15 m shared
+    // boundary from reading as overlap.
     const shaped = shapedByLayer.get(band.layerId)
     if (shaped !== undefined && shaped.emit === 'onlap' && shaped.apexX !== undefined) {
       const span = shaped.apexX - shaped.band.x
       const here = x - shaped.band.x
       const withinOwnSpan = span !== 0 && here * span >= 0 && Math.abs(here) < Math.abs(span)
-      if (withinOwnSpan && !claims(shaped, x, y)) continue
+      const insideOwnWindow = Math.min(band.top, hi) - Math.max(band.base, lo) > COVER_EPS
+      if (withinOwnSpan && insideOwnWindow && !claims(shaped, x, y)) continue
     }
     // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
     // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
@@ -270,6 +297,54 @@ export function pickRemainder(input: RemainderInput): { band: RunBand | null; sp
     const ownsLevel = y <= winner.top && y >= winner.base
     const covers = Math.min(winner.top, hi) - Math.max(winner.base, lo) > COVER_EPS
     if (ownsLevel || covers) return winner
+    // ...OR IT IS A FLANK ANSWERING ITS OWN HALF OF A BOTH-CLOSED SEAM (owner,
+    // 2026-08-24: *"yes in this case i'd rather have a vertical line"* — the
+    // ground between two closed loops goes left half to the left column's
+    // masses, right half to the right's).
+    //
+    // ELEVATION IS THE WRONG TEST INSIDE A DIPPING COVER, and that is the whole
+    // reason this escape exists. His CS1 gap 2: one clay cover climbing from
+    // 3.67..5.02 on ci2 to 7.13..7.51 on ci3, each test reading a SINGLE class
+    // that fills the whole of it, both riding one tie, both onlapping. The
+    // leftover under the litho top on the right half sits at 6.10..6.68 — no
+    // overlap with the right band's 7.13..7.51, none with the left band's, and
+    // no band of the family anywhere on the section reads those levels, because
+    // the cover carries them only between the two tests. The level tests above
+    // therefore decline every candidate and the cover read "correlate me" down
+    // its middle, against his own S9/S9b pins. The seam, not the elevation, is
+    // what the 2026-08-24 ruling divides on.
+    //
+    // FOUR CONDITIONS, and each one is load-bearing. The winner must be a
+    // FLANK of this gap (a column that does not border it is the CS2 gap-0
+    // flood, barred in ``pickDominant``); it must have CLOSED here (an open
+    // mass reaching for ground is rung 1's ruled fill-through and never needs
+    // this); the ground must lie on ITS OWN SIDE of the middle, so nothing
+    // crosses the seam; and BOTH PACKAGES MUST ACTUALLY BE CLOSED, which is the
+    // ruling's own opening words — *"when BOTH facing packages closed at the
+    // middle"*.
+    //
+    // That last one is not decoration; without it this escape re-opens the
+    // shape the owner has reported five times. Measured on his Tie-section 12
+    // gap 0: that run is an onlapping KLEI|22 facing an OPEN KLEI|21, so it was
+    // never a both-closed seam at all — and handing KLEI|22 a leftover at
+    // 10.96..11.15, far below its own 13.06..12.69, welded its wedge back into
+    // a quad with a 0.19 m riser at f = 0.500. ``onlapClosure``'s sweep caught
+    // it. Where an open mass exists on either flank the ground is ITS
+    // fill-through to take (rung 1, the SF-silt ruling), not the seam's to
+    // divide.
+    //
+    // ``open(flankBands)`` being empty is exactly that precondition, and it is
+    // the same set rung 1 was offered: this escape can only fire where rung 1
+    // had nothing to offer in the first place.
+    const bothPackagesClosed = open(flankBands).length === 0
+    if (
+      bothPackagesClosed &&
+      flankColumns.has(winner.ci) &&
+      closedAtMiddle.has(winner.layerId) &&
+      (input.x - input.middle) * (winner.x - input.middle) >= 0
+    ) {
+      return winner
+    }
     // ...OR THE LOOP LIES DIRECTLY AGAINST ONE OF ITS OWN CONTACTS, with
     // nothing of the band's own in between: *"the loose sand has a bottom tie,
     // not a top tie, that is why it is an onlap and should be a triangle"*
