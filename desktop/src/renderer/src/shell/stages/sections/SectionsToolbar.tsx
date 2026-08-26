@@ -98,6 +98,11 @@ import {
   PENDING_TIE_TOAST_KEY,
 } from '../../../utils/pendingTieReveal_constants'
 import PendingTieChip from '../../../components/sections/PendingTieChip'
+import {
+  staleGeotechChipLabel,
+  staleGeotechChipTitle,
+  unionStaleGeotechColumns,
+} from '../../../utils/staleGeotechColumns'
 import { sectionsRevealPendingTieCallback } from './pendingTieRevealBridge'
 import type { PendingTieRevealOutcome } from './useGeotechPendingTieReveal'
 
@@ -198,6 +203,9 @@ export default function SectionsToolbar(): JSX.Element {
       activeLithoModel,
       // F3: geotech axis toggle needs to know whether a geotech model exists.
       activeGeotechModel,
+      // Debt #266 — columns whose litho moved after their bands were made.
+      staleLithoGeotechColumns,
+      staleLithoGeotechColumnCount,
       handleExportModelPlaxis3d,
       lithoSuggesting,
       // Phase 2 of debt #77: bus exposes the unified Map + focus flag.
@@ -412,6 +420,22 @@ export default function SectionsToolbar(): JSX.Element {
     const invIds = inCorridorInvestigationIds(selectedSection, visibleCpts, visibleBoreholes)
     return lithoContacts.some(c => invIds.has(c.cpt_id ?? c.borehole_id ?? ''))
   }, [selectedSection, lithoContacts, visibleCpts, visibleBoreholes])
+
+  // Debt #266 — every column whose packing bands are out of date, from BOTH
+  // signals: the geometric fit check (CPT-only, sees a unit that shrank) and
+  // the server's provenance compare (all columns, sees a unit that grew, was
+  // re-classified, or was deleted). Merged here because the engineer's action
+  // is the same either way and two amber warnings about one column is the
+  // alarm fatigue this feature exists to avoid.
+  const staleGeotechColumns = useMemo(
+    () =>
+      unionStaleGeotechColumns(staleLithoGeotechColumns, columnsNeedingRederive, id => {
+        const cpt = visibleCpts.find(c => c.id === id)
+        if (cpt) return cpt.name
+        return visibleBoreholes.find(b => b.id === id)?.name
+      }),
+    [staleLithoGeotechColumns, columnsNeedingRederive, visibleCpts, visibleBoreholes],
+  )
 
   // What pressing "1 · Subdivide CPTs" will actually destroy.
   //
@@ -2277,6 +2301,42 @@ export default function SectionsToolbar(): JSX.Element {
                         ? handleRevealPendingTie
                         : undefined
                     }
+                  />
+                ),
+              },
+            ]
+          : []),
+
+        /* Debt #266 — the columns standing on litho that has since been
+            edited. Outside the pipeline menu for the same reason as the
+            pending chip: it says a client-facing export would ship stale
+            packing, and a warning only visible after two clicks is not a
+            warning. Amber, never red — the project's dirty/stale colour; the
+            bands are out of date, not wrong. Passive: unlike the pending-tie
+            chip there is no single "next" thing to centre (the columns can sit
+            on any section), so it names them in the tooltip instead of
+            offering a jump it cannot honour. Renders only while something is
+            stale, so it is never standing weight. */
+        ...(isGeotech && staleGeotechColumns.length > 0
+          ? [
+              {
+                id: 'geotech-stale-litho-chip',
+                priority: 'high' as const,
+                kind: 'custom' as const,
+                label: staleGeotechChipLabel(staleGeotechColumns.length),
+                iconOnly: false,
+                widthPx: {
+                  full:
+                    PENDING_CHIP_BASE_PX +
+                    staleGeotechChipLabel(staleGeotechColumns.length).length *
+                      DEFAULT_TOOLBAR_METRICS.charAdvancePx,
+                },
+                overflowItems: [],
+                render: () => (
+                  <PendingTieChip
+                    testid="geotech-stale-litho-chip"
+                    label={staleGeotechChipLabel(staleGeotechColumns.length)}
+                    title={staleGeotechChipTitle(staleGeotechColumns)}
                   />
                 ),
               },
