@@ -1,17 +1,24 @@
 /**
- * The geotech toolbar's amber "N pending here" chip.
+ * An amber toolbar chip that is a plain label unless it can act.
  *
- * It sits OUTSIDE the packing-pipeline menu on purpose: it is the number step 4
- * is gated on, so it has to be visible without opening anything.
+ * Born as the geotech toolbar's "N pending here" chip, which sits OUTSIDE the
+ * packing-pipeline menu on purpose: it is the number step 4 is gated on, so it
+ * has to be visible without opening anything.
  *
  * Owner dogfeed 2026-08-25: *"now i get a one pending notification but i don't
  * see any pending ties? Why don't we make that clickable so it highlights the
- * tie?"* — so it now takes an optional ``onReveal``. With one it is a real
+ * tie?"* — so it takes an optional ``onReveal``. With one it is a real
  * ``<button>`` (Enter and Space come free, focus ring comes free, the tab order
  * comes free); without one it stays the plain label it has always been, because
  * a chip that swallowed a click without acting would be worse than the label it
  * replaces. Same passive-unless-it-can-act contract as
  * {@link CrossingTieWarningChip}, which is the shipped precedent.
+ *
+ * SECOND USE (2026-08-26): the Geotechnical toolbar's "N tests excluded" chip
+ * after a "Build without them". Same contract, same visual weight, different
+ * words — so the wording and the test id are props and the behaviour is not
+ * copied. Every one of those props defaults to the pending-tie chip's original
+ * value, so that caller renders byte-identically to before.
  *
  * Extracted from ``SectionsToolbar`` rather than grown inside it — that file is
  * long past the 500-line god-component threshold (debt #201).
@@ -35,6 +42,12 @@ export interface Props {
    * chip never advertises an affordance it cannot honour.
    */
   onReveal?: () => void
+  /** ``data-testid``. Defaults to the pending-tie chip's own. */
+  testid?: string
+  /** Sentence appended to ``title`` while interactive. */
+  clickHint?: string
+  /** Sentence appended to the ``aria-label`` while interactive. */
+  ariaHint?: string
 }
 
 /**
@@ -49,16 +62,29 @@ export interface Props {
  *     appended, because nothing about a small amber pill says "press me".
  * onReveal : () => void, optional
  *     Reveal handler; absent leaves the chip passive.
+ * testid : string, optional
+ *     ``data-testid``; defaults to the pending-tie chip's own.
+ * clickHint : string, optional
+ *     Tooltip sentence added while interactive.
+ * ariaHint : string, optional
+ *     ``aria-label`` sentence added while interactive.
  *
  * Returns
  * -------
  * JSX.Element
  *     A ``<button>`` when it can act, otherwise a ``<span>``.
  */
-export default function PendingTieChip({ label, title, onReveal }: Props): JSX.Element {
+export default function PendingTieChip({
+  label,
+  title,
+  onReveal,
+  testid = 'geotech-pending-tie-chip',
+  clickHint = 'Click to find the next one on this section.',
+  ariaHint = 'Activate to find the next pending packing tie.',
+}: Props): JSX.Element {
   if (!onReveal) {
     return (
-      <span data-testid="geotech-pending-tie-chip" className={CHIP_CLASS} title={title}>
+      <span data-testid={testid} className={CHIP_CLASS} title={title}>
         {label}
       </span>
     )
@@ -66,13 +92,13 @@ export default function PendingTieChip({ label, title, onReveal }: Props): JSX.E
   return (
     <button
       type="button"
-      data-testid="geotech-pending-tie-chip"
+      data-testid={testid}
       // Hover + focus ring in the section stage's own idiom (the same pair
       // SectionsInspector's amber rows use), so the chip reads as pressable
       // without inventing a third focus style for the toolbar.
       className={`${CHIP_CLASS} cursor-pointer hover:bg-status-amber/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber`}
-      title={`${title} Click to find the next one on this section.`}
-      aria-label={`${label}. Activate to find the next pending packing tie.`}
+      title={`${title} ${clickHint}`}
+      aria-label={`${label}. ${ariaHint}`}
       onClick={onReveal}
     >
       {label}
