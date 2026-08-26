@@ -7,8 +7,12 @@
 // claim below is phrased as "what the litho switch does, on this axis".
 //
 // Claims pinned:
-//   GMF1  The switch starts ON, exactly as the litho model-fill switch does —
-//         a built model shows itself.
+//   GMF1  The switch starts OFF. RETIRED the "starts ON, like the litho model
+//         fill" pin it replaces — owner, dogfeed 2026-08-26: "i want to keep
+//         the old show fill and wanted a new model fill NEXT TO it". Starting
+//         ON took the axis he reloads onto away from him, because the model
+//         fill excludes the packing fill he had always pressed. A new sibling
+//         switch arrives off; the engineer asks for it.
 //   GMF2  Asking for the model fill puts the packing fill away. One fill paints
 //         the section at a time; that rule already governs the two fills this
 //         axis had.
@@ -50,8 +54,8 @@ describe('geotechModelFillStore — the geotech axis "Show model fill" switch', 
     reset(true, false, false)
   })
 
-  it('GMF1: starts ON, like the litho model fill', () => {
-    expect(VALUE_ON_FRESH_LOAD).toBe(true)
+  it('GMF1: starts OFF, so a reload lands on the fill he always had', () => {
+    expect(VALUE_ON_FRESH_LOAD).toBe(false)
   })
 
   it('GMF2: asking for the model fill puts the packing fill away', () => {
