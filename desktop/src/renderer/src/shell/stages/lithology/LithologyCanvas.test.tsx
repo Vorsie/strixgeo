@@ -67,6 +67,15 @@ vi.mock('../../../api/client', async () => {
     api: {
       geology: {
         buildGroundSurface: vi.fn().mockResolvedValue({ vertices: [], triangles: [] }),
+        // The footprint ring fetch (owner ballot 2026-08-26). Answers the
+        // "never built" shape — an empty polygon with a reason — which is the
+        // 200 the real endpoint gives for a model with no build generation.
+        getModelFootprint: vi.fn().mockResolvedValue({
+          polygon: [],
+          generation_id: null,
+          built_at: null,
+          unavailable_reason: 'this model has not been built yet',
+        }),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
         // The build fetches every body's hand-drawn boundary and now CANCELS
         // when that fetch fails (audit 2026-08-02) — an unmocked listLenses
@@ -75,15 +84,6 @@ vi.mock('../../../api/client', async () => {
         listLenses: vi.fn().mockResolvedValue([]),
         getBodyBoundary: vi.fn().mockResolvedValue({ nodes: [] }),
         listLithoSolids: vi.fn().mockResolvedValue([]),
-        // Debt #266 — the geotech axis reads which columns stand on edited litho.
-        geotechLithoStaleness: vi.fn().mockResolvedValue({
-          geotech_model_id: '',
-          litho_model_id: null,
-          stale_columns: [],
-          stale_column_count: 0,
-          banded_column_count: 0,
-          unstamped_column_count: 0,
-        }),
         buildVoxelLithoModel: vi.fn().mockResolvedValue({
           bodies_considered: 0,
           bodies_built: 0,
@@ -285,6 +285,12 @@ function makeCtx(overrides: {
     visibleBoreholes: overrides.visibleBoreholes ?? [],
     geoModel: {
       activeGeologicalModel: null,
+      // Debt #266 — geotech columns standing on litho that has since moved.
+      staleLithoGeotechColumns: [],
+      staleLithoGeotechColumnIds: new Set<string>(),
+      staleLithoGeotechColumnCount: 0,
+      unstampedGeotechColumnCount: 0,
+      refreshGeotechLithoStaleness: vi.fn(),
       models: [],
       activeLithoModel: 'activeLithoModel' in overrides
         ? (overrides.activeLithoModel ?? null)
@@ -394,12 +400,6 @@ function makeCtx(overrides: {
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
-      // Debt #266 — geotech columns standing on litho that has since moved.
-      staleLithoGeotechColumns: [],
-      staleLithoGeotechColumnIds: new Set<string>(),
-      staleLithoGeotechColumnCount: 0,
-      unstampedGeotechColumnCount: 0,
-      refreshGeotechLithoStaleness: vi.fn(),
     },
     sections: {
       sections: [],
