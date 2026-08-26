@@ -162,6 +162,7 @@ from groundmodel.application.geotech_tie_reanchor import (
 )
 from groundmodel.application.geotech_tie_tombstones import build_tombstone_gates
 from groundmodel.application.geotech_view_state import read_geotech_min_thickness_m
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.application.section_membership import (
@@ -721,6 +722,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 # the other sections' bands are still there and were classified
                 # with it.
                 geotech_model.classified_with_statistic = None
+            # The wipe above is the most orphaning thing this verb does: every
+            # band is gone and nothing replaces it, so every geotech unit the
+            # prior run created now describes nothing. Sweep before the commit
+            # so the roster empties with the model instead of keeping a
+            # vocabulary of ground that is no longer there.
+            await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
             await self._session.commit()
             self.warning(
                 "SubdivideAllBodies: no picks in the model — geotech model "
@@ -1158,6 +1165,15 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # derived staleness (classified != representative) reads false again
         # (ruling 8: the ONLY thing that re-derives bands is this build).
         geotech_model.classified_with_statistic = statistic
+
+        # Phase 10b — retire the vocabulary the rebuild stopped using. The
+        # delete pass wiped every band and the rebuild re-derived them from
+        # live qc, so any packing class the fresh data no longer produces is
+        # left with a formation row and nothing in it. Runs after the resolver
+        # above so bodies it retired do not spuriously spare a formation, and
+        # before the commit so the sweep is part of the same transaction as the
+        # rebuild that caused it.
+        await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
 
         # Phase 11 — single commit.
         await self._session.commit()
