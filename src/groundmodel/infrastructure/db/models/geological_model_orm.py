@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -88,6 +88,20 @@ class GeologicalModelOrm(Base):
         String(16), nullable=False, default="median", server_default="median"
     )
     classified_with_statistic: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    # Per-column litho provenance (docs/debt.md #266). ``{column_id: digest}``
+    # for every column carrying geotech bands: the digest of the PARENT litho
+    # model's stack under that column at the moment those bands were built.
+    # Staleness is DERIVED the same way the statistic pair above derives it —
+    # recompute today's digest, compare — so it self-clears on the next press.
+    # Per COLUMN because CPT and borehole bands come from two different presses
+    # that each honour skip_existing: a model legitimately holds columns built
+    # from different litho revisions, and a model-level stamp would let a
+    # borehole press clear the flag on a moved CPT column.
+    # NULL / missing key = unknown provenance = NOT stale; see the migration
+    # e7f8a9b0c1d2 for why there is no backfill. Inert for non-geotechnical
+    # kinds (the shared-nullable philosophy of parent_model_id above).
+    derived_from_litho_digests: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
