@@ -222,12 +222,50 @@ end-to-end on a real project:
    unit identifiers so the downstream tool can map unit names to material
    definitions.
 
-Design-ready parameter values (φ′, c′, cu, E50, OCR, Vs, G0, M), full
-NAD-NEN xlsx table, per-layer statistics, and PDF reports are Phase 5
-(post-v1.0). The geometry + packing-class interpretation is the
-integration unit downstream design tools actually consume at handoff.
-G3Dv3 import lands alongside or just after v1.0 — high-impact for the
-Flanders launch demo but not a gate.
+**THE RULED v1.0 SCOPE (owner ballot, 2026-08-26 — supersedes narrower
+readings of the gate; each line was ruled individually):**
+
+*MVP — exports & deliverables:* export unit identifiers (NAD class +
+soil) in DXF/Plaxis (#104); a Plaxis material-mapping sidecar; PDF
+report slices B/C/D — D at the CHARACTERISATION level (NAD class + per
+unit statistics, never design values); D-Stability (.stix), GeoStudio
+and D-Sheet exports; an export completeness guard (unclassified/stale
+content refuses or flags); a report data-thinning step that merges
+lenses with identical NAD parameters for readability.
+
+*MVP — model trust:* #266 litho-drift staleness stamp; #225 save-guard;
+the per-build gapless report UI; the CS3 nospan residual; crossing
+ties marked in the CS; the machine-tie frame warning.
+
+*MVP — interpretation (narrow):* per-unit statistics plots
+(raincloud/box of qc, fs, Rf over a selected unit) and the
+right-click layer → isolate in 3-D → jump-to-parameters link. All other
+interpretation automation stays out.
+
+*MVP — 3-D & visuals:* smooth non-blocky 3-D (#220), footprint ring,
+DEM ground-surface reference (G7), 3-D split viewport (#64), fence
+diagram export.
+
+*MVP — UX:* onboarding/first-use tutorial (#93) and NL UI translation.
+
+*MVP — commercial:* bundled Postgres (#2), the installer/binary
+(#6 incl. signing), subscription activation + auth + tamper (#3/#4/#5)
+— **waterproof: beta builds must expire; a beta licence must not be
+usable for years** — and telemetry/crash reporting (#16).
+
+*Explicitly NOT v1.0 (owner-ruled):* IFC export; monitoring / DMT /
+pressuremeter / mechanical lab / AGS data sources; G3Dv3 import
+(launch-window demo asset, not a gate); parameter suggestions and the
+full Robertson/Mayne + NAD-NEN port; auto soil profiling;
+interfingering shapes; #163f; multilingual stratigraphy catalog;
+share-pack / borelog sheets / model snapshots / completeness panel;
+marketing site + naming and the .strix licence-provenance tag were
+not ruled MVP on the ballot (site still precedes public checkout —
+sequencing per the demo-first motion).
+
+Design-ready parameter VALUES (φ′, c′, cu, E50, OCR, Vs, G0, M) and
+the full NAD-NEN xlsx table remain Phase 5 — the per-unit statistics
+plots above are characterisation outputs, not design inputs.
 
 ### Open commercial concerns (tracked as debt, not blocking the MVP)
 
