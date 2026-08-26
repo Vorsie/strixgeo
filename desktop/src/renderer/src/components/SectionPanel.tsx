@@ -1024,6 +1024,14 @@ export default function SectionPanel({
   // flash above — a brief pulse so the eye lands with the camera — and declared
   // beside it so no hook is added below an early return (the #201 trap).
   const [flashEdgeId, setFlashEdgeId] = useState<string | null>(null)
+  // Which ties are in a crossing conflict, reported by the fill overlay because the fill
+  // engine is what detects the crossing (owner ruling 2026-08-26). Held here only so it
+  // can reach the tie overlay, which is this component's sibling child rather than the
+  // fill overlay's — the panel is the nearest place the two meet. Declared beside the
+  // flash state above so no hook is added below an early return (the #201 trap).
+  const [conflictEdgeKeys, setConflictEdgeKeys] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  )
   const flashEdgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useColumnFindHotkey(() => setFindOpen(true))
   useEffect(
@@ -3458,6 +3466,7 @@ export default function SectionPanel({
                 onDismissReviewFlag={handleDismissReviewFlag}
                 onCorrelateReviewFlag={onCorrelateBoundary}
                 onJumpToConflictGap={handleConflictJump}
+                onConflictEdgeKeysChange={setConflictEdgeKeys}
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
@@ -3697,6 +3706,7 @@ export default function SectionPanel({
                   axisMode === 'geotechnical' ? undefined : onPropagateAdmixtures
                 }
                 contactEdges={overlayEdgeSource(axisMode, contactEdges, geotechCorrelationEdges)}
+                conflictEdgeKeys={conflictEdgeKeys}
                 contactGestureState={contactGestureState}
                 onUnapprovedDragStart={onUnapprovedDragStart}
                 unapprovedEdgeDrag={unapprovedEdgeDrag}
