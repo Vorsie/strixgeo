@@ -193,10 +193,7 @@ from groundmodel.domain.services.geotech_unit_boundaries import (
     replaced_tie_indices,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
-from groundmodel.domain.services.litho_geo_bounding import (
-    divide_picks_by_geology,
-    mark_and_truncate_shallow_tests,
-)
+from groundmodel.domain.services.litho_geo_bounding import mark_and_truncate_shallow_tests
 from groundmodel.domain.services.nad_classifier import loosest_class_for
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -743,7 +740,7 @@ _WEAKEST_FIRST = ("absolute_min", "body_min", "column_min", "layer_inherited")
 
 
 def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
-    """Undo a geological cut that split a packing band of unchanged class.
+    """Collapse two touching bands of one class inside one litho unit into one.
 
     Owner, 2026-08-17: *"we're still emitting geotech bands to the geological
     boundary that was split off, that's the user's decision"*.  He has the
@@ -751,16 +748,24 @@ def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
     to couple the boundary — so the engine making that split for him is
     unasked-for surface.
 
-    Where it came from: ``divide_picks_by_geology`` cuts every litho pick at the
-    geological surfaces BEFORE any packing is derived, so each piece is
-    classified on its own and can land on the same class.  His B4 carried
-    ``0.00-0.60 SILT (NAD 13)`` over ``0.60-5.19 SILT (NAD 13)`` — a contact
-    marking no packing change — and each piece then earned its own correlation,
-    which is how one litho tie became two geotech ties on one contact.
+    This began as the repair for a geological cut: the builders divided every
+    litho pick at the geological surfaces before any packing was derived, so each
+    piece was classified alone and the two could land on the same class.  His B4
+    carried ``0.00-0.60 SILT (NAD 13)`` over ``0.60-5.19 SILT (NAD 13)`` — a
+    contact marking no packing change — and each piece then earned its own
+    correlation, which is how one litho tie became two geotech ties.
+
+    That cut was deleted at the source on 2026-08-26 (*"just drop the wall
+    everywhere"*), so the geological route to the duplication is gone.  The
+    pass is KEPT — not as a leftover but as the invariant's guard: two touching
+    litho layers of the SAME formation classify independently and can land on
+    the same class, and that purely-litho route produces exactly the adjacency
+    this merges.  One class, one litho unit, one band — whatever route produced
+    the duplication (GM8/GM9 pin the no-op on post-ruling shapes).
 
     Merged only when the class AND the litho unit are the same and the two
     bands touch: the litho model owns its own boundaries whatever the classes
-    are, and a gap is a different defect than a cut.
+    are, and a gap is a different defect than a duplication.
 
     Parameters
     ----------
@@ -1733,18 +1738,23 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 skipped_existing_borehole_ids=tuple(sorted(skipped_existing_ids)),
             )
 
-        snap_tol = await self._read_geotech_snap_tolerance_m(project_id)
         min_thickness_m = await read_geotech_min_thickness_m(self._session, project_id)
         geo_surfaces = await self._load_geo_surfaces_with_formation(litho_model.parent_model_id)
-        boundary_sampler = self._make_boundary_sampler(geo_surfaces)
         lowest_sampler = self._make_lowest_boundary_sampler(geo_surfaces)
 
+        # NOTHING cuts the picks at a geological surface (owner, 2026-08-26 —
+        # "just drop the wall everywhere, user wil have to manually do it"). The
+        # shallow flag is informational and truncates nothing.
         shallow = mark_and_truncate_shallow_tests(picks, lowest_sampler)
-        divided = divide_picks_by_geology(shallow.picks, boundary_sampler, snap_tol)
-        self.debug(f"DivideBoreholes: {len(divided)} geo-bounded segment(s)")
+        divided = shallow.picks
+        self.debug(
+            f"DivideBoreholes: {len(divided)} litho segment(s) uncut across "
+            f"{len(geo_surfaces)} geological surface(s)"
+        )
 
-        # Phase 4 — group by (body_id, source_geo_formation_id).
-        groups = await self._group_segments(divided, geo_surfaces)
+        # Phase 4 — LABEL each segment with its geological unit and group by
+        # (body_id, source_geo_formation_id). The label is derived, never a cut.
+        groups = self._group_segments(divided, geo_surfaces)
 
         # The engineer's own litho correlations. Donors are grouped by (body,
         # geological band), and a geological contact can put the two ends of
@@ -2125,9 +2135,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     ),
                     None,
                 )
-                # ``divide_picks_by_geology`` re-stamps body_id on the slices it
-                # cuts, so the slice cannot name the litho body it came from.
-                # Its layer can.
+                # The segment names its litho body through its LAYER rather than
+                # directly. Until 2026-08-26 that was forced — the geological cut
+                # re-stamped body_id on every slice it made. The cut is gone and
+                # the segment now carries the resolver's own body id, but the
+                # layer stays the source of truth here: it is the row the donor
+                # rules, the correlations and the flank pass all key on.
                 unit_body_id = (
                     None if unit_layer is None else litho_body_by_layer.get(unit_layer[0])
                 )
