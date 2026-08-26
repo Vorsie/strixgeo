@@ -500,17 +500,74 @@ export const NAD_SOIL_FAMILY_ORDER: readonly string[] = NAD_FAMILY_RANGES.map(
   ([lo]) => nadSoilFamilyName(lo),
 )
 
+// There is deliberately NO `nadClassFamily(nadClass)` here — a "the family of
+// the class this band happens to carry" helper. It existed until 2026-08-26 and
+// it was what built the hand-set menu, which meant a band stamped with a
+// foreign class offered only more classes of that wrong family: the one state
+// that needs correcting was the one state the UI could not correct. The
+// question a picker asks is what this GROUND can be, and `nadClassesForSoil`
+// below is the only helper that answers it. Re-adding the class-keyed form
+// fails `nadClasses.test.ts` ("the coupling is asked of the soil").
+
+// Raw soil code -> that soil's class range, derived from the two tables that
+// already exist rather than hand-listed: LITHOLOGY_LABELS translates the code
+// to the English word ("ZAND" -> "Sand"), and NAD_CLASS_NAMES' own leading word
+// is what NAD_FAMILY_RANGES' first class reports. Nothing here is a third
+// statement of the coupling, so nothing here can drift from the other two.
+const _RANGE_BY_SOIL_CODE: ReadonlyMap<string, readonly [number, number]> = new Map(
+  Object.keys(LITHOLOGY_LABELS)
+    .map(code => {
+      const word = (LITHOLOGY_LABELS[code] ?? code).toUpperCase()
+      const range = NAD_FAMILY_RANGES.find(([lo]) => nadSoilFamilyName(lo) === word)
+      return range === undefined ? null : ([code, range] as const)
+    })
+    .filter((entry): entry is readonly [string, readonly [number, number]] => entry !== null),
+)
+
 /**
- * Every class in the same soil family as ``nadClass``.
+ * Every NAD class a unit of this SOIL may carry.
  *
- * @param nadClass  A NAD class number (1..31).
- * @returns  The family's class numbers ascending; empty for an unknown number.
+ * Owner ruling 2026-08-26: *"no a zand body can never carry a silt packing
+ * class"* — *"the nad coupling is absolute."* A packing class describes one
+ * soil column, so the ground decides the menu, not whatever class the band
+ * happens to hold. This is the frontend twin of the backend's
+ * ``hand_settable_classes_for``; the server validates against the norm table
+ * either way, and this only keeps the menu from offering something it would
+ * refuse.
+ *
+ * @param soilCode  Raw ``litho_main_soil_code`` of the band's parent litho
+ *                  unit ("ZAND", "KLEI", ...) — the upstream token, untranslated.
+ * @returns  The soil's class numbers ascending; ``[]`` for a soil the norm
+ *           table does not know (the caller offers nothing rather than
+ *           guessing a family).
  */
-export function nadClassFamily(nadClass: number): readonly number[] {
-  for (const [lo, hi] of NAD_FAMILY_RANGES) {
-    if (nadClass >= lo && nadClass <= hi) {
-      return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
-    }
-  }
-  return []
+export function nadClassesForSoil(soilCode: string | null | undefined): readonly number[] {
+  if (soilCode == null || soilCode === '') return []
+  const range = _RANGE_BY_SOIL_CODE.get(soilCode)
+  if (range === undefined) return []
+  const [lo, hi] = range
+  return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+}
+
+/**
+ * Whether a class sits on ground of a different soil family — a "stranger".
+ *
+ * Two cases are deliberately NOT strangers, because neither has a foreign
+ * family to convict: an unclassified band (no class at all), and a unit whose
+ * soil the norm table does not know (no family to judge against). Mirrors the
+ * backend predicate ``class_belongs_to_soil`` so the two surfaces agree about
+ * which rows are legacy strangers.
+ *
+ * @param nadClass  The class the band currently carries, or null.
+ * @param soilCode  Raw ``litho_main_soil_code`` of the parent litho unit.
+ * @returns  ``true`` only when both families are known and they differ.
+ */
+export function nadClassIsForeignToSoil(
+  nadClass: number | null | undefined,
+  soilCode: string | null | undefined,
+): boolean {
+  if (nadClass == null) return false
+  const own = nadClassesForSoil(soilCode)
+  if (own.length === 0) return false
+  return !own.includes(nadClass)
 }
