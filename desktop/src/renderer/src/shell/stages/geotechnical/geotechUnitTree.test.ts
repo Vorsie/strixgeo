@@ -12,13 +12,16 @@
 //   • provenance collapsed to the WORST badge in the group — "partial · low
 //     bubbles up, that is the one you need to see"
 //   • instances only when a class has more than one
-//   • zero-band rows behind "show empty (N)" — reachable, never gone
+//   • zero-content rows are not listed at all — the "show empty (N)" lever that
+//     shipped with the tree was overturned the same day: "if a bin is empty
+//     that means there is nothing in it and nothing exists"
 //
 // These pins are on the pure builder. What the component does with the tree is
 // pinned in GeotechnicalInspector.test.tsx.
 
 import { describe, expect, it } from 'vitest'
 
+import { nadClassColor } from '../../../utils/nadClasses'
 import { buildGeotechUnitTree } from './geotechUnitTree'
 import type { GeotechUnitTreeInput } from './geotechUnitTree'
 
@@ -32,7 +35,12 @@ let _seq = 0
 function unit(
   id: string,
   nadClass: number | null,
-  overrides: Partial<{ litho_main_soil_code: string | null; name: string; display_order: number }> = {},
+  overrides: Partial<{
+    litho_main_soil_code: string | null
+    name: string
+    display_order: number
+    color_override: string | null
+  }> = {},
 ): GeotechUnitTreeInput['units'][number] {
   return {
     id,
@@ -250,58 +258,46 @@ describe('instances stay collapsed until a class actually has several (T4)', () 
 })
 
 // ---------------------------------------------------------------------------
-// T5 — show empty
+// T5 — a bin with nothing in it is not a row
+//
+// Owner ruling, dogfeed 2026-08-26: "The show empty is weird though, if a bin
+// is empty that means there is nothing in it and nothing exists". RETIRES T5b
+// ("turning the toggle on brings it back") and the second half of T5c ("comes
+// back with the toggle") — both pinned a lever that no longer exists — and
+// drops the ``emptyCount`` assertions from T5a/T5d/T5e/T5f, which existed only
+// to feed that lever's label. What each test claims about the FILTER is kept
+// verbatim: the filter is unchanged, only the escape hatch is gone.
 // ---------------------------------------------------------------------------
 
-describe('zero-band rows move behind "show empty (N)" but never disappear (T5)', () => {
-  it('T5a — a unit with no bands is out of the default tree and counted for the toggle', () => {
+describe('a unit that describes nothing is not on the roster at all (T5)', () => {
+  it('T5a — a unit with no bands is not in the tree', () => {
     const t = tree({
       units: [unit('live', 6), unit('empty', 7)],
       contacts: bands('live', 12),
     })
 
-    expect(t.emptyCount).toBe(1)
     expect(t.groups[0].classes.map(c => c.nadClass)).toEqual([6])
   })
 
-  it('T5b — turning the toggle on brings it back into the same tree', () => {
+  it('T5c — a soil whose every unit is empty loses its header too', () => {
     const t = tree({
-      units: [unit('live', 6), unit('empty', 7)],
-      contacts: bands('live', 12),
-      showEmpty: true,
-    })
-
-    expect(t.groups[0].classes.map(c => c.nadClass)).toEqual([6, 7])
-    // The count still reports how many are empty, so the toggle can say so
-    // while it is on.
-    expect(t.emptyCount).toBe(1)
-  })
-
-  it('T5c — a soil whose every unit is empty loses its header too, and comes back with the toggle', () => {
-    const closed = tree({
       units: [unit('s', 6), unit('k', 21, { litho_main_soil_code: 'KLEI' })],
       contacts: bands('s', 3),
     })
-    expect(closed.groups.map(g => g.soil)).toEqual(['SAND'])
 
-    const open = tree({
-      units: [unit('s', 6), unit('k', 21, { litho_main_soil_code: 'KLEI' })],
-      contacts: bands('s', 3),
-      showEmpty: true,
-    })
-    expect(open.groups.map(g => g.soil).sort()).toEqual(['CLAY', 'SAND'])
+    expect(t.groups.map(g => g.soil)).toEqual(['SAND'])
   })
 
-  it('T5d — an UNCLASSIFIED unit that HAS bands stays in the main tree', () => {
+  it('T5d — an UNCLASSIFIED unit that HAS bands stays in the tree', () => {
     // It is real ground the model has not classified — exactly the row the
-    // engineer needs in front of him. Only "no bands" sends a row behind the
-    // toggle; "no class" is what the row is FOR.
+    // engineer needs in front of him. Only "no content" drops a row; "no
+    // class" is what the row is FOR.
     const t = tree({
       units: [unit('skeleton', null)],
       contacts: bands('skeleton', 9),
     })
 
-    expect(t.emptyCount).toBe(0)
+    expect(t.unitCount).toBe(1)
     expect(t.groups[0].classes[0].nadClass).toBeNull()
     expect(t.groups[0].classes[0].bandCount).toBe(9)
   })
@@ -309,27 +305,94 @@ describe('zero-band rows move behind "show empty (N)" but never disappear (T5)',
   it('T5f — a unit with layers but no ACCEPTED band is not empty either', () => {
     // "Empty" has to mean the same thing here as it does to the backend sweep
     // (no layer, no contact, no body). A unit whose bands are still pending
-    // describes something; the pane would be filing a live unit under "empty"
-    // while the next verb correctly leaves it alone.
+    // describes something; dropping it would hide a live unit the next verb
+    // correctly leaves alone.
     const t = tree({
       units: [unit('pending', 6)],
       contacts: [],
       layers: layers('pending', 'high', 2),
     })
 
-    expect(t.emptyCount).toBe(0)
+    expect(t.unitCount).toBe(1)
     expect(t.groups[0].classes[0].bandCount).toBe(0)
   })
 
-  it('T5e — the header counts say how many units have bands and how many do not', () => {
+  it('T5e — the header counts describe exactly the rows the pane shows', () => {
     const t = tree({
       units: [unit('a', 6), unit('b', 7), unit('c', 8), unit('d', 5)],
       contacts: [...bands('a', 2), ...bands('b', 3)],
     })
 
     expect(t.unitCount).toBe(2)
-    expect(t.emptyCount).toBe(2)
     expect(t.bandCount).toBe(5)
+    expect(t.groups.flatMap(g => g.classes).map(c => c.nadClass)).toEqual([6, 7])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T9 — the colour the engineer picked
+//
+// Owner ruling, dogfeed 2026-08-26: "Colours on the right hand pane need to be
+// choosable if user wants." The swatch on this pane is on a CLASS row, which
+// can stand for several units, so the row has to answer two questions: what
+// colour to draw, and whether a pick is in force (that is what the row's
+// reset-to-automatic affordance appears for).
+// ---------------------------------------------------------------------------
+
+describe('a picked colour wins over the automatic NAD colour (T9)', () => {
+  it('T9a — the row draws the colour its unit was given', () => {
+    const t = tree({
+      units: [unit('a', 6, { color_override: '#ff00ff' })],
+      contacts: bands('a', 3),
+    })
+
+    expect(t.groups[0].classes[0].color).toBe('#ff00ff')
+    expect(t.groups[0].classes[0].colorOverride).toBe('#ff00ff')
+  })
+
+  it('T9b — with nobody having picked, the row draws its NAD colour and offers no reset', () => {
+    const t = tree({ units: [unit('a', 6)], contacts: bands('a', 3) })
+
+    expect(t.groups[0].classes[0].color).toBe(nadClassColor(6))
+    expect(t.groups[0].classes[0].colorOverride).toBeNull()
+  })
+
+  it('T9c — a row standing for several units that agree draws the agreed colour', () => {
+    const t = tree({
+      units: [
+        unit('a', 6, { color_override: '#ff00ff' }),
+        unit('b', 6, { color_override: '#ff00ff', display_order: 1 }),
+      ],
+      contacts: [...bands('a', 1), ...bands('b', 1)],
+    })
+
+    expect(t.groups[0].classes[0].color).toBe('#ff00ff')
+    expect(t.groups[0].classes[0].colorOverride).toBe('#ff00ff')
+  })
+
+  it('T9d — a row whose units DISAGREE falls back to the automatic colour', () => {
+    // One row cannot honestly show two colours. Editing the row always writes
+    // every unit under it, so disagreement only arises from outside — and the
+    // automatic colour is the answer that misrepresents neither unit.
+    const t = tree({
+      units: [
+        unit('a', 6, { color_override: '#ff00ff' }),
+        unit('b', 6, { color_override: '#00ff00', display_order: 1 }),
+      ],
+      contacts: [...bands('a', 1), ...bands('b', 1)],
+    })
+
+    expect(t.groups[0].classes[0].color).toBe(nadClassColor(6))
+    expect(t.groups[0].classes[0].colorOverride).toBeNull()
+  })
+
+  it('T9e — the row names every unit an edit has to write to', () => {
+    const t = tree({
+      units: [unit('a', 6), unit('b', 6, { display_order: 1 })],
+      contacts: [...bands('a', 1), ...bands('b', 1)],
+    })
+
+    expect(t.groups[0].classes[0].instances.map(i => i.formationId)).toEqual(['a', 'b'])
   })
 })
 
@@ -445,7 +508,6 @@ describe('the empty scene (T8)', () => {
   it('T8a — no units at all is an empty tree, not a crash', () => {
     const t = tree({ units: [] })
     expect(t.groups).toEqual([])
-    expect(t.emptyCount).toBe(0)
     expect(t.unitCount).toBe(0)
     expect(t.bandCount).toBe(0)
   })
