@@ -48,7 +48,6 @@ from groundmodel.domain.services.geotech_subdivision import (  # noqa: E402
     suggest_geotech_subdivision,
 )
 from groundmodel.domain.services.litho_geo_bounding import (  # noqa: E402
-    divide_picks_by_geology,
     mark_and_truncate_shallow_tests,
 )
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm  # noqa: E402
@@ -122,13 +121,12 @@ async def main() -> None:
             raise SystemExit(f"ABORT: litho model {litho_model_id} not found.")
 
         use_case = SubdivideAllBodies(session)
-        snap_tol = await use_case._read_geotech_snap_tolerance_m(geotech.app_project_id)
         min_thickness_m = await use_case._read_min_thickness_m(geotech.app_project_id)
         gradient_snap, gradient_snap_window_m = await use_case._read_gradient_snap(
             geotech.app_project_id
         )
         print(
-            f"  knobs: snap_tol={snap_tol} min_thickness_m={min_thickness_m} "
+            f"  knobs: min_thickness_m={min_thickness_m} "
             f"gradient_snap={gradient_snap} window_m={gradient_snap_window_m}\n"
         )
 
@@ -138,9 +136,10 @@ async def main() -> None:
         shallow = mark_and_truncate_shallow_tests(
             picks, use_case._make_lowest_boundary_sampler(geo_surfaces)
         )
-        divided = divide_picks_by_geology(
-            shallow.picks, use_case._make_boundary_sampler(geo_surfaces), snap_tol
-        )
+        # Nothing cuts the picks at a geological surface any more (owner,
+        # 2026-08-26). This mirrors what the builder now does, so the replay
+        # stays a faithful reproduction of its call.
+        divided = shallow.picks
 
         # Stored bands + the source pair that identifies their segment.
         rows = (
