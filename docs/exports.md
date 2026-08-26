@@ -6,18 +6,92 @@
 
 See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `DStabilityExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4 / early Phase 5. **Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
 
-**Implementation note — Deltares D-Series via GEOLib.** The Deltares
-D-Series (D-Stability `.stix`, D-Settlement `.sli`, D-Sheet Piling,
-D-Foundations, ...) all share a single Python wrapper:
-`pip install d-geolib` (MIT, actively maintained — v2.8.0 Sep 2025).
-GEOLib lets us build a `DStabilityModel` (soils + polygonal layers
-+ phreatic line + loads) in memory and serialise to `.stix` purely
-in Python — no D-Stability install needed on the build machine.
-That makes the D-Series exporters near-zero marginal cost once the
-geometry contract is defined: one GEOLib call per target tool.
-The probabilistic side (Probabilistic Toolkit / PTK) consumes
-`.stix` downstream — Strix is the producer, PTK is not in our
-integration surface.
+**Deltares D-Series via GEOLib — SHIPPED 2026-08-26 (v1.0 gate,
+owner ballot).** `d-geolib` 2.9.1 is a hard dependency (pydantic-v2
+native; pulls `shapely`, `jinja2`, `requests`, `pydantic-extra-types`).
+It builds a `DStabilityModel` / `DSheetPilingModel` in memory and
+serialises without any D-Series install on the machine. The
+probabilistic side (Probabilistic Toolkit / PTK) consumes `.stix`
+downstream — Strix is the producer, PTK is not in our integration
+surface. D-Settlement and D-Foundations stay unbuilt.
+
+### The closed-geometry contract — `SectionPolygonSet`
+
+D-Stability has no borehole concept: its geometry IS a set of closed
+soil-layer polygons. So the D-Series exporters consume a THIRD input
+contract, alongside `GroundModelSnapshot` (project-wide) and
+`SectionSnapshot` (section picks):
+
+* `application/section_polygon_set.py` — `SectionPolygonSet`:
+  absolute `(along_m, elevation_m)` rings + the units they reference
+  (name, NAD class, soil code, colour, display order).
+* `application/build_section_polygons.py` — `BuildSectionPolygons`:
+  resolves a renderer-POSTed `SectionPartitionInput` (gap-local
+  fractions) against the project's formations. The fraction→metres
+  mapping is linear in the columns' own `along_m`, **the same mapping
+  the 3-D voxel builder uses**, so a D-Stability export and a 3-D
+  build of one section describe the same ground.
+* `infrastructure/exporters/section_geometry_exporter.py` —
+  `SectionGeometryExporter` ABC (third sibling of the debt-#109
+  split).
+
+**Why the partition is POSTed, not derived.** The fill is computed in
+the renderer (`computeSectionFill`), and the section is the editing
+surface — what the engineer sees filled IS the model. Re-deriving
+polygons on the backend from formation contacts would be a second,
+simpler, DIFFERENT partition: a plausible geometry that disagrees with
+the screen. So these two exports are **POST** endpoints carrying the
+same payload shape the voxel build sends, and the body is REQUIRED
+(Pydantic answers 422 when absent).
+
+### DStabilityExporter (`.stix`)
+
+One D-Stability layer per drawn region; one soil per unit, named by
+`unit_identifier()` (`NAD-06_ZAND`), with NAD class + soil code +
+Strix formation id in the layer note. `projectinfo.Remarks` carries
+the datum, the axis definition and the parameters-not-exported
+disclaimer.
+
+**No design parameter is written** — cohesion, friction angle and both
+unit weights stay at GEOLib's initial **zero**, chosen over a plausible
+default precisely because a zero cannot be mistaken for a value Strix
+stood behind. No phreatic line, head line, load or reinforcement.
+
+Regions that cannot close are dropped and counted, never repaired: a
+zero-area ring (shapely `make_valid` → `MultiLineString`) and a
+self-intersecting ring (→ `MultiPolygon`) both make GEOLib raise, and
+picking one half of a repaired bow-tie would invent ground nobody drew.
+A section with nothing drawable is **refused** (`ValueError` → 422
+`dstability_export_refused`) — an empty `.stix` is a plausible,
+correctly-named, completely wrong deliverable.
+
+### DSheetPilingExporter (`.shi`)
+
+D-Sheet models a wall against ONE 1-D soil profile per side, and Strix
+knows only the profile. **V1 scope: the soil profile and nothing else.**
+It samples the drawn fill at a fraction along the section (mid-section
+by default), reading the column by intersecting the vertical line with
+every region (even-odd rule), cutting at every boundary elevation,
+attributing each slab to the region covering its midpoint, then merging
+same-unit runs. Holes and overlaps are counted and WARNed — D-Sheet's
+profile can express neither.
+
+The ground surface IS exported (a surface elevation is a measurement).
+Everything else is an explicit TODO in `[RUN IDENTIFICATION]`, never an
+invented value.
+
+### GEOLib quirks — verified against 2.9.1, 2026-08-26
+
+| Quirk | Consequence |
+|---|---|
+| `DStabilityModel.is_valid` is **False for any model with no layer loads** (`is_valid_layer_loads` requires the loaded-layer set to equal the soil-layer set) | Never gate an export on `is_valid`; verify by GEOLib re-parsing its own output |
+| `.stix` **writer emits UTF-8, reader decodes cp1252** | Our bytes are correct; GEOLib's round-trip mojibakes non-ASCII unit names. Assert non-ASCII content against the archive JSON, not against `model.parse`. **Unverified: whether D-Stability itself reads UTF-8** — dogfeed an export with an em dash in a unit name |
+| `parse()` needs a real `Path` (`filename` is a pydantic `Path` field) although `serialize()` accepts a buffer | Round-trip tests write a temp file |
+| `.stix` archive member is `geometries/geometry.json`, singular | — |
+| A fresh `DStabilityModel` ships 13 Deltares library soils | Filter by our own codes when asserting |
+| GEOLib writes a `[WATERLEVELS]` block whether or not one is added | The water level cannot be omitted, only NAMED — ours is `TODO set water level` at GEOLib's own 0.00. **Never set it to the ground surface** (the 2026-08-02 Plaxis audit: that made every exported model fully saturated) |
+| D-Sheet's GUI shows only **3** `[RUN IDENTIFICATION]` lines (`REQ_RUN_LINES = 2`) | The whole TODO message is budgeted to three lines; a fourth is in the file and invisible |
+| GEOLib ships no `py.typed` | `[[tool.mypy.overrides]] module = ["geolib.*"]` in pyproject |
 
 **Plaxis is NOT a D-Series tool** — it's Bentley/PLAXIS BV, with
 its own remote-scripting API (`plxscripting`). GEOLib doesn't
