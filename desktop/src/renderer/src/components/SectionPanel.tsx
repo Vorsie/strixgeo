@@ -112,6 +112,7 @@ import { useSessionReviewFlagDismissals } from '../hooks/useSessionReviewFlagDis
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import SectionGrid from './sections/SectionGrid'
 import InvestigationColumns from './sections/InvestigationColumns'
+import StaleColumnMarkers from './sections/StaleColumnMarkers'
 import CorrelationEdgesOverlay, {
   type ContactGestureState,
 } from './sections/CorrelationEdgesOverlay'
@@ -3086,6 +3087,19 @@ export default function SectionPanel({
               calloutIds={calloutIds}
               onColumnHover={setHoveredColumnId}
             />
+
+            {/* Debt #266 — mark the columns whose packing bands were derived
+                from a lithology that has since been edited. Drawn after the
+                columns so the mark sits over the column head, and only on the
+                geotech axis: on the litho axis the layers ARE the edit, so
+                there is nothing downstream of them to be out of date. */}
+            {axisMode === 'geotechnical' && geotechModel !== undefined && (
+              <StaleColumnMarkers
+                columns={visibleColumns}
+                staleColumnIds={geotechModel.staleColumnIds}
+                plotTop={MARGIN.top}
+              />
+            )}
 
             {/* DOV Virtuele Boring ghost columns — informative-only
                 overlay showing what DOV's 3D model predicts at each
