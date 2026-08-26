@@ -412,7 +412,7 @@ def _gradient_snap(
 
 @dataclass(frozen=True)
 class GeotechSplit:
-    """One suggested NAD sub-unit within a geo-bounded litho segment.
+    """One suggested NAD sub-unit within a litho segment.
 
     Parameters
     ----------
@@ -506,7 +506,7 @@ def suggest_geotech_subdivision(
     gradient_snap_window_m: float = 0.5,
     statistic: str = DEFAULT_STATISTIC,
 ) -> list[GeotechSplit]:
-    """Suggest NAD sub-units for one geo-bounded litho segment.
+    """Suggest NAD sub-units for one litho segment.
 
     Uses a conservative per-threshold cut pipeline: sustained qc crossings
     place band boundaries, each band is classified by its representative qc
@@ -530,9 +530,9 @@ def suggest_geotech_subdivision(
         Cone resistance in MPa, one value per entry in ``depth_m``. Void/invalid
         readings (``None``, NaN, negative) are dropped before classification.
     segment_top_m : float
-        Top bound of the geo-bounded litho segment (metres).
+        Top bound of the litho segment (metres).
     segment_base_m : float
-        Base bound of the geo-bounded litho segment (metres).
+        Base bound of the litho segment (metres).
     min_thickness_m : float
         Minimum sub-unit thickness; thinner bands absorb into the weaker
         neighbour via :func:`_conservative_merge`.
