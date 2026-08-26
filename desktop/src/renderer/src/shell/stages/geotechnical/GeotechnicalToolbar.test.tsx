@@ -94,6 +94,8 @@ function makeCtx(overrides: {
   geotechSolidsBuilding?: boolean
   hasStaleGeotechSolid?: boolean
   hasGeotechSolids?: boolean
+  staleLithoGeotechColumns?: { investigation_id: string; label: string }[]
+  columnsNeedingRederive?: string[]
 } = {}): ShellContextValue {
   return {
     visibleCpts: CTX_INVESTIGATIONS,
@@ -112,6 +114,10 @@ function makeCtx(overrides: {
       buildGeotechSolids: overrides.buildGeotechSolids ?? noopAsync,
       handleSubdivideAllBodies: noopAsync,
       handleDivideBoreholes: noopAsync,
+      // Debt #266 — the two "these bands are out of date" signals the toolbar
+      // merges into its amber chip. Both default to "nothing stale".
+      staleLithoGeotechColumns: overrides.staleLithoGeotechColumns ?? [],
+      columnsNeedingRederive: overrides.columnsNeedingRederive ?? [],
     },
   } as unknown as ShellContextValue
 }
@@ -190,5 +196,43 @@ describe('GeotechnicalToolbar (Task 4 — geotech 3D Build verb)', () => {
     expect(chip.textContent).toBe('1 test excluded')
     // A real button, so it can be walked by keyboard like the pending chip.
     expect(chip.tagName).toBe('BUTTON')
+  })
+
+  // Debt #266 — this button bakes the packing bands into a 3-D model an export
+  // ships. If the lithology under a column moved after its bands were made, the
+  // last place to notice is here, before the staleness stops being visible.
+  it('GT7 — packing standing on edited lithology is named before the model is built', () => {
+    renderToolbar(
+      makeCtx({
+        staleLithoGeotechColumns: [
+          { investigation_id: 'inv-s17', label: 'GEO-23/125-S17' },
+        ],
+      }),
+    )
+
+    const chip = screen.getByTestId('geotech-stale-litho-chip')
+    expect(chip.textContent).toContain('1')
+    expect(chip.getAttribute('title')).toContain('GEO-23/125-S17')
+  })
+
+  it('GT8 — with every column matching its lithology there is no chip to ignore', () => {
+    renderToolbar(makeCtx())
+
+    expect(screen.queryByTestId('geotech-stale-litho-chip')).toBeNull()
+  })
+
+  it('GT9 — the geometric and provenance signals make ONE count, not two', () => {
+    // Both notice S17. His action is the same either way — re-run the
+    // subdivision on that column — so he is told once.
+    renderToolbar(
+      makeCtx({
+        staleLithoGeotechColumns: [
+          { investigation_id: 'inv-s17', label: 'GEO-23/125-S17' },
+        ],
+        columnsNeedingRederive: ['inv-s17'],
+      }),
+    )
+
+    expect(screen.getByTestId('geotech-stale-litho-chip').textContent).toContain('1')
   })
 })
