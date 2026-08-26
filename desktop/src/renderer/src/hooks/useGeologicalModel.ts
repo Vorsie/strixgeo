@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError, api } from '../api/client'
+import type { UseGeotechLithoStalenessResult } from './useGeotechLithoStaleness'
+import { useGeotechLithoStaleness } from './useGeotechLithoStaleness'
 import type { UseLithoSolidsResult } from './useLithoSolids'
 import { useLithoSolids } from './useLithoSolids'
 import type {
@@ -937,6 +939,26 @@ export interface UseGeologicalModelResult {
   buildGeotechSolids: UseLithoSolidsResult['buildLithoSolids']
   /** Set or clear a per-body display colour on the geotech model. */
   setGeotechBodyColor: UseLithoSolidsResult['setBodyColor']
+  /**
+   * Columns whose litho stack moved after their packing bands were made (#266).
+   *
+   * Sorted by label so the toolbar and the section overlay name them the same
+   * way twice running.
+   */
+  staleLithoGeotechColumns: UseGeotechLithoStalenessResult['staleColumns']
+  /** Investigation ids of those columns — the section overlay's membership test. */
+  staleLithoGeotechColumnIds: UseGeotechLithoStalenessResult['staleColumnIds']
+  /** How many columns are stale — the toolbar chip's count. */
+  staleLithoGeotechColumnCount: UseGeotechLithoStalenessResult['staleColumnCount']
+  /**
+   * Banded columns with no record of what litho they came from.
+   *
+   * NOT stale (unknown provenance is not evidence of a move); carried so the
+   * coming export-completeness guard can tell "verified" from "cannot say".
+   */
+  unstampedGeotechColumnCount: UseGeotechLithoStalenessResult['unstampedColumnCount']
+  /** Force a staleness re-read — after a press that should have cleared columns. */
+  refreshGeotechLithoStaleness: UseGeotechLithoStalenessResult['refresh']
   /** When ``true``, the geotech 3D viewer + inspector suppress flagged bodies. */
   geotechHideMarkers: UseLithoSolidsResult['hideMarkers']
   /** Toggle the geotech ``hideMarkers`` flag. */
@@ -2397,6 +2419,17 @@ export function useGeologicalModel({
     markMutated,
   )
 
+  // Debt #266 — which geotech columns are standing on litho that has since been
+  // edited.  Sibling signal to the stale-solid flag above, and re-read on BOTH
+  // version counters: a litho edit is what makes a column stale, and a geotech
+  // press is what clears it, so keying on only one of them would leave the
+  // indicator showing the answer from before the change — the very bug.
+  const geotechLithoStalenessResult = useGeotechLithoStaleness(
+    project?.id ?? null,
+    activeGeotechModel?.id ?? null,
+    `${lithoLayersVersion}:${geotechLayersVersion}`,
+  )
+
   // F4 — "Subdivide all bodies" toolbar verb.  Called from the Geotechnical
   // stage toolbar (SectionsToolbar on the geotech axis).  The endpoint
   // creates or reuses the kind='geotechnical' child model and materialises
@@ -2822,5 +2855,13 @@ export function useGeologicalModel({
     setGeotechBodyColor: geotechSolidsResult.setBodyColor,
     geotechHideMarkers: geotechSolidsResult.hideMarkers,
     setGeotechHideMarkers: geotechSolidsResult.setHideMarkers,
+
+    // Debt #266 — the columns whose litho moved after their bands were made.
+    // Derived server-side on every read, so re-pressing them is what clears it.
+    staleLithoGeotechColumns: geotechLithoStalenessResult.staleColumns,
+    staleLithoGeotechColumnIds: geotechLithoStalenessResult.staleColumnIds,
+    staleLithoGeotechColumnCount: geotechLithoStalenessResult.staleColumnCount,
+    unstampedGeotechColumnCount: geotechLithoStalenessResult.unstampedColumnCount,
+    refreshGeotechLithoStaleness: geotechLithoStalenessResult.refresh,
   }
 }
