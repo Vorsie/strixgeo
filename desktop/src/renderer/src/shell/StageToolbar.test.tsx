@@ -104,4 +104,18 @@ describe('StageToolbar (debt #23 — overflow scroll)', () => {
     // re-introduce debt #23's silent clip.
     expect(leftZone?.className).not.toContain('overflow-hidden')
   })
+
+  it('left zone can shrink to the space the right cluster leaves (min-w-0)', () => {
+    // Without ``min-w-0`` the zone's automatic minimum size is its content's,
+    // so a long verb row pushes the whole toolbar wider than the window
+    // instead of letting ResponsiveToolbarRow measure a real budget and
+    // adapt. It is also what makes the zone's clientWidth meaningful.
+    const { container } = render(
+      <ShellContext.Provider value={makeShellCtx()}>
+        <StageToolbar activeStageId="data" inspectorOpen={false} onToggleInspector={vi.fn()} />
+      </ShellContext.Provider>,
+    )
+    const leftZone = container.querySelector('[role="toolbar"]')?.firstElementChild
+    expect(leftZone?.className).toContain('min-w-0')
+  })
 })
