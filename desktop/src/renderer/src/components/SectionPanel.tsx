@@ -216,7 +216,7 @@ import {
   type ColumnLabelMode,
 } from '../utils/columnLabelLod'
 import { LITHO_SEGMENTER_DEFAULTS } from '../utils/lithoSegmenterPrefs'
-import { nadClassColor, nadClassName } from '../utils/nadClasses'
+import { geotechUnitColor, nadClassName } from '../utils/nadClasses'
 
 interface Props {
   section: CrossSectionResponse
@@ -425,8 +425,9 @@ interface Props {
    *
    * When ``'geotechnical'``, contact and band rendering mirrors the
    * lithostratigraphic axis: ``PartitionFillOverlay`` renders bands
-   * coloured by NAD class (via ``nadClassColor``), and the label
-   * shows the NAD class name (via ``nadClassName``).  Litho-only
+   * coloured by ``geotechUnitColor`` (the engineer's own pick where he
+   * made one, else the NAD class colour), and the label shows the NAD
+   * class name (via ``nadClassName``).  Litho-only
    * gestures (correlation, auto-correlate, lens detection) are
    * excluded — the geotech axis is view-only for F3.
    */
@@ -903,14 +904,14 @@ export default function SectionPanel({
   // formation_id → band fill colour.
   // Litho units: stored lithology colour (stamped at create + backfilled, #145).
   // Geological formations: user-chosen colour.
-  // Geotech formations: NAD class colour (nadClassColor); null → neutral grey.
+  // Geotech formations: geotechUnitColor — the colour the engineer picked on the
+  // units pane where he picked one, else the NAD class colour (null → neutral
+  // grey). Owner ruling 2026-08-26: a pick wins on every surface, and the fill
+  // is the surface he is looking at while he picks.
   const formationColorById = useMemo(() => {
     const m = new Map<string, string>()
     for (const f of formations) {
-      m.set(
-        f.id,
-        axisMode === 'geotechnical' ? nadClassColor(f.nad_class ?? null) : f.color,
-      )
+      m.set(f.id, axisMode === 'geotechnical' ? geotechUnitColor(f) : f.color)
     }
     return m
   }, [formations, axisMode])
@@ -3404,8 +3405,9 @@ export default function SectionPanel({
                 On the litho axis: bands coloured by lithology colour.
                 On the geotech axis: the GEOTECH model's OWN partition (owner
                   ruling 2026-08-13) — the same engine over the geotech columns
-                  and packing ties the 3-D build arm consumes, coloured by NAD
-                  class (nadClassColor); a formation with nad_class === null
+                  and packing ties the 3-D build arm consumes, coloured by
+                  geotechUnitColor (the engineer's pick, else the NAD class
+                  colour); an unpicked formation with nad_class === null
                   renders in neutral grey. The litho envelopes draw on top and
                   unpacked litho regions keep their lithology colour, via
                   ``lithoFrame``.
