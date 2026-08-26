@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from .auto_correlate_geotech_request import AutoCorrelateGeotechRequest
 from .auto_correlate_geotech_response import AutoCorrelateGeotechResponse
+from .clear_geotech_column_request import (
+    ClearGeotechColumnRequest,
+    ClearGeotechColumnResponse,
+)
 from .divide_borehole_preview_response import (
     DivideBoreholePreviewBand,
     DivideBoreholePreviewColumn,
@@ -15,11 +19,11 @@ from .divide_borehole_preview_response import (
     DivideBoreholePreviewResponse,
 )
 from .divide_borehole_response import DivideBoreholeResponse
-from .clear_geotech_column_request import (
-    ClearGeotechColumnRequest,
-    ClearGeotechColumnResponse,
-)
 from .divide_boreholes_request import DivideBoreholesRequest
+from .geotech_litho_staleness_response import (
+    GeotechLithoStalenessResponse,
+    StaleGeotechColumnItem,
+)
 from .geotech_tie_status_response import GeotechTieStatusResponse
 from .subdivide_all_bodies_request import SubdivideAllBodiesRequest
 from .subdivide_all_bodies_response import SubdivideAllBodiesResponse
@@ -35,7 +39,9 @@ __all__ = [
     "ClearGeotechColumnRequest",
     "ClearGeotechColumnResponse",
     "DivideBoreholesRequest",
+    "GeotechLithoStalenessResponse",
     "GeotechTieStatusResponse",
+    "StaleGeotechColumnItem",
     "SubdivideAllBodiesRequest",
     "SubdivideAllBodiesResponse",
 ]
