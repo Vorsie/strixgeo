@@ -32,7 +32,7 @@
 // LithologyCanvas — so the canvas-populated geotechVoxelRequestCallback ref is
 // always available when Build is clicked.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Box, Layers } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -44,6 +44,8 @@ import {
   EMPTY_SURFACES_MAP,
 } from '../shared/useBody3DViewState'
 import { BodyViewModePills } from '../shared/BodyViewModePills'
+import type { CompareScene } from '../shared/splitViewport'
+import { exportFenceDxf } from '../shared/exportFenceDxf'
 import {
   makeVoxelRequestBuilder,
   type VoxelRequestBuilder,
@@ -94,6 +96,19 @@ export const geotechVoxelRequestCallback: React.MutableRefObject<VoxelRequestBui
   current: null,
 }
 
+/**
+ * Export the geotech fence diagram as DXF.
+ *
+ * Populated by ``GeotechnicalCanvas`` while mounted; invoked by
+ * ``GeotechnicalToolbar``'s "Export fence" button. Same module-ref bridge as
+ * ``geotechVoxelRequestCallback`` — the fence walls are canvas-local state
+ * that never reaches the shell bus, so the toolbar cannot assemble the export
+ * itself. ``null`` when the canvas is not mounted.
+ */
+export const geotechFenceExportCallback: React.MutableRefObject<(() => Promise<void>) | null> = {
+  current: null,
+}
+
 // ---------------------------------------------------------------------------
 // GeotechnicalCanvas
 // ---------------------------------------------------------------------------
@@ -125,9 +140,12 @@ export default function GeotechnicalCanvas(): JSX.Element {
       geotechSolids,
       hasGeotechSolids,
       geotechHideMarkers,
+      lithoFormations,
+      lithoSolids,
     },
     overlays: { showConfidenceFade },
     sections: { visibleSections },
+    toasts: { toast },
   } = useShell()
 
   // -------------------------------------------------------------------------
@@ -171,13 +189,16 @@ export default function GeotechnicalCanvas(): JSX.Element {
     splitLine,
     handleSplitPlaneDrawn,
     exitSplit,
+    enterCompare,
     groundSurface,
     investigations,
     investigationXY,
     fencePanels,
+    footprintRing,
   } = useBody3DViewState({
     modelId: geotechModelId,
     layers: geotechLayers,
+    bodySolids: geotechSolids,
     // The litho model frames the geotech fence, exactly as it frames the
     // geotech 2-D render and the geotech build (owner ruling 2026-08-18).
     frameModelId: activeLithoModel?.id ?? null,
@@ -214,6 +235,49 @@ export default function GeotechnicalCanvas(): JSX.Element {
   const nadFormations = useMemo(
     () => nadColoredFormations(geotechFormations),
     [geotechFormations],
+  )
+
+  // Fence-DXF export bridge. Assigned every render while mounted, ABOVE the
+  // early returns, so the toolbar button never holds a stale closure over an
+  // earlier fence — and BELOW ``nadFormations``, which it reads (a const read
+  // above its declaration is a TDZ ReferenceError that neither tsc nor the
+  // unit suite would catch).  Nulled on unmount so a click after a stage
+  // switch is a no-op rather than an export of a destroyed view's geometry.
+  geotechFenceExportCallback.current =
+    projectId && geotechModelId && fencePanels
+      ? () =>
+          exportFenceDxf({
+            projectId,
+            modelId: geotechModelId,
+            modelName: activeGeotechModel?.name ?? 'geotechnical',
+            panels: fencePanels,
+            // The SAME array the viewer paints with, so the DXF layer colours
+            // are the NAD colours the user is looking at.
+            formations: nadFormations,
+            toast,
+          })
+      : null
+
+  useEffect(
+    () => () => {
+      geotechFenceExportCallback.current = null
+    },
+    [],
+  )
+
+  // The comparison pane: the LITHO model this subdivision was derived from.
+  // "Does the NAD subdivision respect the litho units?" is the question this
+  // stage exists to answer, and it cannot be answered by flipping between
+  // stages — the eye does not hold a 3-D shape across a stage switch.
+  //
+  // Solid view only: fence walls are built per model from that model's own
+  // correlations, and this canvas holds only the geotech fence. Passing the
+  // geotech walls into a pane captioned "Lithostratigraphy" would be a lie, so
+  // the compare scene offers solids and lets ``canCompare`` disable the verb
+  // when the litho model has none built.
+  const lithoCompareScene = useMemo<CompareScene>(
+    () => ({ label: 'Lithostratigraphy', formations: lithoFormations, bodySolids: lithoSolids }),
+    [lithoFormations, lithoSolids],
   )
 
   // -------------------------------------------------------------------------
@@ -276,6 +340,9 @@ export default function GeotechnicalCanvas(): JSX.Element {
         bodySolidsWireframe={wireframe}
         investigationXY={investigationXY}
         onExitSplit={exitSplit}
+        footprintRing={footprintRing}
+        compareScene={lithoCompareScene}
+        onEnterCompare={enterCompare}
       />
     </div>
   )
