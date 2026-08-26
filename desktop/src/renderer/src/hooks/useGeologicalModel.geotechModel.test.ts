@@ -66,6 +66,15 @@ vi.mock('../api/client', () => ({
       buildGroundSurface: vi.fn(),
       exportSectionPlaxis2d: vi.fn(),
       listLithoSolids: vi.fn().mockResolvedValue([]),
+      // Debt #266 — the geotech axis reads which columns stand on edited litho.
+      geotechLithoStaleness: vi.fn().mockResolvedValue({
+        geotech_model_id: '',
+        litho_model_id: null,
+        stale_columns: [],
+        stale_column_count: 0,
+        banded_column_count: 0,
+        unstamped_column_count: 0,
+      }),
       setBodyColor: vi.fn().mockResolvedValue({}),
       hideMarkers: false,
       setHideMarkers: vi.fn(),
