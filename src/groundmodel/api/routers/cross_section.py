@@ -34,6 +34,7 @@ from groundmodel.api.schemas.project.cross_section import (
 from groundmodel.application.batch_create_sections import BatchCreateSections
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
 from groundmodel.application.section_snapshot import SectionSnapshot
+from groundmodel.application.thin_export_units import ThinExportUnits
 from groundmodel.infrastructure.codelists.horizontal_crs import (
     horizontal_crs_label,
     is_supported_section_crs,
@@ -101,12 +102,20 @@ async def _build_export_snapshot(
     project_id: UUID,
     section_id: UUID,
     model_id: UUID,
+    *,
+    thin_units: bool = False,
 ) -> SectionSnapshot:
     """Load a section snapshot and validate its CRS for export.
 
     Combines the three boilerplate steps repeated by every section-export
     handler: ``BuildSectionSnapshot``, ``ParseError → 404``, and the
-    defence-in-depth CRS allowlist check (debt #31).
+    defence-in-depth CRS allowlist check (debt #31) — plus the optional
+    same-NAD thinning pass (debt #104b).
+
+    ``thin_units`` defaults to FALSE so the exact snapshot is what a new
+    caller gets by default; the DXF and PDF handlers opt in per the owner
+    ruling, and the Plaxis handler must never pass it (its global
+    soil-layer stack cannot express an interleaved merge).
 
     Parameters
     ----------
@@ -143,6 +152,8 @@ async def _build_export_snapshot(
             detail=str(exc),
         ) from exc
     _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
+    if thin_units:
+        snapshot = ThinExportUnits().execute(snapshot)
     return snapshot
 
 
@@ -442,6 +453,12 @@ async def export_section_dxf(
     project_id: UUID,
     section_id: UUID,
     model_id: UUID,
+    # debt #104b — same-NAD thinning is the DEFAULT for the CAD
+    # deliverable per the owner ruling. The opt-out exists because the
+    # merge erases a litho / geological boundary the engineer drew, and a
+    # client whose CAD deliverable has to show those parent boundaries
+    # should not need a code change to get them.
+    thin_units: bool = Query(default=True),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Export the section's drawn geological model to a DXF file.
@@ -484,7 +501,9 @@ async def export_section_dxf(
         failure mode is "this id doesn't exist in this project".
     """
     logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/dxf (model={model_id})")
-    snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
+    snapshot = await _build_export_snapshot(
+        session, project_id, section_id, model_id, thin_units=thin_units
+    )
     payload = DxfSectionExporter().export(snapshot)
     filename = f"{safe_filename_stem(snapshot.section_name, 'section')}.dxf"
     return Response(
@@ -505,6 +524,9 @@ async def export_section_pdf(
     title: str | None = Query(default=None, max_length=256),
     author: str | None = Query(default=None, max_length=256),
     notes: str | None = Query(default=None, max_length=4096),
+    # debt #104b — same as the DXF handler: thinned by default, opt-out
+    # for a report that must show the parent boundaries.
+    thin_units: bool = Query(default=True),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Export the section as a PDF project report (debt #52 slice 1).
@@ -547,7 +569,9 @@ async def export_section_pdf(
     )
 
     logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/pdf (model={model_id})")
-    snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
+    snapshot = await _build_export_snapshot(
+        session, project_id, section_id, model_id, thin_units=thin_units
+    )
     effective_title = title or f"Cross-section: {snapshot.section_name}"
     metadata = ReportMetadata(
         title=effective_title,
@@ -607,6 +631,12 @@ async def export_section_plaxis2d(
     logger.info(
         f"GET /projects/{project_id}/sections/{section_id}/export/plaxis2d (model={model_id})"
     )
+    # No ``thin_units`` here, deliberately (debt #104b, owner ruling
+    # "keep plaxis exact"): the emitted script indexes ONE global
+    # soillayer stack that every borehole reuses, so a merged unit that
+    # is interleaved anywhere on the section would have to occupy one
+    # global layer twice in a column — inexpressible. The script's own
+    # mapping table names every unit separately instead.
     snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     payload = PlaxisSectionExporter().export(snapshot)
     filename = f"{safe_filename_stem(snapshot.section_name, 'section')}_plaxis2d.py"
