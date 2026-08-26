@@ -8289,9 +8289,97 @@ rather than an assertion, that is a different bug and the margin is large — th
 in ~209 ms against a 5,000 ms default. Independently, #263's `chkdsk` is now doubly
 warranted.
 
-## 266. A geotech model does not notice when the litho model under it moves (M)
+## 266. A geotech model does not notice when the litho model under it moves (M) — RESOLVED 2026-08-26 (integration verification still owed)
 
-**What.** `litho_layer` and the geotech bands derived from it have no dependency link. Drag
+**Resolution.** The dependency link is a **per-column digest of the litho stack**, stamped
+at press time and compared on read.
+
+* `domain/services/litho_column_digest.py` — pure: `litho_column_digest(intervals)` reduces
+  one column's accepted `(depth_top, depth_base, formation_id)` set to a `v1:<blake2b>` tag
+  at millimetre resolution; `stale_column_ids(stamps, current)` names the disagreements;
+  `next_stamp_map(...)` folds a press's results into the stored map.
+* `geological_model.derived_from_litho_digests` (JSONB, nullable, migration `e7f8a9b0c1d2`)
+  holds `{column_id: digest}` on the GEOTECH model, beside `classified_with_statistic` —
+  the other "what the last build used" stamp, whose own migration already named this "the
+  #266 compare-on-load pattern".
+* Stamped by both presses through one shared method,
+  `GeotechBoreholeMaterialiser._stamp_litho_provenance` — `SubdivideAllBodies` re-stamps the
+  CPT columns it materialised, `DivideBoreholes` the boreholes it planned, each leaving the
+  other's columns and any `skip_existing`-protected column with the provenance they had.
+  `ClearGeotechColumn` drops the stamp with the bands.
+* Read by `application/geotech_litho_staleness.py` →
+  `GET .../geotech/litho-staleness`, and rendered as an amber per-column mark on the geotech
+  axis (`components/sections/StaleColumnMarkers.tsx`) plus a toolbar count chip
+  (`geotech-stale-litho-chip`).
+
+**Why a digest and not a counter each litho verb bumps.** Because #266 IS a missed
+dependency link, and a counter reproduces the bug class on the next verb someone writes.
+Over forty verbs mutate litho and several cannot name the columns they touched
+(`UpdateFormationContact` holds only a contact id, `BatchUpdateLithoLayers` only layer ids,
+`PropagateLithoAdmixtures` walks a correlation graph) — and six of them stale nothing at all
+today (`bulk_create_litho_layers`, `clear_litho_model`, `correlate_litho_contacts`,
+`propagate_litho_admixtures`, `delete_body`, `SaveBodyBoundary`). Worse, litho writes are
+mirrored by triggers in BOTH directions and the contiguity trigger rewrites a NEIGHBOUR's
+`depth_base_m` without touching its `updated_at` — the trap this entry documents. A digest
+computed from the rows as they stand cannot be bypassed by a verb that did not know geotech
+existed, nor by a trigger firing behind one.
+
+**No backfill, deliberately.** Existing bands carry no record of what they were built from.
+Backfilling today's litho would assert "every existing column is current", which is FALSE
+precisely for `GEO-23/125-S17` and `GEO-23/125-S9` — the two columns this entry was written
+about. Missing stamp reads as NOT stale (no false alarm on any existing project) and the
+signal starts telling the truth from the next press. The count of unstamped banded columns
+is reported separately so a caller can tell "verified current" from "cannot say".
+
+**Presentation unifies two signals.** `utils/geotechParentFit.columnsNeedingRederive`
+already existed: a renderer-side geometric check that a band overhangs its litho parent. It
+is CPT-only and can only see a unit that SHRANK. The new provenance answer covers boreholes
+and the changes fit cannot see (a unit that grew, was re-classified, or was deleted).
+Neither subsumes the other, so `utils/staleGeotechColumns.unionStaleGeotechColumns` merges
+them into one marker per column and one chip count — two amber warnings about the same
+column would be the alarm fatigue the signal exists to avoid.
+
+**The export-completeness seam.** The coming export guard reads `GeotechLithoStaleness`
+directly (application layer, session + model id, no request context) and gates on
+`len(stale_columns)` and `unstamped_column_count`. What it DOES about a non-zero value —
+refuse, warn, or annotate — is deliberately not decided here.
+
+**Scope stated honestly.** This answers "has this column's own litho stack moved since its
+bands were made". It does NOT flag a column because a body-wide aggregate shifted when a
+DIFFERENT column in the same body was edited; body regrouping and correlation edits change
+lateral grouping, not a column's intervals, and flagging every column of a body on every
+edit anywhere is the alarm-fatigue failure again.
+
+**Verification.** 2231 unit, from 2208. The 17 domain pins in
+`tests/unit/domain/test_litho_column_digest.py` were written FIRST and seen RED (the module
+did not exist); the 6 use-case pins in `tests/unit/application/test_geotech_litho_staleness.py`
+were written after the use case and are test-after — read them with that in mind. On the
+renderer, 4359 vitest pass / 84 skipped across 531 files, from 4330 / 84 across 527 — +29
+tests (7 hook + 8 union/wording + 6 marker + 5 sections-chip + 3 geotech-stage-chip); four of
+those were mutation-checked (anchor `nudgedX`→`trueX`, drop the stale filter, always-render
+the chip — each went RED). tsc clean, ruff clean on every touched file (582 project-wide,
+from 583), mypy at baseline (161 errors / 61 files, unchanged).
+
+**A trap this change walked into, worth knowing before the next bus field.** Adding a field
+to the `useGeologicalModel` result breaks every hand-written `ShellContextValue` double —
+and only SOME of them are caught by `tsc`. Doubles built as an object literal fail the
+typecheck immediately (17 files); doubles cast `as unknown as ShellContextValue` (4 files)
+typecheck fine and fail at RUNTIME, as a TypeError thrown inside a `useMemo` that takes the
+whole toolbar down with it. Both classes had to be patched, and the second class is only
+visible by running the full suite. The same applies to `api.geology` doubles: 11 test files
+hand-list the client's methods, and a hook that calls a new endpoint crashes in a passive
+effect on every one of them.
+**Integration was NOT run** (another agent held the wrapper lock). Owed before this is
+called done: `tests/integration/db/test_subdivide_all_bodies.py` and
+`.../test_divide_boreholes.py` should gain a pin that the press writes
+`derived_from_litho_digests` for the columns it built and leaves the others alone;
+`tests/integration/api/test_geotech_*.py` a `GET .../geotech/litho-staleness` round-trip
+(clean → move a `formation_contact` → the column is named → re-press → clean); and
+`tests/integration/db/test_project_bundle*.py` a round-trip pin that the map survives a
+`.strix` save/restore (it rides the auto-enumerated column path, so this is a regression
+guard, not new plumbing). Expected delta: assertions only, no fixture reshape.
+
+**What (original).** `litho_layer` and the geotech bands derived from it have no dependency link. Drag
 one litho contact and every geotech band inside that column is silently describing a
 lithology stack that no longer exists. Nothing marks the geotech model stale, nothing warns,
 and the UI keeps rendering the old bands as though they were current. The litho→3-D direction
@@ -8335,11 +8423,16 @@ integration DB). **`updated_at` on `litho_layer` is not a depth-change signal.**
 stacks genuinely moved, so the intervals genuinely no longer match. The defect is that the
 owner was never told the litho stack had moved out from under the geotech model.
 
-**When to revisit.** Before the geotech stage is dogfed — an owner correlating packing bands
-by hand needs to know when the ground under them has shifted. Cheapest shape that matches
-the existing pattern: stamp the geotech model with the parent litho model's revision at
-subdivide time and compare on load, reusing the `mark-stale` machinery rather than inventing
-a second one.
+**When to revisit (original).** Before the geotech stage is dogfed — an owner correlating
+packing bands by hand needs to know when the ground under them has shifted. Cheapest shape
+that matches the existing pattern: stamp the geotech model with the parent litho model's
+revision at subdivide time and compare on load, reusing the `mark-stale` machinery rather
+than inventing a second one. *(Followed, with the granularity moved from per-MODEL to per
+COLUMN: CPT and borehole bands come from two different presses that each honour
+`skip_existing`, so a model legitimately holds columns built from different litho revisions
+and a single model-level stamp would let a borehole press clear the flag on a moved CPT
+column — and "S17's litho changed after its bands were made" is the only form of the
+message the engineer can act on.)*
 
 ## 267. Save As copies the lumping map into the file but not into the new DB slots — RESOLVED 2026-08-02
 
