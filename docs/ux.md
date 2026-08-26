@@ -84,6 +84,47 @@ copy" rule it's now ripe — collapse into a shared
 `hooks/useGlobalShortcut.ts` (or just `utils/isTypingTarget.ts`) when
 the next debt sweep lands.
 
+## Stage toolbars — responsive, never clipped
+
+A stage toolbar declares its verbs as `ToolbarItemSpec`s and renders
+them through `shell/ResponsiveToolbarRow`. The row measures the space
+the shell gives it and `shell/toolbarOverflow.ts` (a pure function of
+widths, no DOM reads) decides which verbs keep their labels, which
+become an icon-with-tooltip, and which fold into a "⋯ More" menu —
+the GitHub Primer action-bar ladder.
+
+* **Nothing is ever cut mid-word, and nothing is ever unreachable.**
+  Every verb is in the bar or is a labelled row in the ⋯ menu.
+* **Priority is declared, not inferred.** `pinned` = a mode control
+  (never folded, never an icon; its only concession is a *designed*
+  short form). `high` = pressed on nearly every pass through the
+  stage. `medium` = a few times per section. `low` = escape hatches.
+  A band is spent completely before the next one gives ground, so the
+  verbs the engineer presses constantly keep their labels longest.
+  Within a band the *trailing* control degrades first — a toolbar
+  erodes from its far end so muscle memory keeps working.
+* **`iconOnly: false` on two kinds of control**: destructive verbs (a
+  bare trash icon is not an acceptable presentation for an
+  irreversible action) and any control whose LABEL carries state the
+  user must read without hovering (`qc: median`, `Correlate · click 2
+  bands`). Those fold straight to a labelled menu row instead.
+* **An icon-only control keeps its accessible name and tooltip** — the
+  primitives move the label into `aria-label` + `title`.
+* **Wide screens anchor, they do not distribute.** The stage verbs
+  stay left-anchored and the global controls stay right-anchored; the
+  middle is empty space. No max-width clamp, no control drifting to an
+  unreachable centre.
+* **A flex item with `overflow-hidden` has a ZERO automatic minimum
+  size** (CSS Flexbox §4.5 — `min-width: auto` applies only while
+  overflow is `visible`). Any bordered/rounded group in a toolbar row
+  therefore needs `shrink-0`, or flexbox will pick it as the one item
+  free to absorb the whole width deficit and its own clip will cut it
+  mid-word. This is what produced "Geology | Litho | Geote".
+* `toolbar-scrollable` on the shell's left zone stays as the last
+  resort beneath all of this: a stage that has not adopted the
+  responsive row, or a width estimate that comes up short, gets a thin
+  horizontal scrollbar rather than a silent clip.
+
 ## Detail panels
 
 * **Push-mode**, NOT overlay. The panel is a flex sibling that pushes
