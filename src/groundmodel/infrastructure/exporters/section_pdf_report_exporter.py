@@ -65,6 +65,12 @@ from groundmodel.infrastructure.exporters.section_pdf_report_exporter_constants 
     FIG_W_INCH,
     MAP_INSET_SIZE_INCH,
 )
+from groundmodel.infrastructure.exporters.unit_identifier import (  # noqa: E402
+    naming_identifier,
+)
+from groundmodel.infrastructure.exporters.unit_identifier_constants import (  # noqa: E402
+    UNIT_ID_NAME_SEPARATOR,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger  # noqa: E402
 
 
@@ -279,7 +285,15 @@ def _render_section_figure(snapshot: SectionSnapshot) -> io.BytesIO:
         ys = [p[1] for p in pts]
         colour = f.color if f.color.startswith("#") else f"#{f.color}"
         ax.plot(xs, ys, color=colour, linewidth=1.5, marker="o", markersize=3)
-        legend_handles.append(mpatches.Patch(color=colour, label=f.name))
+        # Legend label leads with the machine identifier on a classified
+        # unit (debt #104) so the figure and the DXF / Plaxis artefacts
+        # from the same section name the units identically. Unclassified
+        # levels keep the bare display name.
+        identifier = naming_identifier(
+            nad_class=f.nad_class, litho_main_soil_code=f.litho_main_soil_code
+        )
+        label = f.name if identifier is None else f"{identifier}{UNIT_ID_NAME_SEPARATOR}{f.name}"
+        legend_handles.append(mpatches.Patch(color=colour, label=label))
 
     ax.set_xlim(0, snapshot.section_length_m if snapshot.section_length_m > 0 else 1.0)
     ax.set_ylim(y_max, 0)  # depth increases downward
