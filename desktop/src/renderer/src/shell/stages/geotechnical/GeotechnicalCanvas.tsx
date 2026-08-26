@@ -1,18 +1,17 @@
-// Geotechnical stage canvas — a 2D ⟷ 3D surface that mirrors the Lithology
-// stage's 3D body-solid view, scoped to the GEOTECH model.
+// Geotechnical stage canvas — the 3D room for the GEOTECH model, mirroring
+// the Lithology stage's 3D body-solid view.
 //
-// In 2D mode it renders the shared SectionsCanvas with the axis forced to
-// 'geotechnical' (the NAD-coloured band view — the original F4 behaviour).
-// In 3D mode it renders the same Geology3DViewer the Lithology stage uses,
-// fed the GEOTECH body solids (built by the geotech useLithoSolids instance)
-// and NAD-coloured formations.
+// Stage symmetry (owner ruling 2026-08-26): the litho world splits 2D (Sections
+// stage) from 3D (Lithology stage), and the geotech world now does the same.
+// This canvas used to carry a top-level 2D ⟷ 3D pill whose 2D half was just
+// SectionsCanvas with the axis forced to 'geotechnical' — a second door onto a
+// surface that already lives on the Sections stage. The pill is gone: the 2D
+// geotech band view is reached by switching the Sections stage's axis picker to
+// "Geotech", and this stage is the 3D room. One place per job.
 //
-// The litho stage separates 2D (Sections stage) and 3D (Lithology stage); the
-// geotech stage is BOTH the 2D edit surface and the 3D view surface, so a
-// top-level 2D/3D pill switches between them here. Everything 3D is SHARED
-// with LithologyCanvas via useBody3DViewState / BodyViewModePills /
-// makeVoxelRequestBuilder (audit FE-SHELL-CLIENTS-10/-11, debt #233), with
-// the geotech data swapped in:
+// Everything 3D is SHARED with LithologyCanvas via useBody3DViewState /
+// BodyViewModePills / makeVoxelRequestBuilder (audit FE-SHELL-CLIENTS-10/-11,
+// debt #233), with the geotech data swapped in:
 //   • formations  → nadColoredFormations(geotechFormations) (NAD colours, not
 //     the inherited lithology colour) — the 3D seam documented in nadClasses.ts.
 //   • bodySolids  → the geotech model's solids (useLithoSolids on the geotech
@@ -21,23 +20,24 @@
 //     (the GEOTECH litho_layer ids + geotech edges feed the SAME model-agnostic
 //     assembleLithoSectionInputs / buildVoxelRequest).
 //
-// Bootstrap requirement (F4): the canvas renders whenever a litho model exists
-// (not gated on activeGeotechModel) so "Subdivide all bodies" is reachable
-// before the geotech model exists. Only when no litho model exists is an
-// EmptyState shown.
+// Two guided empty states, mirroring the litho stage's hasLithoSolids gate:
+//   • no litho model at all → subdivision has no source; point at Lithology.
+//   • litho model but no built geotech solids → point at Build.
+// The canvas is NOT gated on activeGeotechModel: "Subdivide all bodies" (the
+// Sections-stage geotech verb) is what creates that model, so gating here would
+// only hide the Build hint from the user who still has to run it.
 //
 // The "Build model" button lives in GeotechnicalToolbar (the geotech stage
 // toolbar) — co-mounted with this canvas, exactly like LithologyToolbar +
 // LithologyCanvas — so the canvas-populated geotechVoxelRequestCallback ref is
 // always available when Build is clicked.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Box, Layers } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
 import Geology3DViewer from '../geology/Geology3DViewer'
-import SectionsCanvas from '../sections/SectionsCanvas'
 import type { VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import {
@@ -93,20 +93,19 @@ export const geotechVoxelRequestCallback: React.MutableRefObject<
 // ---------------------------------------------------------------------------
 
 /**
- * Canvas for the Geotechnical stage (S6).
+ * Canvas for the Geotechnical stage (S6) — the 3D geotech body model.
  *
- * A 2D ⟷ 3D surface: the 2D mode reuses ``SectionsCanvas`` with the section
- * axis forced to ``'geotechnical'`` (NAD-coloured band view); the 3D mode
- * renders the geotech body solids in ``Geology3DViewer`` with NAD colours,
- * mirroring the Lithology stage's 3D pane.
+ * Renders the geotech body solids in ``Geology3DViewer`` with NAD colours,
+ * mirroring the Lithology stage's 3D pane. The 2D geotech band view lives on
+ * the Sections stage (axis picker → "Geotech"), not here.
  *
- * An ``EmptyState`` is shown ONLY when no lithostratigraphic model exists,
- * because subdivision requires a litho model as its source.
+ * Two guided ``EmptyState``s replace the viewer: no lithostratigraphic model
+ * (subdivision has no source) and no built geotech solids yet (run Build).
  *
  * Returns
  * -------
  * JSX.Element
- *     The geotech 2D/3D canvas, or a guided placeholder when no litho model.
+ *     The geotech 3D canvas, or a guided placeholder.
  */
 export default function GeotechnicalCanvas(): JSX.Element {
   const {
@@ -122,25 +121,8 @@ export default function GeotechnicalCanvas(): JSX.Element {
       geotechHideMarkers,
     },
     overlays: { showConfidenceFade },
-    sections: { visibleSections, sectionModelAxis, setSectionModelAxis },
+    sections: { visibleSections },
   } = useShell()
-
-  // -------------------------------------------------------------------------
-  // Force the section axis to 'geotechnical' on mount (and whenever it has
-  // drifted). Guarded to avoid a spurious re-render / loop. The 2D SectionsCanvas
-  // reads this axis; 3D mode ignores it but keeping it set is harmless.
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (sectionModelAxis !== 'geotechnical') {
-      setSectionModelAxis('geotechnical')
-    }
-  }, [sectionModelAxis, setSectionModelAxis])
-
-  // -------------------------------------------------------------------------
-  // Top-level 2D / 3D dimension toggle — session-ephemeral. Default 2D so the
-  // user lands on the editable band view (the original F4 surface).
-  // -------------------------------------------------------------------------
-  const [dimension, setDimension] = useState<'2d' | '3d'>('2d')
 
   // -------------------------------------------------------------------------
   // Marker-filtered solids — MUST be useMemo'd (an inline filter would re-create
@@ -168,9 +150,9 @@ export default function GeotechnicalCanvas(): JSX.Element {
 
   // Shared 3D-view plumbing: view mode, wireframe, split state, ground
   // surface, fence-edge fetch + fence memos (audit FE-SHELL-CLIENTS-10).
-  // The geotech fence only exists in 3D mode, so the fence gate carries the
-  // dimension; edges are fetched off the geotech model id, never the litho
-  // model.
+  // ``fenceActive`` is left at its default (true) — this stage is 3D-only, so
+  // the fence is always reachable; edges are fetched off the geotech model id,
+  // never the litho model.
   const {
     projectId,
     viewMode,
@@ -196,15 +178,14 @@ export default function GeotechnicalCanvas(): JSX.Element {
     frameLayers: lithoLayers,
     resetSplitViewportRef: resetGeotechSplitViewportCallback,
     voxelRequestRef: geotechVoxelRequestCallback,
-    fenceActive: dimension === '3d',
     packingClassOf,
   })
 
   // -------------------------------------------------------------------------
   // Voxel build payload — assembled on demand for the "Build model" toolbar
   // button (module-ref bridge). Assigned every render while the canvas is
-  // mounted (in BOTH 2D and 3D mode) so Build works regardless of which view is
-  // showing. Returns null when there is no geotech model or no section.
+  // mounted, ABOVE the early returns, so Build works even while an EmptyState
+  // is showing. Returns null when there is no geotech model or no section.
   // -------------------------------------------------------------------------
   geotechVoxelRequestCallback.current = makeVoxelRequestBuilder({
     projectId,
@@ -239,7 +220,18 @@ export default function GeotechnicalCanvas(): JSX.Element {
       <EmptyState
         icon={<Layers />}
         title="No lithostratigraphic model yet"
-        hint="Create a lithostratigraphic model in the Lithology stage and accept litho suggestions, then return here to run 'Subdivide all bodies'."
+        hint="Create a lithostratigraphic model in the Lithology stage and accept litho suggestions, then return here to build the 3D geotechnical model."
+      />
+    )
+  }
+
+  // Litho model present but nothing built yet — guide the user to Build.
+  if (!hasGeotechSolids) {
+    return (
+      <EmptyState
+        icon={<Box />}
+        title="No geotech body model yet"
+        hint="Run 'Subdivide all bodies' on the Sections stage (geotech axis), then click 'Build model' on the Geotechnical toolbar to generate the 3D NAD body solids."
       />
     )
   }
@@ -248,90 +240,37 @@ export default function GeotechnicalCanvas(): JSX.Element {
 
   return (
     <div className="relative w-full h-full">
-      {/* 2D / 3D dimension toggle — top-centre overlay so it clears the Layers
-          legend (top-left) and BasemapPanel (top-right) that the 3D viewer
-          paints. pointer-events only on the buttons. */}
-      <div
-        className="absolute top-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5"
-        title="Switch between the 2D section band view and the 3D body model"
-      >
-        <div className="flex rounded overflow-hidden border border-border-default shadow-sm">
-          <button
-            type="button"
-            data-testid="geotech-view-2d"
-            aria-pressed={dimension === '2d'}
-            onClick={() => setDimension('2d')}
-            className={[
-              'px-3 py-1 text-xs font-medium transition-colors',
-              dimension === '2d'
-                ? 'bg-accent text-white'
-                : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-            ].join(' ')}
-          >
-            2D
-          </button>
-          <button
-            type="button"
-            data-testid="geotech-view-3d"
-            aria-pressed={dimension === '3d'}
-            onClick={() => setDimension('3d')}
-            className={[
-              'px-3 py-1 text-xs font-medium transition-colors',
-              dimension === '3d'
-                ? 'bg-accent text-white'
-                : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
-            ].join(' ')}
-          >
-            3D
-          </button>
-        </div>
-      </div>
+      <BodyViewModePills
+        testIdPrefix="geotech"
+        title="Switch between solid body model and fence-diagram walls"
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        wireframe={wireframe}
+        setWireframe={setWireframe}
+        fenceLoading={fenceLoading}
+        fencePanels={fencePanels}
+        emptyHintTestId="geotech-fence-empty-hint"
+        emptyHintText="No fence panels — connect packing bands on the Sections stage"
+        emptyHintTopClassName="top-10"
+      />
 
-      {dimension === '2d' ? (
-        // 2D band view — the shared SectionsCanvas (axis forced above).
-        <SectionsCanvas />
-      ) : hasGeotechSolids ? (
-        <>
-          <BodyViewModePills
-            testIdPrefix="geotech"
-            title="Switch between solid body model and fence-diagram walls"
-            viewMode={viewMode}
-            setViewMode={setViewMode}
-            wireframe={wireframe}
-            setWireframe={setWireframe}
-            fenceLoading={fenceLoading}
-            fencePanels={fencePanels}
-            emptyHintTestId="geotech-fence-empty-hint"
-            emptyHintText="No fence panels — connect packing bands in the 2D view"
-            emptyHintTopClassName="top-10"
-          />
-
-          <Geology3DViewer
-            splitMode={splitMode}
-            splitPlane={splitPlane}
-            formations={nadFormations}
-            surfacesByFormationId={EMPTY_SURFACES_MAP}
-            projectEpsg={projectEpsg}
-            onSplitPlaneDrawn={handleSplitPlaneDrawn}
-            splitLine={splitLine}
-            resetCameraRef={resetGeotechCameraCallback}
-            groundSurface={groundSurface}
-            showConfidenceFade={showConfidenceFade}
-            fencePanels={fencePanels}
-            bodySolids={visibleSolids}
-            bodySolidsWireframe={wireframe}
-            investigationXY={investigationXY}
-            onExitSplit={exitSplit}
-          />
-        </>
-      ) : (
-        // 3D mode with no built solids yet — guide the user to Build.
-        <EmptyState
-          icon={<Box />}
-          title="No geotech body model yet"
-          hint="Run 'Subdivide all bodies' on the 2D section view, then click 'Build model' on the Geotechnical toolbar to generate the 3D NAD body solids."
-        />
-      )}
+      <Geology3DViewer
+        splitMode={splitMode}
+        splitPlane={splitPlane}
+        formations={nadFormations}
+        surfacesByFormationId={EMPTY_SURFACES_MAP}
+        projectEpsg={projectEpsg}
+        onSplitPlaneDrawn={handleSplitPlaneDrawn}
+        splitLine={splitLine}
+        resetCameraRef={resetGeotechCameraCallback}
+        groundSurface={groundSurface}
+        showConfidenceFade={showConfidenceFade}
+        fencePanels={fencePanels}
+        bodySolids={visibleSolids}
+        bodySolidsWireframe={wireframe}
+        investigationXY={investigationXY}
+        onExitSplit={exitSplit}
+      />
     </div>
   )
 }
