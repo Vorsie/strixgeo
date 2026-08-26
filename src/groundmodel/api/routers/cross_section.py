@@ -31,8 +31,13 @@ from groundmodel.api.schemas.project.cross_section import (
     CrossSectionResponse,
     CrossSectionUpdateRequest,
 )
+from groundmodel.api.schemas.project.section_geometry_export_request import (
+    SectionGeometryExportRequest,
+)
 from groundmodel.application.batch_create_sections import BatchCreateSections
+from groundmodel.application.build_section_polygons import BuildSectionPolygons
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
+from groundmodel.application.section_polygon_set import SectionPolygonSet
 from groundmodel.application.section_snapshot import SectionSnapshot
 from groundmodel.application.thin_export_units import ThinExportUnits
 from groundmodel.infrastructure.codelists.horizontal_crs import (
@@ -44,6 +49,13 @@ from groundmodel.infrastructure.db.repositories.cross_section_repository import 
     CrossSectionRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.exporters.dsheet_piling_exporter import (
+    DSheetPilingExporter,
+)
+from groundmodel.infrastructure.exporters.dsheet_piling_exporter_constants import (
+    DEFAULT_SAMPLE_FRACTION,
+)
+from groundmodel.infrastructure.exporters.dstability_exporter import DStabilityExporter
 from groundmodel.infrastructure.exporters.dxf_section_exporter import DxfSectionExporter
 from groundmodel.infrastructure.exporters.plaxis_section_exporter import (
     PlaxisSectionExporter,
@@ -643,5 +655,221 @@ async def export_section_plaxis2d(
     return Response(
         content=payload,
         media_type="text/x-python",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _build_export_polygons(
+    session: AsyncSession,
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    request: SectionGeometryExportRequest,
+) -> SectionPolygonSet:
+    """Load a section snapshot and resolve the POSTed partition against it.
+
+    The closed-geometry counterpart of :func:`_build_export_snapshot`:
+    same scope guards and CRS check, then the renderer's drawn fill
+    converted from gap-local fractions to absolute along-distances.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export.
+    model_id : UUID
+        Geological / litho / geotech model the section is exported on.
+    request : SectionGeometryExportRequest
+        The drawn partition, from the renderer.
+
+    Returns
+    -------
+    SectionPolygonSet
+        Ready for any ``SectionGeometryExporter``.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the section / model / project cannot be resolved.
+    HTTPException(400)
+        When the section carries a non-metric CRS (debt #31).
+    """
+    snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
+    return await BuildSectionPolygons(session).execute(
+        snapshot=snapshot,
+        partition=request.partition.to_domain(),
+    )
+
+
+def _refuse_empty_geometry(exc: ValueError, code: str) -> HTTPException:
+    """Map an exporter's refusal to a 422 the desktop can toast verbatim.
+
+    Both D-Series exporters raise ``ValueError`` when there is nothing
+    honest to write — no closed geometry at all, or no ground at the
+    sampled position. That is a 422 rather than a 500: the request was
+    well-formed, the MODEL is not ready to export, and the engineer's
+    next action is to draw the fill.
+
+    Parameters
+    ----------
+    exc : ValueError
+        The exporter's refusal; its message names the section and the
+        remedy.
+    code : str
+        Stable machine code for the client — ``"dstability_export_refused"``
+        or ``"dsheetpiling_export_refused"``.
+
+    Returns
+    -------
+    HTTPException
+        The 422 to raise.
+    """
+    logger.warning(f"Section geometry export refused ({code}): {exc}")
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": code, "message": str(exc)},
+    )
+
+
+@router.post("/{section_id}/export/dstability")
+async def export_section_dstability(
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    request: SectionGeometryExportRequest,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Export the section's drawn geometry as a D-Stability ``.stix``.
+
+    A POST, not a GET, because D-Stability's geometry IS the section's
+    filled polygons and the fill is computed in the renderer — the
+    request body carries the same partition payload the 3-D voxel build
+    sends. Each drawn region becomes one D-Stability layer; each unit
+    becomes one soil named by its export identifier (``NAD-06_ZAND``).
+
+    **No design parameter is exported.** Strength, stiffness and unit
+    weight stay at GEOLib's initial values and no phreatic line is
+    written — see ``DStabilityExporter`` for why that is the product's
+    liability line.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export. Must belong to ``project_id``.
+    model_id : UUID
+        Which model's units to name. The desktop sends the model whose
+        axis the engineer is looking at.
+    request : SectionGeometryExportRequest
+        The section's drawn partition fill.
+
+    Returns
+    -------
+    Response
+        ``application/octet-stream`` body (a ``.stix`` is a zip
+        container) with a ``Content-Disposition`` header proposing a
+        ``<section>.stix`` filename.
+
+    Raises
+    ------
+    HTTPException(404)
+        When section / model / project resolution fails.
+    HTTPException(400)
+        When the section carries a non-metric CRS.
+    HTTPException(422)
+        ``code = "dstability_export_refused"`` when the section has no
+        closed geometry to export — an empty ``.stix`` would be a
+        plausible, correctly-named, completely wrong deliverable.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/sections/{section_id}/export/dstability "
+        f"(model={model_id}, regions={len(request.partition.regions)})"
+    )
+    polygons = await _build_export_polygons(session, project_id, section_id, model_id, request)
+    try:
+        payload = DStabilityExporter().export(polygons)
+    except ValueError as exc:
+        raise _refuse_empty_geometry(exc, "dstability_export_refused") from exc
+    filename = f"{safe_filename_stem(polygons.section_name, 'section')}.stix"
+    return Response(
+        content=payload,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/{section_id}/export/dsheetpiling")
+async def export_section_dsheetpiling(
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    request: SectionGeometryExportRequest,
+    # Where along the section line to take the 1-D profile. Bounded here
+    # so an out-of-range value is a 422 from the schema rather than a
+    # ValueError from the exporter; the exporter keeps its own guard
+    # because it is also callable outside HTTP.
+    fraction: float = Query(default=DEFAULT_SAMPLE_FRACTION, ge=0.0, le=1.0),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Export a 1-D soil profile through the section as a D-Sheet Piling ``.shi``.
+
+    D-Sheet Piling models a retaining wall against ONE soil profile per
+    side, so this export samples the section's drawn fill at a position
+    along the line — mid-section unless ``fraction`` says otherwise — and
+    writes that column's layer stack, named by unit identifier.
+
+    Everything else a D-Sheet model needs (the wall itself, real water
+    levels, surcharges, anchors) is written into the file's
+    ``[RUN IDENTIFICATION]`` block as an explicit ``TODO``, never as an
+    invented value.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export. Must belong to ``project_id``.
+    model_id : UUID
+        Which model's units to name.
+    request : SectionGeometryExportRequest
+        The section's drawn partition fill.
+    fraction : float
+        Where along the section line to sample, ``0.0`` at the section's
+        start endpoint and ``1.0`` at its end. Defaults to mid-section.
+
+    Returns
+    -------
+    Response
+        ``application/octet-stream`` body with a
+        ``Content-Disposition`` header proposing a ``<section>.shi``
+        filename.
+
+    Raises
+    ------
+    HTTPException(404)
+        When section / model / project resolution fails.
+    HTTPException(400)
+        When the section carries a non-metric CRS.
+    HTTPException(422)
+        ``code = "dsheetpiling_export_refused"`` when nothing is drawn
+        at the sampled position.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/sections/{section_id}/export/dsheetpiling "
+        f"(model={model_id}, fraction={fraction}, regions={len(request.partition.regions)})"
+    )
+    polygons = await _build_export_polygons(session, project_id, section_id, model_id, request)
+    try:
+        payload = DSheetPilingExporter().export(polygons, fraction=fraction)
+    except ValueError as exc:
+        raise _refuse_empty_geometry(exc, "dsheetpiling_export_refused") from exc
+    filename = f"{safe_filename_stem(polygons.section_name, 'section')}.shi"
+    return Response(
+        content=payload,
+        media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
