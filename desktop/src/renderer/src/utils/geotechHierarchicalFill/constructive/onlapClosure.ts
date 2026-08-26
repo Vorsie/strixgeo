@@ -30,6 +30,15 @@
  * loop is a clean triangle can still be welded back into a quad by a same-class
  * face beside it, and that weld is exactly what the owner sees on screen.
  *
+ * THE SIBLING CHECK — *"still not onlapping"* (2026-08-26). The sweep above can
+ * only see a wedge that DREW something. The dogfeed of 2026-08-26 was the other
+ * failure: S6's loose sand emitted its onlap, the probe recorded it, and the
+ * band owned not one face — the medium sand beside it took the whole wedge, so
+ * there was no vertical to find and nothing at all to report. That is the same
+ * ruling broken from the other side (2026-08-22: *"where a band's own construct
+ * speaks, it speaks COMPLETELY"*), and {@link silentConstructs} is the check for
+ * it: a closed shape that terminates inside its own gap must own ground.
+ *
  * @module utils/geotechHierarchicalFill/constructive/onlapClosure
  */
 
@@ -76,6 +85,60 @@ export interface OnlapClosureViolation {
   /** The onlap-emitting layers this region carries. */
   onlapLayerIds: string[]
   vertical: InteriorVertical
+}
+
+/** One construct that emitted a closed shape and then owned no ground at all. */
+export interface SilentConstruct {
+  gapIndex: number
+  /** The band's layer id — the same key the probe's faces carry as ``owner``. */
+  layerId: string
+  /** What it emitted: ``onlap`` or ``lens``. */
+  emit: string
+  /** Where it terminates, in the gap's own fraction space. */
+  apexFraction: number
+}
+
+/**
+ * Every construct that emitted a closed shape inside its gap and drew nothing.
+ *
+ * *"WHERE A BAND'S OWN CONSTRUCT SPEAKS, IT SPEAKS COMPLETELY"* — a lens or an
+ * onlap whose apex falls strictly inside the gap holds real ground between its
+ * two contacts, from its own column to that apex. Owning zero faces means the
+ * ground went to somebody else, which is the 2026-08-26 dogfeed: the construct
+ * was correct in the probe and absent from the screen.
+ *
+ * Two exclusions, both because the construct genuinely has no wedge HERE:
+ *
+ *  * a STACKED-SEAM run answers from the tests' own stacks and never consults a
+ *    construct at all (the *"keep mtaw lvl"* fallback of 2026-08-25);
+ *  * an EXTENDED construct's apex is the far column, and the taper it is part of
+ *    closes in some other gap (see ``extendsToFar`` / ``carryApexX``). Its
+ *    ``apexFraction`` is 0 or 1, so the interior test already excludes it; the
+ *    explicit skip says so rather than relying on that.
+ *
+ * @param entries The drained ``fillGapProbe`` entries of one fill run.
+ * @returns One entry per silent construct, empty when every closed shape drew.
+ */
+export function silentConstructs(entries: readonly ProbeEntry[]): SilentConstruct[] {
+  const silent: SilentConstruct[] = []
+  for (const entry of entries) {
+    if (entry.stackedSeam) continue
+    const owners = new Set(entry.faces.map((face) => face.owner).filter((id) => id !== null))
+    for (const construct of entry.constructs) {
+      if (construct.emit !== 'onlap' && construct.emit !== 'lens') continue
+      if (construct.extendsToFar === true) continue
+      const apex = construct.apexFraction
+      if (apex === undefined || apex <= EDGE_EPS || apex >= 1 - EDGE_EPS) continue
+      if (owners.has(construct.layer)) continue
+      silent.push({
+        gapIndex: entry.gapIndex,
+        layerId: construct.layer,
+        emit: construct.emit,
+        apexFraction: apex,
+      })
+    }
+  }
+  return silent
 }
 
 /**
