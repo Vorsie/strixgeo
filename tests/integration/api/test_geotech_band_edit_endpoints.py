@@ -1395,3 +1395,167 @@ async def test_cl2_clear_then_skip_press_rebuilds_exactly_the_cleared_column(
 
     assert await cpt_rows("cpt_a_id"), "the cleared column must be rebuilt"
     assert await cpt_rows("cpt_b_id") == b_before, "the untouched column is imported as-is"
+
+
+# ---------------------------------------------------------------------------
+# OS — the orphan-formation sweep
+#
+# The owner's Geotech-units pane, 2026-08-26: 94 rows, 32 with bands, 62
+# describing nothing. Geotech formations are created on demand and were never
+# removed, so every re-subdivide, re-divide and band edit that stopped
+# producing a packing class left its unit behind — and a .strix restore brought
+# the whole accumulated set back. These pin that the geotech verbs now retire
+# their own vocabulary, and that retiring it is reversible.
+# ---------------------------------------------------------------------------
+
+
+async def _geotech_formations(db_session: AsyncSession, project_id) -> list[GeologicalFormationOrm]:
+    """Every geotech unit in the project — the roster the pane renders."""
+    db_session.expire_all()
+    rows = (
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm).where(
+                    GeologicalFormationOrm.app_project_id == project_id,
+                    GeologicalFormationOrm.source_litho_formation_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+def _find_or_create_keys(formations: list[GeologicalFormationOrm]) -> set[tuple]:
+    """The identity the find-or-create path matches on, per unit.
+
+    Ids are NOT stable across a sweep (a re-created row gets a fresh uuid7), so
+    "the same unit came back" has to be asked in the vocabulary the
+    materialiser itself uses.
+    """
+    return {
+        (f.nad_class, f.source_litho_formation_id, f.source_geo_formation_id) for f in formations
+    }
+
+
+@pytest.mark.asyncio
+async def test_os1_a_band_edit_sweeps_a_unit_that_describes_nothing(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """OS1 — a geotech unit nothing points at is gone after the next verb runs.
+
+    The stray is planted directly rather than manufactured through a sequence
+    of edits, because that is how the owner's 62 arrived: already in the file,
+    made by runs whose history no longer exists.  The sweep's contract is about
+    what a row REFERENCES, not about who made it.
+
+    OS2 rides along in the same scene: the sweep took ONLY the stray.  A sweep
+    that also took a unit still carrying bands would empty the model, so the
+    two claims are worth asserting against one another rather than apart.
+    """
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+
+    live = await _geotech_formations(db_session, band_scene["project_id"])
+    assert live, "the pipeline must have produced geotech units to sweep around"
+    source_litho_id = live[0].source_litho_formation_id
+
+    stray_id = uuid7()
+    db_session.add(
+        GeologicalFormationOrm(
+            id=stray_id,
+            app_project_id=band_scene["project_id"],
+            name="ZAND (NAD 12) - stray from an older run",
+            color="#d4b84a",
+            display_order=99,
+            nad_class=12,
+            litho_main_soil_code="ZAND",
+            source_litho_formation_id=source_litho_id,
+        )
+    )
+    await db_session.commit()
+    assert await db_session.get(GeologicalFormationOrm, stray_id) is not None
+
+    live_ids_before = {
+        f.id for f in await _geotech_formations(db_session, band_scene["project_id"])
+    }
+
+    # Any geotech verb will do — this one is the cheapest.
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "set-class"),
+        json={"band_id": rows[0][0], "nad_class": 8},
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    assert await db_session.get(GeologicalFormationOrm, stray_id) is None, (
+        "a unit with no bands, no contacts and no bodies must not survive a verb"
+    )
+
+    after_ids = {f.id for f in await _geotech_formations(db_session, band_scene["project_id"])}
+    swept_live = (live_ids_before - {stray_id}) - after_ids
+    # The edited band's own former class may legitimately retire here; nothing
+    # else may. Any unit that still holds a band must still be on the roster.
+    still_banded = set(
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.formation_id)
+                .where(LithoLayerOrm.model_id == UUID(gid))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert swept_live & still_banded == set(), (
+        "the sweep removed a unit that still had bands behind it"
+    )
+
+
+@pytest.mark.asyncio
+async def test_os3_a_swept_unit_comes_back_when_the_next_divide_needs_it(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """OS3 — sweeping is reversible: re-run the verb and the unit is re-created.
+
+    This is what makes the delete safe.  Nothing about a geotech unit is
+    authored — its identity is the find-or-create key ``(nad_class, source
+    litho, source geo)`` and every other column is copied from the source litho
+    formation at create time — so a divide that needs the class again rebuilds
+    an equivalent row.  The pin compares KEYS, not ids: a re-created row is a
+    new uuid7 by construction.
+    """
+    gid, _rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+
+    keys_before = _find_or_create_keys(
+        await _geotech_formations(db_session, band_scene["project_id"])
+    )
+    assert keys_before, "the pipeline must have produced geotech units"
+
+    # Clear the borehole column: its bands go and nothing rebuilds them here,
+    # so any unit that lived only on that column is swept.
+    clear = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/columns/clear",
+        json={"investigation_id": str(band_scene["bh_id"])},
+    )
+    assert clear.status_code == 200, clear.text
+
+    keys_after_clear = _find_or_create_keys(
+        await _geotech_formations(db_session, band_scene["project_id"])
+    )
+    assert keys_after_clear <= keys_before, "the sweep must never invent a unit"
+
+    # Press the step again — same donors, so the same classes.
+    divide = await async_client.post(
+        f"/projects/{band_scene['project_id']}/geology/models/"
+        f"{band_scene['litho_model_id']}/geotech/divide-boreholes",
+        json={},
+    )
+    assert divide.status_code == 200, divide.text
+
+    keys_after_redivide = _find_or_create_keys(
+        await _geotech_formations(db_session, band_scene["project_id"])
+    )
+    assert keys_before <= keys_after_redivide, (
+        "every unit the sweep retired must be back after the divide that needs it"
+    )
