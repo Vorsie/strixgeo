@@ -35,6 +35,7 @@ import {
 
 import { useShell } from '../../ShellContext'
 import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
+import ResponsiveToolbarRow, { type ToolbarItemSpec } from '../../ResponsiveToolbarRow'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import ConfirmDialog from '../../../components/ui/ConfirmDialog'
@@ -342,117 +343,214 @@ export default function GeologyToolbar(): JSX.Element {
   // Render
   // ---------------------------------------------------------------------------
 
+  const fillLabel = discovering
+    ? 'Scanning…'
+    : applying
+      ? 'Applying…'
+      : 'Fill from boreholes'
+
+  const resetView = (): void => {
+    resetSplitViewportCallback.current?.()
+    resetCameraCallback.current?.()
+  }
+
+  const requestDeleteModel = (): void => {
+    if (!hasModel || deletingModel) return
+    setDeleteModelConfirmOpen(true)
+  }
+
+  // Priority order, same rationale as the sections bar (see
+  // ``shell/toolbarOverflow.ts``): the two verbs a geology session is built
+  // around — Fill from boreholes and Build 3D model — hold their labels
+  // longest; Dedupe and Reset view are occasional; the destructive Delete
+  // never becomes a bare icon.
+  const toolbarItems: ToolbarItemSpec[] = [
+    /* Fill from boreholes — primary accent entry action. Opens the
+        curated FormationSelectionDialog after a read-only discovery scan.
+        Matches the §10 design: does NOT call auto-populate directly. */
+    {
+      id: 'geology-fill-from-boreholes-button',
+      priority: 'high',
+      kind: 'button',
+      label: fillLabel,
+      overflowItems: [
+        {
+          label: 'Fill from boreholes',
+          icon: <Sparkles size={12} />,
+          onClick: () => void handleFillFromBoreholes(),
+          disabled: !canFill,
+        },
+      ],
+      render: p => (
+        <PrimaryToolbarButton
+          iconOnly={p === 'icon'}
+          icon={<Sparkles size={13} />}
+          label={fillLabel}
+          onClick={() => void handleFillFromBoreholes()}
+          disabled={!canFill}
+          busy={discovering || applying}
+          testid="geology-fill-from-boreholes-button"
+          title={
+            visibleBoreholes.length === 0
+              ? 'No boreholes visible in this project'
+              : discovering
+                ? 'Scanning borehole stratigraphy…'
+                : applying
+                  ? 'Applying selection…'
+                  : 'Discover formation names from borehole stratigraphy and select which to keep'
+          }
+        />
+      ),
+    },
+
+    /* Build 3D model — amber badge when surfaces are stale.
+        Debt #94: gate on contact presence too. With zero contacts the
+        Delaunay pass has nothing to triangulate; clicking is a no-op
+        that confuses dogfeed users. Tooltip points to the cross-
+        section view as the place to place contacts. */
+    {
+      id: 'geology-build-model-button',
+      priority: 'high',
+      kind: 'button',
+      label: rebuilding ? 'Building…' : staleLabel,
+      separatorBefore: true,
+      overflowItems: [
+        {
+          label: 'Build 3D model',
+          icon: <RefreshCw size={12} />,
+          onClick: () => void handleBuild(),
+          disabled: rebuilding || !hasModel || contacts.length === 0,
+        },
+      ],
+      render: p => (
+        <ToolbarButton
+          iconOnly={p === 'icon'}
+          icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
+          label={rebuilding ? 'Building…' : staleLabel}
+          onClick={() => void handleBuild()}
+          disabled={rebuilding || !hasModel || contacts.length === 0}
+          amber={staleSurfaceCount > 0 && !rebuilding && contacts.length > 0}
+          testid="geology-build-model-button"
+          title={
+            !hasModel
+              ? 'No active stratigraphy — create formations and contacts first'
+              : contacts.length === 0
+                ? 'No contacts yet — open a cross-section, then Seed from stratigraphy on the geology axis or pick contacts manually before Build'
+                : rebuilding
+                  ? 'Building 3D model…'
+                  : staleSurfaceCount > 0
+                    ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
+                    : 'Rebuild TIN surfaces from current contacts'
+          }
+        />
+      ),
+    },
+
+    /* Dedupe contacts — maintenance verb */
+    {
+      id: 'geology-dedupe',
+      priority: 'low',
+      kind: 'button',
+      label: deduping ? 'Cleaning…' : 'Dedupe',
+      overflowItems: [
+        {
+          label: 'Dedupe contacts…',
+          icon: <Eraser size={12} />,
+          onClick: requestDedupe,
+          disabled: !hasModel || deduping,
+        },
+      ],
+      render: p => (
+        <ToolbarButton
+          iconOnly={p === 'icon'}
+          icon={<Eraser size={13} />}
+          label={deduping ? 'Cleaning…' : 'Dedupe'}
+          onClick={requestDedupe}
+          disabled={!hasModel || deduping}
+          busy={deduping}
+          title={
+            !hasModel
+              ? 'No active stratigraphy'
+              : deduping
+                ? 'Cleaning…'
+                : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
+          }
+        />
+      ),
+    },
+
+    /* Reset view — collapses split viewport + flies camera to model bounds.
+        Calls the module-level callbacks exported by GeologyCanvas rather
+        than routing through the bus (session-ephemeral view state). */
+    {
+      id: 'geology-reset-view',
+      priority: 'low',
+      kind: 'button',
+      label: 'Reset view',
+      separatorBefore: true,
+      overflowItems: [
+        {
+          label: 'Reset 3D view',
+          icon: <RotateCcw size={12} />,
+          onClick: resetView,
+          disabled: !hasModel,
+        },
+      ],
+      render: p => (
+        <ToolbarButton
+          iconOnly={p === 'icon'}
+          icon={<RotateCcw size={13} />}
+          label="Reset view"
+          onClick={resetView}
+          disabled={!hasModel}
+          title={
+            !hasModel
+              ? 'No active stratigraphy'
+              : 'Reset to single 3D view and fly camera to model bounding box'
+          }
+        />
+      ),
+    },
+
+    /* Delete stratigraphy — irreversible; opens a confirm modal.
+        ``iconOnly: false`` per docs/ux.md — this deletes the whole model,
+        every formation, contact and surface. A bare trash icon is not an
+        acceptable presentation for that. */
+    {
+      id: 'geology-delete-stratigraphy',
+      priority: 'medium',
+      kind: 'button',
+      label: deletingModel ? 'Deleting…' : 'Delete stratigraphy',
+      iconOnly: false,
+      overflowItems: [
+        {
+          label: 'Delete stratigraphy…',
+          icon: <Trash2 size={12} />,
+          onClick: requestDeleteModel,
+          disabled: !hasModel || deletingModel,
+        },
+      ],
+      render: () => (
+        <ToolbarButton
+          icon={<Trash2 size={13} />}
+          label={deletingModel ? 'Deleting…' : 'Delete stratigraphy'}
+          onClick={requestDeleteModel}
+          disabled={!hasModel || deletingModel}
+          busy={deletingModel}
+          danger
+          title={
+            !hasModel
+              ? 'No active stratigraphy'
+              : 'Permanently delete the active geological model and all its formations, contacts, and surfaces'
+          }
+        />
+      ),
+    },
+  ]
+
   return (
-    <div className="flex items-center gap-1">
-      {/* Fill from boreholes — primary accent entry action. Opens the
-          curated FormationSelectionDialog after a read-only discovery scan.
-          Matches the §10 design: does NOT call auto-populate directly. */}
-      <PrimaryToolbarButton
-        icon={<Sparkles size={13} />}
-        label={
-          discovering
-            ? 'Scanning…'
-            : applying
-              ? 'Applying…'
-              : 'Fill from boreholes'
-        }
-        onClick={() => void handleFillFromBoreholes()}
-        disabled={!canFill}
-        busy={discovering || applying}
-        testid="geology-fill-from-boreholes-button"
-        title={
-          visibleBoreholes.length === 0
-            ? 'No boreholes visible in this project'
-            : discovering
-              ? 'Scanning borehole stratigraphy…'
-              : applying
-                ? 'Applying selection…'
-                : 'Discover formation names from borehole stratigraphy and select which to keep'
-        }
-      />
-
-      {/* Separator */}
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-
-      {/* Build 3D model — amber badge when surfaces are stale.
-          Debt #94: gate on contact presence too. With zero contacts the
-          Delaunay pass has nothing to triangulate; clicking is a no-op
-          that confuses dogfeed users. Tooltip points to the cross-
-          section view as the place to place contacts. */}
-      <ToolbarButton
-        icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
-        label={rebuilding ? 'Building…' : staleLabel}
-        onClick={() => void handleBuild()}
-        disabled={rebuilding || !hasModel || contacts.length === 0}
-        amber={staleSurfaceCount > 0 && !rebuilding && contacts.length > 0}
-        testid="geology-build-model-button"
-        title={
-          !hasModel
-            ? 'No active stratigraphy — create formations and contacts first'
-            : contacts.length === 0
-              ? 'No contacts yet — open a cross-section, then Seed from stratigraphy on the geology axis or pick contacts manually before Build'
-              : rebuilding
-                ? 'Building 3D model…'
-                : staleSurfaceCount > 0
-                  ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-                  : 'Rebuild TIN surfaces from current contacts'
-        }
-      />
-
-      {/* Dedupe contacts — maintenance verb */}
-      <ToolbarButton
-        icon={<Eraser size={13} />}
-        label={deduping ? 'Cleaning…' : 'Dedupe'}
-        onClick={requestDedupe}
-        disabled={!hasModel || deduping}
-        busy={deduping}
-        title={
-          !hasModel
-            ? 'No active stratigraphy'
-            : deduping
-              ? 'Cleaning…'
-              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
-        }
-      />
-
-      {/* Separator */}
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-
-      {/* Reset view — collapses split viewport + flies camera to model bounds.
-          Calls the module-level callbacks exported by GeologyCanvas rather
-          than routing through the bus (session-ephemeral view state). */}
-      <ToolbarButton
-        icon={<RotateCcw size={13} />}
-        label="Reset view"
-        onClick={() => {
-          resetSplitViewportCallback.current?.()
-          resetCameraCallback.current?.()
-        }}
-        disabled={!hasModel}
-        title={
-          !hasModel
-            ? 'No active stratigraphy'
-            : 'Reset to single 3D view and fly camera to model bounding box'
-        }
-      />
-
-      {/* Delete stratigraphy — irreversible; opens a confirm modal */}
-      <ToolbarButton
-        icon={<Trash2 size={13} />}
-        label={deletingModel ? 'Deleting…' : 'Delete stratigraphy'}
-        onClick={() => {
-          if (!hasModel || deletingModel) return
-          setDeleteModelConfirmOpen(true)
-        }}
-        disabled={!hasModel || deletingModel}
-        busy={deletingModel}
-        danger
-        title={
-          !hasModel
-            ? 'No active stratigraphy'
-            : 'Permanently delete the active geological model and all its formations, contacts, and surfaces'
-        }
-      />
+    <>
+      <ResponsiveToolbarRow items={toolbarItems} overflowMenuLabel="More geology actions" />
 
       {/* Dedupe confirmation — the gate the maintenance verb never had. */}
       <DedupeContactsConfirmDialog
@@ -610,6 +708,6 @@ export default function GeologyToolbar(): JSX.Element {
 
       {/* Plaxis 3D export is NOT here — stays in SectionsToolbar until
           the Export stage ships. See docs/geology-stage-architecture.md §3.3. */}
-    </div>
+    </>
   )
 }
