@@ -61,8 +61,13 @@ from groundmodel.infrastructure.exporters.plaxis_script_helpers import (
     emit_header,
     emit_imports_and_connect,
     emit_materials,
+    plaxis_mapping_rows,
 )
 from groundmodel.infrastructure.exporters.project_exporter import ProjectExporter
+from groundmodel.infrastructure.exporters.unit_identifier import format_mapping_table
+from groundmodel.infrastructure.exporters.unit_identifier_constants import (
+    MAPPING_TABLE_PLAXIS_MATERIAL_HEADING,
+)
 
 
 class PlaxisExporter(ProjectExporter):
@@ -203,6 +208,12 @@ class PlaxisExporter(ProjectExporter):
                 "  release, see https://github.com/cemsbv/plxscripting for",
                 "  the current property names + adjust the lines below.",
             ],
+            # debt #104 — the unit identifiers a downstream tool maps onto
+            # material definitions. Rows follow the emitted material order.
+            format_mapping_table(
+                plaxis_mapping_rows(formations),
+                label_heading=MAPPING_TABLE_PLAXIS_MATERIAL_HEADING,
+            ),
         )
 
     def _emit_boreholes(
