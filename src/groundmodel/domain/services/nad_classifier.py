@@ -16,7 +16,11 @@ from groundmodel.domain.services.nad_classification_constants import (
     Variant,
 )
 from groundmodel.domain.value_objects.admixture import Admixture
-from groundmodel.shared.constants.litho_constants import BaseLithology
+from groundmodel.shared.constants.litho_constants import (
+    BASE_LITHOLOGIES,
+    NAD_CLASSES,
+    BaseLithology,
+)
 
 
 def _variant_for(soil: BaseLithology, admixtures: tuple[Admixture, ...]) -> Variant:
@@ -150,6 +154,101 @@ def loosest_class_for(
     if bands is None:
         return None
     return bands[0][1]
+
+
+def soil_family_of(nad_class: int | None) -> BaseLithology | None:
+    """The soil family a NAD packing class belongs to.
+
+    The inverse of :func:`hand_settable_classes_for`, read off the norm table
+    itself (``NAD_CLASSES``) rather than a second range map, so the two can
+    never drift.
+
+    Parameters
+    ----------
+    nad_class : int | None
+        A NAD packing class, or ``None`` for an unclassified band.
+
+    Returns
+    -------
+    BaseLithology | None
+        ``"GRIND"`` / ``"ZAND"`` / ``"SILT"`` / ``"KLEI"`` / ``"VEEN"``, or
+        ``None`` for ``None`` and for any number the norm never printed.
+    """
+    if nad_class is None:
+        return None
+    entry = NAD_CLASSES.get(nad_class)
+    return None if entry is None else entry[1]
+
+
+def class_belongs_to_soil(nad_class: int | None, soil: BaseLithology | str | None) -> bool:
+    """Whether a NAD class may sit on a band of this soil.
+
+    Owner ruling 2026-08-26: *"no a zand body can never carry a silt packing
+    class"* — and, the same day, *"the nad coupling is absolute."* A packing
+    class is a statement about a soil column, so it is meaningless on any
+    other soil.
+
+    Two cases are deliberately NOT violations, because in neither is there a
+    foreign family to convict:
+
+    * ``nad_class is None`` — the band is not yet classified. That is the
+      honest state this module falls back TO, so it can never be refused.
+    * ``soil`` is absent or outside the five base lithologies — the norm table
+      gives such a unit no NAD column at all, so nothing about it says the
+      class is foreign. Those units are already denied a machine class
+      upstream; refusing here would additionally wipe a class an engineer set
+      by hand.
+
+    Parameters
+    ----------
+    nad_class : int | None
+        The class being placed on the band.
+    soil : BaseLithology | str | None
+        Main soil of the band's parent litho unit.
+
+    Returns
+    -------
+    bool
+        ``False`` only when both families are known and they differ.
+    """
+    class_soil = soil_family_of(nad_class)
+    if class_soil is None:
+        return True
+    # The soil reaches this predicate as a raw token from a formation row on
+    # some paths and as the segmenter's enum on others; ``.value`` is the one
+    # that compares against the norm table's keys.
+    soil_value = getattr(soil, "value", soil)
+    if soil_value not in BASE_LITHOLOGIES:
+        return True
+    return class_soil == soil_value
+
+
+def clamp_class_to_soil(nad_class: int | None, soil: BaseLithology | str | None) -> int | None:
+    """The class if it belongs to *soil*, otherwise no class at all.
+
+    The enforcement of this module's opening sentence — lithology is hard
+    truth. A class from the wrong soil column is not downgraded, rank-mapped,
+    or nudged into the right family: it is DROPPED, and the band comes back
+    unclassified. "SILT, moderately firm" is evidence about a silt somewhere
+    else; it is not evidence that a sand is medium dense, and manufacturing a
+    same-rank sand class out of it would dress a guess as a reading (the
+    no-guessing rule; Data Integrity Rule 3).
+
+    Parameters
+    ----------
+    nad_class : int | None
+        The candidate class.
+    soil : BaseLithology | str | None
+        Main soil of the band's parent litho unit.
+
+    Returns
+    -------
+    int | None
+        ``nad_class`` unchanged when it belongs to the soil (or when the
+        coupling cannot be judged — see :func:`class_belongs_to_soil`);
+        ``None`` when it belongs to a different soil family.
+    """
+    return nad_class if class_belongs_to_soil(nad_class, soil) else None
 
 
 def hand_settable_classes_for(soil: BaseLithology | str) -> tuple[int, ...]:
