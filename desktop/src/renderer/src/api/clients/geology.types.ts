@@ -1069,6 +1069,48 @@ export interface GeotechTieStatusResponse {
   pending_by_section?: Record<string, number>
 }
 
+/** One column whose litho stack moved after its packing bands were made. */
+export interface StaleGeotechColumn {
+  /** The CPT or borehole the stale bands sit on. */
+  investigation_id: string
+  /** Its display name — what the chip and the toast call the column. */
+  label: string
+}
+
+/**
+ * Response of ``GET .../geotech/litho-staleness`` — debt #266.
+ *
+ * Packing bands are derived from the litho stack under them, and nothing used
+ * to link the two: drag a litho contact and the geotech axis kept drawing the
+ * old bands as though they were current, right through to a client-facing
+ * export. This answers "which columns is that true of right now".
+ *
+ * Derived server-side on every read (the digest the last press stamped vs the
+ * litho as it stands), so it clears itself when the named columns are
+ * re-pressed. There is nothing to acknowledge and nothing to reset.
+ */
+export interface GeotechLithoStalenessResponse {
+  /** The geotechnical model the answer describes. */
+  geotech_model_id: string
+  /** Its parent litho model — what the comparison is against. */
+  litho_model_id?: string | null
+  /** The columns to re-press, sorted by label. */
+  stale_columns: StaleGeotechColumn[]
+  /** ``stale_columns.length``, so the chip need not read the list. */
+  stale_column_count: number
+  /** Columns carrying at least one band. */
+  banded_column_count: number
+  /**
+   * Banded columns with no record of what they were built from.
+   *
+   * NOT stale — unknown provenance is not evidence the ground moved, and
+   * calling it stale would flag every pre-#266 project on first open. Carried
+   * separately because an export guard has to tell "verified current" from
+   * "cannot say".
+   */
+  unstamped_column_count: number
+}
+
 /**
  * Response of ``POST .../geotech/divide-boreholes``.
  *
