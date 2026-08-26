@@ -20,15 +20,22 @@ import { createBooleanStore } from './createBooleanStore'
 // the import pair is intentionally circular; function refs only, used at click
 // time, safe under ESM/Vite.
 import { setGeotechFill } from './geotechFillStore'
+// The built 3-D geotech model is the third fill this axis can paint, and the
+// one-fill-at-a-time rule covers it too (2026-08-26).
+import { setGeotechModelFill } from './geotechModelFillStore'
 
 const store = createBooleanStore(false)
 
 /** Flip the geotech axis "Show litho fill" toggle and notify subscribers.
- *  ON-transition auto-hides the packing fill (mutual exclusion); the
- *  OFF-transition never resurrects it — no fill is a legitimate state. */
+ *  ON-transition auto-hides the packing fill and the built-model fill (mutual
+ *  exclusion); the OFF-transition never resurrects them — no fill is a
+ *  legitimate state. */
 export function toggleLithoFillOnGeotech(): void {
   store.toggle()
-  if (store.get()) setGeotechFill(false)
+  if (store.get()) {
+    setGeotechFill(false)
+    setGeotechModelFill(false)
+  }
 }
 
 /** Set the toggle directly (no exclusion side effect). */
