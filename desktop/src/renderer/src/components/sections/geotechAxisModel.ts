@@ -37,4 +37,15 @@ export interface GeotechAxisModel {
    * model does not cover would otherwise have no colour to fall back to.
    */
   lithoFormationColorById: ReadonlyMap<string, string>
+  /**
+   * Investigation ids whose packing bands are out of date (debt #266).
+   *
+   * The union of the geometric fit check and the server's litho-provenance
+   * compare — see ``utils/staleGeotechColumns``. The axis draws an amber mark
+   * on each so the engineer can see, on the drawing itself, which columns'
+   * bands describe a lithology stack that has since been edited. Without it
+   * the axis renders stale packing exactly like current packing, which is the
+   * failure #266 records.
+   */
+  staleColumnIds: ReadonlySet<string>
 }
