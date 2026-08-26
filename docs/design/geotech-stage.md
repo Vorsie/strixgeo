@@ -316,26 +316,45 @@ closure-mutable id re-anchors them (the litho delete-undo pattern).
 Owner rulings driving the shape are recorded in full in `docs/debt.md` #227.
 The ones that constrain the code:
 
-* **Hard bounds (ruling 2).** A packing boundary moves freely inside its litho
-  body and clamps at the edge; it never moves a litho contact and never crosses
-  a geological one. A litho body here is already geo-bounded, so "inside one
-  litho body" enforces both walls in one test
-  (`components/sections/geotechBandEdit.ts` — `clampSplitDepth`,
-  `clampDragDepth`, `canMergeBands`). This is the ONE refusal that is correct
-  rather than a defect. **The server's geo wall reads the LIVE contacts, not
-  the bands' build-time stamps** (dogfeed 2026-08-12, GEO-23/125-S6): the
-  engineer moved a geological contact on its own axis and the stamp-reading
-  wall kept refusing his merges forever, with a message that steered him
-  toward a re-subdivide — which deletes every hand edit it rebuilds. Now
-  `load_geotech_column_context` carries the live contacts, the planners refuse
-  only a contact strictly inside the span (GW1–GW4, GL1/GL2), and every
-  band-edit writer takes the written interval's geological parent from the
-  live model (`geo_parent_for_interval`), so a hand edit heals a stale stamp
-  on touch. Residual, deliberate: bands NOT touched after a geology-axis
-  contact move keep their stale stamps (and their `enclosing_litho_bounds`
-  clamp runs split at the old position) until an edit or a re-subdivide
-  touches them — the reverse coupling (a geo-axis move carrying a coinciding
-  band boundary) is undesigned.
+* **Hard bounds (ruling 2, amended 2026-08-26).** A packing boundary moves
+  freely inside its litho body and clamps at the edge; it never moves or
+  crosses a litho contact. **The litho unit is the only wall.** One test
+  enforces it, on both sides of the wire:
+  `components/sections/geotechBandEdit.ts` (`clampSplitDepth`,
+  `clampDragDepth`, `canMergeBands`) and `enclosing_litho_bounds` /
+  `_assert_same_litho_body` in `geotech_band_reclassification.py`, which now
+  agree — the server used to clamp tighter.
+
+  **A geological contact is NOT a wall.** Owner, 2026-08-26: *"just drop the
+  wall everywhere, user wil have to manually do it"*. The machine never cuts a
+  packing band at a geological line and the editor never refuses one. Five
+  clays in his project were cut by the wall; GEO-05/040-S3's clay 0.05–1.48 m
+  was cut at 0.57 m into NAD 21 over NAD 21 — twin halves of one band, a pure
+  artefact. The Tertiary case he DOES want divided (GEO-10/171-B9, the
+  Kortrijk top at 18.00 m) is a hand split, and the split tool already exists.
+  The geological overlay lines keep rendering on the axis: they are display,
+  not structure.
+
+  **What the geological model does instead: it LABELS.** Each band carries
+  `source_geo_formation_id` as a derived attribution, following the A2
+  precedent (`docs/domain-model.md`) — thickness-weighted majority, which for
+  one interval is the unit containing its MIDPOINT. One rule, two writers:
+  `GeotechBoreholeMaterialiser._geo_formation_at_midpoint` for the build and
+  `geo_parent_for_interval` for every hand edit, so a re-subdivide cannot
+  relabel a band the engineer just touched. A band that straddles a contact —
+  now possible, and before this date structurally impossible — takes the unit
+  it mostly lies in. `None` means the open shallow band above the first
+  contact. Nothing is refused when the answer is ambiguous; the label is
+  informational.
+
+  The stamp is still read live-first (dogfeed 2026-08-12, GEO-23/125-S6), so a
+  hand edit heals a stale stamp on touch rather than copying it forward.
+  Residual, deliberate: bands NOT touched after a geology-axis contact move
+  keep their stale stamps until an edit or a re-subdivide touches them. That
+  now costs nothing but a label — it used to also move the clamp. Known
+  asymmetry: `move_restated_contact` stamps from the build-time context rather
+  than through `geo_parent_for_interval`, so the contact-drag verb does not
+  heal the label the way the other four writers do.
 * **The class is derived (ruling 3), locally (ruling 4).** The server re-derives
   each resulting interval from qc and re-scopes nothing beyond the edited
   column (GB9 pins it at the database).
