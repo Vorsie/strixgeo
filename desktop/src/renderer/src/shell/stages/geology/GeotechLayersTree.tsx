@@ -15,8 +15,13 @@
 //
 // Same tree serves Solid and Fence mode. In Fence mode the walls are keyed by
 // formation, so the family/class eyes bite and the per-body eye does not (the
-// solids are not rendered at all there) — the body rows stay listed so the
-// tree does not change shape under the user when they flip the view mode.
+// solids are not rendered at all there) — the body rows stay listed there
+// rather than vanishing mid-flip.
+//
+// WHICH rows exist is the builder's call, not this module's, and it differs per
+// mode: only what the scene paints gets a row (owner ruling 2026-08-26 — "why
+// are there suboptions like this ... not yet classified?"). So the row SET does
+// change with the view mode, deliberately. See ``geotechLegendTree``.
 
 import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
