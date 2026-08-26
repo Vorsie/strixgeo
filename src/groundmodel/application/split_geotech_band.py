@@ -51,6 +51,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
     revalidate_layer_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import plan_split
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
@@ -213,6 +214,9 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
+        # Both halves are re-derived, so the pre-split class can end up with no
+        # bands left anywhere and its formation with nothing in it.
+        await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
         await self._session.commit()
 
         self.success(
