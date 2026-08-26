@@ -69,6 +69,19 @@ dependencies = [
     # more code for the same result.
     "matplotlib>=3.8",
     "numba>=0.65.1",
+    # Deltares GEOLib — the official Python wrapper for the whole D-Series.
+    # Writes D-Stability ``.stix`` and D-Sheet Piling ``.shi`` in-process, so
+    # no D-Series installation is needed on the build machine or in CI, and one
+    # dependency covers every future D-Series target (D-Settlement,
+    # D-Foundations). Chosen over hand-writing the formats because ``.stix`` is
+    # a zip of a dozen interlinked JSON documents with id cross-references, and
+    # ``.shi`` is D-Series fixed-column ASCII — both are exactly the kind of
+    # fiddly serialisation a maintained upstream should own. Floor 2.9.1: the
+    # first release that is pydantic-v2 native, so it coexists with our
+    # ``pydantic>=2.7`` without a shim. Pulls shapely / jinja2 / requests /
+    # pydantic-extra-types. Version-specific quirks are tabulated in
+    # docs/exports.md — re-verify that table on any upgrade.
+    "d-geolib>=2.9.1",
 ]
 
 [dependency-groups]
@@ -122,4 +135,13 @@ strict = true
 # strict mode flags because the decorator is untyped).
 [[tool.mypy.overrides]]
 module = ["numba.*"]
+ignore_missing_imports = true
+
+# Deltares GEOLib (``d-geolib``) is fully type-annotated internally — it is a
+# pydantic-v2 codebase — but ships no ``py.typed`` marker, so mypy refuses to
+# read those annotations. Ignore its missing imports project-wide rather than
+# per-line: the two D-Series exporters touch a dozen of its submodules each,
+# and a suppression on every import line would bury the real errors.
+[[tool.mypy.overrides]]
+module = ["geolib.*"]
 ignore_missing_imports = true
