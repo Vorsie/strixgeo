@@ -1,39 +1,40 @@
-"""Geology-bounding transforms on the litho-3D pick list.
+"""The shallow-test flag applied to the litho-3D pick list.
 
-Two pure transforms applied to the ``BodyLayerPick`` list by the
-geotech-model builders (``SubdivideAllBodies``, ``DivideBoreholes``)
-before their per-band work:
+ONE pure transform, applied to the ``BodyLayerPick`` list by the geotech-model
+builders (``SubdivideAllBodies``, ``DivideBoreholes``) before their per-band
+work:
 
-1. :func:`mark_and_truncate_shallow_tests` — FLAG any test whose deepest point
-   sits above the lowest geological boundary (it cannot floor the model). The
-   test's litho is KEPT in full; the flag is informational. (Owner directive
-   2026-06-25: the deepest geological unit a test reaches owns everything down to
-   TD, so deep litho is never truncated/dropped — only flagged. The function name
-   is retained for call-site stability.)
-2. ``divide_picks_by_geology`` (added in a later task) — give every column a
-   litho contact at each geological boundary (snap geology→litho within
-   tolerance, else divide a straddling layer), re-keying split bodies per
-   geological unit so a body never crosses a boundary.
+:func:`mark_and_truncate_shallow_tests` — FLAG any test whose deepest point sits
+above the lowest geological boundary (it cannot floor the model). The test's
+litho is KEPT in full; the flag is informational. (Owner directive 2026-06-25:
+the deepest geological unit a test reaches owns everything down to TD, so deep
+litho is never truncated/dropped — only flagged. The function name is retained
+for call-site stability.)
 
-Both are pure (no I/O); the caller supplies geology-surface samplers built over
-the parent geological model's ``FormationSurfaceOrm`` TINs. The geological
-model itself is never modified (build-only).
+**There is no second transform.** Until 2026-08-26 this module also carried
+``divide_picks_by_geology``, which gave every column a litho contact at each
+geological boundary and re-keyed the split bodies per geological unit — the
+geological "wall". The owner deleted it: *"just drop the wall everywhere, user
+wil have to manually do it"*. A geological surface no longer divides anything;
+it only LABELS, and the label is applied where the geotech builders group their
+segments (``GeotechBoreholeMaterialiser._geo_formation_at_midpoint``). Where the
+engineer wants a division at a geological line he makes it by hand with the
+split tool.
+
+The transform is pure (no I/O); the caller supplies a geology-surface sampler
+built over the parent geological model's ``FormationSurfaceOrm`` TINs. The
+geological model itself is never modified (build-only).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
-from uuid import NAMESPACE_OID, uuid5
+from dataclasses import dataclass
 
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 
 #: Elevations within this margin are treated as coincident (numeric guard).
 _EPS = 1e-6
-
-#: ``(x, y) -> [(formation_id, elevation), ...]`` for every finite geological
-#: surface at that location, sorted by elevation DESCENDING (top surface first).
-BoundarySampler = Callable[[float, float], list[tuple[str, float]]]
 
 
 def _elev(pick: BodyLayerPick, depth_m: float) -> float:
@@ -54,28 +55,6 @@ def _elev(pick: BodyLayerPick, depth_m: float) -> float:
     return pick.surface_elev_m - depth_m
 
 
-def _derived_body_id(parent_body_id: str, band_key: str) -> str:
-    """Deterministic body id for a geology-split body half.
-
-    Stable across rebuilds (``uuid5``) so a re-Build does not churn the solid
-    cache. ``band_key`` is the formation id of the geological surface directly
-    above the segment, or ``"TOP"`` when nothing is above it.
-
-    Parameters
-    ----------
-    parent_body_id : str
-        The original (resolver-assigned) body id.
-    band_key : str
-        Stable identity of the geological unit the segment lies in.
-
-    Returns
-    -------
-    str
-        A valid UUID string.
-    """
-    return str(uuid5(NAMESPACE_OID, f"{parent_body_id}:{band_key}"))
-
-
 @dataclass(frozen=True)
 class ShallowTestResult:
     """Result of :func:`mark_and_truncate_shallow_tests`.
@@ -85,8 +64,9 @@ class ShallowTestResult:
     picks : list[BodyLayerPick]
         All input picks, unchanged — too-shallow tests are flagged (see
         ``marked_investigation_ids``) but never truncated or dropped (owner
-        directive 2026-06-25). Retained as an attribute for callers that still
-        thread the result through ``divide_picks_by_geology``.
+        directive 2026-06-25). Retained as an attribute because the callers
+        thread this list on to their grouping pass; it is grouped by
+        investigation, which is the order the builders depend on.
     marked_investigation_ids : list[str]
         Sorted ids of the tests flagged as too shallow.
     """
@@ -105,10 +85,10 @@ def mark_and_truncate_shallow_tests(
     its location is flagged in ``marked_investigation_ids`` — but ALL its litho is
     retained. Owner directive 2026-06-25: a geological boundary is a TOP, so the
     deepest geological unit a test reaches owns everything from its top down to
-    TD; the test's deep litho is geo-assigned by ``divide_picks_by_geology``
-    (which bands each segment by the lowest geo surface still above it), never
-    truncated or dropped. (The name is kept for call-site stability; truncation
-    behaviour was removed.)
+    TD; the test's deep litho is geo-LABELLED by the builders' grouping pass
+    (``_geo_formation_at_midpoint``, which names the lowest geo surface still
+    above the segment), never truncated or dropped. (The name is kept for
+    call-site stability; truncation behaviour was removed.)
 
     Parameters
     ----------
@@ -137,8 +117,8 @@ def mark_and_truncate_shallow_tests(
             # (informational), but KEEP all its litho. Owner directive 2026-06-25:
             # a geological boundary is a TOP, so the deepest geological unit a test
             # reaches owns everything from its top down to TD. The deep litho must
-            # be retained and geo-assigned by ``divide_picks_by_geology`` (which
-            # bands each segment by the lowest geo surface still above it), never
+            # be retained and geo-LABELLED by the builders' grouping pass (which
+            # names the lowest geo surface still above the segment), never
             # dropped -- even when those deep picks are uncorrelated single-test
             # data. (Before 2026-06-25 this truncated a flagged test to its deepest
             # correlated contact and dropped uncorrelated picks below, which left a
@@ -146,89 +126,3 @@ def mark_and_truncate_shallow_tests(
             marked.append(inv_id)
         out.extend(ps)
     return ShallowTestResult(picks=out, marked_investigation_ids=sorted(marked))
-
-
-def divide_picks_by_geology(
-    picks: list[BodyLayerPick],
-    boundary_elevations_at: BoundarySampler,
-    snap_tolerance_m: float,
-) -> list[BodyLayerPick]:
-    """Confine every body to a single geological band.
-
-    Per column, place a litho contact at each geological boundary: SNAP (no
-    cut) when the boundary is within ``snap_tolerance_m`` of an existing
-    contact (the observed litho contact serves as the divider — geology→litho),
-    else DIVIDE (cut the straddling layer at the geological surface). A body
-    that ends up in more than one geological unit is re-keyed per unit
-    (:func:`_derived_body_id`) so it becomes two distinct band-confined bodies;
-    a body that stays within one unit keeps its original ``body_id``.
-
-    Parameters
-    ----------
-    picks : list[BodyLayerPick]
-        Body-assigned picks (already shallow-test handled).
-    boundary_elevations_at : BoundarySampler
-        ``(x, y) -> [(formation_id, elevation), ...]`` sorted top-first.
-    snap_tolerance_m : float
-        A geological boundary within this distance of an existing contact is
-        treated as coincident with it (no cut).
-
-    Returns
-    -------
-    list[BodyLayerPick]
-        Band-confined picks; split bodies carry derived ids.
-    """
-    # Sample geology once per investigation location.
-    samples_by_inv: dict[str, list[tuple[str, float]]] = {}
-    for p in picks:
-        if p.investigation_id not in samples_by_inv:
-            samples_by_inv[p.investigation_id] = boundary_elevations_at(p.x_m, p.y_m)
-
-    def _segments(p: BodyLayerPick) -> list[tuple[float, float, str]]:
-        """Split one pick into ``(seg_top_elev, seg_base_elev, band_key)`` parts."""
-        samples = samples_by_inv[p.investigation_id]
-        top_e = _elev(p, p.top_depth_m)
-        base_e = _elev(p, p.base_depth_m)
-        tol = snap_tolerance_m
-        # A boundary within ``tol`` of the pick's own top/base is a SNAP (no cut).
-        cuts = sorted(
-            (elev for _fid, elev in samples if base_e + tol < elev < top_e - tol),
-            reverse=True,
-        )
-        edges = [top_e, *cuts, base_e]
-        segs: list[tuple[float, float, str]] = []
-        for i in range(len(edges) - 1):
-            seg_top, seg_base = edges[i], edges[i + 1]
-            mid = 0.5 * (seg_top + seg_base)
-            above = [(fid, elev) for fid, elev in samples if elev > mid]
-            # band_key = the lowest geological surface still above the segment.
-            band_key = min(above, key=lambda fe: fe[1])[0] if above else "TOP"
-            segs.append((seg_top, seg_base, band_key))
-        return segs
-
-    segs_by_pick: dict[int, list[tuple[float, float, str]]] = {
-        idx: _segments(p) for idx, p in enumerate(picks)
-    }
-
-    # A body is "split" iff its segments span more than one band_key.
-    bands_by_body: dict[str, set[str]] = {}
-    for idx, p in enumerate(picks):
-        for _t, _b, band_key in segs_by_pick[idx]:
-            bands_by_body.setdefault(p.body_id, set()).add(band_key)
-    split_bodies = {bid for bid, keys in bands_by_body.items() if len(keys) > 1}
-
-    out: list[BodyLayerPick] = []
-    for idx, p in enumerate(picks):
-        for seg_top, seg_base, band_key in segs_by_pick[idx]:
-            body_id = (
-                _derived_body_id(p.body_id, band_key) if p.body_id in split_bodies else p.body_id
-            )
-            out.append(
-                replace(
-                    p,
-                    body_id=body_id,
-                    top_depth_m=p.surface_elev_m - seg_top,
-                    base_depth_m=p.surface_elev_m - seg_base,
-                )
-            )
-    return out
