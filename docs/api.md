@@ -624,6 +624,50 @@ GET    /projects/{pid}/sections/{sid}/export/pdf
                                             a ``Content-Disposition`` header.
                                             404 when section / model / project
                                             resolution fails.
+POST   /projects/{pid}/sections/{sid}/export/dstability
+                                            Stream the section as a Deltares
+                                            D-Stability ``.stix`` (v1.0 gate,
+                                            ballot 2026-08-26). **POST, not
+                                            GET**: D-Stability's geometry IS
+                                            the section's closed polygons and
+                                            the fill is computed in the
+                                            renderer, so the body carries
+                                            ``{partition: <the same
+                                            SectionPartitionInput the voxel
+                                            build POSTs>}``. Required â€” a
+                                            backend-derived approximation
+                                            would disagree with the section on
+                                            screen. Same ``model_id`` query
+                                            param + 404 / 400-CRS contract as
+                                            the DXF export. One layer per
+                                            drawn region, one soil per unit
+                                            named by its export identifier
+                                            (``NAD-06_ZAND``); **no design
+                                            parameter and no phreatic line are
+                                            written**. 422 ``code =
+                                            "dstability_export_refused"`` when
+                                            the section has no closed geometry
+                                            â€” an empty ``.stix`` is a
+                                            plausible, correctly-named,
+                                            completely wrong deliverable.
+POST   /projects/{pid}/sections/{sid}/export/dsheetpiling
+                                            Stream a 1-D soil profile through
+                                            the section as a Deltares D-Sheet
+                                            Piling ``.shi``. Same body and
+                                            guards as the D-Stability export,
+                                            plus ``fraction`` (0.0 = section
+                                            start, 1.0 = end, default 0.5)
+                                            naming where along the line to
+                                            sample. Layers named by unit
+                                            identifier; the ground surface is
+                                            exported, and everything Strix
+                                            cannot derive (the wall, real
+                                            water levels, surcharges) is an
+                                            explicit TODO in the file's
+                                            ``[RUN IDENTIFICATION]`` block.
+                                            422 ``code =
+                                            "dsheetpiling_export_refused"``
+                                            when nothing is drawn there.
 
 GET    /dem/sample               Sample ``n_samples`` evenly-spaced DEM
                                  elevations along a line. Query params:
