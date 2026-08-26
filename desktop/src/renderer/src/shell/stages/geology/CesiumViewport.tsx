@@ -52,6 +52,12 @@ export interface CesiumViewportProps {
   groundSurface?: GroundSurfaceBuildResponse | null
   /** Formation ids toggled off in the 3D legend — their TIN is not drawn. */
   hiddenFormationIds?: ReadonlySet<string>
+  /**
+   * Body ids toggled off in the 3D legend's per-body level — their solid is not
+   * drawn.  Separate from ``hiddenFormationIds`` because only the solid render
+   * carries body identity: fence walls are keyed by formation.
+   */
+  hiddenBodyIds?: ReadonlySet<string>
   /** When false, no basemap imagery is added (the 3D "Basemap" toggle). */
   basemapEnabled?: boolean
   /** When false, the DEM ground-surface TIN is not drawn (the "Ground surface" toggle). */
@@ -123,6 +129,7 @@ export function CesiumViewport({
   onSceneClick,
   groundSurface,
   hiddenFormationIds,
+  hiddenBodyIds,
   basemapEnabled = true,
   groundSurfaceVisible = true,
   surfacesVisible = true,
@@ -258,6 +265,7 @@ export function CesiumViewport({
       bodySolids,
       bodySolidsWireframe,
       investigationXY,
+      hiddenBodyIds,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -331,6 +339,10 @@ export function CesiumViewport({
     projectEpsg,
     groundSurface,
     hiddenFormationIds,
+    // Per-body legend toggles: rebuild so a hidden body's solid disappears.
+    // Deliberately NOT part of the camera fitKey below — hiding a body must
+    // not re-fly the camera.
+    hiddenBodyIds,
     basemapEnabled,
     clippingPlane,
     invertClip,
