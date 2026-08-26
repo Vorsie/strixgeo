@@ -284,13 +284,22 @@ Target for the re-frozen baseline: **≤ 1 % model-wide**, from 44.13 %.
   already decides collisions. Unchanged. At an honored column the packing comes
   from the investigation's OWN geotech bands, not from interpolation — which is
   exactly what the render draws at a column.
-* **Geological bounding** — the litho voxel build is deliberately
+* **Geological bounding — GONE, both levels.** The litho voxel build has been
   geology-independent since 2026-07-30 (`build_voxel_litho_model.py:640-670`,
-  owner ruling: A2 geo-decoupling in 3-D). The geotech stage's own geo-bounding
-  stays where it is, in `SubdivideAllBodies` Phase 3 via `litho_geo_bounding.py`
-  — i.e. the geotech bands are already geo-bound before the build ever sees them.
-  Nothing to add. (This is also why "a packing boundary never crosses a
-  geological one" — ruling 2 of §4 — is already true of the evidence.)
+  owner ruling: A2 geo-decoupling in 3-D), and the geotech stage's own
+  geo-bounding was deleted on 2026-08-26 (owner: *"just drop the wall
+  everywhere, user wil have to manually do it"*). `SubdivideAllBodies` Phase 3
+  no longer cuts anything; `divide_picks_by_geology` is deleted.
+
+  ⚠ **A geotech 3-D build must NOT assume geo-bound bands.** A packing band may
+  now span a geological contact, so "a packing boundary never crosses a
+  geological one" is no longer true of the evidence and cannot be relied on as
+  a precondition. `source_geo_formation_id` survives as a derived LABEL
+  (thickness-weighted majority over the band, i.e. its midpoint's unit) — it
+  answers "which geological unit is this band mostly in", never "where does
+  this band stop". Any geological bounding the geotech build wants is its own
+  to apply, explicitly, and is an open design question rather than something
+  inherited.
 * **Cross-section body merge, true-position re-seat, greedy meshing, watertight
   extraction, the checksum short-circuit, `litho_build_generation`** — all
   operate on the litho regions and are untouched. `plan_body_aliases` merges the
