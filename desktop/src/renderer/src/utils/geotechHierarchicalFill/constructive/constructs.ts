@@ -576,17 +576,41 @@ export function buildGapConstructs(
         // So the free contact returns the LINE's own value once it has arrived,
         // and this same number is what the fill draws its flank onto.
         const apexElev = tieElevAt(tie, apexX)
-        // The free contact closes ONTO THE LINE ITSELF, not onto the line's
-        // height at the middle: interpolating to a fixed apex let a steeply
-        // dipping tie cross its own wedge and shut the onlap at a fifth of the
-        // gap. Here the two contacts can only meet where t = 1 — the
-        // termination — so the loop always pinches on its tie, and always at
-        // about the middle.
+        // THE FREE CONTACT CONVERGES ON THE APEX — one FIXED vertex, not the
+        // tie's moving height. Owner dogfeed 2026-08-26, *"still not
+        // onlapping"*, on Tie-section 12: S6's 0.41 m loose sand emitted its
+        // onlap and painted nothing, the medium sand beside it taking the whole
+        // wedge.
+        //
+        // Chasing the line — ``free + t·(tie(x) − free)`` — is quadratic in t,
+        // and it opens a gap of
+        //
+        //     top − base = (1 − t)·(h + Δ·t)
+        //
+        // for a band of thickness ``h`` whose tie falls by ``Δ`` from its own
+        // column to the termination. A PLUNGING tie has Δ < 0, so as soon as it
+        // drops further over that half-gap than the band is thick the wedge
+        // turns inside out at t = h/|Δ| and stays that way. S6's numbers are
+        // h = 0.41 and Δ = −2.51: the band could claim the first 16 % of its own
+        // half-gap and nothing at all of the other 84 %, because ``claims`` ends
+        // in ``top > base``. It is the standing ruling of 2026-08-22 —
+        // *"where a band's own construct speaks, it speaks completely"* — broken
+        // by arithmetic rather than by a rule.
+        //
+        // Converging on ``apexElev`` gives ``top − base = h·(1 − t)``: a clean
+        // taper to zero for ANY plunge, which is also the straight flank the
+        // fill has always DRAWN for this construct (see ``fillGap``'s onlap
+        // flank pass). Line and claim now state one shape instead of two.
+        //
+        // ``arrived >= 1`` returns the shared vertex itself: the wedge has
+        // closed there and ``free + 1·(apexElev − free)`` rounds a ULP off it
+        // about once in ten pairs, which is a hair-wide loop for the
+        // arrangement to find (owner's verification contract — see ``apexElev``).
         const closingFrom =
           (free: number) =>
           (x: number): number => {
             const arrived = t(x)
-            return arrived >= 1 ? tieElevAt(tie, x) : free + arrived * (tieElevAt(tie, x) - free)
+            return arrived >= 1 ? apexElev : free + arrived * (apexElev - free)
           }
         out.push({
           band,
