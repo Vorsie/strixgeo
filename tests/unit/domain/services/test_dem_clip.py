@@ -13,6 +13,8 @@ import pytest
 from groundmodel.domain.services.dem_clip import (
     KIND_CONTACT_ABOVE_DEM,
     KIND_DEM_CELL_LOW_CONFIDENCE,
+    GroundPoint,
+    assess_ground_coverage,
     build_ground_surface_tin,
     clip_tin_to_dem,
 )
@@ -180,3 +182,111 @@ def test_build_ground_surface_tin_vertex_positions_cover_hull(  # noqa: N802
     assert max(xs) >= 20.0 + 5.0 - 1e-6
     assert min(ys) <= 10.0 - 5.0 + 1e-6
     assert max(ys) >= 20.0 + 5.0 - 1e-6
+
+
+# ---------------------------------------------------------------------------
+# G7 — the ground surface is a REFERENCE the user reads a distance against.
+#
+# Two behavioural rules, in the owner's terms:
+#   * The ground must keep going past the outermost test, so it reads as
+#     ground rather than as a slab that stops at the last borehole.
+#   * The ground drawn directly above a test must be the DEM at THAT test,
+#     because that is where the user reads the daylight between the terrain
+#     and the interpreted model top.
+# ---------------------------------------------------------------------------
+
+
+def test_ground_extends_past_the_outermost_test_by_the_requested_margin() -> None:
+    """The terrain keeps going past the last investigation, by the margin asked for."""
+    hull = [(100.0, 100.0), (140.0, 100.0), (100.0, 140.0), (140.0, 140.0)]
+    tin = build_ground_surface_tin(
+        _constant_dem(3.0),
+        hull,
+        grid_spacing_m=10.0,
+        margin_m=50.0,
+    )
+    xs = [v[0] for v in tin.vertices]
+    ys = [v[1] for v in tin.vertices]
+    # 50 m of ground beyond the outermost test on every side.
+    assert min(xs) <= 100.0 - 50.0 + 1e-6
+    assert max(xs) >= 140.0 + 50.0 - 1e-6
+    assert min(ys) <= 100.0 - 50.0 + 1e-6
+    assert max(ys) >= 140.0 + 50.0 - 1e-6
+
+
+def test_the_ground_above_a_test_is_the_dem_at_that_test_not_a_grid_neighbour() -> None:
+    """A test standing in a dip gets the dip's elevation, not the surrounding flat.
+
+    The sample grid is coarse (10 m) and the test sits off-node at
+    (105, 103), so no grid node lands in the 1.5 m dip. Without an anchor
+    vertex at the test itself the rendered ground above the column is the
+    surrounding 12.0 m plane and the daylight the user reads is wrong by
+    the depth of the dip.
+    """
+
+    def dem_with_a_dip(x: float, y: float) -> float | None:
+        in_dip = abs(x - 105.0) <= 1.5 and abs(y - 103.0) <= 1.5
+        return 11.0 if in_dip else 12.0
+
+    hull = [(105.0, 103.0), (140.0, 100.0), (100.0, 140.0)]
+    tin = build_ground_surface_tin(
+        dem_with_a_dip,
+        hull,
+        grid_spacing_m=10.0,
+        margin_m=10.0,
+    )
+
+    at_the_test = [v for v in tin.vertices if v[0] == 105.0 and v[1] == 103.0]
+    assert at_the_test, "the ground surface carries no vertex above the test"
+    assert at_the_test[0][2] == pytest.approx(11.0)
+
+
+def test_a_test_on_a_nodata_cell_contributes_no_ground_vertex() -> None:
+    """An anchor the DEM cannot answer for is dropped, not invented."""
+
+    def dem_hole_at_the_test(x: float, y: float) -> float | None:
+        return None if (x == 105.0 and y == 103.0) else 12.0
+
+    hull = [(105.0, 103.0), (140.0, 100.0), (100.0, 140.0)]
+    tin = build_ground_surface_tin(
+        dem_hole_at_the_test,
+        hull,
+        grid_spacing_m=10.0,
+        margin_m=10.0,
+    )
+    assert not [v for v in tin.vertices if v[0] == 105.0 and v[1] == 103.0]
+
+
+# ---------------------------------------------------------------------------
+# assess_ground_coverage — say which tests the DEM could not answer for
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_is_clean_when_the_dem_answers_for_every_test() -> None:
+    """Full coverage reports nothing — an empty list means "no findings"."""
+    points = [GroundPoint("B1", 0.0, 0.0), GroundPoint("B2", 10.0, 10.0)]
+    assert assess_ground_coverage(_constant_dem(4.0), points) == []
+
+
+def test_coverage_names_the_test_the_dem_has_no_ground_for() -> None:
+    """A NoData cell under a test is reported, and the issue names the test.
+
+    This is the water-body / outside-coverage case (debt #27): the TIN will
+    interpolate straight across the hole, so the surface LOOKS complete. The
+    issue is the only thing that says it is not.
+    """
+
+    def dem_hole_under_b2(x: float, y: float) -> float | None:
+        return None if x == 10.0 else 4.0
+
+    points = [GroundPoint("B1", 0.0, 0.0), GroundPoint("B2", 10.0, 10.0)]
+    issues = assess_ground_coverage(dem_hole_under_b2, points)
+
+    assert len(issues) == 1
+    assert issues[0].kind == KIND_DEM_CELL_LOW_CONFIDENCE
+    assert "B2" in issues[0].detail
+
+
+def test_coverage_of_no_tests_is_clean() -> None:
+    """No investigations to check is not a finding."""
+    assert assess_ground_coverage(_constant_dem(None), []) == []
