@@ -55,6 +55,7 @@ from groundmodel.application.litho_geo_link_helpers import (
     load_geo_contacts_at_investigation,
     nearest_geo_contact_within_tolerance,
 )
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import (
     KIND_MERGE,
@@ -428,6 +429,9 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await self._litho_repo.mark_litho_solids_stale(litho_upper.model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
+        # The packing bands were re-derived either side of the moved contact,
+        # so a class that no longer appears leaves its formation with nothing.
+        await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
         await self._session.commit()
 
         self.success(
