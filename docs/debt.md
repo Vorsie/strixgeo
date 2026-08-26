@@ -5871,11 +5871,28 @@ means, and several of them are not guessable from the litho side.
    *"the geotech stage is literally the same as the litho stage but then each litho body is
    subdivided by packing"*, and *"the 3d takes the partition and builds the model"*. Read
    that as the target for every axis below.
-2. **Both levels above are HARD BOUNDS.** A packing boundary moves freely inside its litho
-   body and clamps at the edge. It can never move a litho contact and never cross a
-   geological one — *"litho should be a hard bound … geology too, because it is both
-   combined"*. The hierarchy constrains downward; the owner overrules the CLASS, never the
-   hierarchy.
+2. **The LITHO body is a HARD BOUND.** A packing boundary moves freely inside its litho
+   body and clamps at the edge. It can never move or cross a litho contact — *"litho should
+   be a hard bound"*. The hierarchy constrains downward; the owner overrules the CLASS,
+   never the hierarchy.
+
+   ⚠ **The GEOLOGICAL half of this ruling is SUPERSEDED (owner, 2026-08-26).** It read
+   *"geology too, because it is both combined"*, and the machine enforced it in two places:
+   `divide_picks_by_geology` cut every litho pick at the geological surfaces before any
+   packing was derived, and the band-edit planners refused a gesture spanning a live
+   geological contact. The owner dropped both: *"just drop the wall everywhere, user wil
+   have to manually do it"*. Five clays in his project were cut by it, GEO-05/040-S3's clay
+   0.05–1.48 m being cut at 0.57 m into NAD 21 over NAD 21 — twin halves of one band. The
+   Tertiary case he does want divided (GEO-10/171-B9, Kortrijk top at 18.00 m) is now a hand
+   split. The geological model still LABELS each band (`source_geo_formation_id`, by
+   thickness-weighted majority per the A2 precedent) and its lines still render on the axis;
+   it structures nothing. See `docs/design/geotech-stage.md` → ruling 2 for the current
+   state. **NO migration.** Existing twin halves heal on the next press: step 1 "Subdivide
+   CPTs" sends `skip_existing=false` (the default), so every CPT column is re-planned and
+   S3's clay comes back as one band; step 4 "Divide boreholes" sends `skip_existing=true`,
+   which keys on hand evidence (`source='manual'`), so a machine-placed borehole is
+   re-planned and a hand-touched one keeps the engineer's work. A band the engineer already
+   merged by hand therefore stays merged, and one the machine split comes back whole.
 3. **The class is DERIVED, not carried.** After a drag, split or merge, the NAD class of the
    resulting interval is recomputed from the CPT qc over the new depth range —
    *"you recalculate after drag merge, the qc"*. Editing changes the extent; the data
