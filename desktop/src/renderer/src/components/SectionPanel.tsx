@@ -135,6 +135,7 @@ import type { SectionPlaneLine, SectionPoly, SolidMesh, ZigzagTest } from '../ut
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
 import { useFormationFillVisible } from '../utils/formationFillStore'
+import { useGeotechModelFillVisible } from '../utils/geotechModelFillStore'
 import { useGeotechFillVisible } from '../utils/geotechFillStore'
 import { useLithoFillOnGeotech } from '../utils/lithoFillOnGeotechStore'
 import { selectSectionFill } from '../utils/sectionFillSelection'
@@ -832,7 +833,7 @@ export default function SectionPanel({
     undoStack,
     geoSnapToleranceM,
     openExtentLengthM,
-    lithoSolids,
+    modelSolids,
     contactEdges,
     geotechCorrelationEdges,
     crossingPinchOuts,
@@ -973,11 +974,20 @@ export default function SectionPanel({
   // Correlation-overlay visibility — gates CorrelationEdgesOverlay so the user
   // can hide the 2-D correlation ribbons/lines (no link to the 3-D model).
   const showCorrelations = useCorrelationOverlayVisible()
-  // Litho model-fill visibility — gates the solids-derived ModelFillOverlay on
-  // the litho axis (the cross-section fill sampled from the built 3-D solids).
-  // The litho axis no longer paints ContactsLayer's formationFillBands; the
-  // geological axis keeps its own formationFillBands fill independently.
-  const showModelFill = useFormationFillVisible()
+  // Model-fill visibility — gates the solids-derived ModelFillOverlay (the
+  // cross-section fill cut out of the built 3-D solids). One switch per model
+  // axis, because each axis shows its OWN build: hiding the geotech model must
+  // not blank the litho one. The litho axis no longer paints ContactsLayer's
+  // formationFillBands; the geological axis keeps its own formationFillBands
+  // fill independently and has no body build to show.
+  const showLithoModelFill = useFormationFillVisible()
+  const showGeotechModelFill = useGeotechModelFillVisible()
+  const showModelFill =
+    axisMode === 'lithostratigraphic'
+      ? showLithoModelFill
+      : axisMode === 'geotechnical'
+        ? showGeotechModelFill
+        : false
   // Lab-sample extent markers + their grain-size hover card. Both draw on the
   // litho AND geotech axes, so both toggles live in whichever Display menu the
   // active axis shows. ``hoveredSample`` is renderer-only chrome — the card is
@@ -2625,7 +2635,7 @@ export default function SectionPanel({
     return out
   }, [lithoGhostState, bulkLithoGhostState])
 
-  // ---- 3-D model fill (litho axis only) ------------------------------
+  // ---- 3-D model fill (litho + geotech axes) -------------------------
 
   // Build the ModelFillOverlay data from the prebuilt body solids.
   // The computation is intentionally kept out of SectionPanel's render JSX to
@@ -2638,10 +2648,15 @@ export default function SectionPanel({
   //   the same pattern avoids adding a shell dependency inside SectionPanel.
   // The solid meshes are zoom-INVARIANT (they depend only on the built solids +
   // formation colours), so memoise them once and reuse across the two fill modes.
+  // WHY no axis test here: SectionsCanvas already resolves which model's solids
+  // this axis shows (and withholds them entirely on the geological axis), and
+  // ``formationColorById`` is already the ACTIVE axis's palette — NAD-class
+  // colours on the geotech axis, lithology colours on the litho one. Repeating
+  // the axis decision would be a second place for the two to disagree.
   const modelFillMeshes = useMemo<SolidMesh[]>(() => {
-    if (axisMode !== 'lithostratigraphic' || !lithoSolids || lithoSolids.length === 0) return []
-    return buildModelFillMeshes(lithoSolids, (fid) => formationColorById.get(fid) ?? '#a3a3a3')
-  }, [axisMode, lithoSolids, formationColorById])
+    if (!modelSolids || modelSolids.length === 0) return []
+    return buildModelFillMeshes(modelSolids, (fid) => formationColorById.get(fid) ?? '#a3a3a3')
+  }, [modelSolids, formationColorById])
 
   // ZOOM-INVARIANT test positions for the zigzag (Mode A) fill: the projected
   // investigations (map x/y + along-section distance), ordered by along. Derived
@@ -3537,17 +3552,17 @@ export default function SectionPanel({
             )}
 
             {/* 3-D model fill — renders the geometric body fill derived from the
-                prebuilt solid meshes.  Litho axis only, beneath interactive
-                overlays (pointerEvents="none" on every element inside). BOTH
+                prebuilt solid meshes of THIS axis's own build (litho build on
+                the litho axis, geotech build on the geotech axis; the
+                geological axis has none), beneath interactive overlays
+                (pointerEvents="none" on every element inside). BOTH
                 modes now emit resolved ``polys`` (ModelFillOverlay Mode B path):
                 Mode A (default): CONTINUOUS zigzag sliced borehole→borehole
                 through the actual test positions (gap-free "run through columns").
                 Mode B (sectionFillAtSectionLine): plane-sliced through the
                 straight section line, matching the 3-D fence builder's cut
                 surface. */}
-            {axisMode === 'lithostratigraphic' &&
-              showModelFill &&
-              modelFillData.polys != null && (
+            {showModelFill && modelFillData.polys != null && (
                 <ModelFillOverlay
                   polys={modelFillData.polys}
                   // Confidence fade is a 3D-only concern (owner directive
