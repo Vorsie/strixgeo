@@ -8,11 +8,18 @@ question? there must be a gesture"*.  There is: right-click a band →
 couple a boundary to a geological contact.  So the split is his to make, and
 the engine has no business making it for him.
 
-Where it came from: ``divide_picks_by_geology`` cuts every litho pick at the
-geological surfaces BEFORE any packing is derived, so each piece is classified
-independently — and can land on the same class.  His B4 carried
+Where it came from: ``divide_picks_by_geology`` cut every litho pick at the
+geological surfaces BEFORE any packing was derived, so each piece was classified
+independently — and could land on the same class.  His B4 carried
 ``0.00-0.60 SILT (NAD 13)`` and ``0.60-5.19 SILT (NAD 13)``, a contact that
 marks no packing change at all, and each piece then earned its own correlation.
+
+That cut was deleted at the source on 2026-08-26 (owner: *"just drop the wall
+everywhere, user wil have to manually do it"*), so the duplication these cases
+describe should no longer be produced at all.  ``merge_geo_split_bands`` is kept
+as a cheap invariant — one class, one litho unit, one band — and these cases
+still pin it.  They are the specification of that invariant now, not of a
+repair for a cut that no longer happens.
 """
 
 from uuid import UUID
@@ -99,6 +106,47 @@ def test_gm6_a_run_of_three_collapses_to_one() -> None:
     assert _spans([_band(0.0, 1.0, 13), _band(1.0, 2.0, 13), _band(2.0, 3.0, 13)]) == [
         (0.0, 3.0, 13)
     ]
+
+
+def test_gm8_the_band_sequence_the_new_pipeline_produces_is_untouched() -> None:
+    """GM8 — the guard is a NO-OP on what the pipeline emits since 2026-08-26.
+
+    The owner dropped the geological cut (*"just drop the wall everywhere, user
+    wil have to manually do it"*), so the duplication GM1 repairs is no longer
+    manufactured. What the planner now hands this pass is a column whose bands
+    come from the qc segmenter — which splits on a CLASS CHANGE, so two touching
+    bands inside one litho unit never share a class — plus the litho unit
+    changes. Nothing here is mergeable, and the guard must return it verbatim.
+
+    This is the pin that keeps the kept-guard honest: if it ever starts merging
+    real pipeline output, that is a defect, not a repair.
+    """
+    pipeline_output = [
+        # One SILT unit, segmented by qc into three real packing changes.
+        _band(0.00, 1.20, 13, litho=SILT_F, geo=GEO_UPPER),
+        _band(1.20, 3.40, 15, litho=SILT_F, geo=GEO_UPPER),
+        # A geological contact falls in here — and no longer splits anything,
+        # so this band spans it whole and is labelled by its midpoint unit.
+        _band(3.40, 7.80, 13, litho=SILT_F, geo=GEO_LOWER),
+        # The litho contact: a different unit, whatever the classes do.
+        _band(7.80, 9.00, 13, litho=ZAND_F, geo=GEO_LOWER),
+    ]
+
+    assert _spans(pipeline_output) == [
+        (0.00, 1.20, 13),
+        (1.20, 3.40, 15),
+        (3.40, 7.80, 13),
+        (7.80, 9.00, 13),
+    ]
+
+
+def test_gm9_a_band_spanning_a_geological_contact_is_left_whole() -> None:
+    """GM9 — the twin halves are never created now, so there is nothing to merge.
+
+    His GEO-05/040-S3 clay, as the pipeline emits it today: ONE band 0.05-1.48 m
+    across the geological surface at 0.57 m. The guard must not find work here.
+    """
+    assert _spans([_band(0.05, 1.48, 21, geo=GEO_LOWER)]) == [(0.05, 1.48, 21)]
 
 
 def test_gm7_provenance_of_the_weaker_piece_does_not_upgrade() -> None:
