@@ -11,11 +11,33 @@
  *   • SOIL family  — one row per main soil code; the eye hides the whole family.
  *   • NAD class    — the level the engineer works at; labelled by DENSITY /
  *                    FIRMNESS ("medium dense", "slightly firm"), never by a
- *                    repeat of the soil word.
+ *                    repeat of its family's soil word. A class from another
+ *                    soil family names itself in full — see ``classRowLabel``.
  *   • BODY         — the individual built solid, so one body can be isolated.
  *
  * This module is PURE (no React, no Cesium, no I/O): formations + solids in,
  * tree out. The presentation lives in ``GeotechLayersTree``.
+ *
+ * WHAT EXISTS: only what the scene paints gets a row. Owner ruling 2026-08-26,
+ * looking at the shipped legend: "why are there suboptions like this ... not yet
+ * classified?" A row whose eye cannot change anything on screen is noise, and
+ * worse, it reads as a model the engineer failed to build rather than as nothing
+ * at all. So a class row renders only when the CURRENT VIEW MODE paints
+ * something for it:
+ *
+ *   • SOLID mode — the class has at least one built body solid with geometry.
+ *   • FENCE mode — one of the class's units has a wall panel. Fence walls are
+ *     computed from the geotech layers + accepted ties with no Build involved,
+ *     so a band legitimately exists there with zero solids; and the solid render
+ *     is skipped entirely in fence mode, so a built body with no wall paints
+ *     nothing and gets no row.
+ *
+ * The mode is read off ``fencePanels``: undefined = solid mode, an array = fence
+ * mode (the same signal ``Geology3DViewer`` itself uses). Families follow their
+ * classes — a family with no surviving class is not a row.
+ *
+ * Consequence, accepted: the tree changes shape when the engineer flips view
+ * mode. That is the point — each mode describes what that mode draws.
  *
  * Translate-at-the-presentation-boundary: the soil code stays the raw DOV token
  * in the domain; ``formatLithoDisplayName`` / ``nadPackingLabel`` are the
@@ -23,10 +45,12 @@
  */
 
 import type { AdmixtureItem } from '../api/client'
+import { geotechRowColorOverride } from './geotechRowColorOverride'
 import { formatLithoDisplayName } from './lithoLabels'
 import {
   NAD_SOIL_FAMILY_ORDER,
   nadClassColor,
+  nadClassName,
   nadPackingLabel,
   nadSoilFamilyName,
 } from './nadClasses'
@@ -37,8 +61,10 @@ import {
 
 /**
  * Label for a geotech unit that carries no NAD class yet — the borehole-only
- * "(geotech)" skeletons. They are shown, never hidden: they are real ground the
- * viewer paints, and the row is the prompt to go and classify it.
+ * "(geotech)" skeletons. Such a unit gets a row on exactly the same terms as
+ * any other: when the scene paints it. It is real ground, so once it is built
+ * the row is the prompt to go and classify it; with nothing built it is an
+ * empty bin and is dropped like any other (see the module note on existence).
  */
 export const UNCLASSIFIED_CLASS_LABEL = 'not yet classified'
 
@@ -61,6 +87,8 @@ export interface GeotechLegendFormationInput {
   nad_class: number | null
   litho_main_soil_code: string | null
   litho_admixtures?: readonly AdmixtureItem[] | null
+  /** The colour the engineer picked for this unit; null when nobody has. */
+  color_override?: string | null
 }
 
 /** The body-solid fields the legend tree reads. */
@@ -72,6 +100,20 @@ export interface GeotechLegendSolidInput {
   triangles?: readonly unknown[]
   display_color?: string | null
   is_flagged?: boolean
+}
+
+/**
+ * The fence-panel fields the legend tree reads.
+ *
+ * ``formationId`` is camelCase, unlike the solid's ``formation_id``: fence walls
+ * are built in the renderer (``buildFencePanels``) and never went through the
+ * snake_case API boundary. Keeping each source's own spelling means the caller
+ * passes its arrays straight through with no remapping to get wrong.
+ */
+export interface GeotechLegendPanelInput {
+  formationId: string
+  /** Only the LENGTH matters: an empty wall is one the viewer never paints. */
+  triangles?: readonly unknown[]
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +135,11 @@ export interface GeotechLegendClassNode {
   /** Stable React key + expansion-state key (``"ZAND:6"`` / ``"ZAND:none"``). */
   key: string
   nadClass: number | null
-  /** Density / firmness only — never the soil word. */
+  /**
+   * Density / firmness only, so the row never repeats its family's soil word —
+   * except for a class from a DIFFERENT soil family, which states its own full
+   * name so the composed line stays a NAD class that exists (``classRowLabel``).
+   */
   label: string
   color: string
   bodyCount: number
@@ -134,6 +180,32 @@ function unitLabelOf(f: GeotechLegendFormationInput): string {
   return f.name
 }
 
+/**
+ * The class row's text under a given family header.
+ *
+ * The tree reads as a sentence — the family row names the soil, the class row
+ * names the packing — so the bare qualifier ("medium dense") is only honest
+ * while the class belongs to the family it sits under. The two can disagree:
+ * the family word comes from the unit's LITHO soil code and the qualifier from
+ * its NAD class, and ``SubdivideAllBodies`` assigns a borehole-only sub-body
+ * "the nearest CPT of ANY lithology" when no same-lithology cone reaches that
+ * depth. A ZAND unit carrying NAD 14 then composed into "SAND ▸ moderately
+ * firm" — a class the NAD table does not contain, because granular soils are
+ * described by packing density and cohesive soils by firmness, never the other
+ * way round (owner ruling 2026-08-26: "moderately firm sand just does not
+ * exist").
+ *
+ * A stranger therefore states its OWN full class name instead. It keeps its
+ * place under the litho body it subdivides — that grouping is what the tree is
+ * for, and hiding the mismatch would hide the ground the viewer paints — but
+ * the line the user reads is always a NAD class that exists.
+ */
+function classRowLabel(nadClass: number, familyLabel: string): string {
+  return nadSoilFamilyName(nadClass) === familyLabel
+    ? nadPackingLabel(nadClass)
+    : nadClassName(nadClass)
+}
+
 /** Ascending class order with the unclassified row LAST (it is the remainder). */
 function compareClassKeys(a: number | null, b: number | null): number {
   if (a === b) return 0
@@ -156,8 +228,9 @@ function compareClassKeys(a: number | null, b: number | null): number {
  *
  * Counts are BODY counts (built solids), not unit counts, because the legend
  * controls what the 3-D scene paints. A class the model contains but has not
- * built yet keeps its row with a zero count — before Build, and in Fence mode,
- * there are no solids at all and the legend must still describe the model.
+ * built is not listed at all — see the module note on existence. In fence mode
+ * a listed class can still carry a zero count, because its walls are what the
+ * scene paints there.
  *
  * Parameters
  * ----------
@@ -166,17 +239,33 @@ function compareClassKeys(a: number | null, b: number | null): number {
  * bodySolids
  *     The model's built body solids. Solids with an empty ``triangles`` mesh
  *     are skipped — the viewer paints nothing for them.
+ * fencePanels
+ *     The fence walls when the viewer is in FENCE mode; ``undefined`` in solid
+ *     mode. This doubles as the mode signal, matching ``Geology3DViewer``.
  *
  * Returns
  * -------
  * GeotechLegendFamilyNode[]
  *     Families in NAD soil order (GRAVEL → PEAT, strangers last), classes
  *     ascending with the unclassified row last, bodies ascending by ordinal.
+ *     Only families and classes the current mode paints are present.
  */
 export function buildGeotechLegendTree(
   formations: readonly GeotechLegendFormationInput[],
   bodySolids: readonly GeotechLegendSolidInput[],
+  fencePanels?: readonly GeotechLegendPanelInput[],
 ): GeotechLegendFamilyNode[] {
+  // Formation ids the fence diagram draws a wall for. Only consulted in fence
+  // mode; in solid mode the walls are not rendered, so they cannot make a row
+  // exist.
+  const walledFormationIds = new Set<string>()
+  if (fencePanels !== undefined) {
+    for (const p of fencePanels) {
+      if ((p.triangles?.length ?? 0) === 0) continue
+      walledFormationIds.add(p.formationId)
+    }
+  }
+
   // formation id → its built solids, ordinal-ascending.
   const solidsByFormation = new Map<string, GeotechLegendSolidInput[]>()
   for (const s of bodySolids) {
@@ -217,7 +306,10 @@ export function buildGeotechLegendTree(
     const classNodes: GeotechLegendClassNode[] = [...family.classes.entries()]
       .sort(([, a], [, b]) => compareClassKeys(a.nadClass, b.nadClass))
       .map(([classKey, { nadClass, units }]) => {
-        const color = nadClassColor(nadClass)
+        // The pick has to win in the legend too (owner ruling 2026-08-26) or
+        // the swatch stops identifying the body it stands for. Shared with the
+        // units pane so the two cannot disagree about the same class.
+        const color = geotechRowColorOverride(units) ?? nadClassColor(nadClass)
         // A class row shared by several units would otherwise show "#0" twice —
         // the same identical-text disease the tree exists to kill — so the body
         // label names its unit exactly when the row is ambiguous.
@@ -238,13 +330,28 @@ export function buildGeotechLegendTree(
         return {
           key: classKey,
           nadClass,
-          label: nadClass === null ? UNCLASSIFIED_CLASS_LABEL : nadPackingLabel(nadClass),
+          label:
+            nadClass === null
+              ? UNCLASSIFIED_CLASS_LABEL
+              : classRowLabel(nadClass, family.label),
           color,
           bodyCount: bodies.length,
           formationIds: units.map(u => u.id),
           bodies,
         }
       })
+      // Only what this mode paints gets a row (module note). Fence mode asks the
+      // walls; solid mode asks the bodies. Dropping the row here rather than in
+      // the component keeps the counts, the family swatch and the family's
+      // formationIds — which the family eye toggles — describing what is left.
+      .filter(c =>
+        fencePanels === undefined
+          ? c.bodyCount > 0
+          : c.formationIds.some(id => walledFormationIds.has(id)),
+      )
+
+    // A family whose every class was dropped paints nothing either.
+    if (classNodes.length === 0) continue
 
     // The family swatch reads as ONE hue: inside a family the NAD palette is a
     // lightness ramp of a single hue, so the class carrying the most bodies —
