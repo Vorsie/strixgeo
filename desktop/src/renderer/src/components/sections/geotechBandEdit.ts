@@ -5,14 +5,18 @@
  * so the clamp the owner feels in the gesture and the clamp the server enforces on commit
  * are the same rule stated once.
  *
- * The rule (owner ruling 2, docs/debt.md #227, 2026-08-01): *"A packing boundary moves
- * freely inside its litho body and clamps at the edge. It can never move a litho contact
- * and never cross a geological one."* Both levels above the geotech stage are hard walls;
- * the owner overrules the CLASS, never the hierarchy.
+ * The rule (owner ruling 2, docs/debt.md #227, 2026-08-01, amended 2026-08-26): *"A packing
+ * boundary moves freely inside its litho body and clamps at the edge. It can never move a
+ * litho contact."* The litho unit is the one hard wall; the owner overrules the CLASS,
+ * never the hierarchy.
  *
- * One test covers both walls because a litho body on this axis is already geo-bounded —
- * the litho model never spans a geological contact — so "inside one litho body" implies
- * "inside one geological band".
+ * A GEOLOGICAL contact is NOT a wall (owner, 2026-08-26: *"just drop the wall everywhere,
+ * user wil have to manually do it"*). This module never enforced one — it has always
+ * clamped to the litho layer alone — but it used to justify that by claiming a litho body
+ * could not span a geological contact, which was only true while the machine cut it there.
+ * It no longer cuts, so a litho body CAN span a geological contact, and this module's
+ * clamp is unchanged and correct: it is the litho wall, stated once. The server matches it
+ * (``enclosing_litho_bounds``), which it did not before that date.
  *
  * @module components/sections/geotechBandEdit
  */
