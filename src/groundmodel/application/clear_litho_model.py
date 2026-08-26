@@ -9,12 +9,12 @@ Deletes, in a single transaction, all of:
      layers via body_id (SET NULL) and extent_*_anchor_layer_id (SET NULL), so
      they survive the layer delete as stale orphans without this explicit step.
   5. Litho ``GeologicalFormation`` rows (``litho_main_soil_code IS NOT
-     NULL``) anywhere in the project that have no remaining contacts in
-     any model after the contact delete (orphan-safe — a formation
-     shared by a second litho model survives).  Project-scoped, NOT
-     contact-scoped: a model whose contacts were already wiped still
-     has orphan litho units, and there is no contact link left to reach
-     them through.
+     NULL``) anywhere in the project that nothing references any more, via
+     :class:`~groundmodel.application.orphan_formation_sweep.OrphanFormationSweep`
+     (orphan-safe — a formation shared by a second litho model survives).
+     Project-scoped, NOT contact-scoped: a model whose contacts were
+     already wiped still has orphan litho units, and there is no contact
+     link left to reach them through.
 
 The lithostratigraphic model row itself and all geological-model formations
 remain untouched.  After a successful clear the model is ready for a fresh
@@ -42,19 +42,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
 from groundmodel.infrastructure.db.models.formation_surface_orm import (
     FormationSurfaceOrm,
-)
-from groundmodel.infrastructure.db.models.geological_formation_orm import (
-    GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -110,12 +108,6 @@ class ClearLithoModel(GroundModelLogger):
 
         The delete order is:
 
-        1. Collect every litho ``GeologicalFormation`` in the PROJECT
-           (``litho_main_soil_code IS NOT NULL``).  These are the candidates
-           for the orphan delete in step 6.  Project-scoped, NOT contact-
-           scoped: a model whose contacts were already wiped still has
-           orphan litho units to remove, and there is no contact link left
-           to reach them through.
         2. Bulk-DELETE all ``LithoContactCorrelationEdge`` rows for
            ``model_id``.  Done BEFORE the contact delete so the explicit
            statement's ``rowcount`` reflects the actual edge count — a
@@ -131,9 +123,11 @@ class ClearLithoModel(GroundModelLogger):
            reference layers via ``body_id`` (SET NULL on litho_layer) and
            ``extent_*_anchor_layer_id`` (SET NULL), so the layer delete
            leaves them as stale orphans; explicit deletion is required.
-        6. For each candidate formation from step 1: delete if and only if
-           no contact in ANY model references it (orphan-safe — a litho
-           unit shared with a second model survives).
+        6. ``OrphanFormationSweep.sweep_litho_vocabulary`` — delete every
+           litho formation in the project that no layer, contact or body in
+           ANY model references any more (orphan-safe: a litho unit shared
+           with a second model survives).  It runs LAST because the survivor
+           check has to read the post-delete state.
 
         Geological formations (``litho_main_soil_code IS NULL``) and the
         lithostratigraphic model row itself are never touched.
@@ -166,14 +160,6 @@ class ClearLithoModel(GroundModelLogger):
         # litho model" inside the debounced bodies/recompute window deadlocks
         # exactly as the band merge did.
         await lock_body_partition(self._session, model_id=model_id, operation="clear-litho-model")
-        litho_fids_stmt = select(GeologicalFormationOrm.id).where(
-            GeologicalFormationOrm.app_project_id == project_id,
-            GeologicalFormationOrm.litho_main_soil_code.is_not(None),
-        )
-        candidate_fids: set[UUID] = set(
-            (await self._session.execute(litho_fids_stmt)).scalars().all()
-        )
-        self.debug(f"clear_litho_model candidate_fids={len(candidate_fids)} model_id={model_id}")
 
         # Step 2 — bulk-delete contact-correlation edges for this model.
         # Done BEFORE the contact delete: FormationContact rows are the FK
@@ -221,50 +207,18 @@ class ClearLithoModel(GroundModelLogger):
         )
         n_bodies: int = bodies_result.rowcount or 0
 
-        # Step 5 — delete orphan litho formations (no contacts AND no layers
-        # in ANY model). Re-check each candidate: the step-3 contact-delete
-        # removed THIS model's contacts and the step 3.5 layer-delete removed
-        # THIS model's layers; a formation shared by another litho model
-        # still has rows somewhere. A4 cleanup: the survivors check looks at
-        # BOTH formation_contact and litho_layer — Shape A pending/rejected
-        # layers don't mirror to FC, so a formation referenced only by
-        # pending suggestions on a sibling model would otherwise be
-        # wrongly classified as orphan and CASCADE-wipe the sibling's layers.
-        n_formations = 0
-        if candidate_fids:
-            survivors_from_fc = set(
-                (
-                    await self._session.execute(
-                        select(FormationContactOrm.formation_id)
-                        .where(FormationContactOrm.formation_id.in_(candidate_fids))
-                        .distinct()
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            survivors_from_ll = set(
-                (
-                    await self._session.execute(
-                        select(LithoLayerOrm.formation_id)
-                        .where(LithoLayerOrm.formation_id.in_(candidate_fids))
-                        .distinct()
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            still_referenced: set[UUID] = survivors_from_fc | survivors_from_ll
-            orphan_fids = candidate_fids - still_referenced
-            if orphan_fids:
-                del_formations_result = await self._session.execute(
-                    delete(GeologicalFormationOrm).where(GeologicalFormationOrm.id.in_(orphan_fids))
-                )
-                n_formations = del_formations_result.rowcount or 0
-                self.debug(
-                    f"clear_litho_model orphan_fids={len(orphan_fids)} "
-                    f"kept_shared={len(still_referenced & candidate_fids)}"
-                )
+        # Step 5 — delete orphan litho formations. Runs AFTER every delete
+        # above so the survivor check sees the post-delete state: a formation
+        # this model was the last user of is orphaned only once its contacts,
+        # layers and bodies are gone.
+        #
+        # The predicate itself lives in ``OrphanFormationSweep`` because the
+        # geotech verbs need exactly the same rule (a re-subdivide, a re-divide
+        # or a band edit retires a packing class the same way a clear retires a
+        # litho unit) and a second copy of a delete predicate is a second place
+        # for it to be wrong.
+        sweep = await OrphanFormationSweep(self._session).sweep_litho_vocabulary(project_id)
+        n_formations = sweep.deleted
 
         # Sweep stale seeded ids off the project's sections. The contacts just
         # deleted (and any debris from earlier suggest→accept→delete cycles)
