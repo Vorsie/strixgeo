@@ -45,13 +45,15 @@ import { Layers3 } from 'lucide-react'
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
 import Geology3DViewer from '../geology/Geology3DViewer'
-import type { VoxelBuildRequest } from '../../../utils/buildVoxelRequest'
 import {
   useBody3DViewState,
   EMPTY_SURFACES_MAP,
 } from '../shared/useBody3DViewState'
 import { BodyViewModePills } from '../shared/BodyViewModePills'
-import { makeVoxelRequestBuilder } from '../shared/makeVoxelRequestBuilder'
+import {
+  makeVoxelRequestBuilder,
+  type VoxelRequestBuilder,
+} from '../shared/makeVoxelRequestBuilder'
 
 // ---------------------------------------------------------------------------
 // Module-level refs shared with LithologyStage toolbar — no bus extension.
@@ -95,9 +97,9 @@ export const resetLithoSplitViewportCallback: React.MutableRefObject<
  * accepted layers), which the Build handler surfaces as a "nothing to build"
  * toast.
  */
-export const lithoVoxelRequestCallback: React.MutableRefObject<
-  (() => Promise<VoxelBuildRequest | null>) | null
-> = { current: null }
+export const lithoVoxelRequestCallback: React.MutableRefObject<VoxelRequestBuilder | null> = {
+  current: null,
+}
 
 // ---------------------------------------------------------------------------
 // LithologyCanvas
