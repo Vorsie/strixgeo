@@ -195,7 +195,11 @@ from groundmodel.domain.services.geotech_unit_boundaries import (
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import mark_and_truncate_shallow_tests
-from groundmodel.domain.services.nad_classifier import loosest_class_for
+from groundmodel.domain.services.nad_classifier import (
+    clamp_class_to_soil,
+    loosest_class_for,
+    soil_family_of,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -3733,8 +3737,18 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             f"borehole_ties_lost={len(reanchor_plan.lost)} "
             f"spans_replaced={replaced_span_count} "
             f"crossing_spans_deleted={span_counts.deleted_crossings} "
+            f"unclassified_foreign_family={self._family_clamp_count} "
             f"elapsed={elapsed:.1f}s"
         )
+        if self._family_clamp_count:
+            # Never let a press that dropped classes read like a clean one. The
+            # per-band WARNINGs above name each unit and its soil; this is the
+            # count to notice in a log that scrolls.
+            self.warning(
+                f"DivideBoreholes: {self._family_clamp_count} band(s) left unclassified "
+                "because the only class offered belonged to another soil family — see the "
+                "per-band warnings above for which units and set them by hand"
+            )
         return result
 
     # ------------------------------------------------------------------
@@ -4125,6 +4139,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 section_placements=section_placements,
                 section_partitions=section_partitions,
                 geotech_formation_info=geotech_formation_info,
+                unit_soil_code=unit_soil_code,
             )
         if sampled is not None:
             self.info(
@@ -4538,6 +4553,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         section_placements: list[SectionPlacement],
         section_partitions: Mapping[UUID, SectionPartitionInput],
         geotech_formation_info: Mapping[str, tuple[int | None, UUID, UUID | None]],
+        unit_soil_code: str | None = None,
     ) -> GeometrySampling | None:
         """Read this borehole's bands off the section geometry it stands in.
 
@@ -4573,6 +4589,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             ``geotech formation id -> (nad_class, source litho formation,
             source geo formation)`` — the region names a formation, and the
             plan needs its class and find-or-create key.
+        unit_soil_code : str | None
+            Main soil of the litho unit this borehole segment belongs to. A
+            region whose packing class belongs to a DIFFERENT soil family is
+            not read (owner ruling 2026-08-26: *"no a zand body can never
+            carry a silt packing class"*). ``None`` — the caller has no soil
+            to offer — reads every region, because with no family there is
+            nothing to judge one against.
 
         Returns
         -------
@@ -4580,8 +4603,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             The bands and their per-band correspondence, or ``None`` when the
             geometry cannot answer here (no partition for the section, the
             borehole outside every gap, a bracketing column absent from this
-            body group, or a degenerate frame).  ``None`` means the caller
-            falls back to the donor rule rather than inventing anything.
+            body group, a degenerate frame, or every cut belonging to another
+            soil).  ``None`` means the caller falls back to the donor rule
+            rather than inventing anything.
         """
         picks_by_inv = {seg.investigation_id: seg for seg in cpt_segs}
         best: GeometrySampling | None = None
@@ -4647,16 +4671,36 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     # not something to guess a class for.
                     usable = False
                     break
+                region_class = int(info[0])
+                if clamp_class_to_soil(region_class, unit_soil_code) is None:
+                    # Owner ruling 2026-08-26: *"no a zand body can never carry
+                    # a silt packing class"*. The 2-D fill legitimately floods
+                    # a neighbouring soil across a gap when a conflict suspends
+                    # the ties in it (the owner's B8, 2026-08-24) — but that
+                    # flood is a statement about the OTHER soil, so it is not
+                    # evidence about the unit this borehole stands in. Drop the
+                    # cut; the conservative filler below closes the stretch the
+                    # same way it closes any ground no column spoke for.
+                    self.info(
+                        f"DivideBoreholes: borehole={inv_id} "
+                        f"section={placement.section_name} "
+                        f"[{band.depth_top_m:.2f},{band.depth_base_m:.2f}]m — region class "
+                        f"{region_class} is {soil_family_of(region_class)}, this unit is "
+                        f"{unit_soil_code}; not read (left to the column floor)"
+                    )
+                    continue
                 bands.append(
                     FillBand(
                         top=band.depth_top_m,
                         base=band.depth_base_m,
-                        nad_class=int(info[0]),
+                        nad_class=region_class,
                         source="cpt_interpolated",
                     )
                 )
                 correspondences.append(band.layer_ids)
-            if not usable:
+            if not usable or not bands:
+                # Every cut here belonged to another soil, so the geometry has
+                # nothing to say about this column. The donor rule still does.
                 continue
             best_width = width
             best = GeometrySampling(
@@ -4856,10 +4900,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             Phase 8.5 to write as accepted edges.
         """
         for band in segment.bands:
-            # All planned nad_class values are concrete (no None) — the fill
-            # helper always emits the weakest observed class or the absolute
-            # minimum, never a None sentinel.  Route every band through
-            # _find_or_create_classified (not the skeleton branch).
+            # Every planned nad_class is concrete — the fill helper emits the
+            # weakest observed class or the absolute minimum, never a None
+            # sentinel — so the classified branch is the normal outcome. The
+            # find-or-create can still answer with a skeleton when the planned
+            # class belongs to another soil family, which is the one case a
+            # planned band is written unclassified.
             formation = await self._find_or_create_formation(
                 project_id=project_id,
                 classified_by_key=classified_by_key,
@@ -4882,13 +4928,17 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 body_id=band.body_id,
             )
             self._session.add(layer)
+            # The formation is the authority on the class that was actually
+            # stamped — the materialiser's soil-family clamp can answer with a
+            # skeleton where the plan named a class of another soil, and every
+            # consumer of this index must see the band as it was written.
             geotech_layer_by_inv_depth[segment.investigation_id].append(
                 (
                     band.depth_top_m,
                     band.depth_base_m,
                     layer.id,
                     formation.id,
-                    band.nad_class,
+                    formation.nad_class,
                     band.body_id,
                 )
             )
@@ -4899,7 +4949,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     top=band.depth_top_m,
                     base=band.depth_base_m,
                     body_id=str(band.body_id) if band.body_id is not None else None,
-                    nad_class=band.nad_class,
+                    nad_class=formation.nad_class,
                     source=band.source,
                 )
             )
