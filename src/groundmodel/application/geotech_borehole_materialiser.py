@@ -21,7 +21,7 @@ behaviour.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -30,6 +30,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
+from groundmodel.domain.services.litho_column_digest import (
+    litho_column_digest,
+    next_stamp_map,
+)
 from groundmodel.domain.services.nad_classifier import clamp_class_to_soil, soil_family_of
 from groundmodel.domain.services.tin_surface import evaluate_tin_at
 from groundmodel.domain.value_objects.tin_surface import TinSurface
@@ -40,6 +44,17 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+def _canonical_column_id(column_id: str) -> str:
+    """Normalise a column id to the ``str(UUID)`` form the digest maps key on."""
+    try:
+        return str(UUID(column_id))
+    except (ValueError, AttributeError, TypeError):
+        # Not a uuid: return it unchanged rather than dropping the column. An
+        # id that never matches is visible in the stamped/banded counts; an id
+        # silently discarded here is not.
+        return column_id
 
 
 @dataclass
@@ -190,6 +205,90 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         )
         self.info(f"_ensure_geotech_model: created geotech model {model.id}")
         return model, True
+
+    # ------------------------------------------------------------------
+    # Litho provenance (debt #266)
+    # ------------------------------------------------------------------
+
+    async def _stamp_litho_provenance(
+        self,
+        *,
+        geotech_model: GeologicalModelOrm,
+        litho_model_id: UUID,
+        rebuilt_column_ids: Collection[str],
+    ) -> int:
+        """Record which litho stack each rebuilt column's bands were made from.
+
+        Debt #266: without this the bands carry no link to the litho under them,
+        so dragging a litho contact leaves every band in that column describing a
+        stack that no longer exists — silently, all the way into an export.
+
+        Lives on the shared base because BOTH presses have to do it and they must
+        do it identically: ``SubdivideAllBodies`` rebuilds the CPT columns,
+        ``DivideBoreholes`` the borehole ones, each leaving the other's columns —
+        and any column ``skip_existing`` protected — with the provenance they
+        already had.  Two copies of this fold would drift into two answers about
+        the same model.
+
+        Writes a NEW dict rather than mutating in place: SQLAlchemy does not
+        track in-place mutation of a plain JSONB value, so an in-place update
+        would be silently dropped at flush.
+
+        Call it inside the verb's transaction, before its single commit.
+
+        Parameters
+        ----------
+        geotech_model : GeologicalModelOrm
+            The geotech model being written; its
+            ``derived_from_litho_digests`` map is replaced.
+        litho_model_id : UUID
+            The parent lithostratigraphic model the bands were derived from.
+        rebuilt_column_ids : Collection[str]
+            Column ids (``str(UUID)``) this press actually (re)built.  Columns
+            outside it keep whatever provenance they had — including none.
+
+        Returns
+        -------
+        int
+            How many columns the stored map now vouches for.
+        """
+        repo = LithoLayerRepository(self._session)
+        current = await repo.load_column_digests(litho_model_id)
+        banded = await repo.banded_column_ids(geotech_model.id)
+
+        # Both presses key their layer index on ``str(uuid)``, and so do the two
+        # repository reads — but a single mis-cased id here would leave that
+        # column unstamped FOREVER, silently, which is the failure mode this
+        # whole feature exists to remove.  Canonicalise rather than trust.
+        rebuilt = {_canonical_column_id(column) for column in rebuilt_column_ids}
+
+        # A rebuilt column absent from ``current`` was built over ground with no
+        # accepted litho at all.  Stamping the empty-stack digest states that
+        # honestly, so litho appearing there later reads as a change.
+        empty = litho_column_digest([])
+        rebuilt_digests = {column: current.get(column, empty) for column in rebuilt}
+
+        previous = geotech_model.derived_from_litho_digests or {}
+        folded = next_stamp_map(
+            previous=previous,
+            rebuilt_digests=rebuilt_digests,
+            banded_column_ids=banded,
+        )
+        geotech_model.derived_from_litho_digests = folded
+
+        unstamped = len(banded) - len(folded)
+        self.info(
+            f"_stamp_litho_provenance: geotech_model={geotech_model.id} "
+            f"litho_model={litho_model_id} rebuilt={len(rebuilt_digests)} "
+            f"stamped={len(folded)}/{len(banded)} banded column(s)"
+            + (
+                f"; {unstamped} column(s) still carry bands with no recorded "
+                "provenance (banded before #266 shipped — they read as not stale)"
+                if unstamped
+                else ""
+            )
+        )
+        return len(folded)
 
     # ------------------------------------------------------------------
     # Geo surfaces + boundary samplers
