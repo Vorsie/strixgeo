@@ -6,8 +6,11 @@
 // the tree landed — the flat list fitted here, the tree does not, and debt #201
 // is about not letting a stage component absorb everything again.
 
+import { useCallback } from 'react'
 import { FlaskConical } from 'lucide-react'
 
+import { api } from '../../../api/client'
+import { log } from '../../../utils/log'
 import { nadClassName } from '../../../utils/nadClasses'
 import { useGeotechBodySelection } from '../../../utils/geotechBodySelectionStore'
 import { EmptyState } from '../../EmptyState'
@@ -45,10 +48,52 @@ const ASSIGNMENT_SOURCE_LABELS: Record<string, string> = {
  */
 export default function GeotechnicalInspector(): JSX.Element {
   const {
-    geoModel: { geotechFormations, geotechContacts, geotechLayers, lithoFormations },
+    project,
+    geoModel: {
+      geotechFormations,
+      geotechContacts,
+      geotechLayers,
+      lithoFormations,
+      refetchFormations,
+      handleFormationUpdated,
+    },
   } = useShell()
   // Reactive: re-renders when the engineer clicks a sample dot.
   const bodySelection = useGeotechBodySelection()
+
+  const projectId = project?.id ?? null
+
+  // The colour the engineer picks on a roster row (owner ruling 2026-08-26).
+  //
+  // It is written to ``color_override``, never to ``color``: ``color`` is the
+  // lithology colour the geotech materialiser copied from the source litho
+  // unit, so overwriting it would destroy the unit's inherited identity AND
+  // leave nothing to distinguish a decision from a stamped default. ``null``
+  // clears the choice — the row goes back to its automatic packing colour.
+  //
+  // A row can stand for several units, so one gesture is several PATCHes. They
+  // go out together rather than in sequence — the rows are independent, so
+  // serialising them would only add a round-trip per unit — and the refetch
+  // runs once after all of them, so the pane repaints in one step.
+  const handlePickUnitColor = useCallback(
+    (formationIds: readonly string[], color: string | null): void => {
+      if (projectId === null || formationIds.length === 0) return
+      void (async () => {
+        try {
+          await Promise.all(
+            formationIds.map(id =>
+              api.geology.updateFormation(projectId, id, { color_override: color }),
+            ),
+          )
+          await refetchFormations()
+          handleFormationUpdated()
+        } catch (err) {
+          log.error('geology', 'updateFormation (color_override) failed', err)
+        }
+      })()
+    },
+    [projectId, refetchFormations, handleFormationUpdated],
+  )
 
   // S2: derive the formation for the selected body so the inspector can name it
   // and highlight its roster row.
@@ -78,6 +123,7 @@ export default function GeotechnicalInspector(): JSX.Element {
           geotechContacts={geotechContacts}
           geotechLayers={geotechLayers}
           lithoFormations={lithoFormations}
+          onPickColor={handlePickUnitColor}
           selectedFormationId={selectedFormation?.id ?? null}
         />
       )}
