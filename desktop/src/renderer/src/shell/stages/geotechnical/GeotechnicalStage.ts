@@ -1,7 +1,10 @@
 // Geotechnical stage descriptor (F4/F5 — subdivide all bodies + NAD roster).
 //
-// F4: GeotechnicalCanvas is a 2D/3D surface (SectionsCanvas band view +
-//     Geology3DViewer body solids), axis='geotechnical'.
+// F4: GeotechnicalCanvas is the 3D room for the geotech model (Geology3DViewer
+//     body solids, NAD-coloured). The 2D geotech band view lives on the
+//     Sections stage's axis picker — owner ruling 2026-08-26 retired the
+//     stage-local 2D ⟷ 3D pill so the geotech stages mirror the litho ones
+//     (Sections = 2D, Lithology / Geotechnical = 3D).
 // F5: GeotechnicalInspector renders the NAD packing-unit roster.
 // Toolbar: GeotechnicalToolbar carries "Build model" + "Reset camera" (the 3D
 //     verbs, co-mounted with the canvas — Task 4). The 2D editing verbs
