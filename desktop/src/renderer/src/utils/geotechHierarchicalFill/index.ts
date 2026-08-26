@@ -38,6 +38,7 @@
  */
 
 import { resolveBandParents } from './bandParents'
+import { edgeReachViolations, type EdgeReachViolation } from './edgeReach'
 import { buildLithoFamilies } from './families'
 import { closureBarsFor, fillPlans, planFamily } from './constructive/familyFill'
 import type { GapFillInput } from './constructive/fillGap'
@@ -142,6 +143,14 @@ export interface HierarchicalGeotechFillDiagnostics {
    * DEFECT, not an accounting line.
    */
   totalityViolations: TotalityViolation[]
+  /**
+   * THE CLAMPED-EDGE TRIPWIRE — gaps that emit fill the 3-D build cannot read
+   * at a column edge (see ``edgeReach.ts``). The build samples each gap two
+   * snap cells inside its columns; a gap whose cover holds ground there and
+   * whose classed faces hold none makes ``label_voxels`` drop this section's
+   * contribution silently. Non-empty here is a DEFECT.
+   */
+  edgeReachViolations: EdgeReachViolation[]
 }
 
 /** The fill, ready for the render and the build. */
@@ -532,6 +541,10 @@ export function computeHierarchicalGeotechFill(
       splitRemainders,
       residualAreaM2,
       totalityViolations: filled.totalityViolations,
+      // Measured on the SWEPT surface — the payload carries exactly these
+      // faces, so the tripwire watches what the build reads, not an
+      // intermediate the needle sweep still had to touch.
+      edgeReachViolations: edgeReachViolations(sweptRegions, input.lithoRegions, input.alongM),
     },
   }
 }
