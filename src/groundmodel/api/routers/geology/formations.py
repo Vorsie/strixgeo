@@ -22,6 +22,7 @@ from groundmodel.api.schemas.project.geological_formation import (
     GeologicalFormationResponse,
     GeologicalFormationUpdateRequest,
 )
+from groundmodel.domain.services.nad_classifier import class_belongs_to_soil, soil_family_of
 from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
     get_formal_stratigraphy,
 )
@@ -395,16 +396,34 @@ async def update_formation(
     ------
     HTTPException(404)
         When the formation is missing or belongs to a different project.
+    HTTPException(422)
+        When the patch would put a packing class on a unit of another soil.
     """
     repo = GeologyRepository(session)
     # Scope-check pre-update so a leaked id from another project doesn't
     # mutate a row this caller has no business touching.
-    await get_in_project_or_404(
+    existing = await get_in_project_or_404(
         repo.get_formation(formation_id), project_id, detail="Formation not found"
     )
     # exclude_unset so omitted fields stay untouched and explicit null
     # only clears optional columns.
     patch = request.model_dump(exclude_unset=True)
+    # The create request checks this coupling itself because it carries both
+    # fields; a PATCH carries only the class, so the soil comes off the stored
+    # row (owner ruling 2026-08-26: "the nad coupling is absolute").
+    if "nad_class" in patch and not class_belongs_to_soil(
+        patch["nad_class"], existing.litho_main_soil_code
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"NAD class {patch['nad_class']} belongs to "
+                f"{soil_family_of(patch['nad_class'])}, not to "
+                f"{existing.litho_main_soil_code}. The coupling between a unit's soil "
+                "and its packing class is absolute: a packing class describes one soil "
+                "column and is never valid on another."
+            ),
+        )
     formation = await repo.update_formation(formation_id, patch)
     if formation is None:
         # TOCTOU race — row vanished between scope-check and update.
