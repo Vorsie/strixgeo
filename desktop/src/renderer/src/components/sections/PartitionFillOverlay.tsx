@@ -340,6 +340,18 @@ export interface Props {
    * the lookup through its own ``gapXs``.
    */
   onJumpToConflictGap?: (screenX: number) => void
+  /**
+   * Report which ties are currently in a crossing conflict, as order-invariant
+   * ``edgeKey``s (owner ruling 2026-08-26: *"mark the crossing ties"*).
+   *
+   * The fill engine is the only thing that knows two ties cross — it is what suspends
+   * them — so the tie overlay is told rather than left to work it out. Fires only when
+   * the SET changes, not on every re-partition.
+   *
+   * Unlike ``onJumpToConflictGap`` this carries keys, not a screen X: the receiver draws
+   * the ties themselves and matches on identity, so no axis translation is involved.
+   */
+  onConflictEdgeKeysChange?: (keys: ReadonlySet<string>) => void
 }
 
 // Shared with the per-column band stack, so the fill in the gaps and the fill
@@ -456,6 +468,7 @@ export default function PartitionFillOverlay({
   onDismissReviewFlag,
   onCorrelateReviewFlag,
   onJumpToConflictGap,
+  onConflictEdgeKeysChange,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // Which crossing-tie conflict the chip last centred. A REF, not state: the
@@ -1632,6 +1645,24 @@ export default function PartitionFillOverlay({
   // one. Surfaced as a small persistent, non-blocking amber warning chip below
   // (never a dialog / focus steal). v1 always reports none.
   const conflicts = sectionFillData.conflicts
+
+  // Publish the conflicting ties' keys so the tie overlay drawn beside this one can MARK
+  // them (owner ruling 2026-08-26). They leave from the same list the chip counts, so the
+  // mark and the count cannot name different ties.
+  //
+  // Guarded on a CONTENT signature rather than array identity: the fill memo returns a
+  // fresh array on every recompute, and handing the parent a new Set each time would
+  // re-render the whole panel — and the tie overlay with it — for a conflict set that
+  // never changed.
+  const conflictKeysSigRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (onConflictEdgeKeysChange === undefined) return
+    const keys = Array.from(new Set(conflicts.flatMap(c => c.edgeKeys))).sort()
+    const signature = keys.join('|')
+    if (signature === conflictKeysSigRef.current) return
+    conflictKeysSigRef.current = signature
+    onConflictEdgeKeysChange(new Set(keys))
+  }, [conflicts, onConflictEdgeKeysChange])
 
   // REVIEW-FLAG markers (owner 2026-07-26; design §10). The safe-default repair re-emits the onlap
   // for an uncorrelated same-litho neighbour that would otherwise render a foreign litho; each such
