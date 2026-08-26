@@ -28,9 +28,17 @@ export function divideBoreholesToastMessage(
     superseded > 0
       ? `, ${superseded} jump tie${superseded === 1 ? '' : 's'} replaced by the borehole chain`
       : ''
+  // Phase 8.6's crossing-span deletions are silent in the DB (owner ruling
+  // 2026-08-24: "if no hops can be made, you just auto delete the crossing
+  // correlation") — the toast owns the count, same contract as the jump ties.
+  const deletedCrossings = result.deleted_crossing_span_count ?? 0
+  const crossingNote =
+    deletedCrossings > 0
+      ? `, ${deletedCrossings} crossing tie${deletedCrossings === 1 ? '' : 's'} auto-deleted`
+      : ''
   return (
     `${wholeModel ? 'Boreholes' : 'Borehole'} divided — ` +
     `${result.divided_borehole_count} split, ` +
-    `${result.single_band_borehole_count} single-band${tieNote}${supersededNote}.`
+    `${result.single_band_borehole_count} single-band${tieNote}${supersededNote}${crossingNote}.`
   )
 }
