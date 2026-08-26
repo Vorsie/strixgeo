@@ -132,6 +132,9 @@ export default function GeologyCanvas(): JSX.Element {
     modelId,
     resetSplitViewportRef: resetSplitViewportCallback,
     fenceActive: false,
+    // The footprint ring is the hull of a VOXEL build; a geological model has
+    // none, so the fetch could only ever answer "never built".
+    footprintActive: false,
   })
 
   // ---------------------------------------------------------------------------
