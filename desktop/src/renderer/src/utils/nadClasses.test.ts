@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   NAD_CLASS_ABBR,
   NAD_CLASS_NAMES,
+  geotechUnitColor,
   geotechUnitLabel,
   geotechUnitSoil,
   nadClassColor,
@@ -176,6 +177,44 @@ describe('nadColoredFormations', () => {
   it('returns an empty array for empty input', () => {
     expect(nadColoredFormations([])).toEqual([])
   })
+
+  it('UC4 — a colour the engineer picked survives the recolour', () => {
+    // Owner ruling 2026-08-26: "Colours on the right hand pane need to be
+    // choosable if user wants". The 3-D bodies are one of the places his pick
+    // has to win, and this transform is the seam that feeds them.
+    const out = nadColoredFormations([
+      { id: 'f', nad_class: 6, color: '#c2b280', color_override: '#ff00ff' },
+      { id: 'g', nad_class: 6, color: '#c2b280', color_override: null },
+    ])
+
+    expect(out[0].color).toBe('#ff00ff')
+    expect(out[1].color).toBe(nadClassColor(6))
+  })
+})
+
+// ---- geotechUnitColor — the one rule for "what colour is this unit" ---------
+
+describe('geotechUnitColor', () => {
+  it('UC1 — with nobody having chosen, the unit reads its NAD packing colour', () => {
+    expect(geotechUnitColor({ nad_class: 6 })).toBe(nadClassColor(6))
+    expect(geotechUnitColor({ nad_class: null, color_override: null })).toBe(nadClassColor(null))
+  })
+
+  it('UC2 — a colour the engineer picked wins over the automatic one', () => {
+    expect(geotechUnitColor({ nad_class: 6, color_override: '#ff00ff' })).toBe('#ff00ff')
+  })
+
+  it('UC3 — picking exactly the automatic colour is still a choice', () => {
+    // The reason the override is its own field rather than a comparison against
+    // the computed default: he is allowed to pick the colour the rule would
+    // have produced, and that decision has to outlive a change of class. Here
+    // the unit is reclassified 6 → 8 and his colour does NOT move.
+    const picked = nadClassColor(6)
+
+    expect(geotechUnitColor({ nad_class: 6, color_override: picked })).toBe(picked)
+    expect(geotechUnitColor({ nad_class: 8, color_override: picked })).toBe(picked)
+    expect(geotechUnitColor({ nad_class: 8 })).toBe(nadClassColor(8))
+  })
 })
 
 // ---- NAD_CLASS_NAMES dictionary completeness --------------------------------
@@ -323,5 +362,64 @@ describe('nadClassQualifier — the class row says firmness, never the soil agai
         false,
       )
     }
+  })
+})
+
+// ---- vocabulary axis: sands are never firm, cohesives are never dense ------
+
+describe('NAD vocabulary axis — each soil family takes ONE axis of words (V)', () => {
+  // The owner's ruling, in his words (2026-08-26): "why are there suboptions
+  // like this firm sand ...? Look at the NAD table moderately firm sand just
+  // does not exist."
+  //
+  // In the NAD classification a GRANULAR soil is described by how densely it is
+  // PACKED (Dutch "gepakt"/gp) and a COHESIVE soil by how FIRM it is (Dutch
+  // "vast"). The two vocabularies never cross: there is no firm sand and no
+  // dense clay in the table. These pins hold the English translation to that
+  // rule, so the class of defect the owner caught can never come back through
+  // a future re-wording of NAD_CLASS_NAMES.
+
+  /** Families described by packing density — GRIND + ZAND (backend gp / gepakt). */
+  const DENSITY_CLASSES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  /** Families described by firmness — SILT + KLEI + VEEN (backend "vast"). */
+  const FIRMNESS_CLASSES = [
+    13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+  ]
+
+  /** The only density words the table may use (backend los/matig/dicht/zeer dicht gp). */
+  const DENSITY_WORDS = ['loose', 'medium dense', 'dense', 'very dense']
+  /** The only firmness words the table may use (backend weinig/matig/vrij vast, vast). */
+  const FIRMNESS_WORDS = ['slightly firm', 'moderately firm', 'fairly firm', 'firm']
+
+  /**
+   * The packing phrase with any admixture field stripped — "silty/clayey,
+   * medium dense" → "medium dense". The admixture is a separate axis and is
+   * allowed on either family.
+   */
+  const packingWordOf = (n: number): string => {
+    const parts = nadClassQualifier(n).split(', ')
+    return parts[parts.length - 1]
+  }
+
+  it('V1 — every GRAVEL and SAND class is described by DENSITY, never firmness', () => {
+    for (const n of DENSITY_CLASSES) {
+      expect(DENSITY_WORDS, `NAD ${n} (${nadClassName(n)})`).toContain(packingWordOf(n))
+      expect(nadClassName(n), `NAD ${n} must not call a granular soil firm`).not.toMatch(/firm/i)
+    }
+  })
+
+  it('V2 — every SILT, CLAY and PEAT class is described by FIRMNESS, never density', () => {
+    for (const n of FIRMNESS_CLASSES) {
+      expect(FIRMNESS_WORDS, `NAD ${n} (${nadClassName(n)})`).toContain(packingWordOf(n))
+      expect(nadClassName(n), `NAD ${n} must not call a cohesive soil dense/loose`).not.toMatch(
+        /\b(dense|loose)\b/i,
+      )
+    }
+  })
+
+  it('V3 — the two axes cover all 31 classes exactly once (no class escapes the rule)', () => {
+    expect([...DENSITY_CLASSES, ...FIRMNESS_CLASSES].sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 31 }, (_, i) => i + 1),
+    )
   })
 })
