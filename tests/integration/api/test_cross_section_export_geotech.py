@@ -258,8 +258,22 @@ async def test_geotech_dxf_carries_the_geotech_units_not_the_geological_ones(
     layer_names = {layer.dxf.name for layer in doc.layers}
 
     # The engineer's own unit names ride into CAD, one layer each.
-    for name in seeded_geotech_section["geotech_formation_names"]:
-        assert f"GeoModel-{name}" in layer_names, layer_names
+    #
+    # SUPERSEDED SHAPE (debt #104, 2026-08-26): a unit that carries a
+    # ``nad_class`` — which every unit in this fixture does — is now named
+    # ``GeoModel-<identifier> - <unit name>`` so a downstream tool can map the
+    # layer onto a material definition; a display name alone is not
+    # machine-usable, which was the whole of #104. The engineer's own name is
+    # still carried verbatim as the suffix, so THIS test's rule ("writes the
+    # geotech units, named as the engineer named them") still holds — the
+    # assertion just has to allow the identifier prefix that now precedes it.
+    # These units set ``lithology`` but not ``litho_main_soil_code``, so the
+    # identifier is the class alone (``NAD-14``), with no soil token.
+    for name, nad_class in _GEOTECH_UNITS:
+        expected = f"GeoModel-NAD-{nad_class:02d} - {name}"
+        assert expected in layer_names, layer_names
+        # The engineer's name survives intact inside the layer name.
+        assert name in expected
     # And the geological model's formation — which the buggy routing exported
     # instead — is absent.
     assert "GeoModel-Boom Klei" not in layer_names
