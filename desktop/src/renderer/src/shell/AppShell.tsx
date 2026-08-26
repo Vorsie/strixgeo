@@ -32,6 +32,7 @@ import StageSpine from './StageSpine'
 import StageToolbar from './StageToolbar'
 import StageCanvas from './StageCanvas'
 import Inspector from './Inspector'
+import { sectionsRevealColumnCallback } from './stages/sections/sectionColumnRevealBridge'
 import { log } from '../utils/log'
 
 export interface AppShellProps {
@@ -145,6 +146,24 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // xsection-pane click in the previous commit.
     const focusTimer = window.setTimeout(() => {
       context.sections.handleFocusContacts(target.contactIds, target.sectionId)
+      // The column half of the same deep-link (owner ruling 2026-08-26): the
+      // Build pre-flight sends a TEST to visit rather than contacts to pulse.
+      // It runs after the same 600 ms beat and for the same reason — the
+      // freshly-mounted panel has to have placed its columns before anything
+      // can ask where one of them is.
+      if (target.revealInvestigationId !== undefined) {
+        const outcome = sectionsRevealColumnCallback.current?.(target.revealInvestigationId)
+        if (outcome === undefined || !outcome.revealed) {
+          log.warn(
+            'shell',
+            `sections-deep-link: could not centre '${target.revealInvestigationId}' on ` +
+              `section ${target.sectionId} — ` +
+              (outcome === undefined
+                ? 'the section canvas is not mounted'
+                : `it is not drawn there (missing: ${outcome.missingInvestigationIds.join(', ')})`),
+          )
+        }
+      }
       context.coordinator.setSectionsDeepLinkTarget(null)
     }, 600)
     return () => {
