@@ -41,6 +41,7 @@ import { resolveBandParents } from './bandParents'
 import { buildLithoFamilies } from './families'
 import { closureBarsFor, fillPlans, planFamily } from './constructive/familyFill'
 import type { GapFillInput } from './constructive/fillGap'
+import type { TotalityViolation } from './constructive/fillTotality'
 import { weldAcrossFamilies } from './crossFamilyWeld'
 import { dropRegionNeedles } from './dropNeedleSpurs'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
@@ -134,6 +135,13 @@ export interface HierarchicalGeotechFillDiagnostics {
    * cover reached a level no test of the family read and no envelope covers.
    */
   residualAreaM2: { noBands: number; afterEngine: number; outsideBandRange: number }
+  /**
+   * THE TOTALITY TRIPWIRE — gaps with a banded run that still kept ground (see
+   * ``fillTotality.ts``). Since the least-dense ruling of 2026-08-26 the fill
+   * owns every square metre of such a gap, so a non-empty list here is a
+   * DEFECT, not an accounting line.
+   */
+  totalityViolations: TotalityViolation[]
 }
 
 /** The fill, ready for the render and the build. */
@@ -523,6 +531,7 @@ export function computeHierarchicalGeotechFill(
       crossFamilyWelds,
       splitRemainders,
       residualAreaM2,
+      totalityViolations: filled.totalityViolations,
     },
   }
 }
