@@ -100,11 +100,21 @@ desktop/src/
     │       │                  the active tab rides coordinator.parametersActiveTab) +
     │       │                  ParametersInspector (per-test tab: the per-CPT plot surface —
     │       │                  header, click-to-edit water-table line, CptSbtDepthPanels;
-    │       │                  per-unit tab: UnitListPane, the unit roster — R3 layout flip
+    │       │                  per-unit tab: UnitListPane, the BODY TREE — R3 layout flip
     │       │                  2026-08-27, "statistics main, list in the pane").
-    │       │                  Per-unit CANVAS = UnitStatisticsCanvas for the scoped
-    │       │                  coordinator.selectedParameterUnit ({kind: 'litho'|'geotech',
-    │       │                  unitId} — a litho scope pools the whole unit, all packing
+    │       │                  The tree (owner ruling 2026-08-27, variant B) is
+    │       │                  litho unit ▸ litho body ▸ NAD class ▸ geotech body;
+    │       │                  litho units are ALWAYS listed (no litho/geotech either-or
+    │       │                  roster). parameterBodyTree.ts is the ONE authority:
+    │       │                  buildParameterTree + bandsForScope(scope) drive the pane,
+    │       │                  the pooling, the counts and the cutout body set alike;
+    │       │                  labels split into parameterScopeLabels.ts + the path header
+    │       │                  into parameterScopeHeader.ts (500-line cap). A geotech band's
+    │       │                  litho body is derived live through litho_layer.parent_litho_
+    │       │                  layer_id (Slice A). Per-unit CANVAS = UnitStatisticsCanvas for
+    │       │                  the scoped coordinator.selectedParameterUnit — a five-kind
+    │       │                  union (litho-unit / litho-body / geotech-class / geotech-body /
+    │       │                  geotech-unit; a litho scope pools the whole unit, all packing
     │       │                  classes): UnitDistributionPanels (qc/fs/Rf on the CPT plot's
     │       │                  fixed axes from utils/cptAxisScales.ts, pooled over the
     │       │                  canonical section-membership population only; fit-to-data
@@ -117,7 +127,16 @@ desktop/src/
     │       │                  UnitPsdPanel (S5 — every grain-size curve of the unit on ONE
     │       │                  inverted-log graph, pooled by unitPsd.ts on the same
     │       │                  midpoint-in-band rule) + UnitFenceCutout (lazy
-    │       │                  Cesium fence walls of the unit over the basemap, chromeless).
+    │       │                  Cesium fence walls of the SCOPE over the basemap, chromeless;
+    │       │                  the cutout body set is derived from bandsForScope, so a class
+    │       │                  row shows every one of its bodies' walls). Section →
+    │       │                  Parameters jump = the fallback ladder in
+    │       │                  sections/geotechJumpLadder.ts (resolved body → geotech-body;
+    │       │                  unresolved region with a unique litho parent → geotech-class;
+    │       │                  else geotech-unit; litho surfaces → litho-body / litho-unit).
+    │       │                  NOTE: the flow_unit_statistics e2e golden must be re-blessed
+    │       │                  when this lands — the pane shape changed on purpose; the diff
+    │       │                  image is the owner's call, do NOT re-bless blind.
     │       │                  Row click in the per-test table selects the CPT via
     │       │                  coordinator.handleSelectWithoutView (the plain
     │       │                  handleSelect also flips the DATA stage's view mode);
