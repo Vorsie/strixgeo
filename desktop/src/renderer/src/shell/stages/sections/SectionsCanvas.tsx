@@ -72,6 +72,7 @@ import type { SectionColumnRevealFn } from '../../../components/sections/section
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
 import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
 import { bodyHomeUnitId } from '../parameters/parameterUnitBodies'
+import { geotechJumpScope, lithoJumpScope } from './geotechJumpLadder'
 import { useModelBodies } from '../parameters/useModelBodies'
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
@@ -534,28 +535,28 @@ export default function SectionsCanvas(): JSX.Element {
     bodyRecomputeGeotechNonce,
   )
   const handleShowGeotechUnitStatistics = useCallback(
-    (unitId: string, bodyId?: string | null): void => {
+    (unitId: string, bodyId?: string | null, regionLayerIds?: readonly string[]): void => {
+      // F10: a resolved body reports its HOME formation (bodyHomeUnitId), so a
+      // twin-labelled or frame-labelled region lands where the body's row lives.
       const homeUnitId = bodyHomeUnitId(unitId, bodyId, geotechJumpRoster)
-      log.info(
-        'section',
-        `unit statistics requested for geotech unit ${homeUnitId}` +
-          (homeUnitId !== unitId ? ` (label ${unitId})` : '') +
-          (bodyId != null ? ` (body ${bodyId})` : ''),
-      )
-      setParametersDeepLinkTarget({ kind: 'geotech', unitId: homeUnitId, bodyId: bodyId ?? null })
+      // The ladder (spec §2): resolved body → geotech-body; an unresolved region
+      // with a unique litho parent body → geotech-class; else → geotech-unit.
+      const scope = geotechJumpScope(homeUnitId, bodyId, regionLayerIds, {
+        lithoLayers,
+        geotechLayers,
+        geotechFormations,
+      })
+      log.info('section', `unit statistics requested: ${JSON.stringify(scope)}`)
+      setParametersDeepLinkTarget(scope)
     },
-    [setParametersDeepLinkTarget, geotechJumpRoster],
+    [setParametersDeepLinkTarget, geotechJumpRoster, lithoLayers, geotechLayers, geotechFormations],
   )
   const handleShowLithoUnitStatistics = useCallback(
     (unitId: string, bodyId?: string | null): void => {
       const homeUnitId = bodyHomeUnitId(unitId, bodyId, lithoJumpRoster)
-      log.info(
-        'section',
-        `unit statistics requested for litho unit ${homeUnitId}` +
-          (homeUnitId !== unitId ? ` (label ${unitId})` : '') +
-          (bodyId != null ? ` (body ${bodyId})` : ''),
-      )
-      setParametersDeepLinkTarget({ kind: 'litho', unitId: homeUnitId, bodyId: bodyId ?? null })
+      const scope = lithoJumpScope(homeUnitId, bodyId)
+      log.info('section', `unit statistics requested: ${JSON.stringify(scope)}`)
+      setParametersDeepLinkTarget(scope)
     },
     [setParametersDeepLinkTarget, lithoJumpRoster],
   )
