@@ -61,6 +61,7 @@ vi.mock('../api/client', () => ({
       exportSectionPlaxis2d: vi.fn(),
       acceptLithoSuggestions: vi.fn(),
       listLithoSolids: vi.fn().mockResolvedValue([]),
+      getGaplessBuildReport: vi.fn().mockResolvedValue(null),
       // Debt #266 — the geotech axis reads which columns stand on edited litho.
       geotechLithoStaleness: vi.fn().mockResolvedValue({
         geotech_model_id: '',
