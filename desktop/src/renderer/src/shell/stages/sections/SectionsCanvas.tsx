@@ -505,17 +505,28 @@ export default function SectionsCanvas(): JSX.Element {
   // switch stages — does the rest. Same contract as ``setGeoDeepLinkTarget``
   // above it. The kind is stamped HERE, where the axis is known: the overlays
   // report a bare formation id and cannot tell a litho row from a geotech row.
+  // The BODY rides along when the clicked surface named one (owner body-scope
+  // ruling 2026-08-27: "a body is only a body if it is geometrically
+  // connected or if the users says…") — null keeps the pooled formation view.
   const handleShowGeotechUnitStatistics = useCallback(
-    (unitId: string): void => {
-      log.info('section', `unit statistics requested for geotech unit ${unitId}`)
-      setParametersDeepLinkTarget({ kind: 'geotech', unitId })
+    (unitId: string, bodyId?: string | null): void => {
+      log.info(
+        'section',
+        `unit statistics requested for geotech unit ${unitId}` +
+          (bodyId != null ? ` (body ${bodyId})` : ''),
+      )
+      setParametersDeepLinkTarget({ kind: 'geotech', unitId, bodyId: bodyId ?? null })
     },
     [setParametersDeepLinkTarget],
   )
   const handleShowLithoUnitStatistics = useCallback(
-    (unitId: string): void => {
-      log.info('section', `unit statistics requested for litho unit ${unitId}`)
-      setParametersDeepLinkTarget({ kind: 'litho', unitId })
+    (unitId: string, bodyId?: string | null): void => {
+      log.info(
+        'section',
+        `unit statistics requested for litho unit ${unitId}` +
+          (bodyId != null ? ` (body ${bodyId})` : ''),
+      )
+      setParametersDeepLinkTarget({ kind: 'litho', unitId, bodyId: bodyId ?? null })
     },
     [setParametersDeepLinkTarget],
   )
