@@ -15,10 +15,11 @@ contract), so they are grouped in this single module — matching the domain-sid
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.project.gapless_build_report import GaplessClauseInputSchema
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionColumnInput,
@@ -195,12 +196,24 @@ class VoxelBuildRequest(BaseModel):
     vertical_spacing_m : float or None
         The Z (elevation) voxel spacing in metres.  ``None`` → fall back to
         ``grid_spacing_m``.  Must be positive when set.
+    gapless_2d : list of GaplessClauseInputSchema or None
+        The renderer's clauses 1-4 of the seven-clause gapless gate (computed
+        at fill time, from the same partition this payload carries).  ``None``
+        for a lithology build (which runs no packing fill) or a client older
+        than the gate — the backend then reports clauses 1-4 as
+        ``not-evaluated`` rather than fabricating a pass.  Deliberately NOT
+        folded into the model-level partition checksum
+        (``BuildVoxelLithoModel._partition_checksum``): the gate's own findings
+        never change what the 3-D model IS, only what is reported about it, so
+        a changed clause 1-4 finding on an otherwise-unchanged payload must not
+        bust the labelling cache.
     """
 
     sections: list[SectionPartitionInputSchema] = Field(default_factory=list)
     grid_spacing_m: float = Field(gt=0.0)
     horizontal_spacing_m: float | None = Field(default=None, gt=0.0)
     vertical_spacing_m: float | None = Field(default=None, gt=0.0)
+    gapless_2d: list[GaplessClauseInputSchema] | None = None
 
     @property
     def effective_horizontal_spacing_m(self) -> float:
@@ -249,3 +262,23 @@ class VoxelBuildRequest(BaseModel):
             The domain-layer sections the voxel use case consumes.
         """
         return [s.to_domain() for s in self.sections]
+
+    def to_gapless_2d_dicts(self) -> list[dict[str, Any]] | None:
+        """Convert ``gapless_2d`` to plain dicts for the application layer.
+
+        The assembler that re-stamps these clauses lives in the application
+        layer, which must not import API (Pydantic) schemas — so the boundary
+        crossing happens here, on the schema side, not there.
+
+        Returns
+        -------
+        list of dict, or None
+            One dict per clause (``model_dump()`` of each
+            ``GaplessClauseInputSchema``), or ``None`` when the field itself
+            was never sent (preserved, not coerced to ``[]``, so the use case
+            can tell "sent nothing" from "sent an empty list" if that ever
+            matters).
+        """
+        if self.gapless_2d is None:
+            return None
+        return [clause.model_dump() for clause in self.gapless_2d]
