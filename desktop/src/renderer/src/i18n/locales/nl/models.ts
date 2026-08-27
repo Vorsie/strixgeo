@@ -175,14 +175,13 @@ export const MODELS_NL = {
     'Gebruik "Alle lichamen onderverdelen" in de profielstap (geotechnische as) en klik daarna op "Model opbouwen" in de geotechnische werkbalk om de 3D-lichamen per NAD-klasse te genereren.',
   'geotech.switchSolidFence': 'Wissel tussen het vaste lichaamsmodel en profielwanden',
   'geotech.resetAutoColour': 'Terug naar de automatische pakkingskleur',
-  // FLAG alt: CPT-schatting | Uit sondering — badge text, capped at ~10 chars,
-  // and it is the label that carries the liability disclaimer.
-  'geotech.badgeCptEst': 'Sond. schat.',
-  'geotech.badgeCptEstPartial': 'Sond. schat. (deels)',
+  // De norm (uit sondering afgeleid) draagt geen badge — eigenaar 2026-08-27:
+  // "CPT est. die flag mag eruit, bijna alle packingsklassen zijn altijd uit
+  // sonderingen afgeleid". Enkel de uitzonderingen worden gemarkeerd.
+  'geotech.badgeCptEstPartial': 'Geen sondering (deels)',
   'geotech.badgeNoCpt': 'Geen sondering',
   'geotech.badgeConfidence':
     'Samengevoegde betrouwbaarheid van de toegekende pakkingsklasse over alle sondeerlagen',
-  'geotech.badgeDerived': 'Classificatie afgeleid uit de qc-reeks van de sondering',
   'geotech.badgePartialHint':
     'De meeste banden zijn afgeleid uit de qc-reeks van de sonderingen. Minstens één band had geen conus in zijn lichaam en kreeg daarom de zwakste klasse die daar voorkwam. Controleer de banden met lage betrouwbaarheid voor gebruik.',
   'geotech.badgeNoCptHint':
