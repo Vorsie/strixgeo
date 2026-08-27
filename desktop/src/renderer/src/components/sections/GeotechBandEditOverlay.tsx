@@ -67,6 +67,7 @@ import {
   nadClassesForSoil,
   nadSoilFamilyName,
 } from '../../utils/nadClasses'
+import { MENU_ITEM_STYLE, UnitStatisticsItem } from './unitStatisticsMenuItem'
 import type { PlacedColumn } from './utils'
 
 /** Height in px of the strip that sits on a shared band boundary (drag + right-click). */
@@ -1279,61 +1280,6 @@ export default function GeotechBandEditOverlay({
   )
 }
 
-/**
- * "Unit statistics…" — the jump to the Parameters stage, scoped to the band's
- * unit.
- *
- * One component rather than the same JSX in both menus: the CPT band's split
- * menu and the borehole band's set-class menu offer the identical item, and
- * two copies would drift in wording or in which id they report.
- *
- * Renders NOTHING when no handler is wired — the no-affordance rule this menu
- * already follows for a merge that is not legal, rather than a disabled entry
- * that tells the engineer about a verb he cannot reach.
- */
-function UnitStatisticsItem({
-  unitId,
-  onShow,
-  onClose,
-  topBorder = false,
-}: {
-  unitId: string
-  onShow: ((unitId: string) => void) | undefined
-  onClose: () => void
-  topBorder?: boolean
-}): JSX.Element | null {
-  if (onShow === undefined) return null
-  return (
-    <button
-      type="button"
-      data-testid="geotech-band-menu-unit-statistics"
-      onClick={() => {
-        onShow(unitId)
-        onClose()
-      }}
-      style={
-        topBorder
-          ? {
-              ...MENU_ITEM_STYLE,
-              borderTop: '1px solid var(--color-border-default, #334155)',
-            }
-          : MENU_ITEM_STYLE
-      }
-    >
-      Unit statistics…
-    </button>
-  )
-}
-
-/** Shared inline style for the menu items — matches the litho band menu's. */
-const MENU_ITEM_STYLE: React.CSSProperties = {
-  display: 'block',
-  width: '100%',
-  padding: '6px 12px',
-  textAlign: 'left',
-  fontSize: 12,
-  color: 'var(--color-text-primary, #e2e8f0)',
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-}
+// ``UnitStatisticsItem`` and ``MENU_ITEM_STYLE`` moved to
+// ``unitStatisticsMenuItem.tsx`` when the litho band menu became their second
+// consumer (rulings R1/R2, 2026-08-27).
