@@ -76,10 +76,12 @@ export interface IdentificationPool {
 /**
  * The unit's accepted BOREHOLE bands — the ground its samples can sit in.
  *
- * The same four filters as ``unitCptBands``, with the anchor flipped: this
- * unit, accepted only, borehole-anchored only, and (when given) the member
- * set — R6's pooling population, so off-section, hidden and removed holes
- * contribute nothing.
+ * The same filters as ``unitCptBands``, with the anchor flipped: this unit,
+ * accepted only, borehole-anchored only, (when given) the member set — R6's
+ * pooling population, so off-section, hidden and removed holes contribute
+ * nothing — and (when given) ONE resolver body (owner ruling 2026-08-27: "a
+ * body is only a body if it is geometrically connected or if the users says,
+ * this body is the same as that body"; an unstamped band belongs to no body).
  *
  * Parameters
  * ----------
@@ -89,6 +91,8 @@ export interface IdentificationPool {
  *     The formation whose bands are wanted.
  * memberInvestigationIds
  *     The pooling population, or ``null`` to skip the filter (tests).
+ * bodyId
+ *     The one resolver body to scope to, or ``null`` for the whole row.
  *
  * Returns
  * -------
@@ -102,9 +106,11 @@ export function unitBoreholeBands(
     depth_top_m: number
     depth_base_m: number
     status: string
+    body_id?: string | null
   }[],
   unitId: string,
   memberInvestigationIds: ReadonlySet<string> | null = null,
+  bodyId: string | null = null,
 ): UnitBoreholeBandInterval[] {
   const out: UnitBoreholeBandInterval[] = []
   for (const layer of layers) {
@@ -113,6 +119,7 @@ export function unitBoreholeBands(
     if (layer.borehole_id === null) continue
     if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.borehole_id))
       continue
+    if (bodyId !== null && (layer.body_id ?? null) !== bodyId) continue
     out.push({
       boreholeId: layer.borehole_id,
       topDepthM: layer.depth_top_m,
