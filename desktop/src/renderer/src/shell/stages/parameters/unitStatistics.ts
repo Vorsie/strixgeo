@@ -122,7 +122,7 @@ export interface UnitStatistics {
 /**
  * The bands of one unit whose ground a cone actually measured.
  *
- * Four filters, each load-bearing:
+ * Five filters, each load-bearing:
  *
  * * **this unit** — ``formation_id`` is the band → unit link;
  * * **accepted only** — the geotech layer list is fetched WITHOUT a status
@@ -136,7 +136,13 @@ export interface UnitStatistics {
  *   "Only cpt's on the sections should be in the pooling so all hidden and
  *   removed should be excluded"). The set is the canonical section-membership
  *   union over the VISIBLE lists, so off-section, project-removed and
- *   manifest-gated holes all arrive here the same way: absent.
+ *   manifest-gated holes all arrive here the same way: absent;
+ * * **one body** — when ``bodyId`` is given, only bands the resolver stamped
+ *   with THAT body pool (owner ruling 2026-08-27, verbatim: "a body is only a
+ *   body if it is geometrically connected or if the users says, this body is
+ *   the same as that body"). The formation row lumps many resolver bodies; a
+ *   body scope must not let a disconnected body of the same class contribute.
+ *   An unstamped band belongs to no body and is excluded too.
  *
  * Parameters
  * ----------
@@ -148,6 +154,9 @@ export interface UnitStatistics {
  * memberInvestigationIds
  *     The pooling population, or ``null`` to skip the membership filter
  *     (tests, callers that pre-filter).
+ * bodyId
+ *     The one resolver body to scope to, or ``null`` for the whole formation
+ *     row (the pooled view).
  *
  * Returns
  * -------
@@ -161,9 +170,11 @@ export function unitCptBands(
     depth_top_m: number
     depth_base_m: number
     status: string
+    body_id?: string | null
   }[],
   unitId: string,
   memberInvestigationIds: ReadonlySet<string> | null = null,
+  bodyId: string | null = null,
 ): UnitBandInterval[] {
   const out: UnitBandInterval[] = []
   for (const layer of layers) {
@@ -171,6 +182,7 @@ export function unitCptBands(
     if (layer.status !== 'accepted') continue
     if (layer.cpt_id === null) continue
     if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.cpt_id)) continue
+    if (bodyId !== null && (layer.body_id ?? null) !== bodyId) continue
     out.push({
       cptId: layer.cpt_id,
       topDepthM: layer.depth_top_m,
