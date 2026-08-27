@@ -13,10 +13,29 @@
  * @module clients/geology.types
  */
 import type { CrossSectionResponse } from './section'
+// Imported as well as re-exported below: ``RebuildLithoSolidsResponse`` embeds
+// the report, and a bare ``export type ... from`` does not bring a name into
+// local scope.
+import type { GaplessBuildReport } from '../../utils/gaplessGate/types'
 
 // Re-export so callers that build the voxel payload can reach the request type
 // through the geology client surface.
 export type { VoxelBuildRequest } from '../../utils/buildVoxelRequest'
+
+// The seven-clause gapless gate. Declared with the gate itself (the renderer
+// computes four of the seven clauses and ships them out with the build
+// payload), re-exported here so API callers get it from the same place as
+// every other wire type.
+export type {
+  GaplessBuildReport,
+  GaplessClause,
+  GaplessClauseEntry,
+  GaplessClauseInput,
+  GaplessClauseKey,
+  GaplessClauseStatus,
+  GaplessMeasure,
+  GaplessVerdict,
+} from '../../utils/gaplessGate/types'
 
 // Re-export so callers that only need geology still get the section type.
 export type { CrossSectionResponse } from './section'
@@ -733,6 +752,22 @@ export interface RebuildLithoSolidsResponse {
    * absent whenever at least one body was built.
    */
   empty_reason?: string | null
+  /**
+   * THE SEVEN-CLAUSE GAPLESS GATE for this build — the answer to the owner's
+   * constraint that the model carries no gaps and no fallbacks except where a
+   * user made a mistake.
+   *
+   * The gate fails the REPORT, never the build: a build that trips a clause
+   * still writes its solids and still returns 200, and this is where it says
+   * so. Reading it as an error would hide the model from the engineer who
+   * needs to look at it.
+   *
+   * Assembled server-side from the four 2-D clauses this client sent in the
+   * request plus the three 3-D clauses the label grid answers. Optional: a
+   * backend older than the gate omits it, and so does a build that never
+   * reached the assembler.
+   */
+  gapless_report?: GaplessBuildReport | null
 }
 
 /**
