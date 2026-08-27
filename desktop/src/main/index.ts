@@ -13,6 +13,12 @@ import {
 } from 'fs'
 
 import { writeFileAtomic } from './atomicWrite'
+import { evaluateBetaExpiry, type BetaVerdict } from './betaExpiry'
+import { configureBetaExpiryStore, recordLaunch } from './betaExpiryStore'
+import { compiledBuildStamp, readBuildStamp } from './buildStamp'
+import { buildCrashBundle } from './crashBundle'
+import { readTransmissionConsent } from './diagnosticsConsent'
+import { captureDiagnostic, configureDiagnosticsStore } from './diagnosticsStore'
 import { rotateIfNeeded, realFsOps } from './logRotation'
 import {
   LOCAL_CLIENT_TOKEN_ENV_VAR,
@@ -503,6 +509,15 @@ function createWindow(): void {
       `[main] renderer process gone — reason=${details.reason} ` +
         `exitCode=${details.exitCode}`,
     )
+    captureDiagnostic(
+      {
+        kind: 'renderer-gone',
+        severity: 'fatal',
+        scope: 'window',
+        message: `renderer process gone — reason=${details.reason} exitCode=${details.exitCode}`,
+      },
+      'main',
+    )
     // Nobody is left to answer the close handshake, and a dead renderer holds
     // no unsaved state worth prompting about — stop intercepting closes so the
     // window doesn't become un-closable on top of the crash.
@@ -522,6 +537,15 @@ function createWindow(): void {
   win.webContents.on('unresponsive', () => {
     // eslint-disable-next-line no-console
     console.error('[main] renderer unresponsive (likely infinite loop or stuck await)')
+    captureDiagnostic(
+      {
+        kind: 'renderer-unresponsive',
+        severity: 'warning',
+        scope: 'window',
+        message: 'renderer unresponsive (likely infinite loop or stuck await)',
+      },
+      'main',
+    )
   })
 
   // Mirror the renderer console into the terminal — DEV ONLY.
@@ -701,6 +725,16 @@ function buildMenu(win: BrowserWindow): void {
           click: (): void => {
             const logsDir = app.getPath('logs')
             void shell.openPath(logsDir)
+          },
+        },
+        {
+          // #16 — the manual half of crash reporting: one zip the user can
+          // inspect and then send. Everything in it is redacted (see
+          // ./crashBundle), which is what makes "mail us your logs" a request
+          // a consultancy's IT can say yes to.
+          label: 'Save diagnostics bundle…',
+          click: (): void => {
+            void saveDiagnosticsBundle(win)
           },
         },
         { type: 'separator' },
@@ -1117,6 +1151,13 @@ ipcMain.handle(
   (_event, message: string, componentStack: string): void => {
     const ts = new Date().toISOString()
     const line = `[${ts}] [main] renderer error: ${message}\n${componentStack}`
+    // #16 — every renderer error path already arrives here (window.onerror,
+    // unhandledrejection, ErrorBoundary), so capturing at this one handler
+    // covers all three without a renderer-side change.
+    captureDiagnostic(
+      { kind: 'renderer-error', scope: 'renderer', message, stack: componentStack },
+      'renderer',
+    )
     if (mainLogPath) {
       try {
         appendFileSync(mainLogPath, `${line}\n`)
@@ -1129,6 +1170,63 @@ ipcMain.handle(
     }
   },
 )
+
+// ---------------------------------------------------------------------------
+// #16 — local diagnostics IPC
+// ---------------------------------------------------------------------------
+
+// Capture a renderer-observed problem. The renderer states WHAT went wrong;
+// the whitelist, the redaction pass and the file live in ./diagnosticsStore,
+// so a compromised renderer cannot widen what gets written or where.
+ipcMain.handle('diagnostics:capture', (_event, diagnostic: unknown): void => {
+  captureDiagnostic(diagnostic, 'renderer')
+})
+
+// Beta-expiry status for an in-app notice. Display only — the blocking
+// decision is made before the window exists (see enforceBetaExpiry).
+ipcMain.handle('app:beta-status', (): BetaVerdict | null => currentBetaVerdict())
+
+/**
+ * Assemble a diagnostics bundle and let the user choose where to put it.
+ *
+ * Driven from Help → "Save diagnostics bundle…". The file is written from the
+ * main process to a path the user just picked in a native dialog, so it needs
+ * no entry in the authorised-path set — that set exists to bound what the
+ * RENDERER may touch, and the renderer never sees this file.
+ *
+ * @param win - Parent window for the dialogs.
+ */
+async function saveDiagnosticsBundle(win: BrowserWindow): Promise<void> {
+  try {
+    const bundle = buildCrashBundle({
+      logsDir: app.getPath('logs'),
+      consent: readTransmissionConsent(),
+    })
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Save diagnostics bundle',
+      defaultPath: bundle.fileName,
+      filters: [{ name: 'Zip archive', extensions: ['zip'] }],
+    })
+    if (result.canceled || !result.filePath) return
+
+    writeFileAtomic(result.filePath, bundle.bytes)
+    await dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'Diagnostics bundle saved',
+      message: 'The bundle is ready to send.',
+      detail:
+        `It contains ${bundle.manifest.contents.join(', ')} and a manifest. ` +
+        `${bundle.manifest.redaction}`,
+      buttons: ['OK'],
+      noLink: true,
+    })
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    // eslint-disable-next-line no-console
+    console.error('[main] diagnostics bundle failed:', detail)
+    dialog.showErrorBox('StrixGeo — could not save diagnostics', detail)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // App lifecycle
@@ -1165,6 +1263,19 @@ function writeMainCrashLine(label: string, err: unknown): void {
   const ts = new Date().toISOString()
   const msg = err instanceof Error ? err.stack ?? err.message : String(err)
   const line = `[${ts}] [main] ${label}: ${msg}`
+  // #16 — the same crash, in the structured local log. Separate from the text
+  // line above on purpose: that one is for a human reading backend.log, this
+  // one is redacted and machine-readable so a crash bundle is safe to send.
+  captureDiagnostic(
+    {
+      kind: label === 'uncaughtException' ? 'main-uncaught' : 'main-unhandled-rejection',
+      severity: label === 'uncaughtException' ? 'fatal' : 'error',
+      scope: 'main',
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    },
+    'main',
+  )
   if (mainLogPath) {
     try {
       appendFileSync(mainLogPath, `${line}\n`)
@@ -1207,6 +1318,145 @@ crashReporter.start({
   submitURL: '',
   uploadToServer: false,
 })
+
+// ---------------------------------------------------------------------------
+// Beta expiry (debt #3/#5 slice — owner ballot 2026-08-26: "beta builds must
+// expire; a beta licence must not be usable for years")
+//
+// The rules live in ./betaExpiry, the anchor file in ./betaExpiryStore and the
+// stamp in ./buildStamp. What is here is only the wiring: read the stamp once,
+// decide before the window exists, re-decide periodically, and stop the app
+// when the answer is no.
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an expired build sends the user.
+ *
+ * The exact path is an owner decision (checkout lives on the landing page
+ * today); the host is what matters for the dialog to be useful.
+ */
+const BETA_RENEW_URL = 'https://strixgeo.com'
+
+/**
+ * How often a running app re-checks its own expiry.
+ *
+ * Six hours rather than a flat day: a workstation that is never restarted
+ * would otherwise keep an expired beta open until the next launch, and six
+ * hours bounds that to a single working session.
+ */
+const BETA_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+
+// Read once, at module load: the stamp is compiled into the binary and cannot
+// change while the process runs.
+const betaBuildStamp = readBuildStamp({
+  isPackaged: app.isPackaged,
+  env: process.env,
+  compiled: compiledBuildStamp(),
+})
+
+let betaVerdict: BetaVerdict | null = null
+
+/** The last verdict, for the renderer's display-only status call. */
+function currentBetaVerdict(): BetaVerdict | null {
+  return betaVerdict
+}
+
+/**
+ * Timestamps the app itself wrote while genuinely running.
+ *
+ * Feeds the same high-water mark as the anchor file, so deleting the anchor is
+ * not on its own enough to make a wound-back clock believable.
+ */
+function betaCorroboratingTimestamps(): number[] {
+  return readRecentProjects()
+    .map(entry => Date.parse(entry.lastOpened))
+    .filter(ms => Number.isFinite(ms))
+}
+
+/** Re-read the anchor, advance it, and decide. Caches the verdict. */
+function refreshBetaVerdict(): BetaVerdict {
+  const now = Date.now()
+  const anchor = betaBuildStamp ? recordLaunch(now) : null
+  betaVerdict = evaluateBetaExpiry(betaBuildStamp, anchor, now, betaCorroboratingTimestamps())
+  return betaVerdict
+}
+
+/** Tell the user the beta is over, offer the renewal page, and quit. */
+function stopForExpiredBeta(verdict: BetaVerdict): void {
+  // eslint-disable-next-line no-console
+  console.warn(`[main] beta build blocked — ${verdict.reason}`)
+  const expiredOn = verdict.expiresAtMs ? new Date(verdict.expiresAtMs).toLocaleDateString() : ''
+  const detail =
+    verdict.state === 'clock-rollback'
+      ? 'This build cannot verify the date. Set your system clock to the ' +
+        'correct time and start StrixGeo again — if it is already correct, ' +
+        'the beta period has ended.'
+      : `This beta build stopped working on ${expiredOn}. Your projects are ` +
+        'untouched: they live in your own database and .strix files, and a ' +
+        'current build opens them exactly as you left them.'
+
+  const choice = dialog.showMessageBoxSync({
+    type: 'info',
+    title: 'StrixGeo — this beta build has ended',
+    message: 'Thanks for testing StrixGeo.',
+    detail,
+    buttons: ['Get the current version', 'Quit'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+  if (choice === 0) {
+    void shell.openExternal(BETA_RENEW_URL)
+  }
+  app.quit()
+}
+
+/**
+ * Decide whether this launch may proceed.
+ *
+ * Called before the window is created, so a blocked build never renders — the
+ * renderer is not part of the decision and cannot be patched around it.
+ *
+ * @returns True when the app must stop.
+ */
+function enforceBetaExpiry(): boolean {
+  // A packaged build with no stamp never expires, and looks exactly like one
+  // whose stamp failed to inject — so say so, loudly and in the local log.
+  // The failure mode this catches: cutting a release without
+  // MAIN_VITE_STRIX_BETA_EXPIRES_AT set (see ./buildStamp.ts).
+  if (app.isPackaged && !betaBuildStamp) {
+    const warning = 'packaged build carries no beta expiry stamp — it will never expire'
+    // eslint-disable-next-line no-console
+    console.warn(`[main] ${warning}`)
+    captureDiagnostic({ kind: 'unknown', severity: 'warning', scope: 'beta', message: warning }, 'main')
+  }
+
+  const verdict = refreshBetaVerdict()
+  if (!verdict.blocked) {
+    if (verdict.state !== 'unstamped') {
+      // eslint-disable-next-line no-console
+      console.info(`[main] ${verdict.reason}`)
+    }
+    return false
+  }
+  stopForExpiredBeta(verdict)
+  return true
+}
+
+/** Re-decide periodically so a long-running session cannot outlive the date. */
+function startBetaExpiryWatch(): void {
+  if (!betaBuildStamp) return
+  const timer = setInterval(() => {
+    const verdict = refreshBetaVerdict()
+    if (verdict.blocked) {
+      clearInterval(timer)
+      stopForExpiredBeta(verdict)
+    }
+  }, BETA_RECHECK_INTERVAL_MS)
+  // Never hold the event loop open for this alone — quitting must not wait for
+  // a six-hour timer.
+  timer.unref?.()
+}
 
 // ---------------------------------------------------------------------------
 // Single-instance lock (autosave design Q4)
@@ -1282,6 +1532,20 @@ if (!gotSingleInstanceLock) {
       userDataDir: app.getPath('userData'),
       appVersion: app.getVersion(),
     })
+    // #16 — local diagnostics. Configured before anything can crash into it,
+    // and before the beta gate below, so a gate failure is itself captured.
+    configureDiagnosticsStore({
+      userDataDir: app.getPath('userData'),
+      appVersion: app.getVersion(),
+      platform: process.platform,
+      buildId: betaBuildStamp?.buildId,
+    })
+    configureBetaExpiryStore({ userDataDir: app.getPath('userData') })
+
+    // An expired beta stops here: no backend is spawned, no window is created.
+    if (enforceBetaExpiry()) return
+    startBetaExpiryWatch()
+
     startApi()
     createWindow()
 
