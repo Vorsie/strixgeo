@@ -147,6 +147,7 @@ function renderLayer(
     axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     columnBandDisplayAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     correlateMode?: boolean
+    onShowLithoUnitStatistics?: (formationId: string) => void
   } = {},
 ) {
   return render(
@@ -181,6 +182,7 @@ function renderLayer(
         axisMode={extras.axisMode}
         columnBandDisplayAxis={extras.columnBandDisplayAxis}
         correlateMode={extras.correlateMode}
+        onShowLithoUnitStatistics={extras.onShowLithoUnitStatistics}
       />
     </svg>,
   )
@@ -2121,6 +2123,92 @@ describe('ContactsLayer', () => {
     const dialog = screen.queryByTestId('delete-contact-confirm-dialog')
     expect(dialog).not.toBeNull()
     expect(dialog).toHaveTextContent(/CLAY/)
+  })
+
+  // Owner ruling R1 (2026-08-27): right-click a litho unit on the section
+  // litho axis → "Unit statistics…" → Parameters scoped to that LITHO unit.
+  it('LB-US1: the litho band menu offers "Unit statistics…" and reports the FORMATION id', () => {
+    const onShowLithoUnitStatistics = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      {
+        perColumnBandsFromContacts: true,
+        onDeleteContact: vi.fn().mockResolvedValue(undefined),
+        onShowLithoUnitStatistics,
+      },
+    )
+    // The FIRST band is the SAND unit (between c-1 and c-2).
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-menu-unit-statistics'))
+
+    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('f-sand')
+    // The jump closes the menu.
+    expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
+  })
+
+  it('LB-US2: the statistics handler alone is enough to open the band menu', () => {
+    // The menu used to be gated on the DELETE handler only; a surface wired
+    // for the jump but not for deletion must still answer the right-click.
+    const onShowLithoUnitStatistics = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onShowLithoUnitStatistics },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+
+    expect(screen.getByTestId('litho-band-context-menu')).toBeTruthy()
+    expect(screen.getByTestId('litho-band-menu-unit-statistics')).toBeTruthy()
+    // ...but no Remove item without its handler — the no-affordance rule.
+    expect(screen.queryByTestId('litho-band-remove')).toBeNull()
+  })
+
+  it('LB-US3: with neither handler, right-click opens no menu (the geotech-axis guard)', () => {
+    // ``perColumnBandsFromContacts`` is true on the geotech axis too; an
+    // unconditional handler there would swallow right-clicks that belong to
+    // the packing-band overlay above these rects.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+
+    expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
   })
 
   it('LB2: clicking "Remove" opens the existing delete-contact confirm dialog', () => {
