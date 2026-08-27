@@ -3594,6 +3594,12 @@ export default function PartitionFillOverlay({
                           clientY: e.clientY,
                           formationId: sr.region.formationId,
                           bodyId: resolveRegionBodyId(sr.region.layerIds, bodyIdByLayerId),
+                          // The region's own layers let the GEOTECH jump ladder
+                          // reach a class row when the body is unresolved (spec
+                          // §2 step 2, weld-merged regions). Only the geotech
+                          // (view-only) axis has a class level, so the litho
+                          // axis keeps its two-argument jump unchanged.
+                          regionLayerIds: viewOnly ? sr.region.layerIds : undefined,
                         })
                       }
                     : undefined
