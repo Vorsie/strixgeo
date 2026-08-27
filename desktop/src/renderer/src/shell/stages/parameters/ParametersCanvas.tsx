@@ -29,18 +29,19 @@
 //      picks ONE path per (parameter, unit). Comparison view shows
 //      both side-by-side for sanity checking.
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { BarChart3, Beaker, Sliders, Sparkles } from 'lucide-react'
 
 import { EmptyState } from '../../EmptyState'
 import TabBar from '../../../components/ui/TabBar'
 import type { TabSpec } from '../../../components/ui/TabBar'
 import { useShell } from '../../ShellContext'
+import type { ParametersTabId } from '../../ShellContext'
 import MethodConfigTab from './tabs/MethodConfigTab'
 import PerTestTab from './tabs/PerTestTab'
 import PerUnitTab from './tabs/PerUnitTab'
 
-type TabId = 'per-test' | 'per-unit' | 'methods'
+type TabId = ParametersTabId
 
 // TabSpec is the imported type from TabBar; cast id to TabId for type safety.
 const TABS: readonly (TabSpec & { id: TabId; iconComponent: typeof Beaker })[] = [
@@ -83,24 +84,25 @@ const TABS: readonly (TabSpec & { id: TabId; iconComponent: typeof Beaker })[] =
  * distributions, ML/AI hook stubs.
  */
 export default function ParametersCanvas(): JSX.Element {
-  const [tab, setTab] = useState<TabId>('per-test')
   const {
-    coordinator: { selectedParameterUnitId },
+    coordinator: { selectedParameterUnit, parametersActiveTab: tab, setParametersActiveTab: setTab },
   } = useShell()
 
-  // Landing here from a geotech band's "Unit statistics…" (owner ballot
-  // 2026-08-26) must show the tab that LISTS units — the inspector already
-  // draws the distributions, but leaving the canvas on "Per test" hides the
-  // row the engineer just navigated to and the siblings he came to compare it
-  // against.
+  // Landing here from a band's or region's "Unit statistics…" (owner ballot
+  // 2026-08-26) must show the per-unit tab — after the R3 layout flip that is
+  // where the statistics draw, with the unit list in the inspector beside
+  // them.
   //
-  // Keyed on the unit id, so it fires once per unit rather than on every
+  // Keyed on the scope, so it fires once per unit rather than on every
   // render: an engineer who then switches to Methods with the unit still
   // scoped is not dragged back.
   useEffect(() => {
-    if (selectedParameterUnitId === null) return
+    if (selectedParameterUnit === null) return
     setTab('per-unit')
-  }, [selectedParameterUnitId])
+    // reason: ``setTab`` is the stable coordinator setter; the scope is the
+    // only signal that should re-fire this navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedParameterUnit])
 
   return (
     <div className="flex flex-col h-full bg-surface-app text-text-primary">
