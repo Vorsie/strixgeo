@@ -434,11 +434,20 @@ interface Props {
    * Jump to the Parameters stage scoped to the right-clicked band's LITHO
    * unit (owner ruling R1, 2026-08-27). Reports the band's ``formationId`` —
    * the statistics are a property of the unit, pooled over every band of it,
-   * "regardless of packing density". Absent → the menu item is not offered
-   * (litho axis only; the geotech axis has its own jump on the packing-band
-   * overlay).
+   * "regardless of packing density" — plus the band's BODY when
+   * ``lithoBodyIdByLayerId`` names one (owner body-scope ruling 2026-08-27).
+   * Absent → the menu item is not offered (litho axis only; the geotech axis
+   * has its own jump on the packing-band overlay).
    */
-  onShowLithoUnitStatistics?: (formationId: string) => void
+  onShowLithoUnitStatistics?: (formationId: string, bodyId?: string | null) => void
+  /**
+   * ``litho_layer id → body_id`` for the statistics jump (owner body-scope
+   * ruling 2026-08-27). A band's ``contactId`` IS its litho layer id (the
+   * UUID-preserving A2.5 backfill), so the map keys on it. OPTIONAL and
+   * read-only: without it the jump stays formation-level, and nothing else
+   * in this layer reads bodies.
+   */
+  lithoBodyIdByLayerId?: ReadonlyMap<string, string | null>
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -692,6 +701,7 @@ export default function ContactsLayer({
   geoSnapToleranceM,
   onRequestAddLithoSuggestion,
   onShowLithoUnitStatistics,
+  lithoBodyIdByLayerId,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -781,6 +791,8 @@ export default function ContactsLayer({
         formationName: string
         /** The band's litho unit — what the statistics jump is scoped to (R1). */
         formationId: string
+        /** The band's resolver body (body-scope ruling 2026-08-27); null when unknown. */
+        bodyId: string | null
       }
     | {
         clientX: number
@@ -1400,6 +1412,8 @@ export default function ContactsLayer({
         contactId: band.contactId,
         formationName: band.formationName,
         formationId: band.formationId,
+        // The contact id IS the layer id, so the body map keys on it.
+        bodyId: lithoBodyIdByLayerId?.get(band.contactId) ?? null,
       })
     }
   }
@@ -3399,6 +3413,7 @@ export default function ContactsLayer({
                     EDITS this column, this one navigates away (R1). */}
                 <UnitStatisticsItem
                   unitId={lithoBandMenu.formationId}
+                  bodyId={lithoBandMenu.bodyId}
                   onShow={onShowLithoUnitStatistics}
                   onClose={() => setLithoBandMenu(null)}
                   topBorder={Boolean(onDeleteContact)}
