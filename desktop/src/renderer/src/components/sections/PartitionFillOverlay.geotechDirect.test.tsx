@@ -450,3 +450,116 @@ describe('PartitionFillOverlay — "Unit statistics…" from the fill (owner rul
     expect(onShowGeotechUnitStatistics).not.toHaveBeenCalled()
   })
 })
+
+describe('PartitionFillOverlay — the litho fill jump + the axis discipline (owner rulings S7a/S7b, 2026-08-27)', () => {
+  /** The region HIT paths (not their seam strokes). */
+  function regionHitPaths(container: HTMLElement): SVGElement[] {
+    return Array.from(
+      container.querySelectorAll<SVGElement>('[data-testid^="partition-region-"]'),
+    ).filter(el => !(el.getAttribute('data-testid') ?? '').includes('-stroke-'))
+  }
+
+  it('LF1 — "in the litho stage i should be able to click the litho fill too"', () => {
+    const onShowLithoUnitStatistics = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...lithoProps}
+          onShowLithoUnitStatistics={onShowLithoUnitStatistics}
+        />
+      </svg>,
+    )
+    const hits = regionHitPaths(container)
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0].style.pointerEvents).not.toBe('none')
+    fireEvent.contextMenu(hits[0], { clientX: 60, clientY: 80 })
+    fireEvent.click(screen.getByTestId('partition-region-menu-unit-statistics'))
+    // The reported id is the clicked region's LITHO unit.
+    expect(onShowLithoUnitStatistics).toHaveBeenCalledTimes(1)
+    expect(['formation-sand', 'formation-clay']).toContain(
+      onShowLithoUnitStatistics.mock.calls[0][0],
+    )
+  })
+
+  it('LF2 — a region with a body keeps its body menu; only bodiless fill takes the new path', () => {
+    const onShowLithoUnitStatistics = vi.fn()
+    const onBodyContextMenu = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...lithoProps}
+          bodies={[
+            { id: 'body-sand', formation_id: 'formation-sand', name: null } as never,
+          ]}
+          onBodyContextMenu={onBodyContextMenu}
+          onShowLithoUnitStatistics={onShowLithoUnitStatistics}
+        />
+      </svg>,
+    )
+    // The sand regions resolve to the known body → the BODY menu answers
+    // (it carries its own statistics item), not the fill menu.
+    const sandHit = regionHitPaths(container).find(el =>
+      (el.getAttribute('data-testid') ?? '').includes('body-sand'),
+    )!
+    fireEvent.contextMenu(sandHit, { clientX: 60, clientY: 40 })
+    expect(onBodyContextMenu).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('partition-region-menu')).toBeNull()
+    // A clay region (no body in the list) answers with the fill menu.
+    const clayHit = regionHitPaths(container).find(el =>
+      (el.getAttribute('data-testid') ?? '').includes('body-clay'),
+    )!
+    fireEvent.contextMenu(clayHit, { clientX: 60, clientY: 130 })
+    fireEvent.click(screen.getByTestId('partition-region-menu-unit-statistics'))
+    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('formation-clay')
+  })
+
+  it('LF3 — S7a: "Litho fill shouldn\'t be accesible in the geotech stage" — the litho frame is inert there', () => {
+    const onShowLithoUnitStatistics = vi.fn()
+    const onShowGeotechUnitStatistics = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...geotechProps}
+          onShowGeotechUnitStatistics={onShowGeotechUnitStatistics}
+          onShowLithoUnitStatistics={onShowLithoUnitStatistics}
+        />
+      </svg>,
+    )
+    // The litho-frame surfaces — fallback fills and outlines — take no
+    // pointer events at all: no jump, no menu, nothing.
+    const lithoSurfaces = [
+      ...Array.from(container.querySelectorAll('[data-testid="partition-litho-fallback"]')),
+      ...Array.from(container.querySelectorAll('[data-testid="partition-litho-outline"]')),
+    ]
+    expect(lithoSurfaces.length).toBeGreaterThan(0)
+    for (const el of lithoSurfaces) {
+      expect((el as SVGElement).style.pointerEvents).toBe('none')
+    }
+    fireEvent.contextMenu(lithoSurfaces[0], { clientX: 60, clientY: 160 })
+    expect(screen.queryByTestId('partition-region-menu')).toBeNull()
+    expect(onShowLithoUnitStatistics).not.toHaveBeenCalled()
+  })
+
+  it('LF4 — S7a: on the geotech axis only geotech surfaces jump — as geotech units', () => {
+    const onShowLithoUnitStatistics = vi.fn()
+    const onShowGeotechUnitStatistics = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...geotechProps}
+          onShowGeotechUnitStatistics={onShowGeotechUnitStatistics}
+          onShowLithoUnitStatistics={onShowLithoUnitStatistics}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(regionHitPaths(container)[0], { clientX: 60, clientY: 80 })
+    fireEvent.click(screen.getByTestId('partition-region-menu-unit-statistics'))
+    // The geotech handler answers with a geotech unit; the litho handler is
+    // never consulted on this axis.
+    expect(onShowGeotechUnitStatistics).toHaveBeenCalledTimes(1)
+    expect(['nad-zand-5', 'nad-zand-7']).toContain(
+      onShowGeotechUnitStatistics.mock.calls[0][0],
+    )
+    expect(onShowLithoUnitStatistics).not.toHaveBeenCalled()
+  })
+})
