@@ -258,3 +258,37 @@ describe('unitCptBands — which bands the statistics may read', () => {
     ])
   })
 })
+
+// Owner ruling 2026-08-27, verbatim: "a body is only a body if it is
+// geometrically connected or if the users says, this body is the same as that
+// body." A unit ROW lumps many resolver bodies; scoping to one body must pool
+// only that body's ground.
+describe('unitCptBands — the body scope (owner ruling 2026-08-27)', () => {
+  const layers = [
+    // Body A of the unit — two bands on two CPTs.
+    { id: 'a1', formation_id: 'u1', cpt_id: 'c1', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'body-A' },
+    { id: 'a2', formation_id: 'u1', cpt_id: 'c2', borehole_id: null, depth_top_m: 1, depth_base_m: 3, status: 'accepted', body_id: 'body-A' },
+    // Body B — a DISCONNECTED body of the same class, elsewhere in the model.
+    { id: 'b1', formation_id: 'u1', cpt_id: 'c3', borehole_id: null, depth_top_m: 4, depth_base_m: 6, status: 'accepted', body_id: 'body-B' },
+    // A band the resolver has not stamped yet.
+    { id: 'n1', formation_id: 'u1', cpt_id: 'c4', borehole_id: null, depth_top_m: 7, depth_base_m: 8, status: 'accepted', body_id: null },
+  ]
+
+  it('BS1 — a body-scoped view pools ONLY that body\'s bands; a second disconnected body of the same class contributes nothing', () => {
+    const bands = unitCptBands(layers, 'u1', null, 'body-A')
+    expect(bands).toEqual([
+      { cptId: 'c1', topDepthM: 0, baseDepthM: 2 },
+      { cptId: 'c2', topDepthM: 1, baseDepthM: 3 },
+    ])
+  })
+
+  it('BS2 — without a body the whole formation row pools (the lumped view, unchanged)', () => {
+    const bands = unitCptBands(layers, 'u1')
+    expect(bands.map(b => b.cptId)).toEqual(['c1', 'c2', 'c3', 'c4'])
+  })
+
+  it('BS3 — a band the resolver never stamped belongs to NO body, so a body scope excludes it', () => {
+    const bands = unitCptBands(layers, 'u1', null, 'body-B')
+    expect(bands).toEqual([{ cptId: 'c3', topDepthM: 4, baseDepthM: 6 }])
+  })
+})
