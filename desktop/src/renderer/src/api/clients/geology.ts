@@ -73,6 +73,7 @@ import type {
   DiscoverFromStratigraphyResponse,
   DeduplicateContactsResponse,
   LithoBodySolidResponse,
+  GaplessBuildReport,
   ModelFootprintResponse,
   RebuildLithoSolidsResponse,
   RecomputeBodiesResponse,
@@ -582,6 +583,32 @@ export const geologyClient = {
       `/projects/${projectId}/geology/models/${modelId}/litho-solids/build-voxel`,
       request,
     ),
+
+  /**
+   * GET .../litho-solids/build-report — the seven-clause gapless gate for the
+   * LAST build of this model.
+   *
+   * Read on project open, so reopening a project shows the verdict of the build
+   * whose solids are on screen rather than a blank where a guarantee should be.
+   * The report is stored on the build-generation row, so it survives the
+   * session that produced it.
+   *
+   * ``null`` when the model has never been built, or was last built by a
+   * version that predates the gate — both are honestly "no verdict", never a
+   * green one.
+   *
+   * Parameters
+   * ----------
+   * projectId
+   *     Project scope guard.
+   * modelId
+   *     The litho / geotech model whose last build to report on.
+   */
+  getGaplessBuildReport: (
+    projectId: string,
+    modelId: string,
+  ): Promise<GaplessBuildReport | null> =>
+    get(`/projects/${projectId}/geology/models/${modelId}/litho-solids/build-report`),
 
   /**
    * POST .../bodies/recompute — persist geometric body identity (slice 5).
