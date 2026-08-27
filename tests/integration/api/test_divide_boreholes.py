@@ -627,6 +627,41 @@ async def test_db1_sab_then_divide_boreholes(
         f"!= layer[1].top={bh_sorted[1].depth_top_m:.4f} m"
     )
 
+    # DB1-6 (parent-band FK, Parameters body-tree A3): each borehole geotech
+    # band names the covering litho band it fills within — the accepted litho
+    # band on BH-S whose interval contains the band's midpoint. The tree derives
+    # the band's litho body live through it.
+    bh_litho_by_id = {
+        ly.id: ly
+        for ly in (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == litho_model_id,
+                        LithoLayerOrm.borehole_id == bh_s_id,
+                        LithoLayerOrm.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    }
+    for ll in bh_sorted:
+        assert ll.parent_litho_layer_id is not None, (
+            f"DB1-6: BH-S band [{ll.depth_top_m}, {ll.depth_base_m}] carries no covering litho band"
+        )
+        parent = bh_litho_by_id.get(ll.parent_litho_layer_id)
+        assert parent is not None, (
+            f"DB1-6: BH-S band parent {ll.parent_litho_layer_id} is not an "
+            "accepted litho band on BH-S"
+        )
+        mid = 0.5 * (ll.depth_top_m + ll.depth_base_m)
+        assert parent.depth_top_m - 1e-6 <= mid <= parent.depth_base_m + 1e-6, (
+            f"DB1-6: band midpoint {mid} outside its parent litho band "
+            f"[{parent.depth_top_m}, {parent.depth_base_m}]"
+        )
+
 
 @pytest.mark.asyncio
 async def test_db2_idempotent(
