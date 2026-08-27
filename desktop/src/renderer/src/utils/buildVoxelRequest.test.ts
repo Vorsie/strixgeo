@@ -80,13 +80,20 @@ describe('buildVoxelRequest', () => {
   })
 
   // A project with no sections yields an empty payload (still carrying spacing).
+  // `gapless_2d` is always attached (additive field) — with zero sections and
+  // no litho frame, all four clauses read not-evaluated rather than a vacuous
+  // pass; see `gaplessGate/index.test.ts` for the merge rule itself.
   it('returns an empty-sections payload carrying all three spacing fields', () => {
-    expect(buildVoxelRequest([], 2.0, 1.0)).toEqual({
-      sections: [],
-      grid_spacing_m: 2.0,
-      horizontal_spacing_m: 2.0,
-      vertical_spacing_m: 1.0,
-    })
+    const req = buildVoxelRequest([], 2.0, 1.0)
+    expect(req.sections).toEqual([])
+    expect(req.grid_spacing_m).toBe(2.0)
+    expect(req.horizontal_spacing_m).toBe(2.0)
+    expect(req.vertical_spacing_m).toBe(1.0)
+    expect(req.gapless_2d).toHaveLength(4)
+    for (const clause of req.gapless_2d!) {
+      expect(clause.status).toBe('not-evaluated')
+      expect(clause.entries).toEqual([])
+    }
   })
 
   // The section endpoints round-trip into the payload's start/end world coords.
