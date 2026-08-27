@@ -13,8 +13,10 @@
 // AX3 — Rf maps by the 0–10 % axis (2.5 % → 25 %).
 // AX4 — the axis spans 0 → full scale even when the samples span neither end:
 //       readings 4 and 16 MPa sit at 10 % and 40 % of the row, not at 0 and 100.
-// AX5 — a reading past the CPT plot's full scale clamps to the row end; it
-//       never stretches the axis.
+// AX5 — a reading past the CPT plot's full scale does NOT render (no
+//       clamping — owner S2, 2026-08-27: "if something is off the axis then
+//       it doesn't render") and it never stretches the axis; the readout
+//       still reports the true value.
 // AX6 — each row names its axis ends (0 and the full-scale value) so the
 //       shared scale is readable, not implied.
 
@@ -91,16 +93,16 @@ describe('UnitDistributionPanels — the CPT plot axes, starting at zero', () =>
     expect(xs[xs.length - 1]).toBeCloseTo(40, 4)
   })
 
-  it('AX5 — a reading past the CPT plot full scale clamps to the row end', () => {
+  it('AX5 — a reading past the CPT plot full scale does not render (no clamping)', () => {
     render(
       <UnitDistributionPanels
         statistics={singleReadingStatistics(60, 0.25, 2.5)}
         unitLabel="Vast zand"
       />,
     )
-    // 60 MPa is off the CPT plot's 0–40 axis: the mark pins at the end of the
-    // row rather than re-scaling the axis to fit it.
-    expect(dotXs('qc')[0]).toBeCloseTo(100, 4)
+    // 60 MPa is off the CPT plot's 0–40 axis: off the axis means it does not
+    // render — nothing is pinned to the row end, the axis never stretches.
+    expect(dotXs('qc')).toHaveLength(0)
     // ...and the readout still tells the truth about the value.
     const qcRow = screen.getByTestId('unit-stats-row-qc')
     expect(within(qcRow).getByTestId('unit-stats-max-qc').textContent).toContain('60')
