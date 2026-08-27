@@ -44,6 +44,7 @@ import { drapeHolds, seamDrapeOf, type SeamDrape } from './seamDrape'
 import { nadClassRank, seamHalfBand, stackedSeamOf, type StackedSeam } from './stackedSeamHalf'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
 import type { SectionRegion } from '../../partitionFill'
+import { ringAreaM2 } from '../../partitionFill/regionArea'
 
 /** How far construct lines are drawn past the gap so they cross it cleanly. */
 const EXTEND = 0.02
@@ -168,17 +169,6 @@ function ringSpanAt(
     if (p.elevation > allHi) allHi = p.elevation
   }
   return { lo: allLo, hi: allHi }
-}
-
-/** Ring area in the gap's fraction space, scaled to square metres. */
-function areaM2(ring: readonly { fraction: number; elevation: number }[], width: number): number {
-  let twice = 0
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]
-    const b = ring[(i + 1) % ring.length]
-    twice += a.fraction * b.elevation - b.fraction * a.elevation
-  }
-  return (Math.abs(twice) / 2) * Math.abs(width)
 }
 
 /**
@@ -674,7 +664,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // nothing and still reads as a body of its own in every audit. (That one is
     // taken by the pocket rule below, which reaches it first; this guard is
     // what catches the same shape where no single mass encloses it.)
-    if (areaM2(face.ring, width) <= DEGENERATE_AREA_M2) continue
+    if (ringAreaM2(face.ring, width) <= DEGENERATE_AREA_M2) continue
     const frame = coverAt(framePaint, face.sample.fraction, face.sample.elevation)
     // Outside this family's litho cover, or inside a face another family owns.
     if (frame === null || !own.has(frame)) continue
@@ -706,7 +696,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // so the pre-merge audit must not measure it as a construct envelope.
     const answeredByConstruct = seamSide === null && band !== null
     if (seamSide !== null) {
-      if (band !== null) remainderAreaM2 += areaM2(face.ring, width)
+      if (band !== null) remainderAreaM2 += ringAreaM2(face.ring, width)
     } else if (band === null) {
       // "then fill in the rest with the dominant lithology"
       // The loop's own extent AT THIS POINT'S vertical, not over its whole
@@ -738,7 +728,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
       })
       band = dominant.band
       if (band !== null) {
-        remainderAreaM2 += areaM2(face.ring, width)
+        remainderAreaM2 += ringAreaM2(face.ring, width)
         if (dominant.split) splitRemainders += 1
       }
     }
@@ -770,7 +760,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     // Re-owned ground is the OWNERSHIP step's answer, not a shape the law drew
     // — the pre-merge audit measures construct envelopes, and this loop lies
     // outside its new owner's.
-    if (entry.role === 'construct') remainderAreaM2 += areaM2(entry.ring, width)
+    if (entry.role === 'construct') remainderAreaM2 += ringAreaM2(entry.ring, width)
     entry.role = 'fill'
   }
 
@@ -803,7 +793,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
     if (winner === null) continue
     entry.band = winner
     entry.role = 'fill'
-    remainderAreaM2 += areaM2(entry.ring, width)
+    remainderAreaM2 += ringAreaM2(entry.ring, width)
   }
 
   const labelled: LabelledFace<RunBand>[] = []
