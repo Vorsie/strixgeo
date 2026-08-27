@@ -213,6 +213,17 @@ Skip in emergencies with `git commit --no-verify` / `git push --no-verify`
 
 ---
 
+## Distribution build (Windows installer)
+
+See [docs/distribution-build.md](docs/distribution-build.md) — `cd desktop &&
+npm run dist` produces an unsigned NSIS installer carrying a bundled
+PostgreSQL 16 + PostGIS 3.6 and a relocated CPython running the backend from
+source. **The dev workflow is untouched — every mechanism is gated on
+`app.isPackaged` or on running a staging script deliberately.** Load before
+packaging / installer / bundled-DB work. (Pairs with `distribution-db-decision.md`.)
+
+---
+
 ## Subagents
 
 See [docs/subagents.md](docs/subagents.md) — The 9 project-scoped subagents (senior-code-reviewer, system-architect, staff-engineer, security-reviewer, product-strategy-advisor, ux-reviewer, **logging-reviewer**, **testing-reviewer**, **debugging-scientist**) and when to reach for each. The last three (added 2026-06-30) run the observability/testing/scientific-debugging gates — use the Combined Workflow (implement → logging-review → testing-review → revise) on substantive changes.
