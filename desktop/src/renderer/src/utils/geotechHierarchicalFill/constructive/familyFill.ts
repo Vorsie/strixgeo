@@ -29,6 +29,7 @@ import {
 import type { Mass } from './emitKernel'
 import type { LithoFamily } from '../families'
 import type { CorrelationEdge, SectionRegion } from '../../partitionFill'
+import { regionAreaM2FromAlongM } from '../../partitionFill/regionArea'
 import type { TieConflict } from '../../partitionFillV2'
 
 /** Everything one family's fill needs from the section around it. */
@@ -98,20 +99,6 @@ export interface FillPlansResult {
    * Empty is the contract since the least-dense ruling of 2026-08-26.
    */
   totalityViolations: TotalityViolation[]
-}
-
-/** Ring area in square metres: fraction-space area scaled by the gap width. */
-function areaM2(region: SectionRegion, alongM: readonly number[]): number {
-  const width = alongM[region.gapIndex + 1] - alongM[region.gapIndex]
-  if (!Number.isFinite(width)) return 0
-  let twice = 0
-  const ring = region.polygon
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]
-    const b = ring[(i + 1) % ring.length]
-    twice += a.fraction * b.elevation - b.fraction * a.elevation
-  }
-  return (Math.abs(twice) / 2) * Math.abs(width)
 }
 
 /**
@@ -252,7 +239,7 @@ export function planFamily(
     // "4 · Divide boreholes" is what accepts it.
     if (blockers.has(gap) || blockers.has(gap + 1) || own.size === 0) {
       out.fallback.push(...cover)
-      for (const r of cover) out.residualNoBandsM2 += areaM2(r, alongM)
+      for (const r of cover) out.residualNoBandsM2 += regionAreaM2FromAlongM(r, alongM)
       if (own.size === 0) out.oneSidedGaps += 1
       continue
     }
@@ -426,7 +413,7 @@ export function fillPlans(
     out.fallback.push(...filled.residual)
     out.remainderAreaM2 += filled.remainderAreaM2
     out.splitRemainders += filled.splitRemainders
-    for (const r of filled.residual) out.residualOutsideBandRangeM2 += areaM2(r, alongM)
+    for (const r of filled.residual) out.residualOutsideBandRangeM2 += regionAreaM2FromAlongM(r, alongM)
     const violation = totalityViolationOf(plan, filled)
     if (violation !== null) out.totalityViolations.push(violation)
   }
