@@ -414,6 +414,9 @@ class LithoLayerRepository(GroundModelLogger):
                     top_depth_m=r.depth_top_m,
                     base_depth_m=r.depth_base_m,
                     kind=anchor_kind,
+                    # The layer's own id — the covering litho band a geotech
+                    # subdivider stamps onto every band it mints from this pick.
+                    litho_layer_id=str(r.id),
                 )
             )
 
