@@ -53,17 +53,33 @@ LITHO UNIT            (litho formation row; always listed — kills the
 
 ### Membership: which geotech bands belong to a litho body
 
-Geotech layers do not carry litho body ids. A geotech band belongs to litho
-body B iff the accepted litho band on the SAME investigation whose
-`[top, base)` interval contains the geotech band's midpoint is stamped
-`body_id = B`. This is the established midpoint-in-band rule
-(`unitIdentification.midpointInBand`), applied investigation-locally; it is a
-pure renderer-side function over the two loaded layer lists.
+**Persisted in the DB, per the owner's spec note** (*"can't you just create a
+foreign key … in a many to one manner in the DB?"*) — with the FK at BAND
+level rather than body level, because litho recomputes re-mint litho body
+ids: a body→body FK would dangle on every recompute, while a band→band FK is
+stable and the body is derived live through it.
 
-A geotech band with NO covering accepted litho band (legacy or hand-edited
-data) is EXCLUDED from the tree and counted once per litho unit in a quiet
-footer line ("N bands outside the litho model"), never given an invented
-home.
+* Migration (additive, nullable, chains after `b8c9d0e1f2a3`):
+  `litho_layer.parent_litho_layer_id` — FK to `litho_layer.id`,
+  `ON DELETE SET NULL`. Meaningful only on geotech-model rows.
+* Stamped at birth: the subdivider creates geotech bands BY splitting litho
+  bands, so the materialiser writes the parent id it already holds. Manual
+  band verbs (split / set-class / band edits) preserve or re-derive it the
+  same way.
+* Backfill: one data migration stamps existing geotech bands using the
+  midpoint rule below; rows with no covering litho band stay NULL.
+* Derivation, in plain words: take the geotech band's vertical midpoint;
+  find the accepted litho band on the same investigation that covers that
+  midpoint; that litho band is the parent. (This rewrites the sentence the
+  owner flagged as garbled.) The litho BODY of a geotech band =
+  `parent_litho_layer.body_id`, read live — never stored, never stale.
+* The renderer reads `parent_litho_layer_id` from the layer payload; the
+  midpoint rule survives only in the backfill and in the band verbs, one
+  backend source.
+
+A geotech band with `parent_litho_layer_id = NULL` (no covering litho band)
+is EXCLUDED from the tree and counted once per litho unit in a quiet footer
+line ("N bands outside the litho model"), never given an invented home.
 
 ## 2. Scope model
 
@@ -132,17 +148,28 @@ Frame, basemap and zoom stay the F4/F5 behaviour (full model, always).
 
 ## 5. What does NOT change
 
-Body resolution, ties, the weld, every backend surface, the Per-test tab,
-the Methods tab, section-jump menu surfaces (they already report body
-identity), the R7 offer (not built; its home is the class row), the e2e
-goldens (re-blessed when this lands — the pane shape changes on purpose).
+Body resolution, ties, the weld, the Per-test tab, the Methods tab,
+section-jump menu surfaces (they already report body identity), the R7
+offer (not built; its home is the class row), the e2e goldens (re-blessed
+when this lands — the pane shape changes on purpose). Backend changes are
+LIMITED to the parent-band FK: the migration, the materialiser/band-verb
+stamping, the backfill, and the layer response field — nothing else.
 
 ## 6. Modules
 
+Backend (the FK slice):
+
+* migration `litho_layer.parent_litho_layer_id` + backfill (midpoint rule);
+* `geotech_borehole_materialiser` + the band verbs stamp the parent at
+  every write;
+* `LithoLayerResponse` gains the field (additive).
+
+Frontend:
+
 * `parameterBodyTree.ts` (new, pure): builds the tree from
-  `lithoFormations + lithoLayers + geotechLayers + body rosters`; exposes
-  `bandsForScope(scope)` used by pooling and cutout alike — one authority
-  for "what does this node cover".
+  `lithoFormations + lithoLayers + geotechLayers (with parent ids) + body
+  rosters`; exposes `bandsForScope(scope)` used by pooling and cutout alike
+  — one authority for "what does this node cover".
 * `UnitListPane.tsx`: renders the tree (listbox a11y rules from F11 carry
   over: options own aria-expanded, no focusable descendants).
 * `useUnitStatistics.ts` / `UnitIdentificationPanels` / `UnitFenceScene`:
@@ -160,8 +187,9 @@ Red-first pins, phrased in the rulings' words:
 2. single-child collapse at each level;
 3. class-row click pools exactly its bodies' bands (and the header counts
    only contributing bodies);
-4. the geotech-class membership rule (midpoint-in-litho-band, same
-   investigation) incl. the excluded-orphan counter;
+4. the parent-band FK: stamped at subdivide and at every band verb; the
+   backfill stamps legacy rows and leaves true orphans NULL; the tree's
+   excluded-orphan counter reads exactly those NULLs;
 5. the jump ladder: resolved body → leaf; weld-merged region with unique
    litho parent → class row; unresolved → geotech-unit;
 6. cutout panel set equals the pooled band set's bodies for every kind
