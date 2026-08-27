@@ -161,6 +161,27 @@ declare global {
       onAppBackendFailed: (cb: () => void) => () => void
       getLogsPath: () => Promise<string>
       logRendererError: (message: string, componentStack: string) => Promise<void>
+      // #16 — local crash capture. The renderer states WHAT went wrong; the
+      // main process decides what of that survives (field whitelist +
+      // redaction) and where it is written. Optional on the type so a
+      // renderer running against an older preload degrades to no capture
+      // rather than to a TypeError on an error path.
+      captureDiagnostic?: (diagnostic: {
+        kind: string
+        scope?: string
+        message: string
+        stack?: string
+        httpStatus?: number
+      }) => Promise<void>
+      // Beta-expiry status for an in-app notice; ``null`` for a build that
+      // carries no expiry stamp. The BLOCKING decision is the main process's
+      // alone — this is for display only (docs/design/beta-expiry.md).
+      getBetaStatus?: () => Promise<{
+        state: string
+        blocked: boolean
+        daysRemaining: number | null
+        expiresAtMs: number | null
+      } | null>
     }
   }
 }
