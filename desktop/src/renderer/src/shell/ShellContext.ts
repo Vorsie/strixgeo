@@ -26,39 +26,62 @@ import type { UseUndoStackResult } from '../hooks/useUndoStack'
 import type { UseMapStateResult } from '../hooks/useMapState'
 import type { CptListItem, BoreholeListItem, ProjectResponse } from '../api/client'
 
-/** Which model's roster a Parameters unit scope points into. */
-export type ParameterUnitScopeKind = 'litho' | 'geotech'
+/** The five node kinds a Parameters scope can be (spec §2, 2026-08-27). */
+export type ParameterUnitScopeKind =
+  | 'litho-unit'
+  | 'litho-body'
+  | 'geotech-class'
+  | 'geotech-body'
+  | 'geotech-unit'
 
 /**
- * The unit the Parameters stage is scoped to — a formation row plus WHICH
- * model it lives in.
+ * The unit the Parameters stage is scoped to — a node in the owner-ruled
+ * body tree (spec §2, 2026-08-27, variant B).
  *
- * The kind is load-bearing (owner ruling R1, 2026-08-27): a LITHO scope pools
- * every CPT reading inside the litho unit's accepted bands "regardless of
- * packing density" — the whole unit, spanning all its NAD subdivisions — while
- * a GEOTECH scope pools one packing unit's bands. The formation id alone
- * cannot say which roster to resolve against, and resolving a litho id
- * against the geotech roster is exactly the silent-empty-statistics bug this
- * type exists to make unrepresentable.
+ * A five-kind discriminated union: four tree nodes plus one jump-only
+ * fallback. The kind is load-bearing on two axes:
+ *
+ * * WHICH MODEL to read (owner ruling R1): a ``litho-*`` scope pools the litho
+ *   model — the whole litho unit / body, spanning every NAD subdivision — while
+ *   a ``geotech-*`` scope pools the geotech model. Resolving a litho id against
+ *   the geotech roster is exactly the silent-empty-statistics bug this type
+ *   makes unrepresentable.
+ * * WHICH GROUND inside the model (owner body-scope ruling, verbatim: *"a body
+ *   is only a body if it is geometrically connected or if the users says, this
+ *   body is the same as that body"*): a unit lumps many resolver bodies, a
+ *   body narrows to one, and a class row sits between the litho body and its
+ *   geotech bodies (the tree's third level).
+ *
+ * ``bandsForScope`` in ``parameterBodyTree.ts`` is the single authority that
+ * maps any of these to its band set — every consumer (statistics, populations,
+ * OKP/PSD, the cutout body set, the counts) goes through it, never a
+ * consumer-local branch on the kind.
  */
-export interface ParameterUnitScope {
-  kind: ParameterUnitScopeKind
-  unitId: string
-  /**
-   * ONE resolver body inside the unit, or absent/null for the whole formation
-   * row (the pooled view).
-   *
-   * Owner ruling 2026-08-27, verbatim: *"a body is only a body if it is
-   * geometrically connected or if the users says, this body is the same as
-   * that body."* A unit row is a (soil, NAD-class, geo-label) formation row
-   * that LUMPS many resolver bodies — 32 rows carried 175 bodies on the live
-   * model — and the resolver's connected components (geometric connection +
-   * user-accepted ties) already implement his body definition. When set, the
-   * statistics pool, the lab pool, the PSD pool and the fence cutout all
-   * narrow to bands stamped with this ``body_id``; body resolution itself is
-   * untouched.
-   */
-  bodyId?: string | null
+export type ParameterUnitScope =
+  | { kind: 'litho-unit'; unitId: string }
+  | { kind: 'litho-body'; unitId: string; bodyId: string }
+  | { kind: 'geotech-class'; lithoUnitId: string; lithoBodyId: string; nadClass: number }
+  | { kind: 'geotech-body'; unitId: string; bodyId: string }
+  | { kind: 'geotech-unit'; unitId: string }
+
+/**
+ * Which model axis a scope reads — the ONE branch consumers still need before
+ * they reach ``bandsForScope`` (they pick the litho or geotech layer list /
+ * active model from it).
+ *
+ * Parameters
+ * ----------
+ * scope
+ *     Any scope in the five-kind union.
+ *
+ * Returns
+ * -------
+ * 'litho' | 'geotech'
+ *     ``'litho'`` for ``litho-unit`` / ``litho-body``; ``'geotech'`` for the
+ *     three geotech kinds.
+ */
+export function parameterScopeModel(scope: ParameterUnitScope): 'litho' | 'geotech' {
+  return scope.kind === 'litho-unit' || scope.kind === 'litho-body' ? 'litho' : 'geotech'
 }
 
 /** The Parameters stage's canvas tabs. */
