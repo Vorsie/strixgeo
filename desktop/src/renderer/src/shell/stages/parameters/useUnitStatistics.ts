@@ -37,6 +37,12 @@ export interface UseUnitStatisticsResult {
    * outcome, not an error.
    */
   pendingCptCount: number
+  /**
+   * The CPT ids the pool stands on, sorted + deduplicated (after the
+   * membership filter). The population header counts sections through this —
+   * a section contributes when one of THESE holes is its member.
+   */
+  pooledCptIds: readonly string[]
   /** Re-run the fetch after a failure. */
   retry: () => void
 }
@@ -47,16 +53,22 @@ export interface UseUnitStatisticsResult {
  * Parameters
  * ----------
  * unitId
- *     The geotech formation to summarise, or ``null`` when none is chosen —
+ *     The formation to summarise, or ``null`` when none is chosen —
  *     the hook then does no work and reports an empty result.
- * geotechLayers
- *     Every layer of the active geotech model, any status, either anchor. The
- *     hook filters it down to this unit's accepted, CPT-anchored bands.
+ * layers
+ *     Every layer of the SCOPED model (geotech for a geotech unit, litho for
+ *     a litho unit — the hook is shape-agnostic), any status, either anchor.
+ *     The hook filters it down to this unit's accepted, CPT-anchored bands.
  * plotMap
  *     The shell's shared per-CPT plot cache. Consulted FIRST so a hole the
  *     engineer already opened is never re-fetched.
  * projectId
  *     Scope for the plot request.
+ * memberInvestigationIds
+ *     The pooling population — the canonical section-membership union over
+ *     the app's VISIBLE lists (owner ruling 2026-08-27: only CPTs on the
+ *     sections pool; hidden and removed are excluded). ``null`` skips the
+ *     filter.
  *
  * Returns
  * -------
@@ -65,13 +77,14 @@ export interface UseUnitStatisticsResult {
  */
 export function useUnitStatistics(
   unitId: string | null,
-  geotechLayers: readonly LithoLayerResponse[],
+  layers: readonly LithoLayerResponse[],
   plotMap: ReadonlyMap<string, CptPlotResponse>,
   projectId: string,
+  memberInvestigationIds: ReadonlySet<string> | null = null,
 ): UseUnitStatisticsResult {
   const bands = useMemo(
-    () => (unitId === null ? [] : unitCptBands(geotechLayers, unitId)),
-    [geotechLayers, unitId],
+    () => (unitId === null ? [] : unitCptBands(layers, unitId, memberInvestigationIds)),
+    [layers, unitId, memberInvestigationIds],
   )
 
   // Sorted + de-duplicated so the fetch key below is stable under any band
@@ -170,6 +183,7 @@ export function useUnitStatistics(
     loading,
     error,
     pendingCptCount: cptIds.length - seriesByCpt.size,
+    pooledCptIds: cptIds,
     retry,
   }
 }
