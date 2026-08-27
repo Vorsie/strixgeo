@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.project.gapless_build_report import GaplessBuildReportSchema
 from groundmodel.api.schemas.project.litho_body_solid_response import LithoBodySolidResponse
 
 
@@ -55,6 +56,12 @@ class RebuildLithoSolidsResponse(BaseModel):
         happy build of zero bodies — so without this the client can only report
         a green "Built 0 bodies" over a model that was just erased.  ``None``
         whenever at least one body was built.
+    gapless_report : GaplessBuildReportSchema or None
+        The seven-clause gapless-gate report for THIS build — all seven
+        clauses, always, in order, each ``pass`` / ``fail`` / ``not-evaluated``.
+        ``None`` only on the degenerate "nothing built" paths (no sections, an
+        unbuildable footprint, or a labelling with no body), which never label
+        a grid to report on.
     """
 
     bodies_considered: int
@@ -69,3 +76,5 @@ class RebuildLithoSolidsResponse(BaseModel):
     """Investigations outside the model footprint — they got no 3-D model at all."""
     empty_reason: str | None = None
     """Why an empty build is empty; ``None`` when at least one body was built."""
+    gapless_report: GaplessBuildReportSchema | None = None
+    """The seven-clause gapless gate's report for this build; see above."""
