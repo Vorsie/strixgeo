@@ -76,6 +76,19 @@ describe('unitBoreholeBands — which borehole ground the unit covers', () => {
     const bands = unitBoreholeBands(layers, 'unit-1', new Set(['bh-on']))
     expect(bands.map(b => b.boreholeId)).toEqual(['bh-on'])
   })
+
+  // Owner ruling 2026-08-27: "a body is only a body if it is geometrically
+  // connected or if the users says, this body is the same as that body." A
+  // body scope pools ONLY that body's ground — the lab pool included.
+  it('BSB1 — a body-scoped pool takes only that body\'s borehole bands; a disconnected body of the same class contributes nothing', () => {
+    const layers = [
+      { ...bhBand('l1', 'unit-1', 'bh-1', 0, 5), body_id: 'body-A' },
+      { ...bhBand('l2', 'unit-1', 'bh-2', 0, 5), body_id: 'body-B' },
+      { ...bhBand('l3', 'unit-1', 'bh-3', 0, 5), body_id: null },
+    ]
+    const bands = unitBoreholeBands(layers, 'unit-1', null, 'body-A')
+    expect(bands.map(b => b.boreholeId)).toEqual(['bh-1'])
+  })
 })
 
 describe('poolIdentificationPanels — the OKP pool', () => {
