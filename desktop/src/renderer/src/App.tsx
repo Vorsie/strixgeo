@@ -48,7 +48,7 @@ import {
   type SectionDefaults,
 } from './utils/sectionDefaults'
 import AppShell from './shell/AppShell'
-import type { ShellContextValue } from './shell/ShellContext'
+import type { ParameterUnitScope, ParametersTabId, ShellContextValue } from './shell/ShellContext'
 
 interface RecentProject {
   path: string
@@ -382,18 +382,21 @@ export default function App() {
   } | null>(null)
 
   // Parameters deep-link target + the unit the Parameters stage is scoped to
-  // (owner ballot 2026-08-26 — the layer → parameters jump). The target is
-  // set by a geotech band's right-click menu in a cross-section; AppShell
+  // (owner ballot 2026-08-26 — the layer → parameters jump; typed litho |
+  // geotech scope per the 2026-08-27 R1 ruling). The target is set by a
+  // band's or fill region's right-click menu in a cross-section; AppShell
   // switches stage, writes the selected unit, and clears the target
   // (single-fire). The SELECTION outlives the navigation: it is also what a
-  // row click in the per-unit table writes, and what the Parameters
-  // inspector reads to know which unit to summarise.
-  const [parametersDeepLinkTarget, setParametersDeepLinkTarget] = useState<{
-    unitId: string
-  } | null>(null)
-  const [selectedParameterUnitId, setSelectedParameterUnitId] = useState<string | null>(
-    null,
-  )
+  // row click in the inspector's unit list writes, and what the Parameters
+  // canvas reads to know which unit to summarise. The active tab rides the
+  // bus too — the R3 layout flip puts the unit LIST in the inspector, which
+  // only shows it while the canvas is on the per-unit tab.
+  const [parametersDeepLinkTarget, setParametersDeepLinkTarget] =
+    useState<ParameterUnitScope | null>(null)
+  const [selectedParameterUnit, setSelectedParameterUnit] =
+    useState<ParameterUnitScope | null>(null)
+  const [parametersActiveTab, setParametersActiveTab] =
+    useState<ParametersTabId>('per-test')
 
   // Correlation-edges refetch nonce (#163c). Auto-correlate is fired from
   // SectionsToolbar via the geoModel slice, but the contact-correlation edge
@@ -1296,7 +1299,8 @@ export default function App() {
     geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
     parametersDeepLinkTarget, setParametersDeepLinkTarget,
-    selectedParameterUnitId, setSelectedParameterUnitId,
+    selectedParameterUnit, setSelectedParameterUnit,
+    parametersActiveTab, setParametersActiveTab,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
   })
