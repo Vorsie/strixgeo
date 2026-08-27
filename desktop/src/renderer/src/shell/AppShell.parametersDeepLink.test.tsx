@@ -16,7 +16,7 @@ import { render, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AppShell from './AppShell'
-import type { ShellContextValue } from './ShellContext'
+import type { ParameterUnitScope, ShellContextValue } from './ShellContext'
 import type { StageId } from './StageDescriptor'
 
 // The four heavy zones pull in Leaflet + Cesium; mocked to null so this spec
@@ -38,9 +38,7 @@ vi.mock('./useShellState', () => ({
   }),
 }))
 
-function makeCtx(
-  target: { kind: 'litho' | 'geotech'; unitId: string; bodyId?: string | null } | null,
-): {
+function makeCtx(target: ParameterUnitScope | null): {
   ctx: ShellContextValue
   setSelectedParameterUnit: ReturnType<typeof vi.fn>
   setParametersDeepLinkTarget: ReturnType<typeof vi.fn>
@@ -93,44 +91,65 @@ afterEach(() => {
 
 describe('AppShell — layer → Parameters deep link', () => {
   it('PDL1 — posting a target switches to the Parameters stage', () => {
-    const { ctx } = makeCtx({ kind: 'geotech', unitId: 'unit-7' })
+    const { ctx } = makeCtx({ kind: 'geotech-unit', unitId: 'unit-7' })
     render(<AppShell context={ctx} />)
 
     expect(mockSetActiveStage).toHaveBeenCalledWith('parameters')
   })
 
-  it('PDL2 — preselects the unit that was right-clicked, kind included', () => {
-    const { ctx, setSelectedParameterUnit } = makeCtx({ kind: 'geotech', unitId: 'unit-7' })
+  it('PDL2 — preselects the node that was right-clicked, kind included', () => {
+    const { ctx, setSelectedParameterUnit } = makeCtx({ kind: 'geotech-unit', unitId: 'unit-7' })
     render(<AppShell context={ctx} />)
 
-    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech', unitId: 'unit-7' })
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech-unit', unitId: 'unit-7' })
   })
 
-  it('PDL5 — a LITHO target arrives as a litho scope (the R1 jump)', () => {
-    const { ctx, setSelectedParameterUnit } = makeCtx({ kind: 'litho', unitId: 'litho-3' })
+  it('PDL5 — a LITHO-unit target arrives as a litho-unit scope (the R1 jump)', () => {
+    const { ctx, setSelectedParameterUnit } = makeCtx({ kind: 'litho-unit', unitId: 'litho-3' })
     render(<AppShell context={ctx} />)
 
     expect(mockSetActiveStage).toHaveBeenCalledWith('parameters')
-    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'litho', unitId: 'litho-3' })
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'litho-unit', unitId: 'litho-3' })
   })
 
-  it('PDL6 — a body-scoped target arrives intact, body included (the 2026-08-27 body ruling)', () => {
+  it('PDL6 — a geotech-body target arrives intact, body included', () => {
     const { ctx, setSelectedParameterUnit } = makeCtx({
-      kind: 'geotech',
+      kind: 'geotech-body',
       unitId: 'unit-7',
       bodyId: 'body-3',
     })
     render(<AppShell context={ctx} />)
 
     expect(setSelectedParameterUnit).toHaveBeenCalledWith({
-      kind: 'geotech',
+      kind: 'geotech-body',
       unitId: 'unit-7',
       bodyId: 'body-3',
     })
   })
 
+  it('PDL7 — a geotech-class target round-trips its litho unit + body + class', () => {
+    const target: ParameterUnitScope = {
+      kind: 'geotech-class',
+      lithoUnitId: 'litho-3',
+      lithoBodyId: 'body-9',
+      nadClass: 13,
+    }
+    const { ctx, setSelectedParameterUnit } = makeCtx(target)
+    render(<AppShell context={ctx} />)
+
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith(target)
+  })
+
+  it('PDL8 — a litho-body target round-trips intact', () => {
+    const target: ParameterUnitScope = { kind: 'litho-body', unitId: 'litho-3', bodyId: 'lb-2' }
+    const { ctx, setSelectedParameterUnit } = makeCtx(target)
+    render(<AppShell context={ctx} />)
+
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith(target)
+  })
+
   it('PDL3 — clears the payload so a re-mount does not re-navigate', () => {
-    const { ctx, setParametersDeepLinkTarget } = makeCtx({ kind: 'geotech', unitId: 'unit-7' })
+    const { ctx, setParametersDeepLinkTarget } = makeCtx({ kind: 'geotech-unit', unitId: 'unit-7' })
     render(<AppShell context={ctx} />)
 
     expect(setParametersDeepLinkTarget).toHaveBeenCalledWith(null)
