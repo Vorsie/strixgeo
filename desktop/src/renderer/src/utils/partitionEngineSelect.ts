@@ -1,9 +1,9 @@
 // Partition-engine selector — the ONE place the section overlay, the voxel
-// build request, and the fence builder pick between the stable v1 partition
-// engine (``partitionFill``) and the experimental closed-loop v2 engine
-// (``partitionFillV2``). See ``docs/design/partition-engine-v2.md`` §6: a
-// dev-only toggle selects the engine in one place; the old engine remains the
-// beta fallback.
+// build request, and the fence builder pick between the DEFAULT closed-loop
+// v2 engine (``partitionFillV2``) and the old v1 fallback (``partitionFill``).
+// See ``docs/design/partition-engine-v2.md`` §6: a dev-only toggle selects the
+// engine in one place; v1 survives only as the troubleshooting fallback
+// (owner 2026-08-27: "dit is niet meer experimenteel maar de main engine").
 //
 // Scope: DEVICE-local, not project-scoped. The engine choice is a dogfeed / dev
 // preference about HOW the same model renders, not an engineering decision
@@ -226,7 +226,7 @@ export function computeSectionFillActive(
   const useV2 = isPartitionEngineV2Active()
   if (useV2 !== lastLoggedV2) {
     lastLoggedV2 = useV2
-    log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (stable)'}`)
+    log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (old fallback)'}`)
   }
   if (useV2) {
     // App-selected v2 = the FLAG-ON terminations-first engine. The sweep flag
@@ -334,7 +334,7 @@ export function computeSectionFillActiveWithDiagnostics(
   const useV2 = isPartitionEngineV2Active()
   if (useV2 !== lastLoggedV2) {
     lastLoggedV2 = useV2
-    log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (stable)'}`)
+    log.info('partition', `active engine = ${useV2 ? 'v2 (terminations-first sweep)' : 'v1 (old fallback)'}`)
   }
   if (useV2) {
     // Same flag-ON wiring as computeSectionFillActive — see the comment there. Consume
