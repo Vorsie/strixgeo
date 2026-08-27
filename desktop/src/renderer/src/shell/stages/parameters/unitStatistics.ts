@@ -120,72 +120,49 @@ export interface UnitStatistics {
 }
 
 /**
- * The bands of one unit whose ground a cone actually measured.
+ * The CPT-anchored bands the statistics may read, out of a scope's bands.
  *
- * Five filters, each load-bearing:
+ * The SCOPE selection (which unit / body / class the bands belong to) is
+ * ``bandsForScope`` in ``parameterBodyTree.ts`` — the single authority — so
+ * this applies only the two population filters that stay per spec §3:
  *
- * * **this unit** — ``formation_id`` is the band → unit link;
- * * **accepted only** — the geotech layer list is fetched WITHOUT a status
- *   filter, so a pending proposal is sitting in the same array. Summarising
- *   one would report ground the engineer has not committed to;
+ * * **accepted only** — defensive: the scope selection already drops pending
+ *   proposals, but a caller that hands the raw layer list must not summarise
+ *   ground the engineer has not committed to;
  * * **CPT-anchored only** — the anchor is an XOR, and a borehole-anchored band
- *   has no cone resistance to summarise. Its class came from a flanking CPT,
- *   not from a measurement in that hole;
+ *   has no cone resistance to summarise; its class came from a flanking CPT;
  * * **on the sections** — when ``memberInvestigationIds`` is given, a band
  *   whose CPT is not in it contributes nothing (owner ruling 2026-08-27:
  *   "Only cpt's on the sections should be in the pooling so all hidden and
  *   removed should be excluded"). The set is the canonical section-membership
  *   union over the VISIBLE lists, so off-section, project-removed and
- *   manifest-gated holes all arrive here the same way: absent;
- * * **one body** — when ``bodyId`` is given, only bands the resolver stamped
- *   with THAT body pool (owner ruling 2026-08-27, verbatim: "a body is only a
- *   body if it is geometrically connected or if the users says, this body is
- *   the same as that body"). The formation row lumps many resolver bodies; a
- *   body scope must not let a disconnected body of the same class contribute.
- *   An unstamped band belongs to no body and is excluded too. **The body is
- *   the WHOLE pooling scope (F2):** a body can span two duplicate formation
- *   rows, so the ``formation_id`` filter does not apply in this branch — the
- *   audit's live case pooled ZERO samples from the "wrong" twin despite 4
- *   CPTs of evidence on the same body.
+ *   manifest-gated holes all arrive absent.
  *
  * Parameters
  * ----------
- * layers
- *     Every layer of the scoped model (geotech or litho), any status, either
- *     anchor.
- * unitId
- *     The formation whose bands are wanted.
+ * scopeBands
+ *     The scope's bands from ``bandsForScope`` (already unit/body/class
+ *     selected, accepted). Any anchor.
  * memberInvestigationIds
  *     The pooling population, or ``null`` to skip the membership filter
  *     (tests, callers that pre-filter).
- * bodyId
- *     The one resolver body to scope to, or ``null`` for the whole formation
- *     row (the pooled view).
  *
  * Returns
  * -------
  * UnitBandInterval[]
- *     In the order the layers arrived; the statistics do not depend on it.
+ *     In the order the bands arrived; the statistics do not depend on it.
  */
 export function unitCptBands(
-  layers: readonly {
-    formation_id: string
+  scopeBands: readonly {
     cpt_id: string | null
     depth_top_m: number
     depth_base_m: number
     status: string
-    body_id?: string | null
   }[],
-  unitId: string,
   memberInvestigationIds: ReadonlySet<string> | null = null,
-  bodyId: string | null = null,
 ): UnitBandInterval[] {
   const out: UnitBandInterval[] = []
-  for (const layer of layers) {
-    // Body scope: the body IS the scope — the formation filter would hide the
-    // body's bands sitting under a twin formation row (F2).
-    if (bodyId !== null ? (layer.body_id ?? null) !== bodyId : layer.formation_id !== unitId)
-      continue
+  for (const layer of scopeBands) {
     if (layer.status !== 'accepted') continue
     if (layer.cpt_id === null) continue
     if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.cpt_id)) continue
