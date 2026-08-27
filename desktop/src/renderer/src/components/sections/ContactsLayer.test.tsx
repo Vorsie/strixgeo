@@ -2186,6 +2186,33 @@ describe('ContactsLayer', () => {
     expect(screen.queryByTestId('litho-band-remove')).toBeNull()
   })
 
+  it('LB-US4: without the statistics handler the menu carries no jump (litho fill is not accessible from the geotech stage)', () => {
+    // S7a (owner 2026-08-27): "Litho fill shouldn't be accesible in the
+    // geotech stage." The geotech axis simply never passes the
+    // litho-statistics handler — so even where ANOTHER item legitimately
+    // opens this menu, no unit-statistics jump is offered.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onDeleteContact: vi.fn().mockResolvedValue(undefined) },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+
+    expect(screen.getByTestId('litho-band-context-menu')).toBeTruthy()
+    expect(screen.queryByTestId('litho-band-menu-unit-statistics')).toBeNull()
+  })
+
   it('LB-US3: with neither handler, right-click opens no menu (the geotech-axis guard)', () => {
     // ``perColumnBandsFromContacts`` is true on the geotech axis too; an
     // unconditional handler there would swallow right-clicks that belong to
