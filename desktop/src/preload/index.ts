@@ -208,4 +208,22 @@ contextBridge.exposeInMainWorld('electron', {
   // process logs the line and continues.
   logRendererError: (message: string, componentStack: string): Promise<void> =>
     ipcRenderer.invoke('app:log-renderer-error', message, componentStack),
+
+  // #16 — local crash capture. The renderer reports WHAT went wrong; the main
+  // process owns the field whitelist, the redaction pass and the file. Used by
+  // the API client for backend 5xx, which is the one failure the renderer is
+  // the only witness to (the other renderer error paths already travel through
+  // logRendererError above).
+  captureDiagnostic: (diagnostic: {
+    kind: string
+    scope?: string
+    message: string
+    stack?: string
+    httpStatus?: number
+  }): Promise<void> => ipcRenderer.invoke('diagnostics:capture', diagnostic),
+
+  // Beta-expiry status, for an in-app "expires in N days" notice. Display
+  // only — the main process blocks a run on its own, before the window is
+  // ever created, so a renderer that ignores this cannot extend a beta.
+  getBetaStatus: (): Promise<unknown> => ipcRenderer.invoke('app:beta-status'),
 })
