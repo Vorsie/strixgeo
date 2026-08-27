@@ -19,6 +19,10 @@ import Button from './ui/Button'
 import Modal from './ui/Modal'
 import NumericInput from './ui/NumericInput'
 import type { ThemeChoice } from '../hooks/useTheme'
+import { LANGUAGE_LABELS, LANGUAGES, type Language } from '../i18n/i18n_constants'
+import { setLanguage, useLanguage } from '../i18n/languageSelect'
+import { useT } from '../i18n/translate'
+import type { MessageKey } from '../i18n/locales/en'
 import {
   GEOTECH_SUBDIVISION_BOUNDS,
   GEOTECH_SUBDIVISION_DEFAULTS,
@@ -58,16 +62,19 @@ interface Props {
   onSetThemeChoice: (next: ThemeChoice) => void
 }
 
+// The rail carries message KEYS, not rendered labels — the array is module
+// state, so a literal here would freeze the rail in whatever language the app
+// booted in.
 const SECTIONS: ReadonlyArray<{
   key: SectionKey
-  label: string
+  labelKey: MessageKey
   icon: React.ReactNode
   scope: 'project' | 'device'
 }> = [
-  { key: 'litho', label: 'Litho segmenter', icon: <SlidersHorizontal size={13} />, scope: 'project' },
-  { key: 'geotech', label: 'Geotechnical', icon: <SlidersHorizontal size={13} />, scope: 'project' },
-  { key: 'sections', label: 'Cross-sections', icon: <Layers size={13} />, scope: 'project' },
-  { key: 'appearance', label: 'Appearance', icon: <Palette size={13} />, scope: 'device' },
+  { key: 'litho', labelKey: 'settings.section.litho', icon: <SlidersHorizontal size={13} />, scope: 'project' },
+  { key: 'geotech', labelKey: 'settings.section.geotech', icon: <SlidersHorizontal size={13} />, scope: 'project' },
+  { key: 'sections', labelKey: 'settings.section.sections', icon: <Layers size={13} />, scope: 'project' },
+  { key: 'appearance', labelKey: 'settings.section.appearance', icon: <Palette size={13} />, scope: 'device' },
 ]
 
 export default function SettingsDialog({
@@ -83,6 +90,7 @@ export default function SettingsDialog({
   onSubmitSectionDefaults,
   onSetThemeChoice,
 }: Props): JSX.Element | null {
+  const t = useT()
   const [active, setActive] = useState<SectionKey>('litho')
   const [lithoDraft, setLithoDraft] = useState<LithoSegmenterPrefs>(initialLithoSegmenter)
   const [geotechDraft, setGeotechDraft] = useState<GeotechSubdivisionPrefs>(initialGeotechSubdivision)
@@ -115,7 +123,7 @@ export default function SettingsDialog({
         <div className="px-6 pt-5 pb-3 border-b border-border-subtle flex items-center gap-2">
           <SettingsIcon size={16} className="text-text-muted" />
           <h2 id="settings-title" className="text-base font-semibold text-text-primary">
-            Settings
+            {t('settings.title')}
           </h2>
         </div>
 
@@ -145,7 +153,7 @@ export default function SettingsDialog({
                   }`}
                 >
                   <span className="text-text-muted">{s.icon}</span>
-                  {s.label}
+                  {t(s.labelKey)}
                 </button>
               )
             })}
@@ -192,7 +200,7 @@ export default function SettingsDialog({
 
         <div className="px-6 py-3 border-t border-border-subtle flex items-center justify-end">
           <Button variant="ghost" size="sm" onClick={onCancel}>
-            Close
+            {t('common.close')}
           </Button>
         </div>
       </div>
@@ -217,6 +225,7 @@ function LithoSection({
   hasProject: boolean
   onSubmit: () => void
 }): JSX.Element {
+  const t = useT()
   // Device-local partition-engine pref (dev only). Reversible chrome — applied
   // immediately via setPartitionEngineV2, no Save step (matches the theme
   // toggle). Read as a hook so the checkbox reflects flips from elsewhere.
@@ -288,14 +297,16 @@ function LithoSection({
 
   return (
     <SectionShell
-      title="Litho segmenter"
-      blurb="Tuning for the Suggest verb on the Litho axis. Applies to the next Suggest call; already-accepted units are unchanged."
+      title={t('settings.section.litho')}
+      blurb={t('settings.litho.blurb')}
       scope="project"
     >
       <NumberRow
         id="settings-min-thickness"
-        label="Minimum layer thickness (m)"
-        hint={`Layers thinner than this are merged into their neighbour, regardless of lithology. Lower values catch thin clay drapes; higher values produce a coarser column. Composes with the "Merge same-lithology layers" toggle below — thickness merging runs first, then same-lithology merging. Default ${LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM} m.`}
+        label={t('settings.litho.minThickness')}
+        hint={t('settings.litho.minThicknessHint', {
+          default: LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM,
+        })}
         value={draft.minimumLayerThicknessM}
         onChange={v => setDraft({ ...draft, minimumLayerThicknessM: v })}
         bounds={thicknessBounds}
@@ -307,8 +318,8 @@ function LithoSection({
       />
       <NumberRow
         id="settings-gunsat"
-        label="Soil unit weight above water (kN/m³)"
-        hint={`Used to compute σ'v above the water table, which feeds the Robertson Ic and sand Dr. Site-wide for now: peat ~12, sand ~18, dense Quaternary ~19. Per-soil γ is a future enhancement. Default ${LITHO_SEGMENTER_DEFAULTS.gunsatKNm3}.`}
+        label={t('settings.litho.gunsat')}
+        hint={t('settings.litho.gunsatHint', { default: LITHO_SEGMENTER_DEFAULTS.gunsatKNm3 })}
         value={draft.gunsatKNm3}
         onChange={v => setDraft({ ...draft, gunsatKNm3: v })}
         bounds={gunsatBounds}
@@ -321,8 +332,10 @@ function LithoSection({
       />
       <NumberRow
         id="settings-dr-factor"
-        label="Sand Dr compression factor"
-        hint={`Jamiolkowski compression factor in the relative-density correlation. 0.675 = average quartz; lower for calcareous sands, higher for crushable feldspar. Most engineers leave this alone. Default ${LITHO_SEGMENTER_DEFAULTS.drCompressionFactor}.`}
+        label={t('settings.litho.drFactor')}
+        hint={t('settings.litho.drFactorHint', {
+          default: LITHO_SEGMENTER_DEFAULTS.drCompressionFactor,
+        })}
         value={draft.drCompressionFactor}
         onChange={v => setDraft({ ...draft, drCompressionFactor: v })}
         bounds={drBounds}
@@ -334,32 +347,32 @@ function LithoSection({
       />
       <CheckboxRow
         id="settings-merge-same-lithology"
-        label="Merge same-lithology layers"
-        hint="Adjacent splits that share lithology (sand-on-sand, etc.) are absorbed into one. Packing-density splits will return as suggestions in the Geotech stage when it ships."
+        label={t('settings.litho.mergeSameLithology')}
+        hint={t('settings.litho.mergeSameLithologyHint')}
         checked={draft.mergeSameLithology}
         onChange={v => setDraft({ ...draft, mergeSameLithology: v })}
         disabled={!hasProject}
       />
       <CheckboxRow
         id="settings-use-normalised-qc"
-        label="Normalise qc (Robertson 2015)"
-        hint="On (default): classify CPTs with the stress-normalised Robertson 2015 pipeline (Qtn / F / Ic), using the unit weight + water table above. Off: use the non-normalised Robertson 2010 I_SBT index (qc/pa + Rf) — no stress profile or groundwater needed, better at shallow depth or when the water table is uncertain. Off-mode leaves Dr / NAD packing blank (relative density needs effective stress). CPT path only."
+        label={t('settings.litho.normaliseQc')}
+        hint={t('settings.litho.normaliseQcHint')}
         checked={draft.useNormalisedQc}
         onChange={v => setDraft({ ...draft, useNormalisedQc: v })}
         disabled={!hasProject}
       />
       <CheckboxRow
         id="settings-section-fill-at-section-line"
-        label="Section fill at section line"
-        hint="On = slice the body solids at the section line (default, continuous); Off = sample the model at each test location (a strip per test, ground truth)."
+        label={t('settings.litho.fillAtSectionLine')}
+        hint={t('settings.litho.fillAtSectionLineHint')}
         checked={draft.sectionFillAtSectionLine}
         onChange={v => setDraft({ ...draft, sectionFillAtSectionLine: v })}
         disabled={!hasProject}
       />
       <NumberRow
         id="settings-litho-snap-tolerance"
-        label="Litho↔geology snap (m)"
-        hint={`Litho and geological boundaries within this distance are treated as the same surface — linked and snapped together, so moving one moves the other (#162). Also drives the drag-snap prompt (#134). Range 0.01–5.0 m.`}
+        label={t('settings.litho.snapTolerance')}
+        hint={t('settings.litho.snapToleranceHint')}
         value={draft.lithoSnapToleranceM}
         onChange={v => setDraft({ ...draft, lithoSnapToleranceM: v })}
         bounds={snapBounds}
@@ -372,8 +385,12 @@ function LithoSection({
       />
       <NumberRow
         id="settings-auto-correlate-depth-window"
-        label="Auto-correlate depth window (m)"
-        hint={`How far apart in depth two contacts on neighbouring tests may be and still auto-correlate (relaxed further by horizontal distance). Widen it to catch correlations across dipping beds; narrow it to reject loose matches. Auto-correlate only ever links adjacent tests, never across an intervening one. Range ${autoCorrBounds.min}–${autoCorrBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM} m.`}
+        label={t('settings.litho.autoCorrelateWindow')}
+        hint={t('settings.litho.autoCorrelateWindowHint', {
+          min: autoCorrBounds.min,
+          max: autoCorrBounds.max,
+          default: LITHO_SEGMENTER_DEFAULTS.autoCorrelateDepthWindowM,
+        })}
         value={draft.autoCorrelateDepthWindowM}
         onChange={v => setDraft({ ...draft, autoCorrelateDepthWindowM: v })}
         bounds={autoCorrBounds}
@@ -386,8 +403,12 @@ function LithoSection({
       />
       <NumberRow
         id="settings-open-extent-length"
-        label="Open extent length (m)"
-        hint={`How far an open-ended body extent (a body at the edge test with no neighbour on that side) draws past the test, instead of running to the section edge. Range ${openLenBounds.min}–${openLenBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.openExtentLengthM} m.`}
+        label={t('settings.litho.openExtentLength')}
+        hint={t('settings.litho.openExtentLengthHint', {
+          min: openLenBounds.min,
+          max: openLenBounds.max,
+          default: LITHO_SEGMENTER_DEFAULTS.openExtentLengthM,
+        })}
         value={draft.openExtentLengthM}
         onChange={v => setDraft({ ...draft, openExtentLengthM: v })}
         bounds={openLenBounds}
@@ -405,17 +426,20 @@ function LithoSection({
           exploding the map-plane voxel count. */}
       <div className="pt-1">
         <h4 className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide">
-          Voxel size
+          {t('settings.litho.voxelHeading')}
         </h4>
         <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-          Cell dimensions used by the Lithology stage "Build model" button to
-          label 3-D space from the cross-section partitions.
+          {t('settings.litho.voxelBlurb')}
         </p>
       </div>
       <NumberRow
         id="settings-voxel-horizontal"
-        label="Horizontal cell (X/Y) (m)"
-        hint={`Map-plane (easting/northing) voxel size. Geology varies slowly horizontally, so this can stay coarse. Smaller values sharpen lateral body edges at a quadratic cost in voxel count. Range ${voxelHBounds.min}–${voxelHBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM} m.`}
+        label={t('settings.litho.voxelHorizontal')}
+        hint={t('settings.litho.voxelHorizontalHint', {
+          min: voxelHBounds.min,
+          max: voxelHBounds.max,
+          default: LITHO_SEGMENTER_DEFAULTS.voxelHorizontalSpacingM,
+        })}
         value={draft.voxelHorizontalSpacingM}
         onChange={v => setDraft({ ...draft, voxelHorizontalSpacingM: v })}
         bounds={voxelHBounds}
@@ -428,8 +452,12 @@ function LithoSection({
       />
       <NumberRow
         id="settings-voxel-vertical"
-        label="Vertical cell (Z) (m)"
-        hint={`Elevation voxel size. Fine Z catches thin layers — a peat drape or sand lens — that a coarse grid would miss. But it multiplies build time: 0.5 m is roughly 4× the voxels (and minutes of build) versus a cubic 2 m grid, so reach for it only when thin layers matter. Range ${voxelVBounds.min}–${voxelVBounds.max} m. Default ${LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM} m.`}
+        label={t('settings.litho.voxelVertical')}
+        hint={t('settings.litho.voxelVerticalHint', {
+          min: voxelVBounds.min,
+          max: voxelVBounds.max,
+          default: LITHO_SEGMENTER_DEFAULTS.voxelVerticalSpacingM,
+        })}
         value={draft.voxelVerticalSpacingM}
         onChange={v => setDraft({ ...draft, voxelVerticalSpacingM: v })}
         bounds={voxelVBounds}
@@ -452,8 +480,8 @@ function LithoSection({
           <div className="pt-3">
             <CheckboxRow
               id="settings-partition-engine-v2"
-              label="Partition engine v2 (experimental)"
-              hint="Closed-loop face-tracing engine. Renders 2D fill, 3D build and fences. Off = stable v1. Stored on this device (does not travel with the project)."
+              label={t('settings.litho.engineV2')}
+              hint={t('settings.litho.engineV2Hint')}
               checked={partitionEngineV2}
               onChange={setPartitionEngineV2}
             />
@@ -464,8 +492,13 @@ function LithoSection({
               className="mt-1 text-xs text-emerald-600 dark:text-emerald-400"
               data-testid="partition-engine-status"
             >
-              Active engine: {partitionEngineV2 ? 'v2 (closed-loop)' : 'v1 (stable)'} — applied
-              immediately; the Save button below is not needed for this row.
+              {t('settings.litho.engineV2Status', {
+                engine: t(
+                  partitionEngineV2
+                    ? 'settings.litho.engineV2Name'
+                    : 'settings.litho.engineV1Name',
+                ),
+              })}
             </p>
           </div>
         </div>
@@ -507,6 +540,7 @@ export function GeotechSection({
   hasProject: boolean
   onSubmit: () => void
 }): JSX.Element {
+  const t = useT()
   const thicknessBounds = GEOTECH_SUBDIVISION_BOUNDS.minimumLayerThicknessM
   const snapWindowBounds = GEOTECH_SUBDIVISION_BOUNDS.gradientSnapWindowM
 
@@ -528,14 +562,18 @@ export function GeotechSection({
 
   return (
     <SectionShell
-      title="Geotechnical"
-      blurb={'Tuning for the NAD packing subdivision ("Subdivide all bodies"). Applies to the next Subdivide call; already-subdivided bodies are unchanged.'}
+      title={t('settings.section.geotech')}
+      blurb={t('settings.geotech.blurb')}
       scope="project"
     >
       <NumberRow
         id="settings-geotech-min-thickness"
-        label="Min layer thickness (m)"
-        hint={`The thinnest NAD packing band kept; also the persistence a qc change must hold to move a boundary (ignores thinner dips/spikes). Range ${thicknessBounds.min}–${thicknessBounds.max} m. Default ${GEOTECH_SUBDIVISION_DEFAULTS.minimumLayerThicknessM} m.`}
+        label={t('settings.geotech.minThickness')}
+        hint={t('settings.geotech.minThicknessHint', {
+          min: thicknessBounds.min,
+          max: thicknessBounds.max,
+          default: GEOTECH_SUBDIVISION_DEFAULTS.minimumLayerThicknessM,
+        })}
         value={draft.minimumLayerThicknessM}
         onChange={v => setDraft({ ...draft, minimumLayerThicknessM: v })}
         bounds={thicknessBounds}
@@ -548,8 +586,8 @@ export function GeotechSection({
       />
       <CheckboxRow
         id="settings-geotech-gradient-snap"
-        label="Gradient snap"
-        hint="Snap a boundary to a nearby sharp qc break for precision; never moves it to a less-conservative depth."
+        label={t('settings.geotech.gradientSnap')}
+        hint={t('settings.geotech.gradientSnapHint')}
         checked={draft.gradientSnapEnabled}
         onChange={v => setDraft({ ...draft, gradientSnapEnabled: v })}
         disabled={!hasProject}
@@ -557,8 +595,12 @@ export function GeotechSection({
       {draft.gradientSnapEnabled && (
         <NumberRow
           id="settings-geotech-gradient-snap-window"
-          label="Gradient snap window (m)"
-          hint={`How far a boundary may snap to a sharp break. Range ${snapWindowBounds.min}–${snapWindowBounds.max} m. Default ${GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapWindowM} m.`}
+          label={t('settings.geotech.gradientSnapWindow')}
+          hint={t('settings.geotech.gradientSnapWindowHint', {
+            min: snapWindowBounds.min,
+            max: snapWindowBounds.max,
+            default: GEOTECH_SUBDIVISION_DEFAULTS.gradientSnapWindowM,
+          })}
           value={draft.gradientSnapWindowM}
           onChange={v => setDraft({ ...draft, gradientSnapWindowM: v })}
           bounds={snapWindowBounds}
@@ -599,6 +641,7 @@ function SectionsSection({
   hasProject: boolean
   onSubmit: () => void
 }): JSX.Element {
+  const t = useT()
   const bufferBounds = SECTION_DEFAULTS_BOUNDS.bufferM
   const vexBounds = SECTION_DEFAULTS_BOUNDS.verticalExaggeration
   const tieBounds = SECTION_DEFAULTS_BOUNDS.tieStrikeToleranceM
@@ -623,14 +666,14 @@ function SectionsSection({
 
   return (
     <SectionShell
-      title="Cross-sections"
-      blurb="Defaults applied when you draw a new cross-section. Existing sections keep whatever they were created with — change those on the section header."
+      title={t('settings.section.sections')}
+      blurb={t('settings.sections.blurb')}
       scope="project"
     >
       <NumberRow
         id="settings-section-buffer"
-        label="Default projection buffer (m)"
-        hint={`Half-width of the corridor around the section line; investigations within ±buffer get projected onto the section. Tight foundation footprints ~15 m, harbour studies 50-100 m. Default ${SECTION_DEFAULTS.bufferM} m.`}
+        label={t('settings.sections.buffer')}
+        hint={t('settings.sections.bufferHint', { default: SECTION_DEFAULTS.bufferM })}
         value={draft.bufferM}
         onChange={v => setDraft({ ...draft, bufferM: v })}
         bounds={bufferBounds}
@@ -643,8 +686,10 @@ function SectionsSection({
       />
       <NumberRow
         id="settings-section-vex"
-        label="Default vertical exaggeration"
-        hint={`Vertical-to-horizontal scale ratio. 1× is geometrically honest; 2-5× makes thin layers legible at regional scale. Default ${SECTION_DEFAULTS.verticalExaggeration}×.`}
+        label={t('settings.sections.vex')}
+        hint={t('settings.sections.vexHint', {
+          default: SECTION_DEFAULTS.verticalExaggeration,
+        })}
         value={draft.verticalExaggeration}
         onChange={v => setDraft({ ...draft, verticalExaggeration: v })}
         bounds={vexBounds}
@@ -657,8 +702,8 @@ function SectionsSection({
       />
       <NumberRow
         id="settings-section-tie-strike-tolerance"
-        label="Tie-section strike tolerance (m)"
-        hint="How far apart along-strike two tests may be and still join the same auto-proposed tie-section. Wider = more ties, but less clean."
+        label={t('settings.sections.tieTolerance')}
+        hint={t('settings.sections.tieToleranceHint')}
         value={draft.tieStrikeToleranceM}
         onChange={v => setDraft({ ...draft, tieStrikeToleranceM: v })}
         bounds={tieBounds}
@@ -692,18 +737,54 @@ function AppearanceSection({
   themeChoice: ThemeChoice
   onSetThemeChoice: (next: ThemeChoice) => void
 }): JSX.Element {
+  const t = useT()
+  // Device-local language pref. Read as a hook (not a prop) for the same reason
+  // as the partition-engine toggle above: it is reversible chrome that applies
+  // immediately with no Save step, and threading it through App would touch a
+  // component this change has no other business in.
+  const language = useLanguage()
+
   return (
     <SectionShell
-      title="Appearance"
-      blurb="Per-device preferences. These stay on this machine and do NOT travel with the .gmproj bundle."
+      title={t('settings.section.appearance')}
+      blurb={t('settings.appearance.blurb')}
       scope="device"
     >
+      <div>
+        <label
+          htmlFor="settings-language"
+          className="block text-[11px] font-medium text-text-secondary mb-1"
+        >
+          {t('settings.appearance.language')}
+        </label>
+        <div className="flex items-center gap-3">
+          <select
+            id="settings-language"
+            data-testid="settings-language"
+            value={language}
+            onChange={e => setLanguage(e.target.value as Language)}
+            className="w-44 border border-border-default rounded px-2 py-1 text-sm bg-surface-overlay text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            {/* Every language is offered in its OWN language: a Dutch speaker
+                scans for "Nederlands", not for "Dutch". */}
+            {LANGUAGES.map(code => (
+              <option key={code} value={code}>
+                {LANGUAGE_LABELS[code]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
+          {t('settings.appearance.languageHint')}
+        </p>
+      </div>
+
       <div>
         <label
           htmlFor="settings-theme"
           className="block text-[11px] font-medium text-text-secondary mb-1"
         >
-          Theme
+          {t('settings.appearance.theme')}
         </label>
         <div className="flex items-center gap-3">
           <select
@@ -712,14 +793,13 @@ function AppearanceSection({
             onChange={e => onSetThemeChoice(e.target.value as ThemeChoice)}
             className="w-44 border border-border-default rounded px-2 py-1 text-sm bg-surface-overlay text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
           >
-            <option value="system">System (follow OS)</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
+            <option value="system">{t('settings.appearance.themeSystem')}</option>
+            <option value="light">{t('settings.appearance.themeLight')}</option>
+            <option value="dark">{t('settings.appearance.themeDark')}</option>
           </select>
         </div>
         <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
-          System follows the OS preference and updates live when you flip
-          Windows/macOS dark mode. Override here to pin the theme.
+          {t('settings.appearance.themeHint')}
         </p>
       </div>
     </SectionShell>
@@ -759,8 +839,8 @@ function ScopeBadge({ scope }: { scope: 'project' | 'device' }): JSX.Element {
   // Subtle inline label so the user can see at a glance whether a
   // section travels with the .gmproj or stays on this machine. Uses
   // muted colours so it doesn't compete with the section title.
-  const label =
-    scope === 'project' ? 'Stored in this project' : 'Stored on this device'
+  const t = useT()
+  const label = t(scope === 'project' ? 'settings.scope.project' : 'settings.scope.device')
   return (
     <span className="text-[10px] px-1.5 py-0.5 rounded border border-border-subtle text-text-muted">
       {label}
@@ -781,16 +861,15 @@ function SectionFooter({
   onReset: () => void
   onSubmit: () => void
 }): JSX.Element {
+  const t = useT()
   return (
     <>
       {!hasProject && (
-        <p className="text-[11px] text-status-amber">
-          Open or create a project to change these settings.
-        </p>
+        <p className="text-[11px] text-status-amber">{t('settings.needProject')}</p>
       )}
       <div className="pt-2 flex items-center justify-between gap-2">
         <Button variant="ghost" size="sm" onClick={onReset} disabled={!hasProject}>
-          Reset to defaults
+          {t('settings.resetDefaults')}
         </Button>
         <Button
           variant="primary"
@@ -799,7 +878,7 @@ function SectionFooter({
           disabled={!dirty || !allValid || !hasProject}
           data-testid="settings-save-button"
         >
-          Save
+          {t('common.save')}
         </Button>
       </div>
     </>
@@ -836,6 +915,7 @@ function NumberRow({
   disabled?: boolean
   invalid?: boolean
 }): JSX.Element {
+  const t = useT()
   const sMin = sliderMin ?? bounds.min
   return (
     <div>
@@ -856,7 +936,7 @@ function NumberRow({
           onChange={e => onChange(Number(e.target.value))}
           disabled={disabled}
           className="flex-1 accent-accent"
-          aria-label={`${label} slider`}
+          aria-label={t('settings.sliderLabel', { label })}
         />
         {/* Locale-tolerant numeric box — accepts BOTH ``,`` and ``.``
             as decimal separator, blocks letters/symbols at the keydown
