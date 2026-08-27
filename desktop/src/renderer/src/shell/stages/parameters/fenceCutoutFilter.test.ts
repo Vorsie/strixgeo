@@ -39,7 +39,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FencePanel } from '../../../utils/fencePanels'
-import { fenceCutoutPanels } from './fenceCutoutFilter'
+import type { ParameterUnitScope } from '../../ShellContext'
+import { cutoutFilterForScope, fenceCutoutPanels } from './fenceCutoutFilter'
 
 function panel(
   formationId: string,
@@ -74,55 +75,47 @@ const PANELS: FencePanel[] = [
   panel('u2', 'body-A', ['la-2']),
 ]
 
+const FORMATION_U1: ReturnType<typeof cutoutFilterForScope> = { formationId: 'u1' }
+const BODY_A = { bodyIds: new Set(['body-A']) } as const
+const BODY_B = { bodyIds: new Set(['body-B']) } as const
+
 describe('fenceCutoutPanels — the R4 cutout under the body ruling', () => {
-  it('FC1 — pooled scope keeps every panel of the formation', () => {
-    const out = fenceCutoutPanels(PANELS, { kind: 'geotech', unitId: 'u1' }, BODY_BY_LAYER)
+  it('FC1 — pooled (formation) filter keeps every panel of the formation', () => {
+    const out = fenceCutoutPanels(PANELS, FORMATION_U1, BODY_BY_LAYER)
     expect(out!.map(p => p.bodyId)).toEqual(['body-A', 'body-B', null])
   })
 
-  it('FC2 — body-scoped, panels whose layers belong to the other body are excluded', () => {
-    const out = fenceCutoutPanels(
-      PANELS,
-      { kind: 'geotech', unitId: 'u1', bodyId: 'body-A' },
-      BODY_BY_LAYER,
-    )
+  it('FC2 — body-set filter excludes panels whose layers belong to the other body', () => {
+    const out = fenceCutoutPanels(PANELS, BODY_A, BODY_BY_LAYER)
     // u1's body-A panel AND the twin row's body-A panel (FC4) — never lb-1's.
     expect(out!.map(p => p.layerIds)).toEqual([['la-1'], ['la-2']])
   })
 
-  it('FC3 — body-scoped, unattributed paint is not the chosen body', () => {
+  it('FC3 — body-set filter, unattributed paint is not the chosen body', () => {
     const out = fenceCutoutPanels(
       [panel('u1', 'body-B', ['lb-1']), panel('u1', null, []), panel('u1', null, undefined)],
-      { kind: 'geotech', unitId: 'u1', bodyId: 'body-B' },
+      BODY_B,
       BODY_BY_LAYER,
     )
     expect(out!.map(p => p.layerIds)).toEqual([['lb-1']])
   })
 
   it('FC4 — a body spanning twin formation rows yields ALL its panels', () => {
-    const out = fenceCutoutPanels(
-      PANELS,
-      { kind: 'geotech', unitId: 'u1', bodyId: 'body-A' },
-      BODY_BY_LAYER,
-    )
+    const out = fenceCutoutPanels(PANELS, BODY_A, BODY_BY_LAYER)
     // The u2 twin's panel is the same body's wall — the formation clause must
     // not hide it under a body scope.
     expect(out!.map(p => p.formationId)).toEqual(['u1', 'u2'])
   })
 
-  it('FC5 — a null bodyId on the scope is the pooled view, exactly like an absent one', () => {
-    const out = fenceCutoutPanels(
-      PANELS,
-      { kind: 'geotech', unitId: 'u1', bodyId: null },
-      BODY_BY_LAYER,
-    )
-    expect(out!).toHaveLength(3)
+  it('FC5 — a unit scope derives the pooled (formation) filter, not a body set', () => {
+    // What a null bodyId used to mean (the pooled view) is now the unit kind.
+    const scope: ParameterUnitScope = { kind: 'geotech-unit', unitId: 'u1' }
+    expect(cutoutFilterForScope(scope, [])).toEqual({ formationId: 'u1' })
+    expect(fenceCutoutPanels(PANELS, cutoutFilterForScope(scope, []), BODY_BY_LAYER)).toHaveLength(3)
   })
 
   it('FC6 — undefined panels (fence not assembled yet) answer undefined, not an empty cutout', () => {
-    expect(
-      fenceCutoutPanels(undefined, { kind: 'geotech', unitId: 'u1' }, BODY_BY_LAYER),
-    ).toBeUndefined()
+    expect(fenceCutoutPanels(undefined, FORMATION_U1, BODY_BY_LAYER)).toBeUndefined()
   })
 
   it('FC7 — a continuous run over one body survives INTACT despite differing mid-run labels', () => {
@@ -135,21 +128,30 @@ describe('fenceCutoutPanels — the R4 cutout under the body ruling', () => {
       panel('u1', 'litho-frame-body-77', ['la-2']),
       panel('u1', null, ['la-1', 'la-2']),
     ]
-    const out = fenceCutoutPanels(
-      run,
-      { kind: 'geotech', unitId: 'u1', bodyId: 'body-A' },
-      BODY_BY_LAYER,
-    )
+    const out = fenceCutoutPanels(run, BODY_A, BODY_BY_LAYER)
     expect(out).toHaveLength(3)
   })
 
   it('FC8 — a panel whose layers span several bodies is included when ANY belongs', () => {
     const shared = panel('u1', 'body-A', ['la-1', 'lb-1'])
-    const out = fenceCutoutPanels(
-      [shared],
-      { kind: 'geotech', unitId: 'u1', bodyId: 'body-B' },
-      BODY_BY_LAYER,
-    )
+    const out = fenceCutoutPanels([shared], BODY_B, BODY_BY_LAYER)
     expect(out).toHaveLength(1)
+  })
+
+  it('FC9 — a geotech-class scope derives the UNION of its bodies (spec §4)', () => {
+    // The class row's bands span two geotech bodies; the cutout keeps every
+    // panel of ANY of them, so a class row shows both walls, not one.
+    const scope: ParameterUnitScope = {
+      kind: 'geotech-class',
+      lithoUnitId: 'lu',
+      lithoBodyId: 'lb',
+      nadClass: 13,
+    }
+    const scopeBands = [{ body_id: 'body-A' }, { body_id: 'body-B' }, { body_id: null }]
+    const filter = cutoutFilterForScope(scope, scopeBands)
+    expect(filter).toEqual({ bodyIds: new Set(['body-A', 'body-B']) })
+    const out = fenceCutoutPanels(PANELS, filter, BODY_BY_LAYER)
+    // body-A's two panels (u1 + u2 twin) and body-B's one panel.
+    expect(out!.map(p => p.layerIds)).toEqual([['la-1'], ['lb-1'], ['la-2']])
   })
 })
