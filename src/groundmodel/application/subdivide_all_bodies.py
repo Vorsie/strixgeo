@@ -383,6 +383,11 @@ class _ColumnPlan:
         in a CPT-free body, or a CPT with no usable qc); those receive a skeleton
         formation (``nad_class=None``) — boreholes in a CPT-bearing body are
         TIN-divided into real classes by Phase 8c instead.
+    litho_layer_id : str | None
+        The accepted litho band this column plan subdivides (one plan per
+        segment). Stamped onto every band's ``parent_litho_layer_id`` so the
+        Parameters tree can place the band under its litho body. ``None`` when
+        the segment carried no layer id (defensive — every real pick has one).
     """
 
     investigation_id: str
@@ -391,6 +396,7 @@ class _ColumnPlan:
     geo_bounded_base_m: float
     sub_intervals: list[tuple[float, float]] = field(default_factory=list)
     nad_classes: list[int | None] = field(default_factory=list)
+    litho_layer_id: str | None = None
 
 
 class SubdivideAllBodies(GeotechBoreholeMaterialiser):
@@ -992,6 +998,11 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                         source="segmenter",
                         confidence="medium",
                         cpt_id=inv_uuid,
+                        # The covering litho band this band subdivides — the
+                        # Parameters tree derives its litho body live through it.
+                        parent_litho_layer_id=(
+                            UUID(col_plan.litho_layer_id) if col_plan.litho_layer_id else None
+                        ),
                     )
                     self._session.add(layer)
                     # The formation, not the plan, is the authority on the
@@ -1479,6 +1490,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     geo_bounded_base_m=geo_base,
                     sub_intervals=sub_intervals,
                     nad_classes=nad_classes,
+                    # Exact provenance: the band is minted out of THIS segment's
+                    # litho layer, so its parent is the id the pick already holds.
+                    litho_layer_id=seg.litho_layer_id,
                 )
             )
 
