@@ -19,7 +19,7 @@ export const SECTIONS_NL = {
   // FLAG alt: Weergaveniveau | Modelniveau — the app switches the section
   // between the geology / litho / geotech levels; "as" is the internal metaphor
   // and reads oddly to a first-time user.
-  'sections.modelAxis': 'Modelas van het profiel',
+  'sections.modelAxis': 'Modelas',
   'sections.buffer': 'Projectiebuffer',
   'sections.bufferLabel': 'Projectiebuffer (m)',
   'sections.bufferLateral': 'Laterale projectiebuffer',
@@ -73,13 +73,11 @@ export const SECTIONS_NL = {
   'sections.toolbar.acceptAllBulkSuggestions': 'Alle bulkvoorstellen aanvaarden',
   'sections.toolbar.clearLithoSuggestions': 'Lithovoorstellen wissen',
   'sections.toolbar.clearCorrelationSuggestions': 'Correlatievoorstellen wissen',
-  // FLAG alt: voorbeeldweergaven | ghost-overlays — a "ghost" is the
-  // semi-transparent preview of a suggestion you have not accepted yet.
-  // "Voorstel" says what it IS; "schaduw" says what it LOOKS like.
-  'sections.toolbar.clearBulkGhosts': 'Voorstel-overlays van de bulkactie wissen',
-  'sections.toolbar.dismissLithoGhost': 'De huidige lithovoorstel-overlay sluiten',
+  // NOTE: ruled 2026-08-27 — owner chose "Ghost-overlays wissen".
+  'sections.toolbar.clearBulkGhosts': 'Ghost-overlays wissen',
+  'sections.toolbar.dismissLithoGhost': 'De huidige litho-ghost-overlay sluiten',
   'sections.toolbar.dismissBulkGhosts':
-    'De voorstel-overlays van de bulkactie voor elk grondonderzoek sluiten',
+    'De ghost-overlays van de bulkactie voor elk grondonderzoek sluiten',
   'sections.toolbar.suggestAllTests': 'Lithologie voorstellen voor alle proeven?',
   'sections.toolbar.recomputeBodies': 'Lichamen herberekenen',
   'sections.toolbar.resetPoints': 'Punten herstellen',
@@ -128,10 +126,8 @@ export const SECTIONS_NL = {
   // ---------------------------------------------------------------------------
   'sections.header.cptChannels': 'Schakelaars voor de sondeerkanalen',
   'sections.header.qc': 'Conusweerstand (qc)',
-  // FLAG alt: Plaatselijke wrijvingsweerstand (fs) | Mantelwrijving (fs) —
-  // "kleef" is the Flemish word an owner-side engineer uses out loud;
-  // "plaatselijke wrijvingsweerstand" is the NEN-EN-ISO prose form.
-  'sections.header.fs': 'Kleefweerstand (fs) — enkel CPTU/CPTE',
+  // NOTE: ruled 2026-08-27 — owner chose "Plaatselijke wrijvingsweerstand (fs)".
+  'sections.header.fs': 'Plaatselijke wrijvingsweerstand (fs) — enkel CPTU/CPTE',
   'sections.header.rf': 'Wrijvingsgetal (Rf)',
   'sections.header.u2': 'Waterspanning (u2) — enkel CPTU',
   'sections.header.qTotal': 'Totale weerstand (qTotal) — enkel CPTM',
@@ -159,9 +155,8 @@ export const SECTIONS_NL = {
   // contextmenu's
   // ---------------------------------------------------------------------------
   'sections.menu.body': 'Acties op de lichaamsuitbreiding',
-  // FLAG alt: Lichaam opheffen | Lichaam ontbinden — "dissolve" breaks a body
-  // back into its constituent regions.
-  'sections.menu.dissolveBody': 'Lichaam oplossen',
+  // NOTE: ruled 2026-08-27 — owner chose "Lichaam ontbinden".
+  'sections.menu.dissolveBody': 'Lichaam ontbinden',
   'sections.menu.nameBody': 'Lichaam benoemen…',
   // FLAG alt: Focus op dit onderzoekspunt | Focus op deze kolom — "test" here
   // means one CPT or borehole column on the section.
@@ -231,7 +226,7 @@ export const SECTIONS_NL = {
   'sections.bands.movePackingBoundary': 'Pakkingsgrens verplaatsen',
   'sections.bands.splitPackingBand': 'Pakkingsband splitsen',
   'sections.bands.mergePackingBands': 'Pakkingsbanden samenvoegen',
-  'sections.bands.absorbPackingLens': 'Pakkingslens opnemen',
+  'sections.bands.absorbPackingLens': 'Pakkingslens absorberen',
   'sections.bands.disconnectPackingBands': 'Pakkingsbanden loskoppelen',
 
   // ---------------------------------------------------------------------------
