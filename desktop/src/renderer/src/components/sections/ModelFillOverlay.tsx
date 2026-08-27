@@ -18,9 +18,17 @@
  *   punched out so an ENCLOSED higher-priority body (a clay lens inside a sand
  *   slab) shows through instead of being re-covered by a solid fill.
  *
- * This overlay is a read-only, purely presentational layer:
- *   - ``pointerEvents="none"`` on every painted element so it never intercepts
- *     gestures intended for overlays below or above it.
+ * This overlay is presentational, with ONE gesture (owner ruling S6,
+ * 2026-08-27: "right click a fill region only works for normal fill, not
+ * model fill"):
+ *   - When ``onShowUnitStatistics`` is wired, every fill element answers a
+ *     right-click with the shared "Unit statistics…" menu, reporting the
+ *     region's FORMATION id — the same identity the colouring keys on. The
+ *     caller stamps the axis's scope kind in the handler, exactly as on the
+ *     computed fill.
+ *   - Without the handler, every element keeps ``pointerEvents="none"`` so
+ *     the overlay never intercepts gestures intended for overlays below or
+ *     above it — byte-identical to the pre-S6 render.
  *   - All horizontal positions go through the ``alongMToScreenX`` callback — this
  *     is the warped/spacing-aware screen transform (never raw along-distance).
  *   - All vertical positions go through ``levelToScreen``.
@@ -29,8 +37,11 @@
  * beneath interactive overlays.
  */
 
+import { useState } from 'react'
+
 import type { SectionPoly, SolidColumn } from '../../utils/sectionFromSolids'
 import { CONFIDENCE_FALLOFF_M, distanceAlphaMultiplier } from '../../utils/distanceConfidence'
+import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -86,6 +97,14 @@ export interface ModelFillOverlayProps {
   confidenceFade?: boolean
   columnAlongMs?: readonly number[]
   confidenceFalloffM?: number
+  /**
+   * "Unit statistics…" for a right-clicked model-fill region (owner ruling
+   * S6, 2026-08-27). Reports the region's FORMATION id; the caller stamps
+   * the axis's scope kind (geotech axis → geotech unit, litho axis → litho
+   * unit). Absent → the overlay stays purely presentational, every element
+   * ``pointerEvents="none"``.
+   */
+  onShowUnitStatistics?: (formationId: string) => void
 }
 
 /**
@@ -189,7 +208,35 @@ export default function ModelFillOverlay({
   confidenceFade = false,
   columnAlongMs,
   confidenceFalloffM = CONFIDENCE_FALLOFF_M,
+  onShowUnitStatistics,
 }: ModelFillOverlayProps): JSX.Element {
+  // S6 — the right-click menu state. Declared BEFORE the mode early-returns
+  // (hooks may never sit below a conditional return).
+  const [unitStatsMenu, setUnitStatsMenu] = useState<UnitStatsMenuState | null>(null)
+  const interactive = onShowUnitStatistics !== undefined
+  /** Shared per-element gesture props: right-click → the statistics menu. */
+  const regionGesture = (formationId: string) =>
+    interactive
+      ? {
+          pointerEvents: 'auto' as const,
+          style: { cursor: 'context-menu' as const },
+          onContextMenu: (e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setUnitStatsMenu({ clientX: e.clientX, clientY: e.clientY, formationId })
+          },
+        }
+      : { pointerEvents: 'none' as const }
+  const statsMenu = (
+    <UnitStatisticsPortalMenu
+      menu={unitStatsMenu}
+      onShow={onShowUnitStatistics}
+      onClose={() => setUnitStatsMenu(null)}
+      menuTestid="model-fill-menu"
+      itemTestid="model-fill-menu-unit-statistics"
+    />
+  )
+
   // ── Mode B — plane-slice polygon fill ───────────────────────────────────────
   if (polys && polys.length > 0) {
     return (
@@ -222,14 +269,15 @@ export default function ModelFillOverlay({
               // the single outer ring identically to nonzero.
               fillRule="evenodd"
               stroke="none"
-              // pointerEvents stays "none" DELIBERATELY. Making a model-fill
-              // body clickable (whole-layer summary stats for e.g. a sand body,
-              // independent of packing density) is a separate, deferred UX for
-              // the geotech stage — do NOT enable pointer events here.
-              pointerEvents="none"
+              // S6 (owner 2026-08-27): the once-deferred "model-fill body is
+              // clickable" UX is now RULED — a right-click offers the unit-
+              // statistics jump when the handler is wired; otherwise the
+              // element stays pointer-inert exactly as before.
+              {...regionGesture(poly.formationId)}
             />
           )
         })}
+        {statsMenu}
       </g>
     )
   }
@@ -268,13 +316,19 @@ export default function ModelFillOverlay({
             fill={seg.color}
             fillOpacity={opacity * mult}
             stroke="none"
-            pointerEvents="none"
+            // S6 — same right-click jump as the Mode B polys.
+            {...regionGesture(seg.formationId)}
           />,
         )
       })
     }
 
-    return <g data-testid="model-fill-overlay">{rects}</g>
+    return (
+      <g data-testid="model-fill-overlay">
+        {rects}
+        {statsMenu}
+      </g>
+    )
   }
 
   // ── Empty / no data ─────────────────────────────────────────────────────────
