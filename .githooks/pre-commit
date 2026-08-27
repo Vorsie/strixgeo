@@ -25,6 +25,21 @@ fi
 py_changed="$(echo "$staged" | grep -E '\.py$' || true)"
 ts_changed="$(echo "$staged" | grep -E '^desktop/.*\.(ts|tsx)$' || true)"
 
+# Batch mode — STRIX_BATCH=1 skips the per-commit test layers (pytest,
+# tsc, Vitest, e2e smoke) and keeps only the instant guards (CLAUDE.md
+# budget, eslint-reason). Rationale: this hook checks the WORKING TREE,
+# and during a scripted one-file-per-commit landing batch the working
+# tree is the identical final state for every commit — N re-runs of the
+# same suite prove nothing the first run didn't. The contract: the
+# session main runs the full gates (pytest unit, tsc web+node, full
+# Vitest) on the final tree BEFORE the batch, and the re-armed develop
+# CI re-proves on push (owner ruling 2026-08-27). Set by landing batch
+# scripts ONLY — never export STRIX_BATCH in an interactive shell.
+batch_mode="${STRIX_BATCH:-0}"
+if [ "$batch_mode" = "1" ]; then
+  echo "[pre-commit] STRIX_BATCH=1 — skipping test layers (full gates ran on the final tree; CI re-proves on push)."
+fi
+
 # CLAUDE.md size budget — the file auto-loads into every session, so
 # every byte is paid for on every conversation (see CLAUDE.md →
 # "Maintaining this file"). History belongs in docs/debt.md or
@@ -39,7 +54,7 @@ if echo "$staged" | grep -qx 'CLAUDE.md'; then
   fi
 fi
 
-if [ -n "$py_changed" ]; then
+if [ -n "$py_changed" ] && [ "$batch_mode" != "1" ]; then
   echo "[pre-commit] Running Python unit tests…"
   uv run pytest tests/unit -q --tb=no
 fi
@@ -54,6 +69,9 @@ if [ -n "$ts_changed" ]; then
   # ``python`` aborts the whole desktop check and silently pushes commits
   # to ``--no-verify``. Mirrors the ``uv run pytest`` line above.
   uv run python scripts/check_eslint_reason.py
+  if [ "$batch_mode" = "1" ]; then
+    exit 0
+  fi
   # tsc --noEmit catches type errors before a green test suite can
   # mask them (vitest happily runs against ``any`` annotations and
   # missing generic args; tsc doesn't). Runs second — slower than
