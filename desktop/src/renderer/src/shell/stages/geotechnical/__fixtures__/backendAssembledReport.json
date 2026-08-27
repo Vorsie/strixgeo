@@ -1,0 +1,103 @@
+{
+  "verdict": "fail",
+  "clauses": [
+    {
+      "key": "area-conservation",
+      "status": "pass",
+      "not_evaluated_reason": null,
+      "entries": [],
+      "number": 1,
+      "title": "Classed and unclassed ground add up to the litho cover"
+    },
+    {
+      "key": "edge-reach",
+      "status": "pass",
+      "not_evaluated_reason": null,
+      "entries": [],
+      "number": 2,
+      "title": "The 3-D build can read the fill at every column edge"
+    },
+    {
+      "key": "cause-closure",
+      "status": "pass",
+      "not_evaluated_reason": null,
+      "entries": [],
+      "number": 3,
+      "title": "Every patch of unclassed ground has a known cause"
+    },
+    {
+      "key": "section-closure",
+      "status": "fail",
+      "not_evaluated_reason": null,
+      "entries": [
+        {
+          "label": "s2: framed by the lithostratigraphic model but produced no geotech build output",
+          "section_id": "s2",
+          "section_name": "s2",
+          "gap_index": null,
+          "investigation_id": null,
+          "world_x": null,
+          "world_y": null,
+          "measure": null
+        }
+      ],
+      "number": 4,
+      "title": "Every section in the model reached the build"
+    },
+    {
+      "key": "column-totality",
+      "status": "fail",
+      "not_evaluated_reason": null,
+      "entries": [
+        {
+          "label": "412 of 37707 column(s) inside the model footprint carry no labelled voxel",
+          "section_id": null,
+          "section_name": null,
+          "gap_index": null,
+          "investigation_id": null,
+          "world_x": null,
+          "world_y": null,
+          "measure": {
+            "value": 412.0,
+            "unit": "count",
+            "budget": 0.0
+          }
+        }
+      ],
+      "number": 5,
+      "title": "Every column inside the model footprint carries material"
+    },
+    {
+      "key": "stack-voids",
+      "status": "fail",
+      "not_evaluated_reason": null,
+      "entries": [
+        {
+          "label": "3 column stack(s) carry an interior void over 15 mm \u2014 worst 42.0 mm",
+          "section_id": null,
+          "section_name": null,
+          "gap_index": null,
+          "investigation_id": null,
+          "world_x": null,
+          "world_y": null,
+          "measure": {
+            "value": 0.042,
+            "unit": "m",
+            "budget": 0.015
+          }
+        }
+      ],
+      "number": 6,
+      "title": "No column has an interior void above the hairline limit"
+    },
+    {
+      "key": "section-reconciliation",
+      "status": "pass",
+      "not_evaluated_reason": null,
+      "entries": [],
+      "number": 7,
+      "title": "The 3-D model holds the ground its sections classed"
+    }
+  ],
+  "generated_at": "2026-08-26T02:00:00+00:00"
+}
