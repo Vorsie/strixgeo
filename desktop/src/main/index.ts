@@ -7,8 +7,6 @@ import {
   statSync,
   existsSync,
   mkdirSync,
-  createWriteStream,
-  WriteStream,
   appendFileSync,
 } from 'fs'
 
@@ -52,6 +50,7 @@ import {
   isValidRecentProjectEntry,
   normalizePathForCompare,
 } from './security'
+import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
 
 // Authorised filesystem paths (debt #37). Populated by:
 //   * Every dialog.showOpen/showSave return value (the user just
@@ -166,13 +165,60 @@ let mainLogPath: string | null = null
 // and a subsequent exit is a normal shutdown, not a startup crash.
 let markBackendReady: (() => void) | null = null
 
+// The bundled PostgreSQL, in packaged builds only (null in dev, where Docker
+// on :5433 owns the database and none of this runs).
+let embeddedStack: EmbeddedStack | null = null
+
+/**
+ * Open the packaged build's backend log, rotating it first if it has grown
+ * past the cap.
+ *
+ * #214c — 5 MB max, 3 backup generations. Rotation happens once, here; the
+ * old contents live in .1 / .2.
+ */
+function openMainLog(): void {
+  const logsDir = app.getPath('logs')
+  mkdirSync(logsDir, { recursive: true })
+  const logPath = join(logsDir, 'backend.log')
+  rotateIfNeeded(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, realFsOps())
+  mainLogPath = logPath
+}
+
+/**
+ * Append to the backend log (packaged) or the console (dev).
+ *
+ * Backend and database stdout carry the DSN, which includes this install's
+ * generated password — so in a packaged build it must never reach the
+ * renderer console (debt #200 F5).
+ *
+ * Synchronous on purpose. This used to be a buffered ``WriteStream``, and the
+ * first time a packaged build failed to start, the log it told the user to
+ * send back was zero bytes: the process died with every line still in the
+ * stream's buffer. A startup log that survives only a graceful exit is
+ * useless precisely when it is needed, and the volume here — a boot log plus
+ * backend stdout — does not justify the risk.
+ */
+function writeMainLog(line: string): void {
+  if (mainLogPath === null) {
+    console.log(line)
+    return
+  }
+  try {
+    appendFileSync(mainLogPath, `${line}\n`)
+  } catch {
+    // A log write must never be the thing that takes the app down.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Backend lifecycle
 // ---------------------------------------------------------------------------
 
 function startApi(): void {
   // In dev: __dirname = desktop/out/main/ → 3 levels up = repo root (Strix/).
-  // In packaged build: adjust this path to point at the bundled venv.
+  // A packaged build has no repo and no .venv — it runs the bundled
+  // interpreter against the bundled source, pointed at the database
+  // startEmbeddedStack just brought up (see ./embedded/embeddedStack).
   const repoRoot = join(__dirname, '..', '..', '..')
   // The backend is started through its own entrypoint module rather than
   // `uvicorn.exe`, because the event loop has to be pinned through uvicorn's
@@ -185,14 +231,19 @@ function startApi(): void {
   // an accept error and never re-arms it; the selector loop logs and keeps
   // serving. `groundmodel.api.serve` pins the selector loop on Windows (and
   // installs the loud CRITICAL diagnostics either way) — see its docstring.
-  const pythonExe = join(repoRoot, '.venv', 'Scripts', 'python.exe')
+  const pythonExe = embeddedStack
+    ? embeddedStack.pythonExe
+    : join(repoRoot, '.venv', 'Scripts', 'python.exe')
 
   apiProcess = spawn(pythonExe, [
     '-m', 'groundmodel.api.serve',
     '--host', '127.0.0.1',
     '--port', String(API_PORT),
   ], {
-    cwd: repoRoot,
+    // Packaged: the install directory is read-only, so the child runs from
+    // the per-user data directory — anything that ever resolves a relative
+    // path lands somewhere writable instead of failing under Program Files.
+    cwd: embeddedStack ? app.getPath('userData') : repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     // A packaged build has no repo-root .env and won't have ENVIRONMENT set,
     // so the backend would default to "development" and only WARN on a
@@ -203,7 +254,7 @@ function startApi(): void {
     // started by hand (dev shell, e2e harness, scripts) simply doesn't get one
     // and keeps its pre-token behaviour.
     env: {
-      ...process.env,
+      ...(embeddedStack ? embeddedStack.backendEnv : process.env),
       [LOCAL_CLIENT_TOKEN_ENV_VAR]: localClientToken,
       ...(app.isPackaged ? { ENVIRONMENT: 'production' } : {}),
     }
@@ -216,33 +267,18 @@ function startApi(): void {
   // them to a log file under the app's logs dir in production; keep the
   // console in dev for fast iteration.
   //
-  // #214c — size-based log rotation: rotate the log file before opening it
-  // if it has grown past LOG_MAX_BYTES (5 MB). After rotation we open the
-  // (now-empty) primary path for appending; the old contents are in .1 / .2
-  // up to LOG_MAX_FILES generations. The stream is recreated after rotation
-  // so the same local variable is used throughout.
-  let logStream: WriteStream | null = null
-  if (app.isPackaged) {
-    const logsDir = app.getPath('logs')
-    mkdirSync(logsDir, { recursive: true })
-    const logPath = join(logsDir, 'backend.log')
-    mainLogPath = logPath
-    rotateIfNeeded(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, realFsOps())
-    logStream = createWriteStream(logPath, { flags: 'a' })
-  }
-
-  // Helper to write a line to the log file (or console in dev).
-  function writeLog(line: string): void {
-    if (logStream) logStream.write(`${line}\n`)
-    else console.log(line)
-  }
+  // Opened once per launch (see openMainLog for the rotation), and normally
+  // already open by now: the embedded database boots first and its stage log
+  // is the first thing written, so a launch reads in order.
+  if (app.isPackaged && mainLogPath === null) openMainLog()
+  const writeLog = writeMainLog
 
   apiProcess.stdout?.on('data', (d: Buffer) => {
-    if (logStream) logStream.write(`[api] ${d.toString()}`)
+    if (mainLogPath) writeMainLog(`[api] ${d.toString().trimEnd()}`)
     else console.log('[api]', d.toString().trim())
   })
   apiProcess.stderr?.on('data', (d: Buffer) => {
-    if (logStream) logStream.write(`[api:err] ${d.toString()}`)
+    if (mainLogPath) writeMainLog(`[api:err] ${d.toString().trimEnd()}`)
     else console.error('[api]', d.toString().trim())
   })
 
@@ -291,6 +327,46 @@ function stopApi(): void {
     apiProcess.kill()
     apiProcess = null
   }
+  // Order matters: the backend holds a connection pool, and PostgreSQL's
+  // "fast" shutdown disconnects clients anyway — but stopping the client
+  // first keeps the shutdown free of error lines in the log.
+  if (embeddedStack) {
+    embeddedStack.stop()
+    embeddedStack = null
+  }
+}
+
+/**
+ * Bring the bundled database up before the window opens (packaged only).
+ *
+ * On failure the app cannot function at all — there is no database and no
+ * backend — so it reports and quits rather than showing an empty window. The
+ * report is a native dialog because no renderer exists yet, and it names the
+ * step that failed plus the log file, which is the only thing a non-technical
+ * tester can usefully send back.
+ *
+ * @returns True when the database is up and migrated; false when the app is
+ *   quitting.
+ */
+async function bootEmbeddedDatabase(): Promise<boolean> {
+  if (mainLogPath === null) openMainLog()
+  const result = await startEmbeddedStack(
+    process.resourcesPath,
+    app.getPath('userData'),
+    writeMainLog,
+  )
+  if (result.ok) {
+    embeddedStack = result.stack
+    return true
+  }
+  dialog.showErrorBox(
+    'StrixGeo could not start',
+    `${result.failure.summary}\n\n` +
+      `${result.failure.message}\n\n` +
+      `Details were written to:\n${mainLogPath ?? app.getPath('logs')}`,
+  )
+  app.quit()
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -1520,11 +1596,15 @@ if (!gotSingleInstanceLock) {
     mainWindow.focus()
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     // Pre-authorise every path in the recent-projects list — without
     // this the first "Open Recent" click after launch would hit the
     // path-validation in project:read-file and get refused (debt #37).
     bootstrapAuthorisedPaths()
+    // Packaged builds bring their own PostgreSQL up before anything else —
+    // there is no Docker on a coworker's machine. A dev session skips this
+    // entirely and keeps talking to :5433 (debt #2, Fork A).
+    if (app.isPackaged && !(await bootEmbeddedDatabase())) return
     // The recovery store has no Electron dependency of its own (so it stays
     // unit-testable), so it learns the userData directory and app version here.
     // Must happen before any renderer can issue a ``recovery:*`` call.
