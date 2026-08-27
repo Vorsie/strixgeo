@@ -22,10 +22,18 @@ const setSelectedParameterUnit = vi.fn()
 
 let mockGeotechFormations: unknown[] = []
 let mockGeotechLayers: unknown[] = []
-let mockSelectedUnit: { kind: 'litho' | 'geotech'; unitId: string } | null = null
+let mockLithoLayers: unknown[] = []
+let mockSelectedUnit: {
+  kind: 'litho' | 'geotech'
+  unitId: string
+  bodyId?: string | null
+} | null = null
 
 vi.mock('../../ShellContext', () => ({
   useShell: () => ({
+    // The body-roster fetch needs the project + active models; both models
+    // null here keeps the pane fetch-free (labels fall back to id prefixes).
+    project: { id: 'proj-1' },
     geoModel: {
       lithoFormations: [
         {
@@ -45,8 +53,11 @@ vi.mock('../../ShellContext', () => ({
           litho_admixtures: [],
         },
       ],
+      lithoLayers: mockLithoLayers,
       geotechFormations: mockGeotechFormations,
       geotechLayers: mockGeotechLayers,
+      activeLithoModel: null,
+      activeGeotechModel: null,
     },
     coordinator: {
       selectedParameterUnit: mockSelectedUnit,
@@ -60,6 +71,7 @@ afterEach(() => {
   vi.clearAllMocks()
   mockGeotechFormations = []
   mockGeotechLayers = []
+  mockLithoLayers = []
   mockSelectedUnit = null
 })
 
@@ -225,6 +237,113 @@ describe('UnitListPane — geotech roster', () => {
     render(<UnitListPane />)
 
     expect(screen.queryByTestId('parameters-unit-geo-1')).toBeNull()
+  })
+
+  // ── The body level (owner ruling 2026-08-27, verbatim: "a body is only a
+  //    body if it is geometrically connected or if the users says, this body
+  //    is the same as that body") — the unit row lumps resolver bodies; the
+  //    tree makes each reachable. ────────────────────────────────────────────
+  it('PU12 — a unit lumping two bodies gets an expander; expanding lists a row per body', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
+    ]
+    render(<UnitListPane />)
+
+    const expander = screen.getByTestId('parameters-unit-expander-geo-1')
+    fireEvent.click(expander)
+
+    expect(screen.getByTestId('parameters-unit-body-body-A')).toBeTruthy()
+    expect(screen.getByTestId('parameters-unit-body-body-B')).toBeTruthy()
+  })
+
+  it('PU13 — a unit with ONE body needs no expander (the GT3 precedent)', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-A' },
+    ]
+    render(<UnitListPane />)
+
+    expect(screen.queryByTestId('parameters-unit-expander-geo-1')).toBeNull()
+    expect(screen.queryByTestId('parameters-unit-body-body-A')).toBeNull()
+  })
+
+  it('PU14 — clicking a body row scopes {unitId, bodyId}; the unit row stays the pooled scope', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
+    ]
+    render(<UnitListPane />)
+
+    fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
+    fireEvent.click(screen.getByTestId('parameters-unit-body-body-B'))
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({
+      kind: 'geotech',
+      unitId: 'geo-1',
+      bodyId: 'body-B',
+    })
+
+    setSelectedParameterUnit.mockClear()
+    fireEvent.click(screen.getByTestId('parameters-unit-geo-1'))
+    // EXACTLY the pooled shape — no bodyId key (PU2's contract).
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech', unitId: 'geo-1' })
+  })
+
+  it('PU15 — a body row shows its own band and CPT counts', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-A', cpt_id: 'cpt-b' },
+      { ...bandOf('geo-1', 'l3'), body_id: 'body-B' },
+    ]
+    render(<UnitListPane />)
+
+    fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
+    const rowA = screen.getByTestId('parameters-unit-body-body-A')
+    expect(rowA.textContent).toContain('2 bands')
+    expect(rowA.textContent).toContain('2 CPTs')
+    const rowB = screen.getByTestId('parameters-unit-body-body-B')
+    expect(rowB.textContent).toContain('1 band')
+    expect(rowB.textContent).toContain('1 CPT')
+  })
+
+  it('PU16 — the litho roster gets the same body level, from the litho layers', () => {
+    mockGeotechFormations = []
+    mockLithoLayers = [
+      { id: 'll1', formation_id: 'litho-1', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'lbody-1' },
+      { id: 'll2', formation_id: 'litho-1', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 2, depth_base_m: 4, status: 'accepted', body_id: 'lbody-2' },
+    ]
+    render(<UnitListPane />)
+
+    fireEvent.click(screen.getByTestId('parameters-unit-expander-litho-1'))
+    fireEvent.click(screen.getByTestId('parameters-unit-body-lbody-2'))
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({
+      kind: 'litho',
+      unitId: 'litho-1',
+      bodyId: 'lbody-2',
+    })
+  })
+
+  it('PU17 — a selected body row is marked selected; the unit row is not', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
+    ]
+    mockSelectedUnit = { kind: 'geotech', unitId: 'geo-1', bodyId: 'body-A' }
+    render(<UnitListPane />)
+
+    // A body-scoped selection keeps the unit expanded so the scoped row is
+    // visible without a click.
+    expect(
+      screen.getByTestId('parameters-unit-body-body-A').getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(
+      screen.getByTestId('parameters-unit-geo-1').getAttribute('aria-selected'),
+    ).toBe('false')
   })
 
   it('PU8 — a borehole-only unit IS listed; it just has no cone to summarise', () => {
