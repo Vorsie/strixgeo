@@ -15,6 +15,7 @@ describe('buildFencePanels', () => {
       {
         formationId: 'ZAND',
         bodyId: 'b1',
+        layerIds: ['ll-1', 'll-2'],
         gapIndex: 0,
         polygon: [
           { fraction: 0, elevation: 5 },
@@ -28,6 +29,9 @@ describe('buildFencePanels', () => {
     expect(panels).toHaveLength(1)
     expect(panels[0].formationId).toBe('ZAND')
     expect(panels[0].bodyId).toBe('b1')
+    // Source-layer ids ride the panel (amended F3, 2026-08-27): the cutout's
+    // body scope resolves panels through THEM, never the bodyId label above.
+    expect(panels[0].layerIds).toEqual(['ll-1', 'll-2'])
     const xs = panels[0].vertices.map((v) => v[0]).sort((a, b) => a - b)
     expect(xs[0]).toBeCloseTo(0, 6)
     expect(xs[xs.length - 1]).toBeCloseTo(100, 6)
