@@ -124,3 +124,12 @@ class LithoBuildGenerationOrm(Base):
     bodies_built: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     triangles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     duration_s: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # --- seven-clause gapless gate -------------------------------------------
+    #: The gate's report for THIS build (all seven clauses, always, in order —
+    #: see ``groundmodel.application.gapless_build_report_assembler``).
+    #: Nullable, NOT ``server_default='{}'``: an older generation genuinely has
+    #: no report (the gate postdates it), and an empty dict would be
+    #: indistinguishable from "the gate ran and found nothing" — a different,
+    #: false, claim.
+    gapless_report: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
