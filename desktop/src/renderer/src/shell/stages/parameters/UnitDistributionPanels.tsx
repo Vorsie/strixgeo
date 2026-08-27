@@ -56,6 +56,19 @@ interface Props {
    * the caller, which is what knows the sections.
    */
   populationNote?: string
+  /**
+   * How many accepted bands the SCOPE owns in total (the pane row's count,
+   * both anchors). When the pooled subset is smaller — member/anchor filters
+   * — the header reads "X of Y bands" so a partial pool cannot read as the
+   * whole row (audit F7). Omitted keeps the plain count.
+   */
+  totalBandCount?: number
+  /**
+   * True when a single resolver BODY is scoped: the empty state then blames
+   * the body, not the unit — "this unit has no bands on a CPT" is false
+   * under a body scope (audit F7).
+   */
+  bodyScoped?: boolean
 }
 
 /**
@@ -76,6 +89,8 @@ function UnitDistributionPanels({
   unitLabel,
   pendingCptCount = 0,
   populationNote,
+  totalBandCount,
+  bodyScoped = false,
 }: Props): JSX.Element {
   const totalSamples = statistics.channels.reduce((sum, c) => sum + c.summary.n, 0)
   // S1 (owner 2026-08-27): "make a button on the 3 cpt statistics, to rescale
@@ -106,9 +121,13 @@ function UnitDistributionPanels({
             </button>
           )}
         </div>
-        <div className="text-[10px] text-text-muted tabular-nums">
-          {statistics.bandCount} band{statistics.bandCount === 1 ? '' : 's'} on{' '}
-          {statistics.cptCount} CPT{statistics.cptCount === 1 ? '' : 's'}
+        <div className="text-[10px] text-text-muted tabular-nums" data-testid="unit-stats-bandline">
+          {/* "X of Y" when the pool covers fewer bands than the scope owns
+              (F7) — the plain count when they agree. */}
+          {totalBandCount !== undefined && totalBandCount > statistics.bandCount
+            ? `${statistics.bandCount} of ${totalBandCount} bands`
+            : `${statistics.bandCount} band${statistics.bandCount === 1 ? '' : 's'}`}{' '}
+          on {statistics.cptCount} CPT{statistics.cptCount === 1 ? '' : 's'}
           {statistics.coveredThicknessM > 0
             ? ` · ${statistics.coveredThicknessM.toFixed(1)} m of ground`
             : ''}
@@ -133,10 +152,14 @@ function UnitDistributionPanels({
         <div data-testid="unit-stats-empty">
           <EmptyState
             icon={<BarChart3 />}
-            title="No cone measurements in this unit"
+            title={bodyScoped ? 'No cone measurements in this body' : 'No cone measurements in this unit'}
             hint={
               statistics.bandCount === 0
-                ? 'This unit has no bands on a CPT — a borehole-only unit carries no cone resistance to summarise.'
+                ? bodyScoped
+                  ? // F7: under a body scope the UNIT may have plenty of cone
+                    // bands — the scoped BODY is what has none.
+                    'This body has no bands on a CPT — a borehole-only body carries no cone resistance to summarise.'
+                  : 'This unit has no bands on a CPT — a borehole-only unit carries no cone resistance to summarise.'
                 : 'The bands are there, but no CPT series covers them yet.'
             }
           />
