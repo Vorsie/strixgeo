@@ -67,47 +67,32 @@ function detail(
 
 const WC = (pct: number) => ({ id: `wc-${pct}`, content_pct: pct, method: null, test_date: null })
 
-describe('unitBoreholeBands — which borehole ground the unit covers', () => {
+// unitBoreholeBands is now the anchor + population filter over a scope's bands;
+// the SCOPE selection (unit / body / class, twin folding) is bandsForScope's
+// (parameterBodyTree.test.ts PT4, BT1). What stays here is the anchor + member.
+describe('unitBoreholeBands — anchor + population filter over the scope bands', () => {
   it('ID2 — a band on a non-member borehole is excluded from the pool', () => {
-    const layers = [
-      bhBand('l1', 'unit-1', 'bh-on', 0, 5),
-      bhBand('l2', 'unit-1', 'bh-off', 0, 5),
-    ]
-    const bands = unitBoreholeBands(layers, 'unit-1', new Set(['bh-on']))
-    expect(bands.map(b => b.boreholeId)).toEqual(['bh-on'])
+    // owner ruling 2026-08-27: off-section, hidden and removed holes (absent
+    // from the member set) contribute nothing.
+    const bands = [bhBand('l1', 'unit-1', 'bh-on', 0, 5), bhBand('l2', 'unit-1', 'bh-off', 0, 5)]
+    const out = unitBoreholeBands(bands, new Set(['bh-on']))
+    expect(out.map(b => b.boreholeId)).toEqual(['bh-on'])
   })
 
-  // Owner ruling 2026-08-27: "a body is only a body if it is geometrically
-  // connected or if the users says, this body is the same as that body." A
-  // body scope pools ONLY that body's ground — the lab pool included.
-  it('BSB1 — a body-scoped pool takes only that body\'s borehole bands; a disconnected body of the same class contributes nothing', () => {
-    const layers = [
-      { ...bhBand('l1', 'unit-1', 'bh-1', 0, 5), body_id: 'body-A' },
-      { ...bhBand('l2', 'unit-1', 'bh-2', 0, 5), body_id: 'body-B' },
-      { ...bhBand('l3', 'unit-1', 'bh-3', 0, 5), body_id: null },
+  it('IDB1 — skips CPT-anchored and not-accepted bands (only committed borehole ground)', () => {
+    const bands = [
+      bhBand('l1', 'unit-1', 'bh-1', 0, 5),
+      { ...bhBand('l2', 'unit-1', 'bh-x', 0, 5), status: 'pending' },
+      { id: 'l3', formation_id: 'unit-1', cpt_id: 'c1', borehole_id: null, depth_top_m: 0, depth_base_m: 5, status: 'accepted' },
     ]
-    const bands = unitBoreholeBands(layers, 'unit-1', null, 'body-A')
-    expect(bands.map(b => b.boreholeId)).toEqual(['bh-1'])
-  })
-
-  it('BSB2 — a body scope pools the whole body across twin formation rows', () => {
-    // The B4 live shape (audit 2026-08-27): a borehole band under one twin
-    // row and CPT/borehole bands under the other belong to ONE resolver body;
-    // a body-scoped pool reads them all — the formation filter must not
-    // survive into the body branch.
-    const layers = [
-      { ...bhBand('l1', 'u-twin-A', 'bh-1', 0, 5), body_id: 'body-X' },
-      { ...bhBand('l2', 'u-twin-B', 'bh-2', 0, 5), body_id: 'body-X' },
-      { ...bhBand('l3', 'u-twin-B', 'bh-3', 0, 5), body_id: 'body-Y' },
-    ]
-    const bands = unitBoreholeBands(layers, 'u-twin-A', null, 'body-X')
-    expect(bands.map(b => b.boreholeId)).toEqual(['bh-1', 'bh-2'])
+    const out = unitBoreholeBands(bands)
+    expect(out.map(b => b.boreholeId)).toEqual(['bh-1'])
   })
 })
 
 describe('poolIdentificationPanels — the OKP pool', () => {
   it('ID1 — a sample inside a band pools at collar elevation minus midpoint depth', () => {
-    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 2, 4)], 'unit-1', null)
+    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 2, 4)])
     const details = new Map([
       [
         'bh-1',
@@ -130,7 +115,7 @@ describe('poolIdentificationPanels — the OKP pool', () => {
   })
 
   it('ID3 — a parameter with no data yields no panel', () => {
-    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 0, 5)], 'unit-1', null)
+    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 0, 5)])
     const details = new Map([
       ['bh-1', detail('bh-1', 'B1', 10, [{ depth_top_m: 1, depth_base_m: 2, water_content_tests: [WC(20)] }])],
     ])
@@ -143,7 +128,7 @@ describe('poolIdentificationPanels — the OKP pool', () => {
     // The litho band covers 0–8 m; two samples sit in what the geotech model
     // calls two different packing classes. Both pool — "regardless of packing
     // density".
-    const bands = unitBoreholeBands([bhBand('ll1', 'litho-1', 'bh-1', 0, 8)], 'litho-1', null)
+    const bands = unitBoreholeBands([bhBand('ll1', 'litho-1', 'bh-1', 0, 8)])
     const details = new Map([
       [
         'bh-1',
@@ -159,7 +144,7 @@ describe('poolIdentificationPanels — the OKP pool', () => {
   })
 
   it('ID5 — grain-size curves are skipped; scalar numeric values pool with English labels', () => {
-    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 0, 5)], 'unit-1', null)
+    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 0, 5)])
     const details = new Map([
       [
         'bh-1',
@@ -212,11 +197,10 @@ describe('poolIdentificationPanels — the OKP pool', () => {
   })
 
   it('ID6 — a sample on a collar-less borehole is skipped and counted', () => {
-    const bands = unitBoreholeBands(
-      [bhBand('l1', 'unit-1', 'bh-1', 0, 5), bhBand('l2', 'unit-1', 'bh-2', 0, 5)],
-      'unit-1',
-      null,
-    )
+    const bands = unitBoreholeBands([
+      bhBand('l1', 'unit-1', 'bh-1', 0, 5),
+      bhBand('l2', 'unit-1', 'bh-2', 0, 5),
+    ])
     const details = new Map([
       ['bh-1', detail('bh-1', 'B1', 10, [{ depth_top_m: 1, depth_base_m: 2, water_content_tests: [WC(20)] }])],
       ['bh-2', detail('bh-2', 'B2', null, [{ depth_top_m: 1, depth_base_m: 2, water_content_tests: [WC(30)] }])],
