@@ -21,6 +21,8 @@ import type { ParameterUnitScope } from '../../ShellContext'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import type { SplitLine } from '../geology/geology3DPrimitives'
 import { EMPTY_SURFACES_MAP, useBody3DViewState } from '../shared/useBody3DViewState'
+import { fenceCutoutPanels } from './fenceCutoutFilter'
+import { UNIT_FENCE_BASEMAP_LID_ALPHA } from './unitFenceSceneConstants'
 
 /** The viewer requires the callback; a passive pane never draws a split. */
 const NOOP_SPLIT_DRAWN = (_plane: Cesium.Plane, _line: SplitLine): void => {}
@@ -82,7 +84,11 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
   const resetSplitRef = useRef<(() => void) | null>(null)
   const resetCameraRef = useRef<(() => void) | null>(null)
 
-  const { setViewMode, fenceLoading, groundSurface, fencePanels } = useBody3DViewState({
+  // ``groundSurface`` is deliberately NOT taken (owner ruling B6a,
+  // 2026-08-27): the cutout renders no ground-surface lid — the walls + the
+  // basemap are the whole scene. The lid footprint comes from the wall panels
+  // themselves (the CesiumViewport fallback).
+  const { setViewMode, fenceLoading, fencePanels } = useBody3DViewState({
     modelId,
     layers: isGeotech ? geotechLayers : lithoLayers,
     frameModelId: isGeotech ? (activeLithoModel?.id ?? null) : null,
@@ -98,11 +104,13 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
     setViewMode('fence')
   }, [setViewMode])
 
-  // The cutout: each panel carries exactly one formationId, so the filter is
-  // the whole R4 mechanism.
+  // The cutout: each panel carries one formationId + one bodyId, so the whole
+  // R4 mechanism is the pure filter — pooled scope keeps the formation's
+  // panels, a body scope keeps that ONE body's (owner body-scope ruling
+  // 2026-08-27; his exact complaint was a disconnected body showing here).
   const cutout = useMemo(
-    () => fencePanels?.filter(p => p.formationId === scope.unitId),
-    [fencePanels, scope.unitId],
+    () => fenceCutoutPanels(fencePanels, scope),
+    [fencePanels, scope],
   )
 
   // Fence panels are NOT camera frame targets (CesiumViewport frames on
@@ -170,7 +178,11 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
         projectEpsg={project.default_horizontal_epsg ?? 31370}
         onSplitPlaneDrawn={NOOP_SPLIT_DRAWN}
         resetCameraRef={resetCameraRef}
-        groundSurface={groundSurface}
+        // B6a: no ground-surface lid in the cutout — walls + basemap only.
+        groundSurface={null}
+        // B6b: "make the basemap a bit more seethrough? like 5%?" — the
+        // cutout's own dial; the shared stages keep their default.
+        basemapLidAlpha={UNIT_FENCE_BASEMAP_LID_ALPHA}
         fencePanels={cutout}
         bodySolids={frameSolids}
         chromeless
