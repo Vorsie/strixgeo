@@ -69,6 +69,10 @@ export interface UseUnitStatisticsResult {
  *     the app's VISIBLE lists (owner ruling 2026-08-27: only CPTs on the
  *     sections pool; hidden and removed are excluded). ``null`` skips the
  *     filter.
+ * bodyId
+ *     The ONE resolver body to pool, or ``null`` for the whole formation row
+ *     (owner body-scope ruling 2026-08-27 — a disconnected body of the same
+ *     class must contribute nothing to a body-scoped view).
  *
  * Returns
  * -------
@@ -81,10 +85,12 @@ export function useUnitStatistics(
   plotMap: ReadonlyMap<string, CptPlotResponse>,
   projectId: string,
   memberInvestigationIds: ReadonlySet<string> | null = null,
+  bodyId: string | null = null,
 ): UseUnitStatisticsResult {
   const bands = useMemo(
-    () => (unitId === null ? [] : unitCptBands(layers, unitId, memberInvestigationIds)),
-    [layers, unitId, memberInvestigationIds],
+    () =>
+      unitId === null ? [] : unitCptBands(layers, unitId, memberInvestigationIds, bodyId),
+    [layers, unitId, memberInvestigationIds, bodyId],
   )
 
   // Sorted + de-duplicated so the fetch key below is stable under any band
