@@ -35,6 +35,11 @@
 import { memo, useMemo } from 'react'
 import { BarChart3 } from 'lucide-react'
 
+import {
+  FS_AXIS_MAX_MPA,
+  QC_AXIS_MAX_MPA,
+  RF_AXIS_MAX_PCT,
+} from '../../../utils/cptAxisScales'
 import { EmptyState } from '../../EmptyState'
 import type {
   UnitChannelStatistics,
@@ -68,27 +73,43 @@ const STRIP_H = 10
  */
 const MAX_STRIP_DOTS = 400
 
-/** Per-channel presentation — the ink and the words for each row. */
+/**
+ * Per-channel presentation — the ink, the words and the AXIS for each row.
+ *
+ * ``axisMax`` is the CPT plot's own full scale (owner ruling 2026-08-27,
+ * verbatim: "Qc/fs/rf should start at zero, u can use the same axes as the
+ * cpt plot") — the DOV standard fixed ranges from ``utils/cptAxisScales.ts``,
+ * the ONE source ``CptChart`` also reads. A fixed 0-anchored axis is what
+ * makes two units — and a unit against its CPT chart — comparable at a
+ * glance; the observed-range axis it replaces made every unit's box look the
+ * same width.
+ */
 const CHANNEL_SPEC: Readonly<
-  Record<UnitStatisticsChannel, { title: string; unit: string; color: string; decimals: number }>
+  Record<
+    UnitStatisticsChannel,
+    { title: string; unit: string; color: string; decimals: number; axisMax: number }
+  >
 > = {
   qc: {
     title: 'Cone resistance',
     unit: 'MPa',
     color: 'var(--chart-clr-qc, #111827)',
     decimals: 1,
+    axisMax: QC_AXIS_MAX_MPA,
   },
   fs: {
     title: 'Sleeve friction',
     unit: 'MPa',
     color: 'var(--chart-clr-fs, #16a34a)',
     decimals: 3,
+    axisMax: FS_AXIS_MAX_MPA,
   },
   rf: {
     title: 'Friction ratio',
     unit: '%',
     color: 'var(--chart-clr-rf, #b45309)',
     decimals: 2,
+    axisMax: RF_AXIS_MAX_PCT,
   },
 }
 
@@ -108,6 +129,13 @@ interface Props {
    * look the same from here, and the honest wording covers both.
    */
   pendingCptCount?: number
+  /**
+   * One line stating the POPULATION the pool was drawn from (owner ruling R6,
+   * 2026-08-27 — "Only cpt's on the sections should be in the pooling"):
+   * n over how many CPTs on how many sections, exclusions named. Composed by
+   * the caller, which is what knows the sections.
+   */
+  populationNote?: string
 }
 
 /**
@@ -127,6 +155,7 @@ function UnitDistributionPanels({
   statistics,
   unitLabel,
   pendingCptCount = 0,
+  populationNote,
 }: Props): JSX.Element {
   const totalSamples = statistics.channels.reduce((sum, c) => sum + c.summary.n, 0)
 
@@ -147,6 +176,14 @@ function UnitDistributionPanels({
             ? ` · ${pendingCptCount} without series`
             : ''}
         </div>
+        {populationNote !== undefined && (
+          <div
+            className="text-[10px] text-text-muted tabular-nums"
+            data-testid="unit-stats-population"
+          >
+            {populationNote}
+          </div>
+        )}
       </div>
 
       {totalSamples === 0 ? (
@@ -208,25 +245,19 @@ function ChannelRow({ channel }: { channel: UnitChannelStatistics }): JSX.Elemen
 
   const hasData = summary.n > 0 && summary.min !== null && summary.max !== null
 
-  // The axis spans the observed range. A distribution's job here is to show
-  // spread and skew, not to be compared against zero, so the scale is not
-  // forced through the origin — that would squash every real unit into a
-  // sliver at the right of the row.
-  const lo = summary.min ?? 0
-  const hi = summary.max ?? 1
-  const span = hi - lo
-  // A span that is only floating-point noise is NOT spread, and mapping it
-  // linearly would stretch 2e-16 across the whole row — drawing a wide
-  // distribution over readings the readout correctly calls identical (min =
-  // max, sd = 0). Rf computed as fs·100/qc does exactly this on a hole whose
-  // sleeve friction tracks the cone.
-  //
-  // The threshold is RELATIVE to the magnitude, not an absolute floor: qc runs
-  // in tens of MPa and fs in thousandths, so one absolute epsilon cannot be
-  // right for both. Below it, every mark collapses onto the row's centre.
-  const degenerate = span <= Math.max(Math.abs(lo), Math.abs(hi)) * 1e-9
+  // The CPT plot's own axis: 0 → the DOV full scale, per channel (owner
+  // ruling 2026-08-27 — "start at zero, use the same axes as the cpt plot").
+  // A reading past the full scale CLAMPS to the row end rather than
+  // re-scaling the axis: the axis is a shared convention, not a fit to this
+  // unit, and the numeric readout below still reports the true value. This
+  // mirrors how the CPT chart treats an off-scale reading (clipped at the
+  // plot edge). The old observed-range mapping needed a degenerate-span
+  // special case for identical samples; a fixed axis does not — identical
+  // values simply land on the same x.
   const toX = (v: number): number =>
-    degenerate ? PLOT_W / 2 : ((v - lo) / span) * PLOT_W
+    Math.max(0, Math.min(1, v / spec.axisMax)) * PLOT_W
+  const lo = summary.min ?? 0
+  const hi = summary.max ?? spec.axisMax
 
   return (
     <div
@@ -337,6 +368,16 @@ function ChannelRow({ channel }: { channel: UnitChannelStatistics }): JSX.Elemen
               vectorEffect="non-scaling-stroke"
             />
           </svg>
+
+          {/* Axis end labels — the shared 0 → full-scale convention is
+              readable, not implied. Outside the SVG because its non-uniform
+              viewBox stretch would distort text glyphs. */}
+          <div className="flex justify-between text-[9px] text-text-muted tabular-nums leading-tight">
+            <span data-testid={`unit-stats-axis-zero-${channel.channel}`}>0</span>
+            <span data-testid={`unit-stats-axis-max-${channel.channel}`}>
+              {spec.axisMax} {spec.unit}
+            </span>
+          </div>
 
           {/* The same numbers as a table — the plot is never the only way to
               read them (and it is what an engineer copies into a report). */}
