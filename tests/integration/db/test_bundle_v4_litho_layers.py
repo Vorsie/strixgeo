@@ -1038,3 +1038,216 @@ async def test_body_with_dangling_source_investigation_is_dropped(
     )
     # The body must be dropped because its source investigation is unknown.
     assert restored_bodies == [], "body with dangling source_investigation_id must be dropped"
+
+
+# ---------------------------------------------------------------------------
+# Parent-band self-FK round-trip (Parameters body-tree slice A4)
+# ---------------------------------------------------------------------------
+#
+# A geotech band's ``parent_litho_layer_id`` names the accepted litho band it
+# subdivides. The bundle serialises it generically (rides the file for free);
+# the restore applies it in a SECOND pass so a child-before-parent model order
+# cannot FK-violate on the self-referential insert. Two pins: the value
+# survives save→wipe→restore verbatim, and it survives even when the geotech
+# model appears BEFORE its litho parent in the payload.
+
+
+async def test_geotech_band_parent_litho_layer_id_round_trips(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """A geotech band's covering-litho-band FK survives build → wipe → restore.
+
+    Save the real ORM shape (accepted litho band + geotech band stamped with it),
+    build the bundle, replace-restore, and assert the parent id came back exactly.
+    """
+    p = project_with_litho
+    # Accepted litho band on the litho model.
+    litho_band = LithoLayerOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=2.0,
+        depth_base_m=6.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    db_session.add(litho_band)
+    await db_session.flush()
+
+    geotech_model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=p["project"].id,
+        name="G-geotech",
+        kind="geotechnical",
+        parent_model_id=p["litho_model"].id,
+    )
+    geotech_fm = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=p["project"].id,
+        name="SAND (NAD 5)",
+        color="#fdcb6e",
+        nad_class=5,
+        source_litho_formation_id=p["sand"].id,
+    )
+    db_session.add_all([geotech_model, geotech_fm])
+    await db_session.flush()
+
+    # Geotech band inside the litho band, stamped with its covering litho band.
+    geotech_band = LithoLayerOrm(
+        id=uuid7(),
+        model_id=geotech_model.id,
+        formation_id=geotech_fm.id,
+        borehole_id=p["bh"].id,
+        depth_top_m=3.0,
+        depth_base_m=5.0,
+        status="accepted",
+        source="segmenter",
+        confidence="medium",
+        parent_litho_layer_id=litho_band.id,
+    )
+    db_session.add(geotech_band)
+    await db_session.commit()
+    geotech_band_id = geotech_band.id
+    litho_band_id = litho_band.id
+
+    bundle = await build_project_bundle(db_session, p["project"])
+
+    # The parent id rides the geotech model's litho_layers payload.
+    geo_models = [m for m in bundle["geological_models"] if m["kind"] == "geotechnical"]
+    assert len(geo_models) == 1
+    bundled = [ly for ly in geo_models[0]["litho_layers"] if ly["id"] == str(geotech_band_id)]
+    assert bundled, "the geotech band must be in the bundle"
+    assert bundled[0]["parent_litho_layer_id"] == str(litho_band_id)
+
+    # Wipe + restore — the restore succeeding IS the self-FK-ordering assertion;
+    # the value assertion pins the round-trip.
+    await _restore_bundle(db_session, p["project"].id, bundle, replace=True)
+    db_session.expunge_all()
+
+    restored = await db_session.get(LithoLayerOrm, geotech_band_id)
+    assert restored is not None, "the geotech band must be restored"
+    assert restored.parent_litho_layer_id == litho_band_id, (
+        "the covering litho band FK must survive the round-trip verbatim"
+    )
+
+
+async def test_parent_band_fk_restores_with_geotech_model_before_litho(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """The parent-band self-FK survives a child-before-parent model order.
+
+    The bundle build has no ORDER BY, so a geotech model can appear BEFORE its
+    litho parent. If the self-referential ``parent_litho_layer_id`` were applied
+    inline the geotech band would FK-violate on insert. The deferred second pass
+    makes the order irrelevant — restore completes and the link is intact.
+    """
+    p = project_with_litho
+    geo_id = str(uuid7())
+    litho_id = str(uuid7())
+    geotech_id = str(uuid7())
+    sand_id = str(uuid7())
+    geotech_fm_id = str(uuid7())
+    litho_band_id = str(uuid7())
+    geotech_band_id = str(uuid7())
+
+    bundle = {
+        "format_version": 4,
+        "project": {"id": str(p["project"].id), "name": "test", "status": "active"},
+        "cpts": [],
+        "boreholes": [],
+        "geological_formations": [
+            {
+                "id": sand_id,
+                "app_project_id": str(p["project"].id),
+                "name": "SAND",
+                "color": "#fdcb6e",
+                "display_order": 0,
+                "litho_main_soil_code": "ZAND",
+            },
+            {
+                "id": geotech_fm_id,
+                "app_project_id": str(p["project"].id),
+                "name": "SAND (NAD 5)",
+                "color": "#fdcb6e",
+                "display_order": 1,
+                "nad_class": 5,
+                "source_litho_formation_id": sand_id,
+            },
+        ],
+        # CHILD FIRST: the geotech model (and its band's self-FK into the litho
+        # model's band) appears before the litho model that owns the parent band.
+        "geological_models": [
+            {
+                "id": geotech_id,
+                "app_project_id": str(p["project"].id),
+                "name": "GEOTECH",
+                "kind": "geotechnical",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "parent_model_id": litho_id,
+                "contacts": [],
+                "surfaces": [],
+                "litho_layers": [
+                    {
+                        "id": geotech_band_id,
+                        "formation_id": geotech_fm_id,
+                        "borehole_id": str(p["bh"].id),
+                        "cpt_id": None,
+                        "depth_top_m": 3.0,
+                        "depth_base_m": 5.0,
+                        "status": "accepted",
+                        "source": "segmenter",
+                        "confidence": "medium",
+                        "parent_litho_layer_id": litho_band_id,
+                    }
+                ],
+            },
+            {
+                "id": litho_id,
+                "app_project_id": str(p["project"].id),
+                "name": "LITHO",
+                "kind": "lithostratigraphic",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "parent_model_id": geo_id,
+                "contacts": [],
+                "surfaces": [],
+                "litho_layers": [
+                    {
+                        "id": litho_band_id,
+                        "formation_id": sand_id,
+                        "borehole_id": str(p["bh"].id),
+                        "cpt_id": None,
+                        "depth_top_m": 2.0,
+                        "depth_base_m": 6.0,
+                        "status": "accepted",
+                        "source": "manual",
+                        "confidence": "medium",
+                    }
+                ],
+            },
+            {
+                "id": geo_id,
+                "app_project_id": str(p["project"].id),
+                "name": "GEO",
+                "kind": "geological",
+                "is_active": False,
+                "excluded_borehole_ids": [],
+                "contacts": [],
+                "surfaces": [],
+                "litho_layers": [],
+            },
+        ],
+    }
+
+    # Must NOT raise regardless of the child-before-parent order.
+    await _restore_bundle(db_session, p["project"].id, bundle, replace=False)
+    db_session.expunge_all()
+
+    restored = await db_session.get(LithoLayerOrm, geotech_band_id)
+    assert restored is not None, "the geotech band must be restored"
+    assert str(restored.parent_litho_layer_id) == litho_band_id, (
+        "the deferred second pass must stamp the parent-band FK across model order"
+    )
