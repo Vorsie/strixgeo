@@ -291,4 +291,24 @@ describe('unitCptBands — the body scope (owner ruling 2026-08-27)', () => {
     const bands = unitCptBands(layers, 'u1', null, 'body-B')
     expect(bands).toEqual([{ cptId: 'c3', topDepthM: 4, baseDepthM: 6 }])
   })
+
+  it('BS4 — a body scope pools the WHOLE body, across twin formation rows', () => {
+    // The B4 live shape (audit 2026-08-27): one resolver body spans two
+    // duplicate formation rows. A body-scoped jump from the "wrong" twin
+    // pooled ZERO samples despite 4 CPTs of evidence — the formation filter
+    // must not survive into the body branch: the body IS the pooling scope.
+    const twins = [
+      { id: 't1', formation_id: 'u-twin-A', cpt_id: 'c1', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'body-X' },
+      { id: 't2', formation_id: 'u-twin-B', cpt_id: 'c2', borehole_id: null, depth_top_m: 1, depth_base_m: 3, status: 'accepted', body_id: 'body-X' },
+      // Another body stays out whatever its formation row.
+      { id: 't3', formation_id: 'u-twin-A', cpt_id: 'c3', borehole_id: null, depth_top_m: 5, depth_base_m: 6, status: 'accepted', body_id: 'body-Y' },
+    ]
+    const bands = unitCptBands(twins, 'u-twin-A', null, 'body-X')
+    expect(bands.map(b => b.cptId)).toEqual(['c1', 'c2'])
+    // The same body scoped from the OTHER twin pools the same ground.
+    expect(unitCptBands(twins, 'u-twin-B', null, 'body-X').map(b => b.cptId)).toEqual([
+      'c1',
+      'c2',
+    ])
+  })
 })
