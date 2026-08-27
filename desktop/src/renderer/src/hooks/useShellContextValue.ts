@@ -150,8 +150,10 @@ export interface UseShellContextValueArgs {
   setSectionsDeepLinkTarget: ShellContextValue['coordinator']['setSectionsDeepLinkTarget']
   parametersDeepLinkTarget: ShellContextValue['coordinator']['parametersDeepLinkTarget']
   setParametersDeepLinkTarget: ShellContextValue['coordinator']['setParametersDeepLinkTarget']
-  selectedParameterUnitId: ShellContextValue['coordinator']['selectedParameterUnitId']
-  setSelectedParameterUnitId: ShellContextValue['coordinator']['setSelectedParameterUnitId']
+  selectedParameterUnit: ShellContextValue['coordinator']['selectedParameterUnit']
+  setSelectedParameterUnit: ShellContextValue['coordinator']['setSelectedParameterUnit']
+  parametersActiveTab: ShellContextValue['coordinator']['parametersActiveTab']
+  setParametersActiveTab: ShellContextValue['coordinator']['setParametersActiveTab']
   correlationEdgesRefetchNonce: ShellContextValue['coordinator']['correlationEdgesRefetchNonce']
   bodyRecomputeLithoNonce: ShellContextValue['coordinator']['bodyRecomputeLithoNonce']
   bodyRecomputeGeotechNonce: ShellContextValue['coordinator']['bodyRecomputeGeotechNonce']
@@ -210,7 +212,8 @@ export function useShellContextValue(
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
     parametersDeepLinkTarget, setParametersDeepLinkTarget,
-    selectedParameterUnitId, setSelectedParameterUnitId,
+    selectedParameterUnit, setSelectedParameterUnit,
+    parametersActiveTab, setParametersActiveTab,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
   } = argsWithoutGeo
@@ -385,8 +388,10 @@ export function useShellContextValue(
       setSectionsDeepLinkTarget,
       parametersDeepLinkTarget,
       setParametersDeepLinkTarget,
-      selectedParameterUnitId,
-      setSelectedParameterUnitId,
+      selectedParameterUnit,
+      setSelectedParameterUnit,
+      parametersActiveTab,
+      setParametersActiveTab,
       correlationEdgesRefetchNonce,
       bodyRecomputeLithoNonce,
       bodyRecomputeGeotechNonce,
