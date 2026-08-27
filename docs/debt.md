@@ -207,6 +207,16 @@ machinery below stays useful as the offline-verification layer, but
 expiry follows the subscription, not a perpetual grant.
 `docs/commercial-direction.md` framing updated in lockstep.
 
+**Status 2026-08-27 — stage 1 (beta expiry) SHIPPED.** Build-stamped
+expiry date, monotonic clock anchor (clock-rollback defeat), hard stop
+with renewal dialog — see [design/beta-expiry.md](design/beta-expiry.md).
+That is the "waterproof beta builds expire" half of the owner's MVP
+ballot. The activation ARCHITECTURE (offline signed file vs server vs
+hybrid) is an owner decision waiting in
+[design/activation-decision-memo.md](design/activation-decision-memo.md)
+— recommendation is Option C (server issues, signed 30-day file
+authorises offline), with four questions listed at its end.
+
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
 
@@ -412,7 +422,16 @@ remains actionable — the hook points exist and are populated.
 **What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
 devtools console; user-side crashes are invisible to us.
 
-**When.** Before any non-solo user.
+**Status 2026-08-27 — the CAPTURE half is SHIPPED.** Local NDJSON
+diagnostics store, field-whitelist + redaction, consent default-OFF,
+crash-bundle ``.zip`` a tester can send by hand, renderer capture on
+5xx/network failures — see [design/diagnostics-capture.md](design/diagnostics-capture.md).
+The TRANSMIT half deliberately sends nowhere: the endpoint decision is
+coupled to the activation-server choice (#3) — see
+[design/activation-decision-memo.md](design/activation-decision-memo.md) Q4.
+
+**When.** Endpoint + consent UI before any non-solo user; the owner's
+activation ruling decides where reports go.
 
 ## 17. Legacy `dov_permkey = NULL` rows — documented recovery, no backfill code (low)
 
@@ -8824,3 +8843,27 @@ same files twice.
 **When to revisit.** A fresh session after the constructive-fill round is
 harvested and dogfed green — the owner fires it explicitly ("run the
 simplification campaign").
+
+## 276. Canvas module-refs are never nulled on unmount — stale-closure hazard (S)
+
+**What.** The canvas ⟷ toolbar bridges are module-level mutable refs
+(`lithoVoxelRequestCallback`, `geotechVoxelRequestCallback`,
+`resetLithoCameraCallback`, `resetGeotechCameraCallback`, and their split
+siblings — see `GeotechnicalCanvas.tsx`'s module header). They are assigned
+every render while the canvas is mounted, but most are **never nulled on
+unmount** — so after a stage switch the ref still holds a closure over the
+LAST render's props. A toolbar click that fires before the next canvas mount
+runs against a destroyed view's state. Proven a real hazard during the
+D-Series toolbar wiring (B3, 2026-08-27): the fence-export ref got an
+explicit null-on-unmount `useEffect` for exactly this reason — the pattern
+the others still lack.
+
+**Why deferred.** Today every consumer button lives in a toolbar co-mounted
+with its canvas, so the stale window is one stage-switch frame; no
+user-visible bug has been traced to it. Fixing it is mechanical (mirror the
+`geotechFenceExportCallback` cleanup effect on every ref) but touches every
+canvas, and the overnight program froze those files repeatedly.
+
+**When to revisit.** First bug traced to a toolbar verb firing cross-stage,
+or the #201 SectionsToolbar extraction round — whichever comes first; the
+extraction already walks every one of these refs.
