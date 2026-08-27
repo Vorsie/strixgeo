@@ -2,10 +2,11 @@
 //
 // Claims pinned here:
 //   R1  A classified unit (nad_class set) shows the packing-class name from
-//       nadClassName, a "CPT est." badge, and the NAD swatch colour from
-//       nadClassColor.
-//   R2  A degenerate unit (nad_class=null) shows no label text and NO
-//       "CPT est." badge (null is rare — borehole CPT extrapolation makes it
+//       nadClassName and the NAD swatch colour from nadClassColor. Fully
+//       cone-derived is the NORM and carries no provenance badge (owner
+//       2026-08-27); only "No CPT" / "No CPT (partial)" exceptions badge.
+//   R2  A degenerate unit (nad_class=null) shows no label text and no
+//       provenance badge (null is rare — borehole CPT extrapolation makes it
 //       non-standard; the row just shows a neutral swatch).
 //   R3  Rows are sorted ascending by display_order then nad_class.
 //   R4  Empty state renders when geotechFormations is empty.
@@ -527,7 +528,11 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
     expect(row.textContent).not.toContain('SAND, medium dense')
   })
 
-  it('shows the "CPT est." badge on a unit whose class came from the cone', () => {
+  // Owner, 2026-08-27: "CPT est. die flag mag eruit, bijna alle
+  // packingsklassen zijn altijd uit sonderingen afgeleid" — cone-derived is
+  // the NORM, so the norm carries no badge; only the exceptions (no cone, or
+  // partly no cone) are worth marking.
+  it('a fully cone-derived unit carries NO provenance badge — that is the norm', () => {
     const formation = makeFormation('f-1', { nad_class: 6, display_order: 0 })
     renderInspector(
       makeCtx({
@@ -539,9 +544,9 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
       }),
     )
 
-    expect(screen.getByTestId('cpt-est-badge-f-1')).toBeTruthy()
-    expect(screen.getByTestId('cpt-est-badge-f-1').textContent).toBe('CPT est.')
+    expect(screen.queryByTestId('cpt-est-badge-f-1')).toBeNull()
     expect(screen.queryByTestId('no-cpt-badge-f-1')).toBeNull()
+    expect(screen.queryByTestId('partial-cpt-badge-f-1')).toBeNull()
   })
 
   // No cone touched this soil: the class is `body_min` (weakest class seen
@@ -573,7 +578,7 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
   // cone-derived ones (ZAND (NAD 6): 141 cone bands, 1 fallback) — telling him those
   // units have "No CPT data behind this class" is as untrue as claiming CPT for a pure
   // fallback, and it empties the roster of the honest badge.
-  it('a unit that is mostly cone with one fallback band is neither "CPT est." nor "No CPT"', () => {
+  it('a unit that is mostly cone with one fallback band is badged partial, not "No CPT"', () => {
     const formation = makeFormation('f-mix', { nad_class: 6, display_order: 0 })
     renderInspector(
       makeCtx({
@@ -585,7 +590,9 @@ describe('GeotechnicalInspector classified unit row (R1)', () => {
 
     expect(screen.queryByTestId('cpt-est-badge-f-mix')).toBeNull()
     expect(screen.queryByTestId('no-cpt-badge-f-mix')).toBeNull()
-    expect(screen.getByTestId('partial-cpt-badge-f-mix').textContent).toBe('CPT est. (partial)')
+    // "CPT est. (partial)" died with the norm badge — with cone-derived
+    // unlabelled, the exception must name what is MISSING, not what is normal.
+    expect(screen.getByTestId('partial-cpt-badge-f-mix').textContent).toBe('No CPT (partial)')
   })
 
   // Owner, 2026-08-15: "I don't really like the word fallback, this just means
@@ -1032,8 +1039,11 @@ describe('GeotechnicalInspector unit tree (GT)', () => {
 
     fireEvent.click(screen.getByTestId('geotech-class-expander-SAND|6'))
 
-    // Expanded, each unit answers for itself — which is the point of opening it.
-    expect(screen.getByTestId('cpt-est-badge-clean')).toBeTruthy()
+    // Expanded, each unit answers for itself — which is the point of opening
+    // it. The clean unit is the unbadged norm (owner 2026-08-27); only the
+    // weak one is marked.
+    expect(screen.getByTestId('geotech-unit-row-clean')).toBeTruthy()
+    expect(screen.queryByTestId('cpt-est-badge-clean')).toBeNull()
     expect(screen.getByTestId('no-cpt-badge-weak')).toBeTruthy()
   })
 
