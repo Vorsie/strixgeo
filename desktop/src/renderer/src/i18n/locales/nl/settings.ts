@@ -4,10 +4,8 @@
 
 export const SETTINGS_NL = {
   'settings.title': 'Instellingen',
-  // FLAG alt: Litho-segmentatie | Lagenherkenning — "segmenter" is the app's
-  // internal name for the tool that cuts a CPT into litho layers. There is no
-  // established NL term; "lagenherkenning" says what it does to a stranger.
-  'settings.section.litho': 'Litho-segmenter',
+  // NOTE: ruled 2026-08-27 — owner chose "Lagenherkenning".
+  'settings.section.litho': 'Lagenherkenning',
   'settings.section.geotech': 'Geotechnisch',
   // FLAG alt: Doorsneden | Profielen — see spine.sections. Whatever wins must
   // win everywhere; this is the long form.
@@ -24,13 +22,11 @@ export const SETTINGS_NL = {
   'settings.litho.minThickness': 'Minimale laagdikte (m)',
   'settings.litho.minThicknessHint':
     'Lagen die dunner zijn dan deze waarde worden bij hun buur gevoegd, ongeacht de lithologie. Lagere waarden pikken dunne kleisluiers op; hogere waarden geven een grovere kolom. Werkt samen met de schakelaar "Lagen met dezelfde lithologie samenvoegen" hieronder — eerst wordt op dikte samengevoegd, daarna op lithologie. Standaard {default} m.',
-  // FLAG alt: Volumegewicht boven de grondwatertafel | Droog volumegewicht —
-  // NEN/NBN prose says "volumegewicht"; "soortelijk gewicht" is the older word
-  // and strictly means something else (grain density).
-  'settings.litho.gunsat': 'Volumegewicht grond boven water (kN/m³)',
+  // NOTE: ruled 2026-08-27 — owner chose "Droog volumegewicht".
+  'settings.litho.gunsat': 'Droog volumegewicht (kN/m³)',
   'settings.litho.gunsatHint':
     "Wordt gebruikt om σ'v boven de grondwatertafel te berekenen, wat de Robertson Ic en de Dr van zand voedt. Voorlopig één waarde voor de hele site: veen ~12, zand ~18, dicht Quartair ~19. Een γ per grondsoort komt later. Standaard {default}.",
-  'settings.litho.drFactor': 'Compressiefactor Dr voor zand',
+  'settings.litho.drFactor': 'Relatieve dichtheid Dr voor zand',
   'settings.litho.drFactorHint':
     'Compressiefactor van Jamiolkowski in de correlatie voor relatieve dichtheid. 0,675 = gemiddeld kwarts; lager voor kalkhoudende zanden, hoger voor breekbaar veldspaat. De meeste ingenieurs laten dit ongemoeid. Standaard {default}.',
   'settings.litho.mergeSameLithology': 'Lagen met dezelfde lithologie samenvoegen',
@@ -39,12 +35,11 @@ export const SETTINGS_NL = {
   'settings.litho.normaliseQc': 'qc normaliseren (Robertson 2015)',
   'settings.litho.normaliseQcHint':
     'Aan (standaard): sonderingen worden geclassificeerd met de spanningsgenormaliseerde Robertson 2015-methode (Qtn / F / Ic), op basis van het volumegewicht en de grondwatertafel hierboven. Uit: de niet-genormaliseerde Robertson 2010-index I_SBT (qc/pa + Rf) — geen spanningsprofiel of grondwater nodig, beter op geringe diepte of wanneer de grondwatertafel onzeker is. In de uit-stand blijven Dr en de NAD-pakking leeg (relatieve dichtheid vergt effectieve spanning). Enkel voor sonderingen.',
-  'settings.litho.fillAtSectionLine': 'Profielvulling op de profiellijn',
+  'settings.litho.fillAtSectionLine': 'Vulling op de profiellijn',
   'settings.litho.fillAtSectionLineHint':
     'Aan = de lichamen worden op de profiellijn doorgesneden (standaard, doorlopend); Uit = het model wordt op elke proeflocatie bemonsterd (een strook per proef, ruwe meetwaarde).',
-  // FLAG alt: Litho↔geologie uitlijnen (m) | Litho↔geologie snappen (m) —
-  // "vastklikken" is the plain-NL word; "snappen" is what CAD users say out loud.
-  'settings.litho.snapTolerance': 'Litho↔geologie vastklikken (m)',
+  // NOTE: ruled 2026-08-27 — owner chose "Litho↔geologie snappen".
+  'settings.litho.snapTolerance': 'Litho↔geologie snappen (m)',
   'settings.litho.snapToleranceHint':
     'Litho- en geologische grenzen die binnen deze afstand van elkaar liggen, worden als hetzelfde vlak beschouwd — ze worden gekoppeld en klikken samen vast, zodat de ene mee verschuift met de andere. Stuurt ook de vraag bij het slepen. Bereik 0,01–5,0 m.',
   'settings.litho.autoCorrelateWindow': 'Dieptevenster voor autocorrelatie (m)',
@@ -55,21 +50,21 @@ export const SETTINGS_NL = {
     'Hoe ver een open lichaamsuitbreiding (een lichaam op de buitenste proef zonder buur aan die kant) voorbij de proef doorloopt, in plaats van tot de rand van het profiel. Bereik {min}–{max} m. Standaard {default} m.',
   'settings.litho.voxelHeading': 'Voxelgrootte',
   'settings.litho.voxelBlurb':
-    'Celafmetingen die de knop "Model opbouwen" in de lithologiestap gebruikt om de 3D-ruimte te labelen op basis van de profielverdelingen.',
+    'Celafmetingen die de knop "Model bouwen" in de lithologiestap gebruikt om de 3D-ruimte te labelen op basis van de profielverdelingen.',
   'settings.litho.voxelHorizontal': 'Horizontale cel (X/Y) (m)',
   'settings.litho.voxelHorizontalHint':
     'Voxelgrootte in het kaartvlak (X/Y). De geologie verandert horizontaal traag, dus dit mag grof blijven. Kleinere waarden maken de zijranden van lichamen scherper, tegen een kwadratisch stijgend aantal voxels. Bereik {min}–{max} m. Standaard {default} m.',
   'settings.litho.voxelVertical': 'Verticale cel (Z) (m)',
   'settings.litho.voxelVerticalHint':
-    'Voxelgrootte in de hoogte. Een fijne Z pikt dunne lagen op — een veensluier of een zandlens — die een grof raster mist. Maar het vermenigvuldigt de rekentijd: 0,5 m geeft ruwweg 4× zoveel voxels (en minuten rekentijd) als een kubisch raster van 2 m, dus grijp er enkel naar wanneer dunne lagen ertoe doen. Bereik {min}–{max} m. Standaard {default} m.',
+    'Voxelgrootte in de hoogte. Een fijne Z pikt dunne lagen op — een veenlaagje of een zandlens — die een grof raster mist. Maar het vermenigvuldigt de rekentijd: 0,5 m geeft ruwweg 4× zoveel voxels (en minuten rekentijd) als een kubisch raster van 2 m, dus grijp er enkel naar wanneer dunne lagen ertoe doen. Bereik {min}–{max} m. Standaard {default} m.',
   // v2 is de STANDAARDENGINE (gemeten omschakeling 2026-08-01; eigenaar
   // 2026-08-27: "dit is niet meer experimenteel maar de main engine") — de
   // schakelaar bestaat enkel nog als terugvalhendel naar v1.
-  'settings.litho.engineV2': 'Verdelingsengine v2',
+  'settings.litho.engineV2': 'Verdelingssoftware v2',
   'settings.litho.engineV2Hint':
-    'De hoofdengine: trekt gesloten contouren na en tekent de 2D-vulling, de 3D-opbouw en de profielwanden. Uit = terugvallen op de oude v1-engine (enkel voor probleemanalyse). Wordt op dit toestel bewaard (reist niet mee met het project).',
+    'De hoofdsoftware: trekt gesloten contouren na en tekent de 2D-vulling, de 3D-opbouw en het hekkendiagram. Uit = terugvallen op de oude v1-software (enkel voor probleemanalyse). Wordt op dit toestel bewaard (reist niet mee met het project).',
   'settings.litho.engineV2Status':
-    'Actieve engine: {engine} — meteen toegepast; de knop Opslaan hieronder is voor deze regel niet nodig.',
+    'Actieve software: {engine} — meteen toegepast; de knop Opslaan hieronder is voor deze regel niet nodig.',
   'settings.litho.engineV2Name': 'v2 (gesloten contouren)',
   'settings.litho.engineV1Name': 'v1 (oude terugval)',
 
@@ -78,9 +73,8 @@ export const SETTINGS_NL = {
   'settings.geotech.minThickness': 'Min. laagdikte (m)',
   'settings.geotech.minThicknessHint':
     'De dunste NAD-pakkingsband die bewaard blijft; tevens de afstand waarover een verandering in qc moet aanhouden om een grens te verleggen (dunnere dips en pieken worden genegeerd). Bereik {min}–{max} m. Standaard {default} m.',
-  // FLAG alt: Gradiëntsnap | Vastklikken op qc-sprong — see snapTolerance; the
-  // whole "snap" family must be ruled once and applied everywhere.
-  'settings.geotech.gradientSnap': 'Vastklikken op gradiënt',
+  // NOTE: ruled 2026-08-27 — owner chose "Vastklikken op qc-sprong".
+  'settings.geotech.gradientSnap': 'Vastklikken op qc-sprong',
   'settings.geotech.gradientSnapHint':
     'Klik een grens vast op een nabije scherpe sprong in qc voor meer precisie; verschuift de grens nooit naar een minder conservatieve diepte.',
   'settings.geotech.gradientSnapWindow': 'Venster voor vastklikken op gradiënt (m)',
@@ -103,7 +97,7 @@ export const SETTINGS_NL = {
     'Hoe ver twee proeven langs de strekking uit elkaar mogen liggen en toch nog in hetzelfde automatisch voorgestelde koppelprofiel terechtkomen. Ruimer = meer koppelingen, maar minder zuiver.',
 
   'settings.appearance.blurb':
-    'Voorkeuren per toestel. Deze blijven op deze machine staan en reizen NIET mee met het .gmproj-bestand.',
+    'Voorkeuren per toestel. Deze blijven op deze machine staan en reizen NIET mee met het .strix-bestand.',
   'settings.appearance.theme': 'Thema',
   'settings.appearance.themeSystem': 'Systeem (volgt het besturingssysteem)',
   'settings.appearance.themeLight': 'Licht',
@@ -112,5 +106,5 @@ export const SETTINGS_NL = {
     'Systeem volgt de voorkeur van het besturingssysteem en past zich meteen aan wanneer je de donkere modus van Windows/macOS omzet. Kies hier een thema om het vast te zetten.',
   'settings.appearance.language': 'Taal van de interface',
   'settings.appearance.languageHint':
-    'Wordt meteen overal in de toepassing toegepast. Meetgegevens behouden de bewoording van hun bron — grondsoorten, NAD-pakkingsklassen en DOV-codes worden in elke taal getoond zoals ze geregistreerd zijn.',
+    'Wordt meteen overal toegepast. Meetgegevens behouden de bewoording van hun bron — grondsoorten, NAD-pakkingsklassen en DOV-codes worden in elke taal getoond zoals ze geregistreerd zijn.',
 } as const
