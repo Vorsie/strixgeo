@@ -328,6 +328,13 @@ class PlannedBand:
     donor_layer_ids: tuple[str, ...] = ()
     section_id: str | None = None
     section_name: str | None = None
+    # The borehole's OWN accepted litho band this band fills within — the
+    # covering litho band stamped onto ``parent_litho_layer_id`` so the
+    # Parameters tree can place the band under its litho body. ``None`` when the
+    # segment spans no single litho layer (a conservative fill over the whole
+    # body extent). Additive default keeps every existing construction site
+    # working and the preview/commit wire schema stable.
+    source_litho_layer_id: UUID | None = None
 
 
 def _bands_in_extent(
@@ -2289,6 +2296,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                                     selection.section_name
                                     if fb.source == "cpt_interpolated"
                                     else None
+                                ),
+                                # Every band on this segment fills within ONE
+                                # borehole litho layer (``unit_layer``), so that
+                                # layer is the covering litho band the tree needs.
+                                # ``None`` when the slice spans no single layer.
+                                source_litho_layer_id=(
+                                    unit_layer[0] if unit_layer is not None else None
                                 ),
                             )
                             for fb, body_id, donor_layer_ids in zip(
@@ -4942,6 +4956,10 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 confidence=band.confidence,
                 borehole_id=segment.borehole_id,
                 body_id=band.body_id,
+                # The covering litho band this borehole band fills within — the
+                # plan carries it verbatim (decides nothing here), so the tree
+                # can place the band under its litho body.
+                parent_litho_layer_id=band.source_litho_layer_id,
             )
             self._session.add(layer)
             # The formation is the authority on the class that was actually
