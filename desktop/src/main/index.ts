@@ -50,7 +50,13 @@ import {
   isValidRecentProjectEntry,
   normalizePathForCompare,
 } from './security'
+import { applyPackagedProfile } from './packagedProfile'
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
+
+// FIRST userData-affecting statement in the process, deliberately ahead of the
+// single-instance lock and every store — see packagedProfile.ts for why a
+// packaged build must not share the dev profile. Dev: no-op.
+applyPackagedProfile(app)
 
 // Authorised filesystem paths (debt #37). Populated by:
 //   * Every dialog.showOpen/showSave return value (the user just
