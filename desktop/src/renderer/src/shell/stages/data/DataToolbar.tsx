@@ -15,6 +15,8 @@ import { ChevronDown, Upload, Loader2 } from 'lucide-react'
 import { useShell } from '../../ShellContext'
 import { PortalMenu, usePortalMenu } from '../../ToolbarPrimitives'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
+import { useT, type Translator } from '../../../i18n/translate'
+import type { MessageKey } from '../../../i18n/locales/en'
 
 /**
  * Import action verbs for the Data stage toolbar.
@@ -40,33 +42,36 @@ export default function DataToolbar(): JSX.Element {
       handleImportBoreholeDov,
     },
   } = useShell()
+  const t = useT()
 
   const isImporting = importing || dovImporting
   const drawingBbox = bboxImportType !== null
 
+  // The verbs carry a message KEY, not a rendered string: the labels are read
+  // in one place below so a language flip re-renders every row together.
   const importActions: ImportAction[] = [
-    { label: 'Import CPT (.gef)', available: true, onClick: handleImportCpt },
-    { label: 'Import CPT from DOV (draw bbox)', available: true, onClick: handleImportDov },
+    { key: 'data.toolbar.importCptGef', available: true, onClick: handleImportCpt },
+    { key: 'data.toolbar.importCptDov', available: true, onClick: handleImportDov },
     {
-      label: 'Import Borehole from DOV (draw bbox)',
+      key: 'data.toolbar.importBoreholeDov',
       available: true,
       onClick: handleImportBoreholeDov,
     },
-    { label: 'Import DMT', available: false },
-    { label: 'Import Lab Test', available: false },
-    { label: 'Import Monitoring', available: false },
+    { key: 'data.toolbar.importDmt', available: false },
+    { key: 'data.toolbar.importLabTest', available: false },
+    { key: 'data.toolbar.importMonitoring', available: false },
   ]
 
   const items: ToolbarDropdownItem[] = importActions.map(action => ({
-    label: action.label,
+    label: t(action.key),
     onClick: action.onClick ?? (() => undefined),
     disabled: !action.available || isImporting,
-    tag: !action.available ? 'Phase 4' : undefined,
+    tag: !action.available ? t('data.toolbar.phaseTag') : undefined,
   }))
 
   return (
     <DropdownMenu
-      label={drawingBbox ? 'Drawing bbox…' : 'Import'}
+      label={drawingBbox ? t('data.toolbar.drawingBbox') : t('data.toolbar.import')}
       icon={
         isImporting ? (
           <Loader2 size={13} className="animate-spin" />
@@ -76,6 +81,7 @@ export default function DataToolbar(): JSX.Element {
       }
       highlight={!isImporting && !drawingBbox}
       items={items}
+      t={t}
     />
   )
 }
@@ -85,7 +91,9 @@ export default function DataToolbar(): JSX.Element {
 // ---------------------------------------------------------------------------
 
 interface ImportAction {
-  label: string
+  /** Message key for the row label — resolved at render, not at declaration,
+   *  so the whole menu follows a language flip in one re-render. */
+  key: MessageKey
   available: boolean
   onClick?: () => void
 }
@@ -104,9 +112,13 @@ interface DropdownMenuProps {
   icon?: React.ReactNode
   highlight?: boolean
   items: readonly ToolbarDropdownItem[]
+  /** Passed down rather than re-derived: the accessible name of the menu is
+   *  built from the already-translated trigger label, so both must come from
+   *  the same render. */
+  t: Translator
 }
 
-function DropdownMenu({ label, icon, highlight, items }: DropdownMenuProps): JSX.Element {
+function DropdownMenu({ label, icon, highlight, items, t }: DropdownMenuProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement>(null)
   const { open, anchorRect, toggle, close } = usePortalMenu(btnRef)
 
@@ -134,7 +146,7 @@ function DropdownMenu({ label, icon, highlight, items }: DropdownMenuProps): JSX
       {open && anchorRect !== null && (
         <PortalMenu
           anchorRect={anchorRect}
-          ariaLabel={`${label} actions`}
+          ariaLabel={t('data.toolbar.menuLabel', { label })}
           items={items}
           onClose={close}
           className="w-56"
