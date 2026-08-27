@@ -193,14 +193,16 @@ export interface Props {
    *
    * Reports the band's ``formationId``, never its ``layerId``: the statistics
    * are a property of the unit, pooled over every band of it in the project,
-   * not of the one band under the cursor.
+   * not of the one band under the cursor. The second argument is the band's
+   * resolver ``body_id`` (owner ruling 2026-08-27: a jump that knows which
+   * body was clicked must report it), ``null`` when unstamped.
    *
    * NOTE: an unclassified (skeleton) borehole band has no right-click target on
    * this overlay at all — the borehole menu is built only where a NAD class
    * exists to re-pick — so the jump is unavailable there by inheritance. Those
    * units are reached from the per-unit table on the Parameters stage instead.
    */
-  onShowUnitStatistics?: (unitId: string) => void
+  onShowUnitStatistics?: (unitId: string, bodyId?: string | null) => void
 }
 
 /** One column's geometry plus the band / body stacks drawn on it. */
@@ -283,6 +285,8 @@ type MenuState =
       absorbLens: EnclosedLens | null
       /** The clicked band's geotech unit — what the statistics jump is scoped to. */
       unitId: string
+      /** The clicked band's resolver body (owner ruling 2026-08-27); null when unstamped. */
+      unitBodyId: string | null
     }
   | { kind: 'merge'; clientX: number; clientY: number; upperBandId: string; lowerBandId: string; boundaryDepthM: number }
   | {
@@ -307,6 +311,8 @@ type MenuState =
       foreignClass: number | null
       /** The clicked band's geotech unit — what the statistics jump is scoped to. */
       unitId: string
+      /** The clicked band's resolver body (owner ruling 2026-08-27); null when unstamped. */
+      unitBodyId: string | null
     }
 
 /**
@@ -738,6 +744,7 @@ export default function GeotechBandEditOverlay({
                     family,
                     foreignClass,
                     unitId: band.formationId,
+                    unitBodyId: band.bodyId ?? null,
                   })
                 }}
               >
@@ -847,6 +854,7 @@ export default function GeotechBandEditOverlay({
                       removeDown,
                       absorbLens,
                       unitId: band.formationId,
+                      unitBodyId: band.bodyId ?? null,
                     })
                   }}
                 >
@@ -1204,6 +1212,7 @@ export default function GeotechBandEditOverlay({
                       this one navigates away from it. */}
                   <UnitStatisticsItem
                     unitId={menu.unitId}
+                    bodyId={menu.unitBodyId}
                     onShow={onShowUnitStatistics}
                     onClose={() => setMenu(null)}
                     topBorder
@@ -1254,6 +1263,7 @@ export default function GeotechBandEditOverlay({
                   )}
                   <UnitStatisticsItem
                     unitId={menu.unitId}
+                    bodyId={menu.unitBodyId}
                     onShow={onShowUnitStatistics}
                     onClose={() => setMenu(null)}
                     topBorder
