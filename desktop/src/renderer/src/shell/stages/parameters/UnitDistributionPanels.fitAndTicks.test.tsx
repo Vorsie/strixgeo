@@ -18,8 +18,12 @@
 // OA2 — the panel says how many are off axis, and the numeric readouts keep
 //       reporting the true values.
 // OA3 — nothing off axis → no notifier.
-// OA4 — in fit mode nothing is off axis by construction: every reading
-//       renders and the notifier is gone.
+// OA4 — in fit mode nothing sits ABOVE the axis by construction: every
+//       non-negative reading renders and the notifier is gone.
+// OA5 — a NEGATIVE reading is off axis in fit mode too (audit F6 — fitAxisMax
+//       only raises the ceiling); excluded and counted.
+// OA6 — a whisker/box spanning off-axis values is dropped WITH a stated
+//       reason, never silently (audit F6).
 // TKD1 — the qc row labels intermediate ticks (5 … 35), not just the ends.
 // TKD2 — the ticks follow the ACTIVE axis: in fit mode they derive from the
 //        fitted span, not the fixed one.
@@ -140,6 +144,39 @@ describe('S2 — no clamping; off the axis means it does not render', () => {
     // The fitted axis covers the pooled max — every reading renders again.
     expect(qcDotXs()).toHaveLength(2)
     expect(screen.queryByTestId('unit-stats-offaxis-qc')).toBeNull()
+  })
+
+  // F6 (audit 2026-08-27): "in fit mode nothing can be off axis" was FALSE
+  // for NEGATIVE readings (live: fs down to −0.091 MPa) — fitAxisMax only
+  // raises the CEILING. A negative value is off-axis on a zero-anchored axis:
+  // excluded and counted, in fit mode too.
+  it('OA5 — a negative reading stays off axis in FIT mode, and keeps counting', () => {
+    render(
+      <UnitDistributionPanels statistics={qcStatistics([-0.5, 10])} unitLabel="Zand" />,
+    )
+    fireEvent.click(screen.getByTestId('unit-stats-fit-toggle'))
+    // Only the 10 renders; the negative is excluded — never drawn at the 0
+    // wall — and the notifier says so.
+    expect(qcDotXs()).toHaveLength(1)
+    expect(screen.getByTestId('unit-stats-offaxis-qc').textContent).toMatch(/1 off axis/i)
+  })
+
+  it('OA6 — a whisker spanning off-axis values is dropped WITH a reason, never silently', () => {
+    // Mostly-negative pool: P5 < 0, so the whisker (and box) cannot be placed
+    // whole on a zero-anchored axis. Dropping them without a word left the
+    // row looking like it had no spread at all.
+    render(
+      <UnitDistributionPanels
+        statistics={qcStatistics([-3, -2, -1, -0.5, 5])}
+        unitLabel="Artefact"
+      />,
+    )
+    const row = screen.getByTestId('unit-stats-row-qc')
+    expect(row.querySelector('[data-testid="unit-stats-box-qc"]')).toBeNull()
+    const note = screen.getByTestId('unit-stats-offaxis-qc')
+    expect(note.textContent).toMatch(/4 off axis/i)
+    // The reason the marks are missing is stated, not implied.
+    expect(screen.getByTestId('unit-stats-marksoff-qc').textContent).toMatch(/not drawn/i)
   })
 })
 
