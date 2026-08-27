@@ -1,8 +1,15 @@
 # Distribution DB fork — decision doc (debt #2)
 
-**Status:** decision pending — written 2026-05-15 for the "evaluate
-before building" step. Recommendation at the bottom; the fork is the
-user's call.
+**Status: DECIDED AND BUILT — Fork A, 2026-08-27.** This document is
+kept as the recorded reasoning and as the SQLite escape hatch's
+trigger condition; the shipped procedure lives in
+[distribution-build.md](distribution-build.md), and debt #2 carries the
+status. The Fork B analysis below is unchanged and still the fallback
+if embedded Postgres ever fails a clean-box pass in a way that cannot
+be mitigated in under a day. It has not.
+
+Original framing (written 2026-05-15 for the "evaluate before
+building" step) follows.
 
 **Question.** CLAUDE.md "Distribution model" plans an installer that
 bundles Postgres + PostGIS (the Plaxis pattern). The stated fallback
