@@ -60,6 +60,13 @@ function cesiumDevServerPlugin(): Plugin {
   }
 }
 
+// Beta-expiry stamp: no configuration needed here. electron-vite already
+// exposes ``MAIN_VITE_``-prefixed environment variables to the main bundle
+// through ``import.meta.env``, which is what src/main/buildStamp.ts reads.
+// Do NOT add a ``main.define`` entry for it — the main bundle is an SSR build
+// and Vite's define substitution does not reach one, so it would fail
+// silently (see src/main/buildStampGlobals.d.ts).
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
