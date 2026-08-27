@@ -32,32 +32,32 @@ const CONFIDENCE_LABELS: Record<LithoLayerConfidence, string> = {
 /**
  * Badge text, tooltip, test-id stem and colour per provenance value.
  *
- * The wording is load-bearing. A non-null NAD class does NOT imply a cone
- * touched the soil: the borehole packing fill also emits ``body_min`` (the
- * weakest class seen elsewhere in the body) and ``absolute_min`` (a lithology
- * floor from ``geotech_subdivision_constants``). Both persist as confidence
- * 'low' (``divide_boreholes._BOREHOLE_CONFIDENCE_MAP``), while CPT-derived
- * bands persist 'high' / 'medium'. Stamping "derived from CPT qc series" on
- * one of those presents an invented value as a measured one (Data Integrity
+ * The NORM carries no badge (owner, 2026-08-27: *"CPT est. die flag mag
+ * eruit, bijna alle packingsklassen zijn altijd uit sonderingen afgeleid"*) —
+ * cone-derived is what almost every class is, so ``'cpt'`` maps to ``null``
+ * and only the EXCEPTIONS are marked.
+ *
+ * The exception wording is load-bearing. A non-null NAD class does NOT imply
+ * a cone touched the soil: the borehole packing fill also emits ``body_min``
+ * (the weakest class seen elsewhere in the body) and ``absolute_min`` (a
+ * lithology floor from ``geotech_subdivision_constants``). Both persist as
+ * confidence 'low' (``divide_boreholes._BOREHOLE_CONFIDENCE_MAP``), while
+ * CPT-derived bands persist 'high' / 'medium'. Presenting one of those
+ * unmarked would present an invented value as a measured one (Data Integrity
  * rules 1 and 2) — and calling a unit with 141 cone bands and one fill band
- * "No CPT" is its own untrue statement, which is why the mixture keeps a badge
- * of its own rather than being rounded to either end.
+ * "No CPT" is its own untrue statement, which is why the mixture keeps a
+ * badge of its own rather than being rounded to either end.
  *
  * Neither tooltip says "fallback": owner, 2026-08-15, *"I don't really like
  * the word fallback, this just means the model isn't ready."*
  */
 const PROVENANCE_BADGES: Record<
   ClassProvenance,
-  { text: string; title: string; testIdStem: string; className: string }
+  { text: string; title: string; testIdStem: string; className: string } | null
 > = {
-  cpt: {
-    text: 'CPT est.',
-    title: 'Classification derived from CPT qc series',
-    testIdStem: 'cpt-est-badge',
-    className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
-  },
+  cpt: null,
   partial: {
-    text: 'CPT est. (partial)',
+    text: 'No CPT (partial)',
     title:
       'Most bands derived from CPT qc series. At least one had no cone in its body, so it took the weakest class seen there instead. Check the low-confidence bands before use.',
     testIdStem: 'partial-cpt-badge',
@@ -75,8 +75,9 @@ const PROVENANCE_BADGES: Record<
 /**
  * Provenance badge for a class row or a unit instance.
  *
- * Suppressed when the row has no packing class: there is no classification to
- * state a provenance for, and the row's own label already says so.
+ * Suppressed when the row has no packing class (there is no classification to
+ * state a provenance for, and the row's own label already says so) and for
+ * fully cone-derived rows (the norm is unlabelled — only exceptions badge).
  *
  * Parameters
  * ----------
@@ -104,6 +105,7 @@ export function ProvenanceBadge({
 }): JSX.Element | null {
   if (nadClass === null) return null
   const badge = PROVENANCE_BADGES[provenance]
+  if (badge === null) return null
   return (
     <span
       className={`text-[10px] rounded px-1 py-0 flex-shrink-0 ${badge.className}`}
