@@ -82,6 +82,9 @@ export interface IdentificationPool {
  * nothing — and (when given) ONE resolver body (owner ruling 2026-08-27: "a
  * body is only a body if it is geometrically connected or if the users says,
  * this body is the same as that body"; an unstamped band belongs to no body).
+ * Under a body scope the body is the WHOLE pooling scope (F2): a body can
+ * span two duplicate formation rows, so the ``formation_id`` filter does not
+ * apply in that branch.
  *
  * Parameters
  * ----------
@@ -114,12 +117,14 @@ export function unitBoreholeBands(
 ): UnitBoreholeBandInterval[] {
   const out: UnitBoreholeBandInterval[] = []
   for (const layer of layers) {
-    if (layer.formation_id !== unitId) continue
+    // Body scope: the body IS the scope — the formation filter would hide the
+    // body's bands sitting under a twin formation row (F2).
+    if (bodyId !== null ? (layer.body_id ?? null) !== bodyId : layer.formation_id !== unitId)
+      continue
     if (layer.status !== 'accepted') continue
     if (layer.borehole_id === null) continue
     if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.borehole_id))
       continue
-    if (bodyId !== null && (layer.body_id ?? null) !== bodyId) continue
     out.push({
       boreholeId: layer.borehole_id,
       topDepthM: layer.depth_top_m,
