@@ -39,6 +39,13 @@ class BodyLayerPick:
         The anchor investigation's kind — ``"cpt"`` or ``"borehole"``.  Carried
         so the voxel builder can decide which investigation is honored when two
         of them share one grid column; see ``docs/debt.md`` #241.
+    litho_layer_id : str | None, default ``None``
+        The accepted ``litho_layer`` id this pick IS (one member-layer = one
+        row). The geotech subdivider mints bands BY splitting a pick, so this is
+        the covering litho band the band's ``parent_litho_layer_id`` gets
+        stamped with — the parent the materialiser already holds, no midpoint
+        re-derivation needed. ``None`` for callers/fixtures that never persist
+        it (e.g. the geo-bounding transforms, which key on body not layer).
     """
 
     investigation_id: str
@@ -50,3 +57,4 @@ class BodyLayerPick:
     top_depth_m: float
     base_depth_m: float
     kind: str = "borehole"
+    litho_layer_id: str | None = None
