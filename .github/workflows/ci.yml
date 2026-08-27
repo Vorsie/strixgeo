@@ -58,6 +58,10 @@ jobs:
   python:
     name: Python unit tests
     runs-on: ubuntu-latest
+    # The suite is ~80 s locally; 25 min is generous head-room. The cap exists
+    # because the FIRST re-armed develop run hung in this step for 1 h+ (cause
+    # unknown, Linux-only) — without it a hang burns the 360-min default.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
 
@@ -76,11 +80,17 @@ jobs:
         run: uv sync --group dev
 
       - name: Run unit tests
-        run: uv run pytest tests/unit -q
+        # --faulthandler-timeout: pytest's built-in faulthandler dumps every
+        # thread's stack when a single test exceeds 120 s (no test should come
+        # near that). It does not kill the run — it makes the NEXT hang
+        # self-diagnosing in the log instead of ending as a silent
+        # timeout-minutes cancellation with no traceback.
+        run: uv run pytest tests/unit -q --faulthandler-timeout=120
 
   desktop:
     name: Desktop eslint-reason + tsc + tests
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
 
@@ -110,7 +120,13 @@ jobs:
 
       - name: Type-check
         working-directory: desktop
-        run: npx tsc --noEmit
+        # Explicit -p flags are load-bearing (debt #63, mirrored from the
+        # pre-commit hook): the root tsconfig.json has empty ``files`` +
+        # project ``references``, so a bare ``tsc --noEmit`` silently checks
+        # NOTHING — which is what this step had been doing since it was added.
+        run: |
+          npx tsc --noEmit -p tsconfig.web.json
+          npx tsc --noEmit -p tsconfig.node.json
 
       - name: Run unit tests
         working-directory: desktop
