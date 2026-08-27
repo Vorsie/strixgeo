@@ -23,6 +23,14 @@ export interface FenceColumn {
 export interface FenceRegion {
   formationId: string
   bodyId: string | null
+  /**
+   * The ``litho_layer`` ids whose drilled units produced this region's paint
+   * (``PartitionRegion.layerIds``) — the label-independent identity currency.
+   * Optional and absent on fallback paint; carried so consumers can resolve
+   * a panel's TRUE body through the layers rather than the ``bodyId`` LABEL,
+   * which the weld mints locally and the recompute rewrites.
+   */
+  layerIds?: readonly string[]
   /** Index of the LEFT bounding column in the ordered column list. */
   gapIndex: number
   /** Polygon in (gap-fraction 0..1, absolute elevation mTAW). */
@@ -38,6 +46,8 @@ export interface FenceRegion {
 export interface FencePanel {
   formationId: string
   bodyId: string | null
+  /** Source layer ids — see {@link FenceRegion.layerIds}; additive, optional. */
+  layerIds?: readonly string[]
   vertices: [number, number, number][]
   triangles: [number, number, number][]
 }
@@ -110,6 +120,7 @@ export function buildFencePanels(
     panels.push({
       formationId: region.formationId,
       bodyId: region.bodyId,
+      layerIds: region.layerIds,
       vertices,
       triangles,
     })
