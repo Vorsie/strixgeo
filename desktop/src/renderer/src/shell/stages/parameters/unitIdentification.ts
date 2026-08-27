@@ -5,10 +5,12 @@
 // The qc/fs/Rf statistics read the CONE inside the unit's CPT bands
 // (``unitStatistics.ts``); this module is the sibling for the LAB: every
 // numeric classification value on every sample whose depth-interval midpoint
-// falls inside the unit's borehole bands. Grain-size CURVES are deliberately
-// out — a distribution per sieve is a different chart family; the scalar
-// fractions DOV ships (clay content, grain density, ...) arrive through the
-// scalar catch-all and pool like any other value.
+// falls inside the unit's borehole bands. Grain-size CURVES are out of THIS
+// module — a distribution per sieve is a different chart family — and pool
+// through ``unitPsd.ts`` instead (owner ruling S5, 2026-08-27: "i'm missing
+// all PSD's on one graph"); the scalar fractions DOV ships (clay content,
+// grain density, ...) arrive through the scalar catch-all and pool like any
+// other value here.
 //
 // ELEVATION, NOT DEPTH. Each point carries mTAW, converted exactly as the
 // borelog draws its layers (``BoreholeLog.tsx``: depth = collar − mTAW, so
@@ -126,8 +128,11 @@ export function unitBoreholeBands(
  * HALF-OPEN ``[top, base)`` — the same rule ``unitStatistics.depthInBand``
  * uses, for the same reason: bands are gap-free, so a closed interval would
  * claim a contact-straddling sample for both neighbours.
+ *
+ * Exported for ``unitPsd.ts`` — the grain-size curves pool by the SAME rule
+ * (owner ruling S5, 2026-08-27), and two copies of the rule would drift.
  */
-function midpointInBand(midM: number, band: UnitBoreholeBandInterval): boolean {
+export function midpointInBand(midM: number, band: UnitBoreholeBandInterval): boolean {
   return midM >= band.topDepthM && midM < band.baseDepthM
 }
 
