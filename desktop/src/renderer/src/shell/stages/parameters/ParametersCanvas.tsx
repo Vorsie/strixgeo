@@ -29,12 +29,13 @@
 //      picks ONE path per (parameter, unit). Comparison view shows
 //      both side-by-side for sanity checking.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BarChart3, Beaker, Sliders, Sparkles } from 'lucide-react'
 
 import { EmptyState } from '../../EmptyState'
 import TabBar from '../../../components/ui/TabBar'
 import type { TabSpec } from '../../../components/ui/TabBar'
+import { useShell } from '../../ShellContext'
 import MethodConfigTab from './tabs/MethodConfigTab'
 import PerTestTab from './tabs/PerTestTab'
 import PerUnitTab from './tabs/PerUnitTab'
@@ -83,6 +84,23 @@ const TABS: readonly (TabSpec & { id: TabId; iconComponent: typeof Beaker })[] =
  */
 export default function ParametersCanvas(): JSX.Element {
   const [tab, setTab] = useState<TabId>('per-test')
+  const {
+    coordinator: { selectedParameterUnitId },
+  } = useShell()
+
+  // Landing here from a geotech band's "Unit statistics…" (owner ballot
+  // 2026-08-26) must show the tab that LISTS units — the inspector already
+  // draws the distributions, but leaving the canvas on "Per test" hides the
+  // row the engineer just navigated to and the siblings he came to compare it
+  // against.
+  //
+  // Keyed on the unit id, so it fires once per unit rather than on every
+  // render: an engineer who then switches to Methods with the unit still
+  // scoped is not dragged back.
+  useEffect(() => {
+    if (selectedParameterUnitId === null) return
+    setTab('per-unit')
+  }, [selectedParameterUnitId])
 
   return (
     <div className="flex flex-col h-full bg-surface-app text-text-primary">
