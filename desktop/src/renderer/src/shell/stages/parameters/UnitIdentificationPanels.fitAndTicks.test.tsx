@@ -73,7 +73,6 @@ function bhDetail(id: string, name: string, elevationM: number, samples: unknown
   return { id, name, elevation_m: elevationM, samples }
 }
 
-const SCOPE = { kind: 'geotech' as const, unitId: 'unit-1' }
 const MEMBERS = new Set(['bh-1'])
 
 function water(top: number, pct: number) {
@@ -86,7 +85,7 @@ describe('S4 — fit-to-data for the identification (OKP) panels', () => {
   it('IF1 — the toggle exists and its label states the mode it switches TO', async () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, 23)])])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-fit-toggle')).toBeTruthy())
     const button = screen.getByTestId('unit-idtests-fit-toggle')
@@ -106,7 +105,7 @@ describe('S4 — fit-to-data for the identification (OKP) panels', () => {
       ]),
     ])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:plastic_limit')).toBeTruthy())
     // Default: the pair shares one scale — the PL dot sits at a third.
@@ -133,7 +132,7 @@ describe('S4 — fit-to-data for the identification (OKP) panels', () => {
       ]),
     ])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:plastic_limit')).toBeTruthy())
     const button = screen.getByTestId('unit-idtests-fit-toggle')
@@ -152,7 +151,7 @@ describe('S4 — fit-to-data for the identification (OKP) panels', () => {
   it('IF4 — the fitted axis end rounds the pooled max up to a tick', async () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, 9), water(2, 23)])])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
     // Default: the axis end is the exact pooled max.
@@ -177,7 +176,7 @@ describe('F6 — the OKP panels adopt the S2 rule: no clamping, negatives are of
   it('IF7 — a negative value is excluded and counted, never clamped onto the 0 wall', async () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, -4), water(2, 23)])])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
     // Only the on-axis sample draws — the −4 % artefact used to clamp to x=0.
@@ -194,7 +193,7 @@ describe('F6 — the OKP panels adopt the S2 rule: no clamping, negatives are of
   it('IF8 — with nothing off axis there is no notifier', async () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, 9), water(2, 23)])])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
     expect(screen.queryByTestId('unit-idtests-offaxis-typed:water_content')).toBeNull()
@@ -205,7 +204,7 @@ describe('S3 — sublabels on the identification axes', () => {
   it('IF5 — the value axis labels intermediate ticks', async () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, 23)])])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
     const labels = screen
@@ -221,7 +220,7 @@ describe('S3 — sublabels on the identification axes', () => {
       bhDetail('bh-1', 'B1', 10, [water(1, 20), water(5, 25), water(9, 22), water(13, 28)]),
     ])
     render(
-      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+      <UnitIdentificationPanels scopeBands={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
     )
     await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
     const labels = screen
