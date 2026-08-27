@@ -29,7 +29,7 @@
  */
 
 import type { GapFillInput, GapFillResult } from './fillGap'
-import type { SectionRegion } from '../../partitionFill'
+import { regionAreaM2 } from '../../partitionFill/regionArea'
 
 /** One gap that kept ground the law should have owned. */
 export interface TotalityViolation {
@@ -39,18 +39,6 @@ export interface TotalityViolation {
   faces: number
   /** How much cover they hold, in square metres. */
   areaM2: number
-}
-
-/** Ring area in the gap's fraction space, scaled to square metres. */
-function areaM2(region: SectionRegion, width: number): number {
-  let twice = 0
-  const ring = region.polygon
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]
-    const b = ring[(i + 1) % ring.length]
-    twice += a.fraction * b.elevation - b.fraction * a.elevation
-  }
-  return (Math.abs(twice) / 2) * Math.abs(width)
 }
 
 /**
@@ -68,6 +56,6 @@ export function totalityViolationOf(
   if (input.run === null || result.residual.length === 0) return null
   const width = input.xb - input.xa
   let total = 0
-  for (const region of result.residual) total += areaM2(region, width)
+  for (const region of result.residual) total += regionAreaM2(region, width)
   return { gapIndex: input.gapIndex, faces: result.residual.length, areaM2: total }
 }
