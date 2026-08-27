@@ -12,12 +12,23 @@ The fixture provides:
 * 1 geological model with 3 formations + depth contacts at each CPT
 * 1 lithostratigraphic model (empty — the spec flows call suggest/accept)
 * 3 cross-sections; A (empty, build specs), B (body), C (crossing)
+* 1 GEOTECHNICAL model (kind='geotechnical', parent = the litho model)
+  seeded through the REAL pipeline verbs — ``subdivide-all-bodies``
+  (packing bands + proposed ties) followed by the model-wide accept verb
+  — so Section B carries accepted NAD packing bands and approved geotech
+  correlation edges, and fence panels exist for the Parameters stage's
+  fence cutout (``flow_unit_statistics``). See ``_seed_geotech_model``.
 * No lab tests — not needed for the 6 spec flows
 
 All UUIDs are deterministic (UUID5 off a fixed namespace + seed) so
 running the script twice is idempotent — the second run re-POSTs the
 same ids and the restore endpoint's "skip existing by id" logic
-returns cleanly without duplicating.
+returns cleanly without duplicating.  The geotech model's rows are the
+one exception: the pipeline verbs mint uuid7 ids, so the geotech model /
+formation / layer / edge ids CHANGE per seed while their CONTENT (NAD
+classes, depths, tie topology — everything a golden screenshot renders)
+stays deterministic.  Specs must resolve geotech ids through the API at
+runtime, never hard-code them.
 
 Prerequisites
 -------------
@@ -1039,6 +1050,106 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         )
 
 
+def _seed_geotech_model(api_base: str, project_id: str) -> None:
+    """Seed the geotechnical model through the REAL pipeline verbs (never hand-rows).
+
+    Mirrors the engineer's own flow, exactly as the toolbar fires it:
+
+    1. ``POST .../models/{litho}/geotech/subdivide-all-bodies`` — pipeline
+       steps 1+2 in one press: find-or-creates the geotech model
+       (``kind='geotechnical'``, parent = the litho model), writes accepted
+       NAD packing bands (``litho_layer`` rows carrying ``body_id`` after the
+       resolver runs inside the verb) for every qc-bearing column, and
+       derives packing ties from the litho model's approved edges
+       (restatements of the fixture's manual litho ties are born accepted
+       per ruling A; genuinely new pairs arrive pending).
+    2. ``POST .../models/{geotech}/contact-correlations/accept`` — pipeline
+       step 3, model-wide: promotes every pending proposal and re-runs the
+       resolver, so the seeded state carries ONLY accepted ties.
+
+    The function then VERIFIES the invariant the Cesium fence specs stand on
+    — at least one approved geotech correlation edge and at least one
+    accepted band — and exits loudly when the pipeline produced neither
+    (a silent half-seed would surface later as an unexplained
+    ``unit-fence-empty`` in ``flow_unit_statistics``).
+
+    Determinism: the verbs are pure functions of the seeded litho state +
+    the deterministic qc series, so the CONTENT (classes, depths, tie
+    topology) is byte-stable across seeds; only the uuid7 row ids differ.
+
+    Parameters
+    ----------
+    api_base : str
+        Base URL of the FastAPI backend (no trailing slash).
+    project_id : str
+        UUID of the fixture project (hex-string).
+
+    Raises
+    ------
+    SystemExit
+        On any non-200 verb response or when the verification fails.
+    """
+    litho_model_id = _uid("litho-model")
+    geology_base = f"{api_base}/projects/{project_id}/geology"
+
+    # Own client: the subdivision classifies every column in one pass, which
+    # can outlast the 30 s the restore client uses.
+    with httpx.Client(timeout=120.0) as client:
+        resp = client.post(
+            f"{geology_base}/models/{litho_model_id}/geotech/subdivide-all-bodies",
+            json={"litho_model_id": litho_model_id},
+        )
+        if resp.status_code != 200:
+            print(
+                f"ERROR: subdivide-all-bodies returned HTTP {resp.status_code}.\n"
+                f"Body: {resp.text[:500]}",
+                file=sys.stderr,
+            )
+            sys.exit(4)
+        outcome = resp.json()
+        geotech_model_id = outcome["geotech_model_id"]
+        print(
+            f"[fixture] geotech subdivide ok — model {geotech_model_id}: "
+            f"{outcome['layer_count']} bands, {outcome['body_count']} bodies, "
+            f"{outcome['proposed_tie_count']} ties proposed",
+            file=sys.stderr,
+        )
+
+        resp = client.post(
+            f"{geology_base}/models/{geotech_model_id}/contact-correlations/accept",
+            json={},
+        )
+        if resp.status_code != 200:
+            print(
+                f"ERROR: geotech accept returned HTTP {resp.status_code}.\nBody: {resp.text[:500]}",
+                file=sys.stderr,
+            )
+            sys.exit(4)
+        accepted = resp.json()
+
+        # Verify the fence precondition instead of assuming it: the cutout and
+        # the fence diagram draw ONLY approved edges over accepted bands.
+        edges = client.get(f"{geology_base}/models/{geotech_model_id}/contact-correlations").json()
+        approved_count = sum(1 for e in edges if e.get("user_approved"))
+        layers = client.get(f"{geology_base}/models/{geotech_model_id}/layers").json()
+        accepted_bands = sum(1 for layer in layers if layer.get("status") == "accepted")
+        if approved_count == 0 or accepted_bands == 0:
+            print(
+                "ERROR: geotech seeding left no fence-capable state "
+                f"(approved edges={approved_count}, accepted bands={accepted_bands}). "
+                "The Cesium visual specs need >=1 of each — inspect the "
+                "subdivide/accept responses above.",
+                file=sys.stderr,
+            )
+            sys.exit(5)
+        print(
+            f"[fixture] geotech model seeded — {accepted_bands} accepted bands, "
+            f"{approved_count} approved edges "
+            f"(accept verb promoted {accepted['edges_accepted']})",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     """Build and POST the synthetic fixture, then print the project UUID.
 
@@ -1126,6 +1237,12 @@ def main() -> None:
     # via a direct DB session — see ``_seed_action_scenarios_async``.
     print(f"[fixture] Seeding action scenarios for project {project_id} …", file=sys.stderr)
     asyncio.run(_seed_action_scenarios_async(project_id))
+
+    # Seed the geotechnical model through the real pipeline verbs (E1) — after
+    # the action scenarios so the resolver bodies + approved litho edges the
+    # subdivider reads already exist.
+    print(f"[fixture] Seeding geotech model for project {project_id} …", file=sys.stderr)
+    _seed_geotech_model(api_base, project_id)
 
     # Last line on stdout: bare project UUID for shell capture
     print(project_id)
