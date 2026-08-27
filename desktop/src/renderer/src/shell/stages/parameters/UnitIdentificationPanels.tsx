@@ -75,9 +75,12 @@ export default function UnitIdentificationPanels({
   const { project } = useShell()
   const projectId = project.id
 
+  // The body scope narrows the lab + PSD pools too (owner ruling 2026-08-27):
+  // both pool from these SAME bands, so one filter scopes them together.
   const bands = useMemo(
-    () => unitBoreholeBands(layers, scope.unitId, memberInvestigationIds),
-    [layers, scope.unitId, memberInvestigationIds],
+    () =>
+      unitBoreholeBands(layers, scope.unitId, memberInvestigationIds, scope.bodyId ?? null),
+    [layers, scope.unitId, memberInvestigationIds, scope.bodyId],
   )
 
   // Sorted + deduplicated so the fetch key is stable under band reshuffles —
