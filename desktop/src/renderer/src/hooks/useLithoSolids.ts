@@ -17,6 +17,7 @@ import { api } from '../api/client'
 import type { LithoBodySolidResponse } from '../api/client'
 import { apiErrorDetail } from '../api/clients/shared'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
+import type { GaplessBuildReport } from '../utils/gaplessGate/types'
 import { log } from '../utils/log'
 import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
 
@@ -139,6 +140,17 @@ export interface UseLithoSolidsResult {
   hideMarkers: boolean
   /** Toggle the ``hideMarkers`` flag. */
   setHideMarkers: (value: boolean) => void
+  /**
+   * The seven-clause gapless gate for the LAST build of this model, or ``null``
+   * when there is no verdict to show — never built, or last built by a version
+   * that predates the gate.
+   *
+   * Loaded from the stored build generation on open and replaced in place by
+   * every build, so what the banner shows always belongs to the solids on
+   * screen. ``null`` is shown as "no verdict", never as a pass: the whole point
+   * of the gate is that an unmeasured guarantee is not a kept one.
+   */
+  gaplessReport: GaplessBuildReport | null
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +201,7 @@ export function useLithoSolids(
   const [loading, setLoading] = useState(false)
   const [building, setBuilding] = useState(false)
   const [refetchNonce, setRefetchNonce] = useState(0)
+  const [gaplessReport, setGaplessReport] = useState<GaplessBuildReport | null>(null)
 
   // -------------------------------------------------------------------------
   // Fetch — runs whenever project / model changes, or after a build.
@@ -198,6 +211,7 @@ export function useLithoSolids(
   useEffect(() => {
     if (!projectId || !lithoModelId) {
       setSolids([])
+      setGaplessReport(null)
       return
     }
     let cancelled = false
@@ -219,6 +233,31 @@ export function useLithoSolids(
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
+      })
+
+    // The last build's gapless verdict, so reopening a project shows the
+    // guarantee that belongs to the solids on screen instead of a blank.
+    // Deliberately NOT chained onto the solid fetch and NOT part of
+    // ``loading``: the 3-D model must render on time whether or not its report
+    // arrives, and a report that fails to load must never look like a report
+    // that passed — the catch clears it to "no verdict".
+    api.geology
+      .getGaplessBuildReport(projectId, lithoModelId)
+      .then(report => {
+        if (cancelled) return
+        log.info(
+          'useLithoSolids',
+          report === null
+            ? `no stored gapless report for model=${lithoModelId} (never built, or built before the gate)`
+            : `stored gapless report: verdict=${report.verdict}, ` +
+                `${report.clauses.filter(c => c.status === 'fail').length} clause(s) failed`,
+        )
+        setGaplessReport(report)
+      })
+      .catch(err => {
+        if (cancelled) return
+        log.error('useLithoSolids', 'failed to fetch the gapless build report', err)
+        setGaplessReport(null)
       })
 
     return () => {
@@ -279,6 +318,29 @@ export function useLithoSolids(
         // the nonce changes, and re-fetching here would overwrite identical data
         // with an extra round-trip.
         setSolids(result.solids)
+        // The verdict belongs to THESE solids, so it lands with them. A
+        // response with no report clears the previous one rather than leaving
+        // it standing: a stale verdict beside a fresh model is worse than no
+        // verdict, because it reads as a guarantee about ground it never saw.
+        setGaplessReport(result.gapless_report ?? null)
+        if (result.gapless_report) {
+          const failed = result.gapless_report.clauses.filter(c => c.status === 'fail')
+          const unmeasured = result.gapless_report.clauses.filter(
+            c => c.status === 'not-evaluated',
+          )
+          const line =
+            `gapless gate: ${result.gapless_report.verdict} ` +
+            `(${failed.length} failed, ${unmeasured.length} not evaluated)`
+          // The gate fails the REPORT, never the build — so a failed verdict is
+          // a warning beside a successful build, not an error.
+          if (result.gapless_report.verdict === 'pass') log.info('useLithoSolids', line)
+          else log.warn('useLithoSolids', `${line} — ${failed.map(c => c.title).join('; ')}`)
+        } else {
+          log.warn(
+            'useLithoSolids',
+            'build returned no gapless report — the model carries no verdict for this build',
+          )
+        }
         // A build is an unsaved change like any other. ``litho_solids`` rides in the
         // .strix bundle, so building genuinely changes what a save would write — and
         // the close prompt gates on the project's dirty flag. Without this the build
@@ -401,5 +463,6 @@ export function useLithoSolids(
     setBodyColor,
     hideMarkers,
     setHideMarkers,
+    gaplessReport,
   }
 }
