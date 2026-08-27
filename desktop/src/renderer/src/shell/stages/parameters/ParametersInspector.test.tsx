@@ -62,7 +62,16 @@ vi.mock('../../ShellContext', () => ({
       cpts: [{ id: 'cpt-1', name: 'CPT-1', max_depth_m: 12.4, cpt_type: 'CPTU' }],
       plotMap: mockPlotMap,
     },
-    coordinator: { selectedId: mockSelectedId, markMutated },
+    // No unit is scoped in these cases: they are all about the per-CPT
+    // surface. The unit branch has its own spec
+    // (``ParametersInspector.unit.test.tsx``).
+    geoModel: { geotechLayers: [], geotechFormations: [] },
+    coordinator: {
+      selectedId: mockSelectedId,
+      markMutated,
+      selectedParameterUnitId: null,
+      setSelectedParameterUnitId: vi.fn(),
+    },
     toasts: { toast },
   }),
 }))
