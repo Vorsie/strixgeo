@@ -12,6 +12,7 @@ at all. So it is a pointer now, and must stay one.
 
 | What you need | File |
 |---|---|
+| Architecture map + hard-rules digest for any AI agent | `AI.md` |
 | Project rules, architecture, conventions, Definition of Done | `CLAUDE.md` |
 | Current session state, owner decisions, open dogfeed items | `CLAUDE.local.md` (gitignored) |
 | The debt backlog (canonical) | `docs/debt.md` |
