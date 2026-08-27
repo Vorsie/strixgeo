@@ -25,9 +25,15 @@ import {
 import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import type { ParameterUnitScope } from '../../ShellContext'
+import {
+  bodyScopedHeaderLabel,
+  pooledHeaderLabel,
+  unitBodyCount,
+} from './parameterUnitBodies'
 import UnitDistributionPanels from './UnitDistributionPanels'
 import UnitFenceCutout from './UnitFenceCutout'
 import UnitIdentificationPanels from './UnitIdentificationPanels'
+import { useModelBodies } from './useModelBodies'
 import { useUnitStatistics } from './useUnitStatistics'
 
 interface Props {
@@ -56,7 +62,14 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     visibleCpts,
     visibleBoreholes,
     sections: { visibleSections },
-    geoModel: { lithoFormations, geotechFormations, lithoLayers, geotechLayers },
+    geoModel: {
+      lithoFormations,
+      geotechFormations,
+      lithoLayers,
+      geotechLayers,
+      activeLithoModel,
+      activeGeotechModel,
+    },
     coordinator: { setSelectedParameterUnit },
   } = useShell()
 
@@ -94,15 +107,36 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     [scope, lithoFormations, geotechFormations],
   )
 
+  // ── The body scope (owner ruling 2026-08-27) ──────────────────────────────
+  // "a body is only a body if it is geometrically connected or if the users
+  // says, this body is the same as that body." The unit row lumps resolver
+  // bodies; a set ``bodyId`` narrows every pool below to that ONE body, and
+  // the header must say which view it shows either way.
+  const scopedBodyId = scope.bodyId ?? null
+  const bodiesById = useModelBodies(
+    projectId,
+    scope.kind === 'geotech' ? (activeGeotechModel?.id ?? null) : (activeLithoModel?.id ?? null),
+  )
+
   const unitLabel = useMemo(() => {
     if (unit === null) return 'Unit'
-    if (scope.kind === 'litho') {
-      // R1's naming requirement, near-verbatim: the header must SAY the pool
-      // spans the whole unit, every packing class.
-      return `${unit.name ?? 'Litho unit'} — whole litho unit, all packing classes`
+    const unitName =
+      scope.kind === 'litho'
+        ? (unit.name ?? 'Litho unit')
+        : geotechUnitLabel(unit, sourceLithoNameOf(unit, sourceLithoNameById))
+    if (scopedBodyId !== null) {
+      // Body-scoped: name the one body, the way the 3-D legend names bodies.
+      return bodyScopedHeaderLabel(unitName, scopedBodyId, bodiesById)
     }
-    return geotechUnitLabel(unit, sourceLithoNameOf(unit, sourceLithoNameById))
-  }, [unit, scope.kind, sourceLithoNameById])
+    const base =
+      scope.kind === 'litho'
+        ? // R1's naming requirement, near-verbatim: the header must SAY the
+          // pool spans the whole unit, every packing class.
+          `${unitName} — whole litho unit, all packing classes`
+        : unitName
+    // The honest label is the ruling's point: the lumped view says it lumps.
+    return pooledHeaderLabel(base, unitBodyCount(layers, scope.unitId))
+  }, [unit, scope.kind, scope.unitId, sourceLithoNameById, scopedBodyId, bodiesById, layers])
 
   const {
     statistics,
@@ -111,7 +145,14 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     pendingCptCount,
     pooledCptIds,
     retry,
-  } = useUnitStatistics(unit === null ? null : scope.unitId, layers, plotMap, projectId, memberIds)
+  } = useUnitStatistics(
+    unit === null ? null : scope.unitId,
+    layers,
+    plotMap,
+    projectId,
+    memberIds,
+    scopedBodyId,
+  )
 
   // ── The population header line (R6) ───────────────────────────────────────
   const populationNote = useMemo(() => {
