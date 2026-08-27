@@ -346,14 +346,14 @@ interface Props {
    * overlay names, and the shell does the rest. Absent → the menu item is not
    * offered.
    */
-  onShowGeotechUnitStatistics?: (unitId: string) => void
+  onShowGeotechUnitStatistics?: (unitId: string, bodyId?: string | null) => void
   /**
    * Open the Parameters stage scoped to a LITHO unit (owner ruling R1,
    * 2026-08-27) — the litho axis's half of the same jump. Forwarded to the
    * per-column band menu (``ContactsLayer``) and to the between-columns body
    * menu; the panel neither navigates nor knows what a stage is.
    */
-  onShowLithoUnitStatistics?: (formationId: string) => void
+  onShowLithoUnitStatistics?: (formationId: string, bodyId?: string | null) => void
   /**
    * Clear ONE test's packing subdivision (owner ask 2026-08-18) — offered in
    * the column label's right-click menu on the geotech axis, only where the
@@ -937,6 +937,17 @@ export default function SectionPanel({
     }
     return m
   }, [formations, axisMode])
+
+  // litho_layer id → body_id, for the litho band menu's statistics jump
+  // (owner body-scope ruling 2026-08-27). ContactsLayer's bands are built
+  // from the CONTACT projection, which drops ``body_id`` — but a contact's id
+  // IS its layer id (the UUID-preserving A2.5 backfill), so this map is how
+  // the menu names the clicked band's body without widening the contact shape.
+  const lithoBodyIdByLayerId = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const l of lithoLayers ?? []) m.set(l.id, l.body_id ?? null)
+    return m
+  }, [lithoLayers])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
@@ -3285,6 +3296,7 @@ export default function SectionPanel({
               onShowLithoUnitStatistics={
                 axisMode === 'lithostratigraphic' ? onShowLithoUnitStatistics : undefined
               }
+              lithoBodyIdByLayerId={lithoBodyIdByLayerId}
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
                   ? undefined
@@ -3847,8 +3859,8 @@ export default function SectionPanel({
                 // region carries the body, the body names the formation.
                 onShowUnitStatistics={
                   onShowLithoUnitStatistics
-                    ? formationId => {
-                        onShowLithoUnitStatistics(formationId)
+                    ? (formationId, bodyId) => {
+                        onShowLithoUnitStatistics(formationId, bodyId)
                         dismissBodyCtxMenu()
                       }
                     : undefined
