@@ -55,6 +55,7 @@ import { buildGeotechLegendTree } from '../../../utils/geotechLegendTree'
 import type { FencePanel } from '../../../utils/fencePanels'
 import { BasemapPanel } from './BasemapPanel'
 import { CesiumViewport } from './CesiumViewport'
+import type { ViewportZoomTuning } from './useViewportZoomTuning'
 import { GeotechLayersTree } from './GeotechLayersTree'
 import { computeSplitPlane, type DrawState, type SplitLine } from './geology3DPrimitives'
 import {
@@ -194,6 +195,13 @@ export interface Geology3DViewerProps {
   /** Basemap lid alpha override — only the fence cutout sets it (owner
    * ruling B6b, 2026-08-27); omitted keeps the shared default. */
   basemapLidAlpha?: number
+  /** Lid-footprint override for fence mode (audit F4) — only the fence
+   * cutout passes it, so its orthophoto covers the WHOLE model while the
+   * walls stay filtered; omitted, the lid reads ``fencePanels``. */
+  lidFootprintPanels?: FencePanel[]
+  /** Per-viewport wheel-zoom tuning (audit F5) — only the fence cutout
+   * passes it; omitted keeps every Cesium default. */
+  zoomTuning?: ViewportZoomTuning
   /**
    * The counterpart model shown in the right-hand pane when
    * ``splitMode === 'compare'`` — the litho model beside the geotech
@@ -281,6 +289,8 @@ export default function Geology3DViewer({
   investigationXY,
   footprintRing,
   basemapLidAlpha,
+  lidFootprintPanels,
+  zoomTuning,
   compareScene,
   onEnterCompare,
   chromeless = false,
@@ -516,6 +526,8 @@ export default function Geology3DViewer({
           investigationXY={investigationXY}
           footprintRing={footprintRing}
           basemapLidAlpha={basemapLidAlpha}
+          lidFootprintPanels={lidFootprintPanels}
+          zoomTuning={zoomTuning}
           cameraRef={primaryCameraRef}
         />
 
