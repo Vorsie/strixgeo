@@ -3543,6 +3543,14 @@ export default function SectionPanel({
                 onShowGeotechUnitStatistics={
                   axisMode === 'geotechnical' ? onShowGeotechUnitStatistics : undefined
                 }
+                // S7b (2026-08-27): "in the litho stage i should be able to
+                // click the litho fill too" — body-less litho regions jump as
+                // litho units. Litho axis ONLY: on the geotech axis the litho
+                // frame stays inert (S7a), which the axis gate here enforces
+                // alongside the overlay's own axis routing.
+                onShowLithoUnitStatistics={
+                  axisMode === 'lithostratigraphic' ? onShowLithoUnitStatistics : undefined
+                }
               />
             )}
 
@@ -3656,6 +3664,18 @@ export default function SectionPanel({
                   alongMToScreenX={warpedXToScreen}
                   levelToScreen={levelToScreen}
                   opacity={0.55}
+                  // S6 (owner 2026-08-27): the model fill offers the same
+                  // "Unit statistics…" right-click as the computed fill, on
+                  // BOTH axes with the axis's OWN scope kind — the solids here
+                  // are this axis's own build, so their formation ids already
+                  // live in the right model.
+                  onShowUnitStatistics={
+                    axisMode === 'geotechnical'
+                      ? onShowGeotechUnitStatistics
+                      : axisMode === 'lithostratigraphic'
+                        ? onShowLithoUnitStatistics
+                        : undefined
+                  }
                 />
               )}
 
