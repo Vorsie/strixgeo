@@ -76,6 +76,13 @@ stable and the body is derived live through it.
 * The renderer reads `parent_litho_layer_id` from the layer payload; the
   midpoint rule survives only in the backfill and in the band verbs, one
   backend source.
+* **.strix:** the bundle serialises columns generically
+  (`__mapper__.column_attrs`), so the field rides the file for free; old
+  bundles restore with NULL parents (the honest orphan state). The FK is
+  SELF-referencing, so restore must insert the litho model's layers before
+  the geotech model's (guaranteed by parent-model ordering — verify, or
+  fall back to a two-pass parent update). Pin: save → wipe → restore →
+  every parent id intact (integration test).
 
 A geotech band with `parent_litho_layer_id = NULL` (no covering litho band)
 is EXCLUDED from the tree and counted once per litho unit in a quiet footer
