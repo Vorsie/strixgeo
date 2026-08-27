@@ -22,13 +22,21 @@ export interface UnitStatsMenuState {
    * formation-level.
    */
   bodyId?: string | null
+  /**
+   * The clicked region's own geotech layer ids (fill-region menus only) — lets
+   * the geotech jump ladder reach a class row when the body is unresolved
+   * (spec §2 step 2).
+   */
+  regionLayerIds?: readonly string[]
 }
 
 interface Props {
   /** The open state, or ``null`` — the component renders nothing then. */
   menu: UnitStatsMenuState | null
-  /** The jump handler the item forwards the formation id (+ body) to. */
-  onShow: ((unitId: string, bodyId?: string | null) => void) | undefined
+  /** The jump handler the item forwards the formation id (+ body + region) to. */
+  onShow:
+    | ((unitId: string, bodyId?: string | null, regionLayerIds?: readonly string[]) => void)
+    | undefined
   /** Close the menu (backdrop click, Esc, wheel, or after the jump). */
   onClose: () => void
   /** data-testid of the menu box. */
@@ -86,6 +94,7 @@ export default function UnitStatisticsPortalMenu({
         <UnitStatisticsItem
           unitId={menu.formationId}
           bodyId={menu.bodyId ?? null}
+          regionLayerIds={menu.regionLayerIds}
           onShow={onShow}
           onClose={onClose}
           testid={itemTestid}
