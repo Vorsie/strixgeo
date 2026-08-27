@@ -71,7 +71,7 @@ export const OUTPUTS_NL = {
   'export.dxfFailed': 'Kon de DXF niet exporteren.',
   'export.pdfFailed': 'Kon de PDF niet exporteren.',
   'export.plaxisFailed': 'Kon het Plaxis-script niet exporteren.',
-  'export.fenceFailed': 'Kon de profielwand niet exporteren.',
+  'export.fenceFailed': 'Kon het hekkendiagram niet exporteren.',
   'export.reportEngineer': 'Naam van de ingenieur',
   'export.reportGenerate': 'PDF van het profiel genereren',
   'export.reportNotes':
