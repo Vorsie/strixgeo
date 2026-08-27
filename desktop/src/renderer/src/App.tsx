@@ -360,6 +360,20 @@ export default function App() {
     revealInvestigationId?: string
   } | null>(null)
 
+  // Parameters deep-link target + the unit the Parameters stage is scoped to
+  // (owner ballot 2026-08-26 — the layer → parameters jump). The target is
+  // set by a geotech band's right-click menu in a cross-section; AppShell
+  // switches stage, writes the selected unit, and clears the target
+  // (single-fire). The SELECTION outlives the navigation: it is also what a
+  // row click in the per-unit table writes, and what the Parameters
+  // inspector reads to know which unit to summarise.
+  const [parametersDeepLinkTarget, setParametersDeepLinkTarget] = useState<{
+    unitId: string
+  } | null>(null)
+  const [selectedParameterUnitId, setSelectedParameterUnitId] = useState<string | null>(
+    null,
+  )
+
   // Correlation-edges refetch nonce (#163c). Auto-correlate is fired from
   // SectionsToolbar via the geoModel slice, but the contact-correlation edge
   // state lives in SectionsCanvas (a sibling). Bumping this nonce after a
@@ -1260,6 +1274,8 @@ export default function App() {
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
     geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
+    parametersDeepLinkTarget, setParametersDeepLinkTarget,
+    selectedParameterUnitId, setSelectedParameterUnitId,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
   })
