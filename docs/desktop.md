@@ -107,9 +107,16 @@ desktop/src/
     │       │                  unitId} — a litho scope pools the whole unit, all packing
     │       │                  classes): UnitDistributionPanels (qc/fs/Rf on the CPT plot's
     │       │                  fixed axes from utils/cptAxisScales.ts, pooled over the
-    │       │                  canonical section-membership population only) +
+    │       │                  canonical section-membership population only; fit-to-data
+    │       │                  toggle S1, off-axis readings excluded + counted S2, derived
+    │       │                  tick sublabels S3 — rows in UnitDistributionChannelRow,
+    │       │                  shared AxisTickRow) +
     │       │                  UnitIdentificationPanels (OKP scatter, value × mTAW, from
-    │       │                  borehole samples via detail-batch) + UnitFenceCutout (lazy
+    │       │                  borehole samples via detail-batch; own fit toggle S4 —
+    │       │                  releases the Atterberg shared scale — and tick sublabels) +
+    │       │                  UnitPsdPanel (S5 — every grain-size curve of the unit on ONE
+    │       │                  inverted-log graph, pooled by unitPsd.ts on the same
+    │       │                  midpoint-in-band rule) + UnitFenceCutout (lazy
     │       │                  Cesium fence walls of the unit over the basemap, chromeless).
     │       │                  Row click in the per-test table selects the CPT via
     │       │                  coordinator.handleSelectWithoutView (the plain
