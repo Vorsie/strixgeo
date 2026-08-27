@@ -39,7 +39,7 @@ vi.mock('./useShellState', () => ({
 }))
 
 function makeCtx(
-  target: { kind: 'litho' | 'geotech'; unitId: string } | null,
+  target: { kind: 'litho' | 'geotech'; unitId: string; bodyId?: string | null } | null,
 ): {
   ctx: ShellContextValue
   setSelectedParameterUnit: ReturnType<typeof vi.fn>
@@ -112,6 +112,21 @@ describe('AppShell — layer → Parameters deep link', () => {
 
     expect(mockSetActiveStage).toHaveBeenCalledWith('parameters')
     expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'litho', unitId: 'litho-3' })
+  })
+
+  it('PDL6 — a body-scoped target arrives intact, body included (the 2026-08-27 body ruling)', () => {
+    const { ctx, setSelectedParameterUnit } = makeCtx({
+      kind: 'geotech',
+      unitId: 'unit-7',
+      bodyId: 'body-3',
+    })
+    render(<AppShell context={ctx} />)
+
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({
+      kind: 'geotech',
+      unitId: 'unit-7',
+      bodyId: 'body-3',
+    })
   })
 
   it('PDL3 — clears the payload so a re-mount does not re-navigate', () => {
