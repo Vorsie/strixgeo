@@ -27,8 +27,8 @@ import { useShell } from '../../ShellContext'
 import type { ParameterUnitScope } from '../../ShellContext'
 import {
   bodyScopedHeaderLabel,
+  pooledBodyCount,
   pooledHeaderLabel,
-  unitBodyCount,
 } from './parameterUnitBodies'
 import UnitDistributionPanels from './UnitDistributionPanels'
 import UnitFenceCutout from './UnitFenceCutout'
@@ -70,7 +70,11 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
       activeLithoModel,
       activeGeotechModel,
     },
-    coordinator: { setSelectedParameterUnit },
+    coordinator: {
+      setSelectedParameterUnit,
+      bodyRecomputeLithoNonce,
+      bodyRecomputeGeotechNonce,
+    },
   } = useShell()
 
   const projectId = project.id
@@ -116,6 +120,9 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
   const bodiesById = useModelBodies(
     projectId,
     scope.kind === 'geotech' ? (activeGeotechModel?.id ?? null) : (activeLithoModel?.id ?? null),
+    // F9: the labels (and F1's home formations) go stale after a body
+    // recompute rewrites the stamps — the axis's nonce re-fetches them.
+    scope.kind === 'geotech' ? bodyRecomputeGeotechNonce : bodyRecomputeLithoNonce,
   )
 
   const unitLabel = useMemo(() => {
@@ -134,9 +141,29 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
           // pool spans the whole unit, every packing class.
           `${unitName} — whole litho unit, all packing classes`
         : unitName
-    // The honest label is the ruling's point: the lumped view says it lumps.
-    return pooledHeaderLabel(base, unitBodyCount(layers, scope.unitId))
-  }, [unit, scope.kind, scope.unitId, sourceLithoNameById, scopedBodyId, bodiesById, layers])
+    // The honest label is the ruling's point: the lumped view says it lumps —
+    // counting only bodies CONTRIBUTING to the pool (F7): accepted CPT bands
+    // on member holes, the same filters the pool itself applies.
+    return pooledHeaderLabel(base, pooledBodyCount(layers, scope.unitId, memberIds))
+  }, [unit, scope.kind, scope.unitId, sourceLithoNameById, scopedBodyId, bodiesById, layers, memberIds])
+
+  // The scope's TOTAL accepted band count — the pane row's number (both
+  // anchors, no member filter): body scope = the body's bands wherever their
+  // formation row (F2's authority); pooled = the formation's bands. Feeds the
+  // header's "X of Y bands" honesty line (F7).
+  const totalBandCount = useMemo(() => {
+    let count = 0
+    for (const layer of layers) {
+      if (layer.status !== 'accepted') continue
+      if (
+        scopedBodyId !== null
+          ? (layer.body_id ?? null) === scopedBodyId
+          : layer.formation_id === scope.unitId
+      )
+        count += 1
+    }
+    return count
+  }, [layers, scopedBodyId, scope.unitId])
 
   const {
     statistics,
@@ -226,6 +253,8 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
               unitLabel={unitLabel}
               pendingCptCount={pendingCptCount}
               populationNote={populationNote}
+              totalBandCount={totalBandCount}
+              bodyScoped={scopedBodyId !== null}
             />
           )}
 
