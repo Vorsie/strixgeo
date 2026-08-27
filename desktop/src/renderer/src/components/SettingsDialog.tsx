@@ -469,7 +469,8 @@ function LithoSection({
         invalid={!voxelVValid}
       />
 
-      {/* Dev-only experimental engine toggle. Device-scoped (localStorage),
+      {/* Dev-only v1-fallback engine toggle (v2 is the default engine since
+          2026-08-01; owner 2026-08-27). Device-scoped (localStorage),
           NOT part of the project draft — applied immediately, no Save. The
           section badge reads "Stored in this project"; this one row is the
           exception, hence the "(this device)" hint. Hidden in production
