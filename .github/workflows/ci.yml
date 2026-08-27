@@ -18,32 +18,29 @@
 # we don't yet need. Promote when the desktop side is ready for
 # end-to-end smoke runs.
 #
-# Trigger policy (revised 2026-05-18 — GitHub Actions quota):
-#   * NO ``push: develop``. The active dogfeed branch is gated on every
-#     commit by the LOCAL pre-commit hook, which runs this exact same
-#     suite (pytest unit + desktop tsc + Vitest). CI on every develop
-#     push was almost pure redundancy for a solo pre-revenue dev and
-#     was the dominant Actions spend.
-#   * ``push: main`` only — the rare release surface this gate exists to
-#     protect (see the "paid customer off main" rationale above).
+# Trigger policy (revised 2026-08-27 — owner re-arm ruling: "yes rearm
+# push to develop ci we'll need it soon, also we're not pushing that
+# often"):
+#   * ``push: [main, develop]`` — develop is RE-ARMED. The local
+#     pre-commit hook gained a batch mode (STRIX_BATCH=1, see
+#     .githooks/pre-commit) that skips the per-commit test layers
+#     during scripted one-file-per-commit landing batches, so CI is
+#     the per-push backstop for develop again. Pushes are infrequent
+#     enough that the 2026-05-18 Actions-quota concern no longer
+#     dominates.
 #   * ``pull_request`` — the unconditional review gate (no paths-ignore
 #     so a PR is always fully checked).
 #   * ``workflow_dispatch`` — manual on-demand full run on any branch
-#     (e.g. before a coworker handoff) without re-enabling auto.
-#   * ``paths-ignore`` on push — docs/markdown-only commits to main
-#     don't spin the matrix.
-#
-#   RE-ARM TRIGGER: restore ``push: develop`` (or branch-protect main +
-#   require this check) the moment a SECOND contributor or a paid
-#   customer lands — see CLAUDE.md "Known Architectural Debt" #6. Until
-#   then the local hook is the develop safety net.
+#     (e.g. before a coworker handoff).
+#   * ``paths-ignore`` on push — docs/markdown-only pushes don't spin
+#     the matrix.
 
 name: CI
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"
