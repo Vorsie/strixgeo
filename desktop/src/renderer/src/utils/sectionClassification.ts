@@ -33,3 +33,31 @@ export function inCorridorInvestigationIds(
   for (const p of investigationsOnSection(section, boreholes, exBh)) ids.add(p.item.id)
   return ids
 }
+
+/**
+ * The canonical membership rule folded over every section: per-section member
+ * investigation id sets, keyed by section id.
+ *
+ * Membership is ``inCorridorInvestigationIds``'s answer — in corridor AND
+ * between the endpoints, exclusions honoured — never a re-derivation. The
+ * union over the map's values is "on the sections", which is the pooling
+ * population of the per-unit statistics (owner ruling 2026-08-27: "Only cpt's
+ * on the sections should be in the pooling"). Callers feed the app's VISIBLE
+ * lists so project-removed and manifest-gated investigations are already out.
+ *
+ * @param sections - Sections with ids, endpoints, buffers, and exclusions.
+ * @param cpts - Visible CPTs as projectable points.
+ * @param boreholes - Visible boreholes as projectable points.
+ * @returns Per-section member id sets, in the sections' order.
+ */
+export function memberIdsBySection(
+  sections: readonly (SectionCorridor & { id: string })[],
+  cpts: readonly InvestigationPoint[],
+  boreholes: readonly InvestigationPoint[],
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  for (const section of sections) {
+    out.set(section.id, inCorridorInvestigationIds(section, cpts, boreholes))
+  }
+  return out
+}
