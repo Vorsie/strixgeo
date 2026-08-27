@@ -69,8 +69,6 @@ function bhDetail(id: string, name: string, elevationM: number, samples: unknown
   return { id, name, elevation_m: elevationM, samples }
 }
 
-const SCOPE = { kind: 'geotech' as const, unitId: 'unit-1' }
-
 describe('UnitIdentificationPanels — the OKP scatter panels', () => {
   it('IP1 — one panel per parameter with data; empty parameters absent', async () => {
     detailBatch.mockResolvedValue([
@@ -81,8 +79,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     ])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1')]}
+        scopeBands={[bhBand('l1', 'bh-1')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
@@ -99,8 +96,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [])])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1')]}
+        scopeBands={[bhBand('l1', 'bh-1')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
@@ -126,8 +122,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     ])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1')]}
+        scopeBands={[bhBand('l1', 'bh-1')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
@@ -145,8 +140,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     ])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1')]}
+        scopeBands={[bhBand('l1', 'bh-1')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
@@ -172,8 +166,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     ])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1')]}
+        scopeBands={[bhBand('l1', 'bh-1')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
@@ -193,8 +186,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     detailBatch.mockResolvedValue([])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1'), bhBand('l2', 'bh-off')]}
+        scopeBands={[bhBand('l1', 'bh-1'), bhBand('l2', 'bh-off')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
@@ -225,8 +217,7 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     ])
     render(
       <UnitIdentificationPanels
-        scope={SCOPE}
-        layers={[bhBand('l1', 'bh-1')]}
+        scopeBands={[bhBand('l1', 'bh-1')]}
         memberInvestigationIds={new Set(['bh-1'])}
       />,
     )
