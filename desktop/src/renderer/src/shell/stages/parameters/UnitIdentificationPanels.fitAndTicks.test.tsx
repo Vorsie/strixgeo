@@ -173,6 +173,34 @@ describe('S4 — fit-to-data for the identification (OKP) panels', () => {
   })
 })
 
+describe('F6 — the OKP panels adopt the S2 rule: no clamping, negatives are off axis', () => {
+  it('IF7 — a negative value is excluded and counted, never clamped onto the 0 wall', async () => {
+    detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, -4), water(2, 23)])])
+    render(
+      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+    )
+    await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
+    // Only the on-axis sample draws — the −4 % artefact used to clamp to x=0.
+    const dots = screen.getAllByTestId('unit-idtests-dot-typed:water_content')
+    expect(dots).toHaveLength(1)
+    expect(Number(dots[0].getAttribute('cx'))).toBeCloseTo(100, 4)
+    // The notifier counts it; the true n stays the sample count.
+    expect(
+      screen.getByTestId('unit-idtests-offaxis-typed:water_content').textContent,
+    ).toMatch(/1 off axis/i)
+    expect(screen.getByTestId('unit-idtests-n-typed:water_content').textContent).toContain('2')
+  })
+
+  it('IF8 — with nothing off axis there is no notifier', async () => {
+    detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, 9), water(2, 23)])])
+    render(
+      <UnitIdentificationPanels scope={SCOPE} layers={[bhBand('l1', 'bh-1')]} memberInvestigationIds={MEMBERS} />,
+    )
+    await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
+    expect(screen.queryByTestId('unit-idtests-offaxis-typed:water_content')).toBeNull()
+  })
+})
+
 describe('S3 — sublabels on the identification axes', () => {
   it('IF5 — the value axis labels intermediate ticks', async () => {
     detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [water(1, 23)])])
