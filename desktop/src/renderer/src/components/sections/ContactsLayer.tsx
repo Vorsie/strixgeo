@@ -57,6 +57,7 @@ import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import type { ContactDragRelease } from './geotechSnapTargets'
 import { UnitStatisticsItem } from './unitStatisticsMenuItem'
+import { useMenuDismissOnZoomOrEsc } from './useMenuDismiss'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
@@ -812,20 +813,9 @@ export default function ContactsLayer({
   // its original screen coords while the user scrolls/zooms; the
   // menu detaches from the underlying section content and reads as
   // a "random" floating menu (owner: "sometimes i get this random
-  // add new suggestion here box when zooming or so").
-  useEffect(() => {
-    if (lithoBandMenu === null) return
-    const dismiss = (): void => setLithoBandMenu(null)
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') dismiss()
-    }
-    document.addEventListener('wheel', dismiss, { capture: true })
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('wheel', dismiss, { capture: true })
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [lithoBandMenu])
+  // add new suggestion here box when zooming or so"). The rule now
+  // lives in ``useMenuDismiss.ts``, shared with the statistics menus.
+  useMenuDismissOnZoomOrEsc(lithoBandMenu !== null, () => setLithoBandMenu(null))
 
   // ---- Selection model -------------------------------------------
   // Component-local — selection is transient UI state, not a
