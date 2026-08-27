@@ -99,9 +99,9 @@ export const CHROME = {
   'project.close': 'Close project',
   'project.closeConfirmTitle': 'Close this project?',
   'project.closeConfirmBody':
-    'The .gmproj file and your saved data are kept — you can reopen it any time.',
+    'The .strix file and your saved data are kept — you can reopen it any time.',
   'project.closeHint':
-    'Close project — returns to the welcome screen. The .gmproj file and DB data are kept.',
+    'Close project — returns to the welcome screen. The .strix file and DB data are kept.',
   'project.save': 'Save project (Ctrl+S)',
   'project.unsavedHint': 'Unsaved changes — File → Save (Ctrl+S) to commit',
   'project.createdSinceSave': 'Created since last save — File → Save to commit',
