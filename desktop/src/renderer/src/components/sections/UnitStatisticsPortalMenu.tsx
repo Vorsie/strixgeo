@@ -1,0 +1,90 @@
+// The one-item "Unit statistics…" context menu, portalled to document.body.
+//
+// Extracted from ``PartitionFillOverlay`` (the R2 geotech fill-region menu)
+// when the model fill became the second consumer (owner ruling S6,
+// 2026-08-27: "right click a fill region only works for normal fill, not
+// model fill") — separate copies would drift in dismissal behaviour or z
+// stacking. It owns its own zoom/Esc dismissal (``useMenuDismissOnZoomOrEsc``).
+
+import { createPortal } from 'react-dom'
+
+import { UnitStatisticsItem } from './unitStatisticsMenuItem'
+import { useMenuDismissOnZoomOrEsc } from './useMenuDismiss'
+
+/** Where the menu opens and which unit its item reports. */
+export interface UnitStatsMenuState {
+  clientX: number
+  clientY: number
+  formationId: string
+}
+
+interface Props {
+  /** The open state, or ``null`` — the component renders nothing then. */
+  menu: UnitStatsMenuState | null
+  /** The jump handler the item forwards the formation id to. */
+  onShow: ((unitId: string) => void) | undefined
+  /** Close the menu (backdrop click, Esc, wheel, or after the jump). */
+  onClose: () => void
+  /** data-testid of the menu box. */
+  menuTestid: string
+  /** data-testid of the statistics item. */
+  itemTestid: string
+}
+
+/**
+ * Fixed-position single-item menu for the unit-statistics jump.
+ *
+ * Parameters
+ * ----------
+ * props : Props
+ *     Open state + handlers + per-surface testids.
+ *
+ * Returns
+ * -------
+ * JSX.Element | null
+ *     The portalled menu, or nothing while closed.
+ */
+export default function UnitStatisticsPortalMenu({
+  menu,
+  onShow,
+  onClose,
+  menuTestid,
+  itemTestid,
+}: Props): JSX.Element | null {
+  useMenuDismissOnZoomOrEsc(menu !== null, onClose)
+  if (menu === null) return null
+  return createPortal(
+    <>
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
+        onClick={onClose}
+        onContextMenu={e => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        data-testid={menuTestid}
+        style={{
+          position: 'fixed',
+          left: menu.clientX,
+          top: menu.clientY,
+          zIndex: 2147483647,
+          background: 'var(--color-surface-overlay, #1e293b)',
+          border: '1px solid var(--color-border-default, #334155)',
+          borderRadius: 6,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          minWidth: 200,
+        }}
+      >
+        <UnitStatisticsItem
+          unitId={menu.formationId}
+          onShow={onShow}
+          onClose={onClose}
+          testid={itemTestid}
+        />
+      </div>
+    </>,
+    document.body,
+  )
+}
