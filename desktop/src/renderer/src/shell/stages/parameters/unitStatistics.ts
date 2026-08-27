@@ -122,7 +122,7 @@ export interface UnitStatistics {
 /**
  * The bands of one unit whose ground a cone actually measured.
  *
- * Three filters, each load-bearing:
+ * Four filters, each load-bearing:
  *
  * * **this unit** — ``formation_id`` is the band → unit link;
  * * **accepted only** — the geotech layer list is fetched WITHOUT a status
@@ -130,14 +130,24 @@ export interface UnitStatistics {
  *   one would report ground the engineer has not committed to;
  * * **CPT-anchored only** — the anchor is an XOR, and a borehole-anchored band
  *   has no cone resistance to summarise. Its class came from a flanking CPT,
- *   not from a measurement in that hole.
+ *   not from a measurement in that hole;
+ * * **on the sections** — when ``memberInvestigationIds`` is given, a band
+ *   whose CPT is not in it contributes nothing (owner ruling 2026-08-27:
+ *   "Only cpt's on the sections should be in the pooling so all hidden and
+ *   removed should be excluded"). The set is the canonical section-membership
+ *   union over the VISIBLE lists, so off-section, project-removed and
+ *   manifest-gated holes all arrive here the same way: absent.
  *
  * Parameters
  * ----------
  * layers
- *     Every geotech layer in the active model, any status, either anchor.
+ *     Every layer of the scoped model (geotech or litho), any status, either
+ *     anchor.
  * unitId
- *     The geotech formation whose bands are wanted.
+ *     The formation whose bands are wanted.
+ * memberInvestigationIds
+ *     The pooling population, or ``null`` to skip the membership filter
+ *     (tests, callers that pre-filter).
  *
  * Returns
  * -------
@@ -153,12 +163,14 @@ export function unitCptBands(
     status: string
   }[],
   unitId: string,
+  memberInvestigationIds: ReadonlySet<string> | null = null,
 ): UnitBandInterval[] {
   const out: UnitBandInterval[] = []
   for (const layer of layers) {
     if (layer.formation_id !== unitId) continue
     if (layer.status !== 'accepted') continue
     if (layer.cpt_id === null) continue
+    if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.cpt_id)) continue
     out.push({
       cptId: layer.cpt_id,
       topDepthM: layer.depth_top_m,
