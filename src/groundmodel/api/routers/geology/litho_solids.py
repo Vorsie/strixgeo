@@ -19,6 +19,12 @@ PATCH /models/{mid}/bodies/{body_id}/color
     does not touch ``name``; the existing ``PATCH .../bodies/{body_id}``
     route requires a non-empty ``name`` which makes it unsuitable as a
     colour-only target without a breaking contract change.
+GET  /models/{mid}/litho-solids/build-report
+    Return the seven-clause gapless-gate report of the model's LATEST build
+    generation (``None`` when no generation carries one — a model never
+    built, or one built before the gate existed).  How reopening a project
+    shows the last build's verdict without re-running the build.
+
 
 GET  /models/{mid}/footprint
     Re-derive the model's footprint ring (the alpha hull the last voxel
@@ -45,6 +51,7 @@ from groundmodel.api.schemas.project.body.update_body_color_request import (
     UpdateBodyColorRequest,
     UpdateBodyColorResponse,
 )
+from groundmodel.api.schemas.project.gapless_build_report import GaplessBuildReportSchema
 from groundmodel.api.schemas.project.litho_body_solid_response import LithoBodySolidResponse
 from groundmodel.api.schemas.project.model_footprint_response import ModelFootprintResponse
 from groundmodel.api.schemas.project.rebuild_litho_solids_response import (
@@ -57,6 +64,9 @@ from groundmodel.application.litho_solid_persistence import LithoSolidsOutcome
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
+from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
+    LithoBuildGenerationOrm,
+)
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
@@ -262,7 +272,8 @@ async def _build_rebuild_response(
         f"orphans_deleted={outcome.orphans_deleted} "
         f"solids_returned={len(solid_responses)} "
         f"marked_tests={len(outcome.marked_test_ids)} "
-        f"uncovered_tests={len(outcome.uncovered_test_ids)}"
+        f"uncovered_tests={len(outcome.uncovered_test_ids)} "
+        f"gapless_verdict={outcome.gapless_report['verdict'] if outcome.gapless_report else None}"
     )
     return RebuildLithoSolidsResponse(
         bodies_considered=outcome.bodies_considered,
@@ -278,6 +289,14 @@ async def _build_rebuild_response(
         # Why an empty build is empty. An empty build also CLEARED the stored
         # 3-D model, so the client must not read zero bodies as a plain success.
         empty_reason=outcome.empty_reason,
+        # The seven-clause gapless gate for THIS build. The application layer
+        # returns a plain dict (it must not import API schemas), so the
+        # validation into the schema happens here, at the API boundary.
+        gapless_report=(
+            GaplessBuildReportSchema.model_validate(outcome.gapless_report)
+            if outcome.gapless_report is not None
+            else None
+        ),
     )
 
 
@@ -377,6 +396,7 @@ async def build_voxel_litho_solids(
             grid_spacing_m=horizontal_m,
             vertical_spacing_m=(None if vertical_m == horizontal_m else vertical_m),
             force=force,
+            gapless_2d=request.to_gapless_2d_dicts(),
         )
     except VoxelGridTooLargeError as err:
         # A spacing the engineer can simply retype — 422, never a 500 and never
@@ -401,6 +421,67 @@ async def build_voxel_litho_solids(
     return await _build_rebuild_response(
         session, project_id, model_id, outcome, log_label="build_voxel"
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /models/{model_id}/litho-solids/build-report
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/models/{model_id}/litho-solids/build-report",
+    response_model=GaplessBuildReportSchema | None,
+)
+async def get_litho_build_report(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> GaplessBuildReportSchema | None:
+    """Return the seven-clause gapless-gate report of the model's LATEST build.
+
+    Lets reopening a project show the last build's verdict without re-running
+    the build — the report was assembled and stored on the generation row at
+    build time (``BuildVoxelLithoModel``), so this is a plain read.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The lithostratigraphic model — must belong to ``project_id``.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GaplessBuildReportSchema or None
+        ``None`` when the model has never been built, or its latest
+        generation predates the gate (carries no ``gapless_report``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    logger.info(f"GET /projects/{project_id}/geology/models/{model_id}/litho-solids/build-report")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    row = (
+        await session.execute(
+            select(LithoBuildGenerationOrm.gapless_report)
+            .where(LithoBuildGenerationOrm.model_id == model_id)
+            .order_by(LithoBuildGenerationOrm.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        logger.info(f"get_litho_build_report: model={model_id} — no report available")
+        return None
+    logger.info(f"get_litho_build_report: model={model_id} — verdict={row['verdict']}")
+    return GaplessBuildReportSchema.model_validate(row)
 
 
 # ---------------------------------------------------------------------------
