@@ -22,7 +22,11 @@ import Geology3DViewer from '../geology/Geology3DViewer'
 import type { SplitLine } from '../geology/geology3DPrimitives'
 import { EMPTY_SURFACES_MAP, useBody3DViewState } from '../shared/useBody3DViewState'
 import { fenceCutoutPanels } from './fenceCutoutFilter'
-import { UNIT_FENCE_BASEMAP_LID_ALPHA } from './unitFenceSceneConstants'
+import { fenceFrameCorners } from './unitFenceFrame'
+import {
+  UNIT_FENCE_BASEMAP_LID_ALPHA,
+  UNIT_FENCE_ZOOM_TUNING,
+} from './unitFenceSceneConstants'
 
 /** The viewer requires the callback; a passive pane never draws a split. */
 const NOOP_SPLIT_DRAWN = (_plane: Cesium.Plane, _line: SplitLine): void => {}
@@ -104,33 +108,52 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
     setViewMode('fence')
   }, [setViewMode])
 
-  // The cutout: each panel carries one formationId + one bodyId, so the whole
-  // R4 mechanism is the pure filter — pooled scope keeps the formation's
-  // panels, a body scope keeps that ONE body's (owner body-scope ruling
-  // 2026-08-27; his exact complaint was a disconnected body showing here).
+  // ``litho_layer id → body_id`` over the AXIS'S OWN layer list — the body
+  // authority the cutout filter resolves panels through (amended F3,
+  // 2026-08-27: the panel's ``bodyId`` LABEL is weld-minted / frame-stamped
+  // and dropped mid-wall segments of one continuous body on CS1).
+  const axisLayers = isGeotech ? geotechLayers : lithoLayers
+  const bodyIdByLayerId = useMemo(() => {
+    const out = new Map<string, string | null>()
+    for (const l of axisLayers) out.set(l.id, l.body_id ?? null)
+    return out
+  }, [axisLayers])
+
+  // The cutout: pooled scope keeps the formation's panels; a body scope keeps
+  // every panel whose SOURCE LAYERS the resolver stamped with that body
+  // (owner body-scope ruling 2026-08-27; his exact complaint was a
+  // disconnected body showing here — and, amended, gaps inside a continuous
+  // body's wall when the label was trusted).
   const cutout = useMemo(
-    () => fenceCutoutPanels(fencePanels, scope),
-    [fencePanels, scope],
+    () => fenceCutoutPanels(fencePanels, scope, bodyIdByLayerId),
+    [fencePanels, scope, bodyIdByLayerId],
   )
 
   // Fence panels are NOT camera frame targets (CesiumViewport frames on
-  // surfaces or solids), so hand the viewer a synthetic solid carrying the
-  // cutout's vertices — fence mode skips its render, the framing reads it.
+  // surfaces or solids), so hand the viewer a synthetic solid — fence mode
+  // skips its render, the framing reads it. Built from the UNFILTERED panel
+  // set's bounding box (audit F4): 8 corners, so the framing sphere contains
+  // EVERY wall and a small scoped body keeps its orientation context.
+  // DELIBERATE: the viewer's camera fitKey keys on vertex counts, and this
+  // solid is a constant 8 vertices — so changing the scope never re-flies
+  // the camera (the frame already covers the whole model).
   const frameSolids = useMemo<LithoBodySolidResponse[]>(() => {
-    if (cutout === undefined || cutout.length === 0) return []
+    if (fencePanels === undefined) return []
+    const corners = fenceFrameCorners(fencePanels)
+    if (corners === null) return []
     return [
       {
         id: 'unit-fence-frame',
         model_id: modelId ?? '',
         body_id: 'unit-fence-frame',
-        formation_id: scope.unitId,
+        formation_id: 'unit-fence-frame',
         body_ordinal: 0,
         method: 'fence-frame',
-        vertices: cutout.flatMap(p => p.vertices),
+        vertices: corners,
         triangles: [],
       } as unknown as LithoBodySolidResponse,
     ]
-  }, [cutout, modelId, scope.unitId])
+  }, [fencePanels, modelId])
 
   // The colour lookup needs the FULL roster (filtering it would only break
   // the wall colours); geotech walls wear NAD colours exactly as the geotech
@@ -184,13 +207,22 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
         // cutout's own dial; the shared stages keep their default.
         basemapLidAlpha={UNIT_FENCE_BASEMAP_LID_ALPHA}
         fencePanels={cutout}
+        // F4: the orthophoto footprint + lid elevation come from the WHOLE
+        // model's panels, so a scoped body keeps the same photo the other
+        // 3-D stages drape — only the WALLS are filtered.
+        lidFootprintPanels={fencePanels}
         bodySolids={frameSolids}
+        // F5: the cutout is the shortest canvas in the app — gentler wheel
+        // steps, a metres-scale zoom floor, CTRL+wheel as fine zoom.
+        zoomTuning={UNIT_FENCE_ZOOM_TUNING}
         chromeless
       />
       <button
         onClick={() => resetCameraRef.current?.()}
         className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-[10px] bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page shadow"
-        title="Reset the camera to frame the unit"
+        // F4: the frame is the WHOLE fence's bounding box, so the reset
+        // restores the model-wide view, not a unit close-up.
+        title="Reset the camera to frame the model"
         data-testid="unit-fence-reset-camera"
       >
         Reset view
