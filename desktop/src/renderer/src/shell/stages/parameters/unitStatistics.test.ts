@@ -225,90 +225,38 @@ describe('computeUnitStatistics — the three channels are always present', () =
   })
 })
 
-// UB1 — only the chosen unit's bands.
-// UB2 — only ACCEPTED bands: the layer list carries every status.
-// UB3 — only CPT-anchored bands: a borehole has no cone to summarise.
-describe('unitCptBands — which bands the statistics may read', () => {
-  const layers = [
-    { id: 'a', formation_id: 'u1', cpt_id: 'c1', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted' },
-    { id: 'b', formation_id: 'u2', cpt_id: 'c1', borehole_id: null, depth_top_m: 2, depth_base_m: 4, status: 'accepted' },
-    { id: 'c', formation_id: 'u1', cpt_id: 'c1', borehole_id: null, depth_top_m: 4, depth_base_m: 6, status: 'pending' },
-    { id: 'd', formation_id: 'u1', cpt_id: null, borehole_id: 'b1', depth_top_m: 0, depth_base_m: 3, status: 'accepted' },
-    { id: 'e', formation_id: 'u1', cpt_id: 'c2', borehole_id: null, depth_top_m: 1, depth_base_m: 5, status: 'accepted' },
+// unitCptBands is now the anchor + population filter over a scope's bands; the
+// SCOPE selection (unit / body / class, twin folding) is bandsForScope's — its
+// authority pins live in parameterBodyTree.test.ts (PT4, BT1). What stays here:
+//
+// UB1 — only ACCEPTED bands: the band list can carry any status.
+// UB2 — only CPT-anchored bands: a borehole has no cone to summarise.
+// UB3 — only member CPTs: a band whose CPT is off the pooling population drops.
+describe('unitCptBands — anchor + population filter over the scope bands', () => {
+  const bands = [
+    { cpt_id: 'c1', depth_top_m: 0, depth_base_m: 2, status: 'accepted' },
+    { cpt_id: 'c1', depth_top_m: 4, depth_base_m: 6, status: 'pending' },
+    { cpt_id: null, depth_top_m: 0, depth_base_m: 3, status: 'accepted' },
+    { cpt_id: 'c2', depth_top_m: 1, depth_base_m: 5, status: 'accepted' },
   ]
 
-  it('UB1 — takes only the chosen unit\'s bands', () => {
-    const bands = unitCptBands(layers, 'u2')
-    expect(bands).toEqual([{ cptId: 'c1', topDepthM: 2, baseDepthM: 4 }])
+  it('UB1 — skips bands that are not accepted (a pending proposal is not ground)', () => {
+    const out = unitCptBands(bands)
+    expect(out.some(b => b.topDepthM === 4 && b.baseDepthM === 6)).toBe(false)
   })
 
-  it('UB2 — skips bands that are not accepted', () => {
-    // The layer list arrives unfiltered (``listLayers`` is called without a
-    // status filter), so a pending proposal would otherwise be summarised as
-    // if the engineer had committed it.
-    const bands = unitCptBands(layers, 'u1')
-    expect(bands.some(b => b.topDepthM === 4 && b.baseDepthM === 6)).toBe(false)
-  })
-
-  it('UB3 — skips borehole-anchored bands, which carry no cone', () => {
-    const bands = unitCptBands(layers, 'u1')
-    expect(bands).toEqual([
+  it('UB2 — skips borehole-anchored bands, which carry no cone', () => {
+    const out = unitCptBands(bands)
+    expect(out).toEqual([
       { cptId: 'c1', topDepthM: 0, baseDepthM: 2 },
       { cptId: 'c2', topDepthM: 1, baseDepthM: 5 },
     ])
   })
-})
 
-// Owner ruling 2026-08-27, verbatim: "a body is only a body if it is
-// geometrically connected or if the users says, this body is the same as that
-// body." A unit ROW lumps many resolver bodies; scoping to one body must pool
-// only that body's ground.
-describe('unitCptBands — the body scope (owner ruling 2026-08-27)', () => {
-  const layers = [
-    // Body A of the unit — two bands on two CPTs.
-    { id: 'a1', formation_id: 'u1', cpt_id: 'c1', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'body-A' },
-    { id: 'a2', formation_id: 'u1', cpt_id: 'c2', borehole_id: null, depth_top_m: 1, depth_base_m: 3, status: 'accepted', body_id: 'body-A' },
-    // Body B — a DISCONNECTED body of the same class, elsewhere in the model.
-    { id: 'b1', formation_id: 'u1', cpt_id: 'c3', borehole_id: null, depth_top_m: 4, depth_base_m: 6, status: 'accepted', body_id: 'body-B' },
-    // A band the resolver has not stamped yet.
-    { id: 'n1', formation_id: 'u1', cpt_id: 'c4', borehole_id: null, depth_top_m: 7, depth_base_m: 8, status: 'accepted', body_id: null },
-  ]
-
-  it('BS1 — a body-scoped view pools ONLY that body\'s bands; a second disconnected body of the same class contributes nothing', () => {
-    const bands = unitCptBands(layers, 'u1', null, 'body-A')
-    expect(bands).toEqual([
-      { cptId: 'c1', topDepthM: 0, baseDepthM: 2 },
-      { cptId: 'c2', topDepthM: 1, baseDepthM: 3 },
-    ])
-  })
-
-  it('BS2 — without a body the whole formation row pools (the lumped view, unchanged)', () => {
-    const bands = unitCptBands(layers, 'u1')
-    expect(bands.map(b => b.cptId)).toEqual(['c1', 'c2', 'c3', 'c4'])
-  })
-
-  it('BS3 — a band the resolver never stamped belongs to NO body, so a body scope excludes it', () => {
-    const bands = unitCptBands(layers, 'u1', null, 'body-B')
-    expect(bands).toEqual([{ cptId: 'c3', topDepthM: 4, baseDepthM: 6 }])
-  })
-
-  it('BS4 — a body scope pools the WHOLE body, across twin formation rows', () => {
-    // The B4 live shape (audit 2026-08-27): one resolver body spans two
-    // duplicate formation rows. A body-scoped jump from the "wrong" twin
-    // pooled ZERO samples despite 4 CPTs of evidence — the formation filter
-    // must not survive into the body branch: the body IS the pooling scope.
-    const twins = [
-      { id: 't1', formation_id: 'u-twin-A', cpt_id: 'c1', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'body-X' },
-      { id: 't2', formation_id: 'u-twin-B', cpt_id: 'c2', borehole_id: null, depth_top_m: 1, depth_base_m: 3, status: 'accepted', body_id: 'body-X' },
-      // Another body stays out whatever its formation row.
-      { id: 't3', formation_id: 'u-twin-A', cpt_id: 'c3', borehole_id: null, depth_top_m: 5, depth_base_m: 6, status: 'accepted', body_id: 'body-Y' },
-    ]
-    const bands = unitCptBands(twins, 'u-twin-A', null, 'body-X')
-    expect(bands.map(b => b.cptId)).toEqual(['c1', 'c2'])
-    // The same body scoped from the OTHER twin pools the same ground.
-    expect(unitCptBands(twins, 'u-twin-B', null, 'body-X').map(b => b.cptId)).toEqual([
-      'c1',
-      'c2',
-    ])
+  it('UB3 — excludes a band whose CPT is not in the pooling population', () => {
+    // owner ruling 2026-08-27: "Only cpt's on the sections should be in the
+    // pooling so all hidden and removed should be excluded".
+    const out = unitCptBands(bands, new Set(['c1']))
+    expect(out.map(b => b.cptId)).toEqual(['c1'])
   })
 })
