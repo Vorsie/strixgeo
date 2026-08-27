@@ -120,8 +120,26 @@ describe('geotech band → Parameters jump', () => {
 
     fireEvent.click(item)
 
-    // band-2's formation, NOT its layer id — the deep link is scoped to a unit.
-    expect(onShowUnitStatistics).toHaveBeenCalledWith('f-band-2')
+    // band-2's formation, NOT its layer id — the deep link is scoped to a
+    // unit. The second argument is the band's BODY (owner ruling 2026-08-27:
+    // "a body is only a body if it is geometrically connected…"); this
+    // fixture's bands are unstamped, so it reports null.
+    expect(onShowUnitStatistics).toHaveBeenCalledWith('f-band-2', null)
+  })
+
+  it('UJ4 — a band the resolver stamped reports ITS body alongside the unit', () => {
+    const { onShowUnitStatistics } = renderOverlay({
+      geotechLayers: GEOTECH_LAYERS.map(l =>
+        l.id === 'band-2' ? { ...l, body_id: 'body-A' } : l,
+      ),
+    })
+
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(4.75),
+    })
+    fireEvent.click(screen.getByTestId('geotech-band-menu-unit-statistics'))
+
+    expect(onShowUnitStatistics).toHaveBeenCalledWith('f-band-2', 'body-A')
   })
 
   it('UJ2 — a borehole band offers it too', () => {
@@ -148,7 +166,7 @@ describe('geotech band → Parameters jump', () => {
     })
     fireEvent.click(screen.getByTestId('geotech-band-menu-unit-statistics'))
 
-    expect(onShowUnitStatistics).toHaveBeenCalledWith('f-bh-band-1')
+    expect(onShowUnitStatistics).toHaveBeenCalledWith('f-bh-band-1', null)
   })
 
   it('UJ3 — with no handler wired the item is absent, not refusing', () => {
