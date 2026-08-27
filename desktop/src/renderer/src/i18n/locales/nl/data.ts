@@ -5,17 +5,15 @@
 
 export const DATA_NL = {
   'data.toolbar.import': 'Importeren',
-  // FLAG alt: Kader tekenen… | Zone tekenen… — "bbox" is the app's own word for
-  // the rectangle you drag on the map. A Flemish engineer reads "kader" or
-  // "zone" faster, but "bbox" matches the DOV/GIS vocabulary they already use.
-  'data.toolbar.drawingBbox': 'Bbox tekenen…',
+  // NOTE: ruled 2026-08-27 — owner chose "Kader tekenen…".
+  'data.toolbar.drawingBbox': 'Kader tekenen…',
   'data.toolbar.menuLabel': 'Acties voor {label}',
   // FLAG alt: CPT importeren (.gef) — THE call of this whole review. The owner
   // writes "sonderingen"; BE practice says sondering, the file format and the
   // international literature say CPT. Ruling here propagates to ~30 strings.
   'data.toolbar.importCptGef': 'Sondering importeren (.gef)',
-  'data.toolbar.importCptDov': 'Sondering importeren uit DOV (bbox tekenen)',
-  'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (bbox tekenen)',
+  'data.toolbar.importCptDov': 'Sondering importeren uit DOV (kader tekenen)',
+  'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (kader tekenen)',
   'data.toolbar.importDmt': 'DMT importeren',
   'data.toolbar.importLabTest': 'Labproef importeren',
   'data.toolbar.importMonitoring': 'Monitoring importeren',
