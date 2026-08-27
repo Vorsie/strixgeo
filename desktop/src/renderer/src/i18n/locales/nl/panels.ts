@@ -11,10 +11,8 @@ export const PANELS_NL = {
   // -------------------------------------------------------------------------
   'map.basemap': 'Achtergrondkaart',
   'map.terrain': 'Terrein',
-  // FLAG alt: Doorzichtigheid | Transparantie — QGIS-NL uses "Dekking" for
-  // opacity, which is what a GIS-literate engineer expects; the alternatives
-  // name the INVERSE property but read clearer to everyone else.
-  'map.opacity': 'Dekking',
+  // NOTE: ruled 2026-08-27 — owner chose "Transparantie".
+  'map.opacity': 'Transparantie',
   'map.visibleOnMap': 'Zichtbaar op de kaart',
   'map.boreholeType': 'Boortype',
   'map.borehole': 'Boring',
@@ -32,9 +30,8 @@ export const PANELS_NL = {
   'borelog.method': 'Methode',
   'borelog.waterAt': 'Water op',
   'borelog.drillMethod': 'Boormethode',
-  // FLAG alt: Veldbeschrijving | Boorbeschrijving — the track that shows what
-  // the driller wrote down in the field.
-  'borelog.fieldLog': 'Veldverslag',
+  // NOTE: ruled 2026-08-27 — owner chose "Veldbeschrijving".
+  'borelog.fieldLog': 'Veldbeschrijving',
   'borelog.stratigraphy': 'Stratigrafie',
   'borelog.lithologyCodes': 'Lithologiecodes',
   'borelog.labTests': 'Labproeven',
@@ -169,9 +166,8 @@ export const PANELS_NL = {
   // -------------------------------------------------------------------------
   // sneltoetsenoverzicht (F1)
   // -------------------------------------------------------------------------
-  // FLAG alt: Muisacties en sneltoetsen | Bediening en sneltoetsen — "gebaar"
-  // is the literal translation of gesture but reads as touch-screen in NL.
-  'cheatsheet.title': 'Gebaren & sneltoetsen',
+  // NOTE: ruled 2026-08-27 — owner chose "Bediening & sneltoetsen".
+  'cheatsheet.title': 'Bediening & sneltoetsen',
   'cheatsheet.close': 'Overzicht sluiten',
   'cheatsheet.search': 'Gebaren zoeken',
   'cheatsheet.global': 'Algemeen',
