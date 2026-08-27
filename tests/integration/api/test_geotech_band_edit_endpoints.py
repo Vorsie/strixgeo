@@ -270,6 +270,12 @@ async def test_gb1_split_writes_two_contiguous_rows_and_the_fc_mirror(
     gid = await _subdivide(async_client, band_scene)
     bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
     target = bands[0]
+    # The subdivided band carries the covering litho band it was minted from
+    # (Parameters body-tree A3). Capture it before the split expires the row.
+    target_parent = target.parent_litho_layer_id
+    assert target_parent is not None, (
+        "GB1: a subdivided CPT band must carry its covering litho band (A3 stamp)"
+    )
 
     resp = await async_client.post(
         _band_url(band_scene, gid, "split"),
@@ -283,6 +289,12 @@ async def test_gb1_split_writes_two_contiguous_rows_and_the_fc_mirror(
     after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
     assert [round(b.depth_top_m, 3) for b in after[:2]] == [0.0, 2.0]
     assert after[0].depth_base_m == after[1].depth_top_m == 2.0
+    # GB1 (parent-band FK, A3): both halves stay inside the original band's litho
+    # parent (the split is refused outside it), so both keep the SAME covering
+    # litho band — the resized upper (original row) and the new lower row.
+    assert after[0].parent_litho_layer_id == target_parent
+    assert after[1].parent_litho_layer_id == target_parent
+    assert after[1].id == created, "the lower half is the newly created row"
     # The mirror trigger fired on the geotech row (kind-unscoped by design).
     mirror = await db_session.get(FormationContactOrm, created)
     assert mirror is not None
