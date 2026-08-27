@@ -211,10 +211,14 @@ describe('useLithoSolids — RF1: a band edit re-fetches the solids', () => {
   // re-fetches and the badge ambers without a manual reload.
   it('re-runs the list fetch when refreshOn changes', async () => {
     const toast = vi.fn()
+    // Counts the SOLID-LIST fetch specifically, not every GET the effect
+    // makes. The effect also reads the last build's gapless verdict from its
+    // own endpoint, and a counter that cannot tell the two apart would fail
+    // this test for a reason that has nothing to do with what it claims.
     const countGets = (): number =>
       (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(call => {
         const init = call[1] as RequestInit | undefined
-        return (init?.method ?? 'GET') === 'GET'
+        return (init?.method ?? 'GET') === 'GET' && String(call[0]).endsWith('/litho-solids')
       }).length
 
     const { rerender } = renderHook(
