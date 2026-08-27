@@ -175,6 +175,32 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.coordinator.sectionsDeepLinkTarget])
 
+  // Parameters deep-link — set when the engineer picks "Unit statistics…"
+  // from a geotech band's right-click menu in a cross-section (owner ballot
+  // 2026-08-26). Switches to the Parameters stage and scopes it to the band's
+  // unit, which is all the destination needs: the per-unit surface is driven
+  // by data, not by canvas geometry.
+  //
+  // Cleared SYNCHRONOUSLY, unlike the sections deep-link above. That effect
+  // must defer its clear because a setTimeout still needs the payload, and
+  // clearing early makes React run the cleanup (killing the timer) before the
+  // effect body re-runs. Here nothing is deferred, so there is no such window
+  // — and clearing at once is what stops a later inspector re-mount from
+  // re-navigating on a stale target.
+  useEffect(() => {
+    const target = context.coordinator.parametersDeepLinkTarget
+    if (target == null) return
+    log.info('shell', `parameters-deep-link: stage=parameters unit=${target.unitId}`)
+    setActiveStage('parameters')
+    context.coordinator.setSelectedParameterUnitId(target.unitId)
+    context.coordinator.setParametersDeepLinkTarget(null)
+    // reason: setActiveStage and both coordinator setters are stable
+    // callbacks; parametersDeepLinkTarget is the only signal that should
+    // trigger this effect. Including context itself would re-fire on every
+    // unrelated shell-state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context.coordinator.parametersDeepLinkTarget])
+
   // Open-a-detail → Data stage. handleSelect / handleSelectBorehole are
   // the single funnel for "show this investigation's detail" (map click
   // AND section double-click): they set the selection + view='chart'.
