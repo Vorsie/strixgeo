@@ -340,6 +340,14 @@ interface Props {
     previousClass: number | null,
   ) => void
   /**
+   * Open the Parameters stage scoped to a geotech band's UNIT (owner ballot
+   * 2026-08-26). Pure pass-through to ``GeotechBandEditOverlay``: the panel
+   * neither navigates nor knows what a stage is — it forwards the unit id the
+   * overlay names, and the shell does the rest. Absent → the menu item is not
+   * offered.
+   */
+  onShowGeotechUnitStatistics?: (unitId: string) => void
+  /**
    * Clear ONE test's packing subdivision (owner ask 2026-08-18) — offered in
    * the column label's right-click menu on the geotech axis, only where the
    * column actually carries bands. The escape hatch of first-subdivision-wins.
@@ -783,6 +791,7 @@ export default function SectionPanel({
   onDeleteContact,
   onRequestGeotechSplitBand,
   onRequestGeotechSetBandClass,
+  onShowGeotechUnitStatistics,
   onRequestGeotechClearColumn,
   onRequestGeotechMergeBands,
   onRequestGeotechMoveBoundary,
@@ -3538,6 +3547,7 @@ export default function SectionPanel({
                 soilCodeByFormationId={geotechSoilCodeByFormationId}
                 smallLensThicknessM={geotechSmallLensThicknessM}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
+                onShowUnitStatistics={onShowGeotechUnitStatistics}
               />
             )}
 
