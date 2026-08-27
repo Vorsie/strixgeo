@@ -30,6 +30,12 @@ export interface BodyContextMenuProps {
   onNameBody: (bodyId: string) => void
   /** Fired when the user picks "Dissolve body". */
   onDissolveBody: (bodyId: string) => void
+  /**
+   * Fired when the user picks "Unit statistics…" — reports the body's
+   * FORMATION id (the statistics are the unit's, pooled over every band of
+   * it; owner ruling R1 2026-08-27). Absent → the item is not offered.
+   */
+  onShowUnitStatistics?: (formationId: string) => void
   /** Close callback — the menu is dismissed. */
   onClose: () => void
 }
@@ -38,6 +44,7 @@ export interface BodyContextMenuProps {
 export const TESTIDS = {
   nameBody: 'body-ctx-name-body',
   dissolveBody: 'body-ctx-dissolve-body',
+  unitStatistics: 'body-ctx-unit-statistics',
 }
 
 /**
@@ -73,6 +80,7 @@ export default function BodyContextMenu({
   displayLabel,
   onNameBody,
   onDissolveBody,
+  onShowUnitStatistics,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
   const items: (ContextMenuItem | false | null)[] = [
@@ -82,6 +90,16 @@ export default function BodyContextMenu({
       key: 'name-body',
       onClick: () => {
         onNameBody(body.id)
+      },
+    },
+    // Navigates away (Parameters stage, scoped to the body's UNIT) — offered
+    // only when wired, per the no-affordance rule.
+    onShowUnitStatistics !== undefined && {
+      label: 'Unit statistics…',
+      testid: TESTIDS.unitStatistics,
+      key: 'unit-statistics',
+      onClick: () => {
+        onShowUnitStatistics(body.formation_id)
       },
     },
     {
