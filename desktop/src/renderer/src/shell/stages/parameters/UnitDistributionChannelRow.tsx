@@ -110,7 +110,10 @@ export default function ChannelRow({
 
   // The axis: 0 → the DOV full scale (the CPT plot's own axis, first-dogfeed
   // ruling), or — fit mode (S1) — 0 → the pooled max rounded up to a tick.
-  // In fit mode nothing can be off axis by construction.
+  // In fit mode nothing can sit ABOVE the axis by construction — but
+  // ``fitAxisMax`` only raises the CEILING, so a NEGATIVE reading (live: fs
+  // down to −0.091 MPa) is off axis in BOTH modes: a zero-anchored axis
+  // cannot place it. It stays excluded and counted below (audit F6).
   const axisMax = fit ? fitAxisMax(summary.max ?? 0, spec.axisMax) : spec.axisMax
 
   // S2 (owner 2026-08-27): "No clamping, if something is off the axis then it
@@ -143,6 +146,17 @@ export default function ChannelRow({
     values.every(v => v !== null && v >= 0 && v <= axisMax)
   const lo = summary.min ?? 0
   const hi = summary.max ?? axisMax
+
+  // F6 — never drop a summary mark SILENTLY: when the whisker / box / median
+  // span off-axis values (negative readings pull every order statistic left),
+  // the notifier names what is missing and why instead of leaving a bare row.
+  const droppedMarks = hasData
+    ? [
+        onAxis(summary.p5 ?? lo, summary.p95 ?? hi) ? null : 'whisker',
+        onAxis(summary.q1 ?? lo, summary.q3 ?? hi) ? null : 'box',
+        onAxis(summary.median ?? lo) ? null : 'median',
+      ].filter((m): m is string => m !== null)
+    : []
 
   // S3: labelled ticks derived from the ACTIVE axis span — the shared helper
   // reproduces the DOV convention on the fixed axes and follows the fitted
@@ -295,13 +309,19 @@ export default function ChannelRow({
 
           {/* S2 — the notifier: readings the axis could not place. Rendered
               only when something actually fell off, so the quiet case stays
-              quiet. */}
+              quiet. F6 adds the WHY when summary marks are missing too — a
+              dropped whisker/box must never just vanish. */}
           {offAxisCount > 0 && (
             <div
               className="text-[10px] text-text-muted tabular-nums"
               data-testid={`unit-stats-offaxis-${channel.channel}`}
             >
               {offAxisCount} off axis
+              {droppedMarks.length > 0 && (
+                <span data-testid={`unit-stats-marksoff-${channel.channel}`}>
+                  {' '}· {droppedMarks.join(' / ')} not drawn — spanning off-axis values
+                </span>
+              )}
             </div>
           )}
 
