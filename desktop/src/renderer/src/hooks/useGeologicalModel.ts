@@ -963,6 +963,12 @@ export interface UseGeologicalModelResult {
   geotechHideMarkers: UseLithoSolidsResult['hideMarkers']
   /** Toggle the geotech ``hideMarkers`` flag. */
   setGeotechHideMarkers: UseLithoSolidsResult['setHideMarkers']
+  /**
+   * The seven-clause gapless gate for the geotech model's last build — the
+   * report banner's whole input. ``null`` means no verdict, which the banner
+   * shows as such rather than as a pass.
+   */
+  geotechGaplessReport: UseLithoSolidsResult['gaplessReport']
 }
 
 /**
@@ -2855,6 +2861,7 @@ export function useGeologicalModel({
     setGeotechBodyColor: geotechSolidsResult.setBodyColor,
     geotechHideMarkers: geotechSolidsResult.hideMarkers,
     setGeotechHideMarkers: geotechSolidsResult.setHideMarkers,
+    geotechGaplessReport: geotechSolidsResult.gaplessReport,
 
     // Debt #266 — the columns whose litho moved after their bands were made.
     // Derived server-side on every read, so re-pressing them is what clears it.
