@@ -17,11 +17,12 @@ import { nadColoredFormations } from '../../../utils/nadClasses'
 import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 import { LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
-import type { ParameterUnitScope } from '../../ShellContext'
+import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import type { SplitLine } from '../geology/geology3DPrimitives'
 import { EMPTY_SURFACES_MAP, useBody3DViewState } from '../shared/useBody3DViewState'
-import { fenceCutoutPanels } from './fenceCutoutFilter'
+import { bandsForScope, type ParameterTreeInput } from './parameterBodyTree'
+import { cutoutFilterForScope, fenceCutoutPanels } from './fenceCutoutFilter'
 import { fenceFrameCorners } from './unitFenceFrame'
 import {
   UNIT_FENCE_BASEMAP_LID_ALPHA,
@@ -64,7 +65,7 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
     project,
   } = useShell()
 
-  const isGeotech = scope.kind === 'geotech'
+  const isGeotech = parameterScopeModel(scope) === 'geotech'
   const modelId = (isGeotech ? activeGeotechModel?.id : activeLithoModel?.id) ?? null
 
   // Same identity map the geotech 3-D canvas threads (render = build = one
@@ -119,14 +120,25 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
     return out
   }, [axisLayers])
 
-  // The cutout: pooled scope keeps the formation's panels; a body scope keeps
-  // every panel whose SOURCE LAYERS the resolver stamped with that body
-  // (owner body-scope ruling 2026-08-27; his exact complaint was a
-  // disconnected body showing here — and, amended, gaps inside a continuous
-  // body's wall when the label was trusted).
+  // The cutout: a pooled UNIT keeps the formation's panels; a body / class
+  // scope keeps every panel whose SOURCE LAYERS the resolver stamped with ANY
+  // of the scope's bodies (owner body-scope ruling 2026-08-27, generalised to
+  // a body SET for the class row, spec §4). The body set is derived from the
+  // ONE band authority so the cutout and the pools can never disagree.
+  const scopeBands = useMemo(() => {
+    const treeInput: ParameterTreeInput = {
+      lithoFormations,
+      geotechFormations,
+      lithoLayers,
+      geotechLayers,
+      lithoBodies: new Map(),
+      geotechBodies: new Map(),
+    }
+    return bandsForScope(scope, treeInput)
+  }, [scope, lithoFormations, geotechFormations, lithoLayers, geotechLayers])
   const cutout = useMemo(
-    () => fenceCutoutPanels(fencePanels, scope, bodyIdByLayerId),
-    [fencePanels, scope, bodyIdByLayerId],
+    () => fenceCutoutPanels(fencePanels, cutoutFilterForScope(scope, scopeBands), bodyIdByLayerId),
+    [fencePanels, scope, scopeBands, bodyIdByLayerId],
   )
 
   // Fence panels are NOT camera frame targets (CesiumViewport frames on
