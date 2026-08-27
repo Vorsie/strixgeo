@@ -12,13 +12,20 @@
 //        no dimension toggle to click first, fed NAD-coloured formations.
 //   GC4  The stage never opens the 2D section surface and never mutates the
 //        shared section axis — the retired pill's two side-effects.
+//   GC5  The gapless build report is readable on the EMPTY-STATE branch too.
+//        This is the case that matters most: a build that produced nothing
+//        lands here, and that is exactly when the engineer needs to read why.
+//        It is also the branch-crossing render that proves the report wiring
+//        sits above the canvas's early returns (the hook-order rule).
+//   GC6  A spot the report names walks to its section.
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { GeologicalModelResponse } from '../../../api/client'
+import type { GaplessBuildReport } from '../../../utils/gaplessGate/types'
 import { nadClassColor } from '../../../utils/nadClasses'
 import GeotechnicalCanvas from './GeotechnicalCanvas'
 
@@ -109,6 +116,8 @@ function makeCtx(overrides: {
   hasGeotechSolids?: boolean
   geotechSolids?: unknown[]
   geotechFormations?: unknown[]
+  geotechGaplessReport?: GaplessBuildReport | null
+  setSectionsDeepLinkTarget?: (target: unknown) => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -286,6 +295,11 @@ function makeCtx(overrides: {
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
+      // The stub is cast, so tsc does NOT enforce completeness here — this
+      // field is written by hand precisely because omitting it would hand the
+      // banner ``undefined`` where its type promises ``GaplessBuildReport |
+      // null``, which is a lie the tests would then be built on.
+      geotechGaplessReport: overrides.geotechGaplessReport ?? null,
     },
     sections: {
       sections: [],
@@ -401,7 +415,7 @@ function makeCtx(overrides: {
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
       sectionsDeepLinkTarget: null,
-      setSectionsDeepLinkTarget: vi.fn(),
+      setSectionsDeepLinkTarget: overrides.setSectionsDeepLinkTarget ?? vi.fn(),
       correlationEdgesRefetchNonce: 0,
       bodyRecomputeLithoNonce: 0,
       bodyRecomputeGeotechNonce: 0,
@@ -497,5 +511,73 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
     // The dimension pill itself is gone.
     expect(screen.queryByTestId('geotech-view-2d')).toBeNull()
     expect(screen.queryByTestId('geotech-view-3d')).toBeNull()
+  })
+
+  it('GC5 — the build verdict is readable on the empty-state branch, not only beside a model', () => {
+    const report: GaplessBuildReport = {
+      verdict: 'fail',
+      generated_at: '2026-08-26T02:00:00Z',
+      clauses: [
+        {
+          key: 'column-totality',
+          number: 5,
+          title: 'Every column inside the model footprint carries material',
+          status: 'fail',
+          entries: [{ label: '412 columns inside the footprint carry no material' }],
+        },
+      ],
+    }
+    // hasGeotechSolids false → the guided Build empty state, i.e. the branch
+    // that used to return before anything else could render.
+    renderCanvas(
+      makeCtx({
+        activeLithoModel: makeLithoModel(),
+        hasGeotechSolids: false,
+        geotechGaplessReport: report,
+      }),
+    )
+    expect(screen.getByText('No geotech body model yet')).toBeTruthy()
+    const banner = screen.getByTestId('geotech-build-report-banner')
+    expect(banner.textContent).toMatch(/Every column inside the model footprint carries material/)
+  })
+
+  it('GC6 — a named spot walks to its section', () => {
+    const setSectionsDeepLinkTarget = vi.fn()
+    const report: GaplessBuildReport = {
+      verdict: 'fail',
+      generated_at: '2026-08-26T02:00:00Z',
+      clauses: [
+        {
+          key: 'cause-closure',
+          number: 3,
+          title: 'Every patch of unclassed ground has a known cause',
+          status: 'fail',
+          entries: [
+            {
+              label: 'Tie-section 7, gap 12: ground left unclassed with no known cause',
+              section_id: 'tie7',
+              section_name: 'Tie-section 7',
+              gap_index: 12,
+            },
+          ],
+        },
+      ],
+    }
+    renderCanvas(
+      makeCtx({
+        activeLithoModel: makeLithoModel(),
+        hasGeotechSolids: true,
+        geotechSolids: [{ body_id: 'b-1', is_flagged: false }],
+        geotechFormations: [{ id: 'g-1', nad_class: 6, color: '#123456' }],
+        geotechGaplessReport: report,
+        setSectionsDeepLinkTarget,
+      }),
+    )
+    fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
+    fireEvent.click(screen.getByTestId('geotech-build-report-visit'))
+    expect(setSectionsDeepLinkTarget).toHaveBeenCalledWith({
+      sectionId: 'tie7',
+      contactIds: [],
+    })
   })
 })
