@@ -271,6 +271,25 @@ class LabelReport:
         log reaches deeper than the grid floor and is therefore truncated.  The
         grid's elevation range comes from the section polygons alone, so a log
         deeper than every section has nowhere to be labelled.
+    in_footprint_columns : int
+        Every voxel column whose ``(x, y)`` passed the domain footprint gate —
+        the DENOMINATOR for the gapless gate's clause 5 (column-totality).
+    empty_in_footprint_columns : int
+        In-footprint columns whose WRITTEN ``labels`` array ended up all void
+        (``-1`` at every ``z``) — clause 5's numerator.  Deliberately NOT
+        ``beyond_void_columns``: that counter increments only inside the
+        un-bounded blend's BEYOND branch (:func:`_stack_at`), which the
+        geology-bounded band path (:func:`_column_stack_geo`) never even calls,
+        and a column it does count into can still end up labelled — an honored
+        investigation's own log fills the observed range through
+        :func:`_honored_column_labels` even when the section blend it falls
+        back on (``stack``) came back empty.  So ``beyond_void_columns`` is a
+        numerator for a narrower, different question ("did the un-bounded
+        between/beyond blend answer here") and reusing it for clause 5 would
+        both miss columns the geo-bounded path voided and wrongly count
+        columns the honored path went on to fill.  This field instead measures
+        the array the labeller actually wrote, once, after both the blend and
+        the honored override have had their say.
     """
 
     beyond_fallthrough_columns: int = 0
@@ -282,6 +301,8 @@ class LabelReport:
     hairline_gaps_over_limit: int = 0
     hairline_worst_m: float = 0.0
     logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
+    in_footprint_columns: int = 0
+    empty_in_footprint_columns: int = 0
 
 
 @dataclass(frozen=True)
@@ -340,3 +361,85 @@ class LabelGrid:
     body_id_by_index: tuple[str, ...]
     formation_by_body: dict[str, str]
     report: LabelReport = LabelReport()
+
+
+@dataclass(frozen=True)
+class SectionReconciliation:
+    """One section's per-gap swept-area comparison of the 2-D fill vs the 3-D grid.
+
+    Clause 7 of the gapless gate (``"section-reconciliation"``) needs a check
+    that is dimensionally sound — a bare area-vs-volume comparison has no
+    defensible width — so both sides are measured as a SWEPT AREA in the
+    vertical plane along the section's own column fence: at evenly spaced
+    samples across every gap, the 2-D fill's classed height and the 3-D grid's
+    labelled height are each multiplied by the metres of fence the sample
+    represents and accumulated in square metres.  See
+    :func:`~groundmodel.domain.services.voxel_litho.section_reconciliation.reconcile_sections`
+    for the full algorithm.
+
+    Parameters
+    ----------
+    section_index : int
+        The section's position in the build payload.  Nothing backend-side
+        carries a section's display name (the payload has none), so a clause-7
+        finding names a section by this index plus its line endpoints — never
+        a guessed name.
+    start_x, start_y, end_x, end_y : float
+        The section line's endpoints (metres, project CRS) — the other half
+        of how a finding identifies its section.
+    swept_2d_m2 : float
+        Total classed area from the 2-D fill, summed over every gap sample:
+        ``sum(h2 * step)`` where ``h2`` is the union height of the fill's
+        regions at that sample and ``step`` is the fence-metres it represents.
+    swept_3d_m2 : float
+        The matching total read from the 3-D label grid: ``sum(h3 * step)``
+        where ``h3`` is the labelled (non-void) height of the nearest grid
+        column at that sample.
+    budget_m2 : float
+        The EXACT vertical-quantisation allowance: a contiguous run of height
+        ``L`` sampled on a grid of pitch ``v`` differs from its true height by
+        at most ``v`` (an arithmetic-progression counting bound), so ``runs``
+        disjoint runs bound the sample's error by ``runs * v``; summed over
+        every sample as ``runs_2d * v * step`` this is derived, not guessed.
+    divergence_m2 : float
+        ``abs(swept_2d_m2 - swept_3d_m2)`` — how far the two sides disagree.
+    allowance_m2 : float
+        ``budget_m2 + RECONCILE_RELATIVE_TOLERANCE * swept_2d_m2`` — the
+        quantisation budget plus the owner-calibration-pending relative slack
+        (see ``section_reconciliation_constants.RECONCILE_RELATIVE_TOLERANCE``).
+    violated : bool
+        ``divergence_m2 > allowance_m2`` — clause 7 fails for this section.
+    worst_sample_along_m : float or None
+        Fence-distance (metres from the section's first column, along the
+        column-world polyline — NOT the same axis as ``along_m`` when columns
+        were re-seated) of the single sample with the largest per-sample
+        height divergence.  ``None`` when every sample in this section landed
+        outside the model footprint.
+    worst_sample_divergence_m : float
+        That sample's height divergence, in metres (``abs(h2 - h3)``) — a
+        vertical figure, unlike the area totals above, so a clause-7 finding
+        can name a HEIGHT discrepancy at a PLACE, not just a total area.
+    samples_outside_footprint : int
+        Samples excluded from both sides because the model footprint does not
+        reach them there.  Reported so an excluded sample is visible, never
+        silently folded into (or out of) the divergence.
+    samples_total : int
+        Total samples taken across every gap of this section (including the
+        excluded ones), for context on how much of the section was measured.
+    """
+
+    section_index: int
+    start_x: float
+    start_y: float
+    end_x: float
+    end_y: float
+    swept_2d_m2: float
+    swept_3d_m2: float
+    budget_m2: float
+    divergence_m2: float
+    allowance_m2: float
+    violated: bool
+    worst_sample_along_m: float | None
+    worst_sample_divergence_m: float
+    samples_outside_footprint: int
+    samples_total: int
