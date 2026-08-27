@@ -54,6 +54,7 @@ export const MENU_ITEM_STYLE: React.CSSProperties = {
 export function UnitStatisticsItem({
   unitId,
   bodyId = null,
+  regionLayerIds,
   onShow,
   onClose,
   topBorder = false,
@@ -61,7 +62,16 @@ export function UnitStatisticsItem({
 }: {
   unitId: string
   bodyId?: string | null
-  onShow: ((unitId: string, bodyId?: string | null) => void) | undefined
+  /**
+   * The clicked region's own geotech layer ids, when the opening surface is a
+   * fill region. Lets the geotech jump ladder land on a class row (spec §2 step
+   * 2) when the body is unresolved but the region's litho parent body is
+   * unique. Absent for band / contact clicks (which resolve their own body).
+   */
+  regionLayerIds?: readonly string[]
+  onShow:
+    | ((unitId: string, bodyId?: string | null, regionLayerIds?: readonly string[]) => void)
+    | undefined
   onClose: () => void
   topBorder?: boolean
   testid?: string
@@ -72,7 +82,10 @@ export function UnitStatisticsItem({
       type="button"
       data-testid={testid}
       onClick={() => {
-        onShow(unitId, bodyId)
+        // Pass the region only when the surface supplied it (fill regions), so
+        // band / contact menus keep their two-argument call shape unchanged.
+        if (regionLayerIds !== undefined) onShow(unitId, bodyId, regionLayerIds)
+        else onShow(unitId, bodyId)
         onClose()
       }}
       style={
