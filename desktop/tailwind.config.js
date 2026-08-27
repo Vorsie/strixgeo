@@ -64,9 +64,11 @@ module.exports = {
         'accent-muted': 'var(--color-accent-muted)',
 
         // Status — amber for dirty/stale (never red — project rule),
-        // red reserved for destructive intent.
+        // red reserved for destructive intent, green for a guarantee that
+        // was measured and held (the gapless build report's kept clauses).
         'status-amber': 'var(--color-status-amber)',
         'status-danger': 'var(--color-status-danger)',
+        'status-success': 'var(--color-status-success)',
 
         // Stage spine — slightly distinct surface so the process rail
         // reads as chrome separate from the canvas.
