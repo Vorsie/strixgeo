@@ -190,9 +190,12 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
   useEffect(() => {
     const target = context.coordinator.parametersDeepLinkTarget
     if (target == null) return
-    log.info('shell', `parameters-deep-link: stage=parameters unit=${target.unitId}`)
+    log.info(
+      'shell',
+      `parameters-deep-link: stage=parameters kind=${target.kind} unit=${target.unitId}`,
+    )
     setActiveStage('parameters')
-    context.coordinator.setSelectedParameterUnitId(target.unitId)
+    context.coordinator.setSelectedParameterUnit(target)
     context.coordinator.setParametersDeepLinkTarget(null)
     // reason: setActiveStage and both coordinator setters are stable
     // callbacks; parametersDeepLinkTarget is the only signal that should
