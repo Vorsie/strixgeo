@@ -22,14 +22,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../../../api/client'
 import type { BoreholeDetailResponse, LithoLayerResponse } from '../../../api/client'
+import { axisTickValues, fitAxisMax } from '../../../utils/cptAxisScales'
 import { log } from '../../../utils/log'
 import { useShell } from '../../ShellContext'
 import type { ParameterUnitScope } from '../../ShellContext'
+import AxisTickRow from './AxisTickRow'
+import UnitPsdPanel from './UnitPsdPanel'
 import {
   poolIdentificationPanels,
   unitBoreholeBands,
   type IdentificationPanel,
 } from './unitIdentification'
+import { poolUnitPsdCurves } from './unitPsd'
 
 // ── Plot geometry (user-space; stretched by the row width) ───────────────────
 const PLOT_W = 100
@@ -148,6 +152,17 @@ export default function UnitIdentificationPanels({
     [bands, details],
   )
 
+  // S5 (owner 2026-08-27: "i'm missing all PSD's on one graph") — the unit's
+  // grain-size curves, pooled by the same midpoint-in-band rule.
+  const psd = useMemo(() => poolUnitPsdCurves(bands, details), [bands, details])
+
+  // S4 (owner 2026-08-27): "make it so that you can scale the OKP values to
+  // better fit the data." Same toggle mechanic as the CPT panels (S1): plain
+  // state, no persistence, revert restores the exact default axes. In fit
+  // mode each panel fits ITS OWN data — including the Atterberg pair, whose
+  // shared scale is the one place the default axes visibly do not fit.
+  const [fitAxes, setFitAxes] = useState(false)
+
   // IP4 — one shared max across the Atterberg pair.
   const atterbergMax = useMemo(() => {
     let max = 0
@@ -161,8 +176,23 @@ export default function UnitIdentificationPanels({
   return (
     <div className="border-t border-border-subtle" data-testid="unit-idtests">
       <div className="px-3 py-2">
-        <div className="text-xs font-semibold text-text-primary">
-          Identification tests
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold text-text-primary">
+            Identification tests
+          </div>
+          {/* S4 — the label states the mode the press switches TO; offered
+              only when there are panels to scale (no-affordance rule). */}
+          {pool.panels.length > 0 && (
+            <button
+              type="button"
+              data-testid="unit-idtests-fit-toggle"
+              aria-pressed={fitAxes}
+              onClick={() => setFitAxes(f => !f)}
+              className="shrink-0 px-1.5 py-0.5 rounded border border-border-default text-[10px] text-text-secondary hover:text-text-primary hover:bg-surface-app"
+            >
+              {fitAxes ? 'Pooled axes' : 'Fit axes to data'}
+            </button>
+          )}
         </div>
         <div className="text-[10px] text-text-muted">
           Classification lab results (OKP) on the unit&apos;s borehole samples —
@@ -200,12 +230,18 @@ export default function UnitIdentificationPanels({
             <IdentificationPanelRow
               key={panel.key}
               panel={panel}
-              // The Atterberg pair reads on one shared scale (IP4).
-              forcedMax={ATTERBERG_KEYS.has(panel.key) ? atterbergMax : null}
+              // The Atterberg pair reads on one shared scale (IP4) — released
+              // in fit mode (S4), where each panel fits its own data.
+              forcedMax={!fitAxes && ATTERBERG_KEYS.has(panel.key) ? atterbergMax : null}
+              fit={fitAxes}
             />
           ))}
         </div>
       )}
+
+      {/* S5 — every grain-size curve of the unit on ONE graph. Renders
+          nothing when the unit has no usable curves (no empty jars). */}
+      {!loading && error === null && <UnitPsdPanel pool={psd} />}
     </div>
   )
 }
@@ -218,12 +254,18 @@ export default function UnitIdentificationPanels({
 function IdentificationPanelRow({
   panel,
   forcedMax,
+  fit,
 }: {
   panel: IdentificationPanel
   forcedMax: number | null
+  /** S4 — fitted axis: the panel's own max, rounded up to a tick. */
+  fit: boolean
 }): JSX.Element {
   const values = panel.points.map(p => p.value)
-  const xMax = Math.max(forcedMax ?? 0, ...values, 1e-9)
+  const dataMax = Math.max(forcedMax ?? 0, ...values, 1e-9)
+  // Fit mode rounds the panel's own pooled max up to a tick (headroom);
+  // default keeps the exact pooled max — the revert target.
+  const xMax = fit ? fitAxisMax(dataMax, dataMax) : dataMax
 
   const elevations = panel.points.map(p => p.elevationM)
   const eMin = Math.min(...elevations)
@@ -234,6 +276,18 @@ function IdentificationPanelRow({
   const toX = (v: number): number => Math.max(0, Math.min(1, v / xMax)) * PLOT_W
   const toY = (e: number): number =>
     eSpan <= 1e-9 ? PLOT_H / 2 : PLOT_H - ((e - eMin) / eSpan) * PLOT_H
+
+  // S3 — labelled ticks on BOTH axes, derived from the spans (the shared
+  // helper). The elevation axis is short (96 px), so it takes a coarser
+  // density; ticks that would crowd the end labels are dropped below.
+  const valueTicks = axisTickValues(0, xMax)
+  const elevTicks = axisTickValues(eMin, eMax, 4).filter(t => {
+    if (eSpan <= 1e-9) return false
+    const f = (eMax - t) / eSpan
+    return f >= 0.12 && f <= 0.88
+  })
+
+  const endLabel = `${xMax >= 10 ? xMax.toFixed(0) : xMax.toFixed(2)}${panel.unit ? ` ${panel.unit}` : ''}`
 
   return (
     <div
@@ -263,10 +317,21 @@ function IdentificationPanelRow({
 
       <div className="flex gap-1">
         {/* Elevation labels in HTML — text inside the non-uniformly
-            stretched SVG would distort. */}
-        <div className="flex flex-col justify-between text-[9px] text-text-muted tabular-nums leading-tight py-0.5">
-          <span>{eMax.toFixed(1)}</span>
-          <span>{eMin.toFixed(1)}</span>
+            stretched SVG would distort. Ends anchored top/bottom; the
+            metre-round intermediate ticks position by their fraction (S3). */}
+        <div className="relative w-8 text-[9px] text-text-muted tabular-nums leading-tight py-0.5 text-right">
+          <span className="absolute top-0 right-0">{eMax.toFixed(1)}</span>
+          {elevTicks.map(t => (
+            <span
+              key={`et-${t}`}
+              data-testid={`unit-idtests-etick-${panel.key}`}
+              className="absolute right-0 -translate-y-1/2"
+              style={{ top: `${eSpan <= 1e-9 ? 50 : ((eMax - t) / eSpan) * 100}%` }}
+            >
+              {t}
+            </span>
+          ))}
+          <span className="absolute bottom-0 right-0">{eMin.toFixed(1)}</span>
         </div>
         <svg
           viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
@@ -276,12 +341,13 @@ function IdentificationPanelRow({
           role="img"
           aria-label={`${panel.label}: ${panel.points.length} samples against elevation`}
         >
-          {/* Light grid — quarter lines both ways. */}
-          {[0.25, 0.5, 0.75].map(f => (
+          {/* Gridlines at the labelled ticks (S3) — the grid and the labels
+              state the same positions. */}
+          {valueTicks.slice(1).filter(t => t / xMax <= 0.97).map(t => (
             <line
-              key={`gx-${f}`}
-              x1={f * PLOT_W}
-              x2={f * PLOT_W}
+              key={`gx-${t}`}
+              x1={toX(t)}
+              x2={toX(t)}
               y1={0}
               y2={PLOT_H}
               stroke={GRID}
@@ -289,13 +355,13 @@ function IdentificationPanelRow({
               vectorEffect="non-scaling-stroke"
             />
           ))}
-          {[0.5].map(f => (
+          {elevTicks.map(t => (
             <line
-              key={`gy-${f}`}
+              key={`gy-${t}`}
               x1={0}
               x2={PLOT_W}
-              y1={f * PLOT_H}
-              y2={f * PLOT_H}
+              y1={toY(t)}
+              y2={toY(t)}
               stroke={GRID}
               strokeWidth={0.5}
               vectorEffect="non-scaling-stroke"
@@ -329,13 +395,18 @@ function IdentificationPanelRow({
         </svg>
       </div>
 
-      {/* Value-axis ends — the zero anchor is readable, not implied. */}
-      <div className="flex justify-between pl-6 text-[9px] text-text-muted tabular-nums leading-tight">
-        <span>0</span>
-        <span>
-          {xMax >= 10 ? xMax.toFixed(0) : xMax.toFixed(2)} {panel.unit ?? ''}
-        </span>
-      </div>
+      {/* Value-axis tick labels (S3) — the zero anchor plus sublabels; the
+          end stays the exact axis max. Shared row with the CPT panels so the
+          treatment cannot drift. */}
+      <AxisTickRow
+        ticks={valueTicks}
+        axisMax={xMax}
+        unit={panel.unit}
+        endLabel={endLabel}
+        maxTestid={`unit-idtests-axis-max-${panel.key}`}
+        tickTestid={`unit-idtests-axis-tick-${panel.key}`}
+        className="ml-9"
+      />
     </div>
   )
 }
