@@ -128,6 +128,7 @@ async def _run(
         ),
         patch(f"{_PATH}.label_voxels", side_effect=_capture_label),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
@@ -287,6 +288,7 @@ async def _run_capturing_domain(
         patch(f"{_PATH}.build_domain_from_sections", side_effect=_capture_domain),
         patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
@@ -436,6 +438,7 @@ async def test_the_investigation_kind_reaches_the_labeller() -> None:
         ),
         patch(f"{_PATH}.label_voxels", side_effect=_capture_label),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
@@ -505,6 +508,7 @@ async def test_investigations_outside_the_footprint_ride_out_on_the_outcome() ->
         ),
         patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
@@ -531,7 +535,9 @@ async def test_investigations_outside_the_footprint_ride_out_on_the_outcome() ->
 # ---------------------------------------------------------------------------
 
 
-async def _run_empty(*, domain: Any, meshes: list[Any]) -> Any:
+async def _run_empty(
+    *, domain: Any, meshes: list[Any], gapless_2d: list[dict[str, Any]] | None = None
+) -> Any:
     """Execute the use case with a chosen degenerate domain / mesh result."""
     repo = AsyncMock()
     repo.load_body_picks = AsyncMock(return_value=[])
@@ -547,6 +553,7 @@ async def _run_empty(*, domain: Any, meshes: list[Any]) -> Any:
         domain_patch,
         patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
         patch(f"{_PATH}.extract_body_solids", return_value=meshes),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
@@ -555,6 +562,7 @@ async def _run_empty(*, domain: Any, meshes: list[Any]) -> Any:
             [_section()],
             grid_spacing_m=1.0,
             force=True,
+            gapless_2d=gapless_2d,
         )
 
 
@@ -610,6 +618,7 @@ async def test_a_build_that_produced_bodies_carries_no_empty_reason() -> None:
         ),
         patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
         patch(f"{_PATH}.extract_body_solids", return_value=[mesh]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
         patch.object(BuildVoxelLithoModel, "_write_generation", new=AsyncMock()),
@@ -625,6 +634,216 @@ async def test_a_build_that_produced_bodies_carries_no_empty_reason() -> None:
 
     assert outcome.bodies_built == 1
     assert outcome.empty_reason is None
+
+
+# ---------------------------------------------------------------------------
+# The seven-clause gapless gate rides out on the outcome.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_successful_build_carries_its_gapless_report_into_write_generation() -> None:
+    """The assembled report is stored on the SAME generation row it describes."""
+    mesh = SimpleNamespace(
+        body_id=str(uuid4()),
+        vertices=[(0.0, 0.0, 0.0)],
+        triangles=[(0, 0, 0)],
+    )
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+    write_generation = AsyncMock()
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=[mesh]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(BuildVoxelLithoModel, "_write_generation", new=write_generation),
+        patch.object(BuildVoxelLithoModel, "_mesh_rows", return_value=[{}]),
+        patch.object(BuildVoxelLithoModel, "_batch_upsert", new=AsyncMock(return_value=1)),
+    ):
+        outcome = await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+            uuid4(),
+            [_section()],
+            grid_spacing_m=1.0,
+            force=True,
+            gapless_2d=[{"key": "area-conservation", "status": "pass", "entries": []}],
+        )
+
+    assert outcome.gapless_report is not None
+    assert [c["key"] for c in outcome.gapless_report["clauses"]] == [
+        "area-conservation",
+        "edge-reach",
+        "cause-closure",
+        "section-closure",
+        "column-totality",
+        "stack-voids",
+        "section-reconciliation",
+    ]
+    # The exact same dict object reached _write_generation — the row and the
+    # returned outcome must never carry two different reports for one build.
+    assert write_generation.await_args.kwargs["gapless_report"] is outcome.gapless_report
+
+
+@pytest.mark.asyncio
+async def test_a_build_that_produced_nothing_still_carries_a_verdict() -> None:
+    """An erased model is when the engineer MOST needs to know what was checked.
+
+    The degenerate paths clear the stored 3-D model. Returning no verdict there
+    leaves the one screen the engineer lands on — the "no geotech body model
+    yet" empty state — with nothing to read, in exactly the case the gapless
+    guarantee has most obviously not been kept. What the renderer measured is
+    still true and is reported; what needed a grid says it had none.
+    """
+    sent = [{"key": "area-conservation", "status": "pass", "entries": []}]
+
+    # (a) The labelling ran but produced no body. A grid EXISTS here, so the
+    #     clauses that read one are genuinely answerable and must be answered.
+    no_body = await _run_empty(
+        domain=SimpleNamespace(
+            polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+        ),
+        meshes=[],
+        gapless_2d=sent,
+    )
+    assert no_body.bodies_built == 0
+    assert no_body.gapless_report is not None, "an erased model must still say what was checked"
+    by_key = {c["key"]: c for c in no_body.gapless_report["clauses"]}
+    assert len(by_key) == 7, "every clause is reported, including the ones nobody could measure"
+    assert by_key["area-conservation"]["status"] == "pass", "what the renderer measured survives"
+    assert by_key["column-totality"]["status"] != "not-evaluated", (
+        "a grid was labelled on this path, so the clause that reads one must answer"
+    )
+
+    # (b) The footprint could not be built, so no grid was ever labelled. The
+    #     three clauses that need one say so — never a fabricated pass.
+    no_grid = await _run_empty(
+        domain=ValueError("need at least 3 non-collinear columns"),
+        meshes=[],
+        gapless_2d=sent,
+    )
+    assert no_grid.gapless_report is not None
+    by_key = {c["key"]: c for c in no_grid.gapless_report["clauses"]}
+    assert by_key["area-conservation"]["status"] == "pass"
+    for key in ("column-totality", "stack-voids", "section-reconciliation"):
+        assert by_key[key]["status"] == "not-evaluated"
+        assert by_key[key]["not_evaluated_reason"]
+    assert no_grid.gapless_report["verdict"] == "incomplete", (
+        "nothing failed, but three guarantees went unmeasured — that is not green"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_crash_inside_the_gate_does_not_take_the_build_down_with_it() -> None:
+    """The gate fails the REPORT, never the build.
+
+    Clause 7 is a diagnostic that reads the built model. A diagnostic that can
+    destroy the artefact it measures is worse than no diagnostic: the engineer
+    would lose a good model to a bug in the thing checking it. So a raise inside
+    the reconciliation degrades clause 7 to "not checked", names the failure,
+    and the solids are written exactly as they would have been.
+    """
+    mesh = SimpleNamespace(
+        body_id=str(uuid4()),
+        vertices=[(0.0, 0.0, 0.0)],
+        triangles=[(0, 0, 0)],
+    )
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=[mesh]),
+        patch(f"{_PATH}.reconcile_sections", side_effect=ZeroDivisionError("gap width was 0")),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(BuildVoxelLithoModel, "_write_generation", new=AsyncMock()),
+        patch.object(BuildVoxelLithoModel, "_mesh_rows", return_value=[{}]),
+        patch.object(BuildVoxelLithoModel, "_batch_upsert", new=AsyncMock(return_value=1)),
+    ):
+        outcome = await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
+            uuid4(),
+            [_section()],
+            grid_spacing_m=1.0,
+            force=True,
+        )
+
+    # The build completed and the model was written.
+    assert outcome.bodies_built == 1
+    assert outcome.empty_reason is None
+    assert outcome.gapless_report is not None
+    by_key = {c["key"]: c for c in outcome.gapless_report["clauses"]}
+    # Clause 7 says it could not be checked, and says why in a way that points
+    # at the check rather than at the model.
+    assert by_key["section-reconciliation"]["status"] == "not-evaluated"
+    assert "ZeroDivisionError" in by_key["section-reconciliation"]["not_evaluated_reason"]
+    # The two clauses the grid CAN still answer are unaffected by the crash.
+    assert by_key["column-totality"]["status"] in ("pass", "fail")
+    assert by_key["stack-voids"]["status"] in ("pass", "fail")
+
+
+@pytest.mark.asyncio
+async def test_the_checksum_skip_path_reports_the_3d_clauses_not_evaluated() -> None:
+    """No grid is labelled here — clauses 5-7 must say so, never a fabricated pass."""
+    from groundmodel.application.build_voxel_litho_model import _partition_checksum
+    from groundmodel.application.litho_solid_persistence import _SolidMeta
+
+    section = _section()
+    # The default honor radius (no view-state override) is grid_spacing_m itself.
+    checksum = _partition_checksum([section], 1.0, (), vertical_spacing_m=None, honor_radius_m=1.0)
+    existing = {
+        "body-1": _SolidMeta(body_id="body-1", source_pick_checksum=checksum, is_stale=False)
+    }
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+
+    with (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value=existing)),
+    ):
+        outcome = await _make_use_case().execute(
+            uuid4(),
+            [section],
+            grid_spacing_m=1.0,
+            force=False,
+            gapless_2d=[{"key": "area-conservation", "status": "pass", "entries": []}],
+        )
+
+    assert outcome.bodies_skipped_checksum == 1
+    assert outcome.gapless_report is not None
+    three_d = {
+        c["key"]: c
+        for c in outcome.gapless_report["clauses"]
+        if c["key"] in {"column-totality", "stack-voids", "section-reconciliation"}
+    }
+    assert len(three_d) == 3
+    for clause in three_d.values():
+        assert clause["status"] == "not-evaluated"
+        assert "no voxel grid was labelled" in clause["not_evaluated_reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +893,7 @@ async def test_another_request_is_served_while_the_labelling_runs() -> None:
         ),
         patch(f"{_PATH}.label_voxels", side_effect=_label_until_the_loop_answers),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
@@ -730,6 +950,7 @@ async def test_a_second_build_waits_instead_of_labelling_alongside_the_first() -
         ),
         patch(f"{_PATH}.label_voxels", side_effect=_label_slowly),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
     ):
