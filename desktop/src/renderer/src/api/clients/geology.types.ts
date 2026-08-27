@@ -364,6 +364,11 @@ export interface LithoLayerResponse {
   parent_geo_contact_id: string | null
   // The body (instance) this layer belongs to; NULL until the resolver runs.
   body_id: string | null
+  // The accepted litho band a geotech band subdivides; the Parameters tree
+  // derives the band's litho body live through it. NULL on litho-model rows and
+  // on a geotech band with no covering litho band (a true orphan). Optional so
+  // pre-slice-A payloads and hand-built fixtures stay valid.
+  parent_litho_layer_id?: string | null
   notes: string | null
   created_at: string
   updated_at: string
