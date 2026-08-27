@@ -10,6 +10,17 @@ import type {
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import ElevationEditor from './ElevationEditor'
+import {
+  FS_AXIS_MAX_MPA,
+  FS_AXIS_TICKS_MPA,
+  QC_AXIS_MAX_MPA,
+  QC_AXIS_TICKS_MPA,
+  RF_AXIS_MAX_PCT,
+  RF_AXIS_TICKS_PCT,
+  U2_AXIS_MAX_KPA,
+  U2_AXIS_MIN_KPA,
+  U2_AXIS_TICKS_KPA,
+} from '../utils/cptAxisScales'
 import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
@@ -60,12 +71,15 @@ interface Props {
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
+// The scale values live in ``utils/cptAxisScales.ts`` so surfaces that promise
+// "the same axes as the cpt plot" (the per-unit distribution panels) share one
+// source. The local aliases keep this file's axis wiring readable.
 const Y_W    = 52    // px — every Y-axis (real and ghost) uses this width so grid lines align
-const QC_MAX = 40    // MPa
-const FS_MAX = 1     // MPa
-const RF_MAX = 10    // %
-const U2_MIN = -100  // kPa
-const U2_MAX = 300   // kPa
+const QC_MAX = QC_AXIS_MAX_MPA // MPa
+const FS_MAX = FS_AXIS_MAX_MPA // MPa
+const RF_MAX = RF_AXIS_MAX_PCT // %
+const U2_MIN = U2_AXIS_MIN_KPA // kPa
+const U2_MAX = U2_AXIS_MAX_KPA // kPa
 // Curve colours are CSS custom properties defined in index.css.
 // Light values (:root) are the original hard-coded constants so the
 // light theme is byte-identical after this change. Dark values (.dark)
@@ -408,10 +422,10 @@ export default function CptChart({
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
         {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
         <XAxis xAxisId="u2" type="number" orientation="top" domain={[U2_MIN, U2_MAX]}
-          tick={{ fontSize: 11, fill: U2_CLR }} ticks={[-100, 0, 100, 200, 300]}
+          tick={{ fontSize: 11, fill: U2_CLR }} ticks={[...U2_AXIS_TICKS_KPA]}
         />
         <XAxis xAxisId="u2b" type="number" orientation="bottom" domain={[U2_MIN, U2_MAX]}
-          tick={{ fontSize: 11, fill: U2_CLR }} ticks={[-100, 0, 100, 200, 300]}
+          tick={{ fontSize: 11, fill: U2_CLR }} ticks={[...U2_AXIS_TICKS_KPA]}
         />
         <ReferenceLine yAxisId="y" xAxisId="u2" x={0} stroke={SURFACE_REF_CLR} strokeWidth={0.5} />
         {preDrillZone('u2')}
@@ -434,11 +448,11 @@ export default function CptChart({
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
         {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
         <XAxis xAxisId="qc" type="number" orientation="top" domain={[0, QC_MAX]}
-          tick={{ fontSize: 11, fill: QC_CLR }} ticks={[0, 5, 10, 15, 20, 25, 30, 35, 40]}
+          tick={{ fontSize: 11, fill: QC_CLR }} ticks={[...QC_AXIS_TICKS_MPA]}
         />
         {hasFs
           ? <XAxis xAxisId="fs" type="number" orientation="bottom" domain={[0, FS_MAX]}
-              tick={{ fontSize: 11, fill: FS_CLR }} ticks={[0, 0.2, 0.4, 0.6, 0.8, 1.0]}
+              tick={{ fontSize: 11, fill: FS_CLR }} ticks={[...FS_AXIS_TICKS_MPA]}
             />
           : <XAxis xAxisId="fs" type="number" orientation="bottom" domain={[0, FS_MAX]}
               tick={false} axisLine={false} tickLine={false}
@@ -477,10 +491,10 @@ export default function CptChart({
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
         {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
         <XAxis xAxisId="rf" type="number" orientation="top" domain={[0, RF_MAX]}
-          tick={{ fontSize: 11, fill: RF_CLR }} ticks={[0, 2, 4, 6, 8, 10]}
+          tick={{ fontSize: 11, fill: RF_CLR }} ticks={[...RF_AXIS_TICKS_PCT]}
         />
         <XAxis xAxisId="rfb" type="number" orientation="bottom" domain={[0, RF_MAX]}
-          tick={{ fontSize: 11, fill: RF_CLR }} ticks={[0, 2, 4, 6, 8, 10]}
+          tick={{ fontSize: 11, fill: RF_CLR }} ticks={[...RF_AXIS_TICKS_PCT]}
         />
         {preDrillZone('rf')}
         {surfaceElevationRef('rf')}
