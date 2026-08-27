@@ -55,7 +55,7 @@ describe('useUnitStatistics — what it fetches', () => {
   it('UH1 — a hole already in the shared cache is never re-fetched', async () => {
     const cache = new Map([['cpt-a', plot('cpt-a', [1, 2, 3])]])
     const { result } = renderHook(() =>
-      useUnitStatistics('unit-1', [band('cpt-a', 'l1')], cache, 'proj-1'),
+      useUnitStatistics([band('cpt-a', 'l1')], cache, 'proj-1'),
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -70,12 +70,7 @@ describe('useUnitStatistics — what it fetches', () => {
     plotBatch.mockResolvedValue([plot('cpt-b', [10, 20])])
 
     const { result } = renderHook(() =>
-      useUnitStatistics(
-        'unit-1',
-        [band('cpt-a', 'l1'), band('cpt-b', 'l2')],
-        cache,
-        'proj-1',
-      ),
+      useUnitStatistics([band('cpt-a', 'l1'), band('cpt-b', 'l2')], cache, 'proj-1'),
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -91,7 +86,7 @@ describe('useUnitStatistics — what it fetches', () => {
     const cache = new Map<string, CptPlotResponse>()
 
     const { result, rerender } = renderHook(
-      ({ bands }) => useUnitStatistics('unit-1', bands, cache, 'proj-1'),
+      ({ bands }) => useUnitStatistics(bands, cache, 'proj-1'),
       { initialProps: { bands: [band('cpt-a', 'l1'), band('cpt-b', 'l2')] } },
     )
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -105,9 +100,9 @@ describe('useUnitStatistics — what it fetches', () => {
     expect(plotBatch).toHaveBeenCalledTimes(1)
   })
 
-  it('UH6 — no unit scoped means no request', async () => {
+  it('UH6 — no node scoped (empty scope bands) means no request', async () => {
     const { result } = renderHook(() =>
-      useUnitStatistics(null, [band('cpt-a', 'l1')], new Map(), 'proj-1'),
+      useUnitStatistics([], new Map(), 'proj-1'),
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -124,7 +119,6 @@ describe('useUnitStatistics — what it fetches', () => {
     const cache = new Map([['cpt-a', plot('cpt-a', [1, 2])]])
     const { result } = renderHook(() =>
       useUnitStatistics(
-        'unit-1',
         [band('cpt-a', 'l1'), band('cpt-b', 'l2')],
         cache,
         'proj-1',
@@ -145,7 +139,7 @@ describe('useUnitStatistics — when the answer is partial or absent', () => {
   it('UH4 — a failed fetch surfaces a message and can be retried', async () => {
     plotBatch.mockRejectedValueOnce(new Error('network down'))
     const { result } = renderHook(() =>
-      useUnitStatistics('unit-1', [band('cpt-a', 'l1')], new Map(), 'proj-1'),
+      useUnitStatistics([band('cpt-a', 'l1')], new Map(), 'proj-1'),
     )
 
     await waitFor(() => expect(result.current.error).not.toBeNull())
@@ -167,12 +161,7 @@ describe('useUnitStatistics — when the answer is partial or absent', () => {
     plotBatch.mockResolvedValue([plot('cpt-a', [1, 2])])
 
     const { result } = renderHook(() =>
-      useUnitStatistics(
-        'unit-1',
-        [band('cpt-a', 'l1'), band('cpt-b', 'l2')],
-        new Map(),
-        'proj-1',
-      ),
+      useUnitStatistics([band('cpt-a', 'l1'), band('cpt-b', 'l2')], new Map(), 'proj-1'),
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
