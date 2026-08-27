@@ -15,6 +15,11 @@ import PerUnitTab from './PerUnitTab'
 // PerUnitTab reads geoModel.lithoFormations from useShell(). Provide a
 // minimal mock with at least one unit so the table body renders
 // (otherwise PhaseFiveCell is never mounted).
+//
+// ``geotechFormations`` is deliberately EMPTY: these five pins are about the
+// Phase-5 placeholder accessibility on the LITHO fallback roster, which is the
+// table that carries them. The geotech roster (and its own placeholders) is
+// pinned separately in ``PerUnitTab.geotech.test.tsx``.
 vi.mock('../../../ShellContext', () => ({
   useShell: () => ({
     geoModel: {
@@ -27,6 +32,12 @@ vi.mock('../../../ShellContext', () => ({
           litho_main_soil_code: 'ZAND',
         },
       ],
+      geotechFormations: [],
+      geotechLayers: [],
+    },
+    coordinator: {
+      selectedParameterUnitId: null,
+      setSelectedParameterUnitId: vi.fn(),
     },
   }),
 }))
