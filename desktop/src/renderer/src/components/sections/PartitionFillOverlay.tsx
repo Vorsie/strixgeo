@@ -482,7 +482,7 @@ export default function PartitionFillOverlay({
   // ``lithoFrame`` — the "Show litho fill" toggle withholds the frame while the
   // axis is still geotech, and a view-only axis must stay view-only either way.
   const viewOnly = axisMode === 'geotechnical'
-  // Active partition engine (v1 stable / v2 experimental), device-local dev
+  // Active partition engine (v2 default / v1 old fallback), device-local dev
   // pref. Read as a hook so a flip in Settings re-renders the overlay live; it
   // feeds the sectionFillData memo's dep array so the partition recomputes.
   const partitionEngineV2 = usePartitionEngineV2()
