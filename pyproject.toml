@@ -145,3 +145,11 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["geolib.*"]
 ignore_missing_imports = true
+
+# asyncpg ships no ``py.typed`` marker (verified 2026-08-27 against 0.29+),
+# so mypy cannot see its inline annotations even though the library is typed
+# internally. Used directly (not through SQLAlchemy) by `DatabaseMigrator`
+# for cluster bring-up — see `docs/distribution-db-decision.md`.
+[[tool.mypy.overrides]]
+module = ["asyncpg.*"]
+ignore_missing_imports = true
