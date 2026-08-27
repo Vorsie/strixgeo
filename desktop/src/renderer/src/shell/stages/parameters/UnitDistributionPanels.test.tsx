@@ -98,9 +98,9 @@ describe('UnitDistributionPanels', () => {
   it('UP7 — readings that are all the same draw NO spread, not a full-width box', () => {
     // Rf computed as fs·100/qc comes out identical at every depth on a hole
     // whose fs tracks qc — but in floating point "identical" is 1.1000000000000001
-    // vs 1.0999999999999999. Mapping the samples linearly across the row then
-    // stretches 2e-16 of numerical noise into the full width, and the picture
-    // claims a spread the readout (min = max, sd = 0) says is not there.
+    // vs 1.0999999999999999. Under the CPT plot's fixed 0–10 % Rf axis (the
+    // 2026-08-27 axes ruling) every such reading maps to the same spot — the
+    // picture must not claim a spread the readout (min = max, sd = 0) denies.
     const rf = [1.1, 1.1 + Number.EPSILON, 1.1 - Number.EPSILON, 1.1]
     const series = new Map<string, UnitChannelSeries>([
       [
@@ -117,18 +117,18 @@ describe('UnitDistributionPanels', () => {
     const box = screen.getByTestId('unit-stats-box-rf')
     const x = Number(box.getAttribute('x'))
     const width = Number(box.getAttribute('width'))
-    // One mark at the centre of the row, not a box spanning it.
-    expect(x).toBeCloseTo(50, 6)
+    // One mark at 1.1 % of the 0–10 % axis, not a box spanning the row.
+    expect(x).toBeCloseTo(11, 6)
     expect(width).toBeLessThan(1)
 
-    // Every sample dot lands on that same centre line.
+    // Every sample dot lands on that same line.
     const rfRow = screen.getByTestId('unit-stats-row-rf')
     const dots = Array.from(
       rfRow.querySelectorAll<SVGCircleElement>('[data-testid="unit-stats-dot-rf"]'),
     )
     expect(dots.length).toBeGreaterThan(0)
     for (const dot of dots) {
-      expect(Number(dot.getAttribute('cx'))).toBeCloseTo(50, 6)
+      expect(Number(dot.getAttribute('cx'))).toBeCloseTo(11, 6)
     }
   })
 
