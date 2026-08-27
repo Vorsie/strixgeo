@@ -67,10 +67,8 @@ export const CHROME_NL = {
   'welcome.createProject': 'Project aanmaken…',
   'welcome.openProject': 'Project openen uit bestand…',
   'welcome.recentProjects': 'Recente projecten',
-  // FLAG alt: Herstelde sessie | Niet-opgeslagen werk — "Hersteld werk" is
-  // literal; the panel actually lists projects that CAN be recovered, not work
-  // that already has been. "Te herstellen werk" is the precise third option.
-  'welcome.recoveredWork': 'Hersteld werk',
+  // NOTE: ruled 2026-08-27 — owner chose "Herstelde sessie".
+  'welcome.recoveredWork': 'Herstelde sessie',
   'welcome.recoveredWorkBody':
     'Deze projecten zijn afgesloten met niet-opgeslagen werk. Open er een om het te herstellen.',
   'welcome.recoveryDeclined': 'Je hebt dit eerder niet hersteld',
@@ -97,7 +95,7 @@ export const CHROME_NL = {
   'project.description': 'Omschrijving',
   'project.descriptionHint': 'Vrije tekst over de opdracht',
   'project.tags': 'Labels',
-  'project.tagsPlaceholder': 'Typ een label en druk op Enter of komma',
+  'project.tagsPlaceholder': 'Typ een label en druk op enter of komma',
   'project.status': 'Status',
   'project.statusActive': 'Actief',
   'project.statusOnHold': 'On hold',
@@ -112,13 +110,13 @@ export const CHROME_NL = {
   'project.close': 'Project sluiten',
   'project.closeConfirmTitle': 'Dit project sluiten?',
   'project.closeConfirmBody':
-    'Het .gmproj-bestand en je opgeslagen gegevens blijven bewaard — je kan het altijd opnieuw openen.',
+    'Het .strix-bestand en je opgeslagen gegevens blijven bewaard — je kan het altijd opnieuw openen.',
   'project.closeHint':
-    'Project sluiten — je keert terug naar het startscherm. Het .gmproj-bestand en de gegevens in de databank blijven bewaard.',
+    'Project sluiten — je keert terug naar het startscherm. Het .strix-bestand en de gegevens in de databank blijven bewaard.',
   'project.save': 'Project opslaan (Ctrl+S)',
-  'project.unsavedHint': 'Niet-opgeslagen wijzigingen — Bestand → Opslaan (Ctrl+S) om vast te leggen',
+  'project.unsavedHint': 'Niet-opgeslagen wijzigingen — Bestand → Opslaan (Ctrl+S) om wijzigingen bij te houden',
   'project.createdSinceSave':
-    'Aangemaakt sinds de laatste bewaaractie — Bestand → Opslaan om vast te leggen',
+    'Aangemaakt sinds de laatste bewaaractie — Bestand → Opslaan om wijzigingen bij te houden',
   'project.discardChanges': 'Alle wijzigingen verwerpen',
   'project.discardBody':
     'Verwerpen kan niet ongedaan gemaakt worden. Met Annuleren blijft het project open zodat je kan opslaan.',
@@ -126,9 +124,8 @@ export const CHROME_NL = {
   // -------------------------------------------------------------------------
   // spine + shell
   // -------------------------------------------------------------------------
-  // FLAG alt: Werkfases | Werkvolgorde — the rail is the workflow sequence
-  // Data → Profielen → Geologie → …; "stappen" reads as steps you walk through.
-  'spine.title': 'Werkstappen',
+  // NOTE: ruled 2026-08-27 — owner chose "Werkvolgorde".
+  'spine.title': 'Werkvolgorde',
   'spine.data': 'Data',
   // FLAG alt: Doorsneden | Dwarsprofielen — spine labels are capped at ~10
   // characters, so the short form is forced here even if the long surface name
