@@ -122,7 +122,8 @@ describe('wired surfaces', () => {
     expect(screen.getByRole('button', { name: /Importeren/ })).toBeInTheDocument()
     const menu = screen.getByRole('menu')
     expect(within(menu).getByText('Sondering importeren (.gef)')).toBeInTheDocument()
-    expect(within(menu).getByText('Boring importeren uit DOV (bbox tekenen)')).toBeInTheDocument()
+    // "kader tekenen" — the owner's bbox ruling, decisions batch 2026-08-27.
+    expect(within(menu).getByText('Boring importeren uit DOV (kader tekenen)')).toBeInTheDocument()
     // One tag per not-yet-available verb (DMT, lab test, monitoring).
     expect(within(menu).getAllByText('Fase 4')).toHaveLength(3)
   })
