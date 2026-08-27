@@ -1,22 +1,27 @@
-// Pins for the unit LIST's roster + selection — the pane half of the R3
-// layout flip (owner 2026-08-27: "switch statistics and list from pane").
-// These behaviours predate the flip (owner ballot 2026-08-26) and moved here
-// verbatim from the old per-unit tab: the roster choice, the selection, the
-// labels and the band counts are the same list, in a different home.
+// Pins for the unit-list PANE — now the owner-ruled body tree (spec §1,
+// 2026-08-27, variant B): litho unit ▸ litho body ▸ NAD class ▸ geotech body.
 //
-// PU1 — a project with geotech units lists them, not the litho roster.
-// PU2 — a unit row is selectable, and selecting scopes the stage to it.
-// PU3 — the selected row is marked as selected for assistive tech.
-// PU4 — an UNCLASSIFIED (skeleton) unit still gets a readable label, never a
-//       blank row (the 11b ruling).
-// PU5 — a project with no geotech units still shows the litho roster, so the
-//       tab never goes blank on a litho-only project.
-// PU6 — the band count per unit counts only that unit's bands.
-// PU18/PU19 — F11 a11y: aria-expanded lives on the option, no focusable
-//       descendant; ArrowRight/ArrowLeft toggle from the keyboard.
-// PU20/PU21 — F12: the litho-selection chip; the loading gate that stops the
-//       litho-roster flash-swap.
-// PU22 — F9: the body-label roster follows the axis's recompute nonce.
+// The old two-level PU pins are superseded: the pane shape changed on purpose
+// (the tree is ALWAYS litho-unit rooted, killing the "litho units unreachable"
+// gap, so the litho/geotech either-or roster + its loading-swap + the
+// litho-selection chip are gone). What carries over in spirit: selection,
+// counts, expand/collapse, and the F11 listbox a11y invariants.
+//
+// NP1 — the top level is litho units, always — even when a geotech model
+//       exists (the geotech subsplit lives BENEATH, not at the top).
+// NP2 — the four levels expand in order: unit ▸ body ▸ class ▸ geotech body.
+// NP3 — single-child collapse: a litho unit with one body and no subdivision
+//       is a leaf, no expander.
+// NP4 — clicking a node scopes the stage to that node kind.
+// NP5 — a selected node is marked selected, and its whole path auto-expands.
+// NP6 — F11 a11y: the option carries aria-expanded, no focusable descendant,
+//       ArrowRight/ArrowLeft toggle.
+// NP7 — a geotech band with no covering litho band shows in the orphan footer,
+//       never as an invented tree row.
+// NP8 — a litho-only project still lists its litho units (never blank).
+// NP9 — every row states "N bands · M with cone".
+// NP10 — F9: the body-label roster follows the axis's recompute nonce.
+// NP11 — F12: while the geotech layers load, the tree does not render.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -27,51 +32,25 @@ const setSelectedParameterUnit = vi.fn()
 const listLenses = vi.fn()
 
 vi.mock('../../../api/client', () => ({
-  api: {
-    geology: {
-      listLenses: (...args: unknown[]) => listLenses(...args),
-    },
-  },
+  api: { geology: { listLenses: (...args: unknown[]) => listLenses(...args) } },
 }))
 
+let mockLithoFormations: unknown[] = []
 let mockGeotechFormations: unknown[] = []
-let mockGeotechLayers: unknown[] = []
 let mockLithoLayers: unknown[] = []
+let mockGeotechLayers: unknown[] = []
 let mockGeotechLayersLoaded = true
 let mockActiveGeotechModel: { id: string } | null = null
 let mockGeotechNonce = 0
-let mockSelectedUnit: {
-  kind: 'litho' | 'geotech'
-  unitId: string
-  bodyId?: string | null
-} | null = null
+let mockSelectedUnit: unknown = null
 
 vi.mock('../../ShellContext', () => ({
   useShell: () => ({
-    // The body-roster fetch needs the project + active models; both models
-    // null here keeps the pane fetch-free (labels fall back to id prefixes).
     project: { id: 'proj-1' },
     geoModel: {
-      lithoFormations: [
-        {
-          id: 'litho-1',
-          name: 'Dicht zand',
-          parent_formation_name: 'Diest',
-          nad_class: null,
-          litho_main_soil_code: 'ZAND',
-          litho_admixtures: [],
-        },
-        {
-          id: 'litho-2',
-          name: 'Boomse klei',
-          parent_formation_name: 'Boom',
-          nad_class: null,
-          litho_main_soil_code: 'KLEI',
-          litho_admixtures: [],
-        },
-      ],
-      lithoLayers: mockLithoLayers,
+      lithoFormations: mockLithoFormations,
       geotechFormations: mockGeotechFormations,
+      lithoLayers: mockLithoLayers,
       geotechLayers: mockGeotechLayers,
       geotechLayersLoaded: mockGeotechLayersLoaded,
       activeLithoModel: null,
@@ -86,376 +65,182 @@ vi.mock('../../ShellContext', () => ({
   }),
 }))
 
+function formation(id: string, over: Record<string, unknown>) {
+  return {
+    id,
+    name: id,
+    display_order: 0,
+    nad_class: null,
+    litho_main_soil_code: null,
+    source_litho_formation_id: null,
+    ...over,
+  }
+}
+
+function layer(id: string, over: Record<string, unknown>) {
+  return {
+    id,
+    formation_id: 'f',
+    cpt_id: 'c1',
+    borehole_id: null,
+    depth_top_m: 0,
+    depth_base_m: 1,
+    status: 'accepted',
+    body_id: null,
+    parent_litho_layer_id: null,
+    ...over,
+  }
+}
+
+/** The standard scene: SILT (two bodies, geotech subsplit + one orphan) + CLAY. */
+function seedScene() {
+  mockLithoFormations = [
+    formation('silt', { name: 'SILT', display_order: 0 }),
+    formation('clay', { name: 'CLAY', display_order: 1 }),
+  ]
+  mockGeotechFormations = [
+    formation('silt-sf', { nad_class: 13, source_litho_formation_id: 'silt' }),
+    formation('silt-mf', { nad_class: 14, source_litho_formation_id: 'silt' }),
+  ]
+  mockLithoLayers = [
+    layer('L1', { formation_id: 'silt', body_id: 'lb1' }),
+    layer('L2', { formation_id: 'silt', body_id: 'lb2' }),
+    layer('LC', { formation_id: 'clay', body_id: 'lbC' }),
+  ]
+  mockGeotechLayers = [
+    layer('g1', { formation_id: 'silt-sf', parent_litho_layer_id: 'L1', body_id: 'gbA' }),
+    layer('g2', { formation_id: 'silt-sf', parent_litho_layer_id: 'L1', body_id: 'gbB' }),
+    layer('g3', { formation_id: 'silt-mf', parent_litho_layer_id: 'L1', body_id: 'gbMF' }),
+    layer('gO', { formation_id: 'silt-sf', parent_litho_layer_id: null, body_id: null }),
+  ]
+}
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  mockLithoFormations = []
   mockGeotechFormations = []
-  mockGeotechLayers = []
   mockLithoLayers = []
+  mockGeotechLayers = []
   mockGeotechLayersLoaded = true
   mockActiveGeotechModel = null
   mockGeotechNonce = 0
   mockSelectedUnit = null
 })
 
-/** A classified geotech unit (NAD 6 = a sand packing class). */
-function classifiedUnit() {
-  return {
-    id: 'geo-1',
-    name: 'whatever the machine stored',
-    nad_class: 6,
-    litho_main_soil_code: 'ZAND',
-    source_litho_formation_id: 'litho-1',
-    // ALWAYS null on a real geotech row: the server resolves this from
-    // ``parent_formation_id``, which the geotech materialiser never sets. A
-    // fixture that supplies a value here hides the bug where the pane reads
-    // the wrong field.
-    parent_formation_name: null,
-    color: '#aabbcc',
-    color_override: null,
-  }
-}
-
-/** A borehole-only skeleton unit — real ground, no class yet. */
-function skeletonUnit() {
-  return {
-    id: 'geo-2',
-    name: '',
-    nad_class: null,
-    litho_main_soil_code: 'KLEI',
-    source_litho_formation_id: 'litho-1',
-    // ALWAYS null on a real geotech row: the server resolves this from
-    // ``parent_formation_id``, which the geotech materialiser never sets. A
-    // fixture that supplies a value here hides the bug where the pane reads
-    // the wrong field.
-    parent_formation_name: null,
-    color: '#ccbbaa',
-    color_override: null,
-  }
-}
-
-/** One accepted band on a CPT, belonging to ``unitId``. */
-function bandOf(unitId: string, id: string) {
-  return {
-    id,
-    formation_id: unitId,
-    cpt_id: 'cpt-a',
-    borehole_id: null,
-    depth_top_m: 0,
-    depth_base_m: 2,
-    status: 'accepted',
-  }
-}
-
-describe('UnitListPane — geotech roster', () => {
-  it('PU1 — lists the geotech units when the project has them', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+describe('UnitListPane — the body tree (spec §1)', () => {
+  it('NP1 — the top level is litho units, even when a geotech model exists', () => {
+    seedScene()
     render(<UnitListPane />)
-
-    expect(screen.getByTestId('parameters-unit-geo-1')).toBeTruthy()
-    // The litho unit is not the roster here.
-    expect(screen.queryByTestId('parameters-unit-litho-1')).toBeNull()
+    expect(screen.getByTestId('parameters-node-litho-unit:silt')).toBeTruthy()
+    expect(screen.getByTestId('parameters-node-litho-unit:clay')).toBeTruthy()
+    // The geotech subsplit is NOT at the top level.
+    expect(screen.queryByTestId('parameters-node-geotech-unit:silt-sf')).toBeNull()
   })
 
-  it('PU2 — clicking a unit row scopes the stage to that unit', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+  it('NP2 — the four levels expand in order: unit ▸ body ▸ class ▸ geotech body', () => {
+    seedScene()
     render(<UnitListPane />)
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-unit:silt'))
+    expect(screen.getByTestId('parameters-node-litho-body:silt:lb1')).toBeTruthy()
 
-    fireEvent.click(screen.getByTestId('parameters-unit-geo-1'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-body:silt:lb1'))
+    expect(screen.getByTestId('parameters-node-geotech-class:silt:lb1:13')).toBeTruthy()
 
-    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech', unitId: 'geo-1' })
+    fireEvent.click(screen.getByTestId('parameters-node-expander-geotech-class:silt:lb1:13'))
+    expect(screen.getByTestId('parameters-node-geotech-body:silt-sf:gbA')).toBeTruthy()
+    expect(screen.getByTestId('parameters-node-geotech-body:silt-sf:gbB')).toBeTruthy()
   })
 
-  it('PU3 — the selected row is marked selected', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
-    mockSelectedUnit = { kind: 'geotech', unitId: 'geo-1' }
+  it('NP3 — a litho unit with one body and no subdivision is a leaf (single-child collapse)', () => {
+    seedScene()
     render(<UnitListPane />)
-
-    expect(
-      screen.getByTestId('parameters-unit-geo-1').getAttribute('aria-selected'),
-    ).toBe('true')
+    // CLAY has one litho body, no geotech → collapsed to a leaf unit row.
+    expect(screen.queryByTestId('parameters-node-expander-litho-unit:clay')).toBeNull()
   })
 
-  it('PU4 — an unclassified unit gets a readable label, never a blank row', () => {
-    mockGeotechFormations = [skeletonUnit()]
-    mockGeotechLayers = [bandOf('geo-2', 'l1')]
+  it('NP4 — clicking a node scopes the stage to that node kind', () => {
+    seedScene()
     render(<UnitListPane />)
+    fireEvent.click(screen.getByTestId('parameters-node-litho-unit:silt'))
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'litho-unit', unitId: 'silt' })
 
-    const row = screen.getByTestId('parameters-unit-geo-2')
-    // "CLAY — not yet classified" or equivalent; the point is it says WHICH
-    // ground it is rather than rendering an empty cell.
-    expect((row.textContent ?? '').trim().length).toBeGreaterThan(3)
-    expect(row.textContent ?? '').toMatch(/not yet classified/i)
-  })
-
-  it('PU5 — a litho-only project still shows the litho roster', () => {
-    mockGeotechFormations = []
-    render(<UnitListPane />)
-
-    expect(screen.getByTestId('parameters-unit-litho-1')).toBeTruthy()
-  })
-
-  it('PU6 — each unit reports only its own bands', () => {
-    mockGeotechFormations = [classifiedUnit(), skeletonUnit()]
-    mockGeotechLayers = [
-      { id: 'l1', formation_id: 'geo-1', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted' },
-      { id: 'l2', formation_id: 'geo-1', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 2, depth_base_m: 4, status: 'accepted' },
-      { id: 'l3', formation_id: 'geo-2', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 4, depth_base_m: 5, status: 'accepted' },
-    ]
-    render(<UnitListPane />)
-
-    expect(screen.getByTestId('parameters-unit-bands-geo-1').textContent).toContain('2')
-    expect(screen.getByTestId('parameters-unit-bands-geo-2').textContent).toContain('1')
-  })
-
-  it('PU7 — a unit that describes nothing in this model is not listed', () => {
-    // Owner ruling 2026-08-26 on the Geotech-units pane: "if a bin is empty
-    // that means there is nothing in it and nothing exists". The orphan sweep
-    // deletes these shortly anyway.
-    mockGeotechFormations = [classifiedUnit(), skeletonUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
-    render(<UnitListPane />)
-
-    expect(screen.getByTestId('parameters-unit-geo-1')).toBeTruthy()
-    expect(screen.queryByTestId('parameters-unit-geo-2')).toBeNull()
-  })
-
-  it('PU9 — the source litho unit is named, via source_litho_formation_id', () => {
-    // The column is labelled "Source litho unit" and must not read "—" on every
-    // row. It cannot come from ``parent_formation_name`` (always null on a
-    // geotech row) — it is reached through ``source_litho_formation_id``.
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
-    render(<UnitListPane />)
-
-    // litho-1 is the source; its display name is what the cell must show.
-    const cell = screen.getByTestId('parameters-unit-source-geo-1')
-    expect(cell.textContent ?? '').not.toBe('—')
-    expect((cell.textContent ?? '').toLowerCase()).toContain('sand')
-  })
-
-  it('PU10 — two unclassified units of the same soil are told apart by their source', () => {
-    // Without the source name these read as two copies of one row — the exact
-    // defect the geotech pane's disambiguation rule exists to prevent.
-    const clayFromBoom = { ...skeletonUnit(), id: 'geo-3', source_litho_formation_id: 'litho-2' }
-    const clayFromDiest = { ...skeletonUnit(), id: 'geo-4', source_litho_formation_id: 'litho-1' }
-    mockGeotechFormations = [clayFromBoom, clayFromDiest]
-    mockGeotechLayers = [bandOf('geo-3', 'l1'), bandOf('geo-4', 'l2')]
-    render(<UnitListPane />)
-
-    const a = screen.getByTestId('parameters-unit-geo-3').textContent ?? ''
-    const b = screen.getByTestId('parameters-unit-geo-4').textContent ?? ''
-    expect(a).not.toEqual(b)
-  })
-
-  it('PU11 — a pending band is not counted as ground the unit describes', () => {
-    // ``listLayers`` returns every status. A unit whose only layer is a pending
-    // proposal has nothing accepted, so it is empty and must not be listed —
-    // otherwise it lists as having bands and then shows nothing.
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [{ ...bandOf('geo-1', 'l1'), status: 'pending' }]
-    render(<UnitListPane />)
-
-    expect(screen.queryByTestId('parameters-unit-geo-1')).toBeNull()
-  })
-
-  // ── The body level (owner ruling 2026-08-27, verbatim: "a body is only a
-  //    body if it is geometrically connected or if the users says, this body
-  //    is the same as that body") — the unit row lumps resolver bodies; the
-  //    tree makes each reachable. ────────────────────────────────────────────
-  it('PU12 — a unit lumping two bodies gets an expander; expanding lists a row per body', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
-    ]
-    render(<UnitListPane />)
-
-    const expander = screen.getByTestId('parameters-unit-expander-geo-1')
-    fireEvent.click(expander)
-
-    expect(screen.getByTestId('parameters-unit-body-body-A')).toBeTruthy()
-    expect(screen.getByTestId('parameters-unit-body-body-B')).toBeTruthy()
-  })
-
-  it('PU13 — a unit with ONE body needs no expander (the GT3 precedent)', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-A' },
-    ]
-    render(<UnitListPane />)
-
-    expect(screen.queryByTestId('parameters-unit-expander-geo-1')).toBeNull()
-    expect(screen.queryByTestId('parameters-unit-body-body-A')).toBeNull()
-  })
-
-  it('PU14 — clicking a body row scopes {unitId, bodyId}; the unit row stays the pooled scope', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
-    ]
-    render(<UnitListPane />)
-
-    fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
-    fireEvent.click(screen.getByTestId('parameters-unit-body-body-B'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-unit:silt'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-body:silt:lb1'))
+    fireEvent.click(screen.getByTestId('parameters-node-geotech-class:silt:lb1:13'))
     expect(setSelectedParameterUnit).toHaveBeenCalledWith({
-      kind: 'geotech',
-      unitId: 'geo-1',
-      bodyId: 'body-B',
+      kind: 'geotech-class',
+      lithoUnitId: 'silt',
+      lithoBodyId: 'lb1',
+      nadClass: 13,
     })
 
-    setSelectedParameterUnit.mockClear()
-    fireEvent.click(screen.getByTestId('parameters-unit-geo-1'))
-    // EXACTLY the pooled shape — no bodyId key (PU2's contract).
-    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech', unitId: 'geo-1' })
-  })
-
-  it('PU15 — a body row counts its bands and says how many carry a cone', () => {
-    // F7 (audit 2026-08-27): "N bands · M with cone" — the row states how
-    // many of the body's bands the cone pool can actually read, so a
-    // borehole-heavy body cannot read as full cone evidence.
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-A', cpt_id: 'cpt-b' },
-      { ...bandOf('geo-1', 'l3'), body_id: 'body-B', cpt_id: null, borehole_id: 'bh-1' },
-      { ...bandOf('geo-1', 'l4'), body_id: 'body-B' },
-    ]
-    render(<UnitListPane />)
-
-    fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
-    const rowA = screen.getByTestId('parameters-unit-body-body-A')
-    expect(rowA.textContent).toContain('2 bands')
-    expect(rowA.textContent).toContain('2 with cone')
-    const rowB = screen.getByTestId('parameters-unit-body-body-B')
-    expect(rowB.textContent).toContain('2 bands')
-    expect(rowB.textContent).toContain('1 with cone')
-  })
-
-  it('PU16 — the litho roster gets the same body level, from the litho layers', () => {
-    mockGeotechFormations = []
-    mockLithoLayers = [
-      { id: 'll1', formation_id: 'litho-1', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'lbody-1' },
-      { id: 'll2', formation_id: 'litho-1', cpt_id: 'cpt-a', borehole_id: null, depth_top_m: 2, depth_base_m: 4, status: 'accepted', body_id: 'lbody-2' },
-    ]
-    render(<UnitListPane />)
-
-    fireEvent.click(screen.getByTestId('parameters-unit-expander-litho-1'))
-    fireEvent.click(screen.getByTestId('parameters-unit-body-lbody-2'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-geotech-class:silt:lb1:13'))
+    fireEvent.click(screen.getByTestId('parameters-node-geotech-body:silt-sf:gbA'))
     expect(setSelectedParameterUnit).toHaveBeenCalledWith({
-      kind: 'litho',
-      unitId: 'litho-1',
-      bodyId: 'lbody-2',
+      kind: 'geotech-body',
+      unitId: 'silt-sf',
+      bodyId: 'gbA',
     })
   })
 
-  it('PU17 — a selected body row is marked selected; the unit row is not', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
-    ]
-    mockSelectedUnit = { kind: 'geotech', unitId: 'geo-1', bodyId: 'body-A' }
+  it('NP5 — a selected node is marked selected and its whole path auto-expands', () => {
+    seedScene()
+    mockSelectedUnit = { kind: 'geotech-body', unitId: 'silt-sf', bodyId: 'gbA' }
     render(<UnitListPane />)
-
-    // A body-scoped selection keeps the unit expanded so the scoped row is
-    // visible without a click.
+    // The path (silt ▸ lb1 ▸ class 13) auto-expanded, so the leaf is visible...
+    const leaf = screen.getByTestId('parameters-node-geotech-body:silt-sf:gbA')
+    expect(leaf.getAttribute('aria-selected')).toBe('true')
+    // ...and the ancestor unit is not itself the selected row.
     expect(
-      screen.getByTestId('parameters-unit-body-body-A').getAttribute('aria-selected'),
-    ).toBe('true')
-    expect(
-      screen.getByTestId('parameters-unit-geo-1').getAttribute('aria-selected'),
+      screen.getByTestId('parameters-node-litho-unit:silt').getAttribute('aria-selected'),
     ).toBe('false')
   })
 
-  // ── F11 (a11y) — a listbox option may not contain a focusable descendant;
-  //    the option itself states expandedness. ──────────────────────────────
-  it('PU18 — the option carries aria-expanded and contains no focusable descendant', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
-    ]
+  it('NP6 — F11: the option carries aria-expanded, no focusable descendant, ArrowRight expands', () => {
+    seedScene()
     render(<UnitListPane />)
-
-    const option = screen.getByTestId('parameters-unit-geo-1')
+    const option = screen.getByTestId('parameters-node-litho-unit:silt')
     expect(option.getAttribute('aria-expanded')).toBe('false')
-    // WCAG listbox rule: nothing inside the option may take focus — no
-    // buttons, no positive/zero tabindex descendants.
     expect(option.querySelector('button')).toBeNull()
     for (const el of Array.from(option.querySelectorAll('[tabindex]'))) {
       expect(el.getAttribute('tabindex')).toBe('-1')
     }
-    // The affordance still toggles by mouse.
-    fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
-    expect(option.getAttribute('aria-expanded')).toBe('true')
-  })
-
-  it('PU19 — ArrowRight expands and ArrowLeft collapses from the keyboard', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [
-      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
-      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
-    ]
-    render(<UnitListPane />)
-
-    const option = screen.getByTestId('parameters-unit-geo-1')
     fireEvent.keyDown(option, { key: 'ArrowRight' })
-    expect(screen.getByTestId('parameters-unit-body-body-A')).toBeTruthy()
+    expect(screen.getByTestId('parameters-node-litho-body:silt:lb1')).toBeTruthy()
     // Expanding must not change the scope.
     expect(setSelectedParameterUnit).not.toHaveBeenCalled()
     fireEvent.keyDown(option, { key: 'ArrowLeft' })
-    expect(screen.queryByTestId('parameters-unit-body-body-A')).toBeNull()
+    expect(screen.queryByTestId('parameters-node-litho-body:silt:lb1')).toBeNull()
   })
 
-  // ── F12 — the roster race + the invisible litho selection. ──────────────
-  it('PU21 — while the geotech layers are LOADING, the litho roster does not flash', () => {
-    // The race: geotechLayers is [] while the load is in flight, so
-    // ``usingGeotech`` read false and the litho roster flashed, then swapped.
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = []
-    mockGeotechLayersLoaded = false
+  it('NP7 — a geotech band with no covering litho band is counted in the orphan footer', () => {
+    seedScene()
     render(<UnitListPane />)
-
-    expect(screen.queryByTestId('parameters-unit-litho-1')).toBeNull()
-    expect(screen.getByTestId('parameters-unit-list-loading')).toBeTruthy()
+    const footer = screen.getByTestId('parameters-orphan-footer')
+    expect(footer.textContent).toMatch(/1 band outside the litho model/)
   })
 
-  it('PU20 — a litho-scoped selection under the geotech roster shows the chip', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
-    mockSelectedUnit = { kind: 'litho', unitId: 'litho-1' }
+  it('NP8 — a litho-only project still lists its litho units', () => {
+    mockLithoFormations = [formation('silt', { name: 'SILT' })]
+    mockLithoLayers = [layer('L1', { formation_id: 'silt', body_id: 'lb1' })]
     render(<UnitListPane />)
-
-    const chip = screen.getByTestId('parameters-litho-selection-chip')
-    expect(chip.textContent).toMatch(/litho unit selected/i)
-    expect(chip.textContent).toContain('Dicht zand')
+    expect(screen.getByTestId('parameters-node-litho-unit:silt')).toBeTruthy()
+    expect(screen.queryByTestId('parameters-orphan-footer')).toBeNull()
   })
 
-  it('PU20b — no chip without a litho selection, and none on the litho roster', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+  it('NP9 — every row states N bands · M with cone', () => {
+    seedScene()
     render(<UnitListPane />)
-    expect(screen.queryByTestId('parameters-litho-selection-chip')).toBeNull()
-
-    cleanup()
-    mockGeotechFormations = []
-    mockGeotechLayers = []
-    mockSelectedUnit = { kind: 'litho', unitId: 'litho-1' }
-    render(<UnitListPane />)
-    expect(screen.queryByTestId('parameters-litho-selection-chip')).toBeNull()
+    // SILT pools two litho bands (L1, L2), both CPT-anchored.
+    const count = screen.getByTestId('parameters-node-count-litho-unit:silt')
+    expect(count.textContent).toContain('2 bands')
+    expect(count.textContent).toContain('2 with cone')
   })
 
-  // ── F9 — the pane's body-label roster follows a recompute. ──────────────
-  it('PU22 — the roster refetches when the axis recompute nonce bumps', async () => {
+  it('NP10 — the roster refetches when the axis recompute nonce bumps (F9)', async () => {
     listLenses.mockResolvedValue([])
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+    seedScene()
     mockActiveGeotechModel = { id: 'gm-1' }
     const view = render(<UnitListPane />)
     await vi.waitFor(() => expect(listLenses).toHaveBeenCalledTimes(1))
@@ -465,23 +250,12 @@ describe('UnitListPane — geotech roster', () => {
     await vi.waitFor(() => expect(listLenses).toHaveBeenCalledTimes(2))
   })
 
-  it('PU8 — a borehole-only unit IS listed; it just has no cone to summarise', () => {
-    // "Empty" means no bands, not "no CPT bands". This unit has real ground;
-    // the inspector is what explains that a borehole carries no qc.
-    mockGeotechFormations = [skeletonUnit()]
-    mockGeotechLayers = [
-      {
-        id: 'l1',
-        formation_id: 'geo-2',
-        cpt_id: null,
-        borehole_id: 'bh-a',
-        depth_top_m: 0,
-        depth_base_m: 2,
-        status: 'accepted',
-      },
-    ]
+  it('NP11 — while the geotech layers load, the tree does not render (F12)', () => {
+    seedScene()
+    mockGeotechLayers = []
+    mockGeotechLayersLoaded = false
     render(<UnitListPane />)
-
-    expect(screen.getByTestId('parameters-unit-geo-2')).toBeTruthy()
+    expect(screen.queryByTestId('parameters-node-litho-unit:silt')).toBeNull()
+    expect(screen.getByTestId('parameters-unit-list-loading')).toBeTruthy()
   })
 })
