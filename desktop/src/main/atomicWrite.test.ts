@@ -45,12 +45,16 @@ beforeEach(() => {
 
 afterEach(() => {
   // Restore write permission first — a read-only file left by a test would
-  // otherwise survive the recursive remove on some platforms.
+  // otherwise survive the recursive remove on some platforms. 0o777, not
+  // 0o666: chmod applies to directories too (it does NOT throw on them, as an
+  // earlier revision assumed), and a POSIX directory without its execute bit
+  // cannot be traversed — 0o666 on the blocked.json fixture dir made the
+  // recursive remove EACCES on its child on the first Linux CI run.
   for (const name of readdirSync(dir)) {
     try {
-      chmodSync(join(dir, name), 0o666)
+      chmodSync(join(dir, name), 0o777)
     } catch {
-      /* a directory, or already gone */
+      /* already gone */
     }
   }
   rmSync(dir, { recursive: true, force: true })
