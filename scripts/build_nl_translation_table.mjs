@@ -16,7 +16,7 @@
 // section at the top, and the filter defaults to showing everything.
 
 import { createRequire } from 'node:module'
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -24,6 +24,17 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '..')
 const I18N = join(REPO, 'desktop/src/renderer/src/i18n')
 const OUT = join(REPO, 'blend_viewer/nl_translation_table.html')
+
+// Example sentences (owner ask 2026-08-27: "make a dutch sentence that makes
+// sense with your translation ... so i see u use it correctly"). Sidecar JSON
+// {key: sentence}, authored for the SHORT terms — a long UI string is already
+// its own usage context, so it gets no extra sentence. Absent file → the
+// column renders empty rather than the build failing, so the table can always
+// be regenerated.
+const SENTENCES_PATH = join(HERE, 'nl_example_sentences.json')
+const SENTENCES = existsSync(SENTENCES_PATH)
+  ? JSON.parse(readFileSync(SENTENCES_PATH, 'utf8'))
+  : {}
 
 // esbuild is a desktop/ devDependency and the repo root has no node_modules, so
 // resolve it from desktop/package.json rather than from this file's directory.
@@ -177,6 +188,20 @@ const DOMAIN_CANON = [
 const esc = s =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+// The example sentence, with the translated term highlighted so the eye finds
+// the usage instantly. First case-insensitive occurrence only — the term
+// appears once by construction (the authoring rule requires it verbatim).
+function sentenceHtml(nl, sentence) {
+  if (!sentence) return ''
+  const at = nl ? sentence.toLowerCase().indexOf(nl.toLowerCase()) : -1
+  if (at === -1) return esc(sentence)
+  return (
+    esc(sentence.slice(0, at)) +
+    `<mark>${esc(sentence.slice(at, at + nl.length))}</mark>` +
+    esc(sentence.slice(at + nl.length))
+  )
+}
+
 function rowHtml(r) {
   const isFlagged = r.flag !== null || r.alts.length > 0
   const alts = r.alts.length
@@ -184,10 +209,20 @@ function rowHtml(r) {
     : ''
   const why = r.flag ? `<div class="why">${esc(r.flag)}</div>` : ''
   const note = r.note ? `<div class="note">${esc(r.note)}</div>` : ''
+  // Editable translation: a flagged row renders twice (top section + its own
+  // surface), so edits are keyed on data-key and synced across instances by
+  // the page script, never on the individual input element.
+  const nlCell =
+    r.nl === null
+      ? '<em class="missing">— not translated —</em>'
+      : `<div class="nlwrap"><input class="nlinput" data-key="${esc(r.key)}" data-en="${esc(r.en)}"
+        data-original="${esc(r.nl)}" value="${esc(r.nl)}" spellcheck="false">
+        <button class="revert" title="Terug naar het voorstel" aria-label="Revert">&#8634;</button></div>`
   return `<tr class="${isFlagged ? 'flagged' : ''}" data-flagged="${isFlagged}">
   <td class="k"><code>${esc(r.key)}</code></td>
   <td class="en">${esc(r.en)}</td>
-  <td class="nl">${r.nl === null ? '<em class="missing">— not translated —</em>' : esc(r.nl)}</td>
+  <td class="nl">${nlCell}</td>
+  <td class="ex">${sentenceHtml(r.nl, SENTENCES[r.key])}</td>
   <td class="f">${isFlagged ? '<span class="badge">FLAG</span>' : ''}${alts}</td>
   <td class="n">${why}${note}</td>
 </tr>`
@@ -229,7 +264,7 @@ const html = `<meta charset="utf-8">
   h2 .count { color: var(--dim); font-weight: 400; }
   .lead { color: var(--dim); font-size: 12.5px; margin: 0 0 12px; max-width: 95ch; }
   .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
-  table { border-collapse: collapse; width: 100%; min-width: 900px; }
+  table { border-collapse: collapse; width: 100%; min-width: 1150px; }
   /* NOT sticky: the .scroll wrapper sets overflow-x, which makes it the
      containing scrollport for position:sticky. A sticky th would then offset
      itself from the TABLE's top rather than the viewport's and permanently
@@ -244,11 +279,33 @@ const html = `<meta charset="utf-8">
   tr.flagged:hover td { background: #332810; }
   code { color: var(--code); font: 12px/1.4 ui-monospace, Consolas, monospace;
          word-break: break-all; }
-  td.k { width: 21%; }
-  td.en { width: 27%; }
-  td.nl { width: 27%; }
-  td.f  { width: 11%; }
-  td.n  { width: 14%; }
+  td.k { width: 15%; }
+  td.en { width: 19%; }
+  td.nl { width: 20%; }
+  td.ex { width: 28%; color: var(--dim); }
+  td.f  { width: 9%; }
+  td.n  { width: 9%; }
+  td.ex mark { background: transparent; color: var(--fg); font-weight: 600;
+               border-bottom: 2px solid var(--flag); }
+  .nlwrap { display: flex; align-items: flex-start; gap: 5px; }
+  .nlinput { flex: 1; min-width: 0; background: transparent; color: var(--fg);
+             border: 1px solid transparent; border-radius: 5px; padding: 3px 6px;
+             font: inherit; }
+  .nlinput:hover { border-color: var(--line); }
+  .nlinput:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+  tr.changed .nlinput { border-color: var(--flag); background: var(--flagbg);
+                        font-weight: 600; }
+  .revert { visibility: hidden; background: none; border: none; color: var(--dim);
+            cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 4px; }
+  .revert:hover { color: var(--fg); background: var(--panel2); }
+  tr.changed .revert { visibility: visible; }
+  #exportBtn { background: var(--accent); color: #0b1220; font-weight: 650;
+               border: none; border-radius: 7px; padding: 7px 14px; font-size: 13px;
+               cursor: pointer; }
+  #exportBtn:disabled { opacity: .45; cursor: default; }
+  #clearBtn { background: none; border: 1px solid var(--line); color: var(--dim);
+              border-radius: 7px; padding: 6px 11px; font-size: 12.5px; cursor: pointer; }
+  #clearBtn:hover { color: var(--fg); }
   .badge { display: inline-block; background: var(--flag); color: #1b1405; font-size: 10px;
            font-weight: 700; letter-spacing: .05em; padding: 1px 6px; border-radius: 4px; }
   .alts { margin-top: 5px; display: flex; flex-direction: column; gap: 3px; }
@@ -276,8 +333,11 @@ const html = `<meta charset="utf-8">
     Generated from the locale files, so this page and the app cannot disagree.
     <b>The ${flagged.length} FLAGGED rows are the ones that need your ruling</b> — those are
     the judgement calls (band, tie, fence, build, packing, snap, sondering-vs-CPT).
-    Everything else is a lookup and can be skimmed. Approving a row here approves the
-    string in <code>desktop/src/renderer/src/i18n/locales/nl/</code>.
+    <b>Every Dutch cell is editable</b>: type your wording straight into the table
+    (edits persist in this browser), then press <b>Export decisions</b> — it downloads
+    <code>nl_translation_decisions.json</code>; drop that in Downloads and tell me, and I
+    apply every change to the locale files. The <i>voorbeeldzin</i> column shows each term
+    used in a sentence so you can judge the word in context. ↺ reverts a row to my proposal.
   </p>
   <div class="stats">
     <div class="stat"><b>${totalKeys}</b><span>keys catalogued</span></div>
@@ -290,7 +350,10 @@ const html = `<meta charset="utf-8">
 <div class="controls">
   <input type="search" id="q" placeholder="Filter by key, English, or Dutch…" autocomplete="off">
   <label class="toggle"><input type="checkbox" id="only"> Flagged only</label>
+  <label class="toggle"><input type="checkbox" id="onlyChanged"> Changed only</label>
   <span class="sub" id="shown"></span>
+  <button id="clearBtn" type="button">Clear edits</button>
+  <button id="exportBtn" type="button" disabled>Export decisions</button>
 </div>
 
 <main>
@@ -303,7 +366,7 @@ const html = `<meta charset="utf-8">
     </p>
     <div class="scroll">
       <table>
-        <thead><tr><th>Key</th><th>English</th><th>Dutch (proposed)</th><th>Alternatives</th><th>Why it is a judgement call</th></tr></thead>
+        <thead><tr><th>Key</th><th>English</th><th>Dutch (proposed — editable)</th><th>Voorbeeldzin</th><th>Alternatives</th><th>Why it is a judgement call</th></tr></thead>
         <tbody>${flagged.map(rowHtml).join('\n')}</tbody>
       </table>
     </div>
@@ -336,7 +399,7 @@ ${groups
     <h2>${esc(g.title)} <span class="count">(${g.rows.length})</span></h2>
     <div class="scroll">
       <table>
-        <thead><tr><th>Key</th><th>English</th><th>Dutch (BE)</th><th>Flag / alternatives</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Key</th><th>English</th><th>Dutch (BE — editable)</th><th>Voorbeeldzin</th><th>Flag / alternatives</th><th>Notes</th></tr></thead>
         <tbody>
 ${g.rows.map(rowHtml).join('\n')}
         </tbody>
@@ -351,18 +414,112 @@ ${g.rows.map(rowHtml).join('\n')}
 <script>
   const q = document.getElementById('q')
   const only = document.getElementById('only')
+  const onlyChanged = document.getElementById('onlyChanged')
   const shown = document.getElementById('shown')
+  const exportBtn = document.getElementById('exportBtn')
+  const clearBtn = document.getElementById('clearBtn')
   const rows = [...document.querySelectorAll('tbody tr')]
   const sections = [...document.querySelectorAll('section')]
+  const inputs = [...document.querySelectorAll('.nlinput')]
 
+  // ------------------------------------------------------------------------
+  // Edits. Keyed by message key, persisted in localStorage so closing the tab
+  // costs nothing. A flagged key renders twice (top section + its surface);
+  // every write fans out to all instances of that key.
+  // ------------------------------------------------------------------------
+  const STORE = 'strixNlDecisions'
+  const decisions = (() => {
+    try { return JSON.parse(localStorage.getItem(STORE)) || {} } catch { return {} }
+  })()
+
+  const byKey = new Map()
+  for (const inp of inputs) {
+    if (!byKey.has(inp.dataset.key)) byKey.set(inp.dataset.key, [])
+    byKey.get(inp.dataset.key).push(inp)
+  }
+
+  function paint(key) {
+    for (const inp of byKey.get(key) ?? []) {
+      const changed = inp.value !== inp.dataset.original
+      inp.closest('tr').classList.toggle('changed', changed)
+    }
+  }
+
+  function setValue(key, value) {
+    for (const inp of byKey.get(key) ?? []) if (inp.value !== value) inp.value = value
+    const original = (byKey.get(key) ?? [])[0]?.dataset.original
+    if (value === original) delete decisions[key]
+    else decisions[key] = value
+    localStorage.setItem(STORE, JSON.stringify(decisions))
+    paint(key)
+    updateCount()
+  }
+
+  function updateCount() {
+    const n = Object.keys(decisions).length
+    exportBtn.disabled = n === 0
+    exportBtn.textContent = n === 0 ? 'Export decisions' : 'Export decisions (' + n + ')'
+  }
+
+  for (const inp of inputs) {
+    inp.addEventListener('input', () => setValue(inp.dataset.key, inp.value))
+    // Restore a previous session's edit.
+    if (decisions[inp.dataset.key] !== undefined) inp.value = decisions[inp.dataset.key]
+  }
+  for (const key of byKey.keys()) paint(key)
+  updateCount()
+
+  for (const btn of document.querySelectorAll('.revert')) {
+    btn.addEventListener('click', () => {
+      const inp = btn.previousElementSibling
+      setValue(inp.dataset.key, inp.dataset.original)
+    })
+  }
+
+  clearBtn.addEventListener('click', () => {
+    if (!confirm('Discard ALL edits on this page and go back to the proposals?')) return
+    for (const key of Object.keys(decisions)) {
+      const original = (byKey.get(key) ?? [])[0]?.dataset.original
+      if (original !== undefined) for (const inp of byKey.get(key)) inp.value = original
+      delete decisions[key]
+      paint(key)
+    }
+    localStorage.setItem(STORE, JSON.stringify(decisions))
+    updateCount()
+    apply()
+  })
+
+  exportBtn.addEventListener('click', () => {
+    const out = Object.entries(decisions).map(([key, to]) => {
+      const inp = (byKey.get(key) ?? [])[0]
+      return { key, en: inp?.dataset.en ?? null, from: inp?.dataset.original ?? null, to }
+    })
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'nl_translation_decisions.json'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  })
+
+  // ------------------------------------------------------------------------
+  // Filtering. textContent misses <input> values, so the needle also checks
+  // the row's editable translation.
+  // ------------------------------------------------------------------------
   function apply() {
     const needle = q.value.trim().toLowerCase()
     const flaggedOnly = only.checked
+    const changedOnly = onlyChanged.checked
     let visible = 0
     for (const row of rows) {
       const isFlagged = row.dataset.flagged === 'true'
-      const hit = needle === '' || row.textContent.toLowerCase().includes(needle)
-      const show = hit && (!flaggedOnly || isFlagged)
+      const isChanged = row.classList.contains('changed')
+      const inputText = [...row.querySelectorAll('.nlinput')].map(i => i.value).join(' ')
+      const hit =
+        needle === '' ||
+        row.textContent.toLowerCase().includes(needle) ||
+        inputText.toLowerCase().includes(needle)
+      const show = hit && (!flaggedOnly || isFlagged) && (!changedOnly || isChanged)
       row.style.display = show ? '' : 'none'
       if (show) visible++
     }
@@ -376,6 +533,7 @@ ${g.rows.map(rowHtml).join('\n')}
   }
   q.addEventListener('input', apply)
   only.addEventListener('change', apply)
+  onlyChanged.addEventListener('change', apply)
   apply()
 </script>
 `
