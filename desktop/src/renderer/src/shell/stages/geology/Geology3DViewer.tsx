@@ -202,6 +202,17 @@ export interface Geology3DViewerProps {
   compareScene?: CompareScene | null
   /** Enter the model comparison (the "Compare" button). Omit to hide it. */
   onEnterCompare?: () => void
+  /**
+   * Hide every overlay control — basemap picker, layer legend, split /
+   * compare buttons and the draw hint — leaving only the scene itself.
+   *
+   * For PASSIVE embeds (owner ruling R4, 2026-08-27: the Parameters stage's
+   * fence cutout is "a visual aid what the user selected" — no verbs, no
+   * split). The camera still pans/zooms; ``resetCameraRef`` still works, so
+   * the host can offer its own reset. Default ``false`` — the stage canvases
+   * keep their chrome untouched.
+   */
+  chromeless?: boolean
 }
 
 
@@ -268,6 +279,7 @@ export default function Geology3DViewer({
   footprintRing,
   compareScene,
   onEnterCompare,
+  chromeless = false,
 }: Geology3DViewerProps): JSX.Element {
   // Camera link for compare mode: the primary pane leads, the compare pane
   // follows. Refs, not state — the camera moves many times per second and
@@ -536,14 +548,16 @@ export default function Geology3DViewer({
         )}
 
         {/* Basemap picker — only on the primary viewport */}
-        <BasemapPanel activeBasemapId={basemapId} onSelect={handleBasemapSelect} />
+        {!chromeless && (
+          <BasemapPanel activeBasemapId={basemapId} onSelect={handleBasemapSelect} />
+        )}
 
         {/* Layer legend — basemap on/off + per-layer 3D visibility.
             Click a row to hide/show that layer in the model. The list is height-
             capped + scrollable: a subdivided geotech model expands to more rows
             than the viewport is tall, and a legend that runs off the bottom of
             the screen takes its own toggles with it. */}
-        {
+        {!chromeless && (
           <div className="absolute top-2 left-2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg max-w-[16rem] py-1 text-xs">
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">
               Layers
@@ -652,11 +666,12 @@ export default function Geology3DViewer({
               })}
             </ul>
           </div>
-        }
+        )}
 
         {/* Split control — explicit free-draw arm + collapse. One "Single
             view" button closes BOTH split kinds, so the user never has to
             know which one is open to get out of it. */}
+        {!chromeless && (
         <div className="absolute bottom-9 left-1/2 -translate-x-1/2 z-10 flex gap-2">
           {isTwoPane ? (
             <button
@@ -709,9 +724,10 @@ export default function Geology3DViewer({
             </button>
           )}
         </div>
+        )}
 
         {/* Split-line draw mode hint */}
-        {isDrawMode && (
+        {!chromeless && isDrawMode && (
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-2 py-1 rounded pointer-events-none">
             {drawState.phase === 'idle'
               ? 'Click two points to draw a split line'
