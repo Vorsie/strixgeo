@@ -20,10 +20,8 @@ export const MODELS_NL = {
   'geology.reorderHint': 'Sleep om de volgorde te wijzigen (lager = ouder)',
   'geology.dropAtBottom': 'Laat hier los om onderaan te plaatsen (oudste)',
   'geology.fillFromBoreholes': 'Vullen vanuit boringen',
-  // FLAG alt: 3D-model genereren | 3D-model bouwen — "opbouwen" carries the
-  // sense of assembling from parts, which is what the voxel builder does;
-  // "genereren" is the neutral software word.
-  'geology.build3d': '3D-model opbouwen',
+  // NOTE: ruled 2026-08-27 — owner chose "3D-model bouwen".
+  'geology.build3d': '3D-model bouwen',
   'geology.activeStratigraphy':
     'Actieve stratigrafie — elke formatiekeuze hoort bij dit model',
   'geology.boreholesInModel': 'Boringen in het model',
@@ -65,18 +63,15 @@ export const MODELS_NL = {
   'geology.reset3dView': '3D-weergave herstellen',
   'geology.offlineBasemap':
     'Offline — achtergrondkaart niet beschikbaar. De geometrie van de formaties is niet aangetast.',
-  // FLAG alt: Onvoldoende onderbouwd lichaam | Lichaam met te weinig gegevens —
-  // "under-constrained" means fewer than 3 traces, so the surface is a
-  // best-effort slab rather than a fitted body.
-  'geology.underConstrainedBody': 'Onvoldoende bepaald lichaam',
+  // NOTE: ruled 2026-08-27 — owner chose "Lichaam met te weinig gegevens".
+  'geology.underConstrainedBody': 'Lichaam met te weinig gegevens',
   'geology.switchBasemap': 'Achtergrondkaart wisselen',
   'geology.formationCandidates': 'Kandidaat-formaties',
   'geology.targetFormationOptions': 'Opties voor doelformatie',
   'geology.keepSeparate': 'Apart houden',
   'geology.applySelection': 'Selectie toepassen',
-  // FLAG alt: Samenvoegconflicten | Botsingen bij het bundelen — "lumping" is
-  // the app's word for folding several source formations into one unit.
-  'geology.lumpingCollisions': 'Waarschuwingen over samenvoegconflicten',
+  // NOTE: ruled 2026-08-27 — owner chose "Samenvoegconflicten".
+  'geology.lumpingCollisions': 'Samenvoegconflicten',
   'geology.selectFormationsBlurb':
     'Selecteer de formaties die je wil opnemen. Gebruik "→ zelfde als" op een regel om ze bij een andere te voegen.',
   'geology.filterFormationPlaceholder': 'Filter of typ de naam van een doelformatie',
@@ -118,7 +113,7 @@ export const MODELS_NL = {
   'litho.emptyInspector':
     'Aanvaard voorstellen uit de sonderingen of teken laaggrenzen op een profiel — elke aanvaarde laag voegt hier een eenheid toe.',
   'litho.emptyCanvas':
-    'Kies of maak een lithologiemodel in het rechterpaneel. Teken laaggrenzen in de profielstap en klik daarna op Model opbouwen in de lithologiewerkbalk om de 3D-lichamen te genereren.',
+    'Kies of maak een lithologiemodel in het rechterpaneel. Teken laaggrenzen in de profielstap en klik daarna op Model bouwen in de lithologiewerkbalk om de 3D-lichamen te genereren.',
   'litho.createThenSections':
     'Maak hierboven een lithologiemodel aan en open daarna de profielstap om laaggrenzen te tekenen.',
   'litho.drawThenBuild':
@@ -126,7 +121,7 @@ export const MODELS_NL = {
   'litho.buildToSeeBodies': 'Bouw het 3D-model op om de lichamen te zien.',
   'litho.allContentBlurb':
     'Alle litho-eenheden, laaggrenzen, correlaties en vlakken in dit model',
-  'litho.renumberBodies': 'Litholichamen hernummeren op basis van hun correlatiegraaf',
+  'litho.renumberBodies': 'Litholichamen hernummeren op basis van hun correlatiegrafiek',
   'litho.pickBodyColour': 'Kies een eigen kleur voor dit lichaam',
   'litho.resetBodyColour': 'Terug naar de lithologiekleur van de formatie',
   'litho.underConstrained':
@@ -135,21 +130,19 @@ export const MODELS_NL = {
     'Vervaagde driehoeken in de 3D-weergave markeren zones waar het model extrapoleert, weg van nabije gegevens. Zet dit uit voor een egale kleur.',
   'litho.parentFormation': 'Bovenliggende geologische formatie',
   'litho.noParent': '— Geen bovenliggende formatie (losmaken) —',
-  // FLAG alt: profielwanden | fence-diagram — see litho.exportFence.
-  'litho.switchSolidFence': 'Wissel tussen vaste TIN-vlakken en profielwanden',
-  // FLAG alt: Fence exporteren | Profielenwand exporteren — "fence diagram" has
-  // no settled NL term. "Profielwand" is descriptive and self-explaining;
-  // "fence" is what the international literature and LeapFrog use.
-  'litho.exportFence': 'Profielwand exporteren',
+  // NOTE: ruled 2026-08-27 — owner chose "Hekkendiagram".
+  'litho.switchSolidFence': 'Hekkendiagram',
+  // NOTE: ruled 2026-08-27 — owner chose "Hekkendiagram exporteren".
+  'litho.exportFence': 'Hekkendiagram exporteren',
   'litho.exportFenceHint':
-    'Bewaar de 3D-profielwand als DXF (zet de weergave eerst op Profielwand)',
+    'Bewaar de 3D-profielwand als DXF (zet de weergave eerst op hekkendiagram)',
   'litho.resetCamera': 'Camera herstellen',
   'litho.resetCameraHint':
     'Klap elke gesplitste weergave dicht en breng de camera terug naar het volledige model',
   'litho.nothingToBuild':
     'Niets om op te bouwen — aanvaard eerst litholagen op een dwarsprofiel en bouw daarna op.',
   'litho.nothingToExportFence':
-    'Niets om te exporteren — zet de 3D-weergave op Profielwand en zorg dat de wand vlakken bevat.',
+    'Niets om te exporteren — zet de 3D-weergave op Hekkendiagram en zorg dat de wand vlakken bevat.',
   'litho.autoCorrelateNothing':
     'Autocorrelatie: geen correleerbare eenheden gevonden — aanvaard eerst de lithovoorstellen.',
 
@@ -166,14 +159,14 @@ export const MODELS_NL = {
   // FLAG alt: pakkingsklassen | pakkingsdichtheidsklassen — NAD writes "gp"
   // (gepakt). "Pakking" is the shortest form that still reads as the NAD term.
   'geotech.estimateDisclaimer':
-    'NAD-pakkingsklassen zijn schattingen afgeleid uit de sonderingen — toets ze aan de boorbeschrijvingen voor je ze gebruikt.',
+    'NAD-pakkingsklassen zijn schattingen afgeleid uit de sonderingen — toets ze aan de boorbeschrijvingen voor gebruik.',
   'geotech.rosterBlurb':
-    'Geotechnische eenheden die grond beschrijven in dit model. Een eenheid die niets beschrijft, staat niet in de lijst — er zit niets in.',
+    'Geotechnische eenheden die grond beschrijven in dit model.',
   'geotech.runSubdivideHint':
     'Gebruik "Alle lichamen onderverdelen" om de lithostratigrafische eenheden in NAD-pakkingsklassen in te delen.',
   'geotech.buildHint':
     'Gebruik "Alle lichamen onderverdelen" in de profielstap (geotechnische as) en klik daarna op "Model opbouwen" in de geotechnische werkbalk om de 3D-lichamen per NAD-klasse te genereren.',
-  'geotech.switchSolidFence': 'Wissel tussen het vaste lichaamsmodel en profielwanden',
+  'geotech.switchSolidFence': 'Wissel tussen het vaste lichaamsmodel en hekkendiagram',
   'geotech.resetAutoColour': 'Terug naar de automatische pakkingskleur',
   // De norm (uit sondering afgeleid) draagt geen badge — eigenaar 2026-08-27:
   // "CPT est. die flag mag eruit, bijna alle packingsklassen zijn altijd uit
@@ -183,7 +176,7 @@ export const MODELS_NL = {
   'geotech.badgeConfidence':
     'Samengevoegde betrouwbaarheid van de toegekende pakkingsklasse over alle sondeerlagen',
   'geotech.badgePartialHint':
-    'De meeste banden zijn afgeleid uit de qc-reeks van de sonderingen. Minstens één band had geen conus in zijn lichaam en kreeg daarom de zwakste klasse die daar voorkwam. Controleer de banden met lage betrouwbaarheid voor gebruik.',
+    'De meeste banden zijn afgeleid uit de qc-reeks van de sonderingen. Minstens één band had geen conuswaarden in zijn lichaam en kreeg daarom de zwakste klasse die daar voorkwam. Controleer de banden met lage betrouwbaarheid voor gebruik.',
   'geotech.badgeNoCptHint':
     'Er liggen geen sondeergegevens achter deze klasse. Ze kreeg de zwakste klasse die in het lichaam voorkwam, of de ondergrens van de lithologie. Controleer voor gebruik.',
   'geotech.reSubdivideConfirm': 'Geotechnisch model opnieuw onderverdelen?',
