@@ -32,10 +32,11 @@ export interface BodyContextMenuProps {
   onDissolveBody: (bodyId: string) => void
   /**
    * Fired when the user picks "Unit statistics…" — reports the body's
-   * FORMATION id (the statistics are the unit's, pooled over every band of
-   * it; owner ruling R1 2026-08-27). Absent → the item is not offered.
+   * FORMATION id (the statistics are the unit's; owner ruling R1 2026-08-27)
+   * plus the body's OWN id (body-scope ruling 2026-08-27: this menu has the
+   * body directly, so the jump names it). Absent → the item is not offered.
    */
-  onShowUnitStatistics?: (formationId: string) => void
+  onShowUnitStatistics?: (formationId: string, bodyId?: string | null) => void
   /** Close callback — the menu is dismissed. */
   onClose: () => void
 }
@@ -99,7 +100,7 @@ export default function BodyContextMenu({
       testid: TESTIDS.unitStatistics,
       key: 'unit-statistics',
       onClick: () => {
-        onShowUnitStatistics(body.formation_id)
+        onShowUnitStatistics(body.formation_id, body.id)
       },
     },
     {
