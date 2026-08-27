@@ -55,8 +55,11 @@ describe('BodyContextMenu', () => {
 
   // Owner ruling R1 (2026-08-27): a litho unit between columns is reachable
   // through its BODY's menu — the region carries the body, the body carries
-  // the formation, and the statistics are the formation's.
-  it('BCM7 — "Unit statistics…" reports the body FORMATION id, not the body id', () => {
+  // the formation, and the statistics are the formation's. Body-scope ruling
+  // (2026-08-27, verbatim: "a body is only a body if it is geometrically
+  // connected or if the users says, this body is the same as that body"):
+  // this menu HAS the body, so the jump reports it alongside the unit.
+  it('BCM7 — "Unit statistics…" reports the body FORMATION id as the unit, AND the clicked body', () => {
     const onShowUnitStatistics = vi.fn()
     render(
       <svg>
@@ -73,7 +76,7 @@ describe('BodyContextMenu', () => {
     )
     fireEvent.click(screen.getByTestId(TESTIDS.unitStatistics))
     expect(onShowUnitStatistics).toHaveBeenCalledOnce()
-    expect(onShowUnitStatistics).toHaveBeenCalledWith(makeBody().formation_id)
+    expect(onShowUnitStatistics).toHaveBeenCalledWith(makeBody().formation_id, makeBody().id)
   })
 
   it('BCM8 — no statistics handler, no item (the no-affordance rule)', () => {
