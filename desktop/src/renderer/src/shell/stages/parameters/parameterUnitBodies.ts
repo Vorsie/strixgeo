@@ -24,6 +24,12 @@ export interface BodyRosterEntry {
   name: string | null
   /** The body's ordinal within its formation's naming group (0-based). */
   body_ordinal: number
+  /**
+   * The body's HOME formation (``BodyOrm.formation_id``) — the one unit row
+   * the body renders under (F1). Optional so label-only fixtures stay valid;
+   * a roster entry without it degrades to per-layer attribution.
+   */
+  formation_id?: string
 }
 
 /** One body row under a unit row in the Parameters list. */
@@ -32,8 +38,10 @@ export interface ParameterUnitBodyRow {
   bodyId: string
   /** Stable display label — see {@link bodyLabelOf}. */
   label: string
-  /** Accepted bands of the unit stamped with this body, either anchor. */
+  /** Accepted bands of this body, either anchor. */
   bandCount: number
+  /** How many of those bands are CPT-anchored — bands the cone pool reads. */
+  cptBandCount: number
   /** Distinct CPTs among those bands (boreholes carry no cone). */
   cptCount: number
 }
@@ -85,41 +93,61 @@ export function bodyLabelOf(
  * unstamped layer (``body_id`` null) belongs to NO body: it pools in the
  * lumped view but forms no row here.
  *
+ * **One body = one row (F1).** A resolver body can span TWO duplicate
+ * formation rows (same name/class/soil, different derived geo-label — 32 of
+ * 175 bodies on the live model), and grouping by the LAYER's ``formation_id``
+ * rendered such a body as two half-counted rows ("1 band · 0 CPTs" beside
+ * "7 bands · 4 CPTs"). The body renders under its HOME formation — the
+ * roster's ``formation_id`` — counting ALL its accepted layers, twins
+ * included. Only a body the roster does not know (stale stamp, roster still
+ * loading, label-only fixture) falls back to per-layer attribution.
+ *
  * Order: roster ordinal ascending (the legend's order), bodies the roster
  * does not know after, tied groups by label then id so the order is total.
  *
  * Parameters
  * ----------
  * layers
- *     Every layer of the scoped model, any status.
+ *     Every layer of the scoped model, any status — INCLUDING other units'
+ *     layers, which is what lets a homed body count its twin-row bands.
  * unitId
  *     The formation whose bodies are wanted.
  * roster
- *     The body roster for labels + order, or ``null`` while loading.
+ *     The body roster for homes, labels + order, or ``null`` while loading.
  *
  * Returns
  * -------
  * ParameterUnitBodyRow[]
- *     One row per stamped body with at least one accepted band.
+ *     One row per stamped body with at least one accepted band that this
+ *     unit row owns.
  */
 export function unitBodyRows(
   layers: readonly BodyLayerRef[],
   unitId: string,
   roster: ReadonlyMap<string, BodyRosterEntry> | null,
 ): ParameterUnitBodyRow[] {
-  const byBody = new Map<string, { bandCount: number; cptIds: Set<string> }>()
+  const byBody = new Map<
+    string,
+    { bandCount: number; cptBandCount: number; cptIds: Set<string> }
+  >()
   for (const layer of layers) {
-    if (layer.formation_id !== unitId) continue
     if (layer.status !== 'accepted') continue
     const bodyId = layer.body_id ?? null
     if (bodyId === null) continue
+    const home = roster?.get(bodyId)?.formation_id ?? null
+    // A homed body belongs to exactly one unit row and counts ALL its layers;
+    // a roster-less body keeps today's per-layer attribution (no guessed home).
+    if (home !== null ? home !== unitId : layer.formation_id !== unitId) continue
     let bucket = byBody.get(bodyId)
     if (bucket === undefined) {
-      bucket = { bandCount: 0, cptIds: new Set() }
+      bucket = { bandCount: 0, cptBandCount: 0, cptIds: new Set() }
       byBody.set(bodyId, bucket)
     }
     bucket.bandCount += 1
-    if (layer.cpt_id !== null) bucket.cptIds.add(layer.cpt_id)
+    if (layer.cpt_id !== null) {
+      bucket.cptBandCount += 1
+      bucket.cptIds.add(layer.cpt_id)
+    }
   }
 
   const rows: ParameterUnitBodyRow[] = []
@@ -128,6 +156,7 @@ export function unitBodyRows(
       bodyId,
       label: bodyLabelOf(bodyId, roster),
       bandCount: bucket.bandCount,
+      cptBandCount: bucket.cptBandCount,
       cptCount: bucket.cptIds.size,
     })
   }
@@ -143,33 +172,76 @@ export function unitBodyRows(
 }
 
 /**
- * How many DISTINCT resolver bodies a unit row lumps.
+ * How many DISTINCT resolver bodies CONTRIBUTE to a unit's pooled statistics.
  *
- * Counts stamped bodies among the row's accepted layers — the ``N`` of the
- * honest header. Unstamped layers say nothing about connectivity and add no
- * body.
+ * The ``N`` of the honest header (F7). Contributing means at least one band
+ * the cone pool actually reads: accepted, CPT-anchored, on a member hole —
+ * the same filters ``unitCptBands`` applies to the pooled (formation) scope.
+ * A borehole-only body or one whose CPTs are off the member set adds nothing
+ * to the pool, so it is not counted (the live case said "16 bodies" where
+ * only 9 contributed).
  *
  * Parameters
  * ----------
  * layers
  *     Every layer of the scoped model, any status.
  * unitId
- *     The formation to count for.
+ *     The formation to count for (the pooled scope is formation-filtered).
+ * memberInvestigationIds
+ *     The pooling population, or ``null`` to skip the membership filter.
  *
  * Returns
  * -------
  * int
- *     The distinct stamped-body count.
+ *     The distinct contributing-body count.
  */
-export function unitBodyCount(layers: readonly BodyLayerRef[], unitId: string): number {
+export function pooledBodyCount(
+  layers: readonly BodyLayerRef[],
+  unitId: string,
+  memberInvestigationIds: ReadonlySet<string> | null,
+): number {
   const bodies = new Set<string>()
   for (const layer of layers) {
     if (layer.formation_id !== unitId) continue
     if (layer.status !== 'accepted') continue
+    if (layer.cpt_id === null) continue
+    if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.cpt_id)) continue
     const bodyId = layer.body_id ?? null
     if (bodyId !== null) bodies.add(bodyId)
   }
   return bodies.size
+}
+
+/**
+ * The unit a body-resolved jump reports (F10) — the body's HOME formation.
+ *
+ * The fill overlays report a region's formation LABEL beside a
+ * layers-resolved body; the label can be a twin row (or, on the geotech
+ * axis, a litho-frame id) while the body's row lives under its home. When a
+ * body resolved, the home wins; with no body, or a body the roster does not
+ * know, the label stands.
+ *
+ * Parameters
+ * ----------
+ * unitId
+ *     The formation id the clicked surface reported (the label).
+ * bodyId
+ *     The resolved body, or ``null``/``undefined`` for a formation-level jump.
+ * roster
+ *     The body roster (the same one the pane groups by), or ``null``.
+ *
+ * Returns
+ * -------
+ * str
+ *     The unit id the jump should report.
+ */
+export function bodyHomeUnitId(
+  unitId: string,
+  bodyId: string | null | undefined,
+  roster: ReadonlyMap<string, BodyRosterEntry> | null,
+): string {
+  if (bodyId == null) return unitId
+  return roster?.get(bodyId)?.formation_id ?? unitId
 }
 
 /**
