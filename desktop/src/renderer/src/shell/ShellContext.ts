@@ -219,6 +219,40 @@ export interface Coordinator {
     } | null,
   ) => void
   /**
+   * Parameters-stage deep-link request — set when the engineer picks "Unit
+   * statistics…" from a geotech band's right-click menu in a cross-section
+   * (owner ballot 2026-08-26, the layer → parameters jump).
+   *
+   * ``AppShell`` watches it, switches to the Parameters stage and writes
+   * ``selectedParameterUnitId`` so the stage opens already scoped to the
+   * band's unit. Cleared on dispatch (single-fire), like its two siblings.
+   *
+   * Unlike ``sectionsDeepLinkTarget`` this one clears SYNCHRONOUSLY: there is
+   * no deferred camera work waiting on the payload, so the cleanup-before-
+   * re-run hazard documented on that effect cannot arise here.
+   *
+   * Same cross-boundary rationale as ``geoDeepLinkTarget``: the writer (a
+   * section overlay) and the consumers (AppShell + the Parameters stage) live
+   * in different React subtrees, and the request must survive the stage
+   * transition.
+   */
+  parametersDeepLinkTarget: { unitId: string } | null
+  /** Set or clear the parameters deep-link target. */
+  setParametersDeepLinkTarget: (target: { unitId: string } | null) => void
+  /**
+   * Geotech unit whose statistics the Parameters stage is scoped to, or
+   * ``null`` when none is chosen.
+   *
+   * Lives in Coordinator rather than inside the Parameters stage because the
+   * stage's canvas (the per-unit table, which writes it on a row click) and
+   * its inspector (which draws the distributions) are mounted as SEPARATE
+   * ``StageDescriptor`` slots taking no props — they can only meet on the bus.
+   * The deep-link above writes it too, from a different stage entirely.
+   */
+  selectedParameterUnitId: string | null
+  /** Select (or clear) the geotech unit the Parameters stage is scoped to. */
+  setSelectedParameterUnitId: (unitId: string | null) => void
+  /**
    * Flag the project as having unsaved MUTATIONS of pre-existing rows.
    *
    * ``projectDirty`` is ``metadataDirty || hasUnsavedMutations || the
