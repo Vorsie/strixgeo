@@ -24,7 +24,11 @@ export const MENU_ITEM_STYLE: React.CSSProperties = {
 /**
  * "Unit statistics…" — reports the clicked ground's FORMATION id (never a
  * layer id: the statistics are a property of the unit, pooled over every band
- * of it in the project).
+ * of it in the project) plus, when the surface knows it, the clicked BODY
+ * (owner ruling 2026-08-27, verbatim: "a body is only a body if it is
+ * geometrically connected or if the users says, this body is the same as
+ * that body" — the unit row lumps many resolver bodies, and a jump that
+ * knows which body was clicked must say so).
  *
  * Renders NOTHING when no handler is wired — the no-affordance rule the band
  * menus follow, rather than a disabled entry for a verb the engineer cannot
@@ -34,6 +38,9 @@ export const MENU_ITEM_STYLE: React.CSSProperties = {
  * ----------
  * unitId
  *     The formation id to report.
+ * bodyId
+ *     The clicked ground's resolver body, or ``null``/absent when the surface
+ *     cannot name one — the jump then stays formation-level (the pooled view).
  * onShow
  *     The jump handler, or ``undefined`` to render nothing.
  * onClose
@@ -46,13 +53,15 @@ export const MENU_ITEM_STYLE: React.CSSProperties = {
  */
 export function UnitStatisticsItem({
   unitId,
+  bodyId = null,
   onShow,
   onClose,
   topBorder = false,
   testid = 'geotech-band-menu-unit-statistics',
 }: {
   unitId: string
-  onShow: ((unitId: string) => void) | undefined
+  bodyId?: string | null
+  onShow: ((unitId: string, bodyId?: string | null) => void) | undefined
   onClose: () => void
   topBorder?: boolean
   testid?: string
@@ -63,7 +72,7 @@ export function UnitStatisticsItem({
       type="button"
       data-testid={testid}
       onClick={() => {
-        onShow(unitId)
+        onShow(unitId, bodyId)
         onClose()
       }}
       style={
