@@ -56,13 +56,16 @@ export const SETTINGS = {
   'settings.litho.voxelVertical': 'Vertical cell (Z) (m)',
   'settings.litho.voxelVerticalHint':
     'Elevation voxel size. Fine Z catches thin layers — a peat drape or sand lens — that a coarse grid would miss. But it multiplies build time: 0.5 m is roughly 4× the voxels (and minutes of build) versus a cubic 2 m grid, so reach for it only when thin layers matter. Range {min}–{max} m. Default {default} m.',
-  'settings.litho.engineV2': 'Partition engine v2 (experimental)',
+  // v2 is the DEFAULT engine (measured flip 2026-08-01, owner confirmed
+  // 2026-08-27 "dit is niet meer experimenteel maar de main engine") — the
+  // toggle exists only as the v1 fallback lever.
+  'settings.litho.engineV2': 'Partition engine v2',
   'settings.litho.engineV2Hint':
-    'Closed-loop face-tracing engine. Renders 2D fill, 3D build and fences. Off = stable v1. Stored on this device (does not travel with the project).',
+    'The main engine: closed-loop face tracing renders the 2D fill, 3D build and fences. Off = fall back to the old v1 engine (troubleshooting only). Stored on this device (does not travel with the project).',
   'settings.litho.engineV2Status':
     'Active engine: {engine} — applied immediately; the Save button below is not needed for this row.',
   'settings.litho.engineV2Name': 'v2 (closed-loop)',
-  'settings.litho.engineV1Name': 'v1 (stable)',
+  'settings.litho.engineV1Name': 'v1 (old fallback)',
 
   'settings.geotech.blurb':
     'Tuning for the NAD packing subdivision ("Subdivide all bodies"). Applies to the next Subdivide call; already-subdivided bodies are unchanged.',
