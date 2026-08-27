@@ -66,6 +66,14 @@ export interface GeotechBandInterval extends DepthInterval {
    * {@link columnIsHandEditable} turns on.
    */
   anchorIsCpt: boolean
+  /**
+   * The resolver body the band belongs to, or ``null`` when the resolver has
+   * not stamped it. OPTIONAL so the many hand-built test fixtures stay valid;
+   * ``columnBands`` always fills it. Carried for the unit-statistics jump
+   * (owner ruling 2026-08-27: a jump that knows its body must report it) —
+   * no edit verb reads it.
+   */
+  bodyId?: string | null
 }
 
 /** Which wall stopped a proposed split, if any. */
@@ -212,10 +220,11 @@ export function bandAtDepth(
  *     The column's bands sorted top to bottom, so the stack matches the drawing.
  */
 export function columnBands(
-  layers: readonly Pick<
+  layers: readonly (Pick<
     LithoLayerResponse,
     'id' | 'formation_id' | 'cpt_id' | 'borehole_id' | 'depth_top_m' | 'depth_base_m'
-  >[],
+  > &
+    Partial<Pick<LithoLayerResponse, 'body_id'>>)[],
   investigationId: string,
 ): GeotechBandInterval[] {
   return layers
@@ -226,6 +235,7 @@ export function columnBands(
       anchorIsCpt: l.cpt_id !== null && l.cpt_id !== undefined,
       topDepthM: l.depth_top_m,
       baseDepthM: l.depth_base_m,
+      bodyId: l.body_id ?? null,
     }))
     .sort((a, b) => a.topDepthM - b.topDepthM)
 }
