@@ -190,10 +190,9 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
   useEffect(() => {
     const target = context.coordinator.parametersDeepLinkTarget
     if (target == null) return
-    log.info(
-      'shell',
-      `parameters-deep-link: stage=parameters kind=${target.kind} unit=${target.unitId}`,
-    )
+    // The five-kind scope has no single ``unitId`` (geotech-class carries a
+    // litho unit + body + class instead), so log the whole discriminated scope.
+    log.info('shell', `parameters-deep-link: stage=parameters ${JSON.stringify(target)}`)
     setActiveStage('parameters')
     context.coordinator.setSelectedParameterUnit(target)
     context.coordinator.setParametersDeepLinkTarget(null)
