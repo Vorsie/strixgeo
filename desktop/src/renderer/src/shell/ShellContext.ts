@@ -26,6 +26,29 @@ import type { UseUndoStackResult } from '../hooks/useUndoStack'
 import type { UseMapStateResult } from '../hooks/useMapState'
 import type { CptListItem, BoreholeListItem, ProjectResponse } from '../api/client'
 
+/** Which model's roster a Parameters unit scope points into. */
+export type ParameterUnitScopeKind = 'litho' | 'geotech'
+
+/**
+ * The unit the Parameters stage is scoped to — a formation row plus WHICH
+ * model it lives in.
+ *
+ * The kind is load-bearing (owner ruling R1, 2026-08-27): a LITHO scope pools
+ * every CPT reading inside the litho unit's accepted bands "regardless of
+ * packing density" — the whole unit, spanning all its NAD subdivisions — while
+ * a GEOTECH scope pools one packing unit's bands. The formation id alone
+ * cannot say which roster to resolve against, and resolving a litho id
+ * against the geotech roster is exactly the silent-empty-statistics bug this
+ * type exists to make unrepresentable.
+ */
+export interface ParameterUnitScope {
+  kind: ParameterUnitScopeKind
+  unitId: string
+}
+
+/** The Parameters stage's canvas tabs. */
+export type ParametersTabId = 'per-test' | 'per-unit' | 'methods'
+
 /**
  * App-level cross-hook coordinator state.
  *
@@ -220,12 +243,13 @@ export interface Coordinator {
   ) => void
   /**
    * Parameters-stage deep-link request — set when the engineer picks "Unit
-   * statistics…" from a geotech band's right-click menu in a cross-section
-   * (owner ballot 2026-08-26, the layer → parameters jump).
+   * statistics…" from a right-click menu in a cross-section (owner ballot
+   * 2026-08-26, the layer → parameters jump; extended 2026-08-27 to litho
+   * units and fill regions).
    *
    * ``AppShell`` watches it, switches to the Parameters stage and writes
-   * ``selectedParameterUnitId`` so the stage opens already scoped to the
-   * band's unit. Cleared on dispatch (single-fire), like its two siblings.
+   * ``selectedParameterUnit`` so the stage opens already scoped to the
+   * clicked unit. Cleared on dispatch (single-fire), like its two siblings.
    *
    * Unlike ``sectionsDeepLinkTarget`` this one clears SYNCHRONOUSLY: there is
    * no deferred camera work waiting on the payload, so the cleanup-before-
@@ -236,22 +260,36 @@ export interface Coordinator {
    * in different React subtrees, and the request must survive the stage
    * transition.
    */
-  parametersDeepLinkTarget: { unitId: string } | null
+  parametersDeepLinkTarget: ParameterUnitScope | null
   /** Set or clear the parameters deep-link target. */
-  setParametersDeepLinkTarget: (target: { unitId: string } | null) => void
+  setParametersDeepLinkTarget: (target: ParameterUnitScope | null) => void
   /**
-   * Geotech unit whose statistics the Parameters stage is scoped to, or
-   * ``null`` when none is chosen.
+   * The unit (litho or geotech — see {@link ParameterUnitScope}) whose
+   * statistics the Parameters stage is scoped to, or ``null`` when none is
+   * chosen.
    *
    * Lives in Coordinator rather than inside the Parameters stage because the
-   * stage's canvas (the per-unit table, which writes it on a row click) and
-   * its inspector (which draws the distributions) are mounted as SEPARATE
-   * ``StageDescriptor`` slots taking no props — they can only meet on the bus.
-   * The deep-link above writes it too, from a different stage entirely.
+   * stage's inspector (the unit list, which writes it on a row click) and its
+   * canvas (which draws the distributions — the R3 layout flip) are mounted
+   * as SEPARATE ``StageDescriptor`` slots taking no props — they can only
+   * meet on the bus. The deep-link above writes it too, from a different
+   * stage entirely.
    */
-  selectedParameterUnitId: string | null
-  /** Select (or clear) the geotech unit the Parameters stage is scoped to. */
-  setSelectedParameterUnitId: (unitId: string | null) => void
+  selectedParameterUnit: ParameterUnitScope | null
+  /** Select (or clear) the unit the Parameters stage is scoped to. */
+  setSelectedParameterUnit: (scope: ParameterUnitScope | null) => void
+  /**
+   * Which tab the Parameters canvas is on.
+   *
+   * On the bus rather than canvas-local state because the R3 layout flip
+   * splits one surface across the two stage slots: the canvas shows the
+   * scoped unit's statistics, the INSPECTOR shows the unit list — but only
+   * while the canvas is on the per-unit tab. The inspector cannot see canvas
+   * state any other way (both slots take no props).
+   */
+  parametersActiveTab: ParametersTabId
+  /** Switch the Parameters canvas tab. */
+  setParametersActiveTab: (tab: ParametersTabId) => void
   /**
    * Flag the project as having unsaved MUTATIONS of pre-existing rows.
    *
