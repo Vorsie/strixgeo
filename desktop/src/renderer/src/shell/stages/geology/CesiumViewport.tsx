@@ -24,6 +24,7 @@ import {
   type SplitLine,
 } from './geology3DPrimitives'
 import { useCameraLink } from './useCameraLink'
+import { useViewportZoomTuning, type ViewportZoomTuning } from './useViewportZoomTuning'
 
 // Single-viewport Cesium widget
 // ---------------------------------------------------------------------------
@@ -84,6 +85,22 @@ export interface CesiumViewportProps {
    * the shared ``DEFAULT_BASEMAP_LID_ALPHA`` (owner ruling B6b, 2026-08-27:
    * only the fence cutout dials it). */
   basemapLidAlpha?: number
+  /**
+   * Overrides the panel set the fence-mode basemap-lid FALLBACK reads (audit
+   * F4, 2026-08-27). Only the Parameters fence cutout passes it: its rendered
+   * walls are the body/unit-FILTERED panels, but the orthophoto footprint and
+   * lid elevation must match the other 3-D stages — the WHOLE model's panels.
+   * Omitted (every shared stage) the fallback keeps reading ``fencePanels``,
+   * byte-identical to before.
+   */
+  lidFootprintPanels?: FencePanel[]
+  /**
+   * Wheel-zoom tuning for THIS viewport (audit F5, 2026-08-27). Only the
+   * Parameters fence cutout passes it; omitted, the controller keeps every
+   * Cesium default and no handler is attached — the shared stages are
+   * byte-identical. See ``useViewportZoomTuning`` for the mechanism.
+   */
+  zoomTuning?: ViewportZoomTuning
   /**
    * Ref this viewport publishes its camera on while mounted, so a sibling
    * viewport can mirror it (compare mode). Null when the viewport unmounts.
@@ -166,6 +183,8 @@ export function CesiumViewport({
   investigationXY,
   footprintRing,
   basemapLidAlpha,
+  lidFootprintPanels,
+  zoomTuning,
   cameraRef,
   followCameraRef,
 }: CesiumViewportProps): JSX.Element {
@@ -287,8 +306,13 @@ export function CesiumViewport({
     // the only geometry, so they supply the lid footprint. Strictly additive:
     // whenever ANY surface or ground TIN exists (every 3-D stage), this arm
     // never fires and the lid rect is byte-identical to before.
-    if (lidSurfaces.length === 0 && fencePanels !== undefined) {
-      for (const panel of fencePanels) lidSurfaces.push({ vertices: panel.vertices })
+    // ``lidFootprintPanels`` (audit F4) lets the cutout feed the FULL model's
+    // panels here while rendering only the filtered walls, so the orthophoto
+    // footprint + elevation match the other 3-D stages; shared stages never
+    // pass it and keep reading ``fencePanels``.
+    const lidPanels = lidFootprintPanels ?? fencePanels
+    if (lidSurfaces.length === 0 && lidPanels !== undefined) {
+      for (const panel of lidPanels) lidSurfaces.push({ vertices: panel.vertices })
     }
     const lid = basemapEnabled ? buildBasemapLid(lidSurfaces, projectEpsg) : null
 
@@ -423,6 +447,9 @@ export function CesiumViewport({
     footprintRing,
     // Lid alpha: a scalar; only the fence cutout ever sets it (B6b).
     basemapLidAlpha,
+    // Lid footprint override: only the fence cutout passes it (F4); its
+    // identity is a caller-memoised array.
+    lidFootprintPanels,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -434,6 +461,9 @@ export function CesiumViewport({
   // Camera link (compare mode) — see useCameraLink for why the follower
   // mirrors in preRender rather than on the camera's `changed` event.
   useCameraLink(mountedScene, cameraRef, followCameraRef)
+
+  // Cutout-only wheel-zoom tuning (F5) — a no-op unless ``zoomTuning`` is set.
+  useViewportZoomTuning(mountedScene, zoomTuning)
 
   // ---------------------------------------------------------------------------
   // Wire click handler for split-line draw interaction
