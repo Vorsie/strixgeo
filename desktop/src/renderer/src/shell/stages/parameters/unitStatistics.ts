@@ -142,7 +142,11 @@ export interface UnitStatistics {
  *   body if it is geometrically connected or if the users says, this body is
  *   the same as that body"). The formation row lumps many resolver bodies; a
  *   body scope must not let a disconnected body of the same class contribute.
- *   An unstamped band belongs to no body and is excluded too.
+ *   An unstamped band belongs to no body and is excluded too. **The body is
+ *   the WHOLE pooling scope (F2):** a body can span two duplicate formation
+ *   rows, so the ``formation_id`` filter does not apply in this branch — the
+ *   audit's live case pooled ZERO samples from the "wrong" twin despite 4
+ *   CPTs of evidence on the same body.
  *
  * Parameters
  * ----------
@@ -178,11 +182,13 @@ export function unitCptBands(
 ): UnitBandInterval[] {
   const out: UnitBandInterval[] = []
   for (const layer of layers) {
-    if (layer.formation_id !== unitId) continue
+    // Body scope: the body IS the scope — the formation filter would hide the
+    // body's bands sitting under a twin formation row (F2).
+    if (bodyId !== null ? (layer.body_id ?? null) !== bodyId : layer.formation_id !== unitId)
+      continue
     if (layer.status !== 'accepted') continue
     if (layer.cpt_id === null) continue
     if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.cpt_id)) continue
-    if (bodyId !== null && (layer.body_id ?? null) !== bodyId) continue
     out.push({
       cptId: layer.cpt_id,
       topDepthM: layer.depth_top_m,
