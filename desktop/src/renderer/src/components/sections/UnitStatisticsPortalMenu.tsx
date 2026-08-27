@@ -16,13 +16,19 @@ export interface UnitStatsMenuState {
   clientX: number
   clientY: number
   formationId: string
+  /**
+   * The clicked ground's resolver body, when the opening surface resolved
+   * one (owner ruling 2026-08-27) — absent/null keeps the jump
+   * formation-level.
+   */
+  bodyId?: string | null
 }
 
 interface Props {
   /** The open state, or ``null`` — the component renders nothing then. */
   menu: UnitStatsMenuState | null
-  /** The jump handler the item forwards the formation id to. */
-  onShow: ((unitId: string) => void) | undefined
+  /** The jump handler the item forwards the formation id (+ body) to. */
+  onShow: ((unitId: string, bodyId?: string | null) => void) | undefined
   /** Close the menu (backdrop click, Esc, wheel, or after the jump). */
   onClose: () => void
   /** data-testid of the menu box. */
@@ -79,6 +85,7 @@ export default function UnitStatisticsPortalMenu({
       >
         <UnitStatisticsItem
           unitId={menu.formationId}
+          bodyId={menu.bodyId ?? null}
           onShow={onShow}
           onClose={onClose}
           testid={itemTestid}
