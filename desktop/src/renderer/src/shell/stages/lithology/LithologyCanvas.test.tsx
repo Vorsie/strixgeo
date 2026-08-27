@@ -400,6 +400,7 @@ function makeCtx(overrides: {
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
+      geotechGaplessReport: null,
     },
     sections: {
       sections: [],
