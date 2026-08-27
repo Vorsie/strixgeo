@@ -27,7 +27,6 @@ import type { BoreholeDetailResponse, LithoLayerResponse } from '../../../api/cl
 import { axisTickValues, fitAxisMax } from '../../../utils/cptAxisScales'
 import { log } from '../../../utils/log'
 import { useShell } from '../../ShellContext'
-import type { ParameterUnitScope } from '../../ShellContext'
 import AxisTickRow from './AxisTickRow'
 import UnitPsdPanel from './UnitPsdPanel'
 import {
@@ -47,10 +46,12 @@ const DOT = 'var(--chart-clr-qc, #111827)'
 const ATTERBERG_KEYS = new Set(['typed:liquid_limit', 'typed:plastic_limit'])
 
 interface Props {
-  /** The unit whose samples are pooled. */
-  scope: ParameterUnitScope
-  /** The scoped model's layer list (litho or geotech, matching the scope). */
-  layers: readonly LithoLayerResponse[]
+  /**
+   * The scoped node's accepted bands from ``bandsForScope`` — the single
+   * band-selection authority. Both anchors; this panel narrows to the
+   * borehole-anchored, member-filtered subset for the OKP + PSD pools.
+   */
+  scopeBands: readonly LithoLayerResponse[]
   /** The pooling population (R6) — canonical section membership union. */
   memberInvestigationIds: ReadonlySet<string>
 }
@@ -70,19 +71,17 @@ interface Props {
  *     there is none, or a retryable error line when the fetch failed.
  */
 export default function UnitIdentificationPanels({
-  scope,
-  layers,
+  scopeBands,
   memberInvestigationIds,
 }: Props): JSX.Element {
   const { project } = useShell()
   const projectId = project.id
 
-  // The body scope narrows the lab + PSD pools too (owner ruling 2026-08-27):
-  // both pool from these SAME bands, so one filter scopes them together.
+  // The lab + PSD pools read the SAME scope bands the statistics do (the one
+  // authority): borehole-anchored, member-filtered. One filter scopes both.
   const bands = useMemo(
-    () =>
-      unitBoreholeBands(layers, scope.unitId, memberInvestigationIds, scope.bodyId ?? null),
-    [layers, scope.unitId, memberInvestigationIds, scope.bodyId],
+    () => unitBoreholeBands(scopeBands, memberInvestigationIds),
+    [scopeBands, memberInvestigationIds],
   )
 
   // Sorted + deduplicated so the fetch key is stable under band reshuffles —
