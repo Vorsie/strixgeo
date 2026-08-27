@@ -74,28 +74,21 @@ export interface IdentificationPool {
 }
 
 /**
- * The unit's accepted BOREHOLE bands — the ground its samples can sit in.
+ * The BOREHOLE-anchored bands the OKP pool may read, out of a scope's bands.
  *
- * The same filters as ``unitCptBands``, with the anchor flipped: this unit,
- * accepted only, borehole-anchored only, (when given) the member set — R6's
- * pooling population, so off-section, hidden and removed holes contribute
- * nothing — and (when given) ONE resolver body (owner ruling 2026-08-27: "a
- * body is only a body if it is geometrically connected or if the users says,
- * this body is the same as that body"; an unstamped band belongs to no body).
- * Under a body scope the body is the WHOLE pooling scope (F2): a body can
- * span two duplicate formation rows, so the ``formation_id`` filter does not
- * apply in that branch.
+ * The sibling of ``unitCptBands`` with the anchor flipped. The SCOPE selection
+ * (unit / body / class) is ``bandsForScope`` — the single authority — so this
+ * applies only the two population filters that stay per spec §3: accepted-only
+ * (defensive) and borehole-anchored-only, plus (when given) the member set —
+ * R6's pooling population, so off-section, hidden and removed holes contribute
+ * nothing.
  *
  * Parameters
  * ----------
- * layers
- *     Every layer of the scoped model (litho or geotech), any status.
- * unitId
- *     The formation whose bands are wanted.
+ * scopeBands
+ *     The scope's bands from ``bandsForScope`` (already selected, accepted).
  * memberInvestigationIds
  *     The pooling population, or ``null`` to skip the filter (tests).
- * bodyId
- *     The one resolver body to scope to, or ``null`` for the whole row.
  *
  * Returns
  * -------
@@ -103,24 +96,16 @@ export interface IdentificationPool {
  *     In arrival order; the pooling does not depend on it.
  */
 export function unitBoreholeBands(
-  layers: readonly {
-    formation_id: string
+  scopeBands: readonly {
     borehole_id: string | null
     depth_top_m: number
     depth_base_m: number
     status: string
-    body_id?: string | null
   }[],
-  unitId: string,
   memberInvestigationIds: ReadonlySet<string> | null = null,
-  bodyId: string | null = null,
 ): UnitBoreholeBandInterval[] {
   const out: UnitBoreholeBandInterval[] = []
-  for (const layer of layers) {
-    // Body scope: the body IS the scope — the formation filter would hide the
-    // body's bands sitting under a twin formation row (F2).
-    if (bodyId !== null ? (layer.body_id ?? null) !== bodyId : layer.formation_id !== unitId)
-      continue
+  for (const layer of scopeBands) {
     if (layer.status !== 'accepted') continue
     if (layer.borehole_id === null) continue
     if (memberInvestigationIds !== null && !memberInvestigationIds.has(layer.borehole_id))
