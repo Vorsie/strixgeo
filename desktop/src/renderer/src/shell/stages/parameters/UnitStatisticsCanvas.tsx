@@ -16,20 +16,13 @@
 import { useMemo } from 'react'
 import { Layers, X } from 'lucide-react'
 
+import type { GeologicalFormationResponse } from '../../../api/client'
 import { memberIdsBySection } from '../../../utils/sectionClassification'
-import { geotechUnitLabel } from '../../../utils/nadClasses'
-import {
-  buildSourceLithoNameMap,
-  sourceLithoNameOf,
-} from '../../../utils/sourceLithoNames'
 import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
-import type { ParameterUnitScope } from '../../ShellContext'
-import {
-  bodyScopedHeaderLabel,
-  pooledBodyCount,
-  pooledHeaderLabel,
-} from './parameterUnitBodies'
+import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
+import { bandsForScope, type ParameterTreeInput } from './parameterBodyTree'
+import { scopeHeaderLabel } from './parameterScopeHeader'
 import UnitDistributionPanels from './UnitDistributionPanels'
 import UnitFenceCutout from './UnitFenceCutout'
 import UnitIdentificationPanels from './UnitIdentificationPanels'
@@ -39,6 +32,24 @@ import { useUnitStatistics } from './useUnitStatistics'
 interface Props {
   /** The unit driving the canvas — set by the inspector list or a deep link. */
   scope: ParameterUnitScope
+}
+
+/** Whether the scope's home formation still exists (deleted / rebuilt = gone). */
+function scopeUnitExists(
+  scope: ParameterUnitScope,
+  lithoFormations: readonly GeologicalFormationResponse[],
+  geotechFormations: readonly GeologicalFormationResponse[],
+): boolean {
+  switch (scope.kind) {
+    case 'litho-unit':
+    case 'litho-body':
+      return lithoFormations.some(f => f.id === scope.unitId)
+    case 'geotech-body':
+    case 'geotech-unit':
+      return geotechFormations.some(f => f.id === scope.unitId)
+    case 'geotech-class':
+      return lithoFormations.some(f => f.id === scope.lithoUnitId)
+  }
 }
 
 /**
@@ -78,6 +89,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
   } = useShell()
 
   const projectId = project.id
+  const model = parameterScopeModel(scope)
 
   // ── The pooling population (R6) ───────────────────────────────────────────
   // Canonical membership per section over the VISIBLE lists; the union is
@@ -93,77 +105,55 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     return union
   }, [bySection])
 
-  // ── Scope resolution (R1) ─────────────────────────────────────────────────
-  // A litho scope reads the LITHO layer list — the whole unit's ground,
-  // spanning every NAD subdivision. A geotech scope reads the geotech list.
-  const layers = scope.kind === 'litho' ? lithoLayers : geotechLayers
-
-  const sourceLithoNameById = useMemo(
-    () => buildSourceLithoNameMap(lithoFormations),
-    [lithoFormations],
+  // ── The body rosters (F9) ─────────────────────────────────────────────────
+  // Both axes' rosters feed the path header labels (a geotech-body row names
+  // its litho unit + litho body too). Each rides its axis's recompute nonce so
+  // the labels — and the homes — follow a body recompute. A no-model axis
+  // fetches nothing (``useModelBodies`` no-ops on a null model id).
+  const lithoBodies = useModelBodies(projectId, activeLithoModel?.id ?? null, bodyRecomputeLithoNonce)
+  const geotechBodies = useModelBodies(
+    projectId,
+    activeGeotechModel?.id ?? null,
+    bodyRecomputeGeotechNonce,
   )
 
-  const unit = useMemo(
-    () =>
-      scope.kind === 'litho'
-        ? (lithoFormations.find(f => f.id === scope.unitId) ?? null)
-        : ((geotechFormations ?? []).find(f => f.id === scope.unitId) ?? null),
+  // ── The one band-selection authority ──────────────────────────────────────
+  // ``bandsForScope`` maps the scope to its accepted bands; every pool below
+  // (statistics, OKP/PSD, the cutout, the counts) reads THIS, never a per-kind
+  // branch (spec §3 / §6).
+  const treeInput = useMemo<ParameterTreeInput>(
+    () => ({
+      lithoFormations,
+      geotechFormations: geotechFormations ?? [],
+      lithoLayers,
+      geotechLayers,
+      lithoBodies,
+      geotechBodies,
+    }),
+    [lithoFormations, geotechFormations, lithoLayers, geotechLayers, lithoBodies, geotechBodies],
+  )
+
+  const unitExists = useMemo(
+    () => scopeUnitExists(scope, lithoFormations, geotechFormations ?? []),
     [scope, lithoFormations, geotechFormations],
   )
 
-  // ── The body scope (owner ruling 2026-08-27) ──────────────────────────────
-  // "a body is only a body if it is geometrically connected or if the users
-  // says, this body is the same as that body." The unit row lumps resolver
-  // bodies; a set ``bodyId`` narrows every pool below to that ONE body, and
-  // the header must say which view it shows either way.
-  const scopedBodyId = scope.bodyId ?? null
-  const bodiesById = useModelBodies(
-    projectId,
-    scope.kind === 'geotech' ? (activeGeotechModel?.id ?? null) : (activeLithoModel?.id ?? null),
-    // F9: the labels (and F1's home formations) go stale after a body
-    // recompute rewrites the stamps — the axis's nonce re-fetches them.
-    scope.kind === 'geotech' ? bodyRecomputeGeotechNonce : bodyRecomputeLithoNonce,
+  const scopeBands = useMemo(
+    () => (unitExists ? bandsForScope(scope, treeInput) : []),
+    [scope, treeInput, unitExists],
   )
 
-  const unitLabel = useMemo(() => {
-    if (unit === null) return 'Unit'
-    const unitName =
-      scope.kind === 'litho'
-        ? (unit.name ?? 'Litho unit')
-        : geotechUnitLabel(unit, sourceLithoNameOf(unit, sourceLithoNameById))
-    if (scopedBodyId !== null) {
-      // Body-scoped: name the one body, the way the 3-D legend names bodies.
-      return bodyScopedHeaderLabel(unitName, scopedBodyId, bodiesById)
-    }
-    const base =
-      scope.kind === 'litho'
-        ? // R1's naming requirement, near-verbatim: the header must SAY the
-          // pool spans the whole unit, every packing class.
-          `${unitName} — whole litho unit, all packing classes`
-        : unitName
-    // The honest label is the ruling's point: the lumped view says it lumps —
-    // counting only bodies CONTRIBUTING to the pool (F7): accepted CPT bands
-    // on member holes, the same filters the pool itself applies.
-    return pooledHeaderLabel(base, pooledBodyCount(layers, scope.unitId, memberIds))
-  }, [unit, scope.kind, scope.unitId, sourceLithoNameById, scopedBodyId, bodiesById, layers, memberIds])
+  // The header names the path (spec §3); the label authority lives in the tree
+  // module so it never drifts from what a node pools.
+  const unitLabel = useMemo(() => scopeHeaderLabel(scope, treeInput), [scope, treeInput])
 
-  // The scope's TOTAL accepted band count — the pane row's number (both
-  // anchors, no member filter): body scope = the body's bands wherever their
-  // formation row (F2's authority); pooled = the formation's bands. Feeds the
-  // header's "X of Y bands" honesty line (F7).
-  const totalBandCount = useMemo(() => {
-    let count = 0
-    for (const layer of layers) {
-      if (layer.status !== 'accepted') continue
-      if (
-        scopedBodyId !== null
-          ? (layer.body_id ?? null) === scopedBodyId
-          : layer.formation_id === scope.unitId
-      )
-        count += 1
-    }
-    return count
-  }, [layers, scopedBodyId, scope.unitId])
+  // A LEAF body scope blames the body, not the unit, on an empty pool (F7); a
+  // class row is an aggregate view, so it does not.
+  const bodyScoped = scope.kind === 'litho-body' || scope.kind === 'geotech-body'
+
+  // The scope's TOTAL accepted band count (both anchors) — feeds the "X of Y
+  // bands" honesty line when the member/anchor-filtered pool is smaller (F7).
+  const totalBandCount = scopeBands.length
 
   const {
     statistics,
@@ -172,14 +162,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     pendingCptCount,
     pooledCptIds,
     retry,
-  } = useUnitStatistics(
-    unit === null ? null : scope.unitId,
-    layers,
-    plotMap,
-    projectId,
-    memberIds,
-    scopedBodyId,
-  )
+  } = useUnitStatistics(scopeBands, plotMap, projectId, memberIds)
 
   // ── The population header line (R6) ───────────────────────────────────────
   const populationNote = useMemo(() => {
@@ -197,7 +180,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     )
   }, [statistics.channels, pooledCptIds, bySection])
 
-  if (unit === null) {
+  if (!unitExists) {
     return (
       <EmptyState
         icon={<Layers />}
@@ -213,7 +196,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
       <div className="flex items-start gap-2 px-3 py-2 border-b border-border-subtle shrink-0">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] uppercase tracking-wide text-text-muted">
-            {scope.kind === 'litho' ? 'Lithostratigraphic unit' : 'Geotechnical unit'}
+            {model === 'litho' ? 'Lithostratigraphic unit' : 'Geotechnical unit'}
           </div>
         </div>
         <button
@@ -254,16 +237,16 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
               pendingCptCount={pendingCptCount}
               populationNote={populationNote}
               totalBandCount={totalBandCount}
-              bodyScoped={scopedBodyId !== null}
+              bodyScoped={bodyScoped}
             />
           )}
 
-          {/* Identification tests (R8) — pooled from the unit's borehole
-              samples; renders nothing louder than a quiet line when there are
-              none. */}
+          {/* Identification tests (R8) — pooled from the SAME scope bands the
+              statistics read (the one authority), so litho / geotech / class /
+              body all pool consistently. Renders nothing louder than a quiet
+              line when there are none. */}
           <UnitIdentificationPanels
-            scope={scope}
-            layers={layers}
+            scopeBands={scopeBands}
             memberInvestigationIds={memberIds}
           />
 
