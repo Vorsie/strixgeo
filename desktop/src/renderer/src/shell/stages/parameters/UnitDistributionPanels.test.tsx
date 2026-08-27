@@ -61,6 +61,45 @@ describe('UnitDistributionPanels', () => {
     expect(screen.queryByTestId('unit-stats-box-qc')).toBeNull()
   })
 
+  it('UP8 — the header states "X of Y bands" when the pool covers fewer bands than the row', () => {
+    // F7 (audit 2026-08-27): the pool is member/anchor-filtered, the pane row
+    // counts every accepted band — when they differ, the header must not let
+    // the smaller pool read as the whole row.
+    render(
+      <UnitDistributionPanels
+        statistics={twoChannelStatistics()}
+        unitLabel="Dicht zand"
+        totalBandCount={5}
+      />,
+    )
+    expect(screen.getByTestId('unit-stats-bandline').textContent).toMatch(/1 of 5 bands/)
+  })
+
+  it('UP8b — with the pool covering every band, the plain count stands', () => {
+    render(
+      <UnitDistributionPanels
+        statistics={twoChannelStatistics()}
+        unitLabel="Dicht zand"
+        totalBandCount={1}
+      />,
+    )
+    const line = screen.getByTestId('unit-stats-bandline').textContent ?? ''
+    expect(line).toMatch(/1 band/)
+    expect(line).not.toMatch(/of 1 band/)
+  })
+
+  it('UP9 — a body-scoped empty state blames the BODY, not the unit', () => {
+    // F7 (audit 2026-08-27): "This unit has no bands on a CPT…" is false
+    // under a body scope — the unit may have plenty; the BODY has none.
+    const empty = computeUnitStatistics([], new Map())
+    render(
+      <UnitDistributionPanels statistics={empty} unitLabel="Silt — body #0" bodyScoped />,
+    )
+    const state = screen.getByTestId('unit-stats-empty')
+    expect(state.textContent).toMatch(/this body has no bands on a cpt/i)
+    expect(state.textContent).not.toMatch(/this unit has no bands/i)
+  })
+
   it('UP3 — the five-number readout carries the real values', () => {
     render(
       <UnitDistributionPanels statistics={twoChannelStatistics()} unitLabel="Dicht zand" />,
