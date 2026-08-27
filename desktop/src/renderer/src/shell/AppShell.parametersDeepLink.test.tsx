@@ -38,12 +38,14 @@ vi.mock('./useShellState', () => ({
   }),
 }))
 
-function makeCtx(target: { unitId: string } | null): {
+function makeCtx(
+  target: { kind: 'litho' | 'geotech'; unitId: string } | null,
+): {
   ctx: ShellContextValue
-  setSelectedParameterUnitId: ReturnType<typeof vi.fn>
+  setSelectedParameterUnit: ReturnType<typeof vi.fn>
   setParametersDeepLinkTarget: ReturnType<typeof vi.fn>
 } {
-  const setSelectedParameterUnitId = vi.fn()
+  const setSelectedParameterUnit = vi.fn()
   const setParametersDeepLinkTarget = vi.fn()
   const ctx = {
     project: { id: 'proj-1' },
@@ -67,15 +69,17 @@ function makeCtx(target: { unitId: string } | null): {
       setSectionsDeepLinkTarget: vi.fn(),
       parametersDeepLinkTarget: target,
       setParametersDeepLinkTarget,
-      selectedParameterUnitId: null,
-      setSelectedParameterUnitId,
+      selectedParameterUnit: null,
+      setSelectedParameterUnit,
+      parametersActiveTab: 'per-test',
+      setParametersActiveTab: vi.fn(),
       correlationEdgesRefetchNonce: 0,
       bodyRecomputeLithoNonce: 0,
       bodyRecomputeGeotechNonce: 0,
       requestBodyRecompute: vi.fn(),
     },
   } as unknown as ShellContextValue
-  return { ctx, setSelectedParameterUnitId, setParametersDeepLinkTarget }
+  return { ctx, setSelectedParameterUnit, setParametersDeepLinkTarget }
 }
 
 beforeEach(() => {
@@ -89,31 +93,39 @@ afterEach(() => {
 
 describe('AppShell — layer → Parameters deep link', () => {
   it('PDL1 — posting a target switches to the Parameters stage', () => {
-    const { ctx } = makeCtx({ unitId: 'unit-7' })
+    const { ctx } = makeCtx({ kind: 'geotech', unitId: 'unit-7' })
     render(<AppShell context={ctx} />)
 
     expect(mockSetActiveStage).toHaveBeenCalledWith('parameters')
   })
 
-  it('PDL2 — preselects the unit that was right-clicked', () => {
-    const { ctx, setSelectedParameterUnitId } = makeCtx({ unitId: 'unit-7' })
+  it('PDL2 — preselects the unit that was right-clicked, kind included', () => {
+    const { ctx, setSelectedParameterUnit } = makeCtx({ kind: 'geotech', unitId: 'unit-7' })
     render(<AppShell context={ctx} />)
 
-    expect(setSelectedParameterUnitId).toHaveBeenCalledWith('unit-7')
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech', unitId: 'unit-7' })
+  })
+
+  it('PDL5 — a LITHO target arrives as a litho scope (the R1 jump)', () => {
+    const { ctx, setSelectedParameterUnit } = makeCtx({ kind: 'litho', unitId: 'litho-3' })
+    render(<AppShell context={ctx} />)
+
+    expect(mockSetActiveStage).toHaveBeenCalledWith('parameters')
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'litho', unitId: 'litho-3' })
   })
 
   it('PDL3 — clears the payload so a re-mount does not re-navigate', () => {
-    const { ctx, setParametersDeepLinkTarget } = makeCtx({ unitId: 'unit-7' })
+    const { ctx, setParametersDeepLinkTarget } = makeCtx({ kind: 'geotech', unitId: 'unit-7' })
     render(<AppShell context={ctx} />)
 
     expect(setParametersDeepLinkTarget).toHaveBeenCalledWith(null)
   })
 
   it('PDL4 — no target, no navigation', () => {
-    const { ctx, setSelectedParameterUnitId } = makeCtx(null)
+    const { ctx, setSelectedParameterUnit } = makeCtx(null)
     render(<AppShell context={ctx} />)
 
     expect(mockSetActiveStage).not.toHaveBeenCalledWith('parameters')
-    expect(setSelectedParameterUnitId).not.toHaveBeenCalled()
+    expect(setSelectedParameterUnit).not.toHaveBeenCalled()
   })
 })
