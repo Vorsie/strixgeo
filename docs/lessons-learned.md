@@ -200,3 +200,51 @@ Three things worth carrying:
   no-op and re-running the failing pair answered it in four minutes: 16.4 s,
   green. Then restore the suspect and fix it properly, so the fix is verified
   against the real failure rather than against its absence.
+
+## A smoke script that re-implements the steps tests the script (2026-08-27)
+
+The bundled-Postgres bring-up (debt #2) was verified with a PowerShell script
+that ran `initdb`, started the server, then invoked the migrator. It passed on
+the first try. The packaged app then failed on its very first boot, on the
+first step the script had "proved", with a 100 %-reproducible error: `initdb`
+refuses any target directory that is not empty, and the real code wrote its
+`--pwfile` **inside** the data directory before calling it. The script had
+written that file to the parent, because that is where a human naturally puts
+a temp file. It never executed a line of the code it was vouching for.
+
+* **A harness that reproduces the steps proves the steps are possible, not
+  that your code performs them.** The only thing that tests the code is
+  calling the code. The fix was an opt-in vitest spec that imports
+  `startEmbeddedStack` itself and runs it against the real staged binaries in
+  a `mkdtemp` profile on an ephemeral port — no Electron, no window, safe to
+  run while the app is in use. It would have failed on day one.
+* **Injected seams hide integration bugs by construction — assert the
+  contract inside the fake.** The same slice shipped an `alembic upgrade` that
+  could never work (`migrations/env.py` calls `asyncio.run`, and the caller was
+  already inside a loop) because the upgrade runner is constructor-injected and
+  every unit test passed a fake. The durable fix was not just the one-line
+  `asyncio.to_thread` but an assertion *inside the fake* that it is never
+  invoked from a thread that owns a running loop — so the seam now enforces
+  what the real implementation needs.
+* **Corollary for anything that writes into a data directory a tool owns:**
+  put transient files (password files, markers, locks) OUTSIDE it. Tools that
+  demand an empty directory are common, and the failure is total, not partial.
+
+## Never point a test run at the app's real user profile (2026-08-27)
+
+Verifying the packaged build meant launching `dist/win-unpacked/StrixGeo.exe`.
+It booted against `app.getPath('userData')` — which resolves from
+`package.json`'s `name`, **not** electron-builder's `build.productName`, and so
+is the *same* `%APPDATA%/ground-model-desktop` the dev app uses. The run
+created a `pgdata`, a credentials file and a log inside the owner's live
+profile, then popped a native error dialog on his desktop mid-session.
+
+* **`productName` in the `build` block does not move `userData`.** If a
+  packaged app should have its own profile, that has to be arranged
+  deliberately — and changing it later orphans whatever the old path holds.
+* **Isolate every launch:** `--user-data-dir=<throwaway>`, and never bind the
+  dev backend's port (`memory/feedback_e2e_port_8765_conflicts_dev_app`).
+  Prefer a headless test that drives the same code (previous lesson) over
+  launching the app at all.
+* **An error dialog is the wrong failure mode for an unattended process.** Log
+  and exit; show a dialog only when a human actually asked for the launch.
