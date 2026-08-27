@@ -8,10 +8,12 @@
 // the mTAW conversion live in ``unitIdentification.ts`` (pure); this file
 // owns the fetch and the drawing.
 //
-// AXES. Every quantity pooled here is non-negative (percentages, densities,
-// contents), so every value axis starts at 0 — the same zero-anchor ruling
-// as the qc/fs/Rf panels. The two Atterberg panels share ONE value scale so
-// vloeigrens and uitrolgrens are visually comparable side by side.
+// AXES. Every quantity pooled here SHOULD be non-negative (percentages,
+// densities, contents), so every value axis starts at 0 — the same
+// zero-anchor ruling as the qc/fs/Rf panels — and a negative lab artefact is
+// OFF AXIS: excluded and counted, never clamped (the S2 rule, adopted here
+// by audit F6). The two Atterberg panels share ONE value scale so vloeigrens
+// and uitrolgrens are visually comparable side by side.
 //
 // FETCH. One ``detail-batch`` round-trip for the unit's member boreholes,
 // only when the unit actually has borehole bands; responses are cached per
@@ -221,9 +223,11 @@ export default function UnitIdentificationPanels({
         <div className="px-3 pb-3 text-[10px] text-text-muted" data-testid="unit-idtests-loading">
           Loading identification tests…
         </div>
-      ) : pool.panels.length === 0 ? (
+      ) : pool.panels.length === 0 && psd.curves.length === 0 ? (
         // The quiet line — never an error (R8.5). Covers both "no borehole
-        // bands at all" and "bands but no lab tests in them".
+        // bands at all" and "bands but no lab tests in them". Gated on BOTH
+        // pools (F8): grain-size curves ARE identification tests, so a
+        // PSD-only unit must not claim to have none right above its curves.
         <div className="px-3 pb-3 text-[10px] text-text-muted" data-testid="unit-idtests-empty">
           No identification tests in this unit.
         </div>
@@ -270,13 +274,23 @@ function IdentificationPanelRow({
   // default keeps the exact pooled max — the revert target.
   const xMax = fit ? fitAxisMax(dataMax, dataMax) : dataMax
 
-  const elevations = panel.points.map(p => p.elevationM)
-  const eMin = Math.min(...elevations)
-  const eMax = Math.max(...elevations)
+  // S2 adopted here too (audit F6): every pooled quantity SHOULD be
+  // non-negative, but a lab artefact can arrive negative, and a zero-anchored
+  // axis cannot place it — excluded and counted, never clamped onto the 0
+  // wall. The reported n stays the true sample count.
+  const onAxisPoints = panel.points.filter(p => p.value >= 0 && p.value <= xMax)
+  const offAxisCount = panel.points.length - onAxisPoints.length
+
+  // The elevation span covers what is DRAWN — an excluded point must not
+  // stretch the axis toward a dot that is not there.
+  const elevations = onAxisPoints.map(p => p.elevationM)
+  const eMin = elevations.length > 0 ? Math.min(...elevations) : 0
+  const eMax = elevations.length > 0 ? Math.max(...elevations) : 0
   const eSpan = eMax - eMin
-  // Zero-anchored X (every pooled quantity is non-negative); elevation maps
-  // top-down — higher ground higher on the panel, the section convention.
-  const toX = (v: number): number => Math.max(0, Math.min(1, v / xMax)) * PLOT_W
+  // Zero-anchored X; no clamp (S2 — anything the axis cannot place is not
+  // drawn); elevation maps top-down — higher ground higher on the panel, the
+  // section convention.
+  const toX = (v: number): number => (v / xMax) * PLOT_W
   const toY = (e: number): number =>
     eSpan <= 1e-9 ? PLOT_H / 2 : PLOT_H - ((e - eMin) / eSpan) * PLOT_H
 
@@ -380,7 +394,7 @@ function IdentificationPanelRow({
             strokeWidth={0.75}
             vectorEffect="non-scaling-stroke"
           />
-          {panel.points.map((p, i) => (
+          {onAxisPoints.map((p, i) => (
             <circle
               key={`pt-${i}`}
               data-testid={`unit-idtests-dot-${panel.key}`}
@@ -397,6 +411,17 @@ function IdentificationPanelRow({
           ))}
         </svg>
       </div>
+
+      {/* S2 notifier (F6) — readings the zero-anchored axis could not place;
+          quiet when nothing fell off. */}
+      {offAxisCount > 0 && (
+        <div
+          className="ml-9 text-[10px] text-text-muted tabular-nums"
+          data-testid={`unit-idtests-offaxis-${panel.key}`}
+        >
+          {offAxisCount} off axis
+        </div>
+      )}
 
       {/* Value-axis tick labels (S3) — the zero anchor plus sublabels; the
           end stays the exact axis max. Shared row with the CPT panels so the
