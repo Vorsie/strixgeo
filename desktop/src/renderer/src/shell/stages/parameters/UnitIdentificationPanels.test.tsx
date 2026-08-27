@@ -111,6 +111,31 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     )
   })
 
+  it('IP7 — PSD-only data is NOT "no identification tests": the quiet line waits for BOTH pools to be empty', async () => {
+    // F8 (audit 2026-08-27): the line rendered off the SCALAR pool alone, so
+    // a unit whose only lab data is grain-size curves said "No identification
+    // tests in this unit." directly above a populated PSD panel.
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, {
+          grain_sizes: [
+            { id: 'gs1', diameters_mm: [0.002, 0.063, 2], pct_larger: [90, 40, 5] },
+          ],
+        }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('unit-psd-panel')).toBeTruthy())
+    expect(screen.queryByTestId('unit-idtests-empty')).toBeNull()
+  })
+
   it('IP3 — the value axis starts at zero: dot positions are in the values ratio', async () => {
     detailBatch.mockResolvedValue([
       bhDetail('bh-1', 'B1', 10, [
