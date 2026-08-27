@@ -150,6 +150,7 @@ export const SECTIONS = {
   'sections.menu.mergeLayers': 'Merge layers',
   'sections.menu.removeLithoUnit': 'Remove this litho unit',
   'sections.menu.addSuggestionHere': 'Add new suggestion here',
+  'sections.menu.unitStatistics': 'Unit statistics…',
   'sections.menu.insertLayerHere': 'Insert layer here…',
   'sections.menu.editComposition': 'Edit composition…',
   'sections.menu.splitLayer': 'Split layer',
