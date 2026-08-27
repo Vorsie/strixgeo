@@ -48,17 +48,15 @@ export interface UseUnitStatisticsResult {
 }
 
 /**
- * Statistics for the currently-scoped geotech unit.
+ * Statistics for the currently-scoped Parameters node.
  *
  * Parameters
  * ----------
- * unitId
- *     The formation to summarise, or ``null`` when none is chosen —
- *     the hook then does no work and reports an empty result.
- * layers
- *     Every layer of the SCOPED model (geotech for a geotech unit, litho for
- *     a litho unit — the hook is shape-agnostic), any status, either anchor.
- *     The hook filters it down to this unit's accepted, CPT-anchored bands.
+ * scopeBands
+ *     The scoped node's accepted bands from ``bandsForScope`` — the single
+ *     band-selection authority. An empty list means no node is scoped, so the
+ *     hook does no work and reports an empty result. The hook narrows these to
+ *     their CPT-anchored, member-filtered subset for the arithmetic.
  * plotMap
  *     The shell's shared per-CPT plot cache. Consulted FIRST so a hole the
  *     engineer already opened is never re-fetched.
@@ -69,10 +67,6 @@ export interface UseUnitStatisticsResult {
  *     the app's VISIBLE lists (owner ruling 2026-08-27: only CPTs on the
  *     sections pool; hidden and removed are excluded). ``null`` skips the
  *     filter.
- * bodyId
- *     The ONE resolver body to pool, or ``null`` for the whole formation row
- *     (owner body-scope ruling 2026-08-27 — a disconnected body of the same
- *     class must contribute nothing to a body-scoped view).
  *
  * Returns
  * -------
@@ -80,17 +74,14 @@ export interface UseUnitStatisticsResult {
  *     Statistics plus the loading / error / incompleteness state.
  */
 export function useUnitStatistics(
-  unitId: string | null,
-  layers: readonly LithoLayerResponse[],
+  scopeBands: readonly LithoLayerResponse[],
   plotMap: ReadonlyMap<string, CptPlotResponse>,
   projectId: string,
   memberInvestigationIds: ReadonlySet<string> | null = null,
-  bodyId: string | null = null,
 ): UseUnitStatisticsResult {
   const bands = useMemo(
-    () =>
-      unitId === null ? [] : unitCptBands(layers, unitId, memberInvestigationIds, bodyId),
-    [layers, unitId, memberInvestigationIds, bodyId],
+    () => unitCptBands(scopeBands, memberInvestigationIds),
+    [scopeBands, memberInvestigationIds],
   )
 
   // Sorted + de-duplicated so the fetch key below is stable under any band
@@ -115,7 +106,7 @@ export function useUnitStatistics(
   plotMapRef.current = plotMap
 
   useEffect(() => {
-    if (unitId === null || cptIds.length === 0) {
+    if (cptIds.length === 0) {
       setFetched(new Map())
       setLoading(false)
       setError(null)
@@ -160,7 +151,7 @@ export function useUnitStatistics(
     // on the array itself refires on every re-identification even when it
     // names the same holes. ``plotMapRef`` is a ref by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitId, cptIdsKey, projectId, retryNonce])
+  }, [cptIdsKey, projectId, retryNonce])
 
   const seriesByCpt = useMemo<Map<string, UnitChannelSeries>>(() => {
     const out = new Map<string, UnitChannelSeries>()
