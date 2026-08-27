@@ -44,6 +44,21 @@ export type ParameterUnitScopeKind = 'litho' | 'geotech'
 export interface ParameterUnitScope {
   kind: ParameterUnitScopeKind
   unitId: string
+  /**
+   * ONE resolver body inside the unit, or absent/null for the whole formation
+   * row (the pooled view).
+   *
+   * Owner ruling 2026-08-27, verbatim: *"a body is only a body if it is
+   * geometrically connected or if the users says, this body is the same as
+   * that body."* A unit row is a (soil, NAD-class, geo-label) formation row
+   * that LUMPS many resolver bodies — 32 rows carried 175 bodies on the live
+   * model — and the resolver's connected components (geometric connection +
+   * user-accepted ties) already implement his body definition. When set, the
+   * statistics pool, the lab pool, the PSD pool and the fence cutout all
+   * narrow to bands stamped with this ``body_id``; body resolution itself is
+   * untouched.
+   */
+  bodyId?: string | null
 }
 
 /** The Parameters stage's canvas tabs. */
