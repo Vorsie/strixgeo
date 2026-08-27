@@ -1,9 +1,14 @@
-// Parameters stage inspector — the per-CPT plot surface.
+// Parameters stage inspector — the per-CPT plot surface, and (on the
+// per-unit tab) the UNIT LIST.
 //
 // Owner ruling (dogfeed 2026-08-03): the empty right-hand inspector pane
 // BECOMES the per-CPT plot surface. Clicking a row in the per-test table
 // selects the CPT; this pane then shows a header, the water-table line, and the
 // tall depth-synced panels (qc | fs+Rf | Ic | both SBT strips).
+//
+// Owner ruling R3 (2026-08-27): on the PER-UNIT tab this pane is the unit
+// list instead — the statistics it used to draw here are the canvas now
+// ("switch statistics and list from pane"). See ``UnitListPane``.
 //
 // Two things it owns that nothing else does:
 //   * the SBT profile fetch — on demand at selection, never eagerly for every
@@ -31,16 +36,10 @@ import type { CptPlotResponse, CptSbtProfileResponse, GwtProvenance } from '../.
 import { formatNumericForDisplay, tryParseNumeric } from '../../../components/ui/NumericInput'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
-import { geotechUnitLabel } from '../../../utils/nadClasses'
-import {
-  buildSourceLithoNameMap,
-  sourceLithoNameOf,
-} from '../../../utils/sourceLithoNames'
 import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import CptSbtDepthPanels from './CptSbtDepthPanels'
-import UnitDistributionPanels from './UnitDistributionPanels'
-import { useUnitStatistics } from './useUnitStatistics'
+import UnitListPane from './UnitListPane'
 
 /** How the water-table line reads for each provenance. */
 const GWT_PROVENANCE_LABEL: Record<GwtProvenance, string> = {
@@ -65,13 +64,7 @@ export default function ParametersInspector(): JSX.Element {
   const {
     project,
     investigations: { cpts, plotMap },
-    geoModel: { geotechLayers, geotechFormations, lithoFormations },
-    coordinator: {
-      selectedId,
-      markMutated,
-      selectedParameterUnitId,
-      setSelectedParameterUnitId,
-    },
+    coordinator: { selectedId, markMutated, parametersActiveTab },
     toasts: { toast },
   } = useShell()
 
@@ -209,96 +202,15 @@ export default function ParametersInspector(): JSX.Element {
     [selectedId, projectId, toast, markMutated],
   )
 
-  // ── Per-unit statistics ───────────────────────────────────────────────────
-  // The other subject this pane can have (owner ballot 2026-08-26): a geotech
-  // unit rather than a single test. Reached from the per-unit table's row
-  // click, or from a geotech band's "Unit statistics…" menu in a section.
-
-  const {
-    statistics: unitStatistics,
-    loading: unitLoading,
-    error: unitError,
-    pendingCptCount,
-    retry: retryUnit,
-  } = useUnitStatistics(selectedParameterUnitId, geotechLayers, plotMap, projectId)
-
-  const selectedUnit = useMemo(
-    () =>
-      selectedParameterUnitId === null
-        ? null
-        : (geotechFormations.find(f => f.id === selectedParameterUnitId) ?? null),
-    [geotechFormations, selectedParameterUnitId],
-  )
-
-  // The unit's source litho name — reached through ``source_litho_formation_id``,
-  // NOT ``parent_formation_name`` (always null on a geotech row; see
-  // ``sourceLithoNames.ts``). It is what tells two same-soil units apart.
-  const selectedUnitSourceName = useMemo(
-    () =>
-      selectedUnit === null
-        ? null
-        : sourceLithoNameOf(selectedUnit, buildSourceLithoNameMap(lithoFormations)),
-    [selectedUnit, lithoFormations],
-  )
-
   // ── Render ────────────────────────────────────────────────────────────────
   // Every hook above runs unconditionally; the early returns start here.
 
-  // A chosen UNIT wins over a chosen test: it is the more recent, more
-  // explicit gesture, and the per-test tab clears it when the engineer goes
-  // back to looking at one hole.
-  if (selectedParameterUnitId !== null) {
-    return (
-      <div className="flex flex-col h-full min-h-0" data-testid="parameters-inspector-unit">
-        {/* Header carries the way OUT of the unit view — without it the only
-            escape from a deep-linked unit is to click a test row. */}
-        <div className="flex items-start gap-2 px-3 py-2 border-b border-border-subtle shrink-0">
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-wide text-text-muted">
-              Geotechnical unit
-            </div>
-          </div>
-          <button
-            onClick={() => setSelectedParameterUnitId(null)}
-            title="Close the unit statistics"
-            aria-label="Close the unit statistics"
-            className="shrink-0 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-app"
-            data-testid="parameters-unit-close"
-          >
-            <X size={12} />
-          </button>
-        </div>
-        {unitError !== null ? (
-          <div
-            className="flex flex-col items-start gap-2 px-3 py-3 text-[11px] text-status-danger"
-            data-testid="parameters-unit-error"
-          >
-            <span>{unitError}</span>
-            <button
-              onClick={retryUnit}
-              className="px-2 py-0.5 rounded border border-border-default text-text-primary hover:bg-surface-app"
-              data-testid="parameters-unit-retry"
-            >
-              Retry
-            </button>
-          </div>
-        ) : unitLoading ? (
-          <div className="flex-1 min-h-0" data-testid="parameters-unit-loading">
-            <LoadingState label="Loading measurements…" />
-          </div>
-        ) : (
-          <UnitDistributionPanels
-            statistics={unitStatistics}
-            unitLabel={
-              selectedUnit === null
-                ? 'Unit'
-                : geotechUnitLabel(selectedUnit, selectedUnitSourceName)
-            }
-            pendingCptCount={pendingCptCount}
-          />
-        )}
-      </div>
-    )
+  // The per-unit tab's inspector IS the unit list (owner ruling R3,
+  // 2026-08-27: "switch statistics and list from pane") — the statistics it
+  // used to draw here are the canvas now, and the list is how the engineer
+  // drives them.
+  if (parametersActiveTab === 'per-unit') {
+    return <UnitListPane />
   }
 
   if (selectedId === null) {
