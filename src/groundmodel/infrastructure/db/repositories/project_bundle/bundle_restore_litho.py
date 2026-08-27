@@ -199,6 +199,13 @@ async def _restore_geological_models(
     new_models = 0
     new_contacts = 0
     skipped_orphan_contacts = 0
+    # Deferred self-referential FK: a geotech band's parent_litho_layer_id
+    # points at the accepted litho band it subdivides. Applied in a second pass
+    # (below) rather than inline, because the bundle build has no ORDER BY and a
+    # geotech model can appear BEFORE its litho parent — inserting the child's
+    # self-FK inline would FK-violate. Same deferred-FK pattern as
+    # _attach_companion_body_links.  ``{layer_id: parent_litho_layer_id}``.
+    deferred_parent_links: dict[UUID, UUID] = {}
 
     for m_payload in geological_models_payload:
         m_id = _uuid(m_payload.get("id"))
@@ -356,6 +363,13 @@ async def _restore_geological_models(
             # pass — restoring it here would FK-violate, since bodies are
             # restored in a later phase (after every geological model).
             layer_kwargs.pop("body_id", None)
+            # parent_litho_layer_id is a SELF-referential FK (geotech band →
+            # covering litho band). Defer it to the second pass so a
+            # child-before-parent model order cannot FK-violate on insert; drop
+            # it from the inline kwargs so nothing writes it prematurely.
+            parent_ref = layer_kwargs.pop("parent_litho_layer_id", None)
+            if lid is not None and parent_ref is not None:
+                deferred_parent_links[lid] = parent_ref
             valid_layers.append(LithoLayerOrm(**layer_kwargs))
         model.litho_layers = valid_layers
         if skipped_orphan_layers:
@@ -378,6 +392,51 @@ async def _restore_geological_models(
             f"restore_project_bundle({project_id}): skipped "
             f"{skipped_orphan_contacts} orphan-formation contacts (missing formation row in bundle)"
         )
+
+    # ---- Second pass: the deferred parent-band self-FK -------------------
+    # Every layer of every model is now queued; flush so the explicit inserts
+    # AND the FC→LL trigger's accepted-litho materialisations both land before
+    # we read the valid-layer set. Only then can a geotech band point at its
+    # covering litho band without the insert order mattering.
+    if deferred_parent_links:
+        await session.flush()
+        valid_layer_ids: set[UUID] = set(
+            (
+                await session.execute(
+                    select(LithoLayerOrm.id)
+                    .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
+                    .where(GeologicalModelOrm.app_project_id == project_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        applied = 0
+        dropped_parent = 0
+        for layer_id, parent_id in deferred_parent_links.items():
+            # Bundle-injection + dangling-FK guard: both endpoints must be a
+            # litho band in THIS project. A parent that never restored drops to
+            # NULL — the honest orphan state the tree reports, never a
+            # cross-project attach.
+            if layer_id not in valid_layer_ids or parent_id not in valid_layer_ids:
+                dropped_parent += 1
+                continue
+            await session.execute(
+                update(LithoLayerOrm)
+                .where(LithoLayerOrm.id == layer_id)
+                .values(parent_litho_layer_id=parent_id)
+            )
+            applied += 1
+        logger.debug(
+            f"restore_project_bundle({project_id}): stamped {applied} parent-band "
+            f"FK(s) in the deferred pass"
+        )
+        if dropped_parent:
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropped {dropped_parent} "
+                f"parent-band FK(s) to NULL (parent litho band not in this project)"
+            )
+
     return new_models, new_contacts
 
 
