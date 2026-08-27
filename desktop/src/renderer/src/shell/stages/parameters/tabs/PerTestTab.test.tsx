@@ -35,7 +35,6 @@ let mockSelectedId: string | null = null
 const mockHandleSelect = vi.fn(async () => {})
 const mockHandleSelectWithoutView = vi.fn(async () => {})
 const mockSetView = vi.fn()
-const mockSetSelectedParameterUnitId = vi.fn()
 
 vi.mock('../../../ShellContext', () => ({
   useShell: () => ({
@@ -49,9 +48,6 @@ vi.mock('../../../ShellContext', () => ({
       handleSelect: mockHandleSelect,
       handleSelectWithoutView: mockHandleSelectWithoutView,
       setView: mockSetView,
-      // A row click clears any scoped unit, so the inspector shows the test
-      // rather than staying on the unit that outranks it.
-      setSelectedParameterUnitId: mockSetSelectedParameterUnitId,
     },
   }),
 }))
