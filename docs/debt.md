@@ -190,10 +190,32 @@ Fork B ~1–2 weeks, touches the array-backed depth-series schema).
 Recommendation recorded: Fork A, SQLite as a documented escape
 hatch. Pick up from that doc when revisiting — no need to re-derive.
 
-**When to revisit.** When the v1.0 feature set is ship-ready, and
-before the first clean-box coworker install. Build the Fork A
-prototype on a clean Windows machine without Docker per the
-decision doc's "proposed build step".
+**BUILT 2026-08-27 — Fork A implemented; awaiting a clean-box pass.**
+See [distribution-build.md](distribution-build.md) for the full
+procedure and the decisions. In brief: `scripts/build-embedded-postgres.ps1`
+stages PostgreSQL 16.10 + PostGIS 3.6.2 (309 MB after pruning pgAdmin
+and the unused bundled extensions; PROJ grids kept so `ST_Transform`
+works offline), `scripts/build-embedded-python.ps1` stages a relocated
+python-build-standalone with the `uv export --no-dev` set plus the
+backend as source, and `desktop/src/main/embedded/` boots the pair on a
+dynamically-acquired port before the window opens. Python blast radius
+was indeed zero, as the fork analysis predicted — `DATABASE_URL` is all
+the backend needed. Two things the analysis did not foresee, both now
+fixed: a packaged build sets `ENVIRONMENT=production`, under which the
+backend hard-refuses the default `SECRET_KEY`, so the installer
+generates one per install alongside the DB password; and
+`migrations/env.py` drives an async engine, so `alembic upgrade` had to
+move off the calling thread.
+
+Verified end to end on this machine: `initdb` → server → `CREATE
+EXTENSION postgis` → all 96 migrations to head in 4.2 s → `ST_Transform`
+to Lambert72 → clean `pg_ctl` shutdown.
+
+**When to revisit.** On the first install on a machine that is NOT the
+development box — specifically one with no Docker, a non-ASCII/spaced
+user profile, and an antivirus that has never seen these binaries. The
+port-conflict and read-only-install failure modes are covered by unit
+tests; the AV and locale ones can only be settled on real hardware.
 
 ## 3. Subscription activation system (medium → blocking before paid release) — re-scoped 2026-06-25 from "license keys"
 
@@ -309,6 +331,34 @@ membership + signing + Apple notary upload). Linux can ship
 unsigned today.
 
 **Why deferred.** Same as #3 — pre-revenue, premature.
+
+**INSTALLER HALF DONE 2026-08-27.** `npm run dist` in `desktop/`
+produces an unsigned NSIS `StrixGeo-Setup-<version>.exe` carrying the
+bundled Postgres + Python (debt #2). Per-user install
+(`perMachine: false`) so there is no UAC prompt for a coworker whose IT
+withholds admin, and `deleteAppDataOnUninstall: false` so an uninstall
+never destroys a `pgdata` holding projects that were never saved to a
+`.strix`. Details in [distribution-build.md](distribution-build.md).
+
+**What remains under this number:** code signing and auto-update only.
+SmartScreen still warns ("Windows protected your PC" → More info → Run
+anyway), which `memory/project_coworker_distribution` accepts for
+trusted internal testers.
+
+**One OWNER DECISION is pending** before the first real install, written up
+in [distribution-build.md](distribution-build.md) → "Open decision": the
+packaged app's `userData` resolves from `package.json`'s `name`, not from
+`build.productName`, so an install shares `%APPDATA%\ground-model-desktop\`
+with the dev session. Harmless today (dev never starts the embedded stack)
+but worth settling while no install exists to strand — the packaged-only
+`app.setPath` option costs nothing and touches no existing profile.
+
+**Not yet done:** the install → boot → uninstall pass on a real machine.
+The installer builds and the boot path is verified headlessly against the
+real bundled binaries (`STRIX_EMBEDDED_INTEGRATION=1`), but no GUI launch
+has been performed — see the same doc's "Verifying a change without
+launching the app" for why, and for the two rules any such launch must
+follow.
 
 **When.** In parallel with #3, before the first paid release.
 Auto-update is especially important because future .gmproj format
