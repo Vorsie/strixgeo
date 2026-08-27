@@ -54,6 +54,14 @@ Cesium.Ion.defaultAccessToken = ''
  * project extents (a few km) but comfortably beats depth precision. */
 export const Z_OFFSET_PER_ORDER = 0.2
 
+/**
+ * Basemap lid alpha the shared 3-D stages render at — the pre-B6 baked-in
+ * 0.65, now named so the fence cutout can dial ITS copy without touching
+ * the stages (owner ruling B6b, 2026-08-27; the cutout's value lives in
+ * ``parameters/unitFenceSceneConstants.ts``).
+ */
+export const DEFAULT_BASEMAP_LID_ALPHA = 0.65
+
 /** How far (m) the translucent formation/ground/lid surfaces are receded
  * from the true split plane before clipping, so their cut edge never lands
  * exactly coplanar with the OPAQUE cut-face caps (which sit on the true
@@ -1194,6 +1202,7 @@ export function rebuildSurfacePrimitives(
   investigationXY?: readonly (readonly [number, number])[],
   hiddenBodyIds?: ReadonlySet<string>,
   footprintRing?: readonly (readonly number[])[],
+  basemapLidAlpha: number = DEFAULT_BASEMAP_LID_ALPHA,
 ): void {
   scene.primitives.removeAll()
 
@@ -1326,8 +1335,10 @@ export function rebuildSurfacePrimitives(
             translucent: true,
             material: Cesium.Material.fromType('Image', {
               image: lid.url,
-              // alpha < 1 → see-through aerial (requested).
-              color: new Cesium.Color(1, 1, 1, 0.65),
+              // alpha < 1 → see-through aerial (requested). The stages pass
+              // nothing and keep DEFAULT_BASEMAP_LID_ALPHA; the fence cutout
+              // dials its own (owner ruling B6b, 2026-08-27).
+              color: new Cesium.Color(1, 1, 1, basemapLidAlpha),
             }),
           }),
           asynchronous: false,
