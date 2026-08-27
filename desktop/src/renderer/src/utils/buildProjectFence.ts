@@ -132,6 +132,10 @@ export function buildProjectFence(
     const fenceRegions: FenceRegion[] = regions.map((r) => ({
       formationId: r.formationId,
       bodyId: r.bodyId,
+      // The label-independent identity: the cutout's body scope resolves a
+      // panel through THESE, never through the bodyId label above (which the
+      // weld mints locally / the recompute rewrites — the CS1 wall gaps).
+      layerIds: r.layerIds,
       gapIndex: r.gapIndex,
       polygon: r.polygon,
     }))
