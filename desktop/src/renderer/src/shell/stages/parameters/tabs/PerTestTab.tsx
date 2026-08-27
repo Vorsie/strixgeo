@@ -50,7 +50,7 @@ type SortKey = 'name' | 'kind' | 'depth_m' | 'ic_avg'
 export default function PerTestTab(): JSX.Element {
   const {
     investigations: { cpts, boreholes, plotMap },
-    coordinator: { selectedId, handleSelectWithoutView },
+    coordinator: { selectedId, handleSelectWithoutView, setSelectedParameterUnitId },
   } = useShell()
 
   const [sortKey, setSortKey] = useState<SortKey>('name')
@@ -158,6 +158,11 @@ export default function PerTestTab(): JSX.Element {
   // rather than selecting something the inspector cannot draw.
   function handleRowClick(r: Row): void {
     if (r.kind !== 'CPT') return
+    // Looking at one hole means no longer looking at a unit. The inspector
+    // gives a chosen UNIT precedence over a chosen test (it is the more
+    // explicit gesture), so without this clear a row click here would appear
+    // to do nothing while a unit was still scoped.
+    setSelectedParameterUnitId(null)
     void handleSelectWithoutView(r.id)
   }
 
