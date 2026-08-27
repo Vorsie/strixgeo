@@ -3,14 +3,16 @@
 // list from pane") — the unit LIST lives in the right-hand pane; clicking a
 // row selects the unit driving the canvas.
 //
-// RL1 — on the per-unit tab the inspector shows the unit list.
-// RL2 — clicking a row selects that unit (geotech scope).
-// RL3 — the list keeps its information: NAD class, source litho unit, band
-//       count — and the Phase-5 note stays visible.
-// RL4 — a litho-only project lists the litho units, and clicking one selects
-//       a LITHO scope (the R1 pooling — whole unit, all packing classes).
+// The pane is now the body TREE (litho unit ▸ litho body ▸ NAD class ▸ geotech
+// body); this inspector test is the WIRING check (the tree's own behaviour is
+// pinned in UnitListPane.test.tsx). Testids moved to ``parameters-node-*``.
+//
+// RL1 — on the per-unit tab the inspector shows the unit tree.
+// RL2 — clicking a litho-unit node selects the litho-unit scope.
+// RL3 — the row states its band count, and the Phase-5 note stays visible.
+// RL4 — a litho-only project lists its litho units (never blank).
 // RL5 — on the per-test tab the inspector still serves the per-CPT surface,
-//       not the list.
+//       not the tree.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +24,7 @@ const setSelectedParameterUnit = vi.fn()
 let mockTab: 'per-test' | 'per-unit' | 'methods' = 'per-unit'
 let mockGeotechFormations: unknown[] = []
 let mockGeotechLayers: unknown[] = []
+let mockLithoLayers: unknown[] = []
 
 vi.mock('../../../api/client', () => ({
   api: {
@@ -47,6 +50,7 @@ vi.mock('../../ShellContext', () => ({
         {
           id: 'litho-1',
           name: 'Zand van Diest',
+          display_order: 0,
           parent_formation_name: 'Diest',
           nad_class: null,
           litho_main_soil_code: 'ZAND',
@@ -54,10 +58,13 @@ vi.mock('../../ShellContext', () => ({
         },
       ],
       geotechFormations: mockGeotechFormations,
+      lithoLayers: mockLithoLayers,
       geotechLayers: mockGeotechLayers,
-      // F12: the pane gates its roster choice on the loaded flag — a mock
-      // without it would render the loading state forever.
+      // F12: the pane gates on the loaded flag — a mock without it would render
+      // the loading state forever.
       geotechLayersLoaded: true,
+      activeLithoModel: null,
+      activeGeotechModel: null,
     },
     coordinator: {
       selectedId: null,
@@ -65,6 +72,8 @@ vi.mock('../../ShellContext', () => ({
       parametersActiveTab: mockTab,
       selectedParameterUnit: null,
       setSelectedParameterUnit,
+      bodyRecomputeLithoNonce: 0,
+      bodyRecomputeGeotechNonce: 0,
     },
     toasts: { toast: vi.fn() },
   }),
@@ -76,88 +85,67 @@ afterEach(() => {
   mockTab = 'per-unit'
   mockGeotechFormations = []
   mockGeotechLayers = []
+  mockLithoLayers = []
 })
 
-function classifiedUnit() {
-  return {
-    id: 'geo-1',
-    name: '',
-    nad_class: 6,
-    litho_main_soil_code: 'ZAND',
-    source_litho_formation_id: 'litho-1',
-    parent_formation_name: null,
-    color: '#aabbcc',
-    color_override: null,
-  }
-}
-
-function bandOf(unitId: string, id: string) {
+/** One accepted CPT-anchored litho band of litho-1, body lb1. */
+function lithoBand(id: string) {
   return {
     id,
-    formation_id: unitId,
+    formation_id: 'litho-1',
     cpt_id: 'cpt-a',
     borehole_id: null,
     depth_top_m: 0,
     depth_base_m: 2,
     status: 'accepted',
+    body_id: 'lb1',
+    parent_litho_layer_id: null,
   }
 }
 
-describe('ParametersInspector — the unit list lives in the pane (R3)', () => {
-  it('RL1 — on the per-unit tab the inspector shows the unit list', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+describe('ParametersInspector — the unit tree lives in the pane (R3)', () => {
+  it('RL1 — on the per-unit tab the inspector shows the unit tree', () => {
+    mockLithoLayers = [lithoBand('L1')]
     render(<ParametersInspector />)
 
     expect(screen.getByTestId('parameters-unit-list')).toBeTruthy()
-    expect(screen.getByTestId('parameters-unit-geo-1')).toBeTruthy()
+    // The litho unit is the top level of the tree.
+    expect(screen.getByTestId('parameters-node-litho-unit:litho-1')).toBeTruthy()
   })
 
-  it('RL2 — clicking a row selects that unit as the canvas scope', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+  it('RL2 — clicking a litho-unit node selects the litho-unit scope', () => {
+    mockLithoLayers = [lithoBand('L1')]
     render(<ParametersInspector />)
 
-    fireEvent.click(screen.getByTestId('parameters-unit-geo-1'))
+    fireEvent.click(screen.getByTestId('parameters-node-litho-unit:litho-1'))
 
     expect(setSelectedParameterUnit).toHaveBeenCalledWith({
-      kind: 'geotech',
-      unitId: 'geo-1',
+      kind: 'litho-unit',
+      unitId: 'litho-1',
     })
   })
 
-  it('RL3 — the list keeps its information and the Phase-5 note stays visible', () => {
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1'), bandOf('geo-1', 'l2')]
+  it('RL3 — the row states its band count and the Phase-5 note stays visible', () => {
+    mockLithoLayers = [lithoBand('L1'), lithoBand('L2')]
     render(<ParametersInspector />)
 
-    const row = screen.getByTestId('parameters-unit-geo-1')
-    const text = row.textContent ?? ''
-    // NAD class, source litho unit, band count — the list's information.
-    expect(text).toMatch(/NAD 6/)
-    expect(text.toLowerCase()).toContain('sand')
-    expect(screen.getByTestId('parameters-unit-bands-geo-1').textContent).toContain('2')
+    const count = screen.getByTestId('parameters-node-count-litho-unit:litho-1')
+    expect(count.textContent).toContain('2 bands')
+    expect(count.textContent).toContain('2 with cone')
     // The φ′/c′/cu/E50 dash columns became a compact hint — still visible.
     const note = screen.getByTestId('parameters-unit-phase5-note').textContent ?? ''
     expect(note).toMatch(/φ′/)
     expect(note).toMatch(/Phase 5/i)
   })
 
-  it('RL4 — a litho-only project lists litho units; clicking selects a LITHO scope', () => {
+  it('RL4 — a litho-only project lists its litho units (never blank)', () => {
     render(<ParametersInspector />)
-
-    fireEvent.click(screen.getByTestId('parameters-unit-litho-1'))
-
-    expect(setSelectedParameterUnit).toHaveBeenCalledWith({
-      kind: 'litho',
-      unitId: 'litho-1',
-    })
+    expect(screen.getByTestId('parameters-node-litho-unit:litho-1')).toBeTruthy()
   })
 
   it('RL5 — on the per-test tab the inspector still serves the per-CPT surface', () => {
     mockTab = 'per-test'
-    mockGeotechFormations = [classifiedUnit()]
-    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+    mockLithoLayers = [lithoBand('L1')]
     render(<ParametersInspector />)
 
     expect(screen.queryByTestId('parameters-unit-list')).toBeNull()
