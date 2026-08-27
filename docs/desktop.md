@@ -96,10 +96,21 @@ desktop/src/
     │       ├── geotechnical/  GeotechnicalStage scaffold (NAD packing class, CPT-derived indicators).
     │       ├── sections/      SectionsStage — SectionsCanvas, SectionsToolbar; the primary editing
     │       │                  surface for all three model levels.
-    │       ├── parameters/    ParametersStage — per-test / per-unit / methods tabs (canvas) +
-    │       │                  ParametersInspector (the per-CPT plot surface: header,
-    │       │                  click-to-edit water-table line, and CptSbtDepthPanels —
-    │       │                  TALL depth-synced qc | fs+Rf | Ic | both SBT strips).
+    │       ├── parameters/    ParametersStage — per-test / per-unit / methods tabs (canvas;
+    │       │                  the active tab rides coordinator.parametersActiveTab) +
+    │       │                  ParametersInspector (per-test tab: the per-CPT plot surface —
+    │       │                  header, click-to-edit water-table line, CptSbtDepthPanels;
+    │       │                  per-unit tab: UnitListPane, the unit roster — R3 layout flip
+    │       │                  2026-08-27, "statistics main, list in the pane").
+    │       │                  Per-unit CANVAS = UnitStatisticsCanvas for the scoped
+    │       │                  coordinator.selectedParameterUnit ({kind: 'litho'|'geotech',
+    │       │                  unitId} — a litho scope pools the whole unit, all packing
+    │       │                  classes): UnitDistributionPanels (qc/fs/Rf on the CPT plot's
+    │       │                  fixed axes from utils/cptAxisScales.ts, pooled over the
+    │       │                  canonical section-membership population only) +
+    │       │                  UnitIdentificationPanels (OKP scatter, value × mTAW, from
+    │       │                  borehole samples via detail-batch) + UnitFenceCutout (lazy
+    │       │                  Cesium fence walls of the unit over the basemap, chromeless).
     │       │                  Row click in the per-test table selects the CPT via
     │       │                  coordinator.handleSelectWithoutView (the plain
     │       │                  handleSelect also flips the DATA stage's view mode);
