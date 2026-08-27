@@ -69,6 +69,7 @@ import { fillIdentityOf } from './sectionFillIdentity'
 import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
+import { resolveRegionBodyId } from './regionBodyId'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActive,
@@ -359,24 +360,28 @@ export interface Props {
    * make it so that i can press a unit in the spaces between too").
    *
    * Reports the region's ``formationId`` — a geotech formation row, the same
-   * id space the on-column band menu reports. GEOTECH AXIS ONLY: the litho
+   * id space the on-column band menu reports — plus the region's BODY, when
+   * its ``layerIds`` resolve to exactly one (owner body-scope ruling
+   * 2026-08-27; see ``regionBodyId.ts``). GEOTECH AXIS ONLY: the litho
    * axis has its own handler below. Absent → the regions stay inert on the
    * geotech axis exactly as before.
    */
-  onShowGeotechUnitStatistics?: (unitId: string) => void
+  onShowGeotechUnitStatistics?: (unitId: string, bodyId?: string | null) => void
   /**
    * "Unit statistics…" for a computed fill region on the LITHO axis (owner
    * ruling S7b, 2026-08-27: "in the litho stage i should be able to click
    * the litho fill too").
    *
    * Reports the region's ``formationId`` — a litho formation row; the caller
-   * stamps the litho scope kind. Serves ONLY regions the body menu does not
-   * claim: a region that resolves to a body in ``bodies`` keeps its body
-   * context menu, which carries its own statistics item. LITHO AXIS ONLY —
-   * on the geotech axis the litho frame is deliberately inert (S7a: "Litho
-   * fill shouldn't be accesible in the geotech stage").
+   * stamps the litho scope kind — plus the region's BODY resolved from its
+   * ``layerIds`` (owner body-scope ruling 2026-08-27). Serves ONLY regions
+   * the body menu does not claim: a region that resolves to a body in
+   * ``bodies`` keeps its body context menu, which carries its own statistics
+   * item. LITHO AXIS ONLY — on the geotech axis the litho frame is
+   * deliberately inert (S7a: "Litho fill shouldn't be accesible in the
+   * geotech stage").
    */
-  onShowLithoUnitStatistics?: (unitId: string) => void
+  onShowLithoUnitStatistics?: (unitId: string, bodyId?: string | null) => void
 }
 
 // Shared with the per-column band stack, so the fill in the gaps and the fill
@@ -531,6 +536,16 @@ export default function PartitionFillOverlay({
   const unitStatsHandlerForAxis = viewOnly
     ? onShowGeotechUnitStatistics
     : onShowLithoUnitStatistics
+  // ``litho_layer id -> body_id`` over the AXIS'S OWN layer list (``lithoLayers``
+  // carries the geotech rows on the geotech axis — see the prop note). The
+  // statistics jump resolves a region's body through its ``layerIds`` with
+  // this map (owner body-scope ruling 2026-08-27; ``regionBodyId.ts`` states
+  // why the region's own ``bodyId`` label is not the authority).
+  const bodyIdByLayerId = useMemo(() => {
+    const out = new Map<string, string | null>()
+    for (const l of lithoLayers) out.set(l.id, l.body_id ?? null)
+    return out
+  }, [lithoLayers])
   // S103 correlate-on-drag: the boundary-drag ``mouseup`` (defined ABOVE the ``sectionFillData`` /
   // ``partitionTopology`` memos in the module body) resolves + POSTs the synthetic tie from the gap
   // columns + already-approved edges. A ref carries those (updated after the memos below) so the
@@ -3578,6 +3593,7 @@ export default function PartitionFillOverlay({
                           clientX: e.clientX,
                           clientY: e.clientY,
                           formationId: sr.region.formationId,
+                          bodyId: resolveRegionBodyId(sr.region.layerIds, bodyIdByLayerId),
                         })
                       }
                     : undefined
