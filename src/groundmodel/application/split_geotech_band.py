@@ -191,6 +191,10 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             confidence="medium",
             cpt_id=context.investigation_id if context.anchor_is_cpt else None,
             borehole_id=None if context.anchor_is_cpt else context.investigation_id,
+            # Both halves stay inside the original band's litho parent (the split
+            # is refused outside it), so the new lower half keeps the SAME
+            # covering litho band as the upper half (the original row, resized).
+            parent_litho_layer_id=target.parent_litho_layer_id,
         )
         self._session.add(lower_row)
         await self._session.flush()
