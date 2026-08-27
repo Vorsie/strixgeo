@@ -12,6 +12,11 @@
 // PU5 — a project with no geotech units still shows the litho roster, so the
 //       tab never goes blank on a litho-only project.
 // PU6 — the band count per unit counts only that unit's bands.
+// PU18/PU19 — F11 a11y: aria-expanded lives on the option, no focusable
+//       descendant; ArrowRight/ArrowLeft toggle from the keyboard.
+// PU20/PU21 — F12: the litho-selection chip; the loading gate that stops the
+//       litho-roster flash-swap.
+// PU22 — F9: the body-label roster follows the axis's recompute nonce.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,10 +24,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import UnitListPane from './UnitListPane'
 
 const setSelectedParameterUnit = vi.fn()
+const listLenses = vi.fn()
+
+vi.mock('../../../api/client', () => ({
+  api: {
+    geology: {
+      listLenses: (...args: unknown[]) => listLenses(...args),
+    },
+  },
+}))
 
 let mockGeotechFormations: unknown[] = []
 let mockGeotechLayers: unknown[] = []
 let mockLithoLayers: unknown[] = []
+let mockGeotechLayersLoaded = true
+let mockActiveGeotechModel: { id: string } | null = null
+let mockGeotechNonce = 0
 let mockSelectedUnit: {
   kind: 'litho' | 'geotech'
   unitId: string
@@ -56,12 +73,15 @@ vi.mock('../../ShellContext', () => ({
       lithoLayers: mockLithoLayers,
       geotechFormations: mockGeotechFormations,
       geotechLayers: mockGeotechLayers,
+      geotechLayersLoaded: mockGeotechLayersLoaded,
       activeLithoModel: null,
-      activeGeotechModel: null,
+      activeGeotechModel: mockActiveGeotechModel,
     },
     coordinator: {
       selectedParameterUnit: mockSelectedUnit,
       setSelectedParameterUnit,
+      bodyRecomputeLithoNonce: 0,
+      bodyRecomputeGeotechNonce: mockGeotechNonce,
     },
   }),
 }))
@@ -72,6 +92,9 @@ afterEach(() => {
   mockGeotechFormations = []
   mockGeotechLayers = []
   mockLithoLayers = []
+  mockGeotechLayersLoaded = true
+  mockActiveGeotechModel = null
+  mockGeotechNonce = 0
   mockSelectedUnit = null
 })
 
@@ -292,22 +315,26 @@ describe('UnitListPane — geotech roster', () => {
     expect(setSelectedParameterUnit).toHaveBeenCalledWith({ kind: 'geotech', unitId: 'geo-1' })
   })
 
-  it('PU15 — a body row shows its own band and CPT counts', () => {
+  it('PU15 — a body row counts its bands and says how many carry a cone', () => {
+    // F7 (audit 2026-08-27): "N bands · M with cone" — the row states how
+    // many of the body's bands the cone pool can actually read, so a
+    // borehole-heavy body cannot read as full cone evidence.
     mockGeotechFormations = [classifiedUnit()]
     mockGeotechLayers = [
       { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
       { ...bandOf('geo-1', 'l2'), body_id: 'body-A', cpt_id: 'cpt-b' },
-      { ...bandOf('geo-1', 'l3'), body_id: 'body-B' },
+      { ...bandOf('geo-1', 'l3'), body_id: 'body-B', cpt_id: null, borehole_id: 'bh-1' },
+      { ...bandOf('geo-1', 'l4'), body_id: 'body-B' },
     ]
     render(<UnitListPane />)
 
     fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
     const rowA = screen.getByTestId('parameters-unit-body-body-A')
     expect(rowA.textContent).toContain('2 bands')
-    expect(rowA.textContent).toContain('2 CPTs')
+    expect(rowA.textContent).toContain('2 with cone')
     const rowB = screen.getByTestId('parameters-unit-body-body-B')
-    expect(rowB.textContent).toContain('1 band')
-    expect(rowB.textContent).toContain('1 CPT')
+    expect(rowB.textContent).toContain('2 bands')
+    expect(rowB.textContent).toContain('1 with cone')
   })
 
   it('PU16 — the litho roster gets the same body level, from the litho layers', () => {
@@ -344,6 +371,98 @@ describe('UnitListPane — geotech roster', () => {
     expect(
       screen.getByTestId('parameters-unit-geo-1').getAttribute('aria-selected'),
     ).toBe('false')
+  })
+
+  // ── F11 (a11y) — a listbox option may not contain a focusable descendant;
+  //    the option itself states expandedness. ──────────────────────────────
+  it('PU18 — the option carries aria-expanded and contains no focusable descendant', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
+    ]
+    render(<UnitListPane />)
+
+    const option = screen.getByTestId('parameters-unit-geo-1')
+    expect(option.getAttribute('aria-expanded')).toBe('false')
+    // WCAG listbox rule: nothing inside the option may take focus — no
+    // buttons, no positive/zero tabindex descendants.
+    expect(option.querySelector('button')).toBeNull()
+    for (const el of Array.from(option.querySelectorAll('[tabindex]'))) {
+      expect(el.getAttribute('tabindex')).toBe('-1')
+    }
+    // The affordance still toggles by mouse.
+    fireEvent.click(screen.getByTestId('parameters-unit-expander-geo-1'))
+    expect(option.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('PU19 — ArrowRight expands and ArrowLeft collapses from the keyboard', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [
+      { ...bandOf('geo-1', 'l1'), body_id: 'body-A' },
+      { ...bandOf('geo-1', 'l2'), body_id: 'body-B' },
+    ]
+    render(<UnitListPane />)
+
+    const option = screen.getByTestId('parameters-unit-geo-1')
+    fireEvent.keyDown(option, { key: 'ArrowRight' })
+    expect(screen.getByTestId('parameters-unit-body-body-A')).toBeTruthy()
+    // Expanding must not change the scope.
+    expect(setSelectedParameterUnit).not.toHaveBeenCalled()
+    fireEvent.keyDown(option, { key: 'ArrowLeft' })
+    expect(screen.queryByTestId('parameters-unit-body-body-A')).toBeNull()
+  })
+
+  // ── F12 — the roster race + the invisible litho selection. ──────────────
+  it('PU21 — while the geotech layers are LOADING, the litho roster does not flash', () => {
+    // The race: geotechLayers is [] while the load is in flight, so
+    // ``usingGeotech`` read false and the litho roster flashed, then swapped.
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = []
+    mockGeotechLayersLoaded = false
+    render(<UnitListPane />)
+
+    expect(screen.queryByTestId('parameters-unit-litho-1')).toBeNull()
+    expect(screen.getByTestId('parameters-unit-list-loading')).toBeTruthy()
+  })
+
+  it('PU20 — a litho-scoped selection under the geotech roster shows the chip', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+    mockSelectedUnit = { kind: 'litho', unitId: 'litho-1' }
+    render(<UnitListPane />)
+
+    const chip = screen.getByTestId('parameters-litho-selection-chip')
+    expect(chip.textContent).toMatch(/litho unit selected/i)
+    expect(chip.textContent).toContain('Dicht zand')
+  })
+
+  it('PU20b — no chip without a litho selection, and none on the litho roster', () => {
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+    render(<UnitListPane />)
+    expect(screen.queryByTestId('parameters-litho-selection-chip')).toBeNull()
+
+    cleanup()
+    mockGeotechFormations = []
+    mockGeotechLayers = []
+    mockSelectedUnit = { kind: 'litho', unitId: 'litho-1' }
+    render(<UnitListPane />)
+    expect(screen.queryByTestId('parameters-litho-selection-chip')).toBeNull()
+  })
+
+  // ── F9 — the pane's body-label roster follows a recompute. ──────────────
+  it('PU22 — the roster refetches when the axis recompute nonce bumps', async () => {
+    listLenses.mockResolvedValue([])
+    mockGeotechFormations = [classifiedUnit()]
+    mockGeotechLayers = [bandOf('geo-1', 'l1')]
+    mockActiveGeotechModel = { id: 'gm-1' }
+    const view = render(<UnitListPane />)
+    await vi.waitFor(() => expect(listLenses).toHaveBeenCalledTimes(1))
+
+    mockGeotechNonce = 1
+    view.rerender(<UnitListPane />)
+    await vi.waitFor(() => expect(listLenses).toHaveBeenCalledTimes(2))
   })
 
   it('PU8 — a borehole-only unit IS listed; it just has no cone to summarise', () => {
