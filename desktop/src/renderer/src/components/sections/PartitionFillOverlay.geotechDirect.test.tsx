@@ -420,6 +420,29 @@ describe('PartitionFillOverlay — "Unit statistics…" from the fill (owner rul
     expect(screen.queryByTestId('partition-region-menu')).toBeNull()
   })
 
+  it('RS4 — the jump reports the clicked region\'s BODY, resolved from its own layers', () => {
+    // Owner ruling 2026-08-27: "a body is only a body if it is geometrically
+    // connected or if the users says, this body is the same as that body."
+    // A fill region carries ``layerIds``; the layers carry the resolver's
+    // ``body_id``. The scene's n5 bands are all gb-0 and its n7 bands gb-1,
+    // so whichever region is hit, the reported (unit, body) pair must match.
+    const onShowGeotechUnitStatistics = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...geotechProps}
+          onShowGeotechUnitStatistics={onShowGeotechUnitStatistics}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(regionHitPaths(container)[0], { clientX: 60, clientY: 80 })
+    fireEvent.click(screen.getByTestId('partition-region-menu-unit-statistics'))
+
+    expect(onShowGeotechUnitStatistics).toHaveBeenCalledTimes(1)
+    const [unitId, bodyId] = onShowGeotechUnitStatistics.mock.calls[0] as [string, string | null]
+    expect(bodyId).toBe(unitId === 'nad-zand-5' ? 'gb-0' : 'gb-1')
+  })
+
   it('RS2 — without the handler the regions stay inert and no menu exists', () => {
     const { container } = render(
       <svg>
@@ -510,7 +533,9 @@ describe('PartitionFillOverlay — the litho fill jump + the axis discipline (ow
     )!
     fireEvent.contextMenu(clayHit, { clientX: 60, clientY: 130 })
     fireEvent.click(screen.getByTestId('partition-region-menu-unit-statistics'))
-    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('formation-clay')
+    // "No body in ``bodies``" ≠ "no body": the region's own layers still name
+    // one, and the jump reports it (body-scope ruling 2026-08-27).
+    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('formation-clay', 'body-clay')
   })
 
   it('LF3 — S7a: "Litho fill shouldn\'t be accesible in the geotech stage" — the litho frame is inert there', () => {
