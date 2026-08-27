@@ -9,6 +9,7 @@
  *
  * @module clients/shared
  */
+import { captureDiagnostic } from '../../utils/diagnostics'
 import { log } from '../../utils/log'
 import { noteNetworkFailure, noteNetworkSuccess } from '../networkHealth'
 
@@ -293,6 +294,18 @@ export async function request(
     // model first" guard) instead of an opaque "→ 409".
     const detail = await res.json().catch(() => ({}))
     log.error('api', method, stripQuery(path), res.status, detail.detail)
+    // #16 — capture SERVER failures only. A 4xx is the backend refusing
+    // something the user did (a 409 refresh confirmation, a 422 validation),
+    // which is the app working; a 5xx is a bug nobody else witnesses, because
+    // the traceback stays in the backend log on the user's own machine.
+    if (res.status >= 500) {
+      captureDiagnostic({
+        kind: 'api-error',
+        scope: 'api',
+        message: `${method} ${stripQuery(path)} → ${res.status}`,
+        httpStatus: res.status,
+      })
+    }
     throw new ApiError(
       detailMessage(detail.detail) ??
         (errorLabel ? `${errorLabel} (${res.status})` : `${method} ${path} → ${res.status}`),
