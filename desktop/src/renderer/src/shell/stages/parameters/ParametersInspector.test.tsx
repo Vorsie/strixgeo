@@ -69,8 +69,10 @@ vi.mock('../../ShellContext', () => ({
     coordinator: {
       selectedId: mockSelectedId,
       markMutated,
-      selectedParameterUnitId: null,
-      setSelectedParameterUnitId: vi.fn(),
+      selectedParameterUnit: null,
+      setSelectedParameterUnit: vi.fn(),
+      parametersActiveTab: 'per-test',
+      setParametersActiveTab: vi.fn(),
     },
     toasts: { toast },
   }),
