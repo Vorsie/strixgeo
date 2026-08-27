@@ -114,6 +114,31 @@ describe('useUnitStatistics — what it fetches', () => {
     expect(plotBatch).not.toHaveBeenCalled()
     expect(result.current.statistics.bandCount).toBe(0)
   })
+
+  it('UH7 — only CPTs on the sections are pooled; hidden and removed are excluded', async () => {
+    // The owner's rule, verbatim: "Only cpt's on the sections should be in
+    // the pooling so all hidden and removed should be excluded." cpt-b is not
+    // in the member set — off every section, project-removed, or manifest-
+    // gated all arrive here the same way — so its bands contribute NOTHING:
+    // no fetch, no samples, no band count.
+    const cache = new Map([['cpt-a', plot('cpt-a', [1, 2])]])
+    const { result } = renderHook(() =>
+      useUnitStatistics(
+        'unit-1',
+        [band('cpt-a', 'l1'), band('cpt-b', 'l2')],
+        cache,
+        'proj-1',
+        new Set(['cpt-a']),
+      ),
+    )
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(plotBatch).not.toHaveBeenCalled()
+    expect(result.current.statistics.bandCount).toBe(1)
+    expect(result.current.statistics.cptCount).toBe(1)
+    const qc = result.current.statistics.channels.find(c => c.channel === 'qc')
+    expect(qc?.summary.n).toBe(2)
+  })
 })
 
 describe('useUnitStatistics — when the answer is partial or absent', () => {
