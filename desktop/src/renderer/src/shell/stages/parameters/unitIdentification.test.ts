@@ -89,6 +89,20 @@ describe('unitBoreholeBands — which borehole ground the unit covers', () => {
     const bands = unitBoreholeBands(layers, 'unit-1', null, 'body-A')
     expect(bands.map(b => b.boreholeId)).toEqual(['bh-1'])
   })
+
+  it('BSB2 — a body scope pools the whole body across twin formation rows', () => {
+    // The B4 live shape (audit 2026-08-27): a borehole band under one twin
+    // row and CPT/borehole bands under the other belong to ONE resolver body;
+    // a body-scoped pool reads them all — the formation filter must not
+    // survive into the body branch.
+    const layers = [
+      { ...bhBand('l1', 'u-twin-A', 'bh-1', 0, 5), body_id: 'body-X' },
+      { ...bhBand('l2', 'u-twin-B', 'bh-2', 0, 5), body_id: 'body-X' },
+      { ...bhBand('l3', 'u-twin-B', 'bh-3', 0, 5), body_id: 'body-Y' },
+    ]
+    const bands = unitBoreholeBands(layers, 'u-twin-A', null, 'body-X')
+    expect(bands.map(b => b.boreholeId)).toEqual(['bh-1', 'bh-2'])
+  })
 })
 
 describe('poolIdentificationPanels — the OKP pool', () => {
