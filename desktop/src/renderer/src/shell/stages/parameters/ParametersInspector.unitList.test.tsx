@@ -55,6 +55,9 @@ vi.mock('../../ShellContext', () => ({
       ],
       geotechFormations: mockGeotechFormations,
       geotechLayers: mockGeotechLayers,
+      // F12: the pane gates its roster choice on the loaded flag — a mock
+      // without it would render the loading state forever.
+      geotechLayersLoaded: true,
     },
     coordinator: {
       selectedId: null,
