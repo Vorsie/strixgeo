@@ -680,6 +680,57 @@ async def test_sab_all(
 
     geotech_model_id = result.geotech_model_id
 
+    # SAB-10 (parent-band FK, Parameters body-tree A3): every accepted geotech
+    # band minted from a CPT names the covering litho band it subdivides — the
+    # accepted litho band on the SAME cpt whose interval contains the band's
+    # midpoint. The Parameters tree derives the band's litho body live through it.
+    sab10_geotech_bands = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm).where(
+                    LithoLayerOrm.model_id == geotech_model_id,
+                    LithoLayerOrm.status == "accepted",
+                    LithoLayerOrm.cpt_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    sab10_litho_by_id = {
+        ly.id: ly
+        for ly in (
+            (
+                await db_session.execute(
+                    select(LithoLayerOrm).where(
+                        LithoLayerOrm.model_id == litho_model_id,
+                        LithoLayerOrm.status == "accepted",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    }
+    assert sab10_geotech_bands, "SAB-10: expected at least one CPT geotech band"
+    for band in sab10_geotech_bands:
+        assert band.parent_litho_layer_id is not None, (
+            f"SAB-10: geotech band {band.id} carries no covering litho band"
+        )
+        parent = sab10_litho_by_id.get(band.parent_litho_layer_id)
+        assert parent is not None, (
+            f"SAB-10: band {band.id} parent {band.parent_litho_layer_id} is not "
+            "an accepted litho band in the parent litho model"
+        )
+        assert parent.cpt_id == band.cpt_id, (
+            "SAB-10: the covering litho band must sit on the same CPT as the band"
+        )
+        mid = 0.5 * (band.depth_top_m + band.depth_base_m)
+        assert parent.depth_top_m - 1e-6 <= mid <= parent.depth_base_m + 1e-6, (
+            f"SAB-10: band midpoint {mid} is outside its parent litho band "
+            f"[{parent.depth_top_m}, {parent.depth_base_m}]"
+        )
+
     # ------------------------------------------------------------------
     # SAB-4 (idempotency): a second execute() on the same model+section
     # must produce identical DB row counts — no duplicates, no leaks.
