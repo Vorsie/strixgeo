@@ -65,12 +65,14 @@ import struct
 import time
 from collections import defaultdict
 from dataclasses import asdict
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.gapless_build_report_assembler import GaplessBuildReportAssembler
 from groundmodel.application.litho_solid_persistence import (
     LithoSolidPersistenceMixin,
     LithoSolidsOutcome,
@@ -91,6 +93,7 @@ from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import
     apply_body_aliases,
     plan_body_aliases,
 )
+from groundmodel.domain.services.voxel_litho.section_reconciliation import reconcile_sections
 from groundmodel.domain.services.voxel_litho.true_column_positions import (
     apply_true_column_positions,
 )
@@ -99,6 +102,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     LabelReport,
     SectionPartitionInput,
+    SectionReconciliation,
 )
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -447,6 +451,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         grid_spacing_m: float,
         vertical_spacing_m: float | None = None,
         force: bool = False,
+        gapless_2d: list[dict[str, Any]] | None = None,
     ) -> LithoSolidsOutcome:
         """Label a voxel grid from ``sections`` and upsert the watertight solids.
 
@@ -472,12 +477,23 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             When ``True``, skip the model-level checksum short-circuit and always
             rebuild.  The on-click "Build 3-D model" path passes this so an
             explicit Build always reflects the current builder code.
+        gapless_2d : list of dict, or None, optional
+            The renderer's clause 1-4 findings for the seven-clause gapless gate
+            (already-validated ``GaplessClauseInputSchema`` dicts, converted by
+            the router — the application layer never sees the Pydantic schema).
+            ``None`` (the default) means the caller sent none — a lithology
+            build runs no packing fill and has nothing to send, and a client
+            older than the gate sends nothing at all; either way the assembled
+            report answers honestly with ``not-evaluated`` for clauses 1-4
+            rather than a fabricated pass.
 
         Returns
         -------
         LithoSolidsOutcome
             Per-phase counts (``marked_test_ids`` is always empty — the voxel
-            path drops no tests).
+            path drops no tests) plus ``gapless_report``, the seven-clause gate
+            assembled for this build (``None`` only on the degenerate "nothing
+            built" paths, which never label a grid to report on).
 
         Notes
         -----
@@ -491,7 +507,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         """
         self.info(
             f"BuildVoxelLithoModel: model={model_id} sections={len(sections)} "
-            f"grid_spacing={grid_spacing_m} vertical_spacing={vertical_spacing_m} force={force}"
+            f"grid_spacing={grid_spacing_m} vertical_spacing={vertical_spacing_m} force={force} "
+            f"gapless_2d_clauses={len(gapless_2d) if gapless_2d else 0}"
         )
         t_total = time.perf_counter()
 
@@ -503,6 +520,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     "no cross-section carried a 2-D partition, so there was nothing to "
                     "build from — draw or fill a section first"
                 ),
+                gapless_report=self._assemble_gapless(model_id, gapless_2d),
             )
 
         # --- Honor each investigation's OWN observed log at its true location --
@@ -611,6 +629,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     "the investigations do not frame an area — a footprint needs at least "
                     "3 that do not sit on one line"
                 ),
+                gapless_report=self._assemble_gapless(model_id, gapless_2d),
             )
         self.debug(
             f"BuildVoxelLithoModel: model={model_id} — domain footprint "
@@ -702,6 +721,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"BuildVoxelLithoModel: model={model_id} — checksum unchanged, "
                 f"skipped all {skipped} body/bodies (no labelling)"
             )
+            # No grid was labelled on this path, so clauses 5-7 have nothing to
+            # read — assembled here (not stored: no new generation row is
+            # written on the skip path) so the caller still gets an honest
+            # report rather than silently carrying the PREVIOUS build's verdict
+            # forward as if it applied to this one.
+            skip_report = self._assemble_gapless(model_id, gapless_2d)
             return LithoSolidsOutcome(
                 bodies_considered=skipped,
                 bodies_built=0,
@@ -710,6 +735,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 orphans_deleted=0,
                 marked_test_ids=[],
                 uncovered_test_ids=uncovered,
+                gapless_report=skip_report,
             )
 
         # --- Phases 2 + 3: the CPU work, OFF THE EVENT LOOP -------------------
@@ -747,6 +773,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     model_id,
                     uncovered_test_ids=uncovered,
                     reason=f"the 3-D grid could not be built — {err}",
+                    gapless_report=self._assemble_gapless(model_id, gapless_2d),
                 )
             self.info(
                 f"BuildVoxelLithoModel: model={model_id} — labelled "
@@ -754,6 +781,58 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 f"{len(grid.body_id_by_index)} body slots"
             )
             self._report_label_anomalies(model_id, grid.report)
+
+            # Clause 7 of the gapless gate: per-section swept-area reconciliation
+            # between the 2-D fill and the labelled grid.  Reads the RE-SEATED
+            # ``sections`` — the exact list ``label_voxels`` was just called
+            # with, after ``apply_true_column_positions`` — not the payload as
+            # drawn, so the sections agree with the grid they are being checked
+            # against.  Inside the same lock as phase 2: it reads the (large)
+            # ``grid.labels`` array the budget is sized on.
+            #
+            # CAUGHT, unlike every other phase here: this one is a DIAGNOSTIC of
+            # the model the build just made, and a diagnostic that can destroy
+            # the artefact it measures is worse than no diagnostic at all — the
+            # engineer would lose a good model to a bug in the thing checking
+            # it. The gate's contract is that it fails the REPORT, never the
+            # build (see ``gapless_clause_constants``), and this is where that
+            # is actually enforced rather than merely stated.
+            reconciliations: tuple[SectionReconciliation, ...] | None = None
+            reconciliation_error: str | None = None
+            try:
+                with phase_timer(self, "BuildVoxelLithoModel phase-2b section_reconciliation"):
+                    reconciliations = await asyncio.to_thread(
+                        reconcile_sections,
+                        sections,
+                        domain,
+                        grid.gx,
+                        grid.gy,
+                        grid.labels,
+                        grid_spacing_m,
+                        grid_spacing_m if vertical_spacing_m is None else vertical_spacing_m,
+                    )
+            except Exception as err:
+                reconciliation_error = (
+                    f"the 2-D↔3-D comparison could not be completed — {type(err).__name__}: {err}"
+                )
+                self.exception(
+                    f"BuildVoxelLithoModel: model={model_id} — clause 7 "
+                    f"(section reconciliation) raised {type(err).__name__}: {err}; "
+                    "the build continues and the report says clause 7 was not checked"
+                )
+
+            # Assembled HERE rather than after the mesh filter: it depends on the
+            # label report and the reconciliation, not on the meshes, and running
+            # it now is what lets the "labelling produced no body" path below
+            # carry a verdict too — the case where the stored model is CLEARED is
+            # the one where the engineer most needs to read what was checked.
+            gapless_report = self._assemble_gapless(
+                model_id,
+                gapless_2d,
+                label_report=grid.report,
+                reconciliations=reconciliations,
+                reconciliation_error=reconciliation_error,
+            )
 
             # Phase 3: extract the greedy-meshed watertight per-body solids. Inside
             # the same lock as phase 2 — it holds the label grid AND the mesher's
@@ -787,6 +866,10 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                     "the labelling produced no body at all — every voxel came out empty, "
                     "so nothing could be meshed"
                 ),
+                # The grid WAS labelled here, so this verdict is the real one —
+                # and clause 5 will be shouting, which is exactly the finding
+                # that explains why nothing could be meshed.
+                gapless_report=gapless_report,
             )
 
         wanted_storage_ids = {str(storage_body_id(m.body_id)) for m in meshes}
@@ -813,6 +896,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 honor_radius_m=honor_radius_m,
                 meshes=meshes,
                 started_at=t_total,
+                gapless_report=gapless_report,
             )
             rows = self._mesh_rows(meshes, model_id, new_checksum)
             for row in rows:
@@ -851,7 +935,59 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             orphans_deleted=orphans_deleted,
             marked_test_ids=[],
             uncovered_test_ids=uncovered,
+            gapless_report=gapless_report,
         )
+
+    def _assemble_gapless(
+        self,
+        model_id: UUID,
+        gapless_2d: list[dict[str, Any]] | None,
+        *,
+        label_report: LabelReport | None = None,
+        reconciliations: tuple[SectionReconciliation, ...] | None = None,
+        reconciliation_error: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Assemble the seven-clause gate, degrading rather than failing the build.
+
+        The gate exists to say whether the built model keeps the owner's
+        gapless guarantee.  It is a report about the artefact, so it must never
+        be able to prevent the artefact: a raise anywhere in the assembly is
+        logged in full and answered with ``None`` (the client then shows "no
+        verdict", which is honest), while the solids are written exactly as they
+        would have been.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model being built — for the log lines.
+        gapless_2d : list of dict, or None
+            The renderer's clause 1-4 findings; ``None`` when it sent none.
+        label_report : LabelReport or None, optional
+            The labeller's counters, or ``None`` when no grid was labelled.
+        reconciliations : tuple of SectionReconciliation, or None, optional
+            The clause-7 comparison, or ``None`` when it did not run.
+        reconciliation_error : str or None, optional
+            Why clause 7 did not run, when a grid WAS labelled.
+
+        Returns
+        -------
+        dict or None
+            The report, or ``None`` when the assembly itself failed.
+        """
+        try:
+            return GaplessBuildReportAssembler().assemble(
+                model_id,
+                gapless_2d=gapless_2d,
+                label_report=label_report,
+                reconciliations=reconciliations,
+                reconciliation_error=reconciliation_error,
+            )
+        except Exception as err:
+            self.exception(
+                f"BuildVoxelLithoModel: model={model_id} — the gapless-gate assembly raised "
+                f"{type(err).__name__}: {err}; the build is unaffected and carries no verdict"
+            )
+            return None
 
     def _report_label_anomalies(self, model_id: UUID, report: LabelReport) -> None:
         """Say out loud what the labeller had to paper over.
@@ -997,6 +1133,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         *,
         uncovered_test_ids: list[str] | None = None,
         reason: str,
+        gapless_report: dict[str, Any] | None = None,
     ) -> LithoSolidsOutcome:
         """Clear every solid row for the model and return a zero outcome.
 
@@ -1025,12 +1162,18 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             indistinguishable from a happy build of zero bodies, so a call site
             that cannot say why must not compile rather than silently produce a
             green "Built 0 bodies" over an erased model.
+        gapless_report : dict or None, optional
+            The seven-clause gate for this build.  An erased model is the case
+            where the engineer most needs to read what WAS checked, so every
+            call site supplies one: the pre-grid sites assemble a grid-less
+            report (clauses 5-7 ``not-evaluated``), and the no-mesh site passes
+            the one already assembled from the labelled grid.
 
         Returns
         -------
         LithoSolidsOutcome
             All counts zero except ``orphans_deleted``, carrying ``reason`` as
-            ``empty_reason``.
+            ``empty_reason`` and ``gapless_report`` as given.
         """
         if existing_by_body is None:
             existing_by_body = await self._load_existing(model_id)
@@ -1050,6 +1193,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             marked_test_ids=[],
             uncovered_test_ids=uncovered_test_ids or [],
             empty_reason=reason,
+            gapless_report=gapless_report,
         )
 
     #: Identifies the builder behind a stored generation.  Bump when a change
@@ -1079,6 +1223,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         honor_radius_m: float,
         meshes: list[LithoBodyMesh],
         started_at: float,
+        gapless_report: dict[str, Any] | None = None,
     ) -> None:
         """Record what this build was made from and with.
 
@@ -1115,6 +1260,11 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             The built meshes, for the outcome counts.
         started_at : float
             ``time.perf_counter()`` at the start of the build.
+        gapless_report : dict or None, optional
+            The seven-clause gapless-gate report assembled for this build (a
+            plain JSON-ready dict — see
+            :class:`~groundmodel.application.gapless_build_report_assembler.GaplessBuildReportAssembler`).
+            ``None`` only for a caller that has none to give.
         """
         gx, gy, gz = grid.gx, grid.gy, grid.gz  # type: ignore[attr-defined]
         payload = _generation_payload(sections)
@@ -1153,6 +1303,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                 bodies_built=len(meshes),
                 triangles=sum(len(m.triangles) for m in meshes),
                 duration_s=time.perf_counter() - started_at,
+                gapless_report=gapless_report,
             )
         )
         await self._session.flush()
