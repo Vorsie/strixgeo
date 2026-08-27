@@ -52,4 +52,43 @@ describe('BodyContextMenu', () => {
     expect(onDissolveBody).toHaveBeenCalledOnce()
     expect(onDissolveBody).toHaveBeenCalledWith('B1')
   })
+
+  // Owner ruling R1 (2026-08-27): a litho unit between columns is reachable
+  // through its BODY's menu — the region carries the body, the body carries
+  // the formation, and the statistics are the formation's.
+  it('BCM7 — "Unit statistics…" reports the body FORMATION id, not the body id', () => {
+    const onShowUnitStatistics = vi.fn()
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onShowUnitStatistics={onShowUnitStatistics}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    fireEvent.click(screen.getByTestId(TESTIDS.unitStatistics))
+    expect(onShowUnitStatistics).toHaveBeenCalledOnce()
+    expect(onShowUnitStatistics).toHaveBeenCalledWith(makeBody().formation_id)
+  })
+
+  it('BCM8 — no statistics handler, no item (the no-affordance rule)', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId(TESTIDS.unitStatistics)).toBeNull()
+  })
 })
