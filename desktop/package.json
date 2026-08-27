@@ -12,6 +12,9 @@
     "build": "electron-vite build && node scripts/copy-cesium.mjs",
     "preview": "electron-vite preview",
     "package": "electron-vite build && node scripts/copy-cesium.mjs && electron-builder",
+    "embedded:postgres": "powershell -ExecutionPolicy Bypass -File ../scripts/build-embedded-postgres.ps1",
+    "embedded:python": "powershell -ExecutionPolicy Bypass -File ../scripts/build-embedded-python.ps1",
+    "dist": "npm run embedded:postgres && npm run embedded:python && npm run package",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e:smoke": "playwright test tests/e2e/flow_boot_open.spec.ts",
@@ -56,10 +59,26 @@
   },
   "build": {
     "appId": "com.groundmodel.desktop",
-    "productName": "Ground Model",
+    "productName": "StrixGeo",
     "icon": "resources/icon.ico",
+    "toolsets": {
+      "winCodeSign": "1.1.0"
+    },
     "win": {
-      "icon": "resources/icon.ico"
+      "icon": "resources/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "StrixGeo",
+      "artifactName": "StrixGeo-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
     },
     "directories": {
       "output": "dist"
@@ -67,6 +86,21 @@
     "files": [
       "out/**/*",
       "resources/**/*"
-    ]
+    ],
+    "extraResources": [
+      {
+        "from": "embedded/pgsql",
+        "to": "pgsql"
+      },
+      {
+        "from": "embedded/python",
+        "to": "python"
+      },
+      {
+        "from": "embedded/backend",
+        "to": "backend"
+      }
+    ],
+    "compression": "normal"
   }
 }
