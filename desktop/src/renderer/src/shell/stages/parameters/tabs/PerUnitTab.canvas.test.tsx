@@ -30,7 +30,9 @@ vi.mock('../../../../api/client', () => ({
   api: { cpt: { plotBatch: (...args: unknown[]) => plotBatch(...args) } },
 }))
 
-let mockScope: { kind: 'litho' | 'geotech'; unitId: string } | null = null
+import type { ParameterUnitScope } from '../../../ShellContext'
+
+let mockScope: ParameterUnitScope | null = null
 let mockLithoLayers: unknown[] = []
 let mockGeotechLayers: unknown[] = []
 
@@ -71,6 +73,8 @@ const PLOTS = new Map([
 ])
 
 vi.mock('../../../ShellContext', () => ({
+  parameterScopeModel: (s: { kind: string }) =>
+    s.kind === 'litho-unit' || s.kind === 'litho-body' ? 'litho' : 'geotech',
   useShell: () => ({
     project: { id: 'proj-1', view_state: null },
     investigations: { plotMap: PLOTS },
@@ -151,7 +155,7 @@ function band(
 
 describe('PerUnitTab — the statistics are the main item (R3)', () => {
   it('RC1 — a scoped geotech unit draws its distributions in the canvas', () => {
-    mockScope = { kind: 'geotech', unitId: 'geo-1' }
+    mockScope = { kind: 'geotech-unit', unitId: 'geo-1' }
     mockGeotechLayers = [band('l1', 'geo-1', 'cpt-a', 0, 2)]
     render(<PerUnitTab />)
 
@@ -169,7 +173,7 @@ describe('PerUnitTab — the statistics are the main item (R3)', () => {
   })
 
   it('RC5 — the canvas offers a way out of the unit view', () => {
-    mockScope = { kind: 'geotech', unitId: 'geo-1' }
+    mockScope = { kind: 'geotech-unit', unitId: 'geo-1' }
     mockGeotechLayers = [band('l1', 'geo-1', 'cpt-a', 0, 2)]
     render(<PerUnitTab />)
 
@@ -181,7 +185,7 @@ describe('PerUnitTab — the statistics are the main item (R3)', () => {
 
 describe('PerUnitTab — litho scope pools the whole unit (R1)', () => {
   it('RC2 — pools ALL CPT ground in the litho unit regardless of packing density', () => {
-    mockScope = { kind: 'litho', unitId: 'litho-1' }
+    mockScope = { kind: 'litho-unit', unitId: 'litho-1' }
     // The litho unit covers 0–4 m on cpt-a; the geotech model subdivides that
     // same ground into NAD 6 (0–2) and NAD 8 (2–4). The litho pool takes all
     // four readings — the subdivision must not narrow it.
@@ -202,7 +206,7 @@ describe('PerUnitTab — litho scope pools the whole unit (R1)', () => {
 
 describe('PerUnitTab — only tests on the sections pool (R6)', () => {
   it('RC3 — an off-section CPT contributes nothing, and the header states the population', () => {
-    mockScope = { kind: 'geotech', unitId: 'geo-1' }
+    mockScope = { kind: 'geotech-unit', unitId: 'geo-1' }
     mockGeotechLayers = [
       band('l1', 'geo-1', 'cpt-a', 0, 2),
       // cpt-off is visible but projects onto NO section — its band is out.
