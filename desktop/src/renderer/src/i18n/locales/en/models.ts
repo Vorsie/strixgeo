@@ -148,12 +148,12 @@ export const MODELS = {
     "Run 'Subdivide all bodies' on the Sections stage (geotech axis), then click 'Build model' on the Geotechnical toolbar to generate the 3D NAD body solids.",
   'geotech.switchSolidFence': 'Switch between solid body model and fence-diagram walls',
   'geotech.resetAutoColour': 'Back to the automatic packing colour',
-  'geotech.badgeCptEst': 'CPT est.',
-  'geotech.badgeCptEstPartial': 'CPT est. (partial)',
+  // Cone-derived is the NORM and carries no badge (owner 2026-08-27); only
+  // the exceptions are marked, so there is no key for a "CPT est." badge.
+  'geotech.badgeCptEstPartial': 'No CPT (partial)',
   'geotech.badgeNoCpt': 'No CPT',
   'geotech.badgeConfidence':
     'Aggregated confidence of the packing-class assignment across all CPT layers',
-  'geotech.badgeDerived': 'Classification derived from CPT qc series',
   'geotech.badgePartialHint':
     'Most bands derived from CPT qc series. At least one had no cone in its body, so it took the weakest class seen there instead. Check the low-confidence bands before use.',
   'geotech.badgeNoCptHint':
