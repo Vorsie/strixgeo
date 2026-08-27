@@ -1048,3 +1048,38 @@ def test_p10_a_straddling_tie_lands_even_when_an_interbed_splits_the_donor() -> 
     line2 = -3.3 + frac * (-3.3 - -3.3)
     assert bands[0].base == pytest.approx(13.0 - line1, abs=0.001)
     assert bands[1].base == pytest.approx(13.0 - line2, abs=0.001)
+
+
+def test_planned_band_carries_source_litho_layer_id() -> None:
+    """A borehole geotech band names the covering litho band it fills (A3).
+
+    The divide caller stamps every band of a segment with the borehole's own
+    accepted litho layer (``unit_layer[0]``) so the Parameters tree can place
+    the band under its litho body. The field is additive — a band that names no
+    parent (a conservative fill outside any litho layer) reads ``None``.
+    """
+    parent = uuid7()
+    band = PlannedBand(
+        depth_top_m=0.0,
+        depth_base_m=1.0,
+        nad_class=_NAD_LOOSE,
+        source="cpt_interpolated",
+        confidence="high",
+        body_id=None,
+        source_litho_formation_id=uuid7(),
+        source_geo_formation_id=None,
+        source_litho_layer_id=parent,
+    )
+    assert band.source_litho_layer_id == parent
+    # Default when the caller has no covering litho band.
+    orphan = PlannedBand(
+        depth_top_m=0.0,
+        depth_base_m=1.0,
+        nad_class=_NAD_LOOSE,
+        source="absolute_min",
+        confidence="low",
+        body_id=None,
+        source_litho_formation_id=uuid7(),
+        source_geo_formation_id=None,
+    )
+    assert orphan.source_litho_layer_id is None
