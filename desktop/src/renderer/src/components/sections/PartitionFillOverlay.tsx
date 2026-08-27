@@ -43,6 +43,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { countSpanningRegions } from '../../utils/countSpanningRegions'
 import { log } from '../../utils/log'
@@ -68,6 +69,7 @@ import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOver
 import { fillIdentityOf } from './sectionFillIdentity'
 import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
+import { UnitStatisticsItem } from './unitStatisticsMenuItem'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActive,
@@ -352,6 +354,18 @@ export interface Props {
    * the ties themselves and matches on identity, so no axis translation is involved.
    */
   onConflictEdgeKeysChange?: (keys: ReadonlySet<string>) => void
+  /**
+   * "Unit statistics…" for a fill region BETWEEN columns on the geotech axis
+   * (owner ruling R2, 2026-08-27: "it only works if you press on a column,
+   * make it so that i can press a unit in the spaces between too").
+   *
+   * Reports the region's ``formationId`` — a geotech formation row, the same
+   * id space the on-column band menu reports. GEOTECH AXIS ONLY: on the litho
+   * axis a between-columns region belongs to its body's menu, which carries
+   * its own statistics item. Absent → the regions stay inert on the geotech
+   * axis exactly as before.
+   */
+  onShowGeotechUnitStatistics?: (unitId: string) => void
 }
 
 // Shared with the per-column band stack, so the fill in the gaps and the fill
@@ -469,6 +483,7 @@ export default function PartitionFillOverlay({
   onCorrelateReviewFlag,
   onJumpToConflictGap,
   onConflictEdgeKeysChange,
+  onShowGeotechUnitStatistics,
 }: Props): JSX.Element {
   const rootRef = useRef<SVGGElement>(null)
   // Which crossing-tie conflict the chip last centred. A REF, not state: the
@@ -492,6 +507,30 @@ export default function PartitionFillOverlay({
   const interactivePtr: 'auto' | 'none' = correlateMode ? 'none' : 'auto'
   const [boundaryDrag, setBoundaryDrag] = useState<BoundaryDrag | null>(null)
   const [lensDrag, setLensDrag] = useState<LensDrag | null>(null)
+  // R2 (2026-08-27) — the geotech axis's "Unit statistics…" region menu.
+  // Declared beside the other state at the top of the body so no hook lands
+  // below an early return (the #201 hook-order trap).
+  const [unitStatsMenu, setUnitStatsMenu] = useState<{
+    clientX: number
+    clientY: number
+    formationId: string
+  } | null>(null)
+  // Auto-dismiss on wheel-zoom / Esc — the same fix the litho band menu
+  // carries: a ``position: fixed`` menu detaches from the section content the
+  // moment the user zooms, and reads as a random floating box.
+  useEffect(() => {
+    if (unitStatsMenu === null) return
+    const dismiss = (): void => setUnitStatsMenu(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') dismiss()
+    }
+    document.addEventListener('wheel', dismiss, { capture: true })
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('wheel', dismiss, { capture: true })
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [unitStatsMenu])
   // S103 correlate-on-drag: the boundary-drag ``mouseup`` (defined ABOVE the ``sectionFillData`` /
   // ``partitionTopology`` memos in the module body) resolves + POSTs the synthetic tie from the gap
   // columns + already-approved edges. A ref carries those (updated after the memos below) so the
@@ -3475,6 +3514,11 @@ export default function PartitionFillOverlay({
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
         const interactive = Boolean(onBodyContextMenu && body) && !viewOnly
+        // R2 (2026-08-27): on the GEOTECH axis a region answers ONE gesture —
+        // right-click → "Unit statistics…" for its unit. The axis stays
+        // view-only for every edit; this navigates. Gated on the handler so
+        // the axis is byte-identical when nothing is wired.
+        const statsInteractive = viewOnly && onShowGeotechUnitStatistics !== undefined
         // S1: soft-coupling fade — demote non-matching bodies to 0.25 opacity
         // when a body is selected; the selected body renders at natural opacity
         // ("demote, never remove" precedent — the fill stays visible, just dimmed).
@@ -3507,7 +3551,11 @@ export default function PartitionFillOverlay({
               d={d}
               fill={color}
               fillOpacity={0}
-              style={interactive ? { pointerEvents: interactivePtr, cursor: 'context-menu' } : { pointerEvents: 'none' }}
+              style={
+                interactive || statsInteractive
+                  ? { pointerEvents: interactivePtr, cursor: 'context-menu' }
+                  : { pointerEvents: 'none' }
+              }
               onContextMenu={
                 interactive
                   ? (e) => {
@@ -3520,7 +3568,17 @@ export default function PartitionFillOverlay({
                         e.clientY - (rect?.top ?? 0),
                       )
                     }
-                  : undefined
+                  : statsInteractive
+                    ? (e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setUnitStatsMenu({
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                          formationId: sr.region.formationId,
+                        })
+                      }
+                    : undefined
               }
             />
             {strokeD && (
@@ -4019,6 +4077,45 @@ export default function PartitionFillOverlay({
           interactivePtr={interactivePtr}
         />
       )}
+
+      {/* R2 — the geotech-axis fill-region menu. Portalled to document.body
+          (the litho band menu's pattern) so it sits above all section chrome;
+          ONE item, the shared statistics jump. */}
+      {unitStatsMenu
+        && createPortal(
+          <>
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
+              onClick={() => setUnitStatsMenu(null)}
+              onContextMenu={e => {
+                e.preventDefault()
+                setUnitStatsMenu(null)
+              }}
+            />
+            <div
+              data-testid="partition-region-menu"
+              style={{
+                position: 'fixed',
+                left: unitStatsMenu.clientX,
+                top: unitStatsMenu.clientY,
+                zIndex: 2147483647,
+                background: 'var(--color-surface-overlay, #1e293b)',
+                border: '1px solid var(--color-border-default, #334155)',
+                borderRadius: 6,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                minWidth: 200,
+              }}
+            >
+              <UnitStatisticsItem
+                unitId={unitStatsMenu.formationId}
+                onShow={onShowGeotechUnitStatistics}
+                onClose={() => setUnitStatsMenu(null)}
+                testid="partition-region-menu-unit-statistics"
+              />
+            </div>
+          </>,
+          document.body,
+        )}
     </g>
   )
 }
