@@ -22,6 +22,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import UnitStatisticsCanvas from './UnitStatisticsCanvas'
+import type { ParameterUnitScope } from '../../ShellContext'
 
 const listLenses = vi.fn()
 
@@ -46,14 +47,13 @@ vi.mock('../../../utils/sectionClassification', () => ({
   memberIdsBySection: () => new Map([['s1', new Set(['cpt-a', 'cpt-b'])]]),
 }))
 
-let mockScope: { kind: 'litho' | 'geotech'; unitId: string; bodyId?: string | null } = {
-  kind: 'geotech',
-  unitId: 'geo-1',
-}
+let mockScope: ParameterUnitScope = { kind: 'geotech-unit', unitId: 'geo-1' }
 let mockGeotechLayers: unknown[] = []
 let mockGeotechNonce = 0
 
 vi.mock('../../ShellContext', () => ({
+  parameterScopeModel: (s: { kind: string }) =>
+    s.kind === 'litho-unit' || s.kind === 'litho-body' ? 'litho' : 'geotech',
   useShell: () => ({
     project: { id: 'proj-1' },
     investigations: { plotMap: new Map() },
@@ -95,7 +95,7 @@ const TWO_CPT_BODIES = [
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
-  mockScope = { kind: 'geotech', unitId: 'geo-1' }
+  mockScope = { kind: 'geotech-unit', unitId: 'geo-1' }
   mockGeotechLayers = TWO_CPT_BODIES
   mockGeotechNonce = 0
 })
@@ -112,17 +112,18 @@ describe('UnitStatisticsCanvas — the honest header (body-scope ruling 2026-08-
     expect(title.textContent).toMatch(/pooled across 2 bodies/)
   })
 
-  it('UC2 — the body-scoped view names the one body, the legend way', async () => {
+  it('UC2 — the body-scoped view names the one body, the legend way (not "pooled")', async () => {
     listLenses.mockResolvedValue([
       { id: 'body-A', formation_id: 'geo-1', body_ordinal: 3, name: null },
     ])
-    mockScope = { kind: 'geotech', unitId: 'geo-1', bodyId: 'body-A' }
+    mockScope = { kind: 'geotech-body', unitId: 'geo-1', bodyId: 'body-A' }
     render(<UnitStatisticsCanvas scope={mockScope} />)
 
-    // The roster names body-A "#3"; the header must carry it.
+    // The roster names body-A "#3"; the leaf header carries it (the new tree's
+    // "<class-abbr> #<ordinal>" body label), and it must NOT say "pooled".
     const title = await screen.findByTestId('unit-stats-title')
     await vi.waitFor(() => {
-      expect(screen.getByTestId('unit-stats-title').textContent).toMatch(/— body #3/)
+      expect(screen.getByTestId('unit-stats-title').textContent).toMatch(/#3/)
     })
     expect(title.textContent).not.toMatch(/pooled across/)
   })
@@ -146,7 +147,7 @@ describe('UnitStatisticsCanvas — the honest header (body-scope ruling 2026-08-
       ...TWO_CPT_BODIES,
       { id: 'l3', formation_id: 'geo-1', cpt_id: null, borehole_id: 'bh-1', depth_top_m: 0, depth_base_m: 2, status: 'accepted', body_id: 'body-BH' },
     ]
-    mockScope = { kind: 'geotech', unitId: 'geo-1', bodyId: 'body-BH' }
+    mockScope = { kind: 'geotech-body', unitId: 'geo-1', bodyId: 'body-BH' }
     render(<UnitStatisticsCanvas scope={mockScope} />)
 
     const state = await screen.findByTestId('unit-stats-empty')
