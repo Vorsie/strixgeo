@@ -56,6 +56,7 @@ import type {
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import type { ContactDragRelease } from './geotechSnapTargets'
+import { UnitStatisticsItem } from './unitStatisticsMenuItem'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
@@ -428,6 +429,15 @@ interface Props {
     anchorName: string,
     elevationM: number,
   ) => void
+  /**
+   * Jump to the Parameters stage scoped to the right-clicked band's LITHO
+   * unit (owner ruling R1, 2026-08-27). Reports the band's ``formationId`` —
+   * the statistics are a property of the unit, pooled over every band of it,
+   * "regardless of packing density". Absent → the menu item is not offered
+   * (litho axis only; the geotech axis has its own jump on the packing-band
+   * overlay).
+   */
+  onShowLithoUnitStatistics?: (formationId: string) => void
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -680,6 +690,7 @@ export default function ContactsLayer({
   contactDragClampMinThicknessM,
   geoSnapToleranceM,
   onRequestAddLithoSuggestion,
+  onShowLithoUnitStatistics,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -767,6 +778,8 @@ export default function ContactsLayer({
         mode: 'remove'
         contactId: string
         formationName: string
+        /** The band's litho unit — what the statistics jump is scoped to (R1). */
+        formationId: string
       }
     | {
         clientX: number
@@ -1220,6 +1233,10 @@ export default function ContactsLayer({
       // extends to test bottom).
       contactId: string
       formationName: string
+      // The band's litho FORMATION — what the "Unit statistics…" jump (R1,
+      // 2026-08-27) is scoped to. The contact id above names one boundary;
+      // the statistics are a property of the unit.
+      formationId: string
       // Debt #151 dogfeed refinement 2026-05-27: left-click on a band
       // opens the picker for "Insert new layer here".  These fields
       // let the click handler compute the click depth + pass the
@@ -1312,6 +1329,7 @@ export default function ContactsLayer({
             color,
             contactId: top.id,
             formationName: nameById.get(top.formation_id) ?? '',
+            formationId: top.formation_id,
             ...anchorMeta,
             growTop: 0,
             growBottom: 0,
@@ -1347,6 +1365,7 @@ export default function ContactsLayer({
             color: lastColor,
             contactId: last.id,
             formationName: nameById.get(last.formation_id) ?? '',
+            formationId: last.formation_id,
             ...anchorMeta,
             growTop: 0,
             growBottom: 0,
@@ -1377,7 +1396,10 @@ export default function ContactsLayer({
   function lithoBandContextMenuHandler(
     band: PerColumnLithoBand,
   ): ((e: ReactMouseEvent<SVGRectElement>) => void) | undefined {
-    if (!onDeleteContact) return undefined
+    // Either item justifies the menu; each item still gates on its OWN
+    // handler. Both absent (the geotech axis) → no handler, so the
+    // right-click passes through to the packing-band overlay above.
+    if (!onDeleteContact && !onShowLithoUnitStatistics) return undefined
     return e => {
       e.preventDefault()
       e.stopPropagation()
@@ -1387,6 +1409,7 @@ export default function ContactsLayer({
         mode: 'remove',
         contactId: band.contactId,
         formationName: band.formationName,
+        formationId: band.formationId,
       })
     }
   }
@@ -2646,9 +2669,13 @@ export default function ContactsLayer({
           // ungated path leaves no stopPropagation), so this changes nothing on
           // the litho / geological axes — it just stops the geotech axis
           // pretending the band is clickable.
-          pointerEvents={onRequestAddLithoSuggestion || onDeleteContact ? 'auto' : 'none'}
+          pointerEvents={
+            onRequestAddLithoSuggestion || onDeleteContact || onShowLithoUnitStatistics
+              ? 'auto'
+              : 'none'
+          }
           style={onRequestAddLithoSuggestion ? { cursor: 'pointer' } : undefined}
-          // Gated on the delete handler for the same reason the menu's own item is:
+          // Gated on the handlers for the same reason the menu's own items are:
           // ``perColumnBandsFromContacts`` is true on the GEOTECH axis as well, which is
           // view-only for contacts and so wires none — leaving a red "Remove this litho
           // unit" offered over a packing band, and (before the handler was gated at all)
@@ -2672,7 +2699,8 @@ export default function ContactsLayer({
           and gating mirror the visible rect exactly — a strip IS the band,
           just reachable. */}
       {perColumnLithoBands.flatMap(band => {
-        if (!(onRequestAddLithoSuggestion || onDeleteContact)) return []
+        if (!(onRequestAddLithoSuggestion || onDeleteContact || onShowLithoUnitStatistics))
+          return []
         const strips: { suffix: 'above' | 'below'; y: number; h: number }[] = []
         if (band.growTop > 0) strips.push({ suffix: 'above', y: band.y - band.growTop, h: band.growTop })
         if (band.growBottom > 0)
@@ -3347,31 +3375,46 @@ export default function ContactsLayer({
             }}
           >
             {lithoBandMenu.mode === 'remove' ? (
-              <button
-                type="button"
-                data-testid="litho-band-remove"
-                onClick={() => {
-                  if (lithoBandMenu.mode !== 'remove') return
-                  setDeletePending({
-                    contactId: lithoBandMenu.contactId,
-                    formationName: lithoBandMenu.formationName,
-                  })
-                  setLithoBandMenu(null)
-                }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 12px',
-                  textAlign: 'left',
-                  fontSize: 12,
-                  color: 'var(--color-text-danger, #f87171)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                Remove this litho unit
-              </button>
+              <>
+                {/* Each item gates on its OWN handler — the menu opens when
+                    either is wired (see ``lithoBandContextMenuHandler``). */}
+                {onDeleteContact && (
+                  <button
+                    type="button"
+                    data-testid="litho-band-remove"
+                    onClick={() => {
+                      if (lithoBandMenu.mode !== 'remove') return
+                      setDeletePending({
+                        contactId: lithoBandMenu.contactId,
+                        formationName: lithoBandMenu.formationName,
+                      })
+                      setLithoBandMenu(null)
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '6px 12px',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      color: 'var(--color-text-danger, #f87171)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Remove this litho unit
+                  </button>
+                )}
+                {/* Last, under a rule when it has company: everything above
+                    EDITS this column, this one navigates away (R1). */}
+                <UnitStatisticsItem
+                  unitId={lithoBandMenu.formationId}
+                  onShow={onShowLithoUnitStatistics}
+                  onClose={() => setLithoBandMenu(null)}
+                  topBorder={Boolean(onDeleteContact)}
+                  testid="litho-band-menu-unit-statistics"
+                />
+              </>
             ) : (
               <button
                 type="button"
