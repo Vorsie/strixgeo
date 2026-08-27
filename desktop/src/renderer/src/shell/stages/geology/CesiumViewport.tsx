@@ -80,6 +80,10 @@ export interface CesiumViewportProps {
   /** Closed ring of ``[x_m, y_m, elevation_m]`` marking the model footprint —
    * threaded from Geology3DViewerProps, drawn last and never clipped. */
   footprintRing?: readonly (readonly number[])[]
+  /** Basemap lid alpha — threaded from Geology3DViewerProps; omitted keeps
+   * the shared ``DEFAULT_BASEMAP_LID_ALPHA`` (owner ruling B6b, 2026-08-27:
+   * only the fence cutout dials it). */
+  basemapLidAlpha?: number
   /**
    * Ref this viewport publishes its camera on while mounted, so a sibling
    * viewport can mirror it (compare mode). Null when the viewport unmounts.
@@ -161,6 +165,7 @@ export function CesiumViewport({
   bodySolidsWireframe = false,
   investigationXY,
   footprintRing,
+  basemapLidAlpha,
   cameraRef,
   followCameraRef,
 }: CesiumViewportProps): JSX.Element {
@@ -277,6 +282,14 @@ export function CesiumViewport({
     if (groundSurface && groundSurface.vertices.length > 0) {
       lidSurfaces.push({ vertices: groundSurface.vertices })
     }
+    // Fence-cutout fallback (owner ruling B6a, 2026-08-27): with no surfaces
+    // and no ground surface — the cutout passes neither — the wall panels are
+    // the only geometry, so they supply the lid footprint. Strictly additive:
+    // whenever ANY surface or ground TIN exists (every 3-D stage), this arm
+    // never fires and the lid rect is byte-identical to before.
+    if (lidSurfaces.length === 0 && fencePanels !== undefined) {
+      for (const panel of fencePanels) lidSurfaces.push({ vertices: panel.vertices })
+    }
     const lid = basemapEnabled ? buildBasemapLid(lidSurfaces, projectEpsg) : null
 
     rebuildSurfacePrimitives(
@@ -299,6 +312,7 @@ export function CesiumViewport({
       investigationXY,
       hiddenBodyIds,
       footprintRing,
+      basemapLidAlpha,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -407,6 +421,8 @@ export function CesiumViewport({
     // model changes, or when the ring elevation moves because the ground
     // surface / solids finished loading.
     footprintRing,
+    // Lid alpha: a scalar; only the fence cutout ever sets it (B6b).
+    basemapLidAlpha,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
