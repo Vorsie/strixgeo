@@ -71,6 +71,8 @@ import { useSectionColumnRevealBridge } from './useSectionColumnRevealBridge'
 import type { SectionColumnRevealFn } from '../../../components/sections/sectionColumnReveal'
 import { useGeotechBoreholePreview } from './useGeotechBoreholePreview'
 import { useBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
+import { bodyHomeUnitId } from '../parameters/parameterUnitBodies'
+import { useModelBodies } from '../parameters/useModelBodies'
 import { shouldShowBoreholePreview } from './boreholePreviewGate'
 import { useGeotechPackingCorrelation } from './useGeotechPackingCorrelation'
 import { useEdgeDragRetarget } from './useEdgeDragRetarget'
@@ -232,6 +234,10 @@ export default function SectionsCanvas(): JSX.Element {
       // sites; the scheduler + nonce watch live at the shell level
       // (useProjectBodyRecompute in App).
       requestBodyRecompute,
+      // F10: the unit-statistics jump reads the per-axis body rosters, which
+      // must follow a recompute (F9) — the nonces key those fetches.
+      bodyRecomputeLithoNonce,
+      bodyRecomputeGeotechNonce,
     },
     mapState: {
       hiddenCptTypes,
@@ -508,27 +514,50 @@ export default function SectionsCanvas(): JSX.Element {
   // The BODY rides along when the clicked surface named one (owner body-scope
   // ruling 2026-08-27: "a body is only a body if it is geometrically
   // connected or if the users says…") — null keeps the pooled formation view.
+  //
+  // F10 — the reported UNIT follows the body: the overlays send the region's
+  // formation LABEL beside a layers-resolved body, and on a body welded
+  // across twin formation rows (or frame-labelled on the geotech axis) the
+  // label is not where the body's row lives. ``bodyHomeUnitId`` re-points the
+  // unit at the body's HOME formation from the same roster the Parameters
+  // pane groups by; with no body (or an unknown one) the label stands. The
+  // rosters ride the recompute nonces (F9) so a jump after a recompute reads
+  // fresh homes.
+  const lithoJumpRoster = useModelBodies(
+    project.id,
+    activeLithoModel?.id ?? null,
+    bodyRecomputeLithoNonce,
+  )
+  const geotechJumpRoster = useModelBodies(
+    project.id,
+    activeGeotechModel?.id ?? null,
+    bodyRecomputeGeotechNonce,
+  )
   const handleShowGeotechUnitStatistics = useCallback(
     (unitId: string, bodyId?: string | null): void => {
+      const homeUnitId = bodyHomeUnitId(unitId, bodyId, geotechJumpRoster)
       log.info(
         'section',
-        `unit statistics requested for geotech unit ${unitId}` +
+        `unit statistics requested for geotech unit ${homeUnitId}` +
+          (homeUnitId !== unitId ? ` (label ${unitId})` : '') +
           (bodyId != null ? ` (body ${bodyId})` : ''),
       )
-      setParametersDeepLinkTarget({ kind: 'geotech', unitId, bodyId: bodyId ?? null })
+      setParametersDeepLinkTarget({ kind: 'geotech', unitId: homeUnitId, bodyId: bodyId ?? null })
     },
-    [setParametersDeepLinkTarget],
+    [setParametersDeepLinkTarget, geotechJumpRoster],
   )
   const handleShowLithoUnitStatistics = useCallback(
     (unitId: string, bodyId?: string | null): void => {
+      const homeUnitId = bodyHomeUnitId(unitId, bodyId, lithoJumpRoster)
       log.info(
         'section',
-        `unit statistics requested for litho unit ${unitId}` +
+        `unit statistics requested for litho unit ${homeUnitId}` +
+          (homeUnitId !== unitId ? ` (label ${unitId})` : '') +
           (bodyId != null ? ` (body ${bodyId})` : ''),
       )
-      setParametersDeepLinkTarget({ kind: 'litho', unitId, bodyId: bodyId ?? null })
+      setParametersDeepLinkTarget({ kind: 'litho', unitId: homeUnitId, bodyId: bodyId ?? null })
     },
-    [setParametersDeepLinkTarget],
+    [setParametersDeepLinkTarget, lithoJumpRoster],
   )
 
   // Open the InspectLensBodyPanel for a given (formationId, bodyOrdinal) pair.
