@@ -62,13 +62,16 @@ export const SETTINGS_NL = {
   'settings.litho.voxelVertical': 'Verticale cel (Z) (m)',
   'settings.litho.voxelVerticalHint':
     'Voxelgrootte in de hoogte. Een fijne Z pikt dunne lagen op — een veensluier of een zandlens — die een grof raster mist. Maar het vermenigvuldigt de rekentijd: 0,5 m geeft ruwweg 4× zoveel voxels (en minuten rekentijd) als een kubisch raster van 2 m, dus grijp er enkel naar wanneer dunne lagen ertoe doen. Bereik {min}–{max} m. Standaard {default} m.',
-  'settings.litho.engineV2': 'Verdelingsengine v2 (experimenteel)',
+  // v2 is de STANDAARDENGINE (gemeten omschakeling 2026-08-01; eigenaar
+  // 2026-08-27: "dit is niet meer experimenteel maar de main engine") — de
+  // schakelaar bestaat enkel nog als terugvalhendel naar v1.
+  'settings.litho.engineV2': 'Verdelingsengine v2',
   'settings.litho.engineV2Hint':
-    'Engine die gesloten contouren natrekt. Tekent de 2D-vulling, de 3D-opbouw en de profielwanden. Uit = de stabiele v1. Wordt op dit toestel bewaard (reist niet mee met het project).',
+    'De hoofdengine: trekt gesloten contouren na en tekent de 2D-vulling, de 3D-opbouw en de profielwanden. Uit = terugvallen op de oude v1-engine (enkel voor probleemanalyse). Wordt op dit toestel bewaard (reist niet mee met het project).',
   'settings.litho.engineV2Status':
     'Actieve engine: {engine} — meteen toegepast; de knop Opslaan hieronder is voor deze regel niet nodig.',
   'settings.litho.engineV2Name': 'v2 (gesloten contouren)',
-  'settings.litho.engineV1Name': 'v1 (stabiel)',
+  'settings.litho.engineV1Name': 'v1 (oude terugval)',
 
   'settings.geotech.blurb':
     'Afstelling van de NAD-pakkingsonderverdeling ("Alle lichamen onderverdelen"). Geldt vanaf de volgende keer dat je Onderverdelen gebruikt; al onderverdeelde lichamen blijven ongewijzigd.',
