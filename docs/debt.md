@@ -5409,6 +5409,11 @@ actual base URL (`win.webContents.getURL()` after `loadFile`).
 
 ## 201. God-component file-size split (Tier E — readability, L)
 
+**Counts update 2026-08-27 (F1–F12 audit fixes):** `CesiumViewport.tsx`
+crossed 500 (516 — prop declarations; the new zoom logic went to
+`useViewportZoomTuning.ts`); `SectionsCanvas.tsx` ~2,820 after the jump
+handlers gained the body-authority resolution.
+
 **What.** Five files dominate the codebase by size — extends resolved #114
 (which fixed the function-level readability: `_restore_project_bundle_impl`
 phase helpers + `computeSlabsAndPolylines`). The remaining problem is *file
