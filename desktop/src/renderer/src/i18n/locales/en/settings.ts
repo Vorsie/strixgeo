@@ -59,11 +59,11 @@ export const SETTINGS = {
   // v2 is the DEFAULT engine (measured flip 2026-08-01, owner confirmed
   // 2026-08-27 "dit is niet meer experimenteel maar de main engine") — the
   // toggle exists only as the v1 fallback lever.
-  'settings.litho.engineV2': 'Partition engine v2',
+  'settings.litho.engineV2': 'Partition software v2',
   'settings.litho.engineV2Hint':
-    'The main engine: closed-loop face tracing renders the 2D fill, 3D build and fences. Off = fall back to the old v1 engine (troubleshooting only). Stored on this device (does not travel with the project).',
+    'The main software: closed-loop face tracing renders the 2D fill, 3D build and the fence diagram. Off = fall back to the old v1 software (troubleshooting only). Stored on this device (does not travel with the project).',
   'settings.litho.engineV2Status':
-    'Active engine: {engine} — applied immediately; the Save button below is not needed for this row.',
+    'Active software: {engine} — applied immediately; the Save button below is not needed for this row.',
   'settings.litho.engineV2Name': 'v2 (closed-loop)',
   'settings.litho.engineV1Name': 'v1 (old fallback)',
 
@@ -92,7 +92,7 @@ export const SETTINGS = {
     'How far apart along-strike two tests may be and still join the same auto-proposed tie-section. Wider = more ties, but less clean.',
 
   'settings.appearance.blurb':
-    'Per-device preferences. These stay on this machine and do NOT travel with the .gmproj bundle.',
+    'Per-device preferences. These stay on this machine and do NOT travel with the .strix bundle.',
   'settings.appearance.theme': 'Theme',
   'settings.appearance.themeSystem': 'System (follow OS)',
   'settings.appearance.themeLight': 'Light',
