@@ -18,6 +18,8 @@ import ParametersCanvas from './ParametersCanvas'
 // coordinator.{selectedId, handleSelect} (a row click selects the CPT so the
 // stage inspector plots it); PerUnitTab reads geoModel.lithoFormations;
 // MethodConfigTab reads nothing from the bus.
+let mockSelectedParameterUnitId: string | null = null
+
 vi.mock('../../ShellContext', () => ({
   useShell: () => ({
     investigations: {
@@ -28,9 +30,13 @@ vi.mock('../../ShellContext', () => ({
     coordinator: {
       selectedId: null,
       handleSelect: async () => {},
+      selectedParameterUnitId: mockSelectedParameterUnitId,
+      setSelectedParameterUnitId: vi.fn(),
     },
     geoModel: {
       lithoFormations: [],
+      geotechFormations: [],
+      geotechLayers: [],
     },
   }),
 }))
@@ -86,5 +92,19 @@ describe('ParametersCanvas — tab scaffold', () => {
     expect(screen.getByText('Correlations')).toBeInTheDocument()
     expect(screen.getByText('Excel lookups')).toBeInTheDocument()
     expect(screen.getByText('Probabilistic + ML')).toBeInTheDocument()
+  })
+
+  // PC1 — arriving with a unit already scoped (the layer → parameters jump,
+  // owner ballot 2026-08-26) must land on the tab that LISTS units. Landing on
+  // "Per test" would hide the row the engineer just navigated to.
+  it('PC1 — a scoped unit opens the per-unit tab, not the default per-test one', () => {
+    mockSelectedParameterUnitId = 'unit-7'
+    try {
+      render(<ParametersCanvas />)
+      expect(screen.getByTestId('parameters-panel-per-unit')).toBeInTheDocument()
+      expect(screen.queryByTestId('parameters-panel-per-test')).toBeNull()
+    } finally {
+      mockSelectedParameterUnitId = null
+    }
   })
 })
