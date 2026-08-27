@@ -266,6 +266,9 @@ export function makeVoxelRequestBuilder(
     }
 
     const { voxelHorizontalSpacingM, voxelVerticalSpacingM } = readLithoSegmenterPrefs(viewState)
+    // Section display names for the gapless gate's clause 4 entries (section
+    // ids alone are not something an engineer reads out loud).
+    const sectionNames = new Map(visibleSections.map(s => [s.id, s.name ?? s.id]))
     return buildVoxelRequest(
       sectionInputs,
       voxelHorizontalSpacingM,
@@ -273,6 +276,7 @@ export function makeVoxelRequestBuilder(
       boundariesByBodyId,
       frameSectionInputs,
       packingClassOf,
+      sectionNames,
     )
   }
 }
