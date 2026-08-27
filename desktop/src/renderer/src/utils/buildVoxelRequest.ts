@@ -25,6 +25,9 @@ import {
 } from "../components/sections/apexOverrideWiring";
 import type { FenceSectionInput } from "./buildProjectFence";
 import { countSpanningRegions } from "./countSpanningRegions";
+import { assembleGaplessClauses2d } from "./gaplessGate";
+import type { SectionClause2dInput } from "./gaplessGate/clauses2d";
+import type { GaplessClauseInput } from "./gaplessGate/types";
 import { log } from "./log";
 import type {
   CorrelationEdge,
@@ -33,7 +36,10 @@ import type {
   SectionRegion,
 } from "./partitionFill";
 import { frameAlignedColumns } from "./frameAlignedPartition";
-import { computeHierarchicalGeotechFill } from "./geotechHierarchicalFill";
+import {
+  computeHierarchicalGeotechFill,
+  type HierarchicalGeotechFillResult,
+} from "./geotechHierarchicalFill";
 import {
   computeSectionFillActive,
   isPartitionEngineV2Active,
@@ -142,6 +148,16 @@ export interface VoxelBuildRequest {
    * collapses ``vertical === horizontal`` to a cubic grid internally.
    */
   vertical_spacing_m?: number;
+  /**
+   * The renderer's half (clauses 1-4) of the seven-clause gapless gate — see
+   * ``gaplessGate/types.ts``. Diagnostic freight only: never read by
+   * ``_partition_checksum`` (section geometry + spacings + investigation
+   * columns only) and never changes the payload's meaning, so it cannot bust
+   * a cached build. Always emitted by ``buildVoxelRequest`` — even a litho
+   * build reports all four clauses ``not-evaluated`` rather than omitting the
+   * field, so "not measured" is never indistinguishable from "not asked".
+   */
+  gapless_2d?: GaplessClauseInput[];
 }
 
 /**
@@ -423,8 +439,16 @@ export function buildVoxelRequest(
   boundariesByBodyId?: ReadonlyMap<string, BodyBoundaryResponse>,
   frameSections?: readonly FenceSectionInput[],
   packingClassOf?: ReadonlyMap<string, string>,
+  sectionNames?: ReadonlyMap<string, string>,
 ): VoxelBuildRequest {
   const out: SectionPartitionInput[] = [];
+  // THE GAPLESS GATE'S 2-D HALF (clauses 1-4) — collected per section as the
+  // main loop below runs, then assembled once at the end. `builtSectionKeys`
+  // is the join key `sectionClosure` compares the litho frame against: it
+  // must be the SAME key `frameBySectionId` is keyed by (`sectionKey`, not
+  // the raw `sectionId`, since a caller is not required to supply one).
+  const section2dInputs: SectionClause2dInput[] = [];
+  const builtSectionKeys = new Set<string>();
   // THE LITHO FRAME, for a GEOTECH build (owner ruling 2026-08-18, "densities
   // on top of lithos"). With it, this builder runs the SAME hierarchical fill
   // the geotech axis renders — one path, so the built model is the drawn model.
@@ -448,6 +472,11 @@ export function buildVoxelRequest(
 
     const lithoFrame = frameBySectionId.get(sectionKey(input));
     let engineRegions: SectionRegion[];
+    // Gate inputs for THIS section: undefined `hierarchical` is the signal
+    // clauses 1-3 read as "not-evaluated" (see `gaplessGate/clauses2d.ts`).
+    let hierarchicalForGate: HierarchicalGeotechFillResult | undefined;
+    let lithoRegionsForGate: readonly SectionRegion[] = [];
+    let alongMForGate: readonly number[] = alongM;
     if (lithoFrame !== undefined) {
       // The frame owns the axis: its columns carry the tests the packing model
       // has not divided yet, and the regions below are indexed on ITS gaps, so
@@ -473,6 +502,9 @@ export function buildVoxelRequest(
         packingClassOf,
       });
       engineRegions = hierarchical.regions;
+      hierarchicalForGate = hierarchical;
+      lithoRegionsForGate = lithoRegions;
+      alongMForGate = lithoFrame.alongM;
       log.info(
         "litho-voxel",
         `hierarchical payload section: ${hierarchical.diagnostics.families} litho families, ` +
@@ -483,6 +515,17 @@ export function buildVoxelRequest(
       engineRegions = computeSectionFillActive(columns, input.edges, apexOverrides, alongM);
     }
     const regions = toRegionInputs(engineRegions);
+
+    const sectionKeyValue = sectionKey(input);
+    const sectionIdForGate = input.sectionId ?? sectionKeyValue;
+    builtSectionKeys.add(sectionKeyValue);
+    section2dInputs.push({
+      sectionId: sectionIdForGate,
+      sectionName: sectionNames?.get(sectionIdForGate) ?? sectionIdForGate,
+      hierarchical: hierarchicalForGate,
+      lithoRegions: lithoRegionsForGate,
+      alongM: alongMForGate,
+    });
 
     // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
     // not match a bench run of the same engine on the same inputs is visible
@@ -515,6 +558,30 @@ export function buildVoxelRequest(
     });
   }
 
+  // CLAUSE 4's whole-build input: every litho-frame section, named, against
+  // the set this build actually produced output for. `hasFrame` is whether a
+  // frame was supplied AT ALL, independent of whether it happens to be empty
+  // — a litho-only build (no frame) must read "not-evaluated", never a
+  // vacuous "pass" that a frame naming zero sections would otherwise produce.
+  //
+  // NOT ATTEMPTED: attributing a missing section to a CONSENTED investigation
+  // exclusion (`excludedInvestigationIds` in `makeVoxelRequestBuilder.ts`).
+  // That exclusion is applied identically to both `sections` and
+  // `frameSections` by the caller BEFORE either reaches this function, so a
+  // section missing here already reflects the SAME exclusion on both sides —
+  // this scope cannot tell "dropped because of consent" from "dropped for any
+  // other reason" any better than guessing would, and the gate exists to
+  // refuse guessing (see `gaplessGate/sectionClosure.ts`'s own doc).
+  const frameSectionRefs = [...frameBySectionId.entries()].map(([key, frame]) => {
+    const id = frame.input.sectionId ?? key;
+    return { sectionId: id, sectionName: sectionNames?.get(id) ?? id };
+  });
+  const gapless2d = assembleGaplessClauses2d(section2dInputs, {
+    hasFrame: frameSections !== undefined,
+    frameSections: frameSectionRefs,
+    builtSectionIds: builtSectionKeys,
+  });
+
   // grid_spacing_m is kept set to the horizontal spacing for back-compat / the
   // cubic fallback; the explicit anisotropic fields let the backend's
   // effective-spacing resolver pick the right per-axis values.
@@ -523,5 +590,6 @@ export function buildVoxelRequest(
     grid_spacing_m: horizontalM,
     horizontal_spacing_m: horizontalM,
     vertical_spacing_m: verticalM,
+    gapless_2d: gapless2d,
   };
 }
