@@ -32,11 +32,12 @@
 // LithologyCanvas — so the canvas-populated geotechVoxelRequestCallback ref is
 // always available when Build is clicked.
 
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { Box, Layers } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { EmptyState } from '../../EmptyState'
+import GeotechBuildReportBanner from './GeotechBuildReportBanner'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import {
@@ -140,11 +141,13 @@ export default function GeotechnicalCanvas(): JSX.Element {
       geotechSolids,
       hasGeotechSolids,
       geotechHideMarkers,
+      geotechGaplessReport,
       lithoFormations,
       lithoSolids,
     },
     overlays: { showConfidenceFade },
     sections: { visibleSections },
+    coordinator: { setSectionsDeepLinkTarget },
     toasts: { toast },
   } = useShell()
 
@@ -280,33 +283,59 @@ export default function GeotechnicalCanvas(): JSX.Element {
     [lithoFormations, lithoSolids],
   )
 
+  // Walk to a spot the gapless report names. Same three-step deep-link the
+  // pre-flight's "visit test" uses; ``contactIds`` stays empty because this is
+  // about a SECTION, and ``handleFocusContacts`` no-ops on an empty list, so
+  // the two paths cannot fight over the camera.
+  // Declared ABOVE every early return — the hook order must not depend on
+  // whether a model exists yet.
+  const visitReportSection = useCallback(
+    (sectionId: string) => {
+      setSectionsDeepLinkTarget({ sectionId, contactIds: [] })
+    },
+    [setSectionsDeepLinkTarget],
+  )
+
   // -------------------------------------------------------------------------
   // Render
+  //
+  // All three branches are wrapped in ONE positioned root so the build-report
+  // banner is present in every one of them. A build that produced nothing lands
+  // on the "no geotech body model yet" empty state, and that is precisely the
+  // case where the engineer most needs to read why — hiding the verdict behind
+  // a successful build would report the gate only when it had nothing to say.
   // -------------------------------------------------------------------------
 
+  const projectEpsg = project?.default_horizontal_epsg ?? 31370
+
   // Without a litho model there is nothing to subdivide — guide the user.
-  if (activeLithoModel === null) {
-    return (
+  const content =
+    activeLithoModel === null ? (
       <EmptyState
         icon={<Layers />}
         title="No lithostratigraphic model yet"
         hint="Create a lithostratigraphic model in the Lithology stage and accept litho suggestions, then return here to build the 3D geotechnical model."
       />
-    )
-  }
-
-  // Litho model present but nothing built yet — guide the user to Build.
-  if (!hasGeotechSolids) {
-    return (
+    ) : !hasGeotechSolids ? (
+      // Litho model present but nothing built yet — guide the user to Build.
       <EmptyState
         icon={<Box />}
         title="No geotech body model yet"
         hint="Run 'Subdivide all bodies' on the Sections stage (geotech axis), then click 'Build model' on the Geotechnical toolbar to generate the 3D NAD body solids."
       />
+    ) : null
+
+  if (content !== null) {
+    return (
+      <div className="relative w-full h-full">
+        {content}
+        <GeotechBuildReportBanner
+          report={geotechGaplessReport}
+          onVisitSection={visitReportSection}
+        />
+      </div>
     )
   }
-
-  const projectEpsg = project?.default_horizontal_epsg ?? 31370
 
   return (
     <div className="relative w-full h-full">
@@ -343,6 +372,11 @@ export default function GeotechnicalCanvas(): JSX.Element {
         footprintRing={footprintRing}
         compareScene={lithoCompareScene}
         onEnterCompare={enterCompare}
+      />
+
+      <GeotechBuildReportBanner
+        report={geotechGaplessReport}
+        onVisitSection={visitReportSection}
       />
     </div>
   )
