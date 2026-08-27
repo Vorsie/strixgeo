@@ -499,14 +499,23 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, refetchFormations, toast],
   )
 
-  // Layer → Parameters jump (owner ballot 2026-08-26). The canvas does not
-  // navigate: it posts the unit onto the coordinator bus and AppShell — the
-  // only thing allowed to switch stages — does the rest. Same contract as
-  // ``setGeoDeepLinkTarget`` above it.
+  // Layer → Parameters jump (owner ballot 2026-08-26; litho half added by the
+  // 2026-08-27 R1 ruling). The canvas does not navigate: it posts the unit
+  // SCOPE onto the coordinator bus and AppShell — the only thing allowed to
+  // switch stages — does the rest. Same contract as ``setGeoDeepLinkTarget``
+  // above it. The kind is stamped HERE, where the axis is known: the overlays
+  // report a bare formation id and cannot tell a litho row from a geotech row.
   const handleShowGeotechUnitStatistics = useCallback(
     (unitId: string): void => {
       log.info('section', `unit statistics requested for geotech unit ${unitId}`)
-      setParametersDeepLinkTarget({ unitId })
+      setParametersDeepLinkTarget({ kind: 'geotech', unitId })
+    },
+    [setParametersDeepLinkTarget],
+  )
+  const handleShowLithoUnitStatistics = useCallback(
+    (unitId: string): void => {
+      log.info('section', `unit statistics requested for litho unit ${unitId}`)
+      setParametersDeepLinkTarget({ kind: 'litho', unitId })
     },
     [setParametersDeepLinkTarget],
   )
@@ -2366,11 +2375,15 @@ export default function SectionsCanvas(): JSX.Element {
           onRequestGeotechClearColumn={
             isGeotech ? geotechBandEdit.onRequestClearColumn : undefined
           }
-          // Geotech axis only: a band there IS a geotech unit's ground. On the
-          // litho axis the same right-click is about a litho layer, which has
-          // no packing statistics of its own.
+          // Each axis jumps as ITSELF (rulings R1/R2, 2026-08-27): a geotech
+          // band or fill region reports a geotech unit; a litho band or body
+          // reports a litho unit — whose pool spans every packing class
+          // inside it. The kind is stamped in the handlers above.
           onShowGeotechUnitStatistics={
             isGeotech ? handleShowGeotechUnitStatistics : undefined
+          }
+          onShowLithoUnitStatistics={
+            isLitho ? handleShowLithoUnitStatistics : undefined
           }
           geotechSmallLensThicknessM={geotechMinLayerThicknessM}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
