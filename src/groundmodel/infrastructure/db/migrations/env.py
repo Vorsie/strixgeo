@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import all ORM models so their tables are registered on Base.metadata before autogenerate.
 import groundmodel.infrastructure.db.models  # noqa: F401
+from groundmodel.infrastructure.db.alembic_config_helpers import set_config_option
 from groundmodel.infrastructure.db.base import Base
 
 config = context.config
@@ -21,7 +22,10 @@ if config.config_file_name is not None:
 # a different name from the dev DB on the same Postgres instance).
 _url_override = os.environ.get("DATABASE_URL")
 if _url_override:
-    config.set_main_option("sqlalchemy.url", _url_override)
+    # Goes through the shared helper for the `%`-escaping ConfigParser needs —
+    # see alembic_config_helpers.set_config_option for why a raw `%` here is a
+    # ValueError rather than a cosmetic issue.
+    set_config_option(config, "sqlalchemy.url", _url_override)
 
 target_metadata = Base.metadata
 
