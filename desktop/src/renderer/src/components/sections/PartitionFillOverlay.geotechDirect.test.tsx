@@ -24,8 +24,8 @@
 //   GD7  The packing fills inherit the litho render path's self-colour seam
 //        stroke (the S61/S60b hairline closure), because they ARE that path.
 
-import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { nadClassColor } from '../../utils/nadClasses'
 import PartitionFillOverlay, { type GeotechLithoFrame, type Props } from './PartitionFillOverlay'
@@ -380,5 +380,73 @@ describe('PartitionFillOverlay — the geotech axis partitions the geotech model
       }
     }
     expect(defects).toEqual([])
+  })
+})
+
+describe('PartitionFillOverlay — "Unit statistics…" from the fill (owner ruling R2, 2026-08-27)', () => {
+  // Owner, verbatim: "it only works if you press on a column, make it so that
+  // i can press a unit in the spaces between too."
+
+  /** The region HIT paths (not their seam strokes). */
+  function regionHitPaths(container: HTMLElement): SVGElement[] {
+    return Array.from(
+      container.querySelectorAll<SVGElement>('[data-testid^="partition-region-"]'),
+    ).filter(el => !(el.getAttribute('data-testid') ?? '').includes('-stroke-'))
+  }
+
+  it('RS1 — right-click a geotech fill region offers "Unit statistics…" for ITS unit', () => {
+    const onShowGeotechUnitStatistics = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...geotechProps}
+          onShowGeotechUnitStatistics={onShowGeotechUnitStatistics}
+        />
+      </svg>,
+    )
+    const hits = regionHitPaths(container)
+    expect(hits.length).toBeGreaterThan(0)
+    // The handler makes the region a right-click target on this axis.
+    expect(hits[0].style.pointerEvents).not.toBe('none')
+    fireEvent.contextMenu(hits[0], { clientX: 60, clientY: 80 })
+
+    fireEvent.click(screen.getByTestId('partition-region-menu-unit-statistics'))
+    expect(onShowGeotechUnitStatistics).toHaveBeenCalledTimes(1)
+    // The reported id is the REGION's geotech unit — one of the two NAD
+    // formations this scene paints between the columns.
+    const reported = onShowGeotechUnitStatistics.mock.calls[0][0] as string
+    expect(['nad-zand-5', 'nad-zand-7']).toContain(reported)
+    // The jump closes the menu.
+    expect(screen.queryByTestId('partition-region-menu')).toBeNull()
+  })
+
+  it('RS2 — without the handler the regions stay inert and no menu exists', () => {
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay {...geotechProps} />
+      </svg>,
+    )
+    for (const el of regionHitPaths(container)) {
+      expect(el.style.pointerEvents).toBe('none')
+    }
+    fireEvent.contextMenu(regionHitPaths(container)[0], { clientX: 60, clientY: 80 })
+    expect(screen.queryByTestId('partition-region-menu')).toBeNull()
+  })
+
+  it('RS3 — the litho axis does not use this path (its regions belong to the body menu)', () => {
+    const onShowGeotechUnitStatistics = vi.fn()
+    const { container } = render(
+      <svg>
+        <PartitionFillOverlay
+          {...lithoProps}
+          onShowGeotechUnitStatistics={onShowGeotechUnitStatistics}
+        />
+      </svg>,
+    )
+    const hits = regionHitPaths(container)
+    expect(hits.length).toBeGreaterThan(0)
+    fireEvent.contextMenu(hits[0], { clientX: 60, clientY: 80 })
+    expect(screen.queryByTestId('partition-region-menu')).toBeNull()
+    expect(onShowGeotechUnitStatistics).not.toHaveBeenCalled()
   })
 })
