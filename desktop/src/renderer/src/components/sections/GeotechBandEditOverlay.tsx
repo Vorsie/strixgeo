@@ -185,6 +185,21 @@ export interface Props {
    * ``PartitionFillOverlay`` yields its handles so clicks reach the targets beneath.
    */
   suspended?: boolean
+  /**
+   * Jump to the Parameters stage scoped to the right-clicked band's UNIT (owner
+   * ballot 2026-08-26). Absent → the menu item is not offered at all, the GS7
+   * no-affordance pattern the rest of this menu follows.
+   *
+   * Reports the band's ``formationId``, never its ``layerId``: the statistics
+   * are a property of the unit, pooled over every band of it in the project,
+   * not of the one band under the cursor.
+   *
+   * NOTE: an unclassified (skeleton) borehole band has no right-click target on
+   * this overlay at all — the borehole menu is built only where a NAD class
+   * exists to re-pick — so the jump is unavailable there by inheritance. Those
+   * units are reached from the per-unit table on the Parameters stage instead.
+   */
+  onShowUnitStatistics?: (unitId: string) => void
 }
 
 /** One column's geometry plus the band / body stacks drawn on it. */
@@ -265,6 +280,8 @@ type MenuState =
       removeDown: RemoveSeed | null
       /** The enclosure, when the clicked band IS an enclosed class lens. */
       absorbLens: EnclosedLens | null
+      /** The clicked band's geotech unit — what the statistics jump is scoped to. */
+      unitId: string
     }
   | { kind: 'merge'; clientX: number; clientY: number; upperBandId: string; lowerBandId: string; boundaryDepthM: number }
   | {
@@ -287,6 +304,8 @@ type MenuState =
        * choosing it would restate the thing that is wrong.
        */
       foreignClass: number | null
+      /** The clicked band's geotech unit — what the statistics jump is scoped to. */
+      unitId: string
     }
 
 /**
@@ -353,6 +372,7 @@ export default function GeotechBandEditOverlay({
   onRequestSetClass,
   smallLensThicknessM,
   suspended = false,
+  onShowUnitStatistics,
 }: Props): JSX.Element | null {
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [placing, setPlacing] = useState<SplitPlacement | null>(null)
@@ -716,6 +736,7 @@ export default function GeotechBandEditOverlay({
                     currentClass,
                     family,
                     foreignClass,
+                    unitId: band.formationId,
                   })
                 }}
               >
@@ -824,6 +845,7 @@ export default function GeotechBandEditOverlay({
                       removeUp,
                       removeDown,
                       absorbLens,
+                      unitId: band.formationId,
                     })
                   }}
                 >
@@ -1177,6 +1199,14 @@ export default function GeotechBandEditOverlay({
                       Merge into surrounding band
                     </button>
                   )}
+                  {/* Last, under a rule: everything above EDITS this band,
+                      this one navigates away from it. */}
+                  <UnitStatisticsItem
+                    unitId={menu.unitId}
+                    onShow={onShowUnitStatistics}
+                    onClose={() => setMenu(null)}
+                    topBorder
+                  />
                 </>
               ) : menu.kind === 'setClass' ? (
                 <>
@@ -1221,6 +1251,12 @@ export default function GeotechBandEditOverlay({
                       {` (current — a ${nadSoilFamilyName(menu.foreignClass)} class on this soil)`}
                     </button>
                   )}
+                  <UnitStatisticsItem
+                    unitId={menu.unitId}
+                    onShow={onShowUnitStatistics}
+                    onClose={() => setMenu(null)}
+                    topBorder
+                  />
                 </>
               ) : (
                 <button
@@ -1240,6 +1276,52 @@ export default function GeotechBandEditOverlay({
           document.body,
         )}
     </g>
+  )
+}
+
+/**
+ * "Unit statistics…" — the jump to the Parameters stage, scoped to the band's
+ * unit.
+ *
+ * One component rather than the same JSX in both menus: the CPT band's split
+ * menu and the borehole band's set-class menu offer the identical item, and
+ * two copies would drift in wording or in which id they report.
+ *
+ * Renders NOTHING when no handler is wired — the no-affordance rule this menu
+ * already follows for a merge that is not legal, rather than a disabled entry
+ * that tells the engineer about a verb he cannot reach.
+ */
+function UnitStatisticsItem({
+  unitId,
+  onShow,
+  onClose,
+  topBorder = false,
+}: {
+  unitId: string
+  onShow: ((unitId: string) => void) | undefined
+  onClose: () => void
+  topBorder?: boolean
+}): JSX.Element | null {
+  if (onShow === undefined) return null
+  return (
+    <button
+      type="button"
+      data-testid="geotech-band-menu-unit-statistics"
+      onClick={() => {
+        onShow(unitId)
+        onClose()
+      }}
+      style={
+        topBorder
+          ? {
+              ...MENU_ITEM_STYLE,
+              borderTop: '1px solid var(--color-border-default, #334155)',
+            }
+          : MENU_ITEM_STYLE
+      }
+    >
+      Unit statistics…
+    </button>
   )
 }
 
