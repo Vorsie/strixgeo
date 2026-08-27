@@ -78,3 +78,38 @@ def test_non_positive_anisotropic_spacing_is_rejected() -> None:
         VoxelBuildRequest(grid_spacing_m=2.0, vertical_spacing_m=0.0)
     with pytest.raises(ValidationError):
         VoxelBuildRequest(grid_spacing_m=2.0, horizontal_spacing_m=-1.0)
+
+
+# ---------------------------------------------------------------------------
+# gapless_2d — the seven-clause gate's clauses 1-4, from the renderer.
+# ---------------------------------------------------------------------------
+
+
+def test_a_payload_with_no_gapless_clauses_converts_to_none() -> None:
+    """A legacy client (or a lithology build) sends nothing — stays None, not []."""
+    req = VoxelBuildRequest(grid_spacing_m=2.0)
+    assert req.gapless_2d is None
+    assert req.to_gapless_2d_dicts() is None
+
+
+def test_gapless_clauses_convert_to_plain_dicts_for_the_application_layer() -> None:
+    """Each Pydantic clause becomes a plain dict the use case can pass along."""
+    req = VoxelBuildRequest(
+        grid_spacing_m=2.0,
+        gapless_2d=[
+            {"key": "area-conservation", "status": "pass", "entries": []},
+            {
+                "key": "edge-reach",
+                "status": "fail",
+                "entries": [{"label": "gap 3 unreadable at its right edge"}],
+            },
+        ],
+    )
+
+    dicts = req.to_gapless_2d_dicts()
+
+    assert dicts is not None
+    assert all(isinstance(d, dict) for d in dicts)
+    assert [d["key"] for d in dicts] == ["area-conservation", "edge-reach"]
+    assert dicts[1]["status"] == "fail"
+    assert dicts[1]["entries"][0]["label"] == "gap 3 unreadable at its right edge"
