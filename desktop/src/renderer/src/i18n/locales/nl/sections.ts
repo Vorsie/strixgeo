@@ -171,6 +171,7 @@ export const SECTIONS_NL = {
   'sections.menu.mergeLayers': 'Lagen samenvoegen',
   'sections.menu.removeLithoUnit': 'Deze litho-eenheid weghalen',
   'sections.menu.addSuggestionHere': 'Hier een nieuw voorstel toevoegen',
+  'sections.menu.unitStatistics': 'Statistieken van deze eenheid…',
   'sections.menu.insertLayerHere': 'Hier een laag invoegen…',
   'sections.menu.editComposition': 'Samenstelling bewerken…',
   'sections.menu.splitLayer': 'Laag splitsen',
