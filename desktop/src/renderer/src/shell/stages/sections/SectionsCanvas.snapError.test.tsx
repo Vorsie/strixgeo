@@ -348,6 +348,7 @@ function makeLithoCtx(mockHandleUpdateContactDepth: UpdateDepthFn): ShellContext
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
+      geotechGaplessReport: null,
       // Debt #266 — geotech columns standing on litho that has since moved.
       staleLithoGeotechColumns: [],
       staleLithoGeotechColumnIds: new Set<string>(),
