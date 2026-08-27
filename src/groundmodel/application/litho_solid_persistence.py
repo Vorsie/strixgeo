@@ -143,6 +143,13 @@ class LithoSolidsOutcome:
         zero bodies, so the only reading available to the client was a green
         "Built 0 bodies" over a 3-D model that had just been erased.  ``None``
         on every build that produced at least one body.
+    gapless_report : dict or None
+        The seven-clause gapless-gate report
+        (:class:`~groundmodel.application.gapless_build_report_assembler.GaplessBuildReportAssembler`'s
+        output), as a plain JSON-ready dict — NOT the Pydantic
+        ``GaplessBuildReportSchema``, since the application layer must not
+        import API schemas.  ``None`` for the strat/loft builders, which never
+        assemble one.
     """
 
     bodies_considered: int
@@ -156,6 +163,7 @@ class LithoSolidsOutcome:
     # coverage was not checked".
     uncovered_test_ids: list[str] = field(default_factory=list)
     empty_reason: str | None = None
+    gapless_report: dict[str, object] | None = None
 
 
 def storage_body_id(mesh_body_id: str) -> UUID:
