@@ -15,31 +15,48 @@ import ParametersCanvas from './ParametersCanvas'
 
 // Mock useShell to return the minimal slices the three tabs read.
 // PerTestTab reads investigations.{cpts, boreholes, plotMap} and
-// coordinator.{selectedId, handleSelect} (a row click selects the CPT so the
-// stage inspector plots it); PerUnitTab reads geoModel.lithoFormations;
-// MethodConfigTab reads nothing from the bus.
-let mockSelectedParameterUnitId: string | null = null
+// coordinator.{selectedId, handleSelect}; PerUnitTab reads the unit scope +
+// formations; MethodConfigTab reads nothing from the bus.
+//
+// The tab lives on the coordinator bus since the R3 layout flip, so the mock
+// holds it in REAL React state — the canvas's own setter drives the
+// re-render, exactly as the App-level state does in production.
+let mockSelectedParameterUnit: { kind: 'litho' | 'geotech'; unitId: string } | null =
+  null
 
-vi.mock('../../ShellContext', () => ({
-  useShell: () => ({
-    investigations: {
-      cpts: [],
-      boreholes: [],
-      plotMap: new Map(),
+vi.mock('../../ShellContext', async () => {
+  const { useState } = await import('react')
+  return {
+    useShell: () => {
+      const [tab, setTab] = useState<'per-test' | 'per-unit' | 'methods'>('per-test')
+      return {
+        project: { id: 'proj-1', view_state: null },
+        investigations: {
+          cpts: [],
+          boreholes: [],
+          plotMap: new Map(),
+        },
+        visibleCpts: [],
+        visibleBoreholes: [],
+        sections: { visibleSections: [] },
+        coordinator: {
+          selectedId: null,
+          handleSelect: async () => {},
+          selectedParameterUnit: mockSelectedParameterUnit,
+          setSelectedParameterUnit: vi.fn(),
+          parametersActiveTab: tab,
+          setParametersActiveTab: setTab,
+        },
+        geoModel: {
+          lithoFormations: [],
+          geotechFormations: [],
+          lithoLayers: [],
+          geotechLayers: [],
+        },
+      }
     },
-    coordinator: {
-      selectedId: null,
-      handleSelect: async () => {},
-      selectedParameterUnitId: mockSelectedParameterUnitId,
-      setSelectedParameterUnitId: vi.fn(),
-    },
-    geoModel: {
-      lithoFormations: [],
-      geotechFormations: [],
-      geotechLayers: [],
-    },
-  }),
-}))
+  }
+})
 
 afterEach(cleanup)
 
@@ -95,16 +112,17 @@ describe('ParametersCanvas — tab scaffold', () => {
   })
 
   // PC1 — arriving with a unit already scoped (the layer → parameters jump,
-  // owner ballot 2026-08-26) must land on the tab that LISTS units. Landing on
-  // "Per test" would hide the row the engineer just navigated to.
+  // owner ballot 2026-08-26) must land on the per-unit tab — where the
+  // statistics draw since the R3 flip. Landing on "Per test" would hide what
+  // the engineer just navigated to.
   it('PC1 — a scoped unit opens the per-unit tab, not the default per-test one', () => {
-    mockSelectedParameterUnitId = 'unit-7'
+    mockSelectedParameterUnit = { kind: 'geotech', unitId: 'unit-7' }
     try {
       render(<ParametersCanvas />)
       expect(screen.getByTestId('parameters-panel-per-unit')).toBeInTheDocument()
       expect(screen.queryByTestId('parameters-panel-per-test')).toBeNull()
     } finally {
-      mockSelectedParameterUnitId = null
+      mockSelectedParameterUnit = null
     }
   })
 })
