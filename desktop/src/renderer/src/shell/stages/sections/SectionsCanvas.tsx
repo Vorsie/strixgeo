@@ -226,6 +226,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleSelectBorehole,
       handleExportSectionDxf,
       setGeoDeepLinkTarget,
+      setParametersDeepLinkTarget,
       correlationEdgesRefetchNonce,
       // Slice 5: this canvas only BUMPS the recompute nonces from its mutation
       // sites; the scheduler + nonce watch live at the shell level
@@ -496,6 +497,18 @@ export default function SectionsCanvas(): JSX.Element {
       }
     },
     [activeLithoModel, project.id, refetchFormations, toast],
+  )
+
+  // Layer → Parameters jump (owner ballot 2026-08-26). The canvas does not
+  // navigate: it posts the unit onto the coordinator bus and AppShell — the
+  // only thing allowed to switch stages — does the rest. Same contract as
+  // ``setGeoDeepLinkTarget`` above it.
+  const handleShowGeotechUnitStatistics = useCallback(
+    (unitId: string): void => {
+      log.info('section', `unit statistics requested for geotech unit ${unitId}`)
+      setParametersDeepLinkTarget({ unitId })
+    },
+    [setParametersDeepLinkTarget],
   )
 
   // Open the InspectLensBodyPanel for a given (formationId, bodyOrdinal) pair.
@@ -2352,6 +2365,12 @@ export default function SectionsCanvas(): JSX.Element {
           }
           onRequestGeotechClearColumn={
             isGeotech ? geotechBandEdit.onRequestClearColumn : undefined
+          }
+          // Geotech axis only: a band there IS a geotech unit's ground. On the
+          // litho axis the same right-click is about a litho layer, which has
+          // no packing statistics of its own.
+          onShowGeotechUnitStatistics={
+            isGeotech ? handleShowGeotechUnitStatistics : undefined
           }
           geotechSmallLensThicknessM={geotechMinLayerThicknessM}
           onUnlinkLithoFromGeo={isLitho ? handleUnlinkLithoFromGeo : undefined}
