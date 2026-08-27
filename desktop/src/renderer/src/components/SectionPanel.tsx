@@ -348,6 +348,13 @@ interface Props {
    */
   onShowGeotechUnitStatistics?: (unitId: string) => void
   /**
+   * Open the Parameters stage scoped to a LITHO unit (owner ruling R1,
+   * 2026-08-27) — the litho axis's half of the same jump. Forwarded to the
+   * per-column band menu (``ContactsLayer``) and to the between-columns body
+   * menu; the panel neither navigates nor knows what a stage is.
+   */
+  onShowLithoUnitStatistics?: (formationId: string) => void
+  /**
    * Clear ONE test's packing subdivision (owner ask 2026-08-18) — offered in
    * the column label's right-click menu on the geotech axis, only where the
    * column actually carries bands. The escape hatch of first-subdivision-wins.
@@ -792,6 +799,7 @@ export default function SectionPanel({
   onRequestGeotechSplitBand,
   onRequestGeotechSetBandClass,
   onShowGeotechUnitStatistics,
+  onShowLithoUnitStatistics,
   onRequestGeotechClearColumn,
   onRequestGeotechMergeBands,
   onRequestGeotechMoveBoundary,
@@ -3270,6 +3278,13 @@ export default function SectionPanel({
                     }
                   : undefined
               }
+              // R1 (2026-08-27): the litho band menu's statistics jump. Litho
+              // axis only — the geotech axis's jump lives on its own overlay,
+              // and an unconditional handler here would swallow right-clicks
+              // over packing bands (the documented #151 gate).
+              onShowLithoUnitStatistics={
+                axisMode === 'lithostratigraphic' ? onShowLithoUnitStatistics : undefined
+              }
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
                   ? undefined
@@ -3521,6 +3536,13 @@ export default function SectionPanel({
                 // S1: fade non-matching bodies when a sample dot is selected.
                 // Only meaningful on the geotech axis; harmless (null) on litho.
                 selectedBodyId={axisMode === 'geotechnical' ? selectedGeotechBodyId : null}
+                // R2 (2026-08-27): right-click a geotech fill region between
+                // columns → "Unit statistics…". The overlay gates on its own
+                // viewOnly flag; passing unconditionally here would also arm
+                // the litho axis, whose regions belong to the body menu.
+                onShowGeotechUnitStatistics={
+                  axisMode === 'geotechnical' ? onShowGeotechUnitStatistics : undefined
+                }
               />
             )}
 
@@ -3801,6 +3823,16 @@ export default function SectionPanel({
                   onDissolveBody?.(bodyId)
                   dismissBodyCtxMenu()
                 }}
+                // R1 (2026-08-27): the between-columns litho jump — the
+                // region carries the body, the body names the formation.
+                onShowUnitStatistics={
+                  onShowLithoUnitStatistics
+                    ? formationId => {
+                        onShowLithoUnitStatistics(formationId)
+                        dismissBodyCtxMenu()
+                      }
+                    : undefined
+                }
                 onClose={dismissBodyCtxMenu}
               />
             )}
