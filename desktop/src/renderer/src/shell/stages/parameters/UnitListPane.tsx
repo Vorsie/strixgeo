@@ -11,12 +11,20 @@
 // never goes blank. Litho rows are SELECTABLE too (ruling R1): a litho scope
 // pools the whole litho unit, every packing class inside it.
 //
+// TWO LEVELS (owner body-scope ruling 2026-08-27, verbatim: "a body is only a
+// body if it is geometrically connected or if the users says, this body is
+// the same as that body"). A unit row is a formation row that LUMPS many
+// resolver bodies; under it sit its body rows — labelled the way the 3-D
+// legend names bodies — and clicking one scopes the canvas to that ONE body.
+// The unit row itself stays the pooled scope. A unit with a single body needs
+// no expander (the GT3 single-instance precedent: nothing to tell apart).
+//
 // The old table's φ′/c′/cu/E50 dash columns became the compact Phase-5 note
 // at the foot of the pane — the information survives, the dead cells do not
 // (R3: "the φ'/c′/cu/E50 dash columns can become a compact hint").
 
-import { useMemo } from 'react'
-import { Layers } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
 
 import { geotechUnitColor, geotechUnitLabel } from '../../../utils/nadClasses'
 import {
@@ -25,7 +33,9 @@ import {
 } from '../../../utils/sourceLithoNames'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
-import type { ParameterUnitScope } from '../../ShellContext'
+import type { ParameterUnitScope, ParameterUnitScopeKind } from '../../ShellContext'
+import { unitBodyRows, type ParameterUnitBodyRow } from './parameterUnitBodies'
+import { useModelBodies } from './useModelBodies'
 
 /**
  * Unit roster for the Parameters inspector.
@@ -40,7 +50,15 @@ import type { ParameterUnitScope } from '../../ShellContext'
  */
 export default function UnitListPane(): JSX.Element {
   const {
-    geoModel: { lithoFormations, geotechFormations, geotechLayers },
+    project,
+    geoModel: {
+      lithoFormations,
+      lithoLayers,
+      geotechFormations,
+      geotechLayers,
+      activeLithoModel,
+      activeGeotechModel,
+    },
     coordinator: { selectedParameterUnit, setSelectedParameterUnit },
   } = useShell()
 
@@ -68,6 +86,37 @@ export default function UnitListPane(): JSX.Element {
     [geotechFormations, bandCountByUnitId],
   )
 
+  const usingGeotech = geotechUnits.length > 0
+
+  // The body level. The layers of the roster IN USE carry the resolver's
+  // ``body_id``; the roster fetch only supplies labels (name / #ordinal — the
+  // 3-D legend's naming), so a missing roster degrades labels, never rows.
+  const rosterLayers = usingGeotech ? (geotechLayers ?? []) : (lithoLayers ?? [])
+  const rosterModelId = usingGeotech
+    ? (activeGeotechModel?.id ?? null)
+    : (activeLithoModel?.id ?? null)
+  const bodiesById = useModelBodies(project?.id ?? null, rosterModelId)
+  const bodyRowsByUnitId = useMemo<Map<string, ParameterUnitBodyRow[]>>(() => {
+    const out = new Map<string, ParameterUnitBodyRow[]>()
+    const unitIds = usingGeotech ? geotechUnits.map(u => u.id) : lithoFormations.map(u => u.id)
+    for (const unitId of unitIds) {
+      out.set(unitId, unitBodyRows(rosterLayers, unitId, bodiesById))
+    }
+    return out
+  }, [usingGeotech, geotechUnits, lithoFormations, rosterLayers, bodiesById])
+
+  // Which unit rows are expanded. A body-scoped SELECTION keeps its unit open
+  // regardless (the scoped row must be visible without a hunt).
+  const [expandedUnitIds, setExpandedUnitIds] = useState<ReadonlySet<string>>(new Set())
+  const toggleExpanded = (unitId: string): void => {
+    setExpandedUnitIds(prev => {
+      const next = new Set(prev)
+      if (next.has(unitId)) next.delete(unitId)
+      else next.add(unitId)
+      return next
+    })
+  }
+
   if (geotechUnits.length === 0 && lithoFormations.length === 0) {
     return (
       <EmptyState
@@ -78,7 +127,55 @@ export default function UnitListPane(): JSX.Element {
     )
   }
 
-  const usingGeotech = geotechUnits.length > 0
+  const selectedBodyId = selectedParameterUnit?.bodyId ?? null
+  const isUnitSelected = (kind: ParameterUnitScopeKind, unitId: string): boolean =>
+    selectedParameterUnit?.kind === kind &&
+    selectedParameterUnit.unitId === unitId &&
+    selectedBodyId === null
+  const isBodySelected = (
+    kind: ParameterUnitScopeKind,
+    unitId: string,
+    bodyId: string,
+  ): boolean =>
+    selectedParameterUnit?.kind === kind &&
+    selectedParameterUnit.unitId === unitId &&
+    selectedBodyId === bodyId
+  const isExpanded = (kind: ParameterUnitScopeKind, unitId: string): boolean =>
+    expandedUnitIds.has(unitId) ||
+    (selectedParameterUnit?.kind === kind &&
+      selectedParameterUnit.unitId === unitId &&
+      selectedBodyId !== null)
+
+  /** The unit row + its body rows, shared by both rosters. */
+  const renderUnitWithBodies = (
+    kind: ParameterUnitScopeKind,
+    unitId: string,
+    unitRow: JSX.Element,
+  ): JSX.Element => {
+    const bodies = bodyRowsByUnitId.get(unitId) ?? []
+    // GT3 precedent: one body has nothing to tell apart — no expander, no
+    // sub-rows; the unit row IS that body's pooled view.
+    const expandable = bodies.length > 1
+    const expanded = expandable && isExpanded(kind, unitId)
+    return (
+      // role="presentation" on both wrappers so the listbox's owned options
+      // stay the unit + body rows themselves, not these grouping nodes.
+      <li key={`${kind}-${unitId}`} role="presentation" className="list-none">
+        <ul role="presentation" className="m-0 p-0">
+          {unitRow}
+          {expanded &&
+            bodies.map(body => (
+              <BodyRow
+                key={body.bodyId}
+                body={body}
+                selected={isBodySelected(kind, unitId, body.bodyId)}
+                onSelect={() => setSelectedParameterUnit({ kind, unitId, bodyId: body.bodyId })}
+              />
+            ))}
+        </ul>
+      </li>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="parameters-unit-list">
@@ -95,20 +192,21 @@ export default function UnitListPane(): JSX.Element {
       >
         {usingGeotech
           ? geotechUnits.map(u => {
-              const scope: ParameterUnitScope = { kind: 'geotech', unitId: u.id }
               const sourceLithoName = sourceLithoNameOf(u, sourceLithoNameById)
               const bands = bandCountByUnitId.get(u.id) ?? 0
-              return (
+              return renderUnitWithBodies(
+                'geotech',
+                u.id,
                 <UnitRow
                   key={u.id}
-                  scope={scope}
-                  selected={
-                    selectedParameterUnit?.kind === 'geotech' &&
-                    selectedParameterUnit.unitId === u.id
-                  }
+                  scope={{ kind: 'geotech', unitId: u.id }}
+                  selected={isUnitSelected('geotech', u.id)}
                   color={geotechUnitColor(u)}
                   label={geotechUnitLabel(u, sourceLithoName)}
                   onSelect={setSelectedParameterUnit}
+                  expandable={(bodyRowsByUnitId.get(u.id)?.length ?? 0) > 1}
+                  expanded={isExpanded('geotech', u.id)}
+                  onToggleExpand={() => toggleExpanded(u.id)}
                 >
                   <span>
                     {u.nad_class !== null ? `NAD ${u.nad_class}` : 'unclassified'}
@@ -121,24 +219,28 @@ export default function UnitListPane(): JSX.Element {
                   <span data-testid={`parameters-unit-bands-${u.id}`}>
                     {bands} band{bands === 1 ? '' : 's'}
                   </span>
-                </UnitRow>
+                </UnitRow>,
               )
             })
-          : lithoFormations.map(u => (
-              <UnitRow
-                key={u.id}
-                scope={{ kind: 'litho', unitId: u.id }}
-                selected={
-                  selectedParameterUnit?.kind === 'litho' &&
-                  selectedParameterUnit.unitId === u.id
-                }
-                color={u.color ?? '#94a3b8'}
-                label={u.name ?? '—'}
-                onSelect={setSelectedParameterUnit}
-              >
-                <span>{u.parent_formation_name ?? 'Unassigned'}</span>
-              </UnitRow>
-            ))}
+          : lithoFormations.map(u =>
+              renderUnitWithBodies(
+                'litho',
+                u.id,
+                <UnitRow
+                  key={u.id}
+                  scope={{ kind: 'litho', unitId: u.id }}
+                  selected={isUnitSelected('litho', u.id)}
+                  color={u.color ?? '#94a3b8'}
+                  label={u.name ?? '—'}
+                  onSelect={setSelectedParameterUnit}
+                  expandable={(bodyRowsByUnitId.get(u.id)?.length ?? 0) > 1}
+                  expanded={isExpanded('litho', u.id)}
+                  onToggleExpand={() => toggleExpanded(u.id)}
+                >
+                  <span>{u.parent_formation_name ?? 'Unassigned'}</span>
+                </UnitRow>,
+              ),
+            )}
       </ul>
 
       <div className="px-3 py-2 text-[10px] text-text-muted border-t border-border-subtle shrink-0">
@@ -164,6 +266,9 @@ function UnitRow({
   color,
   label,
   onSelect,
+  expandable = false,
+  expanded = false,
+  onToggleExpand,
   children,
 }: {
   scope: ParameterUnitScope
@@ -171,6 +276,10 @@ function UnitRow({
   color: string
   label: string
   onSelect: (scope: ParameterUnitScope) => void
+  /** True when the unit lumps ≥2 bodies — the only case an expander exists. */
+  expandable?: boolean
+  expanded?: boolean
+  onToggleExpand?: () => void
   children: React.ReactNode
 }): JSX.Element {
   return (
@@ -192,6 +301,23 @@ function UnitRow({
       data-testid={`parameters-unit-${scope.unitId}`}
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-primary">
+        {/* The expander is a sibling gesture, not the row's: it must not
+            change the scope, so its click stops before the row handler. */}
+        {expandable && (
+          <button
+            type="button"
+            aria-label={expanded ? 'Collapse the unit’s bodies' : 'Expand the unit’s bodies'}
+            aria-expanded={expanded}
+            data-testid={`parameters-unit-expander-${scope.unitId}`}
+            onClick={e => {
+              e.stopPropagation()
+              onToggleExpand?.()
+            }}
+            className="shrink-0 -ml-1 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-app"
+          >
+            {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          </button>
+        )}
         <span
           aria-hidden="true"
           className="inline-block w-2 h-2 rounded-sm shrink-0"
@@ -201,6 +327,46 @@ function UnitRow({
       </div>
       <div className="flex items-center gap-1 pl-3.5 text-[10px] text-text-secondary tabular-nums">
         {children}
+      </div>
+    </li>
+  )
+}
+
+/** One selectable body row under a unit row (the body-scope ruling). */
+function BodyRow({
+  body,
+  selected,
+  onSelect,
+}: {
+  body: ParameterUnitBodyRow
+  selected: boolean
+  onSelect: () => void
+}): JSX.Element {
+  return (
+    <li
+      role="option"
+      aria-selected={selected}
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
+      className={
+        'pl-8 pr-3 py-1 border-b border-border-subtle cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent ' +
+        (selected ? 'bg-surface-sunken' : 'hover:bg-surface-sunken/40')
+      }
+      data-testid={`parameters-unit-body-${body.bodyId}`}
+    >
+      <div className="flex items-center gap-1.5 text-[10px] text-text-primary">
+        <span className="font-medium truncate">{body.label}</span>
+        <span className="ml-auto shrink-0 text-text-secondary tabular-nums">
+          {body.bandCount} band{body.bandCount === 1 ? '' : 's'}
+          {' · '}
+          {body.cptCount} CPT{body.cptCount === 1 ? '' : 's'}
+        </span>
       </div>
     </li>
   )
