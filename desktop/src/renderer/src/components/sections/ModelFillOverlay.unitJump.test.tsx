@@ -68,9 +68,10 @@ describe('ModelFillOverlay — "Unit statistics…" on the model fill (S6)', () 
     fireEvent.contextMenu(region, { clientX: 40, clientY: 40 })
     fireEvent.click(screen.getByTestId('model-fill-menu-unit-statistics'))
 
-    // The FORMATION id — never the body id — the same contract as every
-    // other jump surface.
-    expect(onShowUnitStatistics).toHaveBeenCalledWith('formation-sand')
+    // The FORMATION id as the unit, plus the poly's BODY (owner ruling
+    // 2026-08-27) — ``SectionPoly.bodyId`` is the built solid's BodyOrm id,
+    // so the model fill genuinely knows which body was clicked.
+    expect(onShowUnitStatistics).toHaveBeenCalledWith('formation-sand', 'b1')
   })
 
   it('MF-US2 — Mode A: the per-test strips offer the same jump', () => {
@@ -81,7 +82,7 @@ describe('ModelFillOverlay — "Unit statistics…" on the model fill (S6)', () 
     fireEvent.contextMenu(strip, { clientX: 50, clientY: 2 })
     fireEvent.click(screen.getByTestId('model-fill-menu-unit-statistics'))
 
-    expect(onShowUnitStatistics).toHaveBeenCalledWith('formation-clay')
+    expect(onShowUnitStatistics).toHaveBeenCalledWith('formation-clay', 'b2')
   })
 
   it('MF-US3 — without the handler every element stays inert (pointer-events none)', () => {
