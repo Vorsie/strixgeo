@@ -1,0 +1,218 @@
+// Pins for the identification-test (OKP) panels — owner ruling R8,
+// 2026-08-27: "i want a plot with all OKP's in a layer."
+//
+// IP1 — one scatter panel per parameter that HAS data; empty parameters
+//       render no panel at all (no empty jars).
+// IP2 — a unit with zero pooled samples shows one quiet line, never an error.
+// IP3 — the value axis starts at ZERO: two dots' x positions are in the exact
+//       ratio of their values.
+// IP4 — the two Atterberg panels share one value scale, so vloeigrens and
+//       uitrolgrens are visually comparable.
+// IP5 — only member boreholes are fetched: the batch asks for exactly the
+//       pooling population's holes.
+// IP6 — a scalar panel's label carries the raw Dutch token as its tooltip
+//       (the presentation-boundary rule).
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const detailBatch = vi.fn()
+
+vi.mock('../../../api/client', () => ({
+  api: { borehole: { detailBatch: (...args: unknown[]) => detailBatch(...args) } },
+}))
+
+vi.mock('../../ShellContext', () => ({
+  useShell: () => ({
+    project: { id: 'proj-1', view_state: null },
+  }),
+}))
+
+import UnitIdentificationPanels from './UnitIdentificationPanels'
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+/** An accepted borehole-anchored band of ``unit-1``. */
+function bhBand(id: string, boreholeId: string, top = 0, base = 10) {
+  return {
+    id,
+    formation_id: 'unit-1',
+    cpt_id: null,
+    borehole_id: boreholeId,
+    depth_top_m: top,
+    depth_base_m: base,
+    status: 'accepted',
+  } as never
+}
+
+function sample(top: number, base: number, extras: Record<string, unknown>) {
+  return {
+    id: `s-${top}`,
+    depth_top_m: top,
+    depth_base_m: base,
+    description: '',
+    sample_number: null,
+    grain_sizes: [],
+    atterberg_limits_tests: [],
+    caco3_content_tests: [],
+    organic_content_tests: [],
+    water_content_tests: [],
+    scalar_lab_tests: [],
+    ...extras,
+  }
+}
+
+function bhDetail(id: string, name: string, elevationM: number, samples: unknown[]) {
+  return { id, name, elevation_m: elevationM, samples }
+}
+
+const SCOPE = { kind: 'geotech' as const, unitId: 'unit-1' }
+
+describe('UnitIdentificationPanels — the OKP scatter panels', () => {
+  it('IP1 — one panel per parameter with data; empty parameters absent', async () => {
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, { water_content_tests: [{ id: 'w1', content_pct: 25, method: null, test_date: null }] }),
+        sample(3, 4, { water_content_tests: [{ id: 'w2', content_pct: 35, method: null, test_date: null }] }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy())
+    const dots = screen.getAllByTestId('unit-idtests-dot-typed:water_content')
+    expect(dots).toHaveLength(2)
+    expect(screen.getByTestId('unit-idtests-n-typed:water_content').textContent).toContain('2')
+    // No panel exists for a parameter nothing was measured for.
+    expect(screen.queryByTestId('unit-idtests-panel-typed:caco3')).toBeNull()
+  })
+
+  it('IP2 — zero pooled samples is one quiet line, never an error', async () => {
+    detailBatch.mockResolvedValue([bhDetail('bh-1', 'B1', 10, [])])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('unit-idtests-empty')).toBeTruthy())
+    expect(screen.getByTestId('unit-idtests-empty').textContent).toMatch(
+      /no identification tests in this unit/i,
+    )
+  })
+
+  it('IP3 — the value axis starts at zero: dot positions are in the values ratio', async () => {
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, { water_content_tests: [{ id: 'w1', content_pct: 10, method: null, test_date: null }] }),
+        sample(3, 4, { water_content_tests: [{ id: 'w2', content_pct: 40, method: null, test_date: null }] }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getAllByTestId('unit-idtests-dot-typed:water_content')).toHaveLength(2))
+    const xs = screen
+      .getAllByTestId('unit-idtests-dot-typed:water_content')
+      .map(d => Number(d.getAttribute('cx')))
+      .sort((a, b) => a - b)
+    // Zero-anchored: x(10) / x(40) === 10 / 40, whatever the panel's max is.
+    expect(xs[0] / xs[1]).toBeCloseTo(0.25, 6)
+  })
+
+  it('IP4 — the Atterberg panels share one value scale', async () => {
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, {
+          atterberg_limits_tests: [
+            { id: 'a1', liquid_limit_pct: 60, plastic_limit_pct: 20, non_plastic: null, method: null, test_date: null },
+          ],
+        }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('unit-idtests-panel-typed:liquid_limit')).toBeTruthy())
+    const ll = Number(
+      screen.getByTestId('unit-idtests-dot-typed:liquid_limit').getAttribute('cx'),
+    )
+    const pl = Number(
+      screen.getByTestId('unit-idtests-dot-typed:plastic_limit').getAttribute('cx'),
+    )
+    // Same scale ⇒ positions in the 20/60 ratio across the two panels.
+    expect(pl / ll).toBeCloseTo(20 / 60, 6)
+  })
+
+  it('IP5 — only the pooling population is fetched', async () => {
+    detailBatch.mockResolvedValue([])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1'), bhBand('l2', 'bh-off')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(detailBatch).toHaveBeenCalledTimes(1))
+    expect(detailBatch.mock.calls[0][0]).toEqual(['bh-1'])
+  })
+
+  it('IP6 — a scalar panel label tooltips the raw Dutch token', async () => {
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, {
+          scalar_lab_tests: [
+            {
+              id: 'sc1',
+              parameter_group: 'Volumemassa-watergehalte',
+              parameter: 'Korrelvolumemassa (korrelvolumemassa)',
+              value_numeric: 2.65,
+              value_text: null,
+              unit: 't/m³',
+              method: null,
+              test_date: null,
+              detection_condition: null,
+            },
+          ],
+        }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scope={SCOPE}
+        layers={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('unit-idtests-label-scalar:Korrelvolumemassa (korrelvolumemassa)')).toBeTruthy(),
+    )
+    const label = screen.getByTestId(
+      'unit-idtests-label-scalar:Korrelvolumemassa (korrelvolumemassa)',
+    )
+    expect(label.textContent).toContain('Grain density')
+    expect(label.getAttribute('title')).toContain('Korrelvolumemassa')
+  })
+})
