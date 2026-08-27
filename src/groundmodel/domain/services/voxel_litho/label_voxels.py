@@ -16,7 +16,7 @@ its mesher failed — which we do not use).  This module PORTS those functions,
 re-pointed at the voxel-litho value objects:
 
 * ``_project_point_to_segment`` — copied verbatim.
-* ``_slice_region_intervals`` — adapted: our ``RegionInput.polygon`` is a
+* ``slice_region_intervals`` — adapted: our ``RegionInput.polygon`` is a
   ``tuple[(fraction, elevation), ...]`` of plain float pairs (``p[0]`` =
   fraction, ``p[1]`` = elevation), not objects with ``.fraction`` / ``.elevation``.
 * ``_section_stack_at`` — adapted to take the gap + fraction from
@@ -59,6 +59,7 @@ import numpy as np
 
 from groundmodel.domain.services.model_domain import ModelDomain
 from groundmodel.domain.services.surface_bound import SurfaceBound
+from groundmodel.domain.services.voxel_litho.footprint_tolerance import footprint_tolerance_m
 from groundmodel.domain.services.voxel_litho.geo_bands import (
     band_extent_from_elevs,
     band_of_from_elevs,
@@ -204,6 +205,8 @@ class _LabelTally:
     hairline_gaps_over_limit: int = 0
     hairline_worst_m: float = 0.0
     logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
+    in_footprint_columns: int = 0
+    empty_in_footprint_columns: int = 0
 
     def note_closed_void(self, height_m: float, section_index: int, gap_index: int) -> None:
         """Record one interior void the cumulative layout is about to close."""
@@ -224,6 +227,8 @@ class _LabelTally:
             hairline_gaps_over_limit=self.hairline_gaps_over_limit,
             hairline_worst_m=self.hairline_worst_m,
             logs_below_grid_floor=self.logs_below_grid_floor,
+            in_footprint_columns=self.in_footprint_columns,
+            empty_in_footprint_columns=self.empty_in_footprint_columns,
         )
 
 
@@ -314,14 +319,21 @@ def _project_point_to_segment(
     return along, dist, px, py
 
 
-def _slice_region_intervals(
+def slice_region_intervals(
     polygon: tuple[tuple[float, float], ...], f: float
 ) -> list[tuple[float, float]]:
     """Slice a region polygon by the vertical line ``fraction = f``.
 
+    PUBLIC because clause 7 of the gapless gate
+    (:mod:`~groundmodel.domain.services.voxel_litho.section_reconciliation`)
+    measures the 2-D fill with THIS scanline rather than its own.  A private
+    copy over there would be a second opinion about what a region holds at an
+    abscissa, and a check that disagrees with the thing it checks reports its
+    own disagreement as a model defect.
+
     Even-odd scanline with a half-open edge convention (each spanning edge
     contributes exactly one crossing).  Adapted from
-    ``loft_field._slice_region_intervals``: our polygon points are plain
+    ``loft_field.slice_region_intervals``: our polygon points are plain
     ``(fraction, elevation)`` float pairs, so ``p[0]`` is the fraction and
     ``p[1]`` the elevation.
 
@@ -558,7 +570,7 @@ def _section_stack_at(
     for r in section.regions:
         if r.gap_index != gap_index:
             continue
-        for base_e, top_e in _slice_region_intervals(r.polygon, f):
+        for base_e, top_e in slice_region_intervals(r.polygon, f):
             # The region's own classification rides along, so the blend can ask what
             # the body does HERE rather than what kind of body it is.
             raw.append(_Entry(r.body_id, r.formation_id, top_e, base_e, r.kind, r.overlay_tier))
@@ -2020,7 +2032,7 @@ def label_voxels(
     # section fill discontinuous across hull-edge corridors. The cell
     # half-diagonal (½·h·√2) is the safe inclusion radius — any node whose cell
     # touches the footprint is admitted; nodes farther than a full cell stay void.
-    footprint_tol = 0.5 * h * math.sqrt(2.0)
+    footprint_tol = footprint_tolerance_m(h)
     # Off by default. The first attempt anchored the taper on the distance to an apex
     # that, 87-92 % of the time, lay on the very fence the other distance was measured
     # to — pinning the factor at exactly 0.5 so no body tapered to nothing anywhere.
@@ -2046,6 +2058,7 @@ def label_voxels(
             y = float(gy[j])
             if not domain.contains(x, y, tol=footprint_tol):
                 continue  # outside the footprint → void
+            tally.in_footprint_columns += 1
             # The band-scoped column (geology-bounded) vs the un-bounded blend.
             # The band path fills each geological band from the nearest section
             # that reaches it (so a deeper band below a shallow test draws its
@@ -2079,6 +2092,13 @@ def label_voxels(
                 )
             elif stack:
                 labels[i, j, :] = labeller(stack, gz, body_index, none_body_ids)
+            # Measure the WRITTEN column, not a proxy for it: a non-empty ``stack``
+            # whose every body sits in ``none_body_ids`` still labels real voxels, and
+            # (rarer) an honored investigation with no intervals of its own can leave
+            # its column exactly as the (possibly empty) blend left it — so only the
+            # array actually written answers "does this column carry anything at all".
+            if not np.any(labels[i, j, :] >= 0):
+                tally.empty_in_footprint_columns += 1
 
     body_id_by_index: tuple[str, ...] = tuple(
         bid for bid, _ in sorted(body_index.items(), key=lambda kv: kv[1])
