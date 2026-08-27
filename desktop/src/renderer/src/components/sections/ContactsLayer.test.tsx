@@ -147,7 +147,8 @@ function renderLayer(
     axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     columnBandDisplayAxis?: 'geological' | 'lithostratigraphic' | 'geotechnical'
     correlateMode?: boolean
-    onShowLithoUnitStatistics?: (formationId: string) => void
+    onShowLithoUnitStatistics?: (formationId: string, bodyId?: string | null) => void
+    lithoBodyIdByLayerId?: ReadonlyMap<string, string | null>
   } = {},
 ) {
   return render(
@@ -183,6 +184,7 @@ function renderLayer(
         columnBandDisplayAxis={extras.columnBandDisplayAxis}
         correlateMode={extras.correlateMode}
         onShowLithoUnitStatistics={extras.onShowLithoUnitStatistics}
+        lithoBodyIdByLayerId={extras.lithoBodyIdByLayerId}
       />
     </svg>,
   )
@@ -2153,9 +2155,43 @@ describe('ContactsLayer', () => {
     fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
     fireEvent.click(screen.getByTestId('litho-band-menu-unit-statistics'))
 
-    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('f-sand')
+    // Second argument = the band's BODY (owner ruling 2026-08-27); without the
+    // body map wired the surface honestly reports null and stays unit-level.
+    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('f-sand', null)
     // The jump closes the menu.
     expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
+  })
+
+  it('LB-US5: with the body map wired the jump reports the clicked band\'s BODY', () => {
+    // Owner ruling 2026-08-27: "a body is only a body if it is geometrically
+    // connected or if the users says, this body is the same as that body."
+    // The band's contact id IS its litho layer id (UUID-preserving A2.5
+    // backfill), so the map keys on it.
+    const onShowLithoUnitStatistics = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      {
+        perColumnBandsFromContacts: true,
+        onShowLithoUnitStatistics,
+        lithoBodyIdByLayerId: new Map([['c-1', 'body-A']]),
+      },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-menu-unit-statistics'))
+
+    expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('f-sand', 'body-A')
   })
 
   it('LB-US2: the statistics handler alone is enough to open the band menu', () => {
