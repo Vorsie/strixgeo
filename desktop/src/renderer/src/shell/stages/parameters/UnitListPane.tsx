@@ -31,7 +31,7 @@ import {
   buildSourceLithoNameMap,
   sourceLithoNameOf,
 } from '../../../utils/sourceLithoNames'
-import { EmptyState } from '../../EmptyState'
+import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import type { ParameterUnitScope, ParameterUnitScopeKind } from '../../ShellContext'
 import { unitBodyRows, type ParameterUnitBodyRow } from './parameterUnitBodies'
@@ -56,10 +56,16 @@ export default function UnitListPane(): JSX.Element {
       lithoLayers,
       geotechFormations,
       geotechLayers,
+      geotechLayersLoaded,
       activeLithoModel,
       activeGeotechModel,
     },
-    coordinator: { selectedParameterUnit, setSelectedParameterUnit },
+    coordinator: {
+      selectedParameterUnit,
+      setSelectedParameterUnit,
+      bodyRecomputeLithoNonce,
+      bodyRecomputeGeotechNonce,
+    },
   } = useShell()
 
   // Accepted bands per unit — same rule as everywhere a band is counted (the
@@ -86,16 +92,27 @@ export default function UnitListPane(): JSX.Element {
     [geotechFormations, bandCountByUnitId],
   )
 
-  const usingGeotech = geotechUnits.length > 0
+  // F12 — gate on the LOADED flag: while the geotech layers are in flight the
+  // empty array reads as "no geotech units", which flashed the litho roster
+  // and then swapped it out. ``geotechLayersLoaded`` is true on a project
+  // with NO geotech model ("a known state"), so litho-only projects are
+  // never blocked.
+  const usingGeotech = geotechLayersLoaded && geotechUnits.length > 0
 
   // The body level. The layers of the roster IN USE carry the resolver's
-  // ``body_id``; the roster fetch only supplies labels (name / #ordinal — the
-  // 3-D legend's naming), so a missing roster degrades labels, never rows.
+  // ``body_id``; the roster fetch supplies homes + labels (formation_id /
+  // name / #ordinal — the 3-D legend's naming), so a missing roster degrades
+  // to per-layer rows, never to a blocked pane.
   const rosterLayers = usingGeotech ? (geotechLayers ?? []) : (lithoLayers ?? [])
   const rosterModelId = usingGeotech
     ? (activeGeotechModel?.id ?? null)
     : (activeLithoModel?.id ?? null)
-  const bodiesById = useModelBodies(project?.id ?? null, rosterModelId)
+  const bodiesById = useModelBodies(
+    project?.id ?? null,
+    rosterModelId,
+    // F9: body stamps (and F1's homes) move on recompute — follow them.
+    usingGeotech ? bodyRecomputeGeotechNonce : bodyRecomputeLithoNonce,
+  )
   const bodyRowsByUnitId = useMemo<Map<string, ParameterUnitBodyRow[]>>(() => {
     const out = new Map<string, ParameterUnitBodyRow[]>()
     const unitIds = usingGeotech ? geotechUnits.map(u => u.id) : lithoFormations.map(u => u.id)
@@ -115,6 +132,19 @@ export default function UnitListPane(): JSX.Element {
       else next.add(unitId)
       return next
     })
+  }
+
+  // F12 — while the geotech layers are loading (or their load failed) the
+  // roster CHOICE is unknown: showing the litho roster now and swapping it
+  // the moment the layers land is the flash the loaded-flag gate exists to
+  // prevent. Honest loading instead. (After every hook — no early-return
+  // hook-order trap.)
+  if (!geotechLayersLoaded) {
+    return (
+      <div className="py-6" data-testid="parameters-unit-list-loading">
+        <LoadingState label="Loading the unit roster…" />
+      </div>
+    )
   }
 
   if (geotechUnits.length === 0 && lithoFormations.length === 0) {
@@ -184,6 +214,19 @@ export default function UnitListPane(): JSX.Element {
           {usingGeotech ? 'Geotechnical units' : 'Lithostratigraphic units'}
         </div>
       </div>
+
+      {/* F12 — a LITHO-scoped selection while the geotech roster shows has no
+          row to highlight; without this chip the active selection is
+          invisible. Read-only: the deep-link/canvas own the scope. */}
+      {usingGeotech && selectedParameterUnit?.kind === 'litho' && (
+        <div
+          className="px-3 py-1 border-b border-border-subtle shrink-0 text-[10px] text-text-secondary bg-surface-sunken/40"
+          data-testid="parameters-litho-selection-chip"
+        >
+          Litho unit selected —{' '}
+          {lithoFormations.find(f => f.id === selectedParameterUnit.unitId)?.name ?? 'unnamed'}
+        </div>
+      )}
 
       <ul
         role="listbox"
@@ -286,12 +329,26 @@ function UnitRow({
     <li
       role="option"
       aria-selected={selected}
+      // F11 (WCAG listbox rules): expandedness lives on the OPTION itself;
+      // an expandable option states it, a leaf option states nothing.
+      aria-expanded={expandable ? expanded : undefined}
       tabIndex={0}
       onClick={() => onSelect(scope)}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           onSelect(scope)
+        }
+        // F11 — the keyboard path to the body level: the tree/listbox idiom
+        // (ArrowRight expands, ArrowLeft collapses), since the expander
+        // affordance is deliberately not focusable.
+        if (expandable && e.key === 'ArrowRight' && !expanded) {
+          e.preventDefault()
+          onToggleExpand?.()
+        }
+        if (expandable && e.key === 'ArrowLeft' && expanded) {
+          e.preventDefault()
+          onToggleExpand?.()
         }
       }}
       className={
@@ -302,12 +359,14 @@ function UnitRow({
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-primary">
         {/* The expander is a sibling gesture, not the row's: it must not
-            change the scope, so its click stops before the row handler. */}
+            change the scope, so its click stops before the row handler.
+            F11: a SPAN, not a button — a focusable descendant inside a
+            ``role="option"`` breaks the listbox contract; the option itself
+            carries aria-expanded and the arrow keys, so this stays a purely
+            visual mouse affordance (hidden from assistive tech). */}
         {expandable && (
-          <button
-            type="button"
-            aria-label={expanded ? 'Collapse the unit’s bodies' : 'Expand the unit’s bodies'}
-            aria-expanded={expanded}
+          <span
+            aria-hidden="true"
             data-testid={`parameters-unit-expander-${scope.unitId}`}
             onClick={e => {
               e.stopPropagation()
@@ -316,7 +375,7 @@ function UnitRow({
             className="shrink-0 -ml-1 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-app"
           >
             {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-          </button>
+          </span>
         )}
         <span
           aria-hidden="true"
@@ -363,9 +422,11 @@ function BodyRow({
       <div className="flex items-center gap-1.5 text-[10px] text-text-primary">
         <span className="font-medium truncate">{body.label}</span>
         <span className="ml-auto shrink-0 text-text-secondary tabular-nums">
+          {/* F7: "N bands · M with cone" — how many of the body's bands the
+              cone pool can read, so borehole-heavy bodies read honestly. */}
           {body.bandCount} band{body.bandCount === 1 ? '' : 's'}
           {' · '}
-          {body.cptCount} CPT{body.cptCount === 1 ? '' : 's'}
+          {body.cptBandCount} with cone
         </span>
       </div>
     </li>
