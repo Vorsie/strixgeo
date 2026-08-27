@@ -108,6 +108,11 @@ class LithoLayerOrm(Base):
         # Body (instance) backlink — the resolver stamps this; the renderer
         # groups layers by body to frame each instance from its member layers.
         Index("idx_litho_layer_body", "body_id"),
+        # Covering litho band backlink — a geotech-model band points at the
+        # accepted litho band it subdivides. The Parameters tree derives the
+        # band's litho BODY live through this (never stored — litho recomputes
+        # re-mint body ids). Indexed for the tree's per-parent grouping.
+        Index("idx_litho_layer_parent_litho_layer", "parent_litho_layer_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -173,6 +178,19 @@ class LithoLayerOrm(Base):
     body_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("body.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # The accepted litho band this geotech band subdivides (self-referencing).
+    # NULL on litho-model rows (they ARE litho bands) and on a geotech band with
+    # no covering accepted litho band (a true orphan — the honest state the
+    # Parameters tree reports). Band-level, not body-level: litho recomputes
+    # re-mint litho BODY ids, so a body FK would dangle on every recompute while
+    # this band FK is stable and the body is derived live. SET NULL on delete so
+    # the geotech band survives a litho reshuffle that drops its parent.
+    parent_litho_layer_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("litho_layer.id", ondelete="SET NULL"),
         nullable=True,
     )
 
