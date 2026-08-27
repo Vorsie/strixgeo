@@ -191,6 +191,9 @@ export interface Geology3DViewerProps {
    * never clipped by the cut plane.
    */
   footprintRing?: readonly (readonly number[])[]
+  /** Basemap lid alpha override — only the fence cutout sets it (owner
+   * ruling B6b, 2026-08-27); omitted keeps the shared default. */
+  basemapLidAlpha?: number
   /**
    * The counterpart model shown in the right-hand pane when
    * ``splitMode === 'compare'`` — the litho model beside the geotech
@@ -277,6 +280,7 @@ export default function Geology3DViewer({
   bodySolidsWireframe = false,
   investigationXY,
   footprintRing,
+  basemapLidAlpha,
   compareScene,
   onEnterCompare,
   chromeless = false,
@@ -511,6 +515,7 @@ export default function Geology3DViewer({
           bodySolidsWireframe={bodySolidsWireframe}
           investigationXY={investigationXY}
           footprintRing={footprintRing}
+          basemapLidAlpha={basemapLidAlpha}
           cameraRef={primaryCameraRef}
         />
 
@@ -771,6 +776,7 @@ export default function Geology3DViewer({
               bodySolidsWireframe={bodySolidsWireframe}
               investigationXY={investigationXY}
               footprintRing={footprintRing}
+              basemapLidAlpha={basemapLidAlpha}
               // Only the comparison links cameras. The cut split keeps them
               // independent on purpose: each pane is half of ONE model and the
               // user wants to inspect each half on its own.
