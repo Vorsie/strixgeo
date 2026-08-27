@@ -101,10 +101,17 @@ export interface ModelFillOverlayProps {
    * "Unit statistics…" for a right-clicked model-fill region (owner ruling
    * S6, 2026-08-27). Reports the region's FORMATION id; the caller stamps
    * the axis's scope kind (geotech axis → geotech unit, litho axis → litho
-   * unit). Absent → the overlay stays purely presentational, every element
+   * unit). The second argument is the clicked element's BODY — a built solid
+   * genuinely carries one (``LithoBodySolidResponse.body_id`` = BodyOrm.id),
+   * threaded per the 2026-08-27 body-scope ruling. CAVEAT the caller should
+   * know: the voxel build's alias pass can weld several resolver bodies into
+   * one mesh stamped with a single representative ``body_id`` (the deliberate
+   * asymmetry in docs/design/body-model.md), so the reported body is the
+   * solid's stamp, which is a real body but may not cover the whole painted
+   * area. Absent → the overlay stays purely presentational, every element
    * ``pointerEvents="none"``.
    */
-  onShowUnitStatistics?: (formationId: string) => void
+  onShowUnitStatistics?: (formationId: string, bodyId?: string | null) => void
 }
 
 /**
@@ -215,7 +222,7 @@ export default function ModelFillOverlay({
   const [unitStatsMenu, setUnitStatsMenu] = useState<UnitStatsMenuState | null>(null)
   const interactive = onShowUnitStatistics !== undefined
   /** Shared per-element gesture props: right-click → the statistics menu. */
-  const regionGesture = (formationId: string) =>
+  const regionGesture = (formationId: string, bodyId: string | null) =>
     interactive
       ? {
           pointerEvents: 'auto' as const,
@@ -223,7 +230,7 @@ export default function ModelFillOverlay({
           onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
             e.stopPropagation()
-            setUnitStatsMenu({ clientX: e.clientX, clientY: e.clientY, formationId })
+            setUnitStatsMenu({ clientX: e.clientX, clientY: e.clientY, formationId, bodyId })
           },
         }
       : { pointerEvents: 'none' as const }
@@ -273,7 +280,7 @@ export default function ModelFillOverlay({
               // clickable" UX is now RULED — a right-click offers the unit-
               // statistics jump when the handler is wired; otherwise the
               // element stays pointer-inert exactly as before.
-              {...regionGesture(poly.formationId)}
+              {...regionGesture(poly.formationId, poly.bodyId)}
             />
           )
         })}
@@ -317,7 +324,7 @@ export default function ModelFillOverlay({
             fillOpacity={opacity * mult}
             stroke="none"
             // S6 — same right-click jump as the Mode B polys.
-            {...regionGesture(seg.formationId)}
+            {...regionGesture(seg.formationId, seg.bodyId)}
           />,
         )
       })
