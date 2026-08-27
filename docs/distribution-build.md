@@ -178,11 +178,13 @@ window, and skips itself when `desktop/embedded/` has not been staged.
 **Prefer it to launching the packaged app.** Two rules, both learned the hard
 way:
 
-* **Never point a test run at the default user-data directory.** The packaged
-  app's `app.getName()` resolves to `ground-model-desktop` — *the same profile
-  the dev app uses* — so a test launch writes its `pgdata`, credentials and
-  logs straight into the developer's live profile. Pass
-  `--user-data-dir=<throwaway>` if you must launch it at all.
+* **Never point a test run at the default user-data directory.** A packaged
+  launch claims `%APPDATA%\StrixGeo\` (see the profile section below) — no
+  longer the dev profile, but still a REAL profile a future install owns, and
+  a test that half-initialises its `pgdata` poisons that first install. Pass
+  `--user-data-dir=<throwaway>` if you must launch it at all. (Before the
+  profile split this bit harder: a test launch wrote straight into the
+  developer's live `ground-model-desktop` profile.)
 * **Never let a test instance take :8765.** That is the dev backend's port
   (`memory/feedback_e2e_port_8765_conflicts_dev_app`). The integration test
   above never binds it; a launched app will.
@@ -223,30 +225,27 @@ Developer Mode.
 
 ---
 
-## Open decision — the packaged app shares its profile with the dev app
+## The packaged profile — `%APPDATA%\StrixGeo`, never the dev folder
 
-`build.productName` renames the executable, the Start-menu shortcut and the
-install directory, but it does **not** move `app.getPath('userData')`. That
-resolves from `package.json`'s top-level `name`, so both the dev session and
-an installed build use `%APPDATA%\ground-model-desktop\`.
+**RULED 2026-08-27 (owner: "yes clean profile, do it").** `build.productName`
+renames the executable, the Start-menu shortcut and the install directory, but
+it does **not** move `app.getPath('userData')` — that resolves from
+`package.json`'s top-level `name` (`ground-model-desktop`), the same folder
+the dev app uses. A packaged build therefore claims its own profile:
+`applyPackagedProfile(app)` in `desktop/src/main/packagedProfile.ts`, the
+first userData-affecting statement in `index.ts`, moves `userData` **and**
+`sessionData` to `%APPDATA%\StrixGeo\` when `app.isPackaged`. Dev is a no-op.
 
-Mostly harmless today, because a dev session never starts the embedded stack —
-the four paths this feature writes (`pgdata/`, `pgcredentials.json`,
-`numba-cache/`, `logs/backend.log`) are ones dev never touches. But it means
-installing the coworker build on a development machine puts a database
-alongside that machine's dev `recovery/` and `recent-projects.json`, and the
-"uninstall keeps your data" policy then keeps it in the developer's profile
-too.
+Why clean over sharing: the single-instance lock lives in the profile, so
+sharing would stop dev and an installed build from ever running at the same
+time; an install would put a Postgres cluster next to the developer's live
+`recovery/` and `recent-projects.json`; and the profile name is the one thing
+that becomes unrenameable after the first real install (it holds the
+customer's `pgdata`), so the brand name has to be right from install #1.
 
-Three ways out, and the choice is the owner's because two of them move an
-existing profile:
-
-1. **Leave it.** Zero risk, mild confusion on a dev machine only.
-2. **Top-level `"productName": "StrixGeo"`** in `package.json` — moves dev
-   *and* packaged to `%APPDATA%\StrixGeo\`, orphaning whatever the current dev
-   profile holds (recovery files, recent projects) unless it is migrated.
-3. **`app.setPath('userData', …)` when `app.isPackaged`** — packaged-only, dev
-   untouched. Safe now precisely because no install exists yet to strand.
+Order is the feature: the lock, the recovery store, the beta anchor, the
+diagnostics store and the embedded stack all resolve paths off userData —
+`packagedProfile.test.ts` PP3 pins that the call precedes every one of them.
 
 ## Still open (debt #6 remainder)
 
