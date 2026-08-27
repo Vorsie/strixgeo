@@ -80,12 +80,14 @@ jobs:
         run: uv sync --group dev
 
       - name: Run unit tests
-        # --faulthandler-timeout: pytest's built-in faulthandler dumps every
+        # faulthandler_timeout: pytest's built-in faulthandler dumps every
         # thread's stack when a single test exceeds 120 s (no test should come
-        # near that). It does not kill the run — it makes the NEXT hang
+        # near that). It does not kill the run — it makes a hang
         # self-diagnosing in the log instead of ending as a silent
-        # timeout-minutes cancellation with no traceback.
-        run: uv run pytest tests/unit -q --faulthandler-timeout=120
+        # timeout-minutes cancellation with no traceback. It is an INI option,
+        # not a CLI flag (``--faulthandler-timeout`` is pytest usage-error
+        # exit 4 — validated locally with ``-o`` before this line changed).
+        run: uv run pytest tests/unit -q -o faulthandler_timeout=120
 
   desktop:
     name: Desktop eslint-reason + tsc + tests
