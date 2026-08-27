@@ -148,6 +148,10 @@ export interface UseShellContextValueArgs {
   setGeoDeepLinkTarget: ShellContextValue['coordinator']['setGeoDeepLinkTarget']
   sectionsDeepLinkTarget: ShellContextValue['coordinator']['sectionsDeepLinkTarget']
   setSectionsDeepLinkTarget: ShellContextValue['coordinator']['setSectionsDeepLinkTarget']
+  parametersDeepLinkTarget: ShellContextValue['coordinator']['parametersDeepLinkTarget']
+  setParametersDeepLinkTarget: ShellContextValue['coordinator']['setParametersDeepLinkTarget']
+  selectedParameterUnitId: ShellContextValue['coordinator']['selectedParameterUnitId']
+  setSelectedParameterUnitId: ShellContextValue['coordinator']['setSelectedParameterUnitId']
   correlationEdgesRefetchNonce: ShellContextValue['coordinator']['correlationEdgesRefetchNonce']
   bodyRecomputeLithoNonce: ShellContextValue['coordinator']['bodyRecomputeLithoNonce']
   bodyRecomputeGeotechNonce: ShellContextValue['coordinator']['bodyRecomputeGeotechNonce']
@@ -205,6 +209,8 @@ export function useShellContextValue(
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
+    parametersDeepLinkTarget, setParametersDeepLinkTarget,
+    selectedParameterUnitId, setSelectedParameterUnitId,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
   } = argsWithoutGeo
@@ -377,6 +383,10 @@ export function useShellContextValue(
       setGeoDeepLinkTarget,
       sectionsDeepLinkTarget,
       setSectionsDeepLinkTarget,
+      parametersDeepLinkTarget,
+      setParametersDeepLinkTarget,
+      selectedParameterUnitId,
+      setSelectedParameterUnitId,
       correlationEdgesRefetchNonce,
       bodyRecomputeLithoNonce,
       bodyRecomputeGeotechNonce,
