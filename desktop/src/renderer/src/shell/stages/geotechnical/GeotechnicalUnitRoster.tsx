@@ -27,7 +27,7 @@ import type {
   GeologicalFormationResponse,
   LithoLayerResponse,
 } from '../../../api/client'
-import { formatLithoDisplayName } from '../../../utils/lithoLabels'
+import { buildSourceLithoNameMap } from '../../../utils/sourceLithoNames'
 import { ConfidenceBadge, ProvenanceBadge } from './geotechBadges'
 import { buildGeotechUnitTree } from './geotechUnitTree'
 import type { GeotechClassRow, GeotechUnitInstance } from './geotechUnitTree'
@@ -371,19 +371,12 @@ export default function GeotechnicalUnitRoster({
   )
 
   // A geotech unit's stored name is the raw token ("KLEI (geotech)"); the roster
-  // names its SOURCE litho unit instead, in English (debt #96).
-  const sourceLithoNameById = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const f of lithoFormations) {
-      m.set(
-        f.id,
-        f.litho_main_soil_code != null
-          ? formatLithoDisplayName(f.litho_main_soil_code, f.litho_admixtures)
-          : f.name,
-      )
-    }
-    return m
-  }, [lithoFormations])
+  // names its SOURCE litho unit instead, in English (debt #96). Shared with the
+  // Parameters stage's per-unit table, which needs the identical map.
+  const sourceLithoNameById = useMemo(
+    () => buildSourceLithoNameMap(lithoFormations),
+    [lithoFormations],
+  )
 
   const tree = useMemo(
     () =>
