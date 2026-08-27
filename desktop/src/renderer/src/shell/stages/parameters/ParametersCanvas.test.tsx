@@ -21,12 +21,15 @@ import ParametersCanvas from './ParametersCanvas'
 // The tab lives on the coordinator bus since the R3 layout flip, so the mock
 // holds it in REAL React state — the canvas's own setter drives the
 // re-render, exactly as the App-level state does in production.
-let mockSelectedParameterUnit: { kind: 'litho' | 'geotech'; unitId: string } | null =
-  null
+import type { ParameterUnitScope } from '../../ShellContext'
+
+let mockSelectedParameterUnit: ParameterUnitScope | null = null
 
 vi.mock('../../ShellContext', async () => {
   const { useState } = await import('react')
   return {
+    parameterScopeModel: (s: { kind: string }) =>
+      s.kind === 'litho-unit' || s.kind === 'litho-body' ? 'litho' : 'geotech',
     useShell: () => {
       const [tab, setTab] = useState<'per-test' | 'per-unit' | 'methods'>('per-test')
       return {
@@ -116,7 +119,7 @@ describe('ParametersCanvas — tab scaffold', () => {
   // statistics draw since the R3 flip. Landing on "Per test" would hide what
   // the engineer just navigated to.
   it('PC1 — a scoped unit opens the per-unit tab, not the default per-test one', () => {
-    mockSelectedParameterUnit = { kind: 'geotech', unitId: 'unit-7' }
+    mockSelectedParameterUnit = { kind: 'geotech-unit', unitId: 'unit-7' }
     try {
       render(<ParametersCanvas />)
       expect(screen.getByTestId('parameters-panel-per-unit')).toBeInTheDocument()
