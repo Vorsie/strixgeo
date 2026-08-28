@@ -50,6 +50,7 @@ import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import ConfirmParentDialog from './ConfirmParentDialog'
 import ModelKindPicker from './ModelKindPicker'
+import { useT, type Translator } from '../../../i18n/translate'
 
 /**
  * Inspector for the Lithology stage.
@@ -81,6 +82,7 @@ export default function LithologyInspector(): JSX.Element {
     },
     overlays: { showConfidenceFade, handleSetShowConfidenceFade },
   } = useShell()
+  const t = useT()
 
   // Debt #94 fix: clear-model confirm dialog state.
   const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
@@ -205,18 +207,15 @@ export default function LithologyInspector(): JSX.Element {
   if (activeGeologicalModel === null) {
     return (
       <div className="flex flex-col gap-3 p-3">
-        <div className="text-xs font-semibold text-text-primary">Lithology model</div>
-        <p className="text-[11px] leading-snug text-text-muted">
-          Create a geological model first (Geology stage) — a lithostratigraphic
-          model refines it.
-        </p>
+        <div className="text-xs font-semibold text-text-primary">{t('litho.model')}</div>
+        <p className="text-[11px] leading-snug text-text-muted">{t('litho.createGeoFirst')}</p>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <div className="text-xs font-semibold text-text-primary">Lithology model</div>
+      <div className="text-xs font-semibold text-text-primary">{t('litho.model')}</div>
 
       {/* Model select / create lifecycle — relocated from GeologyInspector
           header per #55 re-scope.  Same component + hook layer. */}
@@ -230,9 +229,9 @@ export default function LithologyInspector(): JSX.Element {
           with the geology toggle. */}
       <div
         className="flex items-center justify-between gap-2 text-[11px] text-text-secondary border-t border-border-subtle pt-2"
-        title="Faded triangles in the 3D view mark regions where the model extrapolates away from nearby data. Toggle off for a uniform colour."
+        title={t('litho.confidenceFadeHint')}
       >
-        <span>Show confidence fade</span>
+        <span>{t('geology.showConfidenceFade')}</span>
         <button
           type="button"
           role="switch"
@@ -258,8 +257,8 @@ export default function LithologyInspector(): JSX.Element {
         /* No active litho model: compact guidance */
         <EmptyState
           icon={<Layers3 />}
-          title="No lithology model"
-          hint="Create a lithology model above, then open the Sections stage to draw contacts."
+          title={t('litho.noModel')}
+          hint={t('litho.createThenSections')}
           compact
         />
       ) : (
@@ -290,21 +289,31 @@ export default function LithologyInspector(): JSX.Element {
                     The pill still surfaces when either count is non-
                     zero so the Clear button stays reachable for the
                     orphan-formation recovery case. */}
-                {lithoContacts.length} contact
-                {lithoContacts.length === 1 ? '' : 's'},{' '}
-                {new Set(lithoContacts.map(c => c.formation_id)).size} unit
-                {new Set(lithoContacts.map(c => c.formation_id)).size === 1 ? '' : 's'}
+                {t('litho.pillCounts', {
+                  c: lithoContacts.length,
+                  cw: t(
+                    lithoContacts.length === 1
+                      ? 'litho.contactWordOne'
+                      : 'litho.contactWordMany',
+                  ),
+                  u: new Set(lithoContacts.map(c => c.formation_id)).size,
+                  uw: t(
+                    new Set(lithoContacts.map(c => c.formation_id)).size === 1
+                      ? 'litho.unitWordOne'
+                      : 'litho.unitWordMany',
+                  ),
+                })}
               </span>
               <button
                 type="button"
                 onClick={() => setWipeConfirmOpen(true)}
                 disabled={wiping}
                 className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40 transition-colors flex-shrink-0"
-                title="Clear all litho content for this model"
+                title={t('litho.clearModel')}
                 data-testid="wipe-litho-contacts-btn"
               >
                 <Trash2 size={11} aria-hidden="true" />
-                {wiping ? 'Clearing…' : 'Clear'}
+                {wiping ? t('litho.clearing') : t('litho.clearShort')}
               </button>
             </div>
           )}
@@ -316,14 +325,14 @@ export default function LithologyInspector(): JSX.Element {
               async call. */}
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] text-text-muted uppercase tracking-wide font-semibold">
-              Instances
+              {t('litho.instances')}
             </span>
             <button
               type="button"
               onClick={() => void handleResolve()}
               disabled={resolving}
               className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors"
-              title="Re-number litho bodies from their correlation graph"
+              title={t('litho.renumberBodies')}
               data-testid="resolve-instances-btn"
             >
               <RefreshCw
@@ -331,7 +340,7 @@ export default function LithologyInspector(): JSX.Element {
                 className={resolving ? 'animate-spin' : ''}
                 aria-hidden="true"
               />
-              {resolving ? 'Resolving…' : 'Resolve instances'}
+              {resolving ? t('litho.resolving') : t('litho.resolveInstances')}
             </button>
           </div>
 
@@ -345,8 +354,8 @@ export default function LithologyInspector(): JSX.Element {
           {lithoFormationsInModel.length === 0 ? (
             <EmptyState
               icon={<Layers3 />}
-              title="No litho units in this model yet"
-              hint="Accept CPT suggestions or draw contacts on a section — each accepted layer adds a unit here."
+              title={t('litho.noUnits')}
+              hint={t('litho.emptyInspector')}
               compact
             />
           ) : (
@@ -355,6 +364,7 @@ export default function LithologyInspector(): JSX.Element {
               lithoContacts={lithoContacts}
               lensCountByFormationId={lensCountByFormationId}
               onReviewParent={setConfirmTarget}
+              t={t}
             />
           )}
 
@@ -370,12 +380,11 @@ export default function LithologyInspector(): JSX.Element {
             setBodyColor={setBodyColor}
             hideMarkers={hideMarkers}
             onToggleHideMarkers={setHideMarkers}
+            t={t}
           />
 
           {/* Workflow guidance footer — always visible when a model is active. */}
-          <p className="text-[11px] leading-snug text-text-muted">
-            Draw contacts on Sections, then Build to update surfaces.
-          </p>
+          <p className="text-[11px] leading-snug text-text-muted">{t('litho.drawThenBuild')}</p>
         </>
       )}
 
@@ -404,12 +413,9 @@ export default function LithologyInspector(): JSX.Element {
             id="wipe-litho-contacts-title"
             className="text-sm font-semibold text-text-primary mb-1"
           >
-            Clear litho model?
+            {t('litho.clearModelConfirm')}
           </h2>
-          <p className="text-xs text-text-muted mb-4">
-            All litho units, contacts, correlations and surfaces in this model
-            will be permanently deleted. This cannot be undone.
-          </p>
+          <p className="text-xs text-text-muted mb-4">{t('litho.clearModelBody')}</p>
           <div className="flex justify-end gap-2">
             {/* Cancel has default focus — the safe default for an
                 irreversible confirm dialog per docs/ux.md. */}
@@ -424,7 +430,7 @@ export default function LithologyInspector(): JSX.Element {
               onClick={() => setWipeConfirmOpen(false)}
               disabled={wiping}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
@@ -433,7 +439,7 @@ export default function LithologyInspector(): JSX.Element {
               disabled={wiping}
               data-testid="wipe-litho-contacts-confirm-btn"
             >
-              {wiping ? 'Clearing…' : 'Clear litho model'}
+              {wiping ? t('litho.clearing') : t('litho.clearModelButton')}
             </Button>
           </div>
         </div>
@@ -456,6 +462,7 @@ interface LithoUnitRowProps {
   /** Debt #87: opens the confirm-parent dialog for an extrapolated or
    *  orphan unit. Click target is the amber dot on the left of the row. */
   onReviewParent: (formation: GeologicalFormationResponse) => void
+  t: Translator
 }
 
 function LithoUnitRow({
@@ -463,6 +470,7 @@ function LithoUnitRow({
   lithoContacts,
   lensCount,
   onReviewParent,
+  t,
 }: LithoUnitRowProps): JSX.Element {
   const contactCount = lithoContacts.filter(c => c.formation_id === f.id).length
   // Debt #87: amber dot when the parent needs engineer review.
@@ -471,8 +479,8 @@ function LithoUnitRow({
   // but the dot makes the per-row affordance discoverable from any group).
   const needsParentReview = f.parent_extrapolated || f.parent_formation_id == null
   const reviewTooltip = f.parent_extrapolated
-    ? 'Parent extrapolated from TIN — click to confirm or reassign'
-    : 'No parent assigned — click to assign or detach'
+    ? t('litho.parentExtrapolatedReview')
+    : t('litho.noParentReview')
 
   return (
     <li
@@ -513,7 +521,9 @@ function LithoUnitRow({
       {/* Contact count */}
       <span
         className="text-[10px] tabular-nums text-text-muted"
-        title={`${contactCount} contact${contactCount === 1 ? '' : 's'} in this model`}
+        title={t(contactCount === 1 ? 'geotech.contactLabel' : 'geotech.contactsLabel', {
+          count: contactCount,
+        })}
       >
         {contactCount}
       </span>
@@ -522,7 +532,9 @@ function LithoUnitRow({
       {lensCount > 0 && (
         <span
           className="text-[10px] tabular-nums rounded px-1 py-0 bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
-          title={`${lensCount} lens${lensCount === 1 ? '' : 'es'} defined in this formation`}
+          title={t(lensCount === 1 ? 'litho.lensDefinedOne' : 'litho.lensDefinedMany', {
+            n: lensCount,
+          })}
           data-testid={`lens-count-badge-${f.id}`}
         >
           {lensCount}L
@@ -549,6 +561,7 @@ interface LithoFormationRosterProps {
   lensCountByFormationId: ReadonlyMap<string, number>
   /** Debt #87: called when the user clicks a unit's parent-review dot. */
   onReviewParent: (formation: GeologicalFormationResponse) => void
+  t: Translator
 }
 
 /**
@@ -585,12 +598,13 @@ function LithoFormationRoster({
   lithoContacts,
   lensCountByFormationId,
   onReviewParent,
+  t,
 }: LithoFormationRosterProps): JSX.Element {
   // Sort ascending by display_order (oldest first — superposition convention).
   const sorted = [...lithoFormations].sort((a, b) => a.display_order - b.display_order)
 
   return (
-    <ul className="flex flex-col gap-0.5" aria-label="Litho formations">
+    <ul className="flex flex-col gap-0.5" aria-label={t('litho.formations')}>
       {sorted.map(f => (
         <LithoUnitRow
           key={f.id}
@@ -598,6 +612,7 @@ function LithoFormationRoster({
           lithoContacts={lithoContacts}
           lensCount={lensCountByFormationId.get(f.id) ?? 0}
           onReviewParent={onReviewParent}
+          t={t}
         />
       ))}
     </ul>
@@ -630,6 +645,7 @@ interface LithoSolidLegendProps {
   hideMarkers: boolean
   /** Toggle the ``hideMarkers`` state. */
   onToggleHideMarkers: (value: boolean) => void
+  t: Translator
 }
 
 /**
@@ -674,6 +690,7 @@ function LithoSolidLegend({
   setBodyColor,
   hideMarkers,
   onToggleHideMarkers,
+  t,
 }: LithoSolidLegendProps): JSX.Element {
   // Only solids that have actual geometry.
   const builtSolids = lithoSolids.filter(s => s.triangles.length > 0)
@@ -760,10 +777,10 @@ function LithoSolidLegend({
   if (builtSolids.length === 0) {
     return (
       <div data-testid="litho-solid-legend" className="flex flex-col gap-1">
-        <div className="text-[10px] uppercase tracking-wide text-text-muted">Body solids</div>
-        <p className="text-[11px] leading-snug text-text-muted">
-          Build the 3D model to see bodies.
-        </p>
+        <div className="text-[10px] uppercase tracking-wide text-text-muted">
+          {t('litho.bodySolids')}
+        </div>
+        <p className="text-[11px] leading-snug text-text-muted">{t('litho.buildToSeeBodies')}</p>
       </div>
     )
   }
@@ -774,7 +791,9 @@ function LithoSolidLegend({
           The toggle is a reversible action (show/hide is local UI state)
           so it fires immediately — no confirm dialog (UX convention). */}
       <div className="flex items-center justify-between gap-1">
-        <div className="text-[10px] uppercase tracking-wide text-text-muted">Body solids</div>
+        <div className="text-[10px] uppercase tracking-wide text-text-muted">
+          {t('litho.bodySolids')}
+        </div>
         {totalMarkerCount > 0 && (
           <button
             type="button"
@@ -782,16 +801,15 @@ function LithoSolidLegend({
             aria-pressed={hideMarkers}
             onClick={() => onToggleHideMarkers(!hideMarkers)}
             className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary transition-colors flex-shrink-0"
-            title={
-              hideMarkers
-                ? `Show ${totalMarkerCount} marker bod${totalMarkerCount === 1 ? 'y' : 'ies'}`
-                : `Hide ${totalMarkerCount} marker bod${totalMarkerCount === 1 ? 'y' : 'ies'} (under-constrained)`
-            }
+            title={t(hideMarkers ? 'litho.showMarkersN' : 'litho.hideMarkersN', {
+              n: totalMarkerCount,
+              bodies: t(totalMarkerCount === 1 ? 'litho.bodyWordOne' : 'litho.bodyWordMany'),
+            })}
           >
             {hideMarkers
               ? <Eye size={11} aria-hidden="true" />
               : <EyeOff size={11} aria-hidden="true" />}
-            {hideMarkers ? 'Show markers' : 'Hide markers'}
+            {hideMarkers ? t('litho.showMarkers') : t('litho.hideMarkers')}
           </button>
         )}
       </div>
@@ -823,7 +841,7 @@ function LithoSolidLegend({
               onClick={() => toggleGroup(formationId)}
               className="flex items-center gap-1.5 w-full text-left px-1 py-0.5 rounded hover:bg-surface-sunken transition-colors"
               aria-expanded={isExpanded}
-              title={isExpanded ? 'Collapse group' : 'Expand group'}
+              title={isExpanded ? t('litho.collapseGroup') : t('litho.expandGroup')}
             >
               {/* Formation colour swatch */}
               <span
@@ -835,16 +853,27 @@ function LithoSolidLegend({
                 {displayName}
               </span>
               <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">
-                {solids.length} bod{solids.length === 1 ? 'y' : 'ies'}
+                {t('litho.bodyCount', {
+                  n: solids.length,
+                  bodies: t(solids.length === 1 ? 'litho.bodyWordOne' : 'litho.bodyWordMany'),
+                })}
                 {hiddenMarkerCount > 0 ? (
                   // hideMarkers on: replace "(N markers)" with "(N markers hidden)"
                   <span className="ml-1 text-text-muted" data-testid={`solid-group-markers-hidden-${formationId}`}>
-                    ({hiddenMarkerCount} marker{hiddenMarkerCount === 1 ? '' : 's'} hidden)
+                    {t('litho.markersHidden', {
+                      n: hiddenMarkerCount,
+                      markers: t(
+                        hiddenMarkerCount === 1 ? 'litho.markerWordOne' : 'litho.markerWordMany',
+                      ),
+                    })}
                   </span>
                 ) : flaggedCount > 0 && (
                   // hideMarkers off: show "(N markers)" as before
                   <span className="ml-1 text-text-muted">
-                    ({flaggedCount} marker{flaggedCount === 1 ? '' : 's'})
+                    {t('litho.markers', {
+                      n: flaggedCount,
+                      markers: t(flaggedCount === 1 ? 'litho.markerWordOne' : 'litho.markerWordMany'),
+                    })}
                   </span>
                 )}
               </span>
@@ -854,7 +883,10 @@ function LithoSolidLegend({
                 When hideMarkers is on, marker rows are omitted here;
                 the header's "(N markers hidden)" note covers them. */}
             {isExpanded && (
-              <ul className="flex flex-col gap-0.5 pl-3" aria-label={`Bodies for ${displayName}`}>
+              <ul
+                className="flex flex-col gap-0.5 pl-3"
+                aria-label={t('litho.bodiesForName', { name: displayName })}
+              >
                 {visibleGroupSolids.map(solid => {
                   const resolvedColor = solid.display_color ?? formation?.color ?? '#888888'
                   return (
@@ -869,9 +901,12 @@ function LithoSolidLegend({
                         data-testid={`solid-color-input-${solid.body_id}`}
                         value={resolvedColor.startsWith('#') ? resolvedColor : `#${resolvedColor}`}
                         onChange={e => setBodyColor(solid.body_id, e.target.value)}
-                        title="Pick a custom colour for this body solid"
+                        title={t('litho.pickBodyColour')}
                         className="w-4 h-4 p-0 border border-border-subtle rounded cursor-pointer flex-shrink-0"
-                        aria-label={`Colour for ${displayName} #${solid.body_ordinal}`}
+                        aria-label={t('litho.colourForBody', {
+                          name: displayName,
+                          ordinal: solid.body_ordinal,
+                        })}
                       />
                       {/* Ordinal handle */}
                       <span className="tabular-nums text-text-muted">
@@ -882,8 +917,8 @@ function LithoSolidLegend({
                       {solid.is_stale === true && (
                         <span
                           className="text-amber-500 leading-none text-[10px]"
-                          title="Stale — rebuild to update"
-                          aria-label="Stale"
+                          title={t('litho.staleHint')}
+                          aria-label={t('litho.stale')}
                         >
                           •
                         </span>
@@ -892,7 +927,7 @@ function LithoSolidLegend({
                       {solid.is_flagged === true && (
                         <span
                           className="shrink-0"
-                          title="Under-constrained: fewer than 3 CPT/borehole traces — best-effort slab"
+                          title={t('litho.underConstrained')}
                         >
                           <AlertTriangle size={10} className="text-amber-500" />
                         </span>
@@ -903,7 +938,7 @@ function LithoSolidLegend({
                           type="button"
                           data-testid={`solid-color-reset-${solid.body_id}`}
                           onClick={() => setBodyColor(solid.body_id, null)}
-                          title="Reset to formation lithology colour"
+                          title={t('litho.resetBodyColour')}
                           className="p-1 -m-1 text-text-muted hover:text-text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent flex-shrink-0"
                         >
                           <RotateCcw size={9} />
