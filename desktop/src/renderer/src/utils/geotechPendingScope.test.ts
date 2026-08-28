@@ -18,6 +18,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { t } from '../i18n/translate'
 import {
   dividePendingTag,
   dividePendingTitle,
@@ -36,7 +37,7 @@ describe('summarisePendingTies', () => {
     expect(scope.modelPending).toBe(12)
     expect(scope.sectionPending).toBe(5)
     expect(scope.sectionsWithPending).toBe(2)
-    expect(pendingChipLabel(scope)).toContain('5')
+    expect(pendingChipLabel(t, scope)).toContain('5')
   })
 
   it('PS2: the chip tooltip carries the model total the chip itself does not', () => {
@@ -45,7 +46,7 @@ describe('summarisePendingTies', () => {
       pendingBySection: { 'sec-a': 5, 'sec-b': 7 },
       activeSectionId: 'sec-a',
     })
-    const title = pendingChipTitle(scope, 40)
+    const title = pendingChipTitle(t, scope, 40)
     expect(title).toContain('5')
     expect(title).toContain('12')
     expect(title).toContain('40')
@@ -61,7 +62,7 @@ describe('summarisePendingTies', () => {
     })
     expect(scope.sectionPending).toBe(0)
     expect(scope.sectionsWithPending).toBe(1)
-    expect(pendingChipLabel(scope)).toContain('0')
+    expect(pendingChipLabel(t, scope)).toContain('0')
   })
 
   it('PS4: the step-4 gate counts THIS section, because that is what it divides', () => {
@@ -75,8 +76,8 @@ describe('summarisePendingTies', () => {
       pendingBySection: { 'sec-a': 5, 'sec-b': 7 },
       activeSectionId: 'sec-a',
     })
-    expect(dividePendingTag(scope)).toBe('accept 5 on this section')
-    const title = dividePendingTitle(scope)
+    expect(dividePendingTag(t, scope)).toBe('accept 5 on this section')
+    const title = dividePendingTitle(t, scope)
     expect(title).toContain('5')
     expect(title).toMatch(/this section/i)
     // And it must stop claiming the whole model has to be clear.
@@ -90,8 +91,8 @@ describe('summarisePendingTies', () => {
       pendingBySection: { 'sec-a': 1, 'sec-b': 3 },
       activeSectionId: 'sec-a',
     })
-    expect(dividePendingTag(scope)).toBe('accept 1 on this section')
-    expect(dividePendingTitle(scope)).toContain('1 packing tie ')
+    expect(dividePendingTag(t, scope)).toBe('accept 1 on this section')
+    expect(dividePendingTitle(t, scope)).toContain('1 packing tie ')
   })
 
   it('PS4c: a clean open section does not hold step 4 shut at all', () => {
@@ -111,8 +112,8 @@ describe('summarisePendingTies', () => {
       activeSectionId: null,
     })
     expect(scope.sectionPending).toBeNull()
-    expect(pendingChipLabel(scope)).toContain('12')
-    expect(pendingChipTitle(scope, 40)).toContain('12')
+    expect(pendingChipLabel(t, scope)).toContain('12')
+    expect(pendingChipTitle(t, scope, 40)).toContain('12')
   })
 
   it('PS6: a breakdown the backend did not send degrades to the bare count', () => {
@@ -126,8 +127,8 @@ describe('summarisePendingTies', () => {
     })
     expect(scope.sectionPending).toBeNull()
     expect(scope.sectionsWithPending).toBeNull()
-    expect(dividePendingTag(scope)).toBe('accept 12 first')
-    expect(dividePendingTitle(scope)).toContain('12')
-    expect(pendingChipLabel(scope)).toContain('12')
+    expect(dividePendingTag(t, scope)).toBe('accept 12 first')
+    expect(dividePendingTitle(t, scope)).toContain('12')
+    expect(pendingChipLabel(t, scope)).toContain('12')
   })
 })
