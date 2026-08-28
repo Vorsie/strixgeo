@@ -11,6 +11,7 @@
 // secondary action, Re-correlate the destructive confirm.
 
 import ConfirmDialog from './ui/ConfirmDialog'
+import { useT } from '../i18n/translate'
 
 interface Props {
   /** Truthy = render the dialog. The caller owns the open lifecycle. */
@@ -35,6 +36,7 @@ export default function ReCorrelateConfirmDialog({
   onReCorrelate,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const isOne = existingAutoEdgeCount === 1
   return (
     <ConfirmDialog
@@ -45,25 +47,25 @@ export default function ReCorrelateConfirmDialog({
       onCancel={onCancel}
       busy={busy}
       cancelTestid="re-correlate-cancel"
-      title="Auto-correlate found existing edges"
+      title={t('dialog.reCorrelateTitle')}
       body={
         <>
           <p className="mb-1">
-            There {isOne ? 'is already' : 'are already'}{' '}
+            {t(isOne ? 'dialog.reCorrelateBodyPreOne' : 'dialog.reCorrelateBodyPreMany')}{' '}
             <span className="font-semibold">{existingAutoEdgeCount}</span>{' '}
-            auto-correlation{isOne ? ' edge' : ' edges'} on this section. What would you like to do?
+            {t(isOne ? 'dialog.reCorrelateBodyPostOne' : 'dialog.reCorrelateBodyPostMany')}
           </p>
-          <p>Manual edges — and other sections&rsquo; suggestions — are preserved either way.</p>
+          <p>{t('dialog.reCorrelateNote')}</p>
         </>
       }
       secondary={{
-        label: 'Skip — keep existing',
+        label: t('dialog.reCorrelateSkip'),
         onClick: onSkip,
         variant: 'secondary',
         testid: 're-correlate-skip',
       }}
       confirm={{
-        label: 'Re-correlate — delete auto edges and rerun',
+        label: t('dialog.reCorrelateRerun'),
         onClick: onReCorrelate,
         variant: 'danger',
         testid: 're-correlate-rerun',
