@@ -69,7 +69,7 @@ describe('useSectionColumnRevealBridge', () => {
     })
   })
 
-  it('CB5 — a gap travels as its two columns, and gets no single-column pulse', () => {
+  it('CB5 — a gap travels as its two columns and marks the span between them', () => {
     const seen: SectionColumnRevealRequest[] = []
     const reveal: SectionColumnRevealFn = req => {
       seen.push(req)
@@ -79,10 +79,12 @@ describe('useSectionColumnRevealBridge', () => {
 
     sectionsRevealColumnCallback.current?.(['S4', 'B6'])
 
-    // Both ends go over, so ``resolveColumnReveal`` centres on the midpoint of
-    // their span — which IS the gap between them. Neither end is flashed: the
-    // finding is the ground between the two columns, not either column.
-    expect(seen).toEqual([{ investigationIds: ['S4', 'B6'] }])
+    // “Show me” must visibly mark the ground BETWEEN the two columns. Both
+    // ends travel so the panel can centre and draw that span; neither column is
+    // flashed because the finding is not on either column.
+    expect(seen).toEqual([
+      { investigationIds: ['S4', 'B6'], flashGapInvestigationIds: ['S4', 'B6'] },
+    ])
     expect(seen[0].flashColumnId).toBeUndefined()
     expect(seen[0].flashEdgeId).toBeUndefined()
   })
