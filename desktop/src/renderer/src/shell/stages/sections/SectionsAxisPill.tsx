@@ -6,6 +6,7 @@
 
 import type { GeologicalModelResponse } from '../../../api/client'
 import type { SectionModelAxis } from '../../../hooks/useSections'
+import { useT } from '../../../i18n/translate'
 
 /** What the axis pill needs from the toolbar to render + switch axes. */
 export interface SectionsAxisPillProps {
@@ -42,6 +43,7 @@ export default function SectionsAxisPill({
   activeGeotechModel,
   onAxisChange: handleAxisChange,
 }: SectionsAxisPillProps): JSX.Element {
+  const t = useT()
   return (
     <>
       {/* Geology ↔ Lithology segmented toggle (slice 2, #55).
@@ -69,7 +71,7 @@ export default function SectionsAxisPill({
           pill's form instead, and it only ever picks a DESIGNED one. */}
       <div
         role="group"
-        aria-label="Section model axis"
+        aria-label={t('sections.modelAxis')}
         className="flex items-center rounded border border-border-default overflow-hidden text-xs shrink-0"
       >
         <button
@@ -86,10 +88,10 @@ export default function SectionsAxisPill({
           // The full word stays in the tooltip + accessible name when the
           // short form is showing, so "Geo" is never the only thing a user
           // (or a screen reader) has to go on.
-          aria-label="Geology"
-          title="Edit the geological model contacts on this section"
+          aria-label={t('sections.toolbar.geology')}
+          title={t('sections.toolbar.editGeologyContacts')}
         >
-          {short ? 'Geo' : 'Geology'}
+          {short ? t('sections.axis.geoShort') : t('sections.toolbar.geology')}
         </button>
         {/* Span wrapper surfaces the tooltip on hover when the button is
             disabled — Chromium suppresses mouse events (incl. title) on
@@ -97,11 +99,7 @@ export default function SectionsAxisPill({
             to screen readers; the button's own aria-disabled conveys state. */}
         <span
           role="presentation"
-          title={
-            activeLithoModel === null
-              ? 'Create a lithostratigraphic model in the Lithology stage first'
-              : undefined
-          }
+          title={activeLithoModel === null ? t('sections.axis.createLithoFirst') : undefined}
         >
           <button
             type="button"
@@ -117,13 +115,9 @@ export default function SectionsAxisPill({
                   ? 'bg-surface-card text-text-muted cursor-not-allowed'
                   : 'bg-surface-card text-text-secondary hover:text-text-primary',
             ].join(' ')}
-            title={
-              activeLithoModel !== null
-                ? 'Edit the lithostratigraphic model contacts on this section'
-                : undefined
-            }
+            title={activeLithoModel !== null ? t('sections.axis.editLithoContacts') : undefined}
           >
-            Litho
+            {t('sections.axis.litho')}
           </button>
         </span>
         {/* Geotech segment — enabled when a geotech model exists OR a litho
@@ -137,7 +131,7 @@ export default function SectionsAxisPill({
           role="presentation"
           title={
             activeGeotechModel === null && activeLithoModel === null
-              ? 'Create a lithostratigraphic model first — packing subdivides litho bodies'
+              ? t('sections.axis.createLithoForPacking')
               : undefined
           }
         >
@@ -158,13 +152,13 @@ export default function SectionsAxisPill({
             ].join(' ')}
             title={
               activeGeotechModel !== null
-                ? 'View geotechnical subdivision (NAD packing classes) on this section'
+                ? t('sections.axis.viewGeotech')
                 : activeLithoModel !== null
-                  ? 'No geotech model yet — “Packing pipeline → 1 · Subdivide CPTs” creates it'
+                  ? t('sections.axis.noGeotechYet')
                   : undefined
             }
           >
-            Geotech
+            {t('sections.axis.geotech')}
           </button>
         </span>
       </div>
@@ -177,7 +171,7 @@ export default function SectionsAxisPill({
           SectionsInspector, GeologyInspector, EmptyState, etc.). */}
       {activeLithoModel === null && (
         <p className="text-xs text-text-muted whitespace-nowrap">
-          No lithostratigraphic model — create one in the Lithology stage.
+          {t('sections.toolbar.noLithoModel')}
         </p>
       )}
     </>
