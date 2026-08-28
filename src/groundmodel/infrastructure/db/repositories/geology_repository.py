@@ -129,7 +129,11 @@ class GeologyRepository(GroundModelLogger):
         )
         self._session.add(formation)
         await self._session.flush()
-        self.success(f"Formation created: {formation.id} — {name}")
+        # Id at SUCCESS, name at DEBUG: a formation/unit name can echo a site
+        # ("Kaai 42 fill"), so it must not sit on an always-on line in the
+        # unredacted ``backend.log``.
+        self.success(f"Formation created: {formation.id}")
+        self.debug(f"Formation created: {formation.id} — name {name!r}")
         return formation
 
     async def list_formations(self, app_project_id: UUID) -> list[GeologicalFormationOrm]:
@@ -226,7 +230,10 @@ class GeologyRepository(GroundModelLogger):
         )
         self._session.add(model)
         await self._session.flush()
-        self.success(f"Model created: {model.id} — {name}")
+        # Id at SUCCESS, name at DEBUG: a model name can echo a site, so it
+        # must not sit on an always-on line in the unredacted ``backend.log``.
+        self.success(f"Model created: {model.id}")
+        self.debug(f"Model created: {model.id} — name {name!r}")
         return model
 
     async def list_models(self, app_project_id: UUID) -> list[GeologicalModelOrm]:
