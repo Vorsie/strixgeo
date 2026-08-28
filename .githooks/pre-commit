@@ -60,7 +60,11 @@ if [ -n "$py_changed" ] && [ "$batch_mode" != "1" ]; then
 fi
 
 if [ -n "$ts_changed" ]; then
-  echo "[pre-commit] Running desktop checks (eslint-reason + tsc + Vitest)…"
+  if [ "$batch_mode" = "1" ]; then
+    echo "[pre-commit] Batch mode — eslint-reason only for the staged TS files."
+  else
+    echo "[pre-commit] Running desktop checks (eslint-reason + tsc + Vitest)…"
+  fi
   # eslint-reason — enforces CLAUDE.md's "every
   # eslint-disable-next-line react-hooks/exhaustive-deps must carry a
   # `// reason:` comment" rule. Cheapest of the three, runs first.
