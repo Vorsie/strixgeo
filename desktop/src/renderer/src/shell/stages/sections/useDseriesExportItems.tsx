@@ -30,45 +30,48 @@ import type { SectionPartitionInput } from '../../../utils/buildVoxelRequest'
 import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 import { buildSectionExportPartition } from './buildSectionExportPartition'
 import { downloadSectionExport } from './downloadSectionExport'
+import { useT } from '../../../i18n/translate'
+import type { MessageKey } from '../../../i18n/locales/en'
 
 /** Which D-Series artefact a press is for. */
 type DseriesKind = 'dstability' | 'dsheetpiling'
 
-/** Per-artefact copy + wire call, so the two handlers are one function. */
+/** Per-artefact wire facts + message KEYS, so the two handlers are one function
+ *  and every user-facing string resolves through the active locale. The
+ *  ``extension`` is a wire value (the file suffix) and stays a literal. */
 const ARTEFACTS: Record<
   DseriesKind,
   {
-    label: string
-    busyLabel: string
+    labelKey: MessageKey
+    busyLabelKey: MessageKey
     extension: string
-    filterLabel: string
-    successMessage: string
-    failureMessage: string
+    filterLabelKey: MessageKey
+    successKey: MessageKey
+    failureKey: MessageKey
     testid: string
-    /** What the tooltip says the file will contain, after the model level. */
-    describes: string
+    /** Key for what the tooltip says the file will contain, after the level. */
+    describesKey: MessageKey
   }
 > = {
   dstability: {
-    label: 'D-Stability (.stix)',
-    busyLabel: 'Exporting D-Stability…',
+    labelKey: 'sections.export.dstability',
+    busyLabelKey: 'sections.export.exportingDstability',
     extension: 'stix',
-    filterLabel: 'D-Stability model',
-    successMessage: 'D-Stability model exported.',
-    failureMessage: 'Could not export the D-Stability model.',
+    filterLabelKey: 'sections.export.dstabilityFilter',
+    successKey: 'sections.export.dstabilitySuccess',
+    failureKey: 'sections.export.dstabilityFailure',
     testid: 'export-section-dstability',
-    describes: 'model as a D-Stability .stix (geometry only — no design parameters)',
+    describesKey: 'sections.export.dstabilityDescribes',
   },
   dsheetpiling: {
-    label: 'D-Sheet Piling (.shi)',
-    busyLabel: 'Exporting D-Sheet Piling…',
+    labelKey: 'sections.export.dsheetpiling',
+    busyLabelKey: 'sections.export.exportingDsheetpiling',
     extension: 'shi',
-    filterLabel: 'D-Sheet Piling profile',
-    successMessage: 'D-Sheet Piling profile exported.',
-    failureMessage: 'Could not export the D-Sheet Piling profile.',
+    filterLabelKey: 'sections.export.dsheetpilingFilter',
+    successKey: 'sections.export.dsheetpilingSuccess',
+    failureKey: 'sections.export.dsheetpilingFailure',
     testid: 'export-section-dsheetpiling',
-    describes:
-      'model as a D-Sheet Piling .shi soil profile through the section (geometry only)',
+    describesKey: 'sections.export.dsheetpilingDescribes',
   },
 }
 
@@ -113,6 +116,7 @@ export function useDseriesExportItems(
     geoModel: { activeLithoModel, lithoLayers, geotechLayers, geotechFormations },
     toasts: { toast },
   } = useShell()
+  const t = useT()
 
   const [exporting, setExporting] = useState<DseriesKind | null>(null)
 
@@ -185,18 +189,12 @@ export function useDseriesExportItems(
         } catch (err) {
           toast(
             'error',
-            err instanceof Error
-              ? err.message
-              : 'Could not read this section — nothing was exported.',
+            err instanceof Error ? err.message : t('sections.export.readFailed'),
           )
           return
         }
         if (partition === null) {
-          toast(
-            'error',
-            `Nothing to export — this section has no drawn ${axisLevelLabel} geometry ` +
-              'between two columns.',
-          )
+          toast('error', t('sections.export.nothingDrawn', { level: axisLevelLabel }))
           return
         }
 
@@ -204,9 +202,9 @@ export function useDseriesExportItems(
         await downloadSectionExport({
           sectionName: selectedSection.name,
           extension: spec.extension,
-          filterLabel: spec.filterLabel,
-          successMessage: spec.successMessage,
-          failureMessage: spec.failureMessage,
+          filterLabel: t(spec.filterLabelKey),
+          successMessage: t(spec.successKey),
+          failureMessage: t(spec.failureKey),
           logLabel: kind === 'dstability' ? 'exportDstability' : 'exportDsheetPiling',
           toast,
           fetchBytes: () =>
@@ -242,6 +240,7 @@ export function useDseriesExportItems(
       packingClassOf,
       axisLevelLabel,
       toast,
+      t,
     ],
   )
 
@@ -254,20 +253,23 @@ export function useDseriesExportItems(
         const spec = ARTEFACTS[kind]
         const busy = exporting === kind
         return {
-          label: busy ? spec.busyLabel : spec.label,
+          label: busy ? t(spec.busyLabelKey) : t(spec.labelKey),
           icon: kind === 'dstability' ? <Mountain size={12} /> : <Ruler size={12} />,
           onClick: () => void runExport(kind),
           disabled: !hasSection || !hasModel || exporting !== null,
           title: !hasSection
-            ? 'Select a section to export'
+            ? t('sections.export.selectSection')
             : !hasModel
-              ? `No active ${axisLevelLabel} model — contacts must exist first`
+              ? t('sections.export.noModelContacts', { level: axisLevelLabel })
               : busy
-                ? 'Exporting…'
-                : `Export this section's ${axisLevelLabel} ${spec.describes}`,
+                ? t('sections.busy.exporting')
+                : t('sections.export.dseriesRowTitle', {
+                    level: axisLevelLabel,
+                    describes: t(spec.describesKey),
+                  }),
           testid: spec.testid,
         }
       }),
-    [exporting, hasSection, hasModel, axisLevelLabel, runExport],
+    [exporting, hasSection, hasModel, axisLevelLabel, runExport, t],
   )
 }
