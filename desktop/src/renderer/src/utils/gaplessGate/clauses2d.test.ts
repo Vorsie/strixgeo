@@ -173,6 +173,27 @@ describe('clauses2dForSection — clause 1 (area-conservation)', () => {
     expect(entry.measure?.unit).toBe('m2')
     expect(entry.measure?.value).toBeCloseTo(50, 6)
   })
+
+  it('fails a material shortfall however wide the gap is', () => {
+    // The litho-derived cover must be retained exactly. A wide gap does not
+    // make a missing patch acceptable; only machine rounding is harmless.
+    const lithoRegions = [box(1, 0, 1, 0, 10)]
+    const hier = hierarchical({
+      regions: [box(1, 0, 0.99999998, 0, 10)],
+      lithoFallback: [],
+    })
+    const clause = clauses2dForSection({
+      sectionId: 'wide-gap',
+      sectionName: 'Wide tie-section',
+      hierarchical: hier,
+      lithoRegions,
+      alongM: [0, 5, 5005],
+      columnInvestigationIds: OWNER_COLUMNS,
+    }).find((c) => c.key === 'area-conservation')!
+
+    expect(clause.status).toBe('fail')
+    expect(clause.entries[0].measure?.value).toBeCloseTo(0.001, 9)
+  })
 })
 
 describe('clauses2dForSection — clause 2 (edge-reach)', () => {
@@ -293,10 +314,8 @@ describe('clauses2dForSection — clause 3 (cause-closure)', () => {
 // ---------------------------------------------------------------------------
 // GG10-GG12 — the failure sentence must not round its own evidence away
 //
-// Clause 1's budget is a millimetre of snap grid per metre of gap width
-// (``areaConservationEpsilonM2``), so for any normal gap the smallest DEFECT it
-// can report is far below 0.005 m2 — the point at which two decimals print
-// "0". The owner was told a guarantee was broken by nothing at all.
+// Clause 1 permits only machine rounding, so a small real shortfall must still
+// read as a real number rather than the word "0".
 // ---------------------------------------------------------------------------
 
 /** The owner's own scene: a ~8.42 m2 cover on a 1 m wide gap, index 1. */
@@ -305,9 +324,8 @@ const OWNER_COLUMNS = ['S1', 'S4', 'B6']
 
 describe('clause 1 — a broken guarantee is never reported as broken by 0', () => {
   it('GG10 states a real magnitude when the shortfall is smaller than 0.005 m²', () => {
-    // 8.42 m2 of cover; 8.4188 m2 classed -> 0.0012 m2 short, which clears the
-    // 0.001 m2 this gap's width allows, so it IS a defect. Two decimals call
-    // that "0"; the sentence must not.
+    // 8.42 m2 of cover; 8.4188 m2 classed -> 0.0012 m2 short. Two decimals
+    // call that "0"; the sentence must not.
     const lithoRegions = [box(1, 0, 1, 0, 8.42)]
     const hier = hierarchical({ regions: [box(1, 0, 1, 0, 8.4188)], lithoFallback: [] })
     const clause = clauses2dForSection({
@@ -326,7 +344,7 @@ describe('clause 1 — a broken guarantee is never reported as broken by 0', () 
     expect(entry.label).toContain('0.0012 m²')
   })
 
-  it('GG11 says what a gap this wide was allowed, so the number is a judgement', () => {
+  it('GG11 names the floating-point-only allowance, so the number is a judgement', () => {
     const lithoRegions = [box(1, 0, 1, 0, 8.42)]
     const hier = hierarchical({ regions: [box(1, 0, 1, 0, 8.4188)], lithoFallback: [] })
     const clause = clauses2dForSection({
@@ -340,8 +358,8 @@ describe('clause 1 — a broken guarantee is never reported as broken by 0', () 
 
     expect(clause.entries[0].label).toBe(
       'Cross-section 2, gap 1: classed + unclassed cover totals 8.42 m², which is ' +
-        "0.0012 m² less than the litho cover's 8.42 m² — more than the 0.001 m² " +
-        'allowed for a gap this wide',
+        "0.0012 m² less than the litho cover's 8.42 m² — more than the 1e-9 m² " +
+        'floating-point allowance',
     )
   })
 
