@@ -248,3 +248,37 @@ profile, then popped a native error dialog on his desktop mid-session.
   launching the app at all.
 * **An error dialog is the wrong failure mode for an unattended process.** Log
   and exit; show a dialog only when a human actually asked for the launch.
+
+## A gate that cannot see failure reports success (2026-08-28)
+
+The pre-push hook ran the integration wrapper, captured its output, and
+checked the exit code:
+
+```sh
+output="$(powershell.exe -File scripts/run-integration-tests.ps1 2>&1 || true)"
+ps_exit=$?          # ALWAYS 0
+```
+
+`|| true` sits **inside** the command substitution, so the assignment's status
+is the status of `true`. `ps_exit` was never anything but 0 and the "primary
+gate" beneath it had been dead code since the day it was written. Proof is two
+lines: `out="$(bash -c 'exit 7')"` → `$?` is 7; add `|| true` inside → 0. The
+`|| true` was there because `set -e` would otherwise abort the hook — a real
+problem solved in the one place that destroyed the signal. Use `set +e` around
+the call instead.
+
+* **A gate needs a positive assertion that it RAN, not only a check for
+  failure.** The surviving grep for `N failed` looked adequate, but every path
+  that exits *before* pytest starts — the wrapper's lock ABORT, an alembic
+  failure, a collection error, a crash — prints no summary at all, matches no
+  failure pattern, and was reported as **"Integration tests passed"**. Assert
+  the summary line exists; treat its absence as a block.
+* **Anything that shifts trust onto a gate is a reason to re-read the gate.**
+  This surfaced the day a batch mode started skipping per-commit test layers on
+  the argument that push-time and CI re-prove them. The weakening was fine; not
+  checking the gate it leaned on was not.
+* **Do not filter a gate's output when you capture it.** The same evening, a
+  landing script piped `git push` through `Select-String 'develop|error|
+  Integration'`, which dropped pytest's summary line while keeping test paths
+  (they match "integration" case-insensitively) — making a green run look like
+  a suite that never ran. Log the whole thing or log the summary deliberately.
