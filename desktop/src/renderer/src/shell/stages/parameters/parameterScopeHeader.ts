@@ -39,22 +39,41 @@ function lithoUnitName(unitId: string | null, input: ParameterTreeInput): string
 
 /**
  * Distinct resolver bodies CONTRIBUTING to the cone pool — the honest "N
- * bodies" count (F7). Counts only CPT-anchored bands' bodies, so a
- * borehole-only body (no cone to summarise) is never counted, matching the
- * retired ``pooledBodyCount``.
+ * bodies" count (F7).
+ *
+ * Two exclusions, both of which the retired ``pooledBodyCount`` carried:
+ *
+ * * a borehole-anchored band has no cone to summarise;
+ * * a band whose cone is not in the pooling POPULATION contributes no samples
+ *   — hidden in the project view, removed, or on no section at all. Without
+ *   this the header overstates its evidence (the live case that produced the
+ *   rule read "16 bodies" where only 9 contributed). ``useUnitStatistics``
+ *   filters the NUMBERS by the same set, so the count has to read it too or
+ *   the two disagree on screen.
+ *
+ * ``null``/omitted members means no population filter (nothing has scoped the
+ * pool yet); an EMPTY set means nothing is a member and the count is honestly
+ * zero.
  */
-function distinctBodyCount(bands: readonly LithoLayerResponse[]): number {
+function distinctBodyCount(
+  bands: readonly LithoLayerResponse[],
+  memberInvestigationIds: ReadonlySet<string> | null | undefined,
+): number {
   const bodies = new Set<string>()
   for (const b of bands) {
     if (b.cpt_id === null) continue
+    if (memberInvestigationIds != null && !memberInvestigationIds.has(b.cpt_id)) continue
     if ((b.body_id ?? null) !== null) bodies.add(b.body_id as string)
   }
   return bodies.size
 }
 
 /** The ``— pooled across N bodies`` suffix, or ``''`` for one-or-none. */
-function pooledSuffix(bands: readonly LithoLayerResponse[]): string {
-  const n = distinctBodyCount(bands)
+function pooledSuffix(
+  bands: readonly LithoLayerResponse[],
+  memberInvestigationIds: ReadonlySet<string> | null | undefined,
+): string {
+  const n = distinctBodyCount(bands, memberInvestigationIds)
   if (n <= 1) return ''
   return ` — pooled across ${n} bodies`
 }
@@ -92,6 +111,10 @@ function geotechBodyPath(
  *     Any scope in the five-kind union.
  * input
  *     The tree input.
+ * memberInvestigationIds
+ *     The pooling population — the same set ``useUnitStatistics`` filters the
+ *     numbers by, so the "pooled across N bodies" claim matches the evidence
+ *     on screen. ``null``/omitted skips the filter.
  *
  * Returns
  * -------
@@ -99,13 +122,17 @@ function geotechBodyPath(
  *     A one-line path label; the caller adds the "X of Y bands" and population
  *     lines around it.
  */
-export function scopeHeaderLabel(scope: ParameterUnitScope, input: ParameterTreeInput): string {
+export function scopeHeaderLabel(
+  scope: ParameterUnitScope,
+  input: ParameterTreeInput,
+  memberInvestigationIds?: ReadonlySet<string> | null,
+): string {
   switch (scope.kind) {
     case 'litho-unit': {
       // R1's naming requirement, near-verbatim: the header must SAY the pool
       // spans the whole unit, every packing class.
       const base = `${lithoUnitName(scope.unitId, input)} — whole litho unit, all packing classes`
-      return base + pooledSuffix(bandsForScope(scope, input))
+      return base + pooledSuffix(bandsForScope(scope, input), memberInvestigationIds)
     }
     case 'litho-body': {
       const unit = lithoUnitName(scope.unitId, input)
@@ -115,7 +142,7 @@ export function scopeHeaderLabel(scope: ParameterUnitScope, input: ParameterTree
       const unit = lithoUnitName(scope.lithoUnitId, input)
       const bodyLabel = lithoBodyLabel(scope.lithoBodyId, unit, input.lithoBodies)
       const path = unit + PATH_SEP + bodyLabel + PATH_SEP + nadClassName(scope.nadClass)
-      return path + pooledSuffix(bandsForScope(scope, input))
+      return path + pooledSuffix(bandsForScope(scope, input), memberInvestigationIds)
     }
     case 'geotech-body': {
       const path = geotechBodyPath(scope.bodyId, input)
@@ -134,7 +161,7 @@ export function scopeHeaderLabel(scope: ParameterUnitScope, input: ParameterTree
       // it pools, exactly as before this tree existed.
       const formation = input.geotechFormations.find(f => f.id === scope.unitId)
       const base = formation !== undefined ? geotechUnitLabel(formation) : scope.unitId
-      return base + pooledSuffix(bandsForScope(scope, input))
+      return base + pooledSuffix(bandsForScope(scope, input), memberInvestigationIds)
     }
   }
 }
