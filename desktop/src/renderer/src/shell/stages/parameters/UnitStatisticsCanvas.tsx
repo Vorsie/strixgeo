@@ -144,8 +144,14 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
   )
 
   // The header names the path (spec §3); the label authority lives in the tree
-  // module so it never drifts from what a node pools.
-  const unitLabel = useMemo(() => scopeHeaderLabel(scope, treeInput), [scope, treeInput])
+  // module so it never drifts from what a node pools. ``memberIds`` rides along
+  // so the "pooled across N bodies" claim counts the SAME population the
+  // numbers below are computed from (F7) — without it the header counts bodies
+  // whose cones are hidden, removed, or on no section.
+  const unitLabel = useMemo(
+    () => scopeHeaderLabel(scope, treeInput, memberIds),
+    [scope, treeInput, memberIds],
+  )
 
   // A LEAF body scope blames the body, not the unit, on an empty pool (F7); a
   // class row is an aggregate view, so it does not.
