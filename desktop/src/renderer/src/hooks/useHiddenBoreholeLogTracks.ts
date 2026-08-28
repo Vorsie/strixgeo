@@ -16,6 +16,7 @@
  */
 
 import { usePersistedJSON } from './usePersistedJSON'
+import type { Translator } from '../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Canonical track id vocabulary
@@ -49,19 +50,42 @@ export type ToggleableTrackId = (typeof TOGGLEABLE_TRACK_IDS)[number]
 // Human labels for the Columns dropdown
 // ---------------------------------------------------------------------------
 
-/** Display label shown in the Columns dropdown for each track id. */
-export const TRACK_LABEL: Record<ToggleableTrackId, string> = {
-  coded_lithology: 'Coded lithology',
-  geotechnical_coding: 'Geotechnical coding',
-  lithological_description: 'Lithological description',
-  formal_stratigraphy: 'Formal stratigraphy',
-  informal_stratigraphy: 'Informal stratigraphy',
-  quaternary_stratigraphy: 'Quaternary stratigraphy',
-  hydrogeological_stratigraphy: 'Hydrogeological stratigraphy',
-  informal_hydrogeological_stratigraphy: 'Informal hydrogeological stratigraphy',
-  drill_method: 'Drill method',
-  field_log: 'Field log',
-  samples_lab: 'Samples + lab tests',
+/**
+ * Translated display label shown in the Columns dropdown for each track id.
+ *
+ * The track id is a stored/matched token (observation_type or a fixed slug) and
+ * is never altered — only the rendered label is translated. The three fixed
+ * tracks reuse the same ``borelog.*`` keys the track headers use, so the
+ * dropdown and the header never disagree.
+ *
+ * @param t - Active-language translator.
+ * @param id - The track id whose label to render.
+ */
+export function trackLabel(t: Translator, id: ToggleableTrackId): string {
+  switch (id) {
+    case 'drill_method':
+      return t('borelog.drillMethod')
+    case 'field_log':
+      return t('borelog.fieldLog')
+    case 'samples_lab':
+      return t('borelog.samplesAndLabTests')
+    case 'coded_lithology':
+      return t('borelog.obs.coded_lithology')
+    case 'geotechnical_coding':
+      return t('borelog.obs.geotechnical_coding')
+    case 'lithological_description':
+      return t('borelog.obs.lithological_description')
+    case 'formal_stratigraphy':
+      return t('borelog.obs.formal_stratigraphy')
+    case 'informal_stratigraphy':
+      return t('borelog.obs.informal_stratigraphy')
+    case 'quaternary_stratigraphy':
+      return t('borelog.obs.quaternary_stratigraphy')
+    case 'hydrogeological_stratigraphy':
+      return t('borelog.obs.hydrogeological_stratigraphy')
+    case 'informal_hydrogeological_stratigraphy':
+      return t('borelog.obs.informal_hydrogeological_stratigraphy')
+  }
 }
 
 // ---------------------------------------------------------------------------
