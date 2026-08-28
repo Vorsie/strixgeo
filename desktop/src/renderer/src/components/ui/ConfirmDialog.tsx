@@ -19,6 +19,7 @@ import type { ReactNode } from 'react'
 
 import Button from './Button'
 import Modal from './Modal'
+import { useT } from '../../i18n/translate'
 
 /** One action button in a {@link ConfirmDialog} (besides Cancel). */
 export interface ConfirmDialogAction {
@@ -44,7 +45,7 @@ interface Props {
   confirm: ConfirmDialogAction
   /** Optional middle action (e.g. "Skip", "Discard"). */
   secondary?: ConfirmDialogAction
-  /** Cancel button label. Defaults to "Cancel". */
+  /** Cancel button label. Defaults to the translated ``common.cancel``. */
   cancelLabel?: ReactNode
   /** ``data-testid`` for the Cancel button. */
   cancelTestid?: string
@@ -74,7 +75,7 @@ export default function ConfirmDialog({
   body,
   confirm,
   secondary,
-  cancelLabel = 'Cancel',
+  cancelLabel,
   cancelTestid,
   onCancel,
   busy = false,
@@ -83,6 +84,7 @@ export default function ConfirmDialog({
   cardClassName,
   testid,
 }: Props): JSX.Element {
+  const t = useT()
   // Default focus on Cancel — an accidental Enter must NOT trigger the
   // destructive action (docs/ux.md "Reversible vs irreversible").
   const cancelRef = useRef<HTMLButtonElement>(null)
@@ -117,7 +119,7 @@ export default function ConfirmDialog({
             disabled={busy}
             data-testid={cancelTestid}
           >
-            {cancelLabel}
+            {cancelLabel ?? t('common.cancel')}
           </Button>
           {secondary && (
             <Button
