@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 
 import type { CrossSectionResponse } from '../api/client'
 import SectionPanel from './SectionPanel'
@@ -258,6 +258,39 @@ describe('SectionPanel — investigation columns', () => {
     await new Promise(r => setTimeout(r, 0))
     expect(screen.getByText('CPT-1')).toBeInTheDocument()
     expect(screen.getByText('BH-1')).toBeInTheDocument()
+    restore()
+  })
+
+  it('marks the ground between two report columns after Show me lands', async () => {
+    // “Show me” is about the gap, not either test. The landing must visibly
+    // mark its span, including when the actual screen distance is tiny.
+    const restore = withFixedSize(800, 400)
+    const columnRevealRef: React.MutableRefObject<
+      import('./sections/sectionColumnReveal').SectionColumnRevealFn | null
+    > = { current: null }
+    const cpt = makeCpt({ id: 'cpt-gap-left', location_x: 300, location_y: 0 })
+    const bh = makeBorehole({ id: 'bh-gap-right', location_x: 300.1, location_y: 0 })
+    render(
+      <SectionPanel
+        section={horizontal1km}
+        zEpsg={5710}
+        cpts={[cpt]}
+        boreholes={[bh]}
+        columnRevealRef={columnRevealRef}
+      />,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    act(() => {
+      columnRevealRef.current?.({
+        investigationIds: ['cpt-gap-left', 'bh-gap-right'],
+        flashGapInvestigationIds: ['cpt-gap-left', 'bh-gap-right'],
+      })
+    })
+
+    const marker = screen.getByTestId('gap-reveal-flash')
+    expect(Number(marker.getAttribute('width'))).toBeGreaterThanOrEqual(16)
+    expect(marker).toHaveClass('animate-pulse')
     restore()
   })
 
