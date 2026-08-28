@@ -7,13 +7,13 @@
  *   Tab 1 "Existing units" — lists every litho formation in the active model,
  *   grouped by parent geological formation.  Litho units whose parent is null
  *   appear in an "Unassigned" group at the bottom.  Each row shows the
- *   Dutch display name from ``formatLithoDisplayName`` + a lithology colour
+ *   Dutch display name from ``lithoDisplayName`` + a lithology colour
  *   swatch.  Clicking a row calls ``onSelect`` and closes the modal.
  *
  *   Tab 2 "New unit" — composition builder: a main-soil segmented control
  *   (GRIND / ZAND / SILT / KLEI / VEEN) + a growable admixture row list
  *   (soil-code dropdown, amount dropdown, "locally" checkbox, remove button) +
- *   a live ``formatLithoDisplayName`` preview that updates as the user builds.
+ *   a live ``lithoDisplayName`` preview that updates as the user builds.
  *   Confirm calls ``onCreateLithoUnit`` (which creates the formation +
  *   contact and seeds the section server-side) then closes — it does NOT
  *   chain ``onSelect`` (that would re-create the contact; review B1).
@@ -35,8 +35,8 @@ import { Plus, X } from 'lucide-react'
 
 import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
 import { log } from '../../utils/log'
-import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR, LITHOLOGY_LABELS } from '../../utils/lithoConstants'
-import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR } from '../../utils/lithoConstants'
+import { lithoBaseLabel, lithoDisplayName } from '../../utils/lithoLabels'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
 
@@ -240,7 +240,7 @@ export default function LithoCompositionPickerDialog({
   const rowIdRef = useRef(0)
 
   // Live preview from the current Tab 2 composition.
-  const previewLabel = formatLithoDisplayName(
+  const previewLabel = lithoDisplayName(
     mainCode,
     admixRows.map(r => ({ soil_code: r.soil_code, amount: r.amount, locally: r.locally })),
   )
@@ -415,7 +415,7 @@ export default function LithoCompositionPickerDialog({
                           f.litho_main_soil_code
                             ? (LITHOLOGY_COLORS[f.litho_main_soil_code] ?? LITHOLOGY_FALLBACK_COLOR)
                             : LITHOLOGY_FALLBACK_COLOR
-                        const displayName = formatLithoDisplayName(
+                        const displayName = lithoDisplayName(
                           f.litho_main_soil_code ?? '',
                           f.litho_admixtures,
                         )
@@ -484,7 +484,7 @@ export default function LithoCompositionPickerDialog({
                         className="inline-block w-3 h-3 rounded-sm shrink-0"
                         style={{ backgroundColor: color }}
                       />
-                      {LITHOLOGY_LABELS[code] ?? code}
+                      {lithoBaseLabel(code)}
                     </button>
                   )
                 })}
