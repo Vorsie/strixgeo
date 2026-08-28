@@ -47,7 +47,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { launchApp, closeApp } from './helpers/electron_launch'
+import { launchApp } from './helpers/electron_launch'
 import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
 import {
   CESIUM_SETTLE_MS,
@@ -56,8 +56,8 @@ import {
   pinWindowBounds,
   reseedFixture,
   resolveFenceTargetUnit,
-  timedTeardownStep,
 } from './helpers/visual_golden'
+import { closeAppOrKill } from './helpers/golden_teardown'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 
@@ -187,9 +187,9 @@ test.describe('flow_unit_statistics', () => {
         maxDiffPixelRatio: WEBGL_MAX_DIFF_PIXEL_RATIO,
       })
     } finally {
-      // Bounded + timed: an unbounded teardown burns the whole test budget and
-      // reports as a timeout at the last body line (see timedTeardownStep).
-      await timedTeardownStep('closeApp', 90_000, () => closeApp(app))
+      // Bounded: an unbounded teardown burns the whole test budget and reports
+      // as a timeout at the last body line (see golden_teardown).
+      await closeAppOrKill(app)
       cleanupFixtureFile(tmpPath)
     }
   })
