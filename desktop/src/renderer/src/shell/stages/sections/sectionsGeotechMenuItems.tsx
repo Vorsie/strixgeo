@@ -28,13 +28,13 @@ import { sampleDisplayMenuItems } from './sampleDisplayMenuItems'
 import { GEOTECH_STATISTICS, type GeotechStatistic } from '../../../utils/geotechStatistic'
 import { dividePendingTag, dividePendingTitle } from '../../../utils/geotechPendingScope'
 import { sectionsDividePartitionCallback } from '../../../hooks/useProjectBodyRecompute'
-import { NO_BANDS_HERE_TITLE } from './sectionsToolbar_constants'
 import type { GeologicalModelResponse } from '../../../api/client'
 import type { UseGeologicalModelResult } from '../../../hooks/useGeologicalModel'
 import type { UseSectionsResult } from '../../../hooks/useSections'
 import type { summarisePendingTies } from '../../../utils/geotechPendingScope'
 import type { unionStaleGeotechColumns } from '../../../utils/staleGeotechColumns'
 import type { useGeotechTieStatus } from './useGeotechTieStatus'
+import type { Translator } from '../../../i18n/translate'
 
 /** The pending-tie scope summary (model total / this section / dirty sections). */
 type PendingScope = ReturnType<typeof summarisePendingTies>
@@ -49,6 +49,9 @@ type StaleGeotechColumns = ReturnType<typeof unionStaleGeotechColumns>
  * builder uses only the subset it needs.
  */
 export interface GeotechToolbarItemsDeps {
+  /** Active-language translator, threaded from the toolbar so a language flip
+   *  re-renders every verb in one pass. */
+  t: Translator
   isGeotech: boolean
   activeLithoModel: GeologicalModelResponse | null
   activeGeotechModel: GeologicalModelResponse | null
@@ -89,7 +92,7 @@ export interface GeotechToolbarItemsDeps {
 export function buildGeotechStatisticMenuItems(
   deps: GeotechToolbarItemsDeps,
 ): ToolbarDropdownItem[] {
-  const { isGeotech, geotechStatistic, handleSetGeotechStatistic } = deps
+  const { t, isGeotech, geotechStatistic, handleSetGeotechStatistic } = deps
   // Built only on the geotech axis: these initialisers read
   // axis-scoped state the other axes never populate.
   return !isGeotech ? [] : [
@@ -97,7 +100,7 @@ export function buildGeotechStatisticMenuItems(
                 // Stated inside the menu as well as in the tooltip. A tooltip is not
                 // read before a click, and the one thing that surprises here is that
                 // picking a statistic changes NOTHING on screen by itself.
-                label: 'Applies to the next Subdivide — nothing re-runs now',
+                label: t('sections.toolbar.applyNextSubdivide'),
                 disabled: true,
                 testid: 'geotech-statistic-note',
                 onClick: () => {},
@@ -106,15 +109,16 @@ export function buildGeotechStatisticMenuItems(
               // "i can't choose harmonic qc before first subdivide, that's
               // friction we don't need?"). Before step 1 there is no row to
               // write to, so the pick is held in the renderer and handed to
-              // the press that creates the model.
+              // the press that creates the model. The statistic TOKEN itself
+              // (median / harmonic / …) is a technical term shown verbatim.
               ...GEOTECH_STATISTICS.map(token => ({
                 label: token,
-                tag: token === geotechStatistic ? 'current' : undefined,
+                tag: token === geotechStatistic ? t('sections.geotech.currentTag') : undefined,
                 title:
                   token === 'harmonic'
-                    ? 'Conservative: weighted toward the low qc values that govern bearing and settlement.'
+                    ? t('sections.geotech.harmonicHint')
                     : token === 'median'
-                      ? 'The spike-robust default.'
+                      ? t('sections.geotech.medianHint')
                       : undefined,
                 testid: `geotech-statistic-${token}`,
                 onClick: () => handleSetGeotechStatistic(token),
@@ -127,6 +131,7 @@ export function buildGeotechPipelineMenuItems(
   deps: GeotechToolbarItemsDeps,
 ): ToolbarDropdownItem[] {
   const {
+    t,
     isGeotech,
     subdividingBodies,
     geotechBandsStale,
@@ -155,7 +160,7 @@ export function buildGeotechPipelineMenuItems(
                 // all-sections twin (2026-08-15, "it's ugly and confusing"),
                 // the verb has one meaning and a qualifier on a verb with one
                 // meaning only invites the question of what the other one is.
-                label: subdividingBodies ? 'Subdividing…' : '1 · Subdivide CPTs',
+                label: subdividingBodies ? t('sections.busy.subdividing') : t('sections.geotech.step1'),
                 icon: <SplitSquareVertical size={13} />,
                 // Ruling 8: a statistic change never silently re-derives - this
                 // tag is where the debt surfaces until the re-subdivide runs.
@@ -164,23 +169,28 @@ export function buildGeotechPipelineMenuItems(
                 // subsumes the parentage staleness. Only when the statistic is
                 // settled does the column count get the tag to itself.
                 tag: geotechBandsStale
-                  ? `re-run under ${geotechStatistic}`
+                  ? t('sections.geotech.reRunUnder', { stat: geotechStatistic })
                   : columnsNeedingRederive.length > 0
-                    ? `${columnsNeedingRederive.length} ${
-                        columnsNeedingRederive.length === 1 ? 'column needs' : 'columns need'
-                      } re-deriving`
+                    ? t('sections.geotech.columnsNeedRederive', {
+                        n: columnsNeedingRederive.length,
+                        phrase: t(
+                          columnsNeedingRederive.length === 1
+                            ? 'sections.geotech.columnNeeds'
+                            : 'sections.geotech.columnsNeed',
+                        ),
+                      })
                     : undefined,
                 disabled: subdividingBodies || !activeLithoModel || selectedSectionId === null,
                 title: !activeLithoModel
-                  ? 'Create a lithostratigraphic model in the Lithology stage first'
+                  ? t('sections.axis.createLithoFirst')
                   : selectedSectionId === null
-                    ? 'Open a cross-section first — this step subdivides the CPTs on the section you have open'
-                    : 'Step 1 of 4 — derive NAD packing classes (1–31) on THIS section’s CPTs, leaving every other section’s bands, ties and bodies untouched. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run. A CPT that is on no cross-section is never subdivided.',
+                    ? t('sections.geotech.step1OpenSection')
+                    : t('sections.geotech.step1Title'),
                 testid: 'geotech-subdivide-cpts',
                 onClick: () => pressSubdivide(selectedSectionId),
               },
               {
-                label: autoCorrelatingGeotech ? 'Correlating…' : '2 · Auto-correlate',
+                label: autoCorrelatingGeotech ? t('sections.busy.correlating') : t('sections.geotech.step2'),
                 icon: <Zap size={13} />,
                 disabled:
                   !sectionHasPackingBands ||
@@ -188,17 +198,17 @@ export function buildGeotechPipelineMenuItems(
                   selectedSectionId === null,
                 title:
                   selectedSectionId === null
-                    ? 'Open a cross-section first — this step proposes ties on the section you have open'
+                    ? t('sections.geotech.step2OpenSection')
                     : !sectionHasPackingBands
-                      ? NO_BANDS_HERE_TITLE
-                      : 'Step 2 of 4 — derive the same-class packing ties inside each correlated litho unit ON THIS SECTION, jumping across borehole columns that carry no packing yet. Ties that restate a litho correlation you already approved arrive ACCEPTED; the rest arrive as proposals. Hand-drawn correlations are never touched.',
+                      ? t('sections.geotech.noBandsHere')
+                      : t('sections.geotech.step2Title'),
                 testid: 'geotech-auto-correlate',
                 onClick: () => {
                   void runAutoCorrelateGeotech(selectedSectionId)
                 },
               },
               {
-                label: acceptingGeotechCorrelations ? 'Accepting…' : '3 · Accept ties',
+                label: acceptingGeotechCorrelations ? t('sections.busy.accepting') : t('sections.geotech.step3'),
                 icon: <CheckCheck size={13} />,
                 disabled:
                   !sectionHasPackingBands ||
@@ -206,16 +216,16 @@ export function buildGeotechPipelineMenuItems(
                   selectedSectionId === null,
                 tag:
                   pendingScope.sectionPending !== null && pendingScope.sectionPending > 0
-                    ? `${pendingScope.sectionPending} pending here`
+                    ? t('sections.geotech.pendingHere', { n: pendingScope.sectionPending })
                     : undefined,
                 // The review WORKFLOW, not just the verb (owner dogfeed
                 // 2026-08-05): reject first, bulk-accept second, hand-tie last.
                 title:
                   selectedSectionId === null
-                    ? 'Open a cross-section first — this step accepts the ties on the section you have open'
+                    ? t('sections.geotech.step3OpenSection')
                     : !sectionHasPackingBands
-                      ? NO_BANDS_HERE_TITLE
-                      : 'Step 3 of 4 — review, then approve, on the section in front of you. First DELETE the faulty proposals (right-click a tie → Delete) and accept the ones you want to check off singly (right-click → Accept tie). Then press this to accept every remaining proposal ON THIS SECTION. Afterwards, hand-connect anything auto-correlate missed with “Correlate packing”.',
+                      ? t('sections.geotech.noBandsHere')
+                      : t('sections.geotech.step3Title'),
                 testid: 'geotech-accept-correlations',
                 onClick: () => {
                   void runAcceptGeotechCorrelations(selectedSectionId)
@@ -225,7 +235,7 @@ export function buildGeotechPipelineMenuItems(
                 // No "(whole model)" qualifier any more (owner 2026-08-15:
                 // "i'm reading divide boreholes (whole model), no that should
                 // also be section scoped") — it is the odd one out no longer.
-                label: dividingBoreholes ? 'Dividing…' : '4 · Divide boreholes',
+                label: dividingBoreholes ? t('sections.busy.dividing') : t('sections.geotech.step4'),
                 icon: <Layers size={13} />,
                 disabled:
                   dividingBoreholes ||
@@ -235,22 +245,24 @@ export function buildGeotechPipelineMenuItems(
                 // Visible tag instead of a hover title: a disabled menu item
                 // fires no mouse events, so the gate must SHOW its reason. The
                 // tag counts THIS section's proposals, because those are the
-                // only ones this press could throw away.
+                // only ones this press could throw away. NOTE: dividePendingTag /
+                // dividePendingTitle come from utils/geotechPendingScope and are
+                // still English (util-layer follow-up — not wired this slice).
                 tag: tiesBlockDivide
                   ? dividePendingTag(pendingScope)
                   : boreholesStale
-                    ? 'stale — re-divide'
+                    ? t('sections.geotech.staleReDivide')
                     : undefined,
                 title:
                   selectedSectionId === null
-                    ? 'Open a cross-section first — this step divides the boreholes on the section you have open'
+                    ? t('sections.geotech.step4OpenSection')
                     : !sectionHasPackingBands
-                      ? NO_BANDS_HERE_TITLE
+                      ? t('sections.geotech.noBandsHere')
                       : tiesBlockDivide
                         ? dividePendingTitle(pendingScope)
                         : boreholesStale
-                          ? 'Bodies or correlations changed — re-divide the boreholes to match'
-                          : 'Step 4 of 4 — TIN-divide THIS section’s borehole columns into packing bands, using the CPT transition surfaces and the ties you accepted, and leave every other section as it is. Right-click one borehole’s ghost bands to divide just that column.',
+                          ? t('sections.geotech.staleReDivideTitle')
+                          : t('sections.geotech.step4Title'),
                 testid: 'geotech-divide-boreholes',
                 onClick: () => {
                   if (
@@ -294,6 +306,7 @@ export function buildGeotechDisplayMenuItems(
   deps: GeotechToolbarItemsDeps,
 ): ToolbarDropdownItem[] {
   const {
+    t,
     isGeotech,
     geotechFillVisible,
     geotechModelFillVisible,
@@ -314,11 +327,10 @@ export function buildGeotechDisplayMenuItems(
   // helped itself to his axis.
   return !isGeotech ? [] : [
               {
-                label: geotechFillVisible ? 'Hide fill' : 'Show fill',
+                label: geotechFillVisible ? t('sections.geotech.hideFill') : t('sections.geotech.showFill'),
                 icon: geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
                 onClick: () => toggleGeotechFill(),
-                title:
-                  'Show or hide the NAD packing-band fill — the LIVE packing classes, as the pipeline last wrote them. One fill renders at a time.',
+                title: t('sections.toolbar.packingFillHint'),
                 testid: 'geotech-toggle-fill',
               },
               {
@@ -328,41 +340,44 @@ export function buildGeotechDisplayMenuItems(
                 // owner's ask 2026-08-26: "can we show the actual 3D model on
                 // the 2d sections just like in litho stage". Appears once the
                 // geotech 3-D model has been built (Geotechnical stage → Build).
-                label: geotechModelFillVisible ? 'Hide model fill' : 'Show model fill',
+                label: geotechModelFillVisible
+                  ? t('sections.litho.hideModelFill')
+                  : t('sections.litho.showModelFill'),
                 icon: geotechModelFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
                 onClick: () => toggleGeotechModelFill(),
-                title:
-                  'Show or hide the fill cut out of the BUILT 3-D geotechnical solids — the model as of the last Build, not the live bands. One fill renders at a time.',
+                title: t('sections.toolbar.geotechSolidFillHint'),
                 testid: 'geotech-toggle-model-fill',
               },
               {
-                label: lithoFillOnGeotech ? 'Hide litho fill' : 'Show litho fill',
+                label: lithoFillOnGeotech ? t('sections.geotech.hideLithoFill') : t('sections.geotech.showLithoFill'),
                 icon: lithoFillOnGeotech ? <EyeOff size={13} /> : <Eye size={13} />,
                 onClick: () => toggleLithoFillOnGeotech(),
-                title:
-                  'Swap the lithostratigraphic fill in for the NAD packing fill — one fill renders at a time, never both.',
+                title: t('sections.toolbar.swapFillHint'),
                 testid: 'geotech-toggle-litho-fill',
               },
               {
                 // Owner ruling 2026-08-07: the divide-boreholes preview is
                 // OPT-IN — auto-appearing ghosts kept reading as "my boreholes
                 // got subdivided" at whatever verb last drained the tie count.
-                label: boreholePreviewOn ? 'Hide borehole preview' : 'Show borehole preview',
+                label: boreholePreviewOn
+                  ? t('sections.geotech.hideBoreholePreview')
+                  : t('sections.geotech.showBoreholePreview'),
                 icon: boreholePreviewOn ? <EyeOff size={13} /> : <Eye size={13} />,
                 onClick: () => toggleBoreholePreviewOn(),
-                title:
-                  'Preview the packing bands "4 · Divide boreholes" would commit, hatched over the borehole columns. Nothing is written.',
+                title: t('sections.toolbar.previewDivideHint'),
                 testid: 'geotech-toggle-borehole-preview',
               },
               {
-                label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
+                label: correlationsVisible
+                  ? t('sections.litho.hideCorrelations')
+                  : t('sections.litho.showCorrelations'),
                 icon: <Network size={13} />,
                 onClick: () => toggleCorrelationOverlay(),
-                title:
-                  'Show or hide the correlation ribbons drawn across the section (2-D visualisation only).',
+                title: t('sections.geotech.correlationsHint'),
                 testid: 'geotech-toggle-correlations',
               },
               ...sampleDisplayMenuItems({
+                t,
                 sampleMarkersOn,
                 psdPreviewOn,
                 testidPrefix: 'geotech',
