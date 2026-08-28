@@ -41,6 +41,7 @@ from groundmodel.infrastructure.dem.dem_provider import DemProvider, DemZGrid
 from groundmodel.infrastructure.dem.dem_tile_cache import DemTileCache
 from groundmodel.infrastructure.dem.dem_wcs_constants import (
     WCS_BBOX_PADDING_M,
+    WCS_MAX_DECODE_PIXELS,
     WCS_MAX_EXTENT_SPAN_M,
     WCS_TIMEOUT_SECONDS,
     WCS_VERSION,
@@ -540,6 +541,26 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
         """
         img = Image.open(BytesIO(tiff_bytes))
         n_cols, n_rows = img.size  # Pillow: (width, height)
+
+        # The declared dimensions are attacker-controllable (they come from the
+        # untrusted WCS response header). Cap the pixel count BEFORE the decode
+        # loop allocates one Python object per pixel — a hostile server can claim
+        # a billion-pixel image in a tiny payload and otherwise hang + OOM the
+        # backend here. DEM is a fallback, so an over-cap tile is refused (the
+        # routers turn DemExtentRefusedError into a clean 422 → "no DEM here"),
+        # never crashed through.
+        declared_pixels = n_cols * n_rows
+        if declared_pixels > WCS_MAX_DECODE_PIXELS:
+            self.warning(
+                f"{self.LOG_LABEL} decode refused: response declares "
+                f"{n_cols}×{n_rows} = {declared_pixels} px, over the "
+                f"{WCS_MAX_DECODE_PIXELS} px cap — not decoded"
+            )
+            raise DemExtentRefusedError(
+                f"DEM response declares {n_cols}×{n_rows} = {declared_pixels} pixels, "
+                f"beyond the {WCS_MAX_DECODE_PIXELS} px decode cap for one tile.",
+                extent=(bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y),
+            )
 
         if n_cols == 0 or n_rows == 0:
             return DemZGrid(
