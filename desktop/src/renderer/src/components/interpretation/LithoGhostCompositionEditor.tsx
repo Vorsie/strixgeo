@@ -27,9 +27,9 @@ import {
   ADMIXTURE_AMOUNT_OPTIONS,
   ADMIXTURE_SOIL_OPTIONS,
   admixtureSoilLabel,
-  formatLithoDisplayName,
+  lithoBaseLabel,
+  lithoDisplayName,
 } from '../../utils/lithoLabels'
-import { LITHOLOGY_LABELS } from '../../utils/lithoConstants'
 
 // Vocabulary mirrors LithoCompositionPickerDialog. Base-lithology labels
 // share a single source of truth (utils/lithoConstants.LITHOLOGY_LABELS)
@@ -165,7 +165,7 @@ export default function LithoGhostCompositionEditor({
   // dialog so the user sees identical naming everywhere.
   const previewLabel = useMemo(
     () =>
-      formatLithoDisplayName(
+      lithoDisplayName(
         mainCode,
         rows.map(r => ({ soil_code: r.soil_code, amount: r.amount, locally: r.locally })),
       ),
@@ -222,12 +222,11 @@ export default function LithoGhostCompositionEditor({
           >
             {MAIN_SOIL_CODES.map(code => (
               <option key={code} value={code}>
-                {/* English label only — the raw Dutch token in parens
-                    ("Sand (ZAND)") leaked the Dutch into an otherwise-
-                    English UI per dogfeed 2026-05-23. The picker dialog
-                    uses the same "English-only for main soil" rule;
-                    matched here so the two surfaces stay consistent. */}
-                {LITHOLOGY_LABELS[code] ?? code}
+                {/* The base soil name in the active UI language (never the raw
+                    Dutch token in parens — "Sand (ZAND)" leaked Dutch into an
+                    English UI, dogfeed 2026-05-23). The picker dialog uses the
+                    same rule; matched here so the two surfaces stay consistent. */}
+                {lithoBaseLabel(code)}
               </option>
             ))}
           </select>
