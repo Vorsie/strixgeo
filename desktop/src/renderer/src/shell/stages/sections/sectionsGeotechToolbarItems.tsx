@@ -46,6 +46,7 @@ export type { GeotechToolbarItemsDeps } from './sectionsGeotechMenuItems'
  */
 export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): ToolbarItemSpec[] {
   const {
+    t,
     isGeotech,
     geotechStatistic,
     subdividingBodies,
@@ -67,14 +68,14 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
   const geotechDisplayMenuItems = buildGeotechDisplayMenuItems(deps)
 
   const geotechPipelineLabel = subdividingBodies
-    ? 'Subdividing…'
+    ? t('sections.busy.subdividing')
     : autoCorrelatingGeotech
-      ? 'Correlating…'
+      ? t('sections.busy.correlating')
       : acceptingGeotechCorrelations
-        ? 'Accepting…'
+        ? t('sections.busy.accepting')
         : dividingBoreholes
-          ? 'Dividing…'
-          : 'Packing pipeline'
+          ? t('sections.busy.dividing')
+          : t('sections.geotech.pipeline')
 
   const geotechItems: ToolbarItemSpec[] = !isGeotech
     ? []
@@ -105,14 +106,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
             <ToolbarDropdown
               icon={<FlaskConical size={13} />}
               label={`qc: ${geotechStatistic}`}
-              title={
-                'Which representative qc the NAD classifier reads, chosen BEFORE you ' +
-                'subdivide: median (spike-robust default), arithmetic, harmonic ' +
-                '(conservative — weighted toward the low values that govern bearing and ' +
-                'settlement) or geometric. Nothing re-classifies when you change it: the ' +
-                'choice applies to the NEXT "1 · Subdivide CPTs", and bands already on ' +
-                'screen keep the statistic they were built with until you re-run it.'
-              }
+              title={t('sections.geotech.statisticMenuTitle')}
               testid="geotech-statistic-menu"
               items={geotechStatisticMenuItems}
             />
@@ -139,14 +133,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
               iconOnly={p === 'icon'}
               icon={<SplitSquareVertical size={13} />}
               label={geotechPipelineLabel}
-              title={
-                'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, ' +
-                '3 review and accept them, 4 divide the boreholes. All four act on ' +
-                'the section you have open and leave every other section as it is, ' +
-                'so you can finish one cross-section while the next still has ' +
-                'proposals waiting. Step 4 stays locked until this section’s ties ' +
-                'are all accepted or deleted.'
-              }
+              title={t('sections.toolbar.packingFlowHint')}
               testid="geotech-pipeline"
               items={geotechPipelineMenuItems}
             />
@@ -248,14 +235,14 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           id: 'geotech-correlate-packing',
           priority: 'high',
           kind: 'button',
-          label: correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing',
+          label: correlateMode ? t('sections.litho.correlateActive') : t('sections.geotech.correlatePacking'),
           iconOnly: false,
           overflowItems: [
             {
               icon: <GitMerge size={12} />,
               label: correlateMode
-                ? 'Exit packing-correlate mode'
-                : 'Correlate packing by hand',
+                ? t('sections.geotech.exitPackingCorrelate')
+                : t('sections.geotech.correlatePackingByHand'),
               onClick: () => (correlateMode ? exitCorrelateMode() : enterCorrelateMode()),
               disabled: activeGeotechModel === null && !correlateMode,
             },
@@ -263,17 +250,17 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           render: () => (
             <ToolbarButton
               icon={<GitMerge size={13} />}
-              label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate packing'}
+              label={correlateMode ? t('sections.litho.correlateActive') : t('sections.geotech.correlatePacking')}
               onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
               // Keep clickable while correlateMode is on so the user can exit even
               // when no packing contacts exist on the section (mirrors litho CT8).
               disabled={activeGeotechModel === null && !correlateMode}
               title={
                 activeGeotechModel === null
-                  ? 'Run “1 · Subdivide CPTs” first to create packing bands'
+                  ? t('sections.geotech.correlatePackingNoModel')
                   : correlateMode
-                    ? 'Exit packing-correlate mode (Esc)'
-                    : 'Connect same-class packing bands across investigations within the same litho body — the hand correlation the pipeline’s step 2 automates'
+                    ? t('sections.geotech.exitPackingCorrelateEsc')
+                    : t('sections.geotech.correlatePackingTitle')
               }
               amber={correlateMode}
               testid="geotech-correlate-packing"
@@ -291,14 +278,14 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           id: 'geotech-display-menu',
           priority: 'medium',
           kind: 'dropdown',
-          label: 'Display',
+          label: t('sections.toolbar.display'),
           overflowItems: geotechDisplayMenuItems,
           render: p => (
             <ToolbarDropdown
               iconOnly={p === 'icon'}
               icon={<Eye size={13} />}
-              label="Display"
-              title="Show or hide layers of the section view"
+              label={t('sections.toolbar.display')}
+              title={t('sections.toolbar.showLayers')}
               testid="geotech-display-menu"
               items={geotechDisplayMenuItems}
             />
