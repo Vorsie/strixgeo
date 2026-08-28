@@ -7,7 +7,7 @@
 // compositions so the engineer sees what they're replacing.
 
 import type { LithoLayerSuggestion } from '../../api/client'
-import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { lithoDisplayName } from '../../utils/lithoLabels'
 import ConfirmDialog from '../ui/ConfirmDialog'
 
 interface Props {
@@ -31,7 +31,7 @@ export default function CopyCompositionConfirmDialog({
 }: Props): JSX.Element {
   const sourceLabel =
     sourceLayer !== null
-      ? formatLithoDisplayName(
+      ? lithoDisplayName(
           sourceLayer.suggested_lithology,
           sourceLayer.suggested_admixtures ?? [],
         )
