@@ -25,6 +25,7 @@
 
 import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
+import { useT } from '../../../i18n/translate'
 
 import type {
   GeotechLegendBodyNode,
@@ -83,12 +84,15 @@ function Caret({
   label: string
   onToggle: () => void
 }): JSX.Element {
+  const t = useT()
   return (
     <button
       type="button"
       data-testid={testId}
       aria-expanded={expanded}
-      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+      aria-label={
+        expanded ? t('geology.collapseNamed', { label }) : t('geology.expandNamed', { label })
+      }
       onClick={onToggle}
       className="shrink-0 p-0.5 -m-0.5 text-text-muted hover:text-text-primary transition-colors"
     >
@@ -139,6 +143,7 @@ export function GeotechLayersTree({
   onToggleFormations,
   onToggleBody,
 }: GeotechLayersTreeProps): JSX.Element {
+  const t = useT()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set<string>())
 
   function toggleExpanded(key: string): void {
@@ -162,7 +167,11 @@ export function GeotechLayersTree({
           type="button"
           data-testid={`geotech-legend-body-${body.bodyId}`}
           onClick={() => onToggleBody(body.bodyId, !hidden)}
-          title={hidden ? `Show body ${body.label} in 3D` : `Hide body ${body.label} in 3D`}
+          title={
+            hidden
+              ? t('geology.showBodyIn3d', { label: body.label })
+              : t('geology.hideBodyIn3d', { label: body.label })
+          }
           className={`w-full flex items-center gap-2 pl-10 pr-2 py-0.5 text-left hover:bg-surface-page transition-colors ${hidden ? 'opacity-50' : ''}`}
         >
           <Swatch color={body.color} hidden={hidden} />
@@ -175,7 +184,7 @@ export function GeotechLayersTree({
             <AlertTriangle
               size={10}
               className="text-amber-500 shrink-0 ml-auto"
-              aria-label="Under-constrained body"
+              aria-label={t('geology.underConstrainedBody')}
             />
           )}
         </button>
@@ -203,7 +212,11 @@ export function GeotechLayersTree({
             type="button"
             data-testid={`geotech-legend-class-${cls.key}`}
             onClick={() => onToggleFormations(cls.formationIds, !hidden)}
-            title={hidden ? `Show ${cls.label} in 3D` : `Hide ${cls.label} in 3D`}
+            title={
+              hidden
+                ? t('geology.showNamedIn3d', { label: cls.label })
+                : t('geology.hideNamedIn3d', { label: cls.label })
+            }
             className={`flex-1 min-w-0 flex items-center gap-2 pl-1.5 text-left ${hidden ? 'opacity-50' : ''}`}
           >
             <Swatch color={cls.color} hidden={hidden} />
@@ -240,7 +253,11 @@ export function GeotechLayersTree({
                 type="button"
                 data-testid={`geotech-legend-family-${family.key}`}
                 onClick={() => onToggleFormations(family.formationIds, !hidden)}
-                title={hidden ? `Show ${family.label} in 3D` : `Hide ${family.label} in 3D`}
+                title={
+                  hidden
+                    ? t('geology.showNamedIn3d', { label: family.label })
+                    : t('geology.hideNamedIn3d', { label: family.label })
+                }
                 className={`flex-1 min-w-0 flex items-center gap-2 pl-1.5 text-left ${hidden ? 'opacity-50' : ''}`}
               >
                 <Swatch color={family.color} hidden={hidden} />
