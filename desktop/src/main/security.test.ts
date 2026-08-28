@@ -12,6 +12,7 @@ import {
   isInAppNavigation,
   isValidRecentProjectEntry,
   normalizePathForCompare,
+  rawBackendLogAffordanceEnabled,
 } from './security'
 
 describe('buildContentSecurityPolicy', () => {
@@ -262,5 +263,22 @@ describe('isInAppNavigation', () => {
 
   it('rejects javascript: navigation', () => {
     expect(isInAppNavigation('javascript:alert(1)', null, RENDERER_DIR)).toBe(false)
+  })
+})
+
+describe('rawBackendLogAffordanceEnabled (user-data leak — the raw backend.log is not redacted)', () => {
+  it('a packaged build never hands the user the raw, unredacted backend.log', () => {
+    // ``backend.log`` carries the asyncpg DSN (password) and raw project
+    // paths — the very things the diagnostics bundle is built to strip. A
+    // shipped build must route the user to the redacted "Save diagnostics
+    // bundle…" instead of opening the raw log directory.
+    expect(rawBackendLogAffordanceEnabled(true)).toBe(false)
+  })
+
+  it('a development build keeps the raw-log shortcut for the developer', () => {
+    // Same reasoning as the dev-only Reload / DevTools gating: dev runs on
+    // the developer's own machine, so the raw log is a convenience, not a
+    // third-party leak.
+    expect(rawBackendLogAffordanceEnabled(false)).toBe(true)
   })
 })
