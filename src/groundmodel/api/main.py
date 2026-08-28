@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import asyncio
+import multiprocessing
 from collections.abc import AsyncIterator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
@@ -160,9 +161,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # function reference is resolvable when the child processes start.
     import groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker  # noqa: F401
 
-    pool = ProcessPoolExecutor(max_workers=4)
+    # Explicit spawn context: on Linux the default is fork, and forking a
+    # threaded parent (uvicorn runs worker threads; polars/numba hold module
+    # locks) can hand the child a mutex locked by a thread that does not
+    # exist post-fork — the child deadlocks and pool.shutdown() joins
+    # forever. Observed on the first Linux CI run (faulthandler dump, run
+    # 33115778146). Windows only has spawn, so behaviour there is unchanged.
+    pool = ProcessPoolExecutor(max_workers=4, mp_context=multiprocessing.get_context("spawn"))
     _app.state.parse_pool = pool
-    logger.info("DOV parse pool started (max_workers=4)")
+    logger.info("DOV parse pool started (max_workers=4, spawn)")
 
     await _probe_database()
     await _sweep_stale_bodies()
