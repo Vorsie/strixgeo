@@ -478,6 +478,35 @@ export const SECTIONS_NL = {
   'sections.geotech.correlationsHint':
     'Toon of verberg de correlatielinten over het profiel (enkel 2D-visualisatie).',
 
+  // openstaande-koppelingen-chip + tooltip (utils/geotechPendingScope)
+  'sections.geotech.pendingModel': '{n} openstaand',
+  'sections.geotech.tiesOne': '{n} pakkingskoppeling',
+  'sections.geotech.tiesMany': '{n} pakkingskoppelingen',
+  'sections.geotech.sectionsOne': '{n} profiel',
+  'sections.geotech.sectionsMany': '{n} profielen',
+  'sections.geotech.pendingTitleModel':
+    '{ties} voorgesteld en nog niet aanvaard ({accepted} aanvaard).',
+  'sections.geotech.pendingTitleSection':
+    '{sectionPending} van {ties} voorgesteld op dit profiel ({accepted} aanvaard modelbreed).{rest}',
+  'sections.geotech.pendingElsewhere':
+    ' De andere {elsewhere} liggen op {sections}, die “4 · Boringen verdelen” ook leeg moet hebben.',
+  'sections.geotech.pendingNowhereElse': ' Er staat nergens anders in het model iets open.',
+  'sections.geotech.divideTagModel': 'aanvaard er eerst {n}',
+  'sections.geotech.divideTagSection': 'aanvaard er {n} op dit profiel',
+  'sections.geotech.divideTitleModel':
+    '{ties} nog voorgesteld — aanvaard of verwijder ze eerst',
+  'sections.geotech.divideTitleSection':
+    '{ties} nog voorgesteld op dit profiel. Bij het verdelen van de boringen leest het de koppelingen die je aanvaard hebt om te bepalen waar de pakking van elke boring vandaan komt — aanvaard of verwijder deze eerst. Niets op een ander profiel wordt aangeraakt.',
+
+  // verouderde-litho-kolomchip + tooltip (utils/staleGeotechColumns)
+  'sections.geotech.staleChipLabel': '{n} op bewerkte litho',
+  'sections.geotech.staleTitleNone': 'Elke pakkingskolom komt overeen met de lithologie eronder.',
+  'sections.geotech.staleAndMore': '{named} en {rest} andere',
+  'sections.geotech.staleTitleOne':
+    'De lithologie van deze kolom is veranderd nadat de pakkingsbanden gemaakt zijn: {list}. De banden beschrijven nog de oude opeenvolging — voer de onderverdeling op deze kolom opnieuw uit ("1 · Sonderingen onderverdelen" voor proeven, "4 · Boringen verdelen" voor boringen) voor je exporteert.',
+  'sections.geotech.staleTitleMany':
+    'De lithologie van deze kolommen is veranderd nadat de pakkingsbanden gemaakt zijn: {list}. De banden beschrijven nog de oude opeenvolging — voer de onderverdeling op deze kolommen opnieuw uit ("1 · Sonderingen onderverdelen" voor proeven, "4 · Boringen verdelen" voor boringen) voor je exporteert.',
+
   // ---------------------------------------------------------------------------
   // profielkop
   // ---------------------------------------------------------------------------
