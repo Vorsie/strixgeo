@@ -42,6 +42,12 @@ export interface IdentificationPoint {
   value: number
   /** Sample midpoint elevation, mTAW (collar − midpoint depth). */
   elevationM: number
+  /**
+   * The SAMPLE this value was measured on — the colour key shared with the
+   * sample's PSD curve (owner 2026-08-28), so a dot and its grain-size curve
+   * wear the same colour.
+   */
+  sampleId: string
   /** The hole the sample came from — for the point tooltip. */
   boreholeName: string
   /** Sample number when the lab recorded one. */
@@ -242,6 +248,7 @@ export function poolIdentificationPanels(
       const elevationM = bh.elevation_m - midM
       const base: Omit<IdentificationPoint, 'value'> = {
         elevationM,
+        sampleId: sample.id,
         boreholeName: bh.name,
         sampleNumber: sample.sample_number,
       }
