@@ -34,6 +34,7 @@ from groundmodel.infrastructure.exporters.dxf_fence_exporter import (
     _sanitise_layer_name,
     interior_triangle_edges,
 )
+from groundmodel.infrastructure.exporters.dxf_layer_style import THIN_LAYER_LINEWEIGHT
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -263,3 +264,24 @@ def test_in_range_triangle_indices_pass_validation() -> None:
     well-formed request."""
     request = FenceExportRequest(panels=[_panel()])
     assert len(request.panels) == 1
+
+
+def test_ls5_exported_layers_carry_a_material_index_colour_and_a_thin_weight() -> None:
+    """Owner 2026-08-28: "the white bounding lines are a bit thick".
+
+    A 3DFACE's visible edges are drawn from the layer's INDEX colour and line
+    weight, not from its true colour. Leaving those at their defaults (aci 7 =
+    white, lineweight -3 = LWDEFAULT) outlined an ochre sand panel in a heavy
+    white line. Both must now be set from the material.
+    """
+    panel = _panel(formation_id="fm-sand", name="Sand", color="#d4b84a")
+
+    payload = DxfFenceExporter().export([panel], project_name="P", crs_epsg=31370)
+    doc = ezdxf.read(io.StringIO(payload.decode("utf-8")))
+
+    layer = next(lay for lay in doc.layers if lay.dxf.name.startswith("Fence-"))
+    assert layer.rgb == (0xD4, 0xB8, 0x4A)
+    # Not the default white/black index — the edge reads as the material.
+    assert layer.color != 7
+    # A real weight in 1/100 mm, not LWDEFAULT (-3).
+    assert layer.dxf.lineweight == THIN_LAYER_LINEWEIGHT
