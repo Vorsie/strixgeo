@@ -63,6 +63,28 @@ export const MODELS_NL = {
   'geology.reset3dView': '3D-weergave herstellen',
   'geology.offlineBasemap':
     'Offline — achtergrondkaart niet beschikbaar. De geometrie van de formaties is niet aangetast.',
+  // 3-D LAGEN-legende.
+  'geology.layers': 'Lagen',
+  'geology.basemap': 'Achtergrondkaart',
+  'geology.hideBasemap': 'Achtergrondkaart verbergen',
+  'geology.showBasemap': 'Achtergrondkaart tonen',
+  'geology.hideGroundSurface': 'Maaiveld verbergen',
+  'geology.showGroundSurface': 'Maaiveld tonen',
+  'geology.showIn3d': 'Tonen in 3D',
+  'geology.hideIn3d': 'Verbergen in 3D',
+  'geology.thisModel': 'Dit model',
+  'geology.splitModel': 'Model splitsen',
+  'geology.drawSplitFirst': 'Klik twee punten om een splitsingslijn te tekenen',
+  'geology.drawSplitSecond': 'Klik het tweede punt om de splitsingslijn te voltooien',
+  'geology.compareWith': 'Vergelijk met {label}',
+  'geology.compareWithHint': 'Toon {label} naast dit model op hetzelfde standpunt',
+  // GeotechLagen-boom — de geneste bodem ▸ klasse ▸ lichaam-legenderijen.
+  'geology.collapseNamed': '{label} inklappen',
+  'geology.expandNamed': '{label} uitklappen',
+  'geology.showNamedIn3d': '{label} tonen in 3D',
+  'geology.hideNamedIn3d': '{label} verbergen in 3D',
+  'geology.showBodyIn3d': 'Lichaam {label} tonen in 3D',
+  'geology.hideBodyIn3d': 'Lichaam {label} verbergen in 3D',
   // NOTE: ruled 2026-08-27 — owner chose "Lichaam met te weinig gegevens".
   'geology.underConstrainedBody': 'Lichaam met te weinig gegevens',
   'geology.switchBasemap': 'Achtergrondkaart wisselen',
@@ -186,4 +208,18 @@ export const MODELS_NL = {
   'geotech.preflightIgnore':
     'Volledig negeren — het resultaat is het model zoals het was voor ze geïmporteerd werden',
   'geotech.subdivideFirst': 'Verdeel eerst de lichamen onder.',
+  // Geotech-eenheden-lijst (rechterpaneel).
+  'geotech.unitsWithBands': '{count} met banden',
+  'geotech.collapseSoil': 'Deze grondsoort inklappen',
+  'geotech.expandSoil': 'Deze grondsoort uitklappen',
+  'geotech.bandLabel': '{count} band',
+  'geotech.bandsLabel': '{count} banden',
+  'geotech.soilClasses': '{soil}-klassen',
+  'geotech.contactLabel': '{count} contact in dit model',
+  'geotech.contactsLabel': '{count} contacten in dit model',
+  'geotech.chooseColor': '{color} — klik om een kleur voor deze eenheid te kiezen',
+  'geotech.colorForUnit': 'Kleur voor {label}',
+  'geotech.unitsCarryClass': '{count} aparte eenheden dragen deze klasse',
+  'geotech.unitsClassed': 'Eenheden ingedeeld als {label}',
+  'geotech.sampleSource': 'Bron van monster:',
 } as const
