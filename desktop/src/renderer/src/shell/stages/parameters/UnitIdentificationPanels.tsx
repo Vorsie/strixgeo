@@ -28,19 +28,19 @@ import { axisTickValues, fitAxisMax } from '../../../utils/cptAxisScales'
 import { log } from '../../../utils/log'
 import { useShell } from '../../ShellContext'
 import AxisTickRow from './AxisTickRow'
+import { sampleColor } from './sampleColor'
 import UnitPsdPanel from './UnitPsdPanel'
 import {
   poolIdentificationPanels,
   unitBoreholeBands,
   type IdentificationPanel,
 } from './unitIdentification'
-import { poolUnitPsdCurves } from './unitPsd'
+import { poolUnitPsdCurves, type UnitPsdCurve } from './unitPsd'
 
 // ── Plot geometry (user-space; stretched by the row width) ───────────────────
 const PLOT_W = 100
 const PLOT_H = 48
 const GRID = 'var(--chart-grid, #e5e7eb)'
-const DOT = 'var(--chart-clr-qc, #111827)'
 
 /** The two Atterberg panels — pinned to one shared value scale (IP4). */
 const ATTERBERG_KEYS = new Set(['typed:liquid_limit', 'typed:plastic_limit'])
@@ -54,6 +54,13 @@ interface Props {
   scopeBands: readonly LithoLayerResponse[]
   /** The pooling population (R6) — canonical section membership union. */
   memberInvestigationIds: ReadonlySet<string>
+  /**
+   * Navigate to a PSD curve's sample on a cross-section (owner 2026-08-28).
+   * Threaded down to the PSD panel's right-click menu; absent → no menu is
+   * offered. The caller (the canvas) owns the section resolution + the honest
+   * "on no section" toast — this file only forwards the request.
+   */
+  onRevealSample?: (curve: UnitPsdCurve) => void
 }
 
 /**
@@ -73,6 +80,7 @@ interface Props {
 export default function UnitIdentificationPanels({
   scopeBands,
   memberInvestigationIds,
+  onRevealSample,
 }: Props): JSX.Element {
   const { project } = useShell()
   const projectId = project.id
@@ -246,8 +254,11 @@ export default function UnitIdentificationPanels({
       )}
 
       {/* S5 — every grain-size curve of the unit on ONE graph. Renders
-          nothing when the unit has no usable curves (no empty jars). */}
-      {!loading && error === null && <UnitPsdPanel pool={psd} />}
+          nothing when the unit has no usable curves (no empty jars). The
+          right-click "go to the sample on a cross-section" rides along. */}
+      {!loading && error === null && (
+        <UnitPsdPanel pool={psd} onRevealSample={onRevealSample} />
+      )}
     </div>
   )
 }
@@ -331,6 +342,15 @@ function IdentificationPanelRow({
         </span>
       </div>
 
+      {/* Y-axis title — the elevation axis is mTAW (owner 2026-08-28:
+          "properly label all axes"; the dot tooltips already read mTAW). */}
+      <div
+        className="text-[9px] uppercase tracking-wide text-text-muted leading-none"
+        data-testid={`unit-idtests-yaxis-label-${panel.key}`}
+      >
+        mTAW
+      </div>
+
       <div className="flex gap-1">
         {/* Elevation labels in HTML — text inside the non-uniformly
             stretched SVG would distort. Ends anchored top/bottom; the
@@ -400,8 +420,10 @@ function IdentificationPanelRow({
               cx={toX(p.value)}
               cy={toY(p.elevationM)}
               r={1.4}
-              fill={DOT}
-              fillOpacity={0.65}
+              // Inked by the SAMPLE (owner 2026-08-28): the same colour marks
+              // this sample's PSD curve below and its dots in every other panel.
+              fill={sampleColor(p.sampleId)}
+              fillOpacity={0.85}
             >
               <title>
                 {`${p.value} ${panel.unit ?? ''} · ${p.elevationM.toFixed(2)} mTAW · ${p.boreholeName}${p.sampleNumber ? ` · sample ${p.sampleNumber}` : ''}`}
@@ -434,6 +456,17 @@ function IdentificationPanelRow({
         tickTestid={`unit-idtests-axis-tick-${panel.key}`}
         className="ml-9"
       />
+
+      {/* X-axis title — the measured quantity + its unit (owner 2026-08-28:
+          "properly label all axes"). Mirrors the CPT chart's "name (unit)"
+          idiom; the ticks above already carry the unit at the axis end. */}
+      <div
+        className="ml-9 text-center text-[9px] text-text-muted truncate"
+        data-testid={`unit-idtests-xaxis-label-${panel.key}`}
+      >
+        {panel.label}
+        {panel.unit !== null && panel.unit !== '' ? ` (${panel.unit})` : ''}
+      </div>
     </div>
   )
 }
