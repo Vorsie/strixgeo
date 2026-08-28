@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { t } from '../i18n/translate'
 import {
   staleGeotechChipLabel,
   staleGeotechChipTitle,
@@ -71,7 +72,7 @@ describe('unionStaleGeotechColumns', () => {
 describe('the chip wording', () => {
   it('SGC6 names the columns to re-press, not just how many', () => {
     // A count with no name is a warning he cannot act on.
-    const title = staleGeotechChipTitle([S17, S9])
+    const title = staleGeotechChipTitle(t, [S17, S9])
 
     expect(title).toContain('GEO-23/125-S17')
     expect(title).toContain('GEO-23/125-S9')
@@ -84,10 +85,10 @@ describe('the chip wording', () => {
       label: `S${i}`,
     }))
 
-    expect(staleGeotechChipTitle(many)).toContain('and 3 more')
+    expect(staleGeotechChipTitle(t, many)).toContain('and 3 more')
   })
 
   it('SGC8 counts the columns on the chip itself', () => {
-    expect(staleGeotechChipLabel(3)).toBe('3 on edited litho')
+    expect(staleGeotechChipLabel(t, 3)).toBe('3 on edited litho')
   })
 })
