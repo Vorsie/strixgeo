@@ -28,6 +28,7 @@ import { Check, Layers, Plus, Trash2, X } from 'lucide-react'
 import { useShell } from '../../ShellContext'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Compact lithostratigraphic-model selector + creator.
@@ -58,6 +59,9 @@ export default function ModelKindPicker(): JSX.Element | null {
   const [activating, setActivating] = useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Unconditional hook — above the ``activeGeologicalModel === null`` early
+  // return below, per the hook rules.
+  const t = useT()
 
   async function confirmDelete(): Promise<void> {
     if (activeLithoModel === null || deleting) return
@@ -110,7 +114,7 @@ export default function ModelKindPicker(): JSX.Element | null {
       data-testid="model-kind-picker"
     >
       <Layers size={11} className="shrink-0 text-text-muted" aria-hidden />
-      <span className="shrink-0 font-medium">Lithology model</span>
+      <span className="shrink-0 font-medium">{t('litho.model')}</span>
 
       {creating ? (
         <form
@@ -134,15 +138,15 @@ export default function ModelKindPicker(): JSX.Element | null {
               }
             }}
             maxLength={200}
-            placeholder="Model name…"
-            aria-label="New lithostratigraphic model name"
+            placeholder={t('litho.modelNamePlaceholder')}
+            aria-label={t('litho.newModelNameLabel')}
             className="w-36 rounded border border-border-default bg-surface-app px-1.5 py-0.5 text-[11px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <button
             type="submit"
             disabled={busy || draftName.trim() === ''}
-            title="Create lithostratigraphic model"
-            aria-label="Create lithostratigraphic model"
+            title={t('litho.createModel')}
+            aria-label={t('litho.createModel')}
             className="rounded p-0.5 text-accent hover:bg-surface-app disabled:opacity-40"
           >
             <Check size={12} />
@@ -153,8 +157,8 @@ export default function ModelKindPicker(): JSX.Element | null {
               setCreating(false)
               setDraftName('')
             }}
-            title="Cancel"
-            aria-label="Cancel new model"
+            title={t('common.cancel')}
+            aria-label={t('litho.cancelNewModel')}
             className="rounded p-0.5 text-text-secondary hover:bg-surface-app hover:text-text-primary"
           >
             <X size={12} />
@@ -166,12 +170,12 @@ export default function ModelKindPicker(): JSX.Element | null {
             value={activeLithoModel?.id ?? ''}
             disabled={activating}
             onChange={e => void activate(e.target.value)}
-            aria-label="Active lithostratigraphic model"
+            aria-label={t('litho.activeModel')}
             className="max-w-[10rem] truncate rounded border border-border-default bg-surface-app px-1 py-0.5 text-[11px] text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
           >
             {activeLithoModel === null && (
               <option value="" disabled>
-                — select —
+                {t('litho.selectPlaceholder')}
               </option>
             )}
             {lithoModels.map(m => (
@@ -183,19 +187,19 @@ export default function ModelKindPicker(): JSX.Element | null {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            title="New lithostratigraphic model (refines the active geological model)"
-            aria-label="New lithostratigraphic model"
+            title={t('litho.newModelHint')}
+            aria-label={t('litho.newModel')}
             className="flex items-center gap-0.5 rounded px-1 py-0.5 text-accent hover:bg-surface-app"
           >
             <Plus size={11} />
-            New
+            {t('litho.newShort')}
           </button>
           {activeLithoModel !== null && (
             <button
               type="button"
               onClick={() => setConfirmDeleteOpen(true)}
-              title="Delete the active lithostratigraphic model"
-              aria-label="Delete lithostratigraphic model"
+              title={t('litho.deleteModelHint')}
+              aria-label={t('litho.deleteModel')}
               className="rounded p-0.5 text-text-secondary hover:bg-surface-app hover:text-status-danger"
             >
               <Trash2 size={12} />
@@ -210,12 +214,12 @@ export default function ModelKindPicker(): JSX.Element | null {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          title="Create the lithostratigraphic model that refines this geological model"
-          aria-label="Create lithostratigraphic model"
+          title={t('litho.createModelHint')}
+          aria-label={t('litho.createModel')}
           className="flex items-center gap-1 rounded border border-dashed border-border-default px-1.5 py-0.5 text-accent hover:bg-surface-app"
         >
           <Plus size={11} />
-          Create one to pick contacts on sections
+          {t('litho.createOneToPick')}
         </button>
       )}
     </div>
@@ -236,15 +240,13 @@ export default function ModelKindPicker(): JSX.Element | null {
           id="delete-litho-model-title"
           className="mb-1 text-sm font-semibold text-text-primary"
         >
-          Delete lithostratigraphic model?
+          {t('litho.deleteModelConfirm')}
         </h2>
         <p className="mb-4 text-xs text-text-secondary">
           <span className="font-medium text-text-primary">
-            {activeLithoModel?.name ?? 'This model'}
+            {activeLithoModel?.name ?? t('litho.thisModelFallback')}
           </span>{' '}
-          and all its formations, contacts, and cached surfaces will be
-          permanently deleted. The geological parent is not affected. This
-          cannot be undone.
+          {t('litho.deleteModelBody')}
         </p>
         <div className="flex justify-end gap-2">
           <Button
@@ -258,7 +260,7 @@ export default function ModelKindPicker(): JSX.Element | null {
             onClick={() => setConfirmDeleteOpen(false)}
             disabled={deleting}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="danger"
@@ -266,7 +268,7 @@ export default function ModelKindPicker(): JSX.Element | null {
             onClick={() => void confirmDelete()}
             disabled={deleting}
           >
-            Delete
+            {t('common.delete')}
           </Button>
         </div>
       </div>
