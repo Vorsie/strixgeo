@@ -39,7 +39,7 @@
 //     In Fence mode the whole-project partition fill is projected to
 //     world-space panels and passed to Geology3DViewer via fencePanels.
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Layers3 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -187,6 +187,16 @@ export default function LithologyCanvas(): JSX.Element {
 
   const lithoModelId = activeLithoModel?.id ?? null
 
+  // Per-instance record of the callbacks THIS canvas last wrote into the
+  // module-level toolbar-bridge refs. The unmount cleanup below surrenders a
+  // ref ONLY while it still holds this instance's callback — React can mount a
+  // replacement canvas before it runs this one's cleanup (and both stages can
+  // be alive at once in the split viewport), so an older instance must never
+  // null a ref a newer instance has already claimed (debt #276).
+  const ownedFenceExport = useRef<(() => Promise<void>) | null>(null)
+  const ownedVoxelRequest = useRef<VoxelRequestBuilder | null>(null)
+  const ownedSplitViewport = useRef<(() => void) | null>(null)
+
   // Shared 3D-view plumbing: view mode, wireframe, split state, ground
   // surface, fence-edge fetch + fence memos (audit FE-SHELL-CLIENTS-10).
   const {
@@ -212,8 +222,12 @@ export default function LithologyCanvas(): JSX.Element {
     layers: lithoLayers,
     bodySolids: lithoSolids,
     resetSplitViewportRef: resetLithoSplitViewportCallback,
-    voxelRequestRef: lithoVoxelRequestCallback,
   })
+
+  // ``useBody3DViewState`` wrote ``exitSplit`` into resetLithoSplitViewportCallback;
+  // record it so the unmount guard can tell whether a newer canvas has since
+  // reclaimed the ref.
+  ownedSplitViewport.current = exitSplit
 
   // The comparison pane: the GEOTECH subdivision derived from this model, in
   // its NAD colours (the presentation-boundary recolour — a geotech body must
@@ -246,13 +260,7 @@ export default function LithologyCanvas(): JSX.Element {
             toast,
           })
       : null
-
-  useEffect(
-    () => () => {
-      lithoFenceExportCallback.current = null
-    },
-    [],
-  )
+  ownedFenceExport.current = lithoFenceExportCallback.current
 
   // ---------------------------------------------------------------------------
   // Voxel build payload — assembled on demand for the "Build model" toolbar
@@ -273,6 +281,25 @@ export default function LithologyCanvas(): JSX.Element {
     viewState: project?.view_state,
     logLabel: 'litho-voxel',
   })
+  ownedVoxelRequest.current = lithoVoxelRequestCallback.current
+
+  // Null every toolbar-bridge ref this canvas owns when it unmounts, so a
+  // toolbar click after a stage switch is a no-op instead of a call against a
+  // destroyed view (debt #276). Each null is GUARDED — it fires only while the
+  // module ref still points at THIS instance's callback — so an older canvas's
+  // unmount cannot wipe a ref a newer canvas has already claimed. Declared
+  // ABOVE the early return so the hook order never depends on hasLithoSolids.
+  useEffect(
+    () => () => {
+      if (lithoFenceExportCallback.current === ownedFenceExport.current)
+        lithoFenceExportCallback.current = null
+      if (lithoVoxelRequestCallback.current === ownedVoxelRequest.current)
+        lithoVoxelRequestCallback.current = null
+      if (resetLithoSplitViewportCallback.current === ownedSplitViewport.current)
+        resetLithoSplitViewportCallback.current = null
+    },
+    [],
+  )
 
   // ---------------------------------------------------------------------------
   // Solid-mode derived state
