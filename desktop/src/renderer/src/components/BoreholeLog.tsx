@@ -16,10 +16,11 @@ import { SoilPatterns } from '../utils/soilPatterns'
 import type { ContactOverlay } from '../utils/contactOverlays'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { isTypingTarget } from '../utils/keyboard'
+import { useT } from '../i18n/translate'
 import LabTestPanel from './LabTestPanel'
 import {
   TOGGLEABLE_TRACK_IDS,
-  TRACK_LABEL,
+  trackLabel,
   useHiddenBoreholeLogTracks,
   type ToggleableTrackId,
 } from '../hooks/useHiddenBoreholeLogTracks'
@@ -130,6 +131,7 @@ export default function BoreholeLog({
   virtueleBoringLoading = false,
   contactOverlays,
 }: Props): React.ReactElement {
+  const t = useT()
   const virtueleBoringCatalog = useVirtueleBoringCatalog(
     onChangeVirtueleBoringOverrideModel !== undefined,
   )
@@ -350,7 +352,7 @@ export default function BoreholeLog({
         <button
           onClick={zoomOut}
           disabled={zoomFactor <= ZOOM_MIN + 1e-6}
-          title="Zoom out (vertical scale)"
+          title={t('borelog.zoomOutVertical')}
           className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed"
         >
           <ZoomOut size={13} />
@@ -358,7 +360,7 @@ export default function BoreholeLog({
         <button
           onClick={zoomIn}
           disabled={zoomFactor >= ZOOM_MAX - 1e-6}
-          title="Zoom in (vertical scale)"
+          title={t('borelog.zoomInVertical')}
           className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed"
         >
           <ZoomIn size={13} />
@@ -366,7 +368,7 @@ export default function BoreholeLog({
         <button
           onClick={zoomReset}
           disabled={Math.abs(zoomFactor - 1) < 1e-6}
-          title="Reset zoom to 1×"
+          title={t('borelog.resetZoom1x')}
           className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed"
         >
           <Maximize2 size={13} />
@@ -388,7 +390,7 @@ export default function BoreholeLog({
             onClick={toggleColumnsMenu}
             aria-expanded={columnsOpen}
             aria-haspopup="true"
-            title="Show or hide borelog columns"
+            title={t('borelog.toggleColumnsHint')}
             className={[
               'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors',
               columnsOpen
@@ -399,7 +401,9 @@ export default function BoreholeLog({
             ].join(' ')}
           >
             <Columns3 size={11} />
-            {hiddenCount > 0 ? `Columns (${hiddenCount} hidden)` : 'Columns'}
+            {hiddenCount > 0
+              ? t('borelog.columnsHidden', { n: hiddenCount })
+              : t('borelog.columns')}
           </button>
 
           {columnsOpen && columnsPos &&
@@ -412,7 +416,7 @@ export default function BoreholeLog({
                 className="w-64 bg-surface-overlay border border-border-subtle rounded shadow-lg z-[1200] py-1"
               >
                 <div className="px-3 py-1 text-[9px] text-text-muted uppercase tracking-wide select-none">
-                  Toggle columns
+                  {t('borelog.toggleColumns')}
                 </div>
                 {TOGGLEABLE_TRACK_IDS.map(id => {
                   const isPresent = presentTrackIds.has(id)
@@ -434,9 +438,9 @@ export default function BoreholeLog({
                       ].join(' ')}
                       title={
                         !isPresent
-                          ? 'This track is not present on this borehole'
+                          ? t('borelog.trackNotPresent')
                           : wouldEmpty
-                            ? 'Cannot hide — this is the last visible column'
+                            ? t('borelog.cannotHideLast')
                             : undefined
                       }
                     >
@@ -448,7 +452,7 @@ export default function BoreholeLog({
                         className="accent-blue-500 dark:accent-blue-400"
                       />
                       <span className={!isPresent ? 'italic' : undefined}>
-                        {TRACK_LABEL[id]}
+                        {trackLabel(t, id)}
                       </span>
                     </label>
                   )
@@ -467,7 +471,7 @@ export default function BoreholeLog({
                 so the pane doesn't look unresponsive after model pick. */}
             {virtueleBoringLoading && (
               <span
-                aria-label="Loading DOV predictions"
+                aria-label={t('borelog.loadingDovPredictions')}
                 className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"
               />
             )}
@@ -475,13 +479,13 @@ export default function BoreholeLog({
               onClick={onToggleVirtueleBoringVisible}
               disabled={virtueleBoringActiveModels.length === 0}
               aria-pressed={virtueleBoringVisible}
-              aria-label="Toggle DOV Virtuele Boring overlay"
+              aria-label={t('borelog.toggleVirtueleBoring')}
               title={
                 virtueleBoringActiveModels.length === 0
-                  ? 'Pick a DOV model in the dropdown or the section pane to enable this overlay'
+                  ? t('borelog.dovPickModelHint')
                   : virtueleBoringVisible
-                    ? 'Hide DOV Virtuele Boring overlay'
-                    : 'Show DOV Virtuele Boring overlay'
+                    ? t('borelog.hideDovOverlay')
+                    : t('borelog.showDovOverlay')
               }
               className={
                 'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
@@ -500,11 +504,11 @@ export default function BoreholeLog({
                 value={virtueleBoringOverrideModel}
                 onChange={e => onChangeVirtueleBoringOverrideModel(e.target.value)}
                 disabled={virtueleBoringCatalog === null}
-                title="Override which DOV model this pane shows"
-                aria-label="DOV overlay model for this pane"
+                title={t('borelog.overrideDovModel')}
+                aria-label={t('borelog.dovOverlayModel')}
                 className="h-6 px-1 border border-gray-200 dark:border-slate-600 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 max-w-[160px]"
               >
-                <option value="">Follow section</option>
+                <option value="">{t('borelog.followSection')}</option>
                 {(virtueleBoringCatalog ?? []).map(entry => (
                   <option key={entry.code} value={entry.code}>
                     {entry.beschrijving}
@@ -555,24 +559,24 @@ export default function BoreholeLog({
           )}
 
           {/* Observation tracks */}
-          {layout.observationTracks.map(t => (
-            <g key={t.observation.id}>
+          {layout.observationTracks.map(track => (
+            <g key={track.observation.id}>
               <TrackHeader
-                x={t.x}
-                width={t.width}
+                x={track.x}
+                width={track.width}
                 y={SVG_Y_PAD}
-                title={humanizeObservationType(t.observation.observation_type)}
-                rawToken={t.observation.observation_type}
-                subtitle={[t.observation.author, t.observation.observation_date]
+                title={humanizeObservationType(t, track.observation.observation_type)}
+                rawToken={track.observation.observation_type}
+                subtitle={[track.observation.author, track.observation.observation_date]
                   .filter(Boolean)
                   .join(' · ')}
-                onHide={() => hideTrack(t.observation.observation_type as ToggleableTrackId)}
+                onHide={() => hideTrack(track.observation.observation_type as ToggleableTrackId)}
               />
               <ObservationTrack
-                observation={t.observation}
-                x={t.x}
+                observation={track.observation}
+                x={track.x}
                 y={SVG_Y_PAD + HEADER_HEIGHT}
-                width={t.width}
+                width={track.width}
                 totalDepth={layout.totalDepth}
               />
             </g>
@@ -585,7 +589,7 @@ export default function BoreholeLog({
                 x={layout.drillMethodX}
                 width={DRILL_TRACK_WIDTH}
                 y={SVG_Y_PAD}
-                title="Drill method"
+                title={t('borelog.drillMethod')}
                 subtitle={null}
                 onHide={() => hideTrack('drill_method')}
               />
@@ -606,7 +610,9 @@ export default function BoreholeLog({
                 x={layout.fieldLogX}
                 width={FIELD_LOG_TRACK_WIDTH}
                 y={SVG_Y_PAD}
-                title="Field log"
+                title={t('borelog.fieldLog')}
+                // Column-header abbreviations (colour · moisture · consistency)
+                // stay as-is — a cryptic 3-letter legend, like an axis symbol.
                 subtitle="col · mst · con"
                 onHide={() => hideTrack('field_log')}
               />
@@ -625,8 +631,13 @@ export default function BoreholeLog({
                 x={layout.samplesX}
                 width={SAMPLES_TRACK_WIDTH}
                 y={SVG_Y_PAD}
-                title="Samples + lab tests"
-                subtitle={`${borehole.samples.length} sample${borehole.samples.length !== 1 ? 's' : ''}`}
+                title={t('borelog.samplesAndLabTests')}
+                subtitle={t(
+                  borehole.samples.length === 1
+                    ? 'borelog.sampleCountOne'
+                    : 'borelog.sampleCountMany',
+                  { n: borehole.samples.length },
+                )}
                 onHide={() => hideTrack('samples_lab')}
               />
               <SamplesTrack
