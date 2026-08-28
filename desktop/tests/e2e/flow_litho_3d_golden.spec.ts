@@ -159,6 +159,16 @@ test.describe('flow_litho_3d_golden', () => {
       expect(await viewport.screenshot()).toMatchSnapshot('litho-3d-fence.png', {
         maxDiffPixelRatio: WEBGL_MAX_DIFF_PIXEL_RATIO,
       })
+
+      // Leave the 3-D stage BEFORE teardown. With a Cesium scene mounted the
+      // Electron quit never returns (measured: 90 s and counting, against
+      // ~0.6 s on a page holding no WebGL context), and killing the process
+      // instead still left Playwright's own worker teardown to time out — so a
+      // run whose assertions all passed was reported red. Navigating away
+      // disposes the context, after which the normal close returns in about a
+      // second and the kill fallback stays unused.
+      await goToStage(page, 'Data')
+      await page.waitForTimeout(1_000)
     } finally {
       // Bounded + timed: an unbounded teardown burns the whole test budget and
       // reports as a timeout at the last body line, which is how this spec
