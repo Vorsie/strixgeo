@@ -4,7 +4,7 @@
 // see any pending ties? Why don't we make that clickable so it highlights the
 // tie?"*
 //
-// The unit contracts live next to their own modules (PendingTieChip.test.tsx,
+// The unit contracts live next to their own modules (ToolbarNoticeChip.test.tsx,
 // useGeotechPendingTieReveal.test.tsx); this file pins that the toolbar wires
 // them together — the press reaches the canvas, and every outcome reaches the
 // engineer as words.

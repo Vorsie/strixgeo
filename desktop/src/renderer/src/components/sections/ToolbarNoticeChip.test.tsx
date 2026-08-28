@@ -19,13 +19,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import PendingTieChip from './PendingTieChip'
+import ToolbarNoticeChip from './ToolbarNoticeChip'
 
 afterEach(() => cleanup())
 
 function renderChip(onReveal?: () => void) {
   return render(
-    <PendingTieChip
+    <ToolbarNoticeChip
       label="1 pending here"
       title="1 of 1 packing tie proposed on this section (0 accepted model-wide)."
       onReveal={onReveal}
@@ -33,7 +33,7 @@ function renderChip(onReveal?: () => void) {
   )
 }
 
-describe('PendingTieChip — the passive contract', () => {
+describe('ToolbarNoticeChip — the passive contract', () => {
   it('PTC1: it renders the count and the tooltip it is given', () => {
     renderChip()
     const chip = screen.getByTestId('geotech-pending-tie-chip')
@@ -52,7 +52,7 @@ describe('PendingTieChip — the passive contract', () => {
   })
 })
 
-describe('PendingTieChip — reveal the tie', () => {
+describe('ToolbarNoticeChip — reveal the tie', () => {
   it('PTC3: WITH onReveal it is a real button, focusable and named', () => {
     renderChip(() => {})
     const chip = screen.getByTestId('geotech-pending-tie-chip')

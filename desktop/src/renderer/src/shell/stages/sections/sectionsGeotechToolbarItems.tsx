@@ -12,7 +12,7 @@ import { ToolbarButton, ToolbarDropdown } from '../../ToolbarPrimitives'
 import type { ToolbarItemSpec } from '../../ResponsiveToolbarRow'
 import { DEFAULT_TOOLBAR_METRICS } from '../../toolbarOverflow_constants'
 import { PENDING_CHIP_BASE_PX } from './sectionsToolbar_constants'
-import PendingTieChip from '../../../components/sections/PendingTieChip'
+import ToolbarNoticeChip from '../../../components/sections/ToolbarNoticeChip'
 import { pendingChipLabel, pendingChipTitle } from '../../../utils/geotechPendingScope'
 import {
   staleGeotechChipLabel,
@@ -175,7 +175,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
                 },
                 overflowItems: [],
                 render: () => (
-                  <PendingTieChip
+                  <ToolbarNoticeChip
                     label={pendingChipLabel(pendingScope)}
                     title={pendingChipTitle(pendingScope, tieStatus.accepted)}
                     // Interactive only where this section HAS a pending tie to
@@ -219,7 +219,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
                 },
                 overflowItems: [],
                 render: () => (
-                  <PendingTieChip
+                  <ToolbarNoticeChip
                     testid="geotech-stale-litho-chip"
                     label={staleGeotechChipLabel(staleGeotechColumns.length)}
                     title={staleGeotechChipTitle(staleGeotechColumns)}

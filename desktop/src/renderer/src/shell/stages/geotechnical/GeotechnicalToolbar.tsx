@@ -25,7 +25,7 @@ import { Box, Download, RefreshCw } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { ToolbarButton } from '../../ToolbarPrimitives'
-import PendingTieChip from '../../../components/sections/PendingTieChip'
+import ToolbarNoticeChip from '../../../components/sections/ToolbarNoticeChip'
 import {
   staleGeotechChipLabel,
   staleGeotechChipTitle,
@@ -135,7 +135,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           pending-tie one: it is a real button because it can act, and pressing
           it walks the excluded tests one by one. */}
       {excludedCount > 0 && (
-        <PendingTieChip
+        <ToolbarNoticeChip
           testid="geotech-excluded-tests-chip"
           label={`${excludedCount} test${excludedCount === 1 ? '' : 's'} excluded`}
           title={
@@ -168,7 +168,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           Passive — the columns can sit on any section, so there is no single
           "next" thing this stage could centre; it names them instead. */}
       {staleColumns.length > 0 && (
-        <PendingTieChip
+        <ToolbarNoticeChip
           testid="geotech-stale-litho-chip"
           label={staleGeotechChipLabel(staleColumns.length)}
           title={staleGeotechChipTitle(staleColumns)}

@@ -1,6 +1,14 @@
 /**
  * An amber toolbar chip that is a plain label unless it can act.
  *
+ * NAMED FOR WHAT IT IS, not what it was (renamed from ``PendingTieChip``
+ * 2026-08-28, owner ruling). It carries whatever the toolbar needs to say:
+ * "N pending here" (pending packing ties), "N tests excluded" (after a Build
+ * without them), and the stale-litho column notice — three of its four call
+ * sites have nothing to do with ties, and a tie-flavoured name also invited
+ * confusion with the genuinely tie-specific {@link CrossingTieWarningChip}
+ * next door.
+ *
  * Born as the geotech toolbar's "N pending here" chip, which sits OUTSIDE the
  * packing-pipeline menu on purpose: it is the number step 4 is gated on, so it
  * has to be visible without opening anything.
@@ -51,7 +59,7 @@ export interface Props {
 }
 
 /**
- * Render the pending-tie chip, interactive only when it can reveal something.
+ * Render the notice chip, interactive only when it can reveal something.
  *
  * Parameters
  * ----------
@@ -74,7 +82,7 @@ export interface Props {
  * JSX.Element
  *     A ``<button>`` when it can act, otherwise a ``<span>``.
  */
-export default function PendingTieChip({
+export default function ToolbarNoticeChip({
   label,
   title,
   onReveal,
