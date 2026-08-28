@@ -14,7 +14,11 @@
 //
 // NO EMPTY JARS: a unit without a drawable curve renders nothing at all.
 
-import type { UnitPsdPool } from './unitPsd'
+import { useState } from 'react'
+
+import type { UnitPsdCurve, UnitPsdPool } from './unitPsd'
+import { sampleColor } from './sampleColor'
+import ContextMenu from '../../../components/ui/ContextMenu'
 import {
   PSD_FIXED_DOMAIN,
   PSD_FRACTION_ZONES,
@@ -26,17 +30,6 @@ import {
 const PLOT_W = 100
 const PLOT_H = 60
 const GRID = 'var(--chart-grid, #e5e7eb)'
-
-/**
- * Curve colours, cycled — the chart-curve tokens the section's PSD hover card
- * already cycles, so a curve wears familiar ink in both places.
- */
-const SERIES_COLORS = [
-  'var(--chart-clr-qt, #1d4ed8)',
-  'var(--chart-clr-fs, #16a34a)',
-  'var(--chart-clr-u2, #9333ea)',
-  'var(--chart-clr-rf, #b45309)',
-]
 
 /** The labelled sieve anchors (mm), conventional. */
 const SIEVE_ANCHORS = [63, 2, 0.2, 0.063, 0.002]
@@ -66,13 +59,36 @@ function anchorLabel(mm: number): string {
  * props.pool : UnitPsdPool
  *     The pooled curves + the skipped-count (from ``poolUnitPsdCurves``).
  *
+ * props.onRevealSample : (curve: UnitPsdCurve) => void, optional
+ *     Called from a curve's right-click menu — "go to the sample on a
+ *     cross-section" (owner 2026-08-28). Absent → no menu is offered, so the
+ *     panel never advertises an affordance nothing can honour.
+ *
  * Returns
  * -------
  * JSX.Element | null
  *     The graph, or nothing at all when the unit has no drawable curve.
  */
-export default function UnitPsdPanel({ pool }: { pool: UnitPsdPool }): JSX.Element | null {
+export default function UnitPsdPanel({
+  pool,
+  onRevealSample,
+}: {
+  pool: UnitPsdPool
+  onRevealSample?: (curve: UnitPsdCurve) => void
+}): JSX.Element | null {
+  // Declared before the early return so the hook order is stable whether or not
+  // the unit has curves (rules of hooks).
+  const [menu, setMenu] = useState<{ x: number; y: number; curve: UnitPsdCurve } | null>(null)
+
   if (pool.curves.length === 0) return null
+
+  /** Open the curve menu at the cursor — only when a reveal handler is wired. */
+  const openCurveMenu = onRevealSample
+    ? (curve: UnitPsdCurve) => (e: React.MouseEvent): void => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY, curve })
+      }
+    : undefined
 
   return (
     <div className="px-3 py-2 max-w-xl" data-testid="unit-psd-panel">
@@ -92,6 +108,21 @@ export default function UnitPsdPanel({ pool }: { pool: UnitPsdPool }): JSX.Eleme
         </span>
       </div>
 
+      {/* The plot block, wrapped in a Y-axis-title gutter (owner 2026-08-28:
+          "properly label all axes"). The zone / percent / anchor positions are
+          relative to this block, so the gutter shifts the whole block without
+          disturbing their alignment. */}
+      <div className="flex gap-1">
+        {/* Y axis — % passing (finer by weight), read bottom-to-top. */}
+        <div
+          className="flex shrink-0 items-center justify-center text-[9px] text-text-muted"
+          data-testid="unit-psd-yaxis-label"
+        >
+          <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+            Passing (%)
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
       {/* Zone names over the plot — the reason the axis is fixed. HTML so the
           stretched SVG cannot distort the glyphs; zones too narrow on the log
           window (clay, ~6 %) stay line-only, as on the hover card. */}
@@ -186,28 +217,51 @@ export default function UnitPsdPanel({ pool }: { pool: UnitPsdPool }): JSX.Eleme
             vectorEffect="non-scaling-stroke"
           />
           {/* The curves — one polyline per grain-size test, ``<title>`` names
-              the sample so hovering answers "whose curve is this". */}
-          {pool.curves.map((curve, i) => (
-            <polyline
-              key={curve.key}
-              data-testid={`unit-psd-curve-${curve.key}`}
-              points={psdPolyline(curve.points, PSD_FIXED_DOMAIN, {
-                width: PLOT_W,
-                height: PLOT_H,
-              })}
-              fill="none"
-              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-              strokeWidth={1.2}
-              strokeOpacity={0.8}
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-              style={{ pointerEvents: 'visibleStroke' }}
-            >
-              <title>
-                {`${curve.boreholeName}${curve.sampleNumber ? ` · sample ${curve.sampleNumber}` : ''} · ${curve.depthTopM.toFixed(2)}–${curve.depthBaseM.toFixed(2)} m`}
-              </title>
-            </polyline>
-          ))}
+              the sample so hovering answers "whose curve is this". Inked by the
+              SAMPLE (owner 2026-08-28): the same colour marks the sample's dots
+              in the scatter panels above, and two grain-size records of one
+              sample (sieve + hydrometer) share it. */}
+          {pool.curves.map(curve => {
+            const points = psdPolyline(curve.points, PSD_FIXED_DOMAIN, {
+              width: PLOT_W,
+              height: PLOT_H,
+            })
+            const onContext = openCurveMenu ? openCurveMenu(curve) : undefined
+            return (
+              <g key={curve.key}>
+                {/* A wide transparent stroke makes the right-click land on a
+                    thin curve reliably; only present when a menu can open. */}
+                {onContext && (
+                  <polyline
+                    data-testid={`unit-psd-hit-${curve.key}`}
+                    points={points}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={6}
+                    vectorEffect="non-scaling-stroke"
+                    style={{ pointerEvents: 'stroke', cursor: 'context-menu' }}
+                    onContextMenu={onContext}
+                  />
+                )}
+                <polyline
+                  data-testid={`unit-psd-curve-${curve.key}`}
+                  points={points}
+                  fill="none"
+                  stroke={sampleColor(curve.sampleId)}
+                  strokeWidth={1.2}
+                  strokeOpacity={0.8}
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  style={{ pointerEvents: 'visibleStroke' }}
+                  onContextMenu={onContext}
+                >
+                  <title>
+                    {`${curve.boreholeName}${curve.sampleNumber ? ` · sample ${curve.sampleNumber}` : ''} · ${curve.depthTopM.toFixed(2)}–${curve.depthBaseM.toFixed(2)} m`}
+                  </title>
+                </polyline>
+              </g>
+            )
+          })}
         </svg>
       </div>
 
@@ -229,6 +283,39 @@ export default function UnitPsdPanel({ pool }: { pool: UnitPsdPool }): JSX.Eleme
         })}
         <span className="absolute right-0">mm</span>
       </div>
+
+          {/* X axis — grain diameter, log, inverted (coarse left). */}
+          <div
+            className="ml-7 text-center text-[9px] text-text-muted"
+            data-testid="unit-psd-xaxis-label"
+          >
+            Diameter (mm)
+          </div>
+        </div>
+      </div>
+
+      {/* "Go to the sample on a cross-section" (owner 2026-08-28). The reveal
+          itself is the shell's job (``onRevealSample``); the menu just names
+          the sample and hands the curve up. Shared ContextMenu → Esc + outside
+          click dismiss, same as every other right-click menu in the app. */}
+      {menu !== null && onRevealSample && (
+        <ContextMenu
+          portal="fixed"
+          x={menu.x}
+          y={menu.y}
+          testid="unit-psd-curve-menu"
+          ariaLabel="Grain-size curve actions"
+          header={`${menu.curve.boreholeName}${menu.curve.sampleNumber ? ` · sample ${menu.curve.sampleNumber}` : ''}`}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: 'Show sample on cross-section',
+              testid: 'unit-psd-reveal-sample',
+              onClick: () => onRevealSample(menu.curve),
+            },
+          ]}
+        />
+      )}
     </div>
   )
 }
