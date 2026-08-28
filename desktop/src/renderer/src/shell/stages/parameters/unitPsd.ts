@@ -18,8 +18,18 @@ import { midpointInBand, type UnitBoreholeBandInterval } from './unitIdentificat
 
 /** One pooled grain-size curve, with what the hover needs to name it. */
 export interface UnitPsdCurve {
-  /** The grain-size test id — unique across the pool. */
+  /** The grain-size test id — unique across the pool (the React key). */
   key: string
+  /**
+   * The SAMPLE the curve belongs to. The colour key shared with the scatter
+   * dots (owner 2026-08-28): two grain-size records of one sample (sieve +
+   * hydrometer) therefore wear the sample's one colour, as do that sample's
+   * dots in the panels above.
+   */
+  sampleId: string
+  /** The hole the sample came from — the key a right-click resolves a section
+   *  to navigate to (owner 2026-08-28). */
+  boreholeId: string
   /** Cumulative points, ascending diameter, % finer (``psdCurvePoints``). */
   points: PsdPoint[]
   /** The hole the sample came from. */
@@ -86,6 +96,8 @@ export function poolUnitPsdCurves(
         }
         curves.push({
           key: test.id,
+          sampleId: sample.id,
+          boreholeId,
           points,
           boreholeName: bh.name,
           sampleNumber: sample.sample_number,
