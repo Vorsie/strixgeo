@@ -51,6 +51,7 @@ import {
   resetCameraCallback,
   resetSplitViewportCallback,
 } from './GeologyCanvas'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Geology-stage toolbar verbs wired from the ShellContext bus.
@@ -81,6 +82,7 @@ export default function GeologyToolbar(): JSX.Element {
       applyBoreholeFormationSelection,
     },
   } = useShell()
+  const t = useT()
 
   // ---------------------------------------------------------------------------
   // Local state
@@ -170,10 +172,7 @@ export default function GeologyToolbar(): JSX.Element {
         // dead end on the stage's primary entry action (§10.4 / debt #33).
         // Surface the reason AND the alternative path so the user isn't
         // stuck. ('error' is the only non-success toast type.)
-        toast(
-          'error',
-          'No borehole carries interpretation data — add formations manually in the inspector instead.',
-        )
+        toast('error', t('geology.noInterpretationData'))
         return
       }
       setCandidates(found)
@@ -294,7 +293,7 @@ export default function GeologyToolbar(): JSX.Element {
       // applyBoreholeFormationSelection logs + throws; toast the failure here
       // so the Geology stage surfaces it even when the error originates deep
       // in the hook (previously this path was silently swallowed).
-      toast('error', 'Could not apply formation selection — check the connection.')
+      toast('error', t('geology.applyFailed'))
     } finally {
       setApplying(false)
       setPendingBoreholeIds([])
@@ -312,12 +311,7 @@ export default function GeologyToolbar(): JSX.Element {
       // The server's 409 guard ("delete the dependent litho/geotech model
       // first") arrives as the Error message — show it instead of letting
       // it become a silent uncaught rejection.
-      toast(
-        'error',
-        err instanceof Error
-          ? err.message
-          : 'Could not delete the model.',
-      )
+      toast('error', err instanceof Error ? err.message : t('geology.deleteFailed'))
     } finally {
       setDeletingModel(false)
       setDeleteModelConfirmOpen(false)
@@ -336,18 +330,18 @@ export default function GeologyToolbar(): JSX.Element {
     !discovering && !applying && visibleBoreholes.length > 0
   const staleLabel =
     staleSurfaceCount > 0
-      ? `Build 3D model · ${staleSurfaceCount} stale`
-      : 'Build 3D model'
+      ? t('geology.buildStale', { n: staleSurfaceCount })
+      : t('geology.build3d')
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   const fillLabel = discovering
-    ? 'Scanning…'
+    ? t('geology.scanning')
     : applying
-      ? 'Applying…'
-      : 'Fill from boreholes'
+      ? t('geology.applying')
+      : t('geology.fillFromBoreholes')
 
   const resetView = (): void => {
     resetSplitViewportCallback.current?.()
@@ -375,7 +369,7 @@ export default function GeologyToolbar(): JSX.Element {
       label: fillLabel,
       overflowItems: [
         {
-          label: 'Fill from boreholes',
+          label: t('geology.fillFromBoreholes'),
           icon: <Sparkles size={12} />,
           onClick: () => void handleFillFromBoreholes(),
           disabled: !canFill,
@@ -392,12 +386,12 @@ export default function GeologyToolbar(): JSX.Element {
           testid="geology-fill-from-boreholes-button"
           title={
             visibleBoreholes.length === 0
-              ? 'No boreholes visible in this project'
+              ? t('geology.noBoreholesVisible')
               : discovering
-                ? 'Scanning borehole stratigraphy…'
+                ? t('geology.scanningStratigraphy')
                 : applying
-                  ? 'Applying selection…'
-                  : 'Discover formation names from borehole stratigraphy and select which to keep'
+                  ? t('geology.applyingSelection')
+                  : t('geology.fillTitle')
           }
         />
       ),
@@ -412,11 +406,11 @@ export default function GeologyToolbar(): JSX.Element {
       id: 'geology-build-model-button',
       priority: 'high',
       kind: 'button',
-      label: rebuilding ? 'Building…' : staleLabel,
+      label: rebuilding ? t('geology.building') : staleLabel,
       separatorBefore: true,
       overflowItems: [
         {
-          label: 'Build 3D model',
+          label: t('geology.build3d'),
           icon: <RefreshCw size={12} />,
           onClick: () => void handleBuild(),
           disabled: rebuilding || !hasModel || contacts.length === 0,
@@ -426,21 +420,26 @@ export default function GeologyToolbar(): JSX.Element {
         <ToolbarButton
           iconOnly={p === 'icon'}
           icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
-          label={rebuilding ? 'Building…' : staleLabel}
+          label={rebuilding ? t('geology.building') : staleLabel}
           onClick={() => void handleBuild()}
           disabled={rebuilding || !hasModel || contacts.length === 0}
           amber={staleSurfaceCount > 0 && !rebuilding && contacts.length > 0}
           testid="geology-build-model-button"
           title={
             !hasModel
-              ? 'No active stratigraphy — create formations and contacts first'
+              ? t('geology.buildNoModel')
               : contacts.length === 0
-                ? 'No contacts yet — open a cross-section, then Seed from stratigraphy on the geology axis or pick contacts manually before Build'
+                ? t('geology.buildNoContacts')
                 : rebuilding
-                  ? 'Building 3D model…'
+                  ? t('geology.building3d')
                   : staleSurfaceCount > 0
-                    ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-                    : 'Rebuild TIN surfaces from current contacts'
+                    ? t(
+                        staleSurfaceCount === 1
+                          ? 'geology.surfacesNeedRebuildOne'
+                          : 'geology.surfacesNeedRebuildMany',
+                        { n: staleSurfaceCount },
+                      )
+                    : t('geology.rebuildTins')
           }
         />
       ),
@@ -451,10 +450,10 @@ export default function GeologyToolbar(): JSX.Element {
       id: 'geology-dedupe',
       priority: 'low',
       kind: 'button',
-      label: deduping ? 'Cleaning…' : 'Dedupe',
+      label: deduping ? t('geology.cleaning') : t('geology.dedupe'),
       overflowItems: [
         {
-          label: 'Dedupe contacts…',
+          label: t('geology.dedupeContacts'),
           icon: <Eraser size={12} />,
           onClick: requestDedupe,
           disabled: !hasModel || deduping,
@@ -464,16 +463,16 @@ export default function GeologyToolbar(): JSX.Element {
         <ToolbarButton
           iconOnly={p === 'icon'}
           icon={<Eraser size={13} />}
-          label={deduping ? 'Cleaning…' : 'Dedupe'}
+          label={deduping ? t('geology.cleaning') : t('geology.dedupe')}
           onClick={requestDedupe}
           disabled={!hasModel || deduping}
           busy={deduping}
           title={
             !hasModel
-              ? 'No active stratigraphy'
+              ? t('geology.noActiveStratigraphy')
               : deduping
-                ? 'Cleaning…'
-                : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
+                ? t('geology.cleaning')
+                : t('geology.dedupeTitle')
           }
         />
       ),
@@ -486,11 +485,11 @@ export default function GeologyToolbar(): JSX.Element {
       id: 'geology-reset-view',
       priority: 'low',
       kind: 'button',
-      label: 'Reset view',
+      label: t('geology.resetView'),
       separatorBefore: true,
       overflowItems: [
         {
-          label: 'Reset 3D view',
+          label: t('geology.reset3dView'),
           icon: <RotateCcw size={12} />,
           onClick: resetView,
           disabled: !hasModel,
@@ -500,13 +499,13 @@ export default function GeologyToolbar(): JSX.Element {
         <ToolbarButton
           iconOnly={p === 'icon'}
           icon={<RotateCcw size={13} />}
-          label="Reset view"
+          label={t('geology.resetView')}
           onClick={resetView}
           disabled={!hasModel}
           title={
             !hasModel
-              ? 'No active stratigraphy'
-              : 'Reset to single 3D view and fly camera to model bounding box'
+              ? t('geology.noActiveStratigraphy')
+              : t('geology.resetViewTitle')
           }
         />
       ),
@@ -520,11 +519,11 @@ export default function GeologyToolbar(): JSX.Element {
       id: 'geology-delete-stratigraphy',
       priority: 'medium',
       kind: 'button',
-      label: deletingModel ? 'Deleting…' : 'Delete stratigraphy',
+      label: deletingModel ? t('geology.deleting') : t('geology.deleteStratigraphyShort'),
       iconOnly: false,
       overflowItems: [
         {
-          label: 'Delete stratigraphy…',
+          label: t('geology.deleteStratigraphy'),
           icon: <Trash2 size={12} />,
           onClick: requestDeleteModel,
           disabled: !hasModel || deletingModel,
@@ -533,15 +532,15 @@ export default function GeologyToolbar(): JSX.Element {
       render: () => (
         <ToolbarButton
           icon={<Trash2 size={13} />}
-          label={deletingModel ? 'Deleting…' : 'Delete stratigraphy'}
+          label={deletingModel ? t('geology.deleting') : t('geology.deleteStratigraphyShort')}
           onClick={requestDeleteModel}
           disabled={!hasModel || deletingModel}
           busy={deletingModel}
           danger
           title={
             !hasModel
-              ? 'No active stratigraphy'
-              : 'Permanently delete the active geological model and all its formations, contacts, and surfaces'
+              ? t('geology.noActiveStratigraphy')
+              : t('geology.deleteStratigraphyTitle')
           }
         />
       ),
@@ -550,7 +549,7 @@ export default function GeologyToolbar(): JSX.Element {
 
   return (
     <>
-      <ResponsiveToolbarRow items={toolbarItems} overflowMenuLabel="More geology actions" />
+      <ResponsiveToolbarRow items={toolbarItems} overflowMenuLabel={t('geology.moreActions')} />
 
       {/* Dedupe confirmation — the gate the maintenance verb never had. */}
       <DedupeContactsConfirmDialog
@@ -601,32 +600,45 @@ export default function GeologyToolbar(): JSX.Element {
         labelledBy="fill-mode-title"
         testid="fill-mode-confirm-dialog"
         cardClassName="w-[26rem]"
-        title="Add to this model, or replace it?"
+        title={t('geology.addOrReplace')}
         body={
           <>
             <p>
-              Your selection does not include{' '}
+              {t('geology.selectionExcludePrefix')}{' '}
               <span className="font-medium text-text-primary">
-                {pendingApply?.doomed.length ?? 0} unit
-                {(pendingApply?.doomed.length ?? 0) === 1 ? '' : 's'}
+                {t('geology.unitCount', {
+                  n: pendingApply?.doomed.length ?? 0,
+                  unit: t(
+                    (pendingApply?.doomed.length ?? 0) === 1
+                      ? 'geology.unitWordOne'
+                      : 'geology.unitWordMany',
+                  ),
+                })}
               </span>{' '}
-              already in this model.
+              {t('geology.selectionExcludeSuffix')}
             </p>
             <p className="mt-2">
-              <span className="font-medium text-text-primary">Add to model</span> keeps
-              them and only adds what you selected.
+              <span className="font-medium text-text-primary">{t('geology.addToModel')}</span>{' '}
+              {t('geology.addToModelExplain')}
             </p>
             <p className="mt-1 text-status-danger">
-              <span className="font-medium">Overwrite model</span> permanently removes{' '}
-              {pendingApply?.doomed.length ?? 0} unit
-              {(pendingApply?.doomed.length ?? 0) === 1 ? '' : 's'} not in your selection:{' '}
+              <span className="font-medium">{t('geology.overwriteModel')}</span>{' '}
+              {t('geology.overwriteExplainPrefix', {
+                n: pendingApply?.doomed.length ?? 0,
+                unit: t(
+                  (pendingApply?.doomed.length ?? 0) === 1
+                    ? 'geology.unitWordOne'
+                    : 'geology.unitWordMany',
+                ),
+              })}{' '}
               {(pendingApply?.doomed ?? []).map(f => f.name).join(', ')}
-              {' — '}and every contact on them.
+              {' — '}
+              {t('geology.overwriteExplainSuffix')}
             </p>
           </>
         }
         secondary={{
-          label: 'Overwrite model',
+          label: t('geology.overwriteModel'),
           variant: 'danger',
           testid: 'fill-mode-overwrite',
           onClick: () => {
@@ -635,7 +647,7 @@ export default function GeologyToolbar(): JSX.Element {
           },
         }}
         confirm={{
-          label: 'Add to model',
+          label: t('geology.addToModel'),
           variant: 'primary',
           testid: 'fill-mode-add',
           onClick: () => {
@@ -669,14 +681,13 @@ export default function GeologyToolbar(): JSX.Element {
             id="delete-model-title"
             className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1"
           >
-            Delete geological model?
+            {t('geology.deleteModelConfirm')}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             <span className="font-medium text-gray-700 dark:text-gray-200">
-              {activeGeologicalModel?.name ?? 'This model'}
+              {activeGeologicalModel?.name ?? t('geology.thisModel')}
             </span>{' '}
-            and all its formations, contacts, and cached surfaces will be
-            permanently deleted. This cannot be undone.
+            {t('geology.deleteModelBody')}
           </p>
           <div className="flex justify-end gap-2">
             {/* Cancel has default focus — safe default for an irreversible confirm
@@ -692,7 +703,7 @@ export default function GeologyToolbar(): JSX.Element {
               onClick={() => setDeleteModelConfirmOpen(false)}
               disabled={deletingModel}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
@@ -700,7 +711,7 @@ export default function GeologyToolbar(): JSX.Element {
               onClick={() => void confirmDeleteModel()}
               disabled={deletingModel}
             >
-              {deletingModel ? 'Deleting…' : 'Delete geological model'}
+              {deletingModel ? t('geology.deleting') : t('geology.deleteModelButton')}
             </Button>
           </div>
         </div>
