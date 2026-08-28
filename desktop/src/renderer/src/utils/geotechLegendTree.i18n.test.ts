@@ -76,8 +76,8 @@ describe('buildGeotechLegendTree under NL', () => {
     setLanguage('nl')
     const tree = buildGeotechLegendTree(formations, solids)
     const zand = tree.find(f => f.label === 'ZAND')!
-    // NAD 6 = "ZAND, matig gp" → packing phrase "matig gp".
-    expect(zand.classes.map(c => c.label)).toEqual(['matig gp'])
+    // NAD 6 = "ZAND, matig gepakt" → packing phrase "matig gepakt".
+    expect(zand.classes.map(c => c.label)).toEqual(['matig gepakt'])
   })
 
   it('GTNL4 — the same tree in English is unchanged (parity)', () => {

@@ -33,7 +33,7 @@ import { NAD_CLASS_ABBR_NL, NAD_CLASS_NAMES_NL } from './nadClassesNl'
 
 describe('NL display — the backend Dutch source token is selected, not English', () => {
   it('I1 — nadClassName renders the canonical Dutch label under nl', () => {
-    expect(nadClassName(6, 'nl')).toBe('ZAND, matig gp')
+    expect(nadClassName(6, 'nl')).toBe('ZAND, matig gepakt')
     expect(nadClassName(21, 'nl')).toBe('KLEI, weinig vast')
     expect(nadClassName(31, 'nl')).toBe('VEEN, vast')
   })
@@ -55,8 +55,8 @@ describe('NL display — the backend Dutch source token is selected, not English
   })
 
   it('I5 — nadPackingLabel is the packing phrase without the soil word', () => {
-    expect(nadPackingLabel(6, 'nl')).toBe('matig gp')
-    expect(nadPackingLabel(10, 'nl')).toBe('silt-/kleihoudend, matig gp')
+    expect(nadPackingLabel(6, 'nl')).toBe('matig gepakt')
+    expect(nadPackingLabel(10, 'nl')).toBe('silt-/kleihoudend, matig gepakt')
   })
 
   it('I6 — geotechUnitSoil agrees between a classified unit and its skeleton', () => {
@@ -69,7 +69,7 @@ describe('NL display — the backend Dutch source token is selected, not English
 
   it('I7 — geotechUnitLabel: full Dutch name classified, soil + qualifier when not', () => {
     expect(geotechUnitLabel({ nad_class: 6, litho_main_soil_code: 'ZAND' }, null, 'nl')).toBe(
-      'ZAND, matig gp',
+      'ZAND, matig gepakt',
     )
     expect(geotechUnitLabel({ nad_class: null, litho_main_soil_code: 'ZAND' }, null, 'nl')).toBe(
       'ZAND — nog niet ingedeeld',
