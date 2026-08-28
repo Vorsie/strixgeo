@@ -71,10 +71,12 @@ import BoreholeColumn from './sections/BoreholeColumn'
 import CanvasHints from './sections/CanvasHints'
 import ColumnContextMenu from './sections/ColumnContextMenu'
 import ColumnFindBar from './sections/ColumnFindBar'
+import GapRevealFlash from './sections/GapRevealFlash'
 import { panViewportToScreenX, type ColumnFindEntry } from './sections/columnFind'
 import type { SectionColumnRevealFn } from './sections/sectionColumnReveal'
 import { resolveColumnReveal } from './sections/resolveColumnReveal'
 import { useColumnFindHotkey } from './sections/useColumnFindHotkey'
+import { useSectionGapReveal } from './sections/useSectionGapReveal'
 import { buildRemoveFromSectionCommand } from './sections/removeFromSectionCommand'
 import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer, {
@@ -1063,6 +1065,7 @@ export default function SectionPanel({
   // the highlight lands on the column's POST-pan position, not where it was.
   const [findFlashId, setFindFlashId] = useState<string | null>(null)
   const findFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { gapFlashInvestigationIds, flashGap } = useSectionGapReveal()
   // Which correlation edge to flash after the pending-tie chip centred it
   // (owner ask 2026-08-25). Same shape and same lifetime as the Ctrl+F column
   // flash above — a brief pulse so the eye lands with the camera — and declared
@@ -2173,7 +2176,7 @@ export default function SectionPanel({
   // perform. Reuses the one-shot slide the Ctrl+F find uses, so the jump keeps
   // whatever zoom the engineer had set.
   const revealColumns = useCallback<SectionColumnRevealFn>(
-    ({ investigationIds, flashEdgeId: edgeId, flashColumnId }) => {
+    ({ investigationIds, flashEdgeId: edgeId, flashColumnId, flashGapInvestigationIds }) => {
       const { centreX, missingInvestigationIds } = resolveColumnReveal(
         investigationIds,
         visibleColumns.map(c => ({ id: c.proj.item.id, nudgedX: c.nudgedX })),
@@ -2195,9 +2198,12 @@ export default function SectionPanel({
         if (findFlashTimer.current !== null) clearTimeout(findFlashTimer.current)
         findFlashTimer.current = setTimeout(() => setFindFlashId(null), FLASH_HIGHLIGHT_MS)
       }
+      if (flashGapInvestigationIds !== undefined) {
+        flashGap(flashGapInvestigationIds)
+      }
       return { revealed: true, missingInvestigationIds }
     },
-    [visibleColumns, plotWidth, scaleH],
+    [visibleColumns, plotWidth, scaleH, flashGap],
   )
 
   // Publish it into the caller's slot. A ref, not a callback prop: this
@@ -3890,6 +3896,12 @@ export default function SectionPanel({
                   />
                 )
               })()}
+            <GapRevealFlash
+              investigationIds={gapFlashInvestigationIds}
+              placedColumns={visibleColumns}
+              plotTop={MARGIN.top}
+              plotHeight={plotHeight}
+            />
           </svg>
         )}
         {!size && (
