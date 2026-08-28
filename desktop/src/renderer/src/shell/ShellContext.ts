@@ -259,9 +259,17 @@ export interface Coordinator {
     sectionId: string
     contactIds: readonly string[]
     /**
-     * Investigation whose COLUMN to centre + pulse once the section is open —
-     * the Geotechnical stage's Build pre-flight sends this so "go to that test
-     * through one click" (owner ruling 2026-08-26) lands on the column itself.
+     * Investigations whose COLUMNS to bring on screen once the section is open.
+     *
+     * ONE id is the Build pre-flight's "go to that test through one click"
+     * (owner ruling 2026-08-26): centre that column and pulse it.
+     *
+     * TWO ids name a GAP by the columns it stands between — the gapless build
+     * report's "Show me" (owner dogfeed 2026-08-28: *"the show me button opens
+     * section but doesn't zoom to issue"*). The section panel centres on the
+     * midpoint of their span, which IS the gap. Names travel, never a gap
+     * index: an index is only valid on the litho frame's column list, and on
+     * the geotech axis's own ``visibleColumns`` it is a different gap.
      *
      * It rides the SAME payload as the contact deep-link because it wants the
      * same three steps: switch stage, select section, act once the panel has
@@ -269,14 +277,14 @@ export interface Coordinator {
      * ``contactIds`` is empty here, and ``handleFocusContacts`` no-ops on an
      * empty list, so the two paths cannot fight over the camera.
      */
-    revealInvestigationId?: string
+    revealInvestigationIds?: readonly string[]
   } | null
   /** Set or clear the sections deep-link target. */
   setSectionsDeepLinkTarget: (
     target: {
       sectionId: string
       contactIds: readonly string[]
-      revealInvestigationId?: string
+      revealInvestigationIds?: readonly string[]
     } | null,
   ) => void
   /**
