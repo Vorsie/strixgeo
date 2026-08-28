@@ -49,8 +49,10 @@ import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/b
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import { formationsYoungestFirst } from '../../../utils/formationOrder'
-import { formatLithoDisplayName } from '../../../utils/lithoLabels'
+import { lithoDisplayName } from '../../../utils/lithoLabels'
 import { isGeotechUnit } from '../../../utils/formationKind'
+import { useT } from '../../../i18n/translate'
+import { useLanguage } from '../../../i18n/languageSelect'
 import { buildGeotechLegendTree } from '../../../utils/geotechLegendTree'
 import type { FencePanel } from '../../../utils/fencePanels'
 import { BasemapPanel } from './BasemapPanel'
@@ -295,6 +297,10 @@ export default function Geology3DViewer({
   onEnterCompare,
   chromeless = false,
 }: Geology3DViewerProps): JSX.Element {
+  const t = useT()
+  // Subscribe to the interface language so the legend re-renders — and the
+  // domain-label memos below recompute — the instant the Settings toggle flips.
+  const lang = useLanguage()
   // Camera link for compare mode: the primary pane leads, the compare pane
   // follows. Refs, not state — the camera moves many times per second and
   // routing it through React would re-render both panes on every mouse move.
@@ -399,7 +405,10 @@ export default function Geology3DViewer({
       formations.some(isGeotechUnit)
         ? buildGeotechLegendTree(formations, bodySolids ?? [], fencePanels)
         : null,
-    [formations, bodySolids, fencePanels],
+    // ``lang`` is a dep because the tree's labels come from language-aware
+    // helpers (``buildGeotechLegendTree`` reads the active language internally);
+    // without it the legend would keep its old-language labels after a flip.
+    [formations, bodySolids, fencePanels, lang],
   )
   // Basemap on/off (the user toggle). Default on.
   const [basemapEnabled, setBasemapEnabled] = useState(true)
@@ -539,7 +548,7 @@ export default function Geology3DViewer({
             className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg px-2 py-0.5 text-[11px] font-semibold text-text-primary pointer-events-none"
             data-testid="geology3d-compare-label-primary"
           >
-            This model
+            {t('geology.thisModel')}
           </div>
         )}
 
@@ -556,11 +565,7 @@ export default function Geology3DViewer({
             data-testid="geology3d-offline-banner"
           >
             <span aria-hidden="true">⚠</span>
-            <span>
-              Offline — basemap unavailable. Formation geometry is
-              still rendered; the globe will repaint when the network
-              returns.
-            </span>
+            <span>{t('geology.offlineBasemap')}</span>
           </div>
         )}
 
@@ -577,7 +582,7 @@ export default function Geology3DViewer({
         {!chromeless && (
           <div className="absolute top-2 left-2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg max-w-[16rem] py-1 text-xs">
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">
-              Layers
+              {t('geology.layers')}
             </div>
             <ul className="max-h-[60vh] overflow-y-auto">
               <li>
@@ -585,7 +590,7 @@ export default function Geology3DViewer({
                   type="button"
                   onClick={() => setBasemapEnabled(v => !v)}
                   className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${!basemapEnabled ? 'opacity-50' : ''}`}
-                  title={basemapEnabled ? 'Hide basemap' : 'Show basemap'}
+                  title={basemapEnabled ? t('geology.hideBasemap') : t('geology.showBasemap')}
                 >
                   <span
                     className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default bg-text-secondary"
@@ -593,7 +598,7 @@ export default function Geology3DViewer({
                   <span
                     className={`truncate ${!basemapEnabled ? 'line-through text-text-muted' : 'text-text-primary'}`}
                   >
-                    Basemap
+                    {t('geology.basemap')}
                   </span>
                 </button>
               </li>
@@ -606,7 +611,11 @@ export default function Geology3DViewer({
                     type="button"
                     onClick={() => setGroundSurfaceVisible(v => !v)}
                     className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${!groundSurfaceVisible ? 'opacity-50' : ''}`}
-                    title={groundSurfaceVisible ? 'Hide ground surface' : 'Show ground surface'}
+                    title={
+                      groundSurfaceVisible
+                        ? t('geology.hideGroundSurface')
+                        : t('geology.showGroundSurface')
+                    }
                   >
                     <span
                       className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default"
@@ -619,7 +628,7 @@ export default function Geology3DViewer({
                     <span
                       className={`truncate ${!groundSurfaceVisible ? 'line-through text-text-muted' : 'text-text-primary'}`}
                     >
-                      {GROUND_SURFACE_LEGEND.label}
+                      {t('geology.groundSurface')}
                     </span>
                   </button>
                   {groundSurfaceVisible && daylightCaption && (
@@ -657,7 +666,7 @@ export default function Geology3DViewer({
                       type="button"
                       onClick={() => toggleFormation(f.id)}
                       className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${hidden ? 'opacity-50' : ''}`}
-                      title={hidden ? 'Show in 3D' : 'Hide in 3D'}
+                      title={hidden ? t('geology.showIn3d') : t('geology.hideIn3d')}
                     >
                       <span
                         className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default"
@@ -671,7 +680,7 @@ export default function Geology3DViewer({
                             formations have null litho_main_soil_code and fall back to
                             their plain name. */}
                         {f.litho_main_soil_code != null
-                          ? formatLithoDisplayName(
+                          ? lithoDisplayName(
                               f.litho_main_soil_code,
                               f.litho_admixtures ?? [],
                             )
@@ -695,10 +704,10 @@ export default function Geology3DViewer({
               type="button"
               onClick={() => onExitSplit?.()}
               className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page transition-colors shadow-lg"
-              title="Collapse back to a single view"
+              title={t('geology.singleViewHint')}
               data-testid="geology3d-single-view-button"
             >
-              Single view
+              {t('geology.singleView')}
             </button>
           ) : splitArmed ? (
             <button
@@ -708,9 +717,9 @@ export default function Geology3DViewer({
                 setDrawState({ phase: 'idle' })
               }}
               className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-secondary hover:bg-surface-page transition-colors shadow-lg"
-              title="Cancel the split-line draw"
+              title={t('geology.cancelSplitHint')}
             >
-              Cancel split
+              {t('geology.cancelSplit')}
             </button>
           ) : (
             <button
@@ -720,9 +729,9 @@ export default function Geology3DViewer({
                 setDrawState({ phase: 'idle' })
               }}
               className="px-3 py-1.5 rounded text-xs font-semibold bg-accent text-text-on-accent hover:bg-accent-muted transition-colors shadow-lg"
-              title="Draw a line across the model to split it into two independently-panned views"
+              title={t('geology.drawSplitLine')}
             >
-              ✂ Split model
+              ✂ {t('geology.splitModel')}
             </button>
           )}
           {/* Compare — the OTHER kind of two-pane view: two different models,
@@ -734,10 +743,10 @@ export default function Geology3DViewer({
               type="button"
               onClick={() => onEnterCompare?.()}
               className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page transition-colors shadow-lg"
-              title={`Show ${compareScene?.label} beside this model at the same viewpoint`}
+              title={t('geology.compareWithHint', { label: compareScene?.label ?? '' })}
               data-testid="geology3d-compare-button"
             >
-              ⇹ Compare with {compareScene?.label}
+              ⇹ {t('geology.compareWith', { label: compareScene?.label ?? '' })}
             </button>
           )}
         </div>
@@ -747,8 +756,8 @@ export default function Geology3DViewer({
         {!chromeless && isDrawMode && (
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-2 py-1 rounded pointer-events-none">
             {drawState.phase === 'idle'
-              ? 'Click two points to draw a split line'
-              : 'Click the second point to complete the split line'}
+              ? t('geology.drawSplitFirst')
+              : t('geology.drawSplitSecond')}
           </div>
         )}
       </div>
