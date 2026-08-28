@@ -39,6 +39,7 @@ import type {
 import LithologyCanvas, {
   resetLithoSplitViewportCallback,
   lithoVoxelRequestCallback,
+  lithoFenceExportCallback,
 } from './LithologyCanvas'
 
 // ---------------------------------------------------------------------------
@@ -980,4 +981,78 @@ describe('LithologyCanvas voxel Build wiring (Task 5)', () => {
 type VoxelBuildRequestResult =
   | Awaited<ReturnType<NonNullable<typeof lithoVoxelRequestCallback.current>>>
   | undefined
+
+// ---------------------------------------------------------------------------
+// Module-ref cleanup on unmount (debt #276)
+//
+// The canvas ⟷ toolbar bridges are module-level refs the canvas writes every
+// render. Debt #276: most were never nulled on unmount, so "a toolbar click
+// that fires after the canvas unmounted [ran] against a destroyed view".
+// Two properties are pinned here, in the debt entry's own words:
+//   (1) the ref is null after the owning canvas unmounts, so a toolbar click
+//       after a stage switch is a no-op, not a call against a destroyed view;
+//   (2) the MOUNT-ORDER guard: React can mount a replacement canvas before it
+//       runs the previous one's cleanup (both stages can also be alive at once
+//       in the split viewport), so an older instance's unmount must NOT null a
+//       ref a newer instance has already claimed.
+// ---------------------------------------------------------------------------
+
+describe('LithologyCanvas module-ref cleanup on unmount (#276)', () => {
+  function mountedCtx(): ShellContextValue {
+    return makeCtx({
+      hasLithoSolids: true,
+      lithoSolids: [makeSolid('b-1', 'ZAND')],
+      visibleSections: [makeSection('sec-1')],
+      visibleCpts: [makeCpt('A', 200000, 200000), makeCpt('B', 201000, 200000)],
+      lithoLayers: [
+        makeLithoLayer('a1', 'A', 'ZAND', 'z'),
+        makeLithoLayer('b1', 'B', 'ZAND', 'z'),
+      ],
+    })
+  }
+
+  // U1 — the split-viewport ref (never nulled before this fix). A Reset click
+  // after the canvas unmounts must not run against a destroyed view.
+  it('U1 — split-viewport ref is null after the canvas unmounts', () => {
+    const r = renderCanvas(mountedCtx())
+    expect(resetLithoSplitViewportCallback.current).not.toBeNull()
+    r.unmount()
+    expect(resetLithoSplitViewportCallback.current).toBeNull()
+  })
+
+  // U2 — the voxel-build ref. A "Build model" click after the canvas unmounts
+  // must not build a destroyed view's partition.
+  it('U2 — voxel-request ref is null after the canvas unmounts', () => {
+    const r = renderCanvas(mountedCtx())
+    expect(lithoVoxelRequestCallback.current).not.toBeNull()
+    r.unmount()
+    expect(lithoVoxelRequestCallback.current).toBeNull()
+  })
+
+  // U3 — the mount-order guard. Mount A, mount B, unmount A → the ref must
+  // still hold B's callback (an older canvas cannot wipe a newer one's claim).
+  it('U3 — an older canvas unmount does not wipe a ref the newer canvas claimed', () => {
+    const rA = renderCanvas(mountedCtx())
+    const aBuilder = lithoVoxelRequestCallback.current
+    const rB = renderCanvas(mountedCtx())
+    const bBuilder = lithoVoxelRequestCallback.current
+    expect(bBuilder).not.toBe(aBuilder)
+    rA.unmount()
+    expect(lithoVoxelRequestCallback.current).toBe(bBuilder)
+    rB.unmount()
+    expect(lithoVoxelRequestCallback.current).toBeNull()
+  })
+
+  // U4 — the fence-export ref (the precedent this fix generalises). Populated
+  // only in Fence mode; still must be nulled on unmount.
+  it('U4 — fence-export ref is null after the canvas unmounts', async () => {
+    const r = renderCanvas(mountedCtx())
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
+    })
+    expect(lithoFenceExportCallback.current).not.toBeNull()
+    r.unmount()
+    expect(lithoFenceExportCallback.current).toBeNull()
+  })
+})
 
