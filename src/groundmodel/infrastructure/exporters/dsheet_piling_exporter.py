@@ -79,6 +79,7 @@ from groundmodel.application.section_polygon_set import (
     SectionPolygonSet,
     SectionPolygonUnit,
 )
+from groundmodel.infrastructure.exporters.ascii_fold import ascii_fold
 from groundmodel.infrastructure.exporters.dsheet_piling_exporter_constants import (
     DEFAULT_SAMPLE_FRACTION,
     MIN_LAYER_THICKNESS_M,
@@ -262,13 +263,19 @@ class DSheetPilingExporter(SectionGeometryExporter):
         along_m: float,
     ) -> None:
         """Write the provenance + TODO lines into the ``.shi``, within budget."""
+        # ASCII-folded: the .shi is cp1252, but every reader picks its own
+        # encoding — GEOLib's own parser opens it with the ambient locale, so a
+        # section named "A–A'" (EN DASH, cp1252 byte 0x96) parses on Windows
+        # and dies with UnicodeDecodeError anywhere UTF-8 is the default.
+        # Found by CI on Linux, Actions run 33135927403. These are free-text
+        # provenance labels, so folding them costs nothing a reader needs.
         lines = (
             RUN_LINE_PROVENANCE.format(
-                project_name=polygons.project_name,
-                section_name=polygons.section_name,
+                project_name=ascii_fold(polygons.project_name),
+                section_name=ascii_fold(polygons.section_name),
                 along_m=along_m,
                 fraction=fraction,
-                datum=polygons.vertical_datum_label,
+                datum=ascii_fold(polygons.vertical_datum_label),
             ),
             RUN_LINE_MISSING_INPUTS.format(water_level_name=TODO_WATER_LEVEL_NAME),
             RUN_LINE_PARAMETERS,
