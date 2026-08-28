@@ -82,7 +82,11 @@ class CrossSectionRepository(GroundModelLogger):
         )
         self._session.add(section)
         await self._session.flush()
-        self.success(f"Cross-section created: {section.id} — {name}")
+        # Id at SUCCESS, name at DEBUG: a section name commonly echoes a site
+        # ("Kaai 42 A-A'"), so it must not sit on an always-on line in the
+        # unredacted ``backend.log``.
+        self.success(f"Cross-section created: {section.id}")
+        self.debug(f"Cross-section created: {section.id} — name {name!r}")
         return section
 
     async def list_all(self, app_project_id: UUID) -> list[CrossSectionOrm]:
