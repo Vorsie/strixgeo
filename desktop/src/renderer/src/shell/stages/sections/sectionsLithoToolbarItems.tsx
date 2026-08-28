@@ -38,6 +38,7 @@ export type { LithoToolbarItemsDeps, SectionSuggestAnchor } from './sectionsLith
  */
 export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItemSpec[] {
   const {
+    t,
     isLitho,
     hasSection,
     activeLithoModel,
@@ -66,10 +67,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
 
   const suggestLabel =
     lithoSuggesting || bulkLithoSuggesting
-      ? 'Suggesting…'
+      ? t('sections.busy.suggesting')
       : suggestPrimaryMode === 'all'
-        ? `Suggest all${bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''}`
-        : 'Suggest'
+        ? `${t('sections.litho.suggestAll')}${bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''}`
+        : t('sections.litho.suggest')
 
   const lithoSuggestMenuItems = buildLithoSuggestMenuItems(deps)
   const lithoCorrelateMenuItems = buildLithoCorrelateMenuItems(deps)
@@ -127,16 +128,20 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
             busy={lithoSuggesting || bulkLithoSuggesting}
             title={
               !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
+                ? t('sections.litho.createModelFirst')
                 : !hasSection
-                  ? 'Open a cross-section to use Suggest'
+                  ? t('sections.litho.openSectionSuggest')
                   : lithoSuggesting
-                    ? 'Fetching suggestions…'
+                    ? t('sections.litho.fetchingSuggestions')
                     : suggestPrimaryMode === 'all'
-                      ? `Right-click a column to focus one, or click to suggest layers for every investigation in this section (${bulkAnchors.length})`
+                      ? t('sections.litho.suggestAllTitle', { n: bulkAnchors.length })
                       : suggestPrimaryMode === 'disabled'
-                        ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest'
-                        : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
+                        ? t('sections.litho.suggestFocusHint')
+                        : t('sections.litho.suggestForColumn', {
+                            column:
+                              sectionFocusedColumn?.name ??
+                              t('sections.litho.theFocusedInvestigation'),
+                          })
             }
             testid="litho-suggest"
             items={lithoSuggestMenuItems}
@@ -154,10 +159,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               id: 'litho-accept-all',
               priority: 'high' as const,
               kind: 'button' as const,
-              label: acceptingAll ? 'Accepting…' : 'Accept all',
+              label: acceptingAll ? t('sections.busy.accepting') : t('sections.litho.acceptAll'),
               overflowItems: [
                 {
-                  label: 'Accept all suggestions',
+                  label: t('sections.toolbar.acceptAllSuggestions'),
                   icon: <Sparkles size={12} />,
                   onClick: () => void handleAcceptAll(),
                   disabled: acceptingAll,
@@ -167,7 +172,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
                 /* Accept all pending (non-rejected) layers in one bulk call. */
                 <ToolbarButton
                   icon={<Sparkles size={13} />}
-                  label={acceptingAll ? 'Accepting…' : 'Accept all'}
+                  label={acceptingAll ? t('sections.busy.accepting') : t('sections.litho.acceptAll')}
                   iconOnly={p === 'icon'}
                   onClick={() => void handleAcceptAll()}
                   disabled={acceptingAll}
@@ -175,8 +180,8 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
                   testid="litho-accept-all"
                   title={
                     acceptingAll
-                      ? 'Committing all suggestion layers…'
-                      : 'Accept all non-rejected suggestion layers as lithostratigraphic contacts'
+                      ? t('sections.litho.committingSuggestions')
+                      : t('sections.litho.acceptAllTitle')
                   }
                 />
               ),
@@ -185,10 +190,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               id: 'litho-clear',
               priority: 'high' as const,
               kind: 'button' as const,
-              label: 'Clear',
+              label: t('sections.litho.clear'),
               overflowItems: [
                 {
-                  label: 'Clear litho suggestions',
+                  label: t('sections.toolbar.clearLithoSuggestions'),
                   icon: <Eraser size={12} />,
                   onClick: clearLithoSuggestions,
                 },
@@ -196,10 +201,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               render: (p: 'full' | 'compact' | 'icon') => (
                 <ToolbarButton
                   icon={<Eraser size={13} />}
-                  label="Clear"
+                  label={t('sections.litho.clear')}
                   iconOnly={p === 'icon'}
                   onClick={clearLithoSuggestions}
-                  title="Dismiss the current litho suggestion overlay"
+                  title={t('sections.toolbar.dismissLithoGhost')}
                 />
               ),
             },
@@ -211,10 +216,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               id: 'litho-accept-all-bulk',
               priority: 'high' as const,
               kind: 'button' as const,
-              label: acceptingAllBulk ? 'Accepting…' : 'Accept all (bulk)',
+              label: acceptingAllBulk ? t('sections.busy.accepting') : t('sections.litho.acceptAllBulk'),
               overflowItems: [
                 {
-                  label: 'Accept all bulk suggestions',
+                  label: t('sections.toolbar.acceptAllBulkSuggestions'),
                   icon: <Sparkles size={12} />,
                   onClick: () => void handleAcceptAllBulk(),
                   disabled: acceptingAllBulk,
@@ -223,7 +228,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               render: (p: 'full' | 'compact' | 'icon') => (
                 <ToolbarButton
                   icon={<Sparkles size={13} />}
-                  label={acceptingAllBulk ? 'Accepting…' : 'Accept all (bulk)'}
+                  label={acceptingAllBulk ? t('sections.busy.accepting') : t('sections.litho.acceptAllBulk')}
                   iconOnly={p === 'icon'}
                   onClick={() => void handleAcceptAllBulk()}
                   disabled={acceptingAllBulk}
@@ -231,8 +236,15 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
                   testid="litho-accept-all-bulk"
                   title={
                     acceptingAllBulk
-                      ? 'Committing all bulk suggestion layers…'
-                      : `Accept every non-rejected suggestion across all ${bulkAnchorCount} bulk-ghost investigation${bulkAnchorCount === 1 ? '' : 's'}`
+                      ? t('sections.litho.committingBulk')
+                      : t('sections.litho.acceptAllBulkTitle', {
+                          n: bulkAnchorCount,
+                          investigation: t(
+                            bulkAnchorCount === 1
+                              ? 'sections.litho.investigationOne'
+                              : 'sections.litho.investigationMany',
+                          ),
+                        })
                   }
                 />
               ),
@@ -241,10 +253,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               id: 'litho-clear-bulk',
               priority: 'high' as const,
               kind: 'button' as const,
-              label: 'Clear bulk',
+              label: t('sections.litho.clearBulk'),
               overflowItems: [
                 {
-                  label: 'Clear bulk ghost overlays',
+                  label: t('sections.toolbar.clearBulkGhosts'),
                   icon: <Eraser size={12} />,
                   onClick: clearBulkLithoGhosts,
                 },
@@ -252,10 +264,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               render: (p: 'full' | 'compact' | 'icon') => (
                 <ToolbarButton
                   icon={<Eraser size={13} />}
-                  label="Clear bulk"
+                  label={t('sections.litho.clearBulk')}
                   iconOnly={p === 'icon'}
                   onClick={clearBulkLithoGhosts}
-                  title="Dismiss the bulk-suggest ghost overlays for every investigation"
+                  title={t('sections.toolbar.dismissBulkGhosts')}
                 />
               ),
             },
@@ -279,12 +291,12 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         id: 'correlate-mode',
         priority: 'high',
         kind: 'split',
-        label: correlateMode ? 'Correlate · click 2 bands' : 'Correlate',
+        label: correlateMode ? t('sections.litho.correlateActive') : t('sections.litho.correlate'),
         iconOnly: false,
         overflowItems: [
           {
             icon: <GitMerge size={12} />,
-            label: correlateMode ? 'Exit correlate mode' : 'Enter correlate mode',
+            label: correlateMode ? t('sections.litho.exitCorrelate') : t('sections.litho.enterCorrelate'),
             onClick: () => (correlateMode ? exitCorrelateMode() : enterCorrelateMode()),
             disabled:
               !activeLithoModel || !hasSection || (!correlateMode && !sectionHasLithoContacts),
@@ -295,7 +307,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
           <SplitToolbarButton
             iconOnly={p === 'icon'}
             icon={<GitMerge size={13} />}
-            label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate'}
+            label={correlateMode ? t('sections.litho.correlateActive') : t('sections.litho.correlate')}
             onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
             // While correlate mode is on, keep the primary clickable so
             // the user can exit even with 0 contacts on the section
@@ -308,14 +320,14 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
             }
             title={
               !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
+                ? t('sections.litho.createModelFirst')
                 : !hasSection
-                  ? 'Open a cross-section to correlate units'
+                  ? t('sections.litho.openSectionCorrelate')
                   : !correlateMode && !sectionHasLithoContacts
-                    ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                    ? t('sections.litho.acceptFirstToCorrelate')
                     : correlateMode
-                      ? 'Exit correlate mode (Esc)'
-                      : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
+                      ? t('sections.litho.exitCorrelateEsc')
+                      : t('sections.litho.enterCorrelateTitle')
             }
             amber={correlateMode}
             testid="correlate-mode"
@@ -337,18 +349,18 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         id: 'litho-bodies-dropdown',
         priority: 'medium',
         kind: 'dropdown',
-        label: 'Bodies',
+        label: t('sections.toolbar.bodies'),
         overflowItems: lithoBodiesMenuItems,
         render: p => (
           <ToolbarDropdown
             iconOnly={p === 'icon'}
             icon={<Layers size={13} />}
-            label="Bodies"
+            label={t('sections.toolbar.bodies')}
             disabled={!activeLithoModel}
             title={
               !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : 'Detect, suggest, materialise, or clear body (lens) wedges'
+                ? t('sections.litho.createModelFirst')
+                : t('sections.litho.bodiesTitle')
             }
             testid="litho-bodies-dropdown"
             items={lithoBodiesMenuItems}
@@ -368,18 +380,18 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         id: 'litho-admixtures-dropdown',
         priority: 'low',
         kind: 'dropdown',
-        label: 'Admixtures',
+        label: t('sections.toolbar.admixtures'),
         overflowItems: lithoAdmixtureMenuItems,
         render: p => (
           <ToolbarDropdown
             iconOnly={p === 'icon'}
             icon={<FlaskConical size={13} />}
-            label="Admixtures"
+            label={t('sections.toolbar.admixtures')}
             disabled={cptGhostCount === 0 && boreholeGhostCount === 0}
             title={
               cptGhostCount === 0 && boreholeGhostCount === 0
-                ? 'Suggest litho layers first — admixture edits act on ghost suggestions'
-                : 'Strip or reseed admixtures on the current ghost suggestions'
+                ? t('sections.litho.admixturesDisabled')
+                : t('sections.litho.admixturesTitle')
             }
             testid="litho-admixtures-dropdown"
             items={lithoAdmixtureMenuItems}
