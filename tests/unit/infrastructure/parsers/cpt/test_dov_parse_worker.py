@@ -125,15 +125,22 @@ def test_real_process_pool_roundtrip_matches_inline():
     (→ Arrow IPC) + by-value enums + ValidationIssue list — was previously
     unverified. ``asyncio.gather(return_exceptions=True)`` swallows a
     PicklingError as a per-CPT "download failed", which would present as
-    silent data loss. This pins that path on Windows ``spawn`` semantics.
+    silent data loss. This pins ``spawn`` semantics on every platform —
+    spawn is what production uses (``api/main.py`` passes an explicit spawn
+    context: Linux's fork default deadlocks under a threaded parent, which
+    is exactly how this test hung the first Linux CI run — faulthandler
+    dump in Actions run 33115778146).
     """
+    import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
     xml = _xml(rows=_row("0.50", qc="3.2", fs="45", u="12"))
     compressed = _compress(xml)
 
     inline = parse_cpt_xml(compressed, "POOL-CPT")
-    with ProcessPoolExecutor(max_workers=1) as pool:
+    with ProcessPoolExecutor(
+        max_workers=1, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
         pooled = pool.submit(parse_cpt_xml, compressed, "POOL-CPT").result(timeout=60)
 
     # Salient header fields survive the spawn + pickle round-trip.
