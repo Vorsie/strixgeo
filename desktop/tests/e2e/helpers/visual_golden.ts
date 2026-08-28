@@ -66,49 +66,6 @@ export const WEBGL_MAX_DIFF_PIXEL_RATIO = 0.02
 export const CESIUM_SETTLE_MS = 4_000
 
 /**
- * Run one teardown step under its own budget, logging what it cost.
- *
- * WHY: a ``finally`` block that hangs silently burns the WHOLE test timeout
- * and reports as "test timeout" at whatever line the body last touched — the
- * failure looks like a slow assertion when it is really a stuck teardown.
- * Both golden specs consumed their entire budget that way (300 s and then
- * 600 s, reaching the screenshot in both). Bounding each step turns a hang
- * into a named, timed log line instead of a mystery.
- *
- * Never throws: a teardown failure must not mask the real assertion failure.
- *
- * Parameters
- * ----------
- * label
- *     Step name for the log line.
- * budgetMs
- *     How long the step may take before it is abandoned.
- * work
- *     The step itself.
- */
-export async function timedTeardownStep(
-  label: string,
-  budgetMs: number,
-  work: () => Promise<unknown>,
-): Promise<void> {
-  const started = Date.now()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([
-      work(),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`exceeded ${budgetMs} ms`)), budgetMs)
-      }),
-    ])
-    console.log(`[teardown] ${label}: ${Date.now() - started} ms`)
-  } catch (err) {
-    console.log(`[teardown] ${label}: ABANDONED after ${Date.now() - started} ms — ${String(err)}`)
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
-}
-
-/**
  * The pinned window size every pixel golden renders at.
  *
  * The Electron window's bounds are NOT deterministic across launches (the
