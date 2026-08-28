@@ -12,6 +12,7 @@ import ConfirmDialog from '../../../components/ui/ConfirmDialog'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import type { CrossSectionResponse } from '../../../api/client'
+import { useT } from '../../../i18n/translate'
 
 /** What the toolbar's dialog stack needs to render + resolve each modal. */
 export interface SectionsToolbarDialogsProps {
@@ -108,6 +109,7 @@ export default function SectionsToolbarDialogs({
   onResetBoundariesCancel,
   onResetBoundariesConfirm,
 }: SectionsToolbarDialogsProps): JSX.Element {
+  const t = useT()
   return (
     <>
       <ReportMetadataDialog
@@ -143,14 +145,13 @@ export default function SectionsToolbarDialogs({
             id="delete-section-title"
             className="text-sm font-semibold text-text-primary mb-1"
           >
-            Delete cross-section?
+            {t('sections.deleteConfirm')}
           </h2>
           <p className="text-xs text-text-muted mb-4">
             <span className="font-medium text-text-secondary">
-              {selectedSection?.name ?? 'This section'}
+              {selectedSection?.name ?? t('sections.dialog.thisSection')}
             </span>{' '}
-            will be permanently deleted. Formation contacts placed on it are also removed.
-            This cannot be undone.
+            {t('sections.dialog.deleteBody')}
           </p>
           <div className="flex justify-end gap-2">
             {/* Cancel has default focus (autoFocus) — the safe default
@@ -166,7 +167,7 @@ export default function SectionsToolbarDialogs({
               onClick={onDeleteCancel}
               disabled={deleting}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
@@ -174,7 +175,7 @@ export default function SectionsToolbarDialogs({
               onClick={onDeleteConfirm}
               disabled={deleting}
             >
-              {deleting ? 'Deleting…' : 'Delete cross-section'}
+              {deleting ? t('sections.busy.deleting') : t('sections.dialog.deleteConfirmButton')}
             </Button>
           </div>
         </div>
@@ -196,15 +197,19 @@ export default function SectionsToolbarDialogs({
             id="bulk-suggest-title"
             className="text-sm font-semibold text-text-primary mb-1"
           >
-            Suggest lithos for all tests?
+            {t('sections.toolbar.suggestAllTests')}
           </h2>
           <p className="text-xs text-text-muted mb-4">
-            The lithology segmenter will run for{' '}
+            {t('sections.dialog.bulkPrefix')}{' '}
             <span className="font-medium text-text-secondary">
-              {bulkAnchors.length} investigation{bulkAnchors.length === 1 ? '' : 's'}
+              {bulkAnchors.length}{' '}
+              {t(
+                bulkAnchors.length === 1
+                  ? 'sections.litho.investigationOne'
+                  : 'sections.litho.investigationMany',
+              )}
             </span>{' '}
-            in this section. Any existing bulk-suggest ghosts will be replaced.
-            Already-committed contacts on the section stay untouched.
+            {t('sections.dialog.bulkSuffix')}
           </p>
           <div className="flex justify-end gap-2">
             <Button
@@ -216,7 +221,7 @@ export default function SectionsToolbarDialogs({
               autoFocus
               onClick={onBulkCancel}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -225,8 +230,8 @@ export default function SectionsToolbarDialogs({
               disabled={bulkAnchors.length === 0}
             >
               {bulkAnchors.length === 0
-                ? 'No investigations'
-                : `Suggest all (${bulkAnchors.length})`}
+                ? t('sections.dialog.noInvestigations')
+                : `${t('sections.litho.suggestAll')} (${bulkAnchors.length})`}
             </Button>
           </div>
         </div>
@@ -278,15 +283,10 @@ export default function SectionsToolbarDialogs({
         cancelTestid="reset-manual-points-cancel"
         onCancel={onResetBoundariesCancel}
         busy={resettingBoundaries}
-        title="Reset all manual points?"
-        body={
-          <p>
-            Every hand-drawn boundary point on this model will be cleared and the bodies will
-            return to their computed shape. This cannot be undone.
-          </p>
-        }
+        title={t('sections.toolbar.resetPointsConfirm')}
+        body={<p>{t('sections.dialog.resetBody')}</p>}
         confirm={{
-          label: 'Reset points',
+          label: t('sections.toolbar.resetPoints'),
           onClick: onResetBoundariesConfirm,
           variant: 'danger',
           testid: 'reset-manual-points-confirm',
