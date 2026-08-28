@@ -26,7 +26,10 @@ from groundmodel.infrastructure.parsers.dov.dov_fixture_transport import (
     _build_fixture_transport,
     is_fixture_mode,
 )
-from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
+from groundmodel.infrastructure.parsers.dov.dov_http import (
+    _HostAllowlistTransport,
+    make_dov_async_client,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -143,9 +146,14 @@ def test_production_mode_client_uses_real_transport(
     monkeypatch.delenv(DOV_FIXTURE_MODE_ENV, raising=False)
 
     client = make_dov_async_client()
-    # Production path always uses AsyncHTTPTransport (httpx's real transport).
-    assert isinstance(client._transport, httpx.AsyncHTTPTransport), (
-        "Production mode must use the real HTTP transport, not MockTransport"
+    # Production path wraps httpx's real transport in the SSRF host-allowlist
+    # guard — so it must be that wrapper AROUND an AsyncHTTPTransport, never a
+    # MockTransport.
+    assert isinstance(client._transport, _HostAllowlistTransport), (
+        "Production mode must use the host-allowlist guard transport"
+    )
+    assert isinstance(client._transport._inner, httpx.AsyncHTTPTransport), (
+        "The guard must wrap the real HTTP transport, not MockTransport"
     )
     # No close() needed — no open connections before first use.
 
