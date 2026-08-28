@@ -66,38 +66,6 @@ export const WEBGL_MAX_DIFF_PIXEL_RATIO = 0.02
 export const CESIUM_SETTLE_MS = 4_000
 
 /**
- * The pinned window size every pixel golden renders at.
- *
- * The Electron window's bounds are NOT deterministic across launches (the
- * shell restores persisted state, and the first two bless runs produced two
- * different viewport sizes — the diff showed the same scene at two scales).
- * A pixel golden requires the element's size pinned, and the element sizes
- * follow the window.
- */
-export const GOLDEN_WINDOW = { width: 1600, height: 900 } as const
-
-/**
- * Pin the app window to ``GOLDEN_WINDOW`` — call right after launch, before
- * any stage that mounts Cesium, so every canvas is created at the pinned
- * size.
- *
- * Parameters
- * ----------
- * app
- *     The Playwright Electron application handle.
- */
-export async function pinWindowBounds(
-  app: import('@playwright/test').ElectronApplication,
-): Promise<void> {
-  await app.evaluate(({ BrowserWindow }, size) => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (!win) throw new Error('pinWindowBounds: no BrowserWindow yet')
-    if (win.isMaximized()) win.unmaximize()
-    win.setBounds({ x: 0, y: 0, width: size.width, height: size.height })
-  }, GOLDEN_WINDOW)
-}
-
-/**
  * Re-run the synthetic fixture builder, restoring the seeded baseline.
  *
  * Spawns ``uv run python desktop/tests/e2e/fixtures/build_synthetic_fixture.py``
