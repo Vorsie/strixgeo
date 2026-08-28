@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeHierarchicalGeotechFill } from './index'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import { regionAreaM2 } from '../partitionFill/regionArea'
 
 // The owner's own real needle ring (B3|S9, CS1 gap 12), verbatim from
 // dropNeedleSpurs.test.ts's NS1 — the exact detour that started this whole
@@ -53,7 +54,7 @@ function needleLithoRegion(): SectionRegion {
 }
 
 describe('needle-drop coverage — the fallback and pre-merge surfaces are swept too', () => {
-  it('NDC1 — a needle in the litho fallback cover is removed, exactly like the main regions', () => {
+  it('NDC1 — a closed thin fallback region remains model ground', () => {
     const litho: PartitionColumn[] = [
       { investigationId: 'A', surfaceElevM: 20, units: [] },
       { investigationId: 'B', surfaceElevM: 20, units: [] },
@@ -68,9 +69,11 @@ describe('needle-drop coverage — the fallback and pre-merge surfaces are swept
       geotechEdges: [],
       alongM,
     })
-    const stillThere = out.lithoFallback.some(
-      (r) => r.polygon.some((p) => p.fraction === 0.45 && p.elevation === 7.23),
+    const retained = out.lithoFallback.find((r) => r.gapIndex === 0)
+    expect(retained, 'a closed litho-derived region must remain in final coverage').toBeDefined()
+    expect(regionAreaM2(retained!, GAP_WIDTH_M)).toBeCloseTo(
+      regionAreaM2(needleLithoRegion(), GAP_WIDTH_M),
+      9,
     )
-    expect(stillThere, 'the needle apex must be dropped from lithoFallback too').toBe(false)
   })
 })
