@@ -103,6 +103,23 @@ const POSIX_PATH_RE = new RegExp(`/(?:Users|home|var|tmp|opt|private|Application
 const WINDOWS_USER_RE = /([A-Za-z]:\\Users\\)[^\\/\r\n\t\f\v"'<>|()[\]]+/g
 const POSIX_USER_RE = /(\/(?:Users|home)\/)[^/\r\n\t\f\v"'<>|()[\]]+/g
 const URL_QUERY_RE = /(https?:\/\/[^\s"'<>|?]*)\?[^\s"'<>|]*/g
+// Hosts whose URLs are PUBLIC OPEN DATA and therefore exempt from the query
+// strip above (owner ruling 2026-08-28, verbatim: "all data from dov doesnt
+// need any redaction whatsoever").
+//
+// A DOV request carries its entire diagnostic value in the query string — the
+// layer, the bbox, the permkey — so scrubbing it costs every DOV import
+// diagnosis while protecting nothing: the records it names are published by
+// the Flemish government and readable by anyone. The exemption is keyed on the
+// HOST, not on the word "dov" appearing anywhere, so a client project called
+// "DOV-Antwerpen" is still redacted normally.
+const OPEN_DATA_HOSTS = ['dov.vlaanderen.be']
+
+/** Is this URL's host one whose data is public and needs no redaction? */
+function isOpenDataUrl(url: string): boolean {
+  const host = url.replace(/^https?:\/\//i, '').split(/[/?#]/, 1)[0].toLowerCase()
+  return OPEN_DATA_HOSTS.some(open => host === open || host.endsWith(`.${open}`))
+}
 // The backend prints its own DSN — password included — on startup, and the
 // crash bundle carries backend.log. Matched by scheme so a future driver
 // (psycopg, asyncpg) is covered without a new rule.
@@ -167,7 +184,9 @@ export function redactText(text: unknown): string {
     .replace(FILE_URL_RE, '<file-url>')
     .replace(WINDOWS_PATH_RE, replacePath)
     .replace(POSIX_PATH_RE, replacePath)
-    .replace(URL_QUERY_RE, '$1?<query>')
+    .replace(URL_QUERY_RE, (whole, base: string) =>
+      isOpenDataUrl(base) ? whole : `${base}?<query>`,
+    )
     .replace(EMAIL_RE, '<email>')
     .replace(IPV4_RE, '<ip>')
     .replace(COORDINATE_PAIR_RE, '<coords>')
