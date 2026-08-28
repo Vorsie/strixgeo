@@ -23,6 +23,7 @@
  * @module utils/staleGeotechColumns
  */
 import type { StaleGeotechColumn } from '../api/clients/geology.types'
+import type { Translator } from '../i18n/translate'
 
 /**
  * Merge the provenance answer with the geometric fit answer.
@@ -56,10 +57,11 @@ export function unionStaleGeotechColumns(
  * Short enough to sit beside the pending-tie count; the tooltip carries the
  * names and the instruction.
  *
+ * @param t - Active-language translator.
  * @param count - How many columns are out of date.
  */
-export function staleGeotechChipLabel(count: number): string {
-  return `${count} on edited litho`
+export function staleGeotechChipLabel(t: Translator, count: number): string {
+  return t('sections.geotech.staleChipLabel', { n: count })
 }
 
 /**
@@ -69,22 +71,24 @@ export function staleGeotechChipLabel(count: number): string {
  * cannot trace to a column is one he cannot act on. Long lists are summarised
  * so the tooltip stays readable on a model with many columns.
  *
+ * @param t - Active-language translator.
  * @param columns - The out-of-date columns, sorted by label.
  * @param maxNamed - How many to name before summarising the rest.
  */
 export function staleGeotechChipTitle(
+  t: Translator,
   columns: readonly StaleGeotechColumn[],
   maxNamed = 6,
 ): string {
-  if (columns.length === 0) return 'Every packing column matches the lithology under it.'
+  if (columns.length === 0) return t('sections.geotech.staleTitleNone')
   const named = columns.slice(0, maxNamed).map(c => c.label)
   const rest = columns.length - named.length
-  const list = rest > 0 ? `${named.join(', ')} and ${rest} more` : named.join(', ')
-  const subject = columns.length === 1 ? 'This column’s' : 'These columns’'
-  return (
-    `${subject} lithology changed after the packing bands were made: ${list}. ` +
-    'The bands still describe the old stack — re-run the subdivision on them ' +
-    '("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) ' +
-    'before exporting.'
+  const list =
+    rest > 0
+      ? t('sections.geotech.staleAndMore', { named: named.join(', '), rest })
+      : named.join(', ')
+  return t(
+    columns.length === 1 ? 'sections.geotech.staleTitleOne' : 'sections.geotech.staleTitleMany',
+    { list },
   )
 }
