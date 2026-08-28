@@ -73,8 +73,17 @@ echo "[pre-push] Budget: ~30–120 s.  Skip urgently with: git push --no-verify 
 # exactly as the manual integration suite does.  Capture output so we
 # can parse the pytest summary line even when Git Bash doesn't correctly
 # propagate the PowerShell exit code.
-output="$(powershell.exe -NonInteractive -File scripts/run-integration-tests.ps1 2>&1 || true)"
+# ``set -e`` is active, so a failing wrapper would abort this hook before the
+# diagnostics below could run. Disable errexit around the call rather than
+# appending ``|| true`` INSIDE the command substitution: that idiom forces the
+# ASSIGNMENT's status to 0, so ``$?`` on the next line was always 0 and the
+# primary gate below was dead code from the day it was written (found
+# 2026-08-28 by an audit; confirmed with `out="$(bash -c 'exit 7' || true)"`
+# → `$?` is 0, without the `|| true` → 7).
+set +e
+output="$(powershell.exe -NonInteractive -File scripts/run-integration-tests.ps1 2>&1)"
 ps_exit=$?
+set -e
 echo "$output"
 
 # Primary gate — non-zero PowerShell exit code (pytest returned non-zero).
@@ -89,10 +98,24 @@ fi
 # check.  Pytest's own exit code is the authority, but a shell-level
 # subprocess issue on Windows can swallow a non-zero exit.  The summary
 # line ``N failed`` is unambiguous.
-if echo "$output" | grep -qE '[[:space:]][0-9]+ failed'; then
+if echo "$output" | grep -qE '[[:space:]][0-9]+ (failed|error|errors)'; then
   echo ""
   echo "[pre-push] Integration tests reported failures — push blocked."
   echo "[pre-push] Fix the failures or use --no-verify to bypass (document the reason)."
+  exit 1
+fi
+
+# Tertiary gate — the suite must actually have RUN. Several paths exit before
+# pytest ever starts and print no summary at all: the wrapper's lock ABORT
+# (another run holds ``.integration-test.lock``), an alembic upgrade failure,
+# a collection error, or a PowerShell crash. Reporting "passed" for a suite
+# that never executed is worse than reporting nothing, because the pre-commit
+# batch mode deliberately shifts trust onto this gate.
+if ! echo "$output" | grep -qE '[[:space:]][0-9]+ (passed|failed|error|errors)'; then
+  echo ""
+  echo "[pre-push] No pytest summary in the output — the integration suite did NOT run."
+  echo "[pre-push] Push blocked. Check above: lock held by another run? alembic failure?"
+  echo "[pre-push] collection error? Fix the cause; --no-verify only with a documented reason."
   exit 1
 fi
 
