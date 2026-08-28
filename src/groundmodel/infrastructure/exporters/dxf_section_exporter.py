@@ -82,6 +82,7 @@ import ezdxf
 from ezdxf.colors import RGB
 
 from groundmodel.application.section_snapshot import SectionFormation, SectionSnapshot
+from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
 from groundmodel.infrastructure.exporters.unit_identifier import (
     UnitMappingRow,
@@ -255,7 +256,11 @@ class DxfSectionExporter(SectionExporter):
             layer_by_formation_id[f.formation_id] = layer_name
             rgb = _parse_hex_color(f.color)
             if rgb is not None:
-                layer.rgb = rgb
+                # Index colour + thin weight alongside the true colour — the
+                # edges of a filled area are drawn from the index colour, which
+                # defaults to white (owner 2026-08-28, on the fence export:
+                # "the white bounding lines are a bit thick").
+                style_layer(layer, rgb)
             # Carry the formation code as a layer description when
             # present — surfaces in CAD's layer properties dialog.
             if f.code:
