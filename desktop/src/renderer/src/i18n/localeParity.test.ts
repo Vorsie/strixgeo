@@ -43,6 +43,9 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'project.statusOnHold', // "on hold" is idiomatic in BE professional Dutch
   'project.phaseMonitoring',
   'lab.atterberg', // eponym
+  // "band" (singular) is the same word in BE Dutch as in English; only the
+  // plural diverges ("bands" → "banden", geotech.bandsLabel, which is NOT here).
+  'geotech.bandLabel',
   // Abbreviations shown on space-constrained chrome; expanding them in one
   // locale only would break the spine/track layout.
   'spine.lithology',
