@@ -321,3 +321,38 @@ def test_dp_ascii_only_a_section_name_with_an_en_dash_stays_readable() -> None:
 
     non_ascii = [(i, payload[i]) for i in range(len(payload)) if payload[i] > 0x7F]
     assert non_ascii == [], f"non-ASCII bytes in the .shi at {non_ascii[:5]}"
+
+
+def test_dp_unclassified_fallback_soil_name_is_folded_to_ascii(tmp_path: Path) -> None:
+    """The fallback SOIL NAME must not smuggle non-ASCII bytes into the .shi.
+
+    A classified unit exports as the safe ``NAD-06_ZAND`` token, but an
+    UNCLASSIFIED unit (no nad_class, no soil code) falls back to the raw unit
+    name — which, on a colleague's .strix, carries a Flemish accent or a
+    word-processor dash. The soil name is a value GEOLib PARSES, and the .shi is
+    a cp1252 file it re-opens with the ambient locale, so a non-ASCII soil name
+    is the same UnicodeDecodeError-on-Linux the identification block already
+    folds. The soil name is a SELF-REFERENTIAL key (the ``Soil`` definition and
+    the ``SoilLayer`` reference are the same label), so folding preserves the
+    only invariant that matters and the file still round-trips.
+    """
+    exotic = SectionPolygonUnit(
+        formation_id=_SAND_ID,
+        name="Zandé – Mol",  # é (U+00E9) + en dash (U+2013): non-ASCII, non-structural
+        nad_class=None,
+        litho_main_soil_code=None,
+        color="#e8c56a",
+        display_order=1,
+    )
+    payload = DSheetPilingExporter().export(_polygon_set(units=(exotic,), polygons=(_SAND_QUAD,)))
+
+    # The whole-file invariant the identification block already holds.
+    assert all(b <= 0x7F for b in payload), "non-ASCII byte in the .shi from a fallback soil name"
+
+    # The definition↔reference match survives the fold — GEOLib round-trips it.
+    target = tmp_path / "folded.shi"
+    target.write_bytes(payload)
+    model = DSheetPilingModel()
+    model.parse(target)
+    names = {soil.name for soil in model.datastructure.input_data.soil_collection.soil}
+    assert names == {"Zande - Mol"}
