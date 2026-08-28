@@ -54,8 +54,21 @@ export interface Props {
    * that trains the engineer to stop reading this corner.
    */
   report: GaplessBuildReport | null
-  /** Open a cross-section by id, so a named spot is one press away. */
-  onVisitSection: (sectionId: string) => void
+  /**
+   * Walk to a spot the report names — the section, and the gap within it.
+   *
+   * The second argument is the gap's own two columns, BY NAME, exactly as the
+   * clause resolved them against the litho frame (see ``gap_investigation_ids``
+   * in ``utils/gaplessGate/types.ts``). Empty when the finding cannot name
+   * them, which the receiver must read as "open the section and centre
+   * nothing" — the banner never invents a target.
+   *
+   * The gap INDEX deliberately does not travel. It indexes the litho frame's
+   * column list and is a different gap on the geotech axis's own
+   * ``visibleColumns``; passing it across a surface boundary is what already
+   * centred the wrong gap once (``PartitionFillOverlay.onJumpToConflictGap``).
+   */
+  onVisitSpot: (sectionId: string, gapInvestigationIds: readonly string[]) => void
 }
 
 /** How each verdict presents itself — word, glyph and colour, never colour alone. */
@@ -112,16 +125,19 @@ function summaryOf(report: GaplessBuildReport): string {
 /** One named spot, with a press only where the spot is somewhere. */
 function EntryRow({
   entry,
-  onVisitSection,
+  onVisitSpot,
 }: {
   entry: GaplessClauseEntry
-  onVisitSection: (sectionId: string) => void
+  onVisitSpot: (sectionId: string, gapInvestigationIds: readonly string[]) => void
 }): JSX.Element {
   // Truthiness, not ``!== undefined``: the backend sends an absent locator as
   // an explicit ``null`` (Pydantic), and an id that is the empty string is no
   // id either. Testing the slot instead of the value put a "Show me" button on
   // findings that stand nowhere — see the note in ``gaplessGate/types.ts``.
   const sectionId = entry.section_id ? entry.section_id : null
+  // Same rule for the gap's columns: absent is ``null`` inbound and omitted
+  // outbound, and an empty list is exactly as unusable as no list at all.
+  const gapInvestigationIds = entry.gap_investigation_ids ?? []
   return (
     <li className="flex items-start gap-1.5 pl-4 py-0.5 text-text-secondary">
       <span aria-hidden="true" className="text-text-muted select-none">
@@ -132,7 +148,7 @@ function EntryRow({
         <button
           type="button"
           data-testid="geotech-build-report-visit"
-          onClick={() => onVisitSection(sectionId)}
+          onClick={() => onVisitSpot(sectionId, gapInvestigationIds)}
           className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold text-accent
                      border border-accent/40 hover:bg-accent/10
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
@@ -149,10 +165,10 @@ function EntryRow({
 /** One clause in the disclosure list: its promise, whether it held, its spots. */
 function ClauseRow({
   clause,
-  onVisitSection,
+  onVisitSpot,
 }: {
   clause: GaplessClause
-  onVisitSection: (sectionId: string) => void
+  onVisitSpot: (sectionId: string, gapInvestigationIds: readonly string[]) => void
 }): JSX.Element {
   const mark =
     clause.status === 'pass' ? '✓' : clause.status === 'fail' ? '✗' : '?'
@@ -185,7 +201,7 @@ function ClauseRow({
               // within the clause is the engine's and is stable for a build.
               key={`${clause.key}-${i}`}
               entry={entry}
-              onVisitSection={onVisitSection}
+              onVisitSpot={onVisitSpot}
             />
           ))}
         </ul>
@@ -201,8 +217,10 @@ function ClauseRow({
  * ----------
  * report : GaplessBuildReport or null
  *     The last build's seven-clause verdict; ``null`` renders nothing.
- * onVisitSection : (sectionId: string) => void
- *     Opens a cross-section, so a named spot is one press away.
+ * onVisitSpot : (sectionId: string, gapInvestigationIds: readonly string[]) => void
+ *     Opens a cross-section AND, when the finding named them, the two columns
+ *     its gap stands between — so a named spot is one press away and the press
+ *     lands on the spot rather than merely on the section.
  *
  * Returns
  * -------
@@ -211,7 +229,7 @@ function ClauseRow({
  */
 export default function GeotechBuildReportBanner({
   report,
-  onVisitSection,
+  onVisitSpot,
 }: Props): JSX.Element | null {
   // Above the early return — the hook order must not depend on whether a
   // verdict exists (the project's hook-order rule).
@@ -275,7 +293,7 @@ export default function GeotechBuildReportBanner({
                      max-h-64 overflow-y-auto"
         >
           {report.clauses.map(c => (
-            <ClauseRow key={c.key} clause={c} onVisitSection={onVisitSection} />
+            <ClauseRow key={c.key} clause={c} onVisitSpot={onVisitSpot} />
           ))}
         </ul>
       )}
