@@ -600,6 +600,7 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
       sectionId: 'tie7',
       contactIds: [],
       revealInvestigationIds: ['S4', 'B6'],
+      sectionModelAxis: 'geotechnical',
     })
   })
 
@@ -619,6 +620,7 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
     expect(setSectionsDeepLinkTarget).toHaveBeenCalledWith({
       sectionId: 'tie7',
       contactIds: [],
+      sectionModelAxis: 'geotechnical',
     })
   })
 })
