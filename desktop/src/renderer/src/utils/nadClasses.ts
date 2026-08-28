@@ -28,7 +28,14 @@
  * unsaved-state indicator throughout the Strix UI.
  */
 
-import { LITHOLOGY_LABELS } from './lithoConstants'
+import { LITHOLOGY_LABELS, LITHOLOGY_LABELS_NL } from './lithoConstants'
+import { getLanguage } from '../i18n/languageSelect'
+import type { Language } from '../i18n/i18n_constants'
+import {
+  NAD_CLASS_ABBR_NL,
+  NAD_CLASS_NAMES_NL,
+  UNCLASSIFIED_QUALIFIER_NL,
+} from './nadClassesNl'
 
 // ---------------------------------------------------------------------------
 // Name table (31 entries, 1-indexed)
@@ -209,13 +216,51 @@ const _NULL_CLASS_COLOR = '#9ca3af' // mid-grey (same as LITHOLOGY_FALLBACK_COLO
  * band), and the geotech inspector row simply shows a neutral swatch.
  *
  * @param n  NAD class (1..31), null, or undefined.
- * @returns  The verbatim backend label for a valid class; ``""`` for
+ * @param language  The locale to render in; defaults to the active interface
+ *                  language. Pass ``'en'`` explicitly for a language-STABLE
+ *                  value (the logic/reverse-map/sort paths do exactly that).
+ * @returns  The packing-class label in ``language`` for a valid class; ``""`` for
  *           null/undefined (degenerate — no label); or a safe numeric fallback
  *           ``"NAD {n}"`` for any out-of-range integer.
  */
-export function nadClassName(n: number | null | undefined): string {
+export function nadClassName(
+  n: number | null | undefined,
+  language: Language = getLanguage(),
+): string {
   if (n == null) return ''
-  return NAD_CLASS_NAMES[n] ?? `NAD ${n}`
+  return nadNamesFor(language)[n] ?? `NAD ${n}`
+}
+
+/**
+ * The name table for a language — ``'nl'`` selects the backend's canonical
+ * Dutch source tokens, every other locale the English presentation table.
+ * Selecting the table (never inventing) is the whole translation, per the
+ * docs/ux.md domain-token rule.
+ */
+function nadNamesFor(language: Language): Readonly<Record<number, string>> {
+  return language === 'nl' ? NAD_CLASS_NAMES_NL : NAD_CLASS_NAMES
+}
+
+/**
+ * The compact ``{SOIL}·{packing}`` label for a NAD class, in the active language.
+ *
+ * The language-aware twin of a bare ``NAD_CLASS_ABBR[n]`` lookup — for a render
+ * site (a band-edit menu, a ghost preview) that holds the class NUMBER rather
+ * than the full name. Under ``'nl'`` the soil prefix is the Dutch source token
+ * (ZAND / KLEI / …); out-of-range integers fall back to ``"NAD {n}"``.
+ *
+ * @param n  NAD class (1..31), null, or undefined.
+ * @param language  The locale to render in; defaults to the active language.
+ * @returns  The compact label; ``""`` for null/undefined (consistent with
+ *           ``nadClassName``); ``"NAD {n}"`` for an out-of-range class.
+ */
+export function nadCompactLabel(
+  n: number | null | undefined,
+  language: Language = getLanguage(),
+): string {
+  if (n == null) return ''
+  const table = language === 'nl' ? NAD_CLASS_ABBR_NL : NAD_CLASS_ABBR
+  return table[n] ?? `NAD ${n}`
 }
 
 // The canonical names are ``"{SOIL}, {packing}"`` — "SAND, medium dense",
@@ -236,8 +281,11 @@ const _NAD_NAME_SPLIT = ', '
  * @returns  The upper-case soil word; ``""`` for null/undefined; the whole
  *           fallback string for an out-of-range integer.
  */
-export function nadSoilFamilyName(n: number | null | undefined): string {
-  const full = nadClassName(n)
+export function nadSoilFamilyName(
+  n: number | null | undefined,
+  language: Language = getLanguage(),
+): string {
+  const full = nadClassName(n, language)
   const i = full.indexOf(_NAD_NAME_SPLIT)
   return i === -1 ? full : full.slice(0, i)
 }
@@ -254,8 +302,11 @@ export function nadSoilFamilyName(n: number | null | undefined): string {
  *           what an unclassified row says); the whole fallback string
  *           ``"NAD {n}"`` for an out-of-range integer.
  */
-export function nadPackingLabel(n: number | null | undefined): string {
-  const full = nadClassName(n)
+export function nadPackingLabel(
+  n: number | null | undefined,
+  language: Language = getLanguage(),
+): string {
+  const full = nadClassName(n, language)
   const i = full.indexOf(_NAD_NAME_SPLIT)
   return i === -1 ? full : full.slice(i + _NAD_NAME_SPLIT.length)
 }
@@ -298,17 +349,21 @@ const UNCLASSIFIED_SEPARATOR = ' — '
  * @param unit  A geotech formation (``nad_class`` / ``litho_main_soil_code`` / ``name``).
  * @returns  The soil-family word used as the roster group header.
  */
-export function geotechUnitSoil(unit: {
-  nad_class: number | null | undefined
-  litho_main_soil_code?: string | null
-  name?: string | null
-}): string {
+export function geotechUnitSoil(
+  unit: {
+    nad_class: number | null | undefined
+    litho_main_soil_code?: string | null
+    name?: string | null
+  },
+  language: Language = getLanguage(),
+): string {
   if (unit.nad_class != null && NAD_CLASS_NAMES[unit.nad_class] !== undefined) {
-    return nadSoilFamilyName(unit.nad_class)
+    return nadSoilFamilyName(unit.nad_class, language)
   }
   const soilCode = unit.litho_main_soil_code
   if (soilCode != null && soilCode !== '') {
-    return (LITHOLOGY_LABELS[soilCode] ?? soilCode).toUpperCase()
+    const labels = language === 'nl' ? LITHOLOGY_LABELS_NL : LITHOLOGY_LABELS
+    return (labels[soilCode] ?? soilCode).toUpperCase()
   }
   return unit.name ?? ''
 }
@@ -326,10 +381,13 @@ export function geotechUnitSoil(unit: {
  * @returns  The qualifier for a known class; ``"not yet classified"`` for
  *           null; ``"NAD {n}"`` for an out-of-range integer.
  */
-export function nadClassQualifier(n: number | null | undefined): string {
-  if (n == null) return UNCLASSIFIED_QUALIFIER
+export function nadClassQualifier(
+  n: number | null | undefined,
+  language: Language = getLanguage(),
+): string {
+  if (n == null) return language === 'nl' ? UNCLASSIFIED_QUALIFIER_NL : UNCLASSIFIED_QUALIFIER
   if (NAD_CLASS_NAMES[n] === undefined) return `NAD ${n}`
-  return nadPackingLabel(n)
+  return nadPackingLabel(n, language)
 }
 
 /**
@@ -363,13 +421,14 @@ export function geotechUnitLabel(
     name?: string | null
   },
   sourceLithoName?: string | null,
+  language: Language = getLanguage(),
 ): string {
   if (unit.nad_class != null) {
-    const full = NAD_CLASS_NAMES[unit.nad_class]
+    const full = nadNamesFor(language)[unit.nad_class]
     if (full !== undefined) return full
   }
-  const soil = geotechUnitSoil(unit)
-  const base = `${soil}${UNCLASSIFIED_SEPARATOR}${nadClassQualifier(unit.nad_class)}`
+  const soil = geotechUnitSoil(unit, language)
+  const base = `${soil}${UNCLASSIFIED_SEPARATOR}${nadClassQualifier(unit.nad_class, language)}`
   return sourceLithoName == null || sourceLithoName === '' ? base : `${base} (${sourceLithoName})`
 }
 
@@ -446,16 +505,23 @@ export function nadColoredFormations<
   return formations.map(f => ({ ...f, color: geotechUnitColor(f) }))
 }
 
-// Reverse map full NAD name → compact label, built once from the two parallel
+// Reverse map full NAD name → compact label, built once from the parallel
 // 1..31 tables (no string parsing — an exact-name lookup). Lets a render site
 // that holds only the full ``formationName`` string (the section band label)
 // derive the compact form without re-plumbing ``nad_class`` through the band.
-const _FULLNAME_TO_COMPACT: ReadonlyMap<string, string> = new Map(
-  Object.entries(NAD_CLASS_NAMES).map(([key, fullName]) => [
-    fullName,
-    NAD_CLASS_ABBR[Number(key)],
-  ]),
-)
+//
+// BOTH languages are keyed: the section band's ``formationName`` is itself a
+// display name (``nadClassName``), so under NL it is the Dutch full name and the
+// reverse lookup must still resolve it — to the Dutch compact. The map is
+// language-independent BY covering every language, not by ignoring language.
+const _FULLNAME_TO_COMPACT: ReadonlyMap<string, string> = new Map([
+  ...Object.entries(NAD_CLASS_NAMES).map(
+    ([key, fullName]) => [fullName, NAD_CLASS_ABBR[Number(key)]] as const,
+  ),
+  ...Object.entries(NAD_CLASS_NAMES_NL).map(
+    ([key, fullName]) => [fullName, NAD_CLASS_ABBR_NL[Number(key)]] as const,
+  ),
+])
 
 /**
  * Translate a full NAD name ("SAND, medium dense") to its compact form
@@ -496,8 +562,10 @@ const NAD_FAMILY_RANGES: ReadonlyArray<readonly [number, number]> = [
  * from ``NAD_CLASS_NAMES``. Grouped legends sort their family rows by this
  * order (the norm's own order, which is also loosest-soil-last).
  */
+// English-canonical: this is a LOGIC order (legend family sorting keys off it),
+// so it must never shift with the interface language — ``'en'`` pins it.
 export const NAD_SOIL_FAMILY_ORDER: readonly string[] = NAD_FAMILY_RANGES.map(
-  ([lo]) => nadSoilFamilyName(lo),
+  ([lo]) => nadSoilFamilyName(lo, 'en'),
 )
 
 // There is deliberately NO `nadClassFamily(nadClass)` here — a "the family of
@@ -518,7 +586,8 @@ const _RANGE_BY_SOIL_CODE: ReadonlyMap<string, readonly [number, number]> = new 
   Object.keys(LITHOLOGY_LABELS)
     .map(code => {
       const word = (LITHOLOGY_LABELS[code] ?? code).toUpperCase()
-      const range = NAD_FAMILY_RANGES.find(([lo]) => nadSoilFamilyName(lo) === word)
+      // English on both sides — a stable coupling key, never language-dependent.
+      const range = NAD_FAMILY_RANGES.find(([lo]) => nadSoilFamilyName(lo, 'en') === word)
       return range === undefined ? null : ([code, range] as const)
     })
     .filter((entry): entry is readonly [string, readonly [number, number]] => entry !== null),
