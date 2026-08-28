@@ -447,6 +447,37 @@ export const SECTIONS = {
   'sections.geotech.correlationsHint':
     'Show or hide the correlation ribbons drawn across the section (2-D visualisation only).',
 
+  // Pending-tie scope chip + tooltip (utils/geotechPendingScope). The word
+  // helpers below are interpolated into the sentences, so their {n} placeholder
+  // must match across locales.
+  'sections.geotech.pendingModel': '{n} pending',
+  'sections.geotech.tiesOne': '{n} packing tie',
+  'sections.geotech.tiesMany': '{n} packing ties',
+  'sections.geotech.sectionsOne': '{n} section',
+  'sections.geotech.sectionsMany': '{n} sections',
+  'sections.geotech.pendingTitleModel':
+    '{ties} proposed and not yet accepted ({accepted} accepted).',
+  'sections.geotech.pendingTitleSection':
+    '{sectionPending} of {ties} proposed on this section ({accepted} accepted model-wide).{rest}',
+  'sections.geotech.pendingElsewhere':
+    ' The other {elsewhere} sit on {sections}, which “4 · Divide boreholes” also needs clear.',
+  'sections.geotech.pendingNowhereElse': ' Nothing is pending anywhere else in the model.',
+  'sections.geotech.divideTagModel': 'accept {n} first',
+  'sections.geotech.divideTagSection': 'accept {n} on this section',
+  'sections.geotech.divideTitleModel':
+    '{ties} still proposed — accept or delete them first',
+  'sections.geotech.divideTitleSection':
+    "{ties} still proposed on this section. Dividing its boreholes reads the ties you accepted to decide where each borehole's packing comes from — accept or delete these first. Nothing on another section is touched.",
+
+  // Stale-litho column chip + tooltip (utils/staleGeotechColumns).
+  'sections.geotech.staleChipLabel': '{n} on edited litho',
+  'sections.geotech.staleTitleNone': 'Every packing column matches the lithology under it.',
+  'sections.geotech.staleAndMore': '{named} and {rest} more',
+  'sections.geotech.staleTitleOne':
+    'This column’s lithology changed after the packing bands were made: {list}. The bands still describe the old stack — re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
+  'sections.geotech.staleTitleMany':
+    'These columns’ lithology changed after the packing bands were made: {list}. The bands still describe the old stack — re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
+
   'sections.header.cptChannels': 'CPT data channel toggles',
   'sections.header.qc': 'Cone resistance (qc)',
   'sections.header.fs': 'Sleeve friction (fs) — CPTU/CPTE only',
