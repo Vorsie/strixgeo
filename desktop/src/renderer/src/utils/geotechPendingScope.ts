@@ -16,6 +16,8 @@
  * mounting the 2 000-line ``SectionsToolbar``.
  */
 
+import type { Translator } from '../i18n/translate'
+
 /** Raw counts the summary is built from. */
 export interface PendingTieCounts {
   /** Pending ties across the WHOLE geotech model — what step 4 is gated on. */
@@ -66,51 +68,66 @@ export function summarisePendingTies(counts: PendingTieCounts): PendingTieScope 
 }
 
 /** ``1 section`` / ``3 sections``. */
-function sectionsPhrase(count: number): string {
-  return `${count} section${count === 1 ? '' : 's'}`
+function sectionsPhrase(t: Translator, count: number): string {
+  return t(count === 1 ? 'sections.geotech.sectionsOne' : 'sections.geotech.sectionsMany', {
+    n: count,
+  })
 }
 
 /** ``1 packing tie`` / ``4 packing ties``. */
-function tiesPhrase(count: number): string {
-  return `${count} packing tie${count === 1 ? '' : 's'}`
+function tiesPhrase(t: Translator, count: number): string {
+  return t(count === 1 ? 'sections.geotech.tiesOne' : 'sections.geotech.tiesMany', { n: count })
 }
 
 /**
  * The amber chip's text — the OPEN section's count when it is knowable.
  *
+ * @param t - Active-language translator.
  * @param scope - Summary from {@link summarisePendingTies}.
  * @returns Chip label; the model total when no section scope is available.
  */
-export function pendingChipLabel(scope: PendingTieScope): string {
-  if (scope.sectionPending === null) return `${scope.modelPending} pending`
-  return `${scope.sectionPending} pending here`
+export function pendingChipLabel(t: Translator, scope: PendingTieScope): string {
+  if (scope.sectionPending === null)
+    return t('sections.geotech.pendingModel', { n: scope.modelPending })
+  return t('sections.geotech.pendingHere', { n: scope.sectionPending })
 }
 
 /**
  * The chip's tooltip — where the model total and the neighbours live.
  *
+ * @param t - Active-language translator.
  * @param scope - Summary from {@link summarisePendingTies}.
  * @param acceptedModelWide - Accepted ties across the model, for context.
  * @returns The full sentence.
  */
-export function pendingChipTitle(scope: PendingTieScope, acceptedModelWide: number): string {
+export function pendingChipTitle(
+  t: Translator,
+  scope: PendingTieScope,
+  acceptedModelWide: number,
+): string {
   if (scope.sectionPending === null || scope.sectionsWithPending === null) {
-    return (
-      `${tiesPhrase(scope.modelPending)} proposed and not yet accepted ` +
-      `(${acceptedModelWide} accepted).`
-    )
+    return t('sections.geotech.pendingTitleModel', {
+      ties: tiesPhrase(t, scope.modelPending),
+      accepted: acceptedModelWide,
+    })
   }
   const elsewhere = scope.modelPending - scope.sectionPending
   const rest =
     elsewhere > 0
-      ? ` The other ${elsewhere} sit on ${sectionsPhrase(
-          scope.sectionsWithPending - (scope.sectionPending > 0 ? 1 : 0),
-        )}, which “4 · Divide boreholes” also needs clear.`
-      : ' Nothing is pending anywhere else in the model.'
-  return (
-    `${scope.sectionPending} of ${tiesPhrase(scope.modelPending)} proposed on this ` +
-    `section (${acceptedModelWide} accepted model-wide).${rest}`
-  )
+      ? t('sections.geotech.pendingElsewhere', {
+          elsewhere,
+          sections: sectionsPhrase(
+            t,
+            scope.sectionsWithPending - (scope.sectionPending > 0 ? 1 : 0),
+          ),
+        })
+      : t('sections.geotech.pendingNowhereElse')
+  return t('sections.geotech.pendingTitleSection', {
+    sectionPending: scope.sectionPending,
+    ties: tiesPhrase(t, scope.modelPending),
+    accepted: acceptedModelWide,
+    rest,
+  })
 }
 
 /**
@@ -125,27 +142,28 @@ export function pendingChipTitle(scope: PendingTieScope, acceptedModelWide: numb
  * only evidence it could throw away. The model total moves to the chip's
  * tooltip, where it is context rather than a blocker.
  *
+ * @param t - Active-language translator.
  * @param scope - Summary from {@link summarisePendingTies}.
  * @returns Short tag text.
  */
-export function dividePendingTag(scope: PendingTieScope): string {
-  if (scope.sectionPending === null) return `accept ${scope.modelPending} first`
-  return `accept ${scope.sectionPending} on this section`
+export function dividePendingTag(t: Translator, scope: PendingTieScope): string {
+  if (scope.sectionPending === null)
+    return t('sections.geotech.divideTagModel', { n: scope.modelPending })
+  return t('sections.geotech.divideTagSection', { n: scope.sectionPending })
 }
 
 /**
  * The gate's full sentence — what is holding THIS section's divide shut.
  *
+ * @param t - Active-language translator.
  * @param scope - Summary from {@link summarisePendingTies}.
  * @returns The title attribute for the disabled item.
  */
-export function dividePendingTitle(scope: PendingTieScope): string {
+export function dividePendingTitle(t: Translator, scope: PendingTieScope): string {
   if (scope.sectionPending === null) {
-    return `${tiesPhrase(scope.modelPending)} still proposed — accept or delete them first`
+    return t('sections.geotech.divideTitleModel', { ties: tiesPhrase(t, scope.modelPending) })
   }
-  return (
-    `${tiesPhrase(scope.sectionPending)} still proposed on this section. Dividing its ` +
-    `boreholes reads the ties you accepted to decide where each borehole's packing ` +
-    `comes from — accept or delete these first. Nothing on another section is touched.`
-  )
+  return t('sections.geotech.divideTitleSection', {
+    ties: tiesPhrase(t, scope.sectionPending),
+  })
 }
