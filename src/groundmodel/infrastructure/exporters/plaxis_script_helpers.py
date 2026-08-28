@@ -21,6 +21,7 @@ coupling to either concrete type.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Hashable, Mapping, Sequence
 from typing import Protocol, TypeVar
 from uuid import UUID
@@ -35,6 +36,63 @@ from groundmodel.infrastructure.exporters.unit_identifier_constants import (
 )
 
 KeyT = TypeVar("KeyT", bound=Hashable)
+
+# Any run of three or more double-quotes can act as a ``"""`` docstring
+# delimiter. Matched maximally (``{3,}``) so a longer run is neutralised in
+# one pass rather than leaving a residual triple.
+_TRIPLE_QUOTE_RUN = re.compile('"{3,}')
+
+
+def _space_out_quote_run(match: re.Match[str]) -> str:
+    """Break a run of double-quotes so no three stay adjacent.
+
+    A run of three double-quotes becomes the same three quotes with a single
+    space between each. Every quote is kept (the text stays faithful) but no
+    three are contiguous, so the run can never read as a docstring delimiter,
+    in a comment OR a docstring.
+    """
+    return " ".join(match.group(0))
+
+
+def sanitize_script_text(text: str) -> str:
+    """Neutralise user text before it is spliced into a comment or docstring.
+
+    The Plaxis emitters instruct the engineer to run the emitted module
+    (``python <this_file>.py``), so any user-controlled string that lands in
+    a ``#`` comment or the module docstring is a code-injection surface.
+    VALUES are already safe — they go through :func:`py_str` (``repr``) —
+    but comment and docstring splices are raw. This is the ONE helper every
+    such splice routes through; two attacker moves are closed:
+
+    * **Line breaks** end a ``#`` comment and add lines to the docstring, so
+      the injected code would land on its own physical line as executable
+      Python. Every Unicode line boundary (``str.splitlines`` recognises the
+      full set — ``\\r \\n \\x0b \\x0c \\x1c-\\x1e \\x85 \\u2028 \\u2029``,
+      a superset of what the tokenizer treats as a break) is collapsed to a
+      single space.
+    * **Triple-quote runs** close the docstring, so any run of three or more
+      double-quotes is broken with spaces (see :func:`_space_out_quote_run`).
+      Done AFTER the line-break collapse, so three quotes split across lines
+      cannot re-form into a delimiter once the newlines are gone.
+
+    Text carrying neither is returned unchanged, so an ordinary formation /
+    project / section / unit name emits byte-identical output to before this
+    guard existed (exports are a contract).
+
+    Parameters
+    ----------
+    text : str
+        Raw user-controlled text (a formation name, project name, section
+        name, investigation name, or a pre-rendered docstring line).
+
+    Returns
+    -------
+    str
+        The text with line breaks collapsed to spaces and triple-quote runs
+        broken — safe to splice into a comment or docstring.
+    """
+    collapsed = " ".join(text.splitlines())
+    return _TRIPLE_QUOTE_RUN.sub(_space_out_quote_run, collapsed)
 
 
 class _HasNameAndOrder(Protocol):
@@ -117,15 +175,20 @@ def emit_header(
     list[str]
         Lines ready to splice into the emitted script.
     """
-    header = [f'"""{title}', ""]
-    header.extend(subject_lines)
+    # Every line the caller supplies is user-reachable (project / section
+    # name in the subject block, formation display name in the mapping
+    # table) and lands inside the ``"""`` docstring, so each is routed
+    # through the ONE sanitiser. The static chrome ("USAGE", "-----",
+    # "NOTES") and the fences are ours, not user text, so they are not.
+    header = [f'"""{sanitize_script_text(title)}', ""]
+    header.extend(sanitize_script_text(line) for line in subject_lines)
     header.extend(["", "USAGE", "-----"])
-    header.extend(usage_lines)
+    header.extend(sanitize_script_text(line) for line in usage_lines)
     if mapping_table_lines:
         header.append("")
-        header.extend(mapping_table_lines)
+        header.extend(sanitize_script_text(line) for line in mapping_table_lines)
     header.extend(["", "NOTES", "-----"])
-    header.extend(notes_lines)
+    header.extend(sanitize_script_text(line) for line in notes_lines)
     header.extend(['"""', ""])
     return header
 
@@ -320,7 +383,10 @@ def emit_global_layers(formations: Sequence[Formation]) -> list[str]:
         # detail (some Plaxis releases insert-at-zero, others
         # append; either way the bottom of g_i.Soillayers is the
         # newest-added).
-        lines.append(f"g_i.soillayer(0)  # layer {i}: {f.name}")
+        # ``f.name`` is user text spliced into a ``#`` comment — a newline
+        # in it would end the comment and drop the rest onto its own line as
+        # code. Route it through the shared sanitiser.
+        lines.append(f"g_i.soillayer(0)  # layer {i}: {sanitize_script_text(f.name)}")
         lines.append(f"g_i.Soillayers[{i}].Soil.Material = {mat_var}")
     lines.append("")
     return lines
