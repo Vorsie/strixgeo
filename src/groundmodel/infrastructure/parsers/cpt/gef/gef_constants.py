@@ -107,6 +107,18 @@ DEFAULT_COLUMN_SEPARATORS: frozenset[str] = frozenset({";"})
 # declared separator drawn from this set is refused rather than honoured.
 NUMERIC_CHARACTERS: frozenset[str] = frozenset("0123456789.-+eE")
 
+# Upper bound on the column count a ``#COLUMN=`` header may declare before the
+# parse is refused. Justified from the format, not taste: the GEF-CPT-Report
+# quantity codelist tops out around 128 (see QUANTITY_TO_COLUMN), a real CPT
+# carries ~3–16 channels, and even the richest multi-sensor GEF (seismic CPT,
+# geophysical logs, borehole grain-size) stays well under 100 columns — every
+# declared column also requires its own ``#COLUMNINFO=`` header line. 512 is
+# ~30× the richest realistic file, so it never bites legitimate data, while it
+# caps the padded-frame allocation: a hostile ~200-byte file declaring
+# ``#COLUMN= 1000000000`` would otherwise drive a tens-of-GB allocation (one
+# ``None`` per declared column per row) and OOM the backend.
+MAX_GEF_COLUMNS = 512
+
 # #MEASUREMENTVAR indices (GEF-CPT-Report standard)
 MVAR_NET_AREA_RATIO = 3  # Net surface area quotient of cone tip (a-value)
 MVAR_CONE_TYPE = 12  # 0 = electric, 1 = mechanical
