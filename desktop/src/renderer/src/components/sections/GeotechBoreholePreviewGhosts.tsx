@@ -72,7 +72,7 @@ import {
   resetGeotechPreviewRender,
 } from '../../utils/geotechPreviewRenderStore'
 import type { GeotechPreviewRender } from '../../utils/geotechPreviewRenderStore'
-import { NAD_CLASS_ABBR, nadClassColor, nadClassName } from '../../utils/nadClasses'
+import { nadClassColor, nadClassName, nadCompactLabel } from '../../utils/nadClasses'
 import ContextMenu from '../ui/ContextMenu'
 import { surfaceYForColumn } from './contactsLayerGeometry'
 import type { PlacedColumn } from './utils'
@@ -365,7 +365,7 @@ export default function GeotechBoreholePreviewGhosts({
           height,
           fill: nadClassColor(band.nad_class),
           tier,
-          label: NAD_CLASS_ABBR[band.nad_class] ?? `NAD ${band.nad_class}`,
+          label: nadCompactLabel(band.nad_class),
           title:
             `${preview.name} · ${nadClassName(band.nad_class)} · ` +
             `${band.depth_top_m.toFixed(2)}–${band.depth_base_m.toFixed(2)} m\n` +
