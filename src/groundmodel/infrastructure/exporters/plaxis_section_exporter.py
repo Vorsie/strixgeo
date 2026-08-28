@@ -68,6 +68,7 @@ from groundmodel.infrastructure.exporters.plaxis_script_helpers import (
     emit_imports_and_connect,
     emit_materials,
     plaxis_mapping_rows,
+    sanitize_script_text,
 )
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
 from groundmodel.infrastructure.exporters.unit_identifier import format_mapping_table
@@ -290,9 +291,13 @@ class PlaxisSectionExporter(SectionExporter):
             # model at every column (audit 2026-08-02). The column top is
             # emitted by setsoillayerlevel below; the water table stays the
             # engineer's to set, and the header says so.
+            # ``inv.name`` is user text spliced into a ``#`` comment — a
+            # newline in it would end the comment and drop the rest onto its
+            # own line as code. Route it through the shared sanitiser.
             lines.append(
                 f"{bh_var} = g_i.borehole({x!r})  "
-                f"# {inv.name} @ along={x:.3f} m, surface z = {surface_z!r}"
+                f"# {sanitize_script_text(inv.name)} @ along={x:.3f} m, "
+                f"surface z = {surface_z!r}"
             )
 
             lines.extend(
