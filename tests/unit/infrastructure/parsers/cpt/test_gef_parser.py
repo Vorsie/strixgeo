@@ -852,6 +852,47 @@ class TestDuplicateQuantityNumbers:
             parser.parse(_gef(header=header, data=data))
 
 
+class TestColumnCountCap:
+    """A ``#COLUMN=`` that declares an absurd column count is refused, not allocated.
+
+    The attack: a ~200-byte GEF file that declares a huge column count drives
+    the padded-frame allocation (one ``None`` per declared column per row) into
+    the tens of GB and OOMs the backend, costing an engineer their session.
+    The cap turns that into a refused parse — an ERROR ``ValidationIssue`` on
+    the result, the same mechanism ``MISSING_COLUMN`` already uses — and the
+    frame is built from the columns the data actually has, so nothing large is
+    ever allocated.
+    """
+
+    def test_million_columns_is_refused_not_allocated(self, parser: GEFParser) -> None:
+        """A declared million columns is refused, never allocated."""
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 1000000\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+            "#COLUMNINFO= 3, MPa, sleeve friction, 3\n"
+        )
+        result = parser.parse(_gef(header=header))
+        # Refused via the ERROR-issue mechanism, never a raw allocation.
+        assert result.has_errors
+        assert "TOO_MANY_COLUMNS" in _error_codes(result)
+        # Proof nothing huge was allocated: the frame fell back to the data's
+        # real width (3 columns + a derived rf_pct = 4), far below both the
+        # declared million and the 512 cap — a clamp-to-cap would read 512, a
+        # missing guard would read 1_000_000.
+        assert result.data.width < 100
+
+    def test_realistic_column_count_is_not_refused(self, parser: GEFParser) -> None:
+        """A real GEF's column count is nowhere near the cap and parses clean."""
+        # A legitimate file at the base 3-column shape must parse without the cap
+        # biting — the cap only refuses the absurd declaration, never a real GEF.
+        result = parser.parse(_gef())
+        assert "TOO_MANY_COLUMNS" not in _error_codes(result)
+
+
 class TestElevationSourceStamping:
     """Pin the ``elevation_source`` stamp on every GEF parse (debt #8).
 
