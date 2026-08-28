@@ -44,7 +44,6 @@ import { closureBarsFor, fillPlans, planFamily } from './constructive/familyFill
 import type { GapFillInput } from './constructive/fillGap'
 import type { TotalityViolation } from './constructive/fillTotality'
 import { weldAcrossFamilies } from './crossFamilyWeld'
-import { dropRegionNeedles } from './dropNeedleSpurs'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
 import type { Mass } from './constructive/emitKernel'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
@@ -504,21 +503,14 @@ export function computeHierarchicalGeotechFill(
     (formationId) => input.packingClassOf?.get(formationId) ?? formationId,
   )
   const crossFamilyWelds = swept.welds
-  // NO OUTLINE THAT ENDS IN NOTHING (owner 2026-08-21: *"the crack has a
-  // boundary at the bottom but not at the top, it shouldn't be there"*). A
-  // merged ring can walk out to a wedge apex and back along nearly the same
-  // path; the detour holds no ground, but the seam-stroke pass has no
-  // neighbour to match its two edges against and draws them as a hairline
-  // into mid-region. Dropping the apex changes no area and no class. Swept on
-  // EVERY surface a needle can reach (owner code-hunt finding, 2026-08-22):
-  // ``lithoFallback`` is a real rendered surface (``PartitionFillOverlay``)
-  // and ``preMergeRegions`` feeds the 2/1/0 conformance gate and the law
-  // oracle — a needle left there is the exact same defect, just unswept.
-  const sweptRegions = dropRegionNeedles(swept.regions, input.alongM)
-  const sweptFallback = dropRegionNeedles(lithoFallback, input.alongM)
-  const sweptPreMerge = dropRegionNeedles(preMergeRegions, input.alongM) as (SectionRegion & {
-    role: 'construct' | 'fill'
-  })[]
+  // The build, the rendered cover, and clause 1 share this exact geometry.
+  // A seam-cleanup pass may simplify a genuinely zero-area reversal for
+  // drawing, but it must never discard a closed region from these surfaces:
+  // that would make the geotech model smaller than the litho cover it derives
+  // from while hiding the loss as "needle" debris.
+  const sweptRegions = swept.regions
+  const sweptFallback = lithoFallback
+  const sweptPreMerge = preMergeRegions
 
   return {
     regions: sweptRegions,
