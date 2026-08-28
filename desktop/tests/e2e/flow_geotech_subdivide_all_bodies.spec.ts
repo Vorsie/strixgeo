@@ -31,8 +31,8 @@
  *   4. Re-open the project so the shell picks up the newly created geotech
  *      model and NAD formations (React state only refreshes on project open).
  *   5. Navigate to the Geotech spine stage.
- *   6. Assert ≥1 NAD unit row (``geotech-unit-row-*``) with a "CPT est."
- *      badge (``cpt-est-badge-*``) in the ``GeotechnicalInspector``.
+ *   6. Assert ≥1 NAD unit row (``geotech-unit-row-*``) in the
+ *      ``GeotechnicalInspector`` — and NO "CPT est." badge on it.
  *
  * Fixture reuse
  * -------------
@@ -63,7 +63,7 @@ test.describe('flow_geotech_subdivide_all_bodies', () => {
   )
 
   test(
-    'subdivide all bodies creates NAD units with CPT est. badges',
+    'subdivide all bodies creates NAD units, unbadged',
     async () => {
       // API call + project re-open + inspector render — slow budget.
       test.slow()
@@ -149,15 +149,20 @@ test.describe('flow_geotech_subdivide_all_bodies', () => {
         // Step 6: At least one NAD unit row must be visible in the inspector.
         // The subdivider created NAD formations (geotechFormations filters on
         // isGeotechUnit); the geotechLayers useEffect loads them via listLayers.
-        // CPTs 3/4/5 carry realistic qc series → NAD classes are CPT-derived
-        // → cpt-est-badge-* renders for each classified unit.
         await expect(
           page.locator('[data-testid^="geotech-unit-row-"]').first(),
         ).toBeVisible({ timeout: 30_000 })
 
-        await expect(
-          page.locator('[data-testid^="cpt-est-badge-"]').first(),
-        ).toBeVisible({ timeout: 10_000 })
+        // ...and it carries NO "CPT est." badge. Owner ruling 2026-08-27,
+        // verbatim: *"CPT. est. die flag mag eruit, bijna alle
+        // packingsklassen zijn altijd uit sonderingen afgeleid"* — being
+        // cone-derived is the NORM, so it is unbadged; only the exceptions
+        // ("No CPT" / "No CPT (partial)") badge. CPTs 3/4/5 carry real qc
+        // series, so every unit here is cone-derived and must be plain.
+        // The unit suite pins the same absence
+        // (GeotechnicalInspector.test.tsx asserts queryByTestId(...) is null);
+        // this spec had kept asserting the retired badge.
+        await expect(page.locator('[data-testid^="cpt-est-badge-"]')).toHaveCount(0)
       } finally {
         await closeApp(app)
         cleanupFixtureFile(tmpPath)
