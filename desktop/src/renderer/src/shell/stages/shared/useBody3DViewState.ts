@@ -15,13 +15,17 @@
 //   • the lazy per-section approved-correlation-edge fetch for Fence mode
 //   • the investigations / investigationXY memos (fence + voxel + fade inputs)
 //   • the fenceSectionInputs / fencePanels memos
-//   • nulling the stage's voxel-request ref on unmount (closes the async
-//     stale-fire window — the voxel builder fans out per-section fetches)
+//
+// The stage's voxel-request ref is populated AND nulled by the canvas that
+// owns the builder (debt #276) — NOT here. The unmount null must be guarded
+// against a newer canvas that has already reclaimed the ref, and only the
+// writer of the value can compare identity, so the whole voxel-ref lifecycle
+// stays in the canvas.
 //
 // The Geology stage uses only the split-state + ground-surface blocks: it
-// passes ``fenceActive: false`` and omits ``layers`` / ``voxelRequestRef``,
-// which leaves the fence machinery inert (the fence effect early-returns and
-// ``fencePanels`` stays undefined).
+// passes ``fenceActive: false`` and omits ``layers``, which leaves the fence
+// machinery inert (the fence effect early-returns and ``fencePanels`` stays
+// undefined).
 //
 // All hooks here are unconditional so the call order is stable regardless of
 // which canvas mounts the hook (the hook-order rule).
@@ -53,7 +57,6 @@ import {
   type InvestigationLocation,
   type LithoLayerLike,
 } from '../../../utils/assembleLithoSectionInputs'
-import type { VoxelRequestBuilder } from './makeVoxelRequestBuilder'
 import {
   fetchApprovedEdgesBySection,
   type ApprovedEdgePair,
@@ -107,11 +110,6 @@ export interface UseBody3DViewStateOptions {
    * every render with ``exitSplit`` while the canvas is mounted.
    */
   resetSplitViewportRef: React.MutableRefObject<(() => void) | null>
-  /**
-   * Module-level voxel-request ref shared with the stage toolbar; nulled on
-   * unmount here (assignment happens in the canvas, which owns the builder).
-   */
-  voxelRequestRef?: React.MutableRefObject<VoxelRequestBuilder | null>
   /**
    * Extra gate ANDed into the fence-edge fetch + panel build.  Geotech passes
    * ``dimension === '3d'`` (its fence only exists in 3D mode); Geology passes
@@ -196,7 +194,6 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     frameModelId = null,
     frameLayers,
     resetSplitViewportRef,
-    voxelRequestRef,
     fenceActive = true,
     footprintActive = true,
     packingClassOf,
@@ -394,17 +391,9 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, modelId, fenceActive, viewMode, visibleSections])
 
-  // Null the voxel-build ref on unmount.  Unlike the synchronous reset
-  // callbacks, the voxel builder is async (it fans out per-section edge
-  // fetches), so a stale callback could in principle be invoked after the
-  // canvas unmounts / the model switches — clearing it on unmount closes
-  // that async stale-fire window.
-  useEffect(
-    () => () => {
-      if (voxelRequestRef) voxelRequestRef.current = null
-    },
-    [voxelRequestRef],
-  )
+  // The voxel-build ref is nulled on unmount by the canvas that owns the
+  // builder (debt #276), not here: the null must be guarded against a newer
+  // canvas that has already reclaimed the ref, which only the writer can do.
 
   // -------------------------------------------------------------------------
   // Investigations + projected positions (shared by fence + voxel + fade).
