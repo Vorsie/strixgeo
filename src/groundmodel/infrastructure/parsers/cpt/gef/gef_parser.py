@@ -11,6 +11,7 @@ from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_constants import (
     DEFAULT_COLUMN_SEPARATORS,
+    MAX_GEF_COLUMNS,
     MVAR_CONE_TYPE,
     MVAR_NET_AREA_RATIO,
     MVAR_PRE_DRILL,
@@ -453,7 +454,24 @@ class GEFParser(GroundModelLogger):
                 f"could not be parsed and were dropped — first: {skipped[0]!r}"
             )
 
-        n_cols = header.n_columns or max(len(r) for r in rows)
+        observed = max(len(r) for r in rows)
+        # A hostile/broken ``#COLUMN=`` can declare an absurd column count and
+        # drive the padded-frame allocation below into tens of GB from a
+        # ~200-byte file. When the declared count is over the cap we do not
+        # trust it: build the frame from the columns the data actually has, so
+        # the allocation is bounded by the file's real content. The parse is
+        # separately refused with an ERROR issue (``_check_column_count``) —
+        # ``header.n_columns`` is left untouched so that check still sees the
+        # declared value.
+        if header.n_columns and header.n_columns > MAX_GEF_COLUMNS:
+            self.warning(
+                f"GEF #COLUMN= declares {header.n_columns} columns, over the "
+                f"{MAX_GEF_COLUMNS} cap; frame built from the {observed} observed "
+                "data column(s) instead. The parse will be refused."
+            )
+            n_cols = observed
+        else:
+            n_cols = header.n_columns or observed
         col_names = [f"col_{i + 1}" for i in range(n_cols)]
         padded = [r[:n_cols] + [None] * max(0, n_cols - len(r)) for r in rows]
         frame = pl.DataFrame(padded, schema={c: pl.Float64 for c in col_names}, orient="row")
@@ -597,6 +615,7 @@ class GEFParser(GroundModelLogger):
         skipped_rows: int,
     ) -> list[ValidationIssue]:
         checks = [
+            self._check_column_count(header),
             self._check_coordinates(header),
             self._check_crs_codes(header),
             self._check_uncorrected_depth(depth_from_length),
@@ -616,6 +635,34 @@ class GEFParser(GroundModelLogger):
         for issue in issues:
             self.trace(f"[{issue.level.upper()}] {issue.code}: {issue.message}")
         return issues
+
+    def _check_column_count(self, header: GEFHeader) -> list[ValidationIssue]:
+        """Refuse a ``#COLUMN=`` that declares more columns than any real GEF.
+
+        Parameters
+        ----------
+        header : GEFHeader
+            Carries ``n_columns`` — the value declared by ``#COLUMN=``.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            A single ERROR ``TOO_MANY_COLUMNS`` issue when the declared count
+            exceeds ``MAX_GEF_COLUMNS``, which refuses the import downstream
+            (``has_errors``); empty otherwise. The paired guard in
+            ``_parse_data`` has already stopped the oversized allocation — this
+            is the honest "why it was refused" the caller surfaces.
+        """
+        if header.n_columns and header.n_columns > MAX_GEF_COLUMNS:
+            return [
+                ValidationIssue(
+                    ValidationLevel.ERROR,
+                    "TOO_MANY_COLUMNS",
+                    f"#COLUMN= declares {header.n_columns} columns, over the "
+                    f"{MAX_GEF_COLUMNS} cap for a real GEF — file refused",
+                )
+            ]
+        return []
 
     def _check_coordinates(self, header: GEFHeader) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
