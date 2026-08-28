@@ -25,6 +25,7 @@ import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import type { ContactOverlay } from '../utils/contactOverlays'
+import { useT } from '../i18n/translate'
 
 interface Props {
   plot:   CptPlotResponse
@@ -231,6 +232,7 @@ export default function CptChart({
   const catalog = useVirtueleBoringCatalog(
     onChangeVirtueleBoringOverrideModel !== undefined,
   )
+  const t = useT()
   const elevationM = detail?.elevation_m ?? null
   const zEpsg = detail?.z_epsg ?? null
   const elevationSource = detail?.elevation_source ?? null
@@ -562,7 +564,7 @@ export default function CptChart({
           )}
           <button
             className="w-6 h-6 rounded text-sm font-bold hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600 leading-none text-gray-500 dark:text-slate-300"
-            title="Zoom in"
+            title={t('common.zoomIn')}
             onClick={() => setZoomDomain(([min, max]) => {
               const c = (min + max) / 2, r = Math.max(0.5, (max - min) / 1.5)
               const nm = Math.max(0, c - r / 2)
@@ -571,7 +573,7 @@ export default function CptChart({
           >+</button>
           <button
             className="w-6 h-6 rounded text-sm font-bold hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600 leading-none text-gray-500 dark:text-slate-300"
-            title="Zoom out"
+            title={t('common.zoomOut')}
             onClick={() => setZoomDomain(([min, max]) => {
               const c = (min + max) / 2, r = Math.min(maxDepth, (max - min) * 1.5)
               const nm = Math.max(0, c - r / 2)
@@ -581,9 +583,9 @@ export default function CptChart({
           {isZoomed && (
             <button
               className="px-2 h-6 rounded hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-300"
-              title="Reset zoom"
+              title={t('common.resetZoom')}
               onClick={() => setZoomDomain([0, maxDepth])}
-            >Reset</button>
+            >{t('common.reset')}</button>
           )}
           {/* DOV Virtuele Boring overlay toggle + override picker.
               The button flips visibility; the dropdown picks which
@@ -598,7 +600,7 @@ export default function CptChart({
                   so the pane doesn't look unresponsive after model pick. */}
               {virtueleBoringLoading && (
                 <span
-                  aria-label="Loading DOV predictions"
+                  aria-label={t('borelog.loadingDovPredictions')}
                   className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"
                 />
               )}
@@ -606,13 +608,13 @@ export default function CptChart({
                 onClick={onToggleVirtueleBoringVisible}
                 disabled={virtueleBoringActiveModels.length === 0}
                 aria-pressed={virtueleBoringVisible}
-                aria-label="Toggle DOV Virtuele Boring overlay"
+                aria-label={t('borelog.toggleVirtueleBoring')}
                 title={
                   virtueleBoringActiveModels.length === 0
-                    ? 'Pick a DOV model in the dropdown or the section pane to enable this overlay'
+                    ? t('borelog.dovPickModelHint')
                     : virtueleBoringVisible
-                      ? 'Hide DOV Virtuele Boring overlay'
-                      : 'Show DOV Virtuele Boring overlay'
+                      ? t('borelog.hideDovOverlay')
+                      : t('borelog.showDovOverlay')
                 }
                 className={
                   'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
@@ -631,11 +633,11 @@ export default function CptChart({
                   value={virtueleBoringOverrideModel}
                   onChange={e => onChangeVirtueleBoringOverrideModel(e.target.value)}
                   disabled={catalog === null}
-                  title="Override which DOV model this pane shows"
-                  aria-label="DOV overlay model for this pane"
+                  title={t('borelog.overrideDovModel')}
+                  aria-label={t('borelog.dovOverlayModel')}
                   className="h-6 px-1 border border-gray-200 dark:border-slate-600 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 max-w-[160px]"
                 >
-                  <option value="">Follow section</option>
+                  <option value="">{t('borelog.followSection')}</option>
                   {(catalog ?? []).map(entry => (
                     <option key={entry.code} value={entry.code}>
                       {entry.beschrijving}
