@@ -106,10 +106,21 @@ class _FakeProvider:
         return []
 
 
-def _script_for(boreholes: list[tuple[str, float, float]]) -> list[list[Any]]:
-    """Script a session that returns ``boreholes`` and no CPTs."""
+def _script_for(
+    boreholes: list[tuple[str, float, float]],
+    elevations: dict[str, float] | None = None,
+) -> list[list[Any]]:
+    """Script a session that returns ``boreholes`` and no CPTs.
+
+    ``elevations`` maps a borehole name to its surveyed collar (m TAW); a name
+    absent from the map (or ``None`` for the whole arg) is returned with a NULL
+    ``elevation_m``, mirroring a test imported without a Z. The location query
+    now selects four columns — name, x, y, elevation_m — so the scripted rows
+    carry the collar the ``BuildGroundSurface`` use case reads.
+    """
+    elev = elevations or {}
     ids = [uuid4() for _ in boreholes]
-    return [ids, [], [(n, x, y) for n, x, y in boreholes]]
+    return [ids, [], [(n, x, y, elev.get(n)) for n, x, y in boreholes]]
 
 
 # ---------------------------------------------------------------------------
@@ -176,3 +187,50 @@ async def test_model_without_located_investigations_returns_an_empty_surface() -
     assert result.triangles == []
     assert result.issues == []
     assert provider.requested_bbox is None
+
+
+@pytest.mark.asyncio
+async def test_a_surveyed_collar_beats_the_dem_at_that_test() -> None:
+    """A test's own surveyed collar outranks the DEM at its location.
+
+    Owner ruling 2026-08-28: "I trust surface elevation of a test more than a
+    DEM we pulled off the web." B1 was surveyed at 5.8 m TAW while the DEM
+    reads 12.0 everywhere; the ground vertex above B1 must be 5.8, not 12.0.
+    """
+    session = _FakeSession(
+        _script_for(
+            [("B1", 1000.0, 2000.0), ("B2", 1100.0, 2100.0)],
+            elevations={"B1": 5.8},
+        )
+    )
+    result = await BuildGroundSurface(session, _FakeProvider(lambda x, y: 12.0)).execute(  # type: ignore[arg-type]
+        uuid4(), uuid4()
+    )
+
+    at_b1 = [v for v in result.vertices if v[0] == 1000.0 and v[1] == 2000.0]
+    assert at_b1, "no ground vertex above the surveyed borehole B1"
+    assert at_b1[0][2] == pytest.approx(5.8)
+    # B2 has no surveyed Z, so it still reads the DEM (the between-tests source).
+    at_b2 = [v for v in result.vertices if v[0] == 1100.0 and v[1] == 2100.0]
+    assert at_b2 and at_b2[0][2] == pytest.approx(12.0)
+
+
+@pytest.mark.asyncio
+async def test_a_borehole_surveyed_at_zero_m_taw_is_not_treated_as_missing() -> None:
+    """A collar of exactly 0 m TAW is a real measurement, not "no Z".
+
+    Owner ruling 2026-08-28: "if something has ground level 0 (often happens
+    in belgium) then this is a different case than no data." The DEM reads
+    12.0, but B1's surveyed collar is 0 m TAW — the ground above B1 must
+    anchor at 0.0, not fall back to the DEM.
+    """
+    session = _FakeSession(
+        _script_for([("B1", 1000.0, 2000.0), ("B2", 1100.0, 2100.0)], elevations={"B1": 0.0})
+    )
+    result = await BuildGroundSurface(session, _FakeProvider(lambda x, y: 12.0)).execute(  # type: ignore[arg-type]
+        uuid4(), uuid4()
+    )
+
+    at_b1 = [v for v in result.vertices if v[0] == 1000.0 and v[1] == 2000.0]
+    assert at_b1, "a borehole surveyed at 0 m TAW was dropped as if it had no elevation"
+    assert at_b1[0][2] == pytest.approx(0.0)
