@@ -332,6 +332,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
       setSectionsDeepLinkTarget({
         sectionId,
         contactIds: [],
+        sectionModelAxis: 'geotechnical',
         ...(gapInvestigationIds.length > 0 && { revealInvestigationIds: gapInvestigationIds }),
       })
     },
