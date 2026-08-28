@@ -228,3 +228,36 @@ export async function closeApp(app: ElectronApplication): Promise<void> {
   }
   await closing
 }
+
+/**
+ * The pinned window size a layout-sensitive spec renders at.
+ *
+ * Electron sizes the window from the screen it opens on, so the same spec
+ * renders at different widths on different machines. Two kinds of spec care:
+ * a PIXEL GOLDEN (the element size follows the window), and a TOOLBAR spec
+ * (the overflow planner moves low-priority items into the "More" menu when
+ * space is tight, so which items are directly visible is width-dependent).
+ * Pinning makes both deterministic.
+ */
+export const PINNED_WINDOW = { width: 1600, height: 900 } as const
+
+/**
+ * Pin the app window to ``PINNED_WINDOW`` — call right after launch, before
+ * any stage that mounts Cesium, so every canvas is created at the pinned
+ * size.
+ *
+ * Parameters
+ * ----------
+ * app
+ *     The Playwright Electron application handle.
+ */
+export async function pinWindowSize(
+  app: import('@playwright/test').ElectronApplication,
+): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, size) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (!win) throw new Error('pinWindowSize: no BrowserWindow yet')
+    if (win.isMaximized()) win.unmaximize()
+    win.setBounds({ x: 0, y: 0, width: size.width, height: size.height })
+  }, PINNED_WINDOW)
+}
