@@ -34,10 +34,33 @@ export const PANELS = {
   'borelog.labTests': 'Lab tests',
   'borelog.clickSampleToView': 'click sample to view',
   'borelog.samplesAndLabTests': 'Samples + lab tests',
+  'borelog.sampleCountOne': '{n} sample',
+  'borelog.sampleCountMany': '{n} samples',
   'borelog.toggleColumns': 'Toggle columns',
   'borelog.toggleColumnsHint': 'Show or hide borelog columns',
+  'borelog.columns': 'Columns',
+  'borelog.columnsHidden': 'Columns ({n} hidden)',
+  'borelog.hideColumn': 'Hide column',
+  'borelog.trackNotPresent': 'This track is not present on this borehole',
+  'borelog.cannotHideLast': 'Cannot hide — this is the last visible column',
+  'borelog.missingValue': '— missing —',
+  // Observation-track display labels — the DOV observation_type token stays raw
+  // in the domain; only the rendered label is translated (TrackHeader + the
+  // columns dropdown). Unknown tokens fall back to the raw token.
+  'borelog.obs.coded_lithology': 'Coded lithology',
+  'borelog.obs.geotechnical_coding': 'Geotechnical coding',
+  'borelog.obs.lithological_description': 'Lithological description',
+  'borelog.obs.formal_stratigraphy': 'Formal stratigraphy',
+  'borelog.obs.informal_stratigraphy': 'Informal stratigraphy',
+  'borelog.obs.quaternary_stratigraphy': 'Quaternary stratigraphy',
+  'borelog.obs.hydrogeological_stratigraphy': 'Hydrogeological stratigraphy',
+  'borelog.obs.informal_hydrogeological_stratigraphy': 'Informal hydrogeological stratigraphy',
   'borelog.followSection': 'Follow section',
   'borelog.toggleVirtueleBoring': 'Toggle DOV Virtuele Boring overlay',
+  'borelog.dovPickModelHint':
+    'Pick a DOV model in the dropdown or the section pane to enable this overlay',
+  'borelog.hideDovOverlay': 'Hide DOV Virtuele Boring overlay',
+  'borelog.showDovOverlay': 'Show DOV Virtuele Boring overlay',
   'borelog.dovOverlayModel': 'DOV overlay model for this pane',
   'borelog.overrideDovModel': 'Override which DOV model this pane shows',
   'borelog.loadingDovPredictions': 'Loading DOV predictions',
@@ -109,14 +132,31 @@ export const PANELS = {
   'dialog.dedupeTitle': 'Remove duplicate contacts?',
   'dialog.dedupeConfirm': 'Remove duplicates',
   'dialog.dedupeNothing':
-    'Nothing in the contacts loaded here looks duplicated. Running the cleanup would change nothing.',
+    'Nothing in the contacts loaded here looks duplicated. Running the cleanup re-checks against the saved model and removes anything it finds.',
   'dialog.dedupeRule':
-    'One pick survives in each pair: a hand-placed pick is always kept over an auto-derived one.',
+    'One pick survives in each pair: a hand-placed pick is always kept over an auto-placed one, and between two of the same kind the one still linked to a borehole layer wins, then the newest.',
+  // Deletion count sentence, split so the bold count and the pair clause each
+  // pluralise on their own.
+  'dialog.dedupeCountOne': '{n} contact',
+  'dialog.dedupeCountMany': '{n} contacts',
+  'dialog.dedupePairsOne':
+    'will be permanently deleted, across {pairs} investigation-and-formation pair that carries more than one pick.',
+  'dialog.dedupePairsMany':
+    'will be permanently deleted, across {pairs} investigation-and-formation pairs that carry more than one pick.',
+  'dialog.dedupeUndo':
+    'This cannot be undone — nothing puts a removed contact back. Closing the project without saving rolls the whole project back to the last save.',
   'dialog.reCorrelateTitle': 'Auto-correlate found existing edges',
   'dialog.reCorrelateRerun': 'Re-correlate — delete auto edges and rerun',
   'dialog.reCorrelateSkip': 'Skip — keep existing',
   'dialog.reCorrelateNote':
     "Manual edges — and other sections' suggestions — are preserved either way.",
+  // Body sentence, split around the bold count so "{n}" can be emphasised.
+  'dialog.reCorrelateBodyPreOne': 'There is already',
+  'dialog.reCorrelateBodyPreMany': 'There are already',
+  'dialog.reCorrelateBodyPostOne':
+    'auto-correlation edge on this section. What would you like to do?',
+  'dialog.reCorrelateBodyPostMany':
+    'auto-correlation edges on this section. What would you like to do?',
   'dialog.snapTitle': 'Snap to geological contact?',
   'dialog.snapLithoToGeo': 'Snap litho to geological',
   'dialog.snapGeoToLitho': 'Move geological to litho',
@@ -133,6 +173,9 @@ export const PANELS = {
   'dialog.crossingPickerTitle': 'Open in which cross-section?',
   'dialog.crossingPickerBlurb': 'Pick a cross-section',
   'dialog.crossingPickerOpen': 'Open section',
+  // Body sentence, split around the bold count.
+  'dialog.crossingPickerBodyPre': 'The offending contacts appear on',
+  'dialog.crossingPickerBodyPost': 'cross-sections. Pick one to navigate to.',
   'dialog.recoveryRestore': 'Restore',
   'dialog.recoveryNotNow': 'Not now',
   'dialog.recoveryDeleteBackup': 'Delete backup',
