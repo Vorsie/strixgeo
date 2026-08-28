@@ -7,25 +7,36 @@ prefix by this package's ``__init__``; paths are unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
     get_in_project_or_404,
     safe_filename_stem,
 )
-from groundmodel.api.schemas.project.fence_export_request import FenceExportRequest
+from groundmodel.api.schemas.project.fence_export_request import (
+    FenceExportPanel,
+    FenceExportRequest,
+)
 from groundmodel.application.build_ground_model_snapshot import (
     BuildGroundModelSnapshot,
+)
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.session import get_session
-from groundmodel.infrastructure.exporters.dxf_fence_exporter import DxfFenceExporter
+from groundmodel.infrastructure.exporters.dxf_fence_exporter import (
+    DxfFenceExporter,
+    FenceFormationIdentity,
+)
 from groundmodel.infrastructure.exporters.plaxis_exporter import PlaxisExporter
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -152,10 +163,17 @@ async def export_model_fence_dxf(
     project_name = project_row.name if project_row is not None else "project"
     crs_epsg = project_row.default_horizontal_epsg if project_row is not None else None
 
+    # Resolve each panel's machine identity (nad_class + soil) so the exporter
+    # can name layers by the unit identifier (debt #104). The renderer does not
+    # send these — it should not have to know the export naming scheme — so we
+    # look them up here from the panels' formation_ids, scoped to the project.
+    identity_by_formation_id = await _resolve_fence_identities(session, project_id, request.panels)
+
     payload = DxfFenceExporter().export(
         request.panels,
         project_name=project_name,
         crs_epsg=crs_epsg,
+        identity_by_formation_id=identity_by_formation_id,
     )
     filename = f"{safe_filename_stem(project_name, 'project')}_fence.dxf"
     return Response(
@@ -163,3 +181,66 @@ async def export_model_fence_dxf(
         media_type="application/dxf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+async def _resolve_fence_identities(
+    session: AsyncSession,
+    project_id: UUID,
+    panels: Sequence[FenceExportPanel],
+) -> dict[str, FenceFormationIdentity]:
+    """Look up each panel formation's ``nad_class`` + soil for layer naming.
+
+    The fence layer name is the unit's machine identifier (debt #104), which is
+    built from the formation's ``nad_class`` and ``litho_main_soil_code`` — two
+    fields the renderer-POSTed panel does not carry. This resolves them from the
+    panels' ``formation_id`` values in ONE query, scoped to ``project_id`` so a
+    panel cannot pull a formation from another project.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope guard — only formations under this project are read.
+    panels : Sequence[FenceExportPanel]
+        The client-built panels; their ``formation_id`` strings are the lookup
+        keys.
+
+    Returns
+    -------
+    dict[str, FenceFormationIdentity]
+        ``formation_id (str) -> identity`` for every panel formation the query
+        resolved. A formation_id that does not parse as a UUID, or that the
+        query does not return, is simply absent — the exporter then falls back
+        to that panel's display name for its layer.
+    """
+    formation_ids: set[UUID] = set()
+    for panel in panels:
+        try:
+            formation_ids.add(UUID(panel.formation_id))
+        except (ValueError, AttributeError):
+            # A non-UUID formation_id (e.g. a renderer placeholder) cannot match
+            # a row; skip it and let the exporter fall back to the display name.
+            continue
+    if not formation_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(
+                GeologicalFormationOrm.id,
+                GeologicalFormationOrm.nad_class,
+                GeologicalFormationOrm.litho_main_soil_code,
+            ).where(
+                GeologicalFormationOrm.app_project_id == project_id,
+                GeologicalFormationOrm.id.in_(formation_ids),
+            )
+        )
+    ).all()
+    return {
+        str(row.id): FenceFormationIdentity(
+            nad_class=row.nad_class,
+            litho_main_soil_code=row.litho_main_soil_code,
+        )
+        for row in rows
+    }
