@@ -63,6 +63,7 @@ from groundmodel.infrastructure.exporters.dxf_fence_exporter_constants import (
     FORBIDDEN_LAYER_CHARS,
     MAX_LAYER_NAME_LEN,
 )
+from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
 from groundmodel.infrastructure.exporters.fence_panel_source import FencePanelSource
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -193,7 +194,11 @@ class DxfFenceExporter(GroundModelLogger):
                 )
             layer = doc.layers.add(name=layer_name)
             rgb = _parse_hex_color(panel.color)
-            layer.rgb = rgb if rgb is not None else DEFAULT_LAYER_RGB
+            # style_layer, not a bare ``layer.rgb =``: the visible 3DFACE edges
+            # are drawn from the INDEX colour, which defaults to white, and
+            # from LWDEFAULT, which is heavier than a panel edge should be
+            # (owner 2026-08-28: "the white bounding lines are a bit thick").
+            style_layer(layer, rgb if rgb is not None else DEFAULT_LAYER_RGB)
             layer_by_formation_id[panel.formation_id] = layer_name
         return layer_by_formation_id
 
