@@ -192,3 +192,23 @@ describe('the text is bounded', () => {
     expect(redactText({ secret: 'value' } as unknown as string)).toBe('')
   })
 })
+
+// DOV is Flemish PUBLIC open data — owner ruling 2026-08-28, verbatim: "all
+// data from dov doesnt need any redaction whatsoever". Its request URLs carry
+// the whole diagnostic payload in the query string (which layer, which bbox,
+// which permkey), so scrubbing them costs every DOV import diagnosis and
+// protects nothing. Other hosts keep their query stripped.
+describe('DOV open data is exempt from redaction', () => {
+  it('DOV1 — a DOV WFS request survives whole, query included', () => {
+    const url =
+      'https://www.dov.vlaanderen.be/geoserver/wfs?service=WFS&request=GetFeature' +
+      '&typeName=dov-pub:Sonderingen&bbox=88000,164000,88600,165000'
+    expect(redactText(`GET ${url}`)).toContain(url)
+  })
+
+  it('DOV2 — a non-DOV host still loses its query string', () => {
+    const out = redactText('GET https://tracker.example.com/collect?user=robin&site=kaai42')
+    expect(out).not.toContain('robin')
+    expect(out).not.toContain('kaai42')
+  })
+})
