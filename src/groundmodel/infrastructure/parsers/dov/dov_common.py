@@ -30,6 +30,7 @@ Sibling DOV-shared modules — split by concern, imported directly by callers:
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 from pyproj import Transformer
 
@@ -50,6 +51,36 @@ DOV_PROJECT_ID = "DOV"
 # ----------------------------------------------------------------------
 
 DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
+
+# Host allow-list for every URL we fetch from a DOV response. The WFS feature
+# `fiche` property is untrusted (a colleague's .strix / a hostile or MITM'd
+# response could name any host): left unchecked, it steers our next HTTP GET
+# at an arbitrary URL — a blind SSRF that could reach a link-local metadata
+# endpoint or an intranet host. Derived from DOV_WFS_URL so the DOV host is
+# stated once; a URL whose host is not on this set is refused, never fetched.
+DOV_ALLOWED_HOSTS: frozenset[str] = frozenset({urlsplit(DOV_WFS_URL).hostname or ""})
+
+
+def is_allowed_dov_url(url: str) -> bool:
+    """Return whether *url* points at an allow-listed DOV host over http(s).
+
+    Parameters
+    ----------
+    url : str
+        A candidate URL built from a DOV WFS response (e.g. the `fiche`-derived
+        XML download URL) or a redirect target.
+
+    Returns
+    -------
+    bool
+        ``True`` only when the scheme is http/https AND the host is in
+        ``DOV_ALLOWED_HOSTS``. Everything else — another host, a bare path with
+        no host, ``file://``/``gopher://`` and friends — is refused, which is
+        the guard against a response steering the fetch off-host (SSRF).
+    """
+    parts = urlsplit(url)
+    return parts.scheme in ("http", "https") and parts.hostname in DOV_ALLOWED_HOSTS
+
 
 # Default server-side cap on features per WFS request — DOV's GeoServer truncates above this.
 # Bbox queries beyond this count are recursively split into quadrants.
