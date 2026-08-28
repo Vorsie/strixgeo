@@ -32,3 +32,17 @@ export const AXIS_PILL_COMPACT_PX = 146
  * the count inside it changes between renders.
  */
 export const PENDING_CHIP_BASE_PX = 26
+
+/**
+ * Why steps 2, 3 and 4 are dead on a section that carries no packing yet.
+ *
+ * One sentence for all three, because the fault and the remedy are the same
+ * one. It names the OPEN section deliberately: the predecessor read "Run
+ * “1 · Subdivide CPTs” first to create packing bands", which on a project
+ * whose model already exists tells the engineer to do a thing he has done
+ * (owner, 2026-08-15: *"when i switched to cs2 options 2 3 and 4 in the
+ * packing pipeline where clickable this was not the case on the first
+ * subdivide in cs1"*).
+ */
+export const NO_BANDS_HERE_TITLE =
+  'No packing bands on this section yet — run “1 · Subdivide CPTs” on this section first'
