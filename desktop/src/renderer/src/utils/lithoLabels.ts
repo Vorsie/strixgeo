@@ -28,7 +28,14 @@
  */
 
 import type { AdmixtureItem } from '../api/client'
-import { LITHOLOGY_LABELS } from './lithoConstants'
+import { LITHOLOGY_LABELS, LITHOLOGY_LABELS_NL } from './lithoConstants'
+import { getLanguage } from '../i18n/languageSelect'
+import type { Language } from '../i18n/i18n_constants'
+import {
+  ADMIXTURE_AMOUNT_NL,
+  ADMIXTURE_AMOUNT_QUANTITY_NL,
+  ADMIXTURE_SOIL_NL,
+} from './lithoLabelsNl'
 
 // ---------------------------------------------------------------------------
 // Admixture soil codes → English adjective form.
@@ -340,35 +347,148 @@ export function formatLithoDisplayName(
   mainCode: string,
   admixtures: readonly AdmixtureItem[] | null | undefined,
 ): string {
-  // Pipe format (owner directive 2026-05-22): "SAND | clayey | little
-  // shell debris". Replaces the prior NEN-style prose, which produced
-  // broken English ("slightly with shell debris Sand") when an amount
-  // adverb landed in front of a "with X" admixture phrase.
-  const baseName = (LITHOLOGY_LABELS[mainCode] ?? mainCode).toUpperCase()
+  return composeLithoName(mainCode, admixtures, EN_VOCAB)
+}
 
+/**
+ * The vocabulary + connectives the composer needs, per language. Selecting the
+ * table by language is the whole language switch — the composition logic in
+ * ``composeLithoName`` is shared, so EN and NL can never format differently.
+ */
+interface LithoVocab {
+  base: Record<string, string>
+  soil(code: string): string
+  amount: Record<string, string>
+  quantity: Record<string, string>
+  locallyPrefix: string
+  /** The connective a "with X" noun-phrase admixture begins with in this locale. */
+  withPrefix: string
+}
+
+const EN_VOCAB: LithoVocab = {
+  base: LITHOLOGY_LABELS,
+  soil: admixtureSoilLabel,
+  amount: ADMIXTURE_AMOUNT_EN,
+  quantity: ADMIXTURE_AMOUNT_QUANTITY_EN,
+  locallyPrefix: 'locally ',
+  withPrefix: 'with ',
+}
+
+const NL_VOCAB: LithoVocab = {
+  base: LITHOLOGY_LABELS_NL,
+  // NL first, English adjective as the graceful fallback for uncurated codes.
+  soil: (code: string): string => ADMIXTURE_SOIL_NL[code] ?? admixtureSoilLabel(code),
+  amount: ADMIXTURE_AMOUNT_NL,
+  quantity: ADMIXTURE_AMOUNT_QUANTITY_NL,
+  locallyPrefix: 'plaatselijk ',
+  withPrefix: 'met ',
+}
+
+/**
+ * Strip the leading "with "/"met " connective from a noun-phrase admixture.
+ *
+ * The NL fallback can hand back an English adjective that still begins "with ",
+ * so both connectives are recognised regardless of the active vocab — a mixed
+ * fallback must never leave a stray "with" in a Dutch label.
+ */
+function stripWithPrefix(label: string): { isNounPhrase: boolean; core: string } {
+  for (const prefix of ['with ', 'met ']) {
+    if (label.startsWith(prefix)) return { isNounPhrase: true, core: label.slice(prefix.length) }
+  }
+  return { isNounPhrase: false, core: label }
+}
+
+/**
+ * Compose the pipe-delimited litho display name from a vocabulary.
+ *
+ * The pipe format + noun-phrase handling is identical across locales; only the
+ * WORDS differ, which is exactly what ``vocab`` supplies. Extracted so
+ * ``formatLithoDisplayName`` (English, the export/canonical form) and
+ * ``lithoDisplayName`` (the active-language UI form) share one implementation.
+ *
+ * Parameters
+ * ----------
+ * mainCode
+ *     Base lithology code (ZAND, KLEI, ...).
+ * admixtures
+ *     Admixture items; empty/null yields the bare main-lithology name.
+ * vocab
+ *     The per-language label tables + connectives.
+ *
+ * Returns
+ * -------
+ * string
+ *     Pipe-delimited display label in the vocabulary's language.
+ */
+function composeLithoName(
+  mainCode: string,
+  admixtures: readonly AdmixtureItem[] | null | undefined,
+  vocab: LithoVocab,
+): string {
+  const baseName = (vocab.base[mainCode] ?? mainCode).toUpperCase()
   if (!admixtures || admixtures.length === 0) return baseName
 
-  // One pipe-separated field per admixture, in source order.
   const fields: string[] = admixtures.map(adm => {
-    const soilLabel = admixtureSoilLabel(adm.soil_code)
-    // "with X" admixtures (shell debris, fossils, wood debris, ...) are
-    // noun phrases — strip the leading "with " and qualify them with a
-    // quantity word. Everything else is an adjective and takes an
-    // amount adverb.
-    const isNounPhrase = soilLabel.startsWith('with ')
-    const core = isNounPhrase ? soilLabel.slice('with '.length) : soilLabel
+    const soilLabel = vocab.soil(adm.soil_code)
+    const { isNounPhrase, core } = stripWithPrefix(soilLabel)
 
     const amountWord = adm.amount
       ? isNounPhrase
-        ? (ADMIXTURE_AMOUNT_QUANTITY_EN[adm.amount] ?? adm.amount)
-        : (ADMIXTURE_AMOUNT_EN[adm.amount] ?? adm.amount)
+        ? (vocab.quantity[adm.amount] ?? adm.amount)
+        : (vocab.amount[adm.amount] ?? adm.amount)
       : ''
 
-    // "locally" prefix when the admixture occurs only locally in the layer.
-    const localPrefix = adm.locally ? 'locally ' : ''
-    // amountWord is '' for the N code and for amount-less admixtures.
+    const localPrefix = adm.locally ? vocab.locallyPrefix : ''
     return `${localPrefix}${amountWord ? `${amountWord} ` : ''}${core}`
   })
 
   return `${baseName} | ${fields.join(' | ')}`
+}
+
+/**
+ * The pipe-delimited litho display name in the ACTIVE interface language.
+ *
+ * This is the UI-facing formatter — every on-screen litho unit label (legend
+ * rows, inspector, section band names, 3-D legend) should call this so the name
+ * follows the language toggle. ``formatLithoDisplayName`` stays the ENGLISH,
+ * language-stable form and is what the export path (fence DXF layer names) uses:
+ * an export is a contract that must read identically whatever the UI language.
+ *
+ * Parameters
+ * ----------
+ * mainCode
+ *     Base lithology code (ZAND, KLEI, ...).
+ * admixtures
+ *     Admixture items from the API.
+ * language
+ *     The locale to render in; defaults to the active interface language.
+ *
+ * Returns
+ * -------
+ * string
+ *     Pipe-delimited display label; English under ``'en'`` (identical to
+ *     ``formatLithoDisplayName``), Flemish Dutch under ``'nl'``.
+ */
+export function lithoDisplayName(
+  mainCode: string,
+  admixtures: readonly AdmixtureItem[] | null | undefined,
+  language: Language = getLanguage(),
+): string {
+  return composeLithoName(mainCode, admixtures, language === 'nl' ? NL_VOCAB : EN_VOCAB)
+}
+
+/**
+ * The TITLE-CASE base-lithology label ("Sand" / "Zand"), in the active language.
+ *
+ * For dropdown / option rows that show only the bare soil name and want it in
+ * sentence case, not the upper-case ``lithoDisplayName`` band form. Selecting the
+ * source-token table is the whole translation.
+ *
+ * @param code  Base lithology code (ZAND, KLEI, ...).
+ * @param language  The locale; defaults to the active interface language.
+ * @returns  The base label, or the raw code when it is not one of the five.
+ */
+export function lithoBaseLabel(code: string, language: Language = getLanguage()): string {
+  const labels = language === 'nl' ? LITHOLOGY_LABELS_NL : LITHOLOGY_LABELS
+  return labels[code] ?? code
 }
