@@ -825,7 +825,13 @@ function buildMenu(win: BrowserWindow): void {
           // ./crashBundle), which is what makes "mail us your logs" a request
           // a consultancy's IT can say yes to. This is the ONLY log-export
           // affordance a packaged build offers.
-          label: 'Save diagnostics bundle…',
+          //
+          // The label NAMES THE LOG on purpose (owner 2026-08-28: "user should
+          // be able to send me the logs, is there a workaround"). The bundle
+          // already carries a redacted tail of ``backend.log``, so the
+          // capability was there — a user hunting the menu for the word "log"
+          // simply could not find it behind "diagnostics".
+          label: 'Save logs for support…',
           click: (): void => {
             void saveDiagnosticsBundle(win)
           },
