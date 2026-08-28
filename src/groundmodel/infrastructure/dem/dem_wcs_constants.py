@@ -40,6 +40,20 @@ WCS_BBOX_PADDING_M: Final = 2.0
 # 1 m native resolution would ask the WCS for a >600 Mpixel tile.
 WCS_MAX_EXTENT_SPAN_M: Final = 25_000.0
 
+# Hard cap on the pixel count (width × height) the decoder will materialise
+# from a WCS response. The response header's declared dimensions are untrusted:
+# a hostile or broken DEM server can claim a billion-pixel image in a tiny
+# payload and drive the per-pixel decode loop into an unbounded allocation that
+# hangs and OOMs the backend. This bounds it. 100 Mpixel is generous — it covers
+# a ~5 km × 5 km project tile at the finest native resolution we consume (AHN4's
+# 0.5 m → 10_000² px); the extent guard (WCS_MAX_EXTENT_SPAN_M) already refuses
+# spans larger than a real project hull upstream, and this is the second line
+# for the RESPONSE the server controls independently of the request. It is
+# deliberately tighter than the extent guard's theoretical maximum because the
+# 2-D decode materialises every pixel as a Python object; a tile beyond it
+# degrades to "no DEM here" (DEM is a fallback), never a crash.
+WCS_MAX_DECODE_PIXELS: Final = 100_000_000
+
 # How long an upstream failure for one exact tile key is remembered before
 # the network is tried again. Born from the dogfeed 2026-08-02 flood: a
 # section at (0,0)→(1000,0) re-requested the same 404ing strip dozens of
