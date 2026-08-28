@@ -47,13 +47,12 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { launchApp } from './helpers/electron_launch'
+import { launchApp, pinWindowSize } from './helpers/electron_launch'
 import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
 import {
   CESIUM_SETTLE_MS,
   WEBGL_MAX_DIFF_PIXEL_RATIO,
   blockExternalNetwork,
-  pinWindowBounds,
   reseedFixture,
   resolveFenceTargetUnit,
 } from './helpers/visual_golden'
@@ -84,7 +83,7 @@ test.describe('flow_unit_statistics', () => {
     try {
       // Pixel goldens need a pinned window — Electron restores persisted
       // bounds otherwise and the element sizes drift run to run.
-      await pinWindowBounds(app)
+      await pinWindowSize(app)
       // Before any stage that mounts Cesium, so the WMS lid fetch can never
       // reach the network.
       await blockExternalNetwork(page)
@@ -179,11 +178,19 @@ test.describe('flow_unit_statistics', () => {
       // Camera flight (1.5 s) + SwiftShader settle before pinning pixels.
       await page.waitForTimeout(CESIUM_SETTLE_MS)
 
+      // Pin the SCENE, not the card around it. Screenshotting the whole
+      // ``unit-fence-cutout`` element included its heading and blurb, and the
+      // first full-suite run failed on a diff that was pure edge noise — every
+      // glyph outline and the button border highlighted, interiors identical,
+      // i.e. the element rendered a sub-pixel off. Text anti-aliasing is not
+      // what this golden is for; the canvas is.
+      //
       // Single-shot compare: Cesium renders continuously, so toHaveScreenshot's
       // stabilise-first loop (two identical consecutive frames) never converges
       // and times the test out. One settled frame within the WebGL tolerance is
       // the contract.
-      expect(await cutout.screenshot()).toMatchSnapshot('unit-fence-cutout.png', {
+      const scene = cutout.locator('canvas')
+      expect(await scene.screenshot()).toMatchSnapshot('unit-fence-cutout.png', {
         maxDiffPixelRatio: WEBGL_MAX_DIFF_PIXEL_RATIO,
       })
     } finally {
