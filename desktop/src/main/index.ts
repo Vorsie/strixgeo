@@ -49,6 +49,7 @@ import {
   isInAppNavigation,
   isValidRecentProjectEntry,
   normalizePathForCompare,
+  rawBackendLogAffordanceEnabled,
 } from './security'
 import { applyPackagedProfile } from './packagedProfile'
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
@@ -799,22 +800,31 @@ function buildMenu(win: BrowserWindow): void {
           accelerator: 'F1',
           click: () => win.webContents.send('menu:open-cheatsheet'),
         },
-        {
-          // #214d — show the logs directory so the user can find and
-          // attach backend.log when reporting a bug. Uses shell.openPath
-          // (not shell.openExternal) because it is a local filesystem
-          // path, not a URL. In dev the logs dir may be empty; that is fine.
-          label: 'Show log file…',
-          click: (): void => {
-            const logsDir = app.getPath('logs')
-            void shell.openPath(logsDir)
-          },
-        },
+        // #214d — reveal the logs directory so a developer can open the RAW
+        // ``backend.log``. Gated to development only: that file is un-redacted
+        // (it carries the asyncpg DSN — password included — and raw project
+        // paths), so a packaged build must never hand it to the user. The only
+        // supported way to get logs out of a shipped build is the redacted
+        // "Save diagnostics bundle…" below (security-fix, user-data leak). Uses
+        // shell.openPath (not shell.openExternal) because it is a local
+        // filesystem path, not a URL. In dev the logs dir may be empty; fine.
+        ...(rawBackendLogAffordanceEnabled(app.isPackaged)
+          ? [
+              {
+                label: 'Show log file…',
+                click: (): void => {
+                  const logsDir = app.getPath('logs')
+                  void shell.openPath(logsDir)
+                },
+              },
+            ]
+          : []),
         {
           // #16 — the manual half of crash reporting: one zip the user can
           // inspect and then send. Everything in it is redacted (see
           // ./crashBundle), which is what makes "mail us your logs" a request
-          // a consultancy's IT can say yes to.
+          // a consultancy's IT can say yes to. This is the ONLY log-export
+          // affordance a packaged build offers.
           label: 'Save diagnostics bundle…',
           click: (): void => {
             void saveDiagnosticsBundle(win)
