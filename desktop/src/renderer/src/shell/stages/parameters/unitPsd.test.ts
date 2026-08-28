@@ -9,6 +9,9 @@
 //       arrays whatever order the lab wrote them in).
 // PS4 — a band whose borehole detail has not arrived contributes nothing.
 // PS5 — each curve names its borehole + sample + depth, for the hover.
+// PS6 — each curve carries the SAMPLE id (the colour key shared with the
+//       scatter dots, owner 2026-08-28) and the BOREHOLE id (so a right-click
+//       can navigate to the sample on a cross-section, owner 2026-08-28).
 
 import { describe, expect, it } from 'vitest'
 
@@ -128,5 +131,22 @@ describe('poolUnitPsdCurves — all PSDs of the unit on one graph', () => {
     expect(curve.sampleNumber).toBe('5')
     expect(curve.depthTopM).toBe(1.2)
     expect(curve.depthBaseM).toBe(1.7)
+  })
+
+  it('PS6 — each curve carries its sample id (colour key) and borehole id (nav)', () => {
+    const details = new Map([
+      [
+        'bh-1',
+        detail('bh-1', 'B1', [
+          sample('sample-42', 1, 2, [grainSize('g1', [0.063, 2], [60, 10])], '5'),
+        ]),
+      ],
+    ])
+    const pool = poolUnitPsdCurves([BAND], details)
+    const curve = pool.curves[0]
+    // The colour key is the SAMPLE, not the grain-size test id or the index.
+    expect(curve.sampleId).toBe('sample-42')
+    // The borehole id lets a right-click resolve the section to navigate to.
+    expect(curve.boreholeId).toBe('bh-1')
   })
 })
