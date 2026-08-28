@@ -282,3 +282,50 @@ the call instead.
   Integration'`, which dropped pytest's summary line while keeping test paths
   (they match "integration" case-insensitively) — making a green run look like
   a suite that never ran. Log the whole thing or log the summary deliberately.
+
+## A time-ordered id has no unique prefix (2026-08-28)
+
+The fence DXF exporter disambiguated colliding layer names with the first 8
+characters of the formation id: `Fence-SAND (019fe4ac-3)`. Those ids are
+**uuid7 — the leading bits are a millisecond timestamp**, so every row created
+in the same few seconds shares them. Measured on the live project: **111
+formations, 14 distinct 8-char prefixes, one prefix shared by 34 rows**
+spanning KLEI 21/22/23 and SILT 13/14/15/16. The trailing `-N` was a bare
+collision counter, so the "traceable" suffix identified nothing and a CAD user
+faced 13 indistinguishable SAND layers.
+
+* **Never truncate a uuid7 (or ULID, or any k-sortable id) for identity.** The
+  entropy is at the END. Truncating a uuid4 is merely risky; truncating a
+  time-ordered id is guaranteed to collide for rows created together — which
+  is exactly how a pipeline creates them.
+* **When a name needs to identify a thing, use the domain identifier.** The
+  repo already had one (`unit_identifier` → `NAD-06_ZAND`) used by the section
+  DXF and the Plaxis mapping table. The fence had grown its own scheme instead
+  of reusing it, and no test compared the two.
+* **A disambiguation suffix nobody can interpret is worse than a collision** —
+  it looks resolved. A visible collision gets reported; an opaque suffix gets
+  trusted.
+
+## Measure the property that matters, not the one that is easy (2026-08-28)
+
+Asked whether small patches in an exported fence were engine debris, the first
+pass measured AREA and reported "223 slivers under 50 m², probably debris".
+The owner asked the right question — *does every patch have a physical
+thickness on the column?* — and the answer inverted the conclusion: **319 of
+320 had real thickness (median 1.06 m, minimum 6 cm)**. A thin band that
+pinches out over a short distance has small area and is perfectly real
+geology. The single apparent exception was also a measurement artefact: the
+script rounded plan positions to 10 cm cells and read the zero-thickness end
+of a wedge that is 9.9 cm thick at its other end.
+
+* **Area, count and size are proxies. Name the physical property first**, then
+  find the measure for it. Here the question was "is there material here?",
+  whose measure is thickness at the logged column — not area on a wall.
+* **A proxy that supports a tidy conclusion deserves more suspicion, not
+  less.** "223 pieces of debris" was a satisfying finding and completely wrong.
+* **Rounding is part of the measurement.** A 10 cm plan tolerance silently
+  converted a real wedge into a "point contact"; the tolerance, not the data,
+  produced the anomaly.
+* The proposed remedy would have made things worse: dropping sub-threshold
+  patches deletes logged ground and punches holes in a model whose stated
+  invariant is that it is gapless.
