@@ -46,6 +46,7 @@ import { isGeologicalFormation } from '../../../utils/formationKind'
 import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilter'
 import { hashHexColor } from '../../../utils/hashColor'
 import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
+import { useT, type Translator } from '../../../i18n/translate'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
 const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -119,6 +120,7 @@ export default function SectionsInspector(): JSX.Element {
   // toolbar-era legend claimed "Hatched = preview" over an empty axis in three
   // real cases). Unconditional hook, above every early return.
   const previewRender = useGeotechPreviewRender()
+  const t = useT()
 
   // sessionImportSectionIds is now sourced from the coordinator slice
   // of the ShellContext bus (debt #25 resolution). Previously a stub
@@ -153,10 +155,7 @@ export default function SectionsInspector(): JSX.Element {
         cpts,
       )
       if (candidates.length === 0) {
-        toast(
-          'error',
-          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
-        )
+        toast('error', t('sections.inspector.noCrossSectionForContact'))
         return
       }
       if (candidates.length === 1) {
@@ -168,7 +167,7 @@ export default function SectionsInspector(): JSX.Element {
       }
       setCrossingPicker({ contactIds: issue.contact_ids, candidates })
     },
-    [contacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast],
+    [contacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast, t],
   )
 
   const canCreate = (project.default_horizontal_epsg ?? null) !== null
@@ -208,7 +207,7 @@ export default function SectionsInspector(): JSX.Element {
       {/* immediately because handleSectionCreated adds the id to the        */}
       {/* manifest synchronously on create (same guarantee as Geology).      */}
       {/* ------------------------------------------------------------------ */}
-      <InspectorSection label="Cross-sections" count={visibleSections.length}>
+      <InspectorSection id="cross-sections" label={t('sections.title')} count={visibleSections.length}>
         <SectionList
           sections={visibleSections}
           selectedId={selectedSectionId}
@@ -217,6 +216,7 @@ export default function SectionsInspector(): JSX.Element {
           onDelete={handleDeleteSection}
           canCreate={canCreate}
           sessionImportSectionIds={sessionImportSectionIds}
+          t={t}
         />
       </InspectorSection>
 
@@ -224,10 +224,11 @@ export default function SectionsInspector(): JSX.Element {
       {/* Section properties (only when a section is selected)               */}
       {/* ------------------------------------------------------------------ */}
       {selectedSection !== null && (
-        <InspectorSection label="Section properties">
+        <InspectorSection id="section-properties" label={t('sections.properties')}>
           <SectionProperties
             section={selectedSection}
             onPatch={handlePatchSelectedSection}
+            t={t}
           />
         </InspectorSection>
       )}
@@ -240,8 +241,9 @@ export default function SectionsInspector(): JSX.Element {
       {/* geological axis shows Build/Seed/Seed-for-new-tests/Dedupe.       */}
       {/* ------------------------------------------------------------------ */}
       {(activeGeologicalModel !== null || activeLithoModel !== null) && (
-        <InspectorSection label="Model actions">
+        <InspectorSection id="model-actions" label={t('sections.modelActions')}>
           <ModelActions
+            t={t}
             axis={sectionModelAxis}
             activeGeologicalModel={activeGeologicalModel}
             activeLithoModel={activeLithoModel}
@@ -267,19 +269,25 @@ export default function SectionsInspector(): JSX.Element {
       {/* ------------------------------------------------------------------ */}
       {sectionModelAxis === 'geotechnical' &&
         (previewRender.columnCount > 0 || previewRender.clampedBandCount > 0) && (
-          <InspectorSection label="Borehole preview" count={previewRender.columnCount}>
+          <InspectorSection
+            id="borehole-preview"
+            label={t('sections.boreholePreview')}
+            count={previewRender.columnCount}
+          >
             <div className="space-y-1 px-1">
               {previewRender.columnCount > 0 && (
                 <p className="text-xs text-text-muted" data-testid="geotech-preview-legend">
-                  Hatched bands = preview. Right-click a ghost column to divide just that
-                  borehole, or press &ldquo;4 · Divide boreholes&rdquo; to commit them all.
+                  {t('sections.inspector.previewLegend')}
                 </p>
               )}
               {previewRender.clampedBandCount > 0 && (
                 <p className="text-xs text-text-muted" data-testid="geotech-preview-clamped">
-                  {previewRender.clampedBandCount} planned band
-                  {previewRender.clampedBandCount === 1 ? '' : 's'} outside the depth window —
-                  zoom out to see {previewRender.clampedBandCount === 1 ? 'it' : 'them'}.
+                  {t(
+                    previewRender.clampedBandCount === 1
+                      ? 'sections.inspector.previewClampedOne'
+                      : 'sections.inspector.previewClampedMany',
+                    { n: previewRender.clampedBandCount },
+                  )}
                 </p>
               )}
             </div>
@@ -291,8 +299,13 @@ export default function SectionsInspector(): JSX.Element {
       {/* ------------------------------------------------------------------ */}
       {geologicalFormations.length > 0 && (
         <InspectorSection
-          label="Geological model"
-          badge={staleSurfaceCount > 0 ? `${staleSurfaceCount} stale` : undefined}
+          id="geological-model"
+          label={t('sections.inspector.geologicalModel')}
+          badge={
+            staleSurfaceCount > 0
+              ? t('sections.inspector.staleBadge', { n: staleSurfaceCount })
+              : undefined
+          }
           badgeAmber={staleSurfaceCount > 0}
         >
           <FormationList formations={geologicalFormations} />
@@ -304,13 +317,13 @@ export default function SectionsInspector(): JSX.Element {
       {/* one geological model. Single-model projects skip the picker.       */}
       {/* ------------------------------------------------------------------ */}
       {activeLithoModel !== null && geoModels.length > 1 && (
-        <InspectorSection label="Geology backdrop (litho axis)">
+        <InspectorSection id="geology-backdrop-(litho-axis)" label={t('sections.geologyBackdrop')}>
           <div className="px-2 pb-2 pt-1">
             <label
               htmlFor="backdrop-model-picker"
               className="block text-xs text-text-secondary mb-1"
             >
-              Reference geological model
+              {t('sections.referenceGeologicalModel')}
             </label>
             <select
               id="backdrop-model-picker"
@@ -331,8 +344,10 @@ export default function SectionsInspector(): JSX.Element {
               ))}
             </select>
             <p className="text-xs text-text-muted mt-1">
-              Shown as a faint reference layer when the litho axis is active.
-              Click&nbsp;<em>Sync geology</em> in Model actions to load.
+              {t('sections.geologyBackdropHint')}{' '}
+              {t('sections.inspector.backdropClickPrefix')}&nbsp;
+              <em>{t('sections.inspector.syncGeology')}</em>{' '}
+              {t('sections.inspector.backdropClickSuffix')}
             </p>
           </div>
         </InspectorSection>
@@ -368,7 +383,7 @@ export default function SectionsInspector(): JSX.Element {
       {/* ------------------------------------------------------------------ */}
       {/* Virtuele Boring overlay picker                                      */}
       {/* ------------------------------------------------------------------ */}
-      <InspectorSection label="Virtuele Boring overlay">
+      <InspectorSection id="virtuele-boring-overlay" label={t('sections.virtueleBoringOverlay')}>
         <VirtueleBoringStrip
           modelA={virtueleBoringOverlay.modelA}
           modelB={virtueleBoringOverlay.modelB}
@@ -386,16 +401,21 @@ export default function SectionsInspector(): JSX.Element {
 // InspectorSection — collapsible section header + content slot
 // ---------------------------------------------------------------------------
 
-// localStorage key pattern: sections-inspector-collapse:<label-slug>
+// localStorage key pattern: sections-inspector-collapse:<id>
 // Value: 'open' | 'closed'. Default is 'open' for first-time users.
-function inspectorCollapseKey(label: string): string {
-  return `sections-inspector-collapse:${label.toLowerCase().replace(/\s+/g, '-')}`
+//
+// The key is built from a STABLE ``id`` (an English slug), never from the
+// display label — the label is now translated, and keying persistence on it
+// would (a) split a user's collapse state across languages and (b) break the
+// stored keys the collapsible tests assert (`…:cross-sections`).
+function inspectorCollapseKey(id: string): string {
+  return `sections-inspector-collapse:${id}`
 }
 
-function loadCollapseState(label: string): boolean {
+function loadCollapseState(id: string): boolean {
   // Returns true = open, false = closed. Default open.
   try {
-    const raw = localStorage.getItem(inspectorCollapseKey(label))
+    const raw = localStorage.getItem(inspectorCollapseKey(id))
     if (raw === 'closed') return false
   } catch {
     // localStorage unavailable — default open.
@@ -404,6 +424,9 @@ function loadCollapseState(label: string): boolean {
 }
 
 interface InspectorSectionProps {
+  /** Stable slug for the collapse-state localStorage key + panel id. Never the
+   *  translated label — see ``inspectorCollapseKey``. */
+  id: string
   label: string
   count?: number
   badge?: string
@@ -443,26 +466,27 @@ interface InspectorSectionProps {
  *     The labelled collapsible section element.
  */
 function InspectorSection({
+  id,
   label,
   count,
   badge,
   badgeAmber,
   children,
 }: InspectorSectionProps): JSX.Element {
-  const [open, setOpen] = useState<boolean>(() => loadCollapseState(label))
-  const panelId = `sections-inspector-panel-${label.toLowerCase().replace(/\s+/g, '-')}`
+  const [open, setOpen] = useState<boolean>(() => loadCollapseState(id))
+  const panelId = `sections-inspector-panel-${id}`
 
   const toggle = useCallback(() => {
     setOpen(prev => {
       const next = !prev
       try {
-        localStorage.setItem(inspectorCollapseKey(label), next ? 'open' : 'closed')
+        localStorage.setItem(inspectorCollapseKey(id), next ? 'open' : 'closed')
       } catch {
         // localStorage unavailable — no-op.
       }
       return next
     })
-  }, [label])
+  }, [id])
 
   const Chevron = open ? ChevronDown : ChevronRight
 
@@ -521,6 +545,7 @@ interface SectionListProps {
   onDelete: (id: string) => Promise<void>
   canCreate: boolean
   sessionImportSectionIds: ReadonlySet<string>
+  t: Translator
 }
 
 /**
@@ -561,6 +586,7 @@ function SectionList({
   onDelete,
   canCreate,
   sessionImportSectionIds,
+  t,
 }: SectionListProps): JSX.Element {
   const [creating, setCreating] = useState(false)
 
@@ -593,20 +619,20 @@ function SectionList({
         disabled={!canCreate || creating}
         title={
           !canCreate
-            ? 'Set a Default horizontal CRS in Project metadata first'
+            ? t('sections.inspector.setCrsFirst')
             : creating
-              ? 'Creating…'
-              : 'Create a new cross-section'
+              ? t('sections.busy.creating')
+              : t('sections.inspector.createSection')
         }
         className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] rounded border border-border-subtle text-text-secondary hover:bg-surface-card hover:text-text-primary disabled:text-text-muted disabled:cursor-not-allowed transition-colors"
       >
-        {creating ? 'Creating…' : '+ New cross-section'}
+        {creating ? t('sections.busy.creating') : t('sections.newPlus')}
       </button>
 
       {/* Section rows */}
       {ordered.length === 0 ? (
         <p className="text-[11px] text-text-muted italic py-1">
-          {canCreate ? 'No cross-sections yet' : 'Set a CRS to create sections'}
+          {canCreate ? t('sections.none') : t('sections.inspector.setCrsToCreate')}
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5">
@@ -618,6 +644,7 @@ function SectionList({
               unsaved={sessionImportSectionIds.has(s.id)}
               onClick={() => onSelect(s.id)}
               onDelete={() => onDelete(s.id)}
+              t={t}
             />
           ))}
         </ul>
@@ -636,6 +663,7 @@ interface SectionRowProps {
   unsaved: boolean
   onClick: () => void
   onDelete: () => Promise<void>
+  t: Translator
 }
 
 /**
@@ -665,6 +693,7 @@ function SectionRow({
   unsaved,
   onClick,
   onDelete,
+  t,
 }: SectionRowProps): JSX.Element {
   const [deleting, setDeleting] = useState(false)
   // Delete confirm modal state — replaces window.confirm() per UX rules:
@@ -711,14 +740,12 @@ function SectionRow({
           <div className="flex items-center gap-1.5">
             <Slash size={11} className="flex-shrink-0 opacity-70" />
             <span className="text-xs font-medium truncate">{section.name}</span>
-            {unsaved && (
-              <DirtyAsterisk title="Created since last save — File → Save to commit" />
-            )}
+            {unsaved && <DirtyAsterisk title={t('sections.inspector.dirtyCreated')} />}
           </div>
           <div className="flex items-center gap-1.5 pl-4 text-[10px] text-text-muted">
             <span>{lengthM.toFixed(0)} m</span>
             <span>·</span>
-            <span title="Lateral projection buffer">
+            <span title={t('sections.bufferLateral')}>
               ±{section.projection_buffer_m.toFixed(0)} m
             </span>
           </div>
@@ -727,7 +754,7 @@ function SectionRow({
         <button
           onClick={handleDeleteClick}
           disabled={deleting}
-          title={deleting ? 'Deleting…' : 'Delete cross-section'}
+          title={deleting ? t('sections.busy.deleting') : t('sections.dialog.deleteConfirmButton')}
           className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-status-danger hover:bg-status-danger/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 transition-opacity"
           data-testid={`section-row-delete-${section.id}`}
         >
@@ -752,12 +779,11 @@ function SectionRow({
             id={`delete-section-row-title-${section.id}`}
             className="text-sm font-semibold text-text-primary mb-1"
           >
-            Delete cross-section?
+            {t('sections.deleteConfirm')}
           </h2>
           <p className="text-xs text-text-muted mb-4">
             <span className="font-medium text-text-secondary">{section.name}</span>{' '}
-            will be permanently deleted. Formation contacts placed on it are also removed.
-            This cannot be undone.
+            {t('sections.dialog.deleteBody')}
           </p>
           <div className="flex justify-end gap-2">
             {/* Cancel has default focus (autoFocus) — the safe default
@@ -773,7 +799,7 @@ function SectionRow({
               onClick={() => setDeleteConfirmOpen(false)}
               disabled={deleting}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
@@ -782,7 +808,7 @@ function SectionRow({
               disabled={deleting}
               data-testid={`section-row-delete-confirm-${section.id}`}
             >
-              {deleting ? 'Deleting…' : 'Delete cross-section'}
+              {deleting ? t('sections.busy.deleting') : t('sections.dialog.deleteConfirmButton')}
             </Button>
           </div>
         </div>
@@ -802,6 +828,7 @@ interface SectionPropertiesProps {
     projection_buffer_m?: number
     vertical_exaggeration?: number
   }) => Promise<void>
+  t: Translator
 }
 
 /**
@@ -827,6 +854,7 @@ interface SectionPropertiesProps {
 function SectionProperties({
   section,
   onPatch,
+  t,
 }: SectionPropertiesProps): JSX.Element {
   const [bufferM, setBufferM] = useState(section.projection_buffer_m)
   const [vex, setVex] = useState(section.vertical_exaggeration)
@@ -915,13 +943,13 @@ function SectionProperties({
             onBlur={commitName}
             onKeyDown={handleNameKeyDown}
             className="w-full text-xs font-medium text-text-primary bg-surface-card border border-accent rounded px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
-            aria-label="Section name"
+            aria-label={t('sections.name')}
           />
         ) : (
           <button
             type="button"
             onClick={handleNameClick}
-            title="Click to rename this cross-section"
+            title={t('sections.rename')}
             className="group flex items-center gap-1 w-full text-left"
           >
             <span className="text-xs font-medium text-text-primary truncate">
@@ -942,7 +970,7 @@ function SectionProperties({
       {/* Projection buffer */}
       <div>
         <label className="flex items-center justify-between text-[11px] text-text-secondary mb-1">
-          <span>Projection buffer</span>
+          <span>{t('sections.buffer')}</span>
           <span className="tabular-nums text-text-primary">{bufferM.toFixed(0)} m</span>
         </label>
         <input
@@ -955,14 +983,14 @@ function SectionProperties({
           onMouseUp={() => void onPatch({ projection_buffer_m: bufferM })}
           onKeyUp={() => void onPatch({ projection_buffer_m: bufferM })}
           className="w-full accent-accent"
-          title="Lateral distance from the section line within which investigations are projected"
+          title={t('sections.bufferHint')}
         />
       </div>
 
       {/* Vertical exaggeration */}
       <div>
         <label className="flex items-center justify-between text-[11px] text-text-secondary mb-1">
-          <span>Vertical exaggeration</span>
+          <span>{t('sections.vex')}</span>
           <span className="tabular-nums text-text-primary">×{vex.toFixed(1)}</span>
         </label>
         <input
@@ -975,7 +1003,7 @@ function SectionProperties({
           onMouseUp={() => void onPatch({ vertical_exaggeration: vex })}
           onKeyUp={() => void onPatch({ vertical_exaggeration: vex })}
           className="w-full accent-accent"
-          title="Vertical exaggeration applied to the section view (1 = no exaggeration, 10 = 10× stretched)"
+          title={t('sections.vexHint')}
         />
       </div>
     </div>
@@ -1115,6 +1143,8 @@ function CrossingsBanner({
     refreshSignal,
     staleSurfaceCount,
   )
+  // Unconditional hook — above every early return below, per the hook rules.
+  const t = useT()
 
   // A failed check produces an EMPTY issue list — the same shape as a clean model.
   // Say so, rather than letting silence read as "no crossings" (audit F10).
@@ -1124,15 +1154,12 @@ function CrossingsBanner({
         <div
           className="rounded border border-status-amber/40 bg-status-amber/10 px-2 py-1.5 text-[11px] text-text-primary dark:text-status-amber"
           role="alert"
-          aria-label="Surface validation failed"
+          aria-label={t('sections.inspector.validationFailedLabel')}
           data-testid="crossings-check-failed"
         >
           <div className="flex items-center gap-1.5">
             <AlertTriangle size={12} />
-            <span>
-              Surface crossings could NOT be checked — this is not a clean
-              result. Rebuild or reopen the project to check again.
-            </span>
+            <span>{t('sections.inspector.validationFailedBody')}</span>
           </div>
         </div>
       </div>
@@ -1145,14 +1172,11 @@ function CrossingsBanner({
         <div
           className="rounded border border-border-subtle bg-surface-app px-2 py-1.5 text-[11px] text-text-muted"
           role="status"
-          aria-label="Surface validation pending"
+          aria-label={t('sections.inspector.validationPendingLabel')}
         >
           <div className="flex items-center gap-1.5">
             <Info size={12} />
-            <span>
-              Surface crossings not checked — Build the 3D model to
-              validate.
-            </span>
+            <span>{t('sections.inspector.validationPendingBody')}</span>
           </div>
         </div>
       </div>
@@ -1170,12 +1194,17 @@ function CrossingsBanner({
         // (passes ~6:1). The amber border + tint still signal "warning".
         className="rounded border border-status-amber/40 bg-status-amber/10 px-2 py-1.5 text-[11px] text-text-primary dark:text-status-amber"
         role="alert"
-        aria-label="Surface crossing warnings"
+        aria-label={t('sections.inspector.crossingWarningsLabel')}
       >
         <div className="flex items-center gap-1.5 font-medium">
           <AlertTriangle size={12} />
           <span>
-            {issues.length} surface crossing{issues.length === 1 ? '' : 's'} detected
+            {t(
+              issues.length === 1
+                ? 'sections.inspector.crossingsDetectedOne'
+                : 'sections.inspector.crossingsDetectedMany',
+              { n: issues.length },
+            )}
           </span>
         </div>
         <ul className="mt-1 ml-5 list-disc space-y-0.5">
@@ -1192,7 +1221,7 @@ function CrossingsBanner({
                     type="button"
                     className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-status-amber/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
                     onClick={() => onClickIssue(issue)}
-                    title="Open the cross-section containing the offending contacts and pan to them."
+                    title={t('sections.inspector.openOffendingSection')}
                   >
                     {issue.detail}
                   </button>
@@ -1213,6 +1242,7 @@ function CrossingsBanner({
 // ---------------------------------------------------------------------------
 
 interface ModelActionsProps {
+  t: Translator
   axis: 'geological' | 'lithostratigraphic' | 'geotechnical'
   activeGeologicalModel: GeologicalModelResponse | null
   activeLithoModel: GeologicalModelResponse | null
@@ -1256,6 +1286,7 @@ interface ModelActionsProps {
  * text-button row with leading icon.
  */
 function ModelActions({
+  t,
   axis,
   activeGeologicalModel,
   activeLithoModel,
@@ -1288,9 +1319,7 @@ function ModelActions({
   // a no-op-when-no-litho-model gate; in practice the user will Build
   // from the geology axis. Match the prior toolbar guard.
   const geoVerbDisabled = isLitho || activeGeologicalModel === null
-  const geoVerbHint = isLitho
-    ? 'Switch to the Geology axis — Build / Dedupe act on the geological model'
-    : null
+  const geoVerbHint = isLitho ? t('sections.inspector.geoAxisHintBuildDedupe') : null
 
   // Litho-axis Sync geology — load the parent geological model's TIN
   // surfaces as a read-only backdrop reference. Disabled when no
@@ -1368,12 +1397,17 @@ function ModelActions({
         title={
           geoVerbHint ??
           (activeGeologicalModel === null
-            ? 'No active geological model — create formations and contacts first'
+            ? t('sections.inspector.buildNoModel')
             : rebuilding
-              ? 'Building surfaces…'
+              ? t('sections.inspector.buildingSurfaces')
               : staleSurfaceCount > 0
-                ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-                : 'Rebuild TIN surfaces from current contacts')
+                ? t(
+                    staleSurfaceCount === 1
+                      ? 'sections.inspector.surfacesNeedRebuildOne'
+                      : 'sections.inspector.surfacesNeedRebuildMany',
+                    { n: staleSurfaceCount },
+                  )
+                : t('sections.inspector.rebuildTins'))
         }
         data-testid="inspector-build"
       >
@@ -1383,10 +1417,10 @@ function ModelActions({
           aria-hidden="true"
         />
         {rebuilding
-          ? 'Building…'
+          ? t('sections.inspector.building')
           : staleSurfaceCount > 0 && !isLitho
-            ? `Build · ${staleSurfaceCount} stale`
-            : 'Build model'}
+            ? t('sections.inspector.buildStale', { n: staleSurfaceCount })
+            : t('sections.inspector.buildModel')}
       </button>
 
       {isLitho ? (
@@ -1401,17 +1435,17 @@ function ModelActions({
           className={btnClass}
           title={
             activeLithoModel === null
-              ? 'Create a lithostratigraphic model in the Lithology stage first'
+              ? t('sections.axis.createLithoFirst')
               : effectiveBackdropModelId === null
-                ? 'No parent geological model linked'
+                ? t('sections.inspector.noParentGeoModel')
                 : seeding
-                  ? 'Loading geological surfaces…'
-                  : 'Load the parent geological model\'s surfaces as a read-only backdrop reference on this section'
+                  ? t('sections.inspector.loadingGeoSurfaces')
+                  : t('sections.inspector.syncGeologyTitle')
           }
           data-testid="inspector-sync-geology"
         >
           <Sparkles size={11} aria-hidden="true" />
-          {seeding ? 'Syncing…' : 'Sync geology'}
+          {seeding ? t('sections.inspector.syncing') : t('sections.inspector.syncGeology')}
         </button>
       ) : (
         <>
@@ -1423,15 +1457,15 @@ function ModelActions({
             title={
               geoVerbHint ??
               (activeGeologicalModel === null
-                ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
+                ? t('sections.inspector.seedDefineFirst')
                 : seeding
-                  ? 'Seeding contacts from borehole stratigraphy…'
-                  : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear')
+                  ? t('sections.inspector.seedingContacts')
+                  : t('sections.inspector.seedTitle'))
             }
             data-testid="inspector-seed"
           >
             <Sparkles size={11} aria-hidden="true" />
-            {seeding ? 'Seeding…' : 'Seed'}
+            {seeding ? t('sections.inspector.seeding') : t('sections.inspector.seed')}
           </button>
           <button
             type="button"
@@ -1443,21 +1477,26 @@ function ModelActions({
             title={
               geoVerbHint ??
               (activeGeologicalModel === null
-                ? 'Define formations in the Geology stage first'
+                ? t('sections.inspector.seedDefineFirstShort')
                 : seeding
-                  ? 'Seeding contacts from borehole stratigraphy…'
+                  ? t('sections.inspector.seedingContacts')
                   : newTestBoreholeIds.length === 0
-                    ? 'All boreholes in scope already have geology contacts — import new tests to use this'
-                    : `Place contacts from stratigraphy for the ${newTestBoreholeIds.length} borehole${newTestBoreholeIds.length === 1 ? '' : 's'} with no geology contacts yet`)
+                    ? t('sections.inspector.allHaveGeologyContacts')
+                    : t(
+                        newTestBoreholeIds.length === 1
+                          ? 'sections.inspector.seedNewTestsTitleOne'
+                          : 'sections.inspector.seedNewTestsTitleMany',
+                        { n: newTestBoreholeIds.length },
+                      ))
             }
             data-testid="inspector-seed-new-tests"
           >
             <Sparkles size={11} aria-hidden="true" />
             {seeding
-              ? 'Seeding…'
+              ? t('sections.inspector.seeding')
               : activeGeologicalModel
-                ? `Seed for new tests (${newTestBoreholeIds.length})`
-                : 'Seed for new tests'}
+                ? `${t('sections.inspector.seedForNewTests')} (${newTestBoreholeIds.length})`
+                : t('sections.inspector.seedForNewTests')}
           </button>
         </>
       )}
@@ -1470,15 +1509,15 @@ function ModelActions({
         title={
           geoVerbHint ??
           (activeGeologicalModel === null
-            ? 'No active geological model'
+            ? t('sections.export.noGeologicalModel')
             : deduping
-              ? 'Cleaning…'
-              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group')
+              ? t('sections.inspector.cleaning')
+              : t('sections.inspector.dedupeTitle'))
         }
         data-testid="inspector-dedupe"
       >
         <Eraser size={11} aria-hidden="true" />
-        {deduping ? 'Cleaning…' : 'Dedupe'}
+        {deduping ? t('sections.inspector.cleaning') : t('sections.inspector.dedupe')}
       </button>
 
       {/* Dedupe confirmation — the gate the maintenance verb never had. */}
