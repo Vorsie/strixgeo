@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 
 import { HEADER_HEIGHT } from '../constants'
 import { truncate } from '../utils'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Title block at the top of every SVG track.
@@ -69,10 +70,11 @@ export function TrackHeader({
   rawToken?: string
   onHide?: () => void
 }): ReactElement {
+  const t = useT()
   // Build the tooltip text: raw token when available (translate-at-boundary
   // rule), overridden by "Hide column" when onHide is set (click action
   // takes priority over the informational tooltip).
-  const tooltipText = onHide ? 'Hide column' : rawToken
+  const tooltipText = onHide ? t('borelog.hideColumn') : rawToken
 
   return (
     // The outer <g> captures the click and signals the cursor when
