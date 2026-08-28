@@ -372,13 +372,15 @@ export default function App() {
   // the sections stage, selects the chosen section, and triggers the
   // focus-contacts pulse so the section view pans + amber-pulses the
   // offending columns. Cleared after dispatch (single-fire).
-  // ``revealInvestigationId`` rides the same payload for the Geotechnical
-  // stage's Build pre-flight: same three steps (switch stage, select section,
-  // act after a beat), a column pulse instead of a contact pulse.
+  // ``revealInvestigationIds`` rides the same payload for the two column-side
+  // deep-links: same three steps (switch stage, select section, act after a
+  // beat), columns instead of contacts. ONE id = the Build pre-flight's test to
+  // subdivide; TWO = the gapless report's gap, named by the columns it stands
+  // between (the panel centres on the midpoint of their span).
   const [sectionsDeepLinkTarget, setSectionsDeepLinkTarget] = useState<{
     sectionId: string
     contactIds: readonly string[]
-    revealInvestigationId?: string
+    revealInvestigationIds?: readonly string[]
   } | null>(null)
 
   // Parameters deep-link target + the unit the Parameters stage is scoped to
