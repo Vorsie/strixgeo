@@ -10,8 +10,8 @@
  *   marking one would point at the wrong thing.
  * * TWO columns — the gapless build report's "Show me" — name a GAP, and the
  *   finding is the ground BETWEEN them. ``resolveColumnReveal`` centres on the
- *   midpoint of their span, which is that ground; pulsing either end would
- *   claim the defect is on a column when it is not.
+ *   midpoint of their span, then the panel pulses the span itself; pulsing
+ *   either end would claim the defect is on a column when it is not.
  *
  * Lives outside ``SectionsCanvas``, which is long past the 500-line
  * god-component threshold (debt #201), and outside
@@ -49,10 +49,15 @@ export function useSectionColumnRevealBridge(
       }
       return reveal({
         investigationIds,
-        // One column is a test to mark; two are a gap, and the gap is between
-        // them — see this module's own doc for why the second case marks
-        // nothing.
+        // One column is a test to mark; two are a gap, and the gap's span gets
+        // the marker — see this module's own doc for why no column is flashed.
         ...(investigationIds.length === 1 && { flashColumnId: investigationIds[0] }),
+        ...(investigationIds.length === 2 && {
+          flashGapInvestigationIds: [investigationIds[0], investigationIds[1]] as [
+            string,
+            string,
+          ],
+        }),
       })
     }
     return () => {
