@@ -16,6 +16,104 @@ export const SECTIONS_NL = {
   'sections.name': 'Profielnaam',
   'sections.properties': 'Eigenschappen van het profiel',
   'sections.modelActions': 'Modelacties',
+  'sections.moreActions': 'Meer profielacties',
+  'sections.geoVerbHint':
+    'Schakel naar de geologie-as — Bouwen / Zaaien / Ontdubbelen / Plaxis-3D werken op het geologisch model',
+  'sections.undoTitle': 'Maak de laatste modelbewerking ongedaan (Ctrl+Z)',
+  'sections.undoNothing': 'Niets om ongedaan te maken',
+  'sections.recomputeUnavailable': 'Lichamen herberekenen is niet beschikbaar — heropen het project.',
+  'sections.reset.done':
+    '{count} handgetekende {noun} hersteld — de lichamen zijn teruggezet naar hun berekende vorm.',
+  'sections.reset.boundaryOne': 'grens',
+  'sections.reset.boundaryMany': 'grenzen',
+  'sections.reset.none': 'Geen handgetekende grenzen om te herstellen.',
+  'sections.reset.failed': 'Handmatige punten herstellen mislukt — zie de console.',
+
+  // ---------------------------------------------------------------------------
+  // werkbalk-dialoogvensters
+  // ---------------------------------------------------------------------------
+  'sections.dialog.thisSection': 'Dit profiel',
+  'sections.dialog.deleteBody':
+    'wordt permanent verwijderd. Formatiegrenzen die erop geplaatst zijn, worden ook verwijderd. Dit kan niet ongedaan gemaakt worden.',
+  'sections.dialog.deleteConfirmButton': 'Dwarsprofiel verwijderen',
+  'sections.dialog.bulkPrefix': 'De lithologiesegmenteerder wordt uitgevoerd voor',
+  'sections.dialog.bulkSuffix':
+    'op dit profiel. Bestaande bulk-voorstel-ghosts worden vervangen. Al vastgelegde laaggrenzen op het profiel blijven ongemoeid.',
+  'sections.dialog.noInvestigations': 'Geen grondonderzoeken',
+  'sections.dialog.resetBody':
+    'Elk handgetekend grenspunt in dit model wordt gewist en de lichamen keren terug naar hun berekende vorm. Dit kan niet ongedaan gemaakt worden.',
+
+  // ---------------------------------------------------------------------------
+  // profieldetailvenster (rechterpaneel)
+  // ---------------------------------------------------------------------------
+  'sections.inspector.noCrossSectionForContact':
+    'Geen enkel dwarsprofiel bevat de betreffende laaggrens — teken er een door de boring of sondering om ze te bekijken.',
+  'sections.inspector.staleBadge': '{n} verouderd',
+  'sections.inspector.geologicalModel': 'Geologisch model',
+  'sections.inspector.previewLegend':
+    'Gearceerde banden = voorbeeld. Rechtsklik een ghost-kolom om enkel die boring te verdelen, of druk op “4 · Boringen verdelen” om ze allemaal vast te leggen.',
+  'sections.inspector.previewClampedOne':
+    '{n} geplande band buiten het dieptevenster — zoom uit om ze te zien.',
+  'sections.inspector.previewClampedMany':
+    '{n} geplande banden buiten het dieptevenster — zoom uit om ze te zien.',
+  'sections.inspector.backdropClickPrefix': 'Klik op',
+  'sections.inspector.backdropClickSuffix': 'in Modelacties om te laden.',
+  'sections.inspector.setCrsFirst':
+    'Stel eerst een standaard horizontaal CRS in bij de projectmetadata',
+  'sections.inspector.createSection': 'Een nieuw dwarsprofiel aanmaken',
+  'sections.inspector.setCrsToCreate': 'Stel een CRS in om profielen aan te maken',
+  'sections.inspector.dirtyCreated':
+    'Aangemaakt sinds de laatste bewaring — Bestand → Opslaan om vast te leggen',
+  'sections.inspector.validationFailedLabel': 'Oppervlakvalidatie mislukt',
+  'sections.inspector.validationFailedBody':
+    'Oppervlakkruisingen konden NIET gecontroleerd worden — dit is geen zuiver resultaat. Herbouw of heropen het project om opnieuw te controleren.',
+  'sections.inspector.validationPendingLabel': 'Oppervlakvalidatie in afwachting',
+  'sections.inspector.validationPendingBody':
+    'Oppervlakkruisingen niet gecontroleerd — bouw het 3D-model om te valideren.',
+  'sections.inspector.crossingWarningsLabel': 'Waarschuwingen oppervlakkruisingen',
+  'sections.inspector.crossingsDetectedOne': '{n} oppervlakkruising gedetecteerd',
+  'sections.inspector.crossingsDetectedMany': '{n} oppervlakkruisingen gedetecteerd',
+  'sections.inspector.openOffendingSection':
+    'Open het dwarsprofiel met de betreffende laaggrenzen en pan ernaartoe.',
+  'sections.inspector.geoAxisHintBuildDedupe':
+    'Schakel naar de geologie-as — Bouwen / Ontdubbelen werken op het geologisch model',
+  'sections.inspector.buildNoModel':
+    'Geen actief geologisch model — maak eerst formaties en laaggrenzen aan',
+  'sections.inspector.buildingSurfaces': 'Oppervlakken bouwen…',
+  'sections.inspector.surfacesNeedRebuildOne':
+    '{n} formatie-oppervlak moet herbouwd worden — klik om TIN’s te berekenen',
+  'sections.inspector.surfacesNeedRebuildMany':
+    '{n} formatie-oppervlakken moeten herbouwd worden — klik om TIN’s te berekenen',
+  'sections.inspector.rebuildTins':
+    'Herbouw TIN-oppervlakken op basis van de huidige laaggrenzen',
+  'sections.inspector.building': 'Bouwen…',
+  'sections.inspector.buildStale': 'Bouwen · {n} verouderd',
+  'sections.inspector.buildModel': 'Model bouwen',
+  'sections.inspector.noParentGeoModel': 'Geen bovenliggend geologisch model gekoppeld',
+  'sections.inspector.loadingGeoSurfaces': 'Geologische oppervlakken laden…',
+  'sections.inspector.syncGeologyTitle':
+    'Laad de oppervlakken van het bovenliggende geologische model als een alleen-lezen achtergrondreferentie op dit profiel',
+  'sections.inspector.syncing': 'Synchroniseren…',
+  'sections.inspector.syncGeology': 'Geologie synchroniseren',
+  'sections.inspector.seedDefineFirst':
+    'Definieer eerst formaties in de geologiestap — Zaaien plaatst laaggrenzen voor reeds gedefinieerde lagen',
+  'sections.inspector.seedingContacts': 'Laaggrenzen zaaien uit de boorstratigrafie…',
+  'sections.inspector.seedTitle':
+    'Plaats laaggrenzen uit boorwaarnemingen voor formaties die al in het model gedefinieerd zijn — voer Ontdubbelen uit als er dubbels verschijnen',
+  'sections.inspector.seeding': 'Zaaien…',
+  'sections.inspector.seed': 'Zaaien',
+  'sections.inspector.seedDefineFirstShort': 'Definieer eerst formaties in de geologiestap',
+  'sections.inspector.allHaveGeologyContacts':
+    'Alle boringen in bereik hebben al geologische laaggrenzen — importeer nieuwe proeven om dit te gebruiken',
+  'sections.inspector.seedNewTestsTitleOne':
+    'Plaats laaggrenzen uit de stratigrafie voor de {n} boring zonder geologische laaggrenzen',
+  'sections.inspector.seedNewTestsTitleMany':
+    'Plaats laaggrenzen uit de stratigrafie voor de {n} boringen zonder geologische laaggrenzen',
+  'sections.inspector.seedForNewTests': 'Zaaien voor nieuwe proeven',
+  'sections.inspector.cleaning': 'Opschonen…',
+  'sections.inspector.dedupeTitle':
+    'Verwijder dubbele (anker, formatie) laaggrenzen — behoudt de meest recente keuze in elke groep',
+  'sections.inspector.dedupe': 'Ontdubbelen',
   // FLAG alt: Weergaveniveau | Modelniveau — the app switches the section
   // between the geology / litho / geotech levels; "as" is the internal metaphor
   // and reads oddly to a first-time user.
@@ -54,6 +152,114 @@ export const SECTIONS_NL = {
   'sections.columnName': 'Kolomnaam',
   'sections.zoomInHint': 'Inzoomen (of scroll op het canvas)',
   'sections.zoomOutHint': 'Uitzoomen (of scroll op het canvas)',
+
+  // ---------------------------------------------------------------------------
+  // as-keuze (Geologie / Litho / Geotech)
+  // ---------------------------------------------------------------------------
+  // "Geo", "Litho" en "Geotech" blijven ongewijzigd — het zijn de korte
+  // segmentlabels, net als de F-Strat / I-Strat afkortingen (INTENTIONALLY_IDENTICAL).
+  'sections.axis.geoShort': 'Geo',
+  'sections.axis.litho': 'Litho',
+  'sections.axis.geotech': 'Geotech',
+  'sections.axis.createLithoFirst':
+    'Maak eerst een lithostratigrafisch model aan in de lithologiestap',
+  'sections.axis.editLithoContacts':
+    'De laaggrenzen van het lithostratigrafisch model op dit profiel bewerken',
+  'sections.axis.createLithoForPacking':
+    'Maak eerst een lithostratigrafisch model aan — pakking verdeelt de lithostratigrafische lichamen onder',
+  'sections.axis.viewGeotech':
+    'Bekijk de geotechnische onderverdeling (NAD-pakkingsklassen) op dit profiel',
+  'sections.axis.noGeotechYet':
+    'Nog geen geotechnisch model — “Pakkingsstroom → 1 · Sonderingen onderverdelen” maakt het aan',
+
+  // ---------------------------------------------------------------------------
+  // modelniveau-woorden (geïnterpoleerd in de export- en herbereken-tooltips)
+  // ---------------------------------------------------------------------------
+  'sections.level.litho': 'lithostratigrafisch',
+  'sections.level.geotech': 'geotechnisch',
+  'sections.level.geological': 'geologisch',
+  'sections.level.geotechShort': 'geotechnisch',
+
+  // ---------------------------------------------------------------------------
+  // tijdelijke bezig-labels
+  // ---------------------------------------------------------------------------
+  'sections.busy.accepting': 'Aanvaarden…',
+  'sections.busy.creating': 'Aanmaken…',
+  'sections.busy.deleting': 'Verwijderen…',
+  'sections.busy.recomputing': 'Herberekenen…',
+  'sections.busy.exporting': 'Exporteren…',
+  'sections.busy.suggesting': 'Voorstellen…',
+  'sections.busy.subdividing': 'Onderverdelen…',
+  'sections.busy.correlating': 'Correleren…',
+  'sections.busy.dividing': 'Verdelen…',
+
+  // ---------------------------------------------------------------------------
+  // staartwerkwoorden — Nieuw / Verwijderen / Koppelprofielen / Herberekenen
+  // ---------------------------------------------------------------------------
+  'sections.tail.newSection': 'Nieuw dwarsprofiel',
+  'sections.tail.newSectionTitle': 'Een nieuw dwarsprofiel aanmaken (voorlopige eindpunten)',
+  'sections.tail.delete': 'Verwijderen',
+  'sections.tail.deleteSectionMenu': 'Dwarsprofiel verwijderen…',
+  'sections.tail.deleteSelectFirst': 'Selecteer een dwarsprofiel om te verwijderen',
+  'sections.tail.deleteConfirmMenuTitle': '"{name}" verwijderen — vraagt eerst om bevestiging',
+  'sections.tail.deleteTitle': '"{name}" verwijderen',
+  'sections.tail.recompute': 'Lichamen herberekenen',
+  'sections.tail.recomputeNone': 'Geen actief {level} model om te herberekenen',
+  'sections.tail.recomputeTitle':
+    'De vastgelegde geometrische lichaamsidentiteit nu opnieuw afleiden uit de huidige profielen',
+
+  // ---------------------------------------------------------------------------
+  // koppelprofielen (staart)
+  // ---------------------------------------------------------------------------
+  'sections.tie.suggestSections': 'Koppelprofielen voorstellen',
+  'sections.tie.clearSuggestions': 'Koppelvoorstellen wissen',
+  'sections.tie.acceptAll': 'Alle koppelingen aanvaarden',
+  'sections.tie.acceptAllRunFirst': 'Gebruik eerst "Koppelprofielen voorstellen"',
+  'sections.tie.acceptAllBusy': 'Dwarsprofielen aanmaken voor alle voorgestelde koppelingen…',
+  'sections.tie.acceptAllTitle': 'Maak een dwarsprofiel aan voor elke voorgestelde koppeling',
+  'sections.tie.needTwo': 'Er zijn minstens 2 profielen nodig om te koppelen',
+  'sections.tie.clearTitle': 'De huidige koppelprofielvoorstellen wissen',
+  'sections.tie.suggestTitle':
+    'Stel loodrechte verbindingsprofielen voor tussen bestaande profielen (geen kruisingen, geen gedeelde proeven)',
+
+  // ---------------------------------------------------------------------------
+  // export-menu
+  // ---------------------------------------------------------------------------
+  'sections.export.selectSection': 'Selecteer een profiel om te exporteren',
+  'sections.export.dropdownTitle': 'Exporteer het model of dit profiel',
+  'sections.export.sectionDxf': 'Profiel-DXF',
+  'sections.export.exportingDxf': 'DXF exporteren…',
+  'sections.export.noModelContacts': 'Geen actief {level} model — er moeten eerst laaggrenzen bestaan',
+  'sections.export.dxfTitle': 'Exporteer het {level} model van dit profiel als DXF',
+  'sections.export.plaxisScript': 'Plaxis 3D-script',
+  'sections.export.exportingPlaxis': 'Plaxis exporteren…',
+  'sections.export.noGeologicalModel': 'Geen actief geologisch model',
+  'sections.export.plaxisTitle':
+    'Exporteer het geologisch model als een Plaxis 3D plxscripting Python-script',
+  'sections.export.sectionPdf': 'Profiel-PDF-rapport',
+  'sections.export.generatingPdf': 'PDF genereren…',
+  'sections.export.noModelDefine': 'Geen actief {level} model — bepaal er eerst een',
+  'sections.export.pdfTitle': 'Genereer een PDF-rapport van het {level} model van dit profiel',
+  // "D-Stability (.stix)" / "D-Sheet Piling (.shi)" blijven ongewijzigd
+  // (product- + bestandsformaatnamen).
+  'sections.export.dstability': 'D-Stability (.stix)',
+  'sections.export.exportingDstability': 'D-Stability exporteren…',
+  'sections.export.dsheetpiling': 'D-Sheet Piling (.shi)',
+  'sections.export.exportingDsheetpiling': 'D-Sheet Piling exporteren…',
+  'sections.export.dstabilityFilter': 'D-Stability-model',
+  'sections.export.dsheetpilingFilter': 'D-Sheet Piling-profiel',
+  'sections.export.dstabilitySuccess': 'D-Stability-model geëxporteerd.',
+  'sections.export.dsheetpilingSuccess': 'D-Sheet Piling-profiel geëxporteerd.',
+  'sections.export.dstabilityFailure': 'Kon het D-Stability-model niet exporteren.',
+  'sections.export.dsheetpilingFailure': 'Kon het D-Sheet Piling-profiel niet exporteren.',
+  'sections.export.dstabilityDescribes':
+    'model als een D-Stability .stix (enkel geometrie — geen ontwerpparameters)',
+  'sections.export.dsheetpilingDescribes':
+    'model als een D-Sheet Piling .shi grondprofiel doorheen het profiel (enkel geometrie)',
+  'sections.export.dseriesRowTitle': 'Exporteer het {level} {describes} van dit profiel',
+  'sections.export.nothingDrawn':
+    'Niets om te exporteren — dit profiel heeft geen getekende {level} geometrie tussen twee kolommen.',
+  'sections.export.readFailed': 'Kon dit profiel niet lezen — er is niets geëxporteerd.',
 
   // ---------------------------------------------------------------------------
   // werkbalk
@@ -120,6 +326,157 @@ export const SECTIONS_NL = {
     'Toon of verberg de monstermarkeringen op de boorkolommen. Elke markering beslaat het diepte-interval waarover het monster genomen is.',
   'sections.toolbar.psdCardHint':
     'Toon een kaartje met de korrelverdeling terwijl je over een monstermarkering zweeft. Druk op P om dit om te zetten zonder dit menu te openen.',
+
+  // ---------------------------------------------------------------------------
+  // litho-as werkbalkwerkwoorden + menu's
+  // FLAG: "CPT" wordt hier vertaald als "sondering/sondeer-" (bestaande
+  // catalogusconventie); de eigenaar heeft "Sondering vs CPT" nog niet beslist.
+  // ---------------------------------------------------------------------------
+  'sections.litho.suggest': 'Voorstellen',
+  'sections.litho.suggestAll': 'Alles voorstellen',
+  'sections.litho.createModelFirst': 'Maak eerst een lithostratigrafisch model aan',
+  'sections.litho.openSectionSuggest': 'Open een dwarsprofiel om Voorstellen te gebruiken',
+  'sections.litho.fetchingSuggestions': 'Voorstellen ophalen…',
+  'sections.litho.suggestAllTitle':
+    'Rechtsklik een kolom om er één te focussen, of klik om lagen voor te stellen voor elk grondonderzoek op dit profiel ({n})',
+  'sections.litho.suggestFocusHint':
+    'Rechtsklik een kolom op het profiel om een sondering of boring te focussen, en klik dan op Voorstellen',
+  'sections.litho.suggestForColumn': 'Lithostratigrafische lagen voorstellen voor {column}',
+  'sections.litho.theFocusedInvestigation': 'het gefocuste grondonderzoek',
+  'sections.litho.acceptAll': 'Alles aanvaarden',
+  'sections.litho.committingSuggestions': 'Alle voorgestelde lagen vastleggen…',
+  'sections.litho.acceptAllTitle':
+    'Aanvaard alle niet-verworpen voorgestelde lagen als lithostratigrafische laaggrenzen',
+  'sections.litho.clear': 'Wissen',
+  'sections.litho.acceptAllBulk': 'Alles aanvaarden (bulk)',
+  'sections.litho.committingBulk': 'Alle voorgestelde bulklagen vastleggen…',
+  'sections.litho.acceptAllBulkTitle':
+    'Aanvaard elk niet-verworpen voorstel over alle {n} bulk-ghost {investigation}',
+  'sections.litho.investigationOne': 'grondonderzoek',
+  'sections.litho.investigationMany': 'grondonderzoeken',
+  'sections.litho.clearBulk': 'Bulk wissen',
+  'sections.litho.correlateActive': 'Correleren · klik 2 banden',
+  'sections.litho.correlate': 'Correleren',
+  'sections.litho.enterCorrelate': 'Correlatiemodus openen',
+  'sections.litho.exitCorrelate': 'Correlatiemodus verlaten',
+  'sections.litho.openSectionCorrelate': 'Open een dwarsprofiel om eenheden te correleren',
+  'sections.litho.acceptFirstToCorrelate':
+    'Aanvaard lithovoorstellen om te kunnen correleren — 0 aanvaarde laaggrenzen op dit profiel',
+  'sections.litho.exitCorrelateEsc': 'Correlatiemodus verlaten (Esc)',
+  'sections.litho.enterCorrelateTitle':
+    'Correlatiemodus openen — klik een eenheidsband op één grondonderzoek en dan een overeenkomende eenheid op een ander om ze te koppelen',
+  'sections.litho.bodiesTitle':
+    'Wiggen van lichamen (lenzen) detecteren, voorstellen, materialiseren of wissen',
+  'sections.litho.admixturesDisabled':
+    'Stel eerst litholagen voor — bijmengingsbewerkingen werken op de voorstellen',
+  'sections.litho.admixturesTitle':
+    'Bijmengingen op de huidige voorstellen verwijderen of opnieuw inlezen',
+  'sections.litho.suggestAllInSection': 'Alles op dit profiel voorstellen',
+  'sections.litho.openSectionFirst': 'Open eerst een dwarsprofiel',
+  'sections.litho.runningSegmenterAll':
+    'Segmenteerder uitvoeren op elk grondonderzoek op dit profiel…',
+  'sections.litho.suggestAllInSectionTitle':
+    'Stel in één keer lithostratigrafische lagen voor voor elk grondonderzoek op dit profiel',
+  'sections.litho.suggestNewTests': 'Voorstellen voor nieuwe proeven',
+  'sections.litho.runningSegmenter': 'Segmenteerder uitvoeren…',
+  'sections.litho.allHaveContacts':
+    'Alle zichtbare grondonderzoeken hebben al laaggrenzen — importeer nieuwe proeven om dit te gebruiken',
+  'sections.litho.suggestNewTestsTitle':
+    'Lagen voorstellen voor de {n} {investigation} zonder litholaaggrenzen',
+  'sections.litho.autoCorrelate': 'Automatisch correleren',
+  'sections.litho.runningAutoCorrelate': 'Automatisch correleren…',
+  'sections.litho.autoCorrelateTitle':
+    'Automatisch correleren: koppel laaggrenzen bij naburige grondonderzoeken binnen een diepte- + afstandstolerantie — voegt niet-goedgekeurde randen toe over het hele model. Gebruik "Correlaties aanvaarden" om goed te keuren.',
+  'sections.litho.acceptCorrelations': 'Correlaties aanvaarden',
+  'sections.litho.openSectionAcceptCorr': 'Open een dwarsprofiel om correlaties te aanvaarden',
+  'sections.litho.acceptingCorrelations': 'Correlaties aanvaarden…',
+  'sections.litho.acceptCorrelationsTitle':
+    'Aanvaard alle niet-goedgekeurde correlatieranden op laaggrensniveau op dit profiel — legt lenslichamen vast en herberekent de rangordes',
+  'sections.litho.clearCorrelationsTitle':
+    'Verwijder alle niet-goedgekeurde correlatievoorstellen over het hele model (behoudt goedgekeurde correlaties). Omkeerbaar — voer opnieuw Automatisch correleren uit om ze opnieuw te genereren.',
+  'sections.litho.fillBands': 'Banden vullen',
+  'sections.litho.hideBands': 'Banden verbergen',
+  'sections.litho.showCorrelations': 'Correlaties tonen',
+  'sections.litho.hideCorrelations': 'Correlaties verbergen',
+  'sections.litho.showModelFill': 'Modelvulling tonen',
+  'sections.litho.hideModelFill': 'Modelvulling verbergen',
+  'sections.litho.resetManualPoints': 'Handmatige punten herstellen',
+  'sections.litho.resetting': 'Herstellen…',
+  'sections.litho.resetManualPointsTitle':
+    'Wis elk handgetekend lichaamsgrenspunt in dit model. De lichamen keren terug naar hun berekende vorm. Kan niet ongedaan gemaakt worden.',
+  'sections.litho.stripCptAdmixtures': 'Sondeerbijmengingen verwijderen',
+  'sections.litho.noCptGhosts': 'Geen sondeervoorstellen',
+  'sections.litho.stripCptTitle': 'Bijmengingen uit elk sondeervoorstel wissen',
+  'sections.litho.stripBoreholeAdmixtures': 'Boringbijmengingen verwijderen',
+  'sections.litho.noBoreholeGhosts': 'Geen boringvoorstellen',
+  'sections.litho.stripBoreholeTitle': 'Bijmengingen uit elk boringvoorstel wissen',
+  'sections.litho.reseedBoreholeTitle':
+    'Herstel de bijmengingen van de segmenteerder op boringvoorstellen (een verwijdering ongedaan maken)',
+
+  // ---------------------------------------------------------------------------
+  // monsterweergave-schakelaars (gedeeld door litho Lichamen + geotech Weergave)
+  // ---------------------------------------------------------------------------
+  'sections.samples.show': 'Monsters tonen',
+  'sections.samples.hide': 'Monsters verbergen',
+  'sections.samples.showPsd': 'Korrelverdeling tonen bij zweven',
+  'sections.samples.hidePsd': 'Korrelverdeling verbergen bij zweven',
+
+  // ---------------------------------------------------------------------------
+  // geotech-as werkbalkwerkwoorden + menu's
+  // ---------------------------------------------------------------------------
+  'sections.geotech.statisticMenuTitle':
+    'Welke representatieve qc de NAD-classificatie leest, te kiezen VOOR je onderverdeelt: mediaan (spike-robuuste standaard), rekenkundig, harmonisch (conservatief — gewogen naar de lage waarden die draagvermogen en zetting bepalen) of geometrisch. Er wordt niets geherclassificeerd wanneer je het wijzigt: de keuze geldt voor de VOLGENDE "1 · Sonderingen onderverdelen"; banden die al op het scherm staan behouden de statistiek waarmee ze opgebouwd zijn tot je ze opnieuw uitvoert.',
+  'sections.geotech.pipeline': 'Pakkingsstroom',
+  'sections.geotech.correlatePacking': 'Pakking correleren',
+  'sections.geotech.exitPackingCorrelate': 'Pakkingscorrelatiemodus verlaten',
+  'sections.geotech.correlatePackingByHand': 'Pakking handmatig correleren',
+  'sections.geotech.correlatePackingNoModel':
+    'Gebruik eerst “1 · Sonderingen onderverdelen” om pakkingsbanden aan te maken',
+  'sections.geotech.exitPackingCorrelateEsc': 'Pakkingscorrelatiemodus verlaten (Esc)',
+  'sections.geotech.correlatePackingTitle':
+    'Verbind pakkingsbanden van dezelfde klasse over grondonderzoeken binnen hetzelfde lithostratigrafisch lichaam — de handmatige correlatie die stap 2 van de reeks automatiseert',
+  'sections.geotech.currentTag': 'huidig',
+  'sections.geotech.harmonicHint':
+    'Conservatief: gewogen naar de lage qc-waarden die draagvermogen en zetting bepalen.',
+  'sections.geotech.medianHint': 'De spike-robuuste standaard.',
+  'sections.geotech.step1': '1 · Sonderingen onderverdelen',
+  'sections.geotech.reRunUnder': 'opnieuw uitvoeren onder {stat}',
+  'sections.geotech.columnsNeedRederive': '{n} {phrase} opnieuw afgeleid worden',
+  'sections.geotech.columnNeeds': 'kolom moet',
+  'sections.geotech.columnsNeed': 'kolommen moeten',
+  'sections.geotech.step1OpenSection':
+    'Open eerst een dwarsprofiel — deze stap verdeelt de sonderingen op het profiel dat je open hebt onder',
+  'sections.geotech.step1Title':
+    'Stap 1 van 4 — leid NAD-pakkingsklassen (1–31) af op de sonderingen van DIT profiel, en laat de banden, koppelingen en lichamen van elk ander profiel ongemoeid. Correleert niets: “2 · Automatisch correleren” stelt daarna de pakkingskoppelingen voor. Maakt het geotechnisch model aan bij de eerste uitvoering. Een sondering die op geen enkel dwarsprofiel ligt, wordt nooit onderverdeeld.',
+  'sections.geotech.step2': '2 · Automatisch correleren',
+  'sections.geotech.step2OpenSection':
+    'Open eerst een dwarsprofiel — deze stap stelt koppelingen voor op het profiel dat je open hebt',
+  'sections.geotech.noBandsHere':
+    'Nog geen pakkingsbanden op dit profiel — gebruik eerst “1 · Sonderingen onderverdelen” op dit profiel',
+  'sections.geotech.step2Title':
+    'Stap 2 van 4 — leid de pakkingskoppelingen van dezelfde klasse af binnen elke gecorreleerde litho-eenheid OP DIT PROFIEL, en spring over boorkolommen die nog geen pakking dragen. Koppelingen die een litho-correlatie herhalen die je al goedgekeurd hebt, komen AANVAARD binnen; de rest komt als voorstel. Handgetekende correlaties worden nooit aangeraakt.',
+  'sections.geotech.step3': '3 · Koppelingen aanvaarden',
+  'sections.geotech.pendingHere': '{n} openstaand hier',
+  'sections.geotech.step3OpenSection':
+    'Open eerst een dwarsprofiel — deze stap aanvaardt de koppelingen op het profiel dat je open hebt',
+  'sections.geotech.step3Title':
+    'Stap 3 van 4 — nakijken, dan goedkeuren, op het profiel voor je. Verwijder EERST de foute voorstellen (rechtsklik een koppeling → Verwijderen) en aanvaard degene die je één voor één wil afvinken (rechtsklik → Koppeling aanvaarden). Druk daarna hierop om elk resterend voorstel OP DIT PROFIEL te aanvaarden. Verbind daarna met de hand wat automatisch correleren gemist heeft via “Pakking correleren”.',
+  'sections.geotech.step4': '4 · Boringen verdelen',
+  'sections.geotech.staleReDivide': 'verouderd — opnieuw verdelen',
+  'sections.geotech.step4OpenSection':
+    'Open eerst een dwarsprofiel — deze stap verdeelt de boringen op het profiel dat je open hebt',
+  'sections.geotech.staleReDivideTitle':
+    'Lichamen of correlaties zijn gewijzigd — verdeel de boringen opnieuw om overeen te komen',
+  'sections.geotech.step4Title':
+    'Stap 4 van 4 — verdeel de boorkolommen van DIT profiel met TIN in pakkingsbanden, met de sondeer-overgangsvlakken en de koppelingen die je aanvaard hebt, en laat elk ander profiel ongemoeid. Rechtsklik de ghost-banden van één boring om enkel die kolom te verdelen.',
+  'sections.geotech.showFill': 'Vulling tonen',
+  'sections.geotech.hideFill': 'Vulling verbergen',
+  'sections.geotech.showLithoFill': 'Lithovulling tonen',
+  'sections.geotech.hideLithoFill': 'Lithovulling verbergen',
+  'sections.geotech.showBoreholePreview': 'Voorbeeld boringen tonen',
+  'sections.geotech.hideBoreholePreview': 'Voorbeeld boringen verbergen',
+  'sections.geotech.correlationsHint':
+    'Toon of verberg de correlatielinten over het profiel (enkel 2D-visualisatie).',
 
   // ---------------------------------------------------------------------------
   // profielkop
