@@ -69,6 +69,7 @@ import SectionsToolbarDialogs from './SectionsToolbarDialogs'
 import { buildLithoToolbarItems } from './sectionsLithoToolbarItems'
 import { buildGeotechToolbarItems } from './sectionsGeotechToolbarItems'
 import { buildTailToolbarItems } from './sectionsTailToolbarItems'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -107,6 +108,10 @@ export default function SectionsToolbar(): JSX.Element {
   const sampleMarkersOn = useSampleMarkersOn()
   const psdPreviewOn = usePsdPreviewOn()
   const boreholesStale = useBoreholesStale()
+  // Active-language translator — threaded into the pure toolbar-item builders so
+  // a language flip re-renders every verb in one pass (the builders call no
+  // hooks, so they cannot subscribe on their own).
+  const t = useT()
   const {
     project,
     visibleBoreholes,
@@ -385,16 +390,23 @@ export default function SectionsToolbar(): JSX.Element {
       toast(
         'success',
         result.shapes_deleted > 0
-          ? `Reset ${result.shapes_deleted} hand-drawn boundary${result.shapes_deleted === 1 ? '' : 's'} — bodies returned to their computed shape.`
-          : 'No hand-drawn boundaries to reset.',
+          ? t('sections.reset.done', {
+              count: result.shapes_deleted,
+              noun: t(
+                result.shapes_deleted === 1
+                  ? 'sections.reset.boundaryOne'
+                  : 'sections.reset.boundaryMany',
+              ),
+            })
+          : t('sections.reset.none'),
       )
     } catch (err) {
       log.error('sections', 'resetManualBoundaries: failed', err)
-      toast('error', 'Reset manual points failed — see console.')
+      toast('error', t('sections.reset.failed'))
     } finally {
       setResettingBoundaries(false)
     }
-  }, [activeLithoModel, resettingBoundaries, project.id, requestCorrelationEdgesRefetch, requestBodyRecompute, toast])
+  }, [activeLithoModel, resettingBoundaries, project.id, requestCorrelationEdgesRefetch, requestBodyRecompute, toast, t])
 
   const hasSection = selectedSection !== null
   // Axis-aware model presence: each axis uses ITS OWN active model —
@@ -423,7 +435,7 @@ export default function SectionsToolbar(): JSX.Element {
       // Unreachable while a project is open (the shell hook assigns the ref
       // every App render) — fail loud rather than silently doing nothing.
       log.error('sections', 'recompute-bodies: shell scheduler ref is empty')
-      toast('error', 'Recompute bodies is unavailable — reopen the project.')
+      toast('error', t('sections.recomputeUnavailable'))
       return
     }
     setRecomputingBodies(true)
@@ -432,7 +444,7 @@ export default function SectionsToolbar(): JSX.Element {
     } finally {
       setRecomputingBodies(false)
     }
-  }, [recomputeModelId, recomputingBodies, toast])
+  }, [recomputeModelId, recomputingBodies, toast, t])
 
   const hasModel = isLitho
     ? activeLithoModel !== null
@@ -448,11 +460,17 @@ export default function SectionsToolbar(): JSX.Element {
   // equivalent build flow is Suggest/accept, not these verbs.
   const geoVerbDisabled = isLitho || isGeotech || activeGeologicalModel === null
   // Names the model level in the export tooltips so the engineer can see WHICH
-  // of the three levels a file will contain before clicking.
-  const axisLevelLabel = isLitho ? 'lithostratigraphic' : isGeotech ? 'geotechnical' : 'geological'
+  // of the three levels a file will contain before clicking. Already TRANSLATED
+  // here (display only — never a filename or export payload) so every consumer
+  // interpolates the localised word and no tooltip reads half-English.
+  const axisLevelLabel = isLitho
+    ? t('sections.level.litho')
+    : isGeotech
+      ? t('sections.level.geotech')
+      : t('sections.level.geological')
   const geoVerbHint =
     isLitho || isGeotech
-      ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
+      ? t('sections.geoVerbHint')
       : null
   // Section-export verbs (DXF / Plaxis / PDF busy flags + handlers, the PDF
   // metadata dialog state and the D-Series items), extracted to keep this
@@ -695,9 +713,7 @@ export default function SectionsToolbar(): JSX.Element {
       ? 'all'
       : 'disabled'
 
-  const undoTitle = undoStack.canUndo
-    ? 'Undo the last model edit (Ctrl+Z)'
-    : 'Nothing to undo'
+  const undoTitle = undoStack.canUndo ? t('sections.undoTitle') : t('sections.undoNothing')
 
   // Declared in render order; assembled at the bottom of this function.
   // Keeping the three axis blocks as separate consts avoids a temporal-dead-
@@ -715,10 +731,10 @@ export default function SectionsToolbar(): JSX.Element {
       id: 'sections-undo',
       priority: 'medium',
       kind: 'button',
-      label: 'Undo',
+      label: t('sections.toolbar.undo'),
       overflowItems: [
         {
-          label: 'Undo last model edit',
+          label: t('sections.toolbar.undoHint'),
           icon: <Undo2 size={12} />,
           onClick: () => void undoStack.undo(),
           disabled: !undoStack.canUndo || undoStack.busy,
@@ -728,7 +744,7 @@ export default function SectionsToolbar(): JSX.Element {
       render: p => (
         <ToolbarButton
           icon={<Undo2 size={13} />}
-          label="Undo"
+          label={t('sections.toolbar.undo')}
           iconOnly={p === 'icon'}
           onClick={() => void undoStack.undo()}
           disabled={!undoStack.canUndo || undoStack.busy}
@@ -747,7 +763,7 @@ export default function SectionsToolbar(): JSX.Element {
       id: 'sections-axis-pill',
       priority: 'pinned',
       kind: 'custom',
-      label: 'Section model axis',
+      label: t('sections.modelAxis'),
       separatorBefore: true,
       // Three segments at px-2 plus the group's 1 px border on each side.
       // Explicit because the estimator models icon+label controls, not a
@@ -769,6 +785,7 @@ export default function SectionsToolbar(): JSX.Element {
 
   // -- Litho-axis verbs -----------------------------------------------------
   const lithoItems = buildLithoToolbarItems({
+    t,
     isLitho,
     hasSection,
     activeLithoModel,
@@ -813,6 +830,7 @@ export default function SectionsToolbar(): JSX.Element {
 
   // -- Geotech-axis verbs ---------------------------------------------------
   const geotechItems = buildGeotechToolbarItems({
+    t,
     isGeotech,
     activeLithoModel,
     activeGeotechModel,
@@ -851,6 +869,7 @@ export default function SectionsToolbar(): JSX.Element {
 
   // -- Verbs shared by every axis -------------------------------------------
   const tailItems = buildTailToolbarItems({
+    t,
     isLitho,
     isGeotech,
     hasSection,
@@ -891,7 +910,7 @@ export default function SectionsToolbar(): JSX.Element {
     <>
       <ResponsiveToolbarRow
         items={[...headItems, ...lithoItems, ...geotechItems, ...tailItems]}
-        overflowMenuLabel="More section actions"
+        overflowMenuLabel={t('sections.moreActions')}
       />
       <SectionsToolbarDialogs
         pdfDialogOpen={pdfDialogOpen}
