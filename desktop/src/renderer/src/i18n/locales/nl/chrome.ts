@@ -136,6 +136,10 @@ export const CHROME_NL = {
   'spine.geotechnical': 'Geotech',
   'spine.parameters': 'Parameters',
   'spine.export': 'Export',
+  'spine.selectionFooterAria': '{n} geselecteerd — klik om te wissen',
+  'spine.selectionFooterTitle': '{n} geselecteerd over stappen — klik om te wissen',
+  'spine.selectionFooterLabel': '{n} geselecteerd',
+  'spine.selectionFooterAbbr': 'gek.',
   'shell.toolbar': 'Werkbalk',
   // FLAG alt: Inspector | Eigenschappen — the right-hand detail pane. "Inspector"
   // is what LeapFrog/Plaxis-adjacent tools use untranslated in NL builds.
