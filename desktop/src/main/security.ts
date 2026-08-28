@@ -209,6 +209,32 @@ const RECENT_PROJECT_PATH_MAX_LEN = 1024
 const RECENT_PROJECT_ISO_MAX_LEN = 64
 
 /**
+ * Whether the "Show log file…" menu item — which reveals the RAW,
+ * un-redacted ``backend.log`` in the OS file browser — should exist.
+ *
+ * ``backend.log`` is the backend's own stdout: it carries the asyncpg DSN
+ * (password included) and raw project / data-file paths. The crash-bundle
+ * path redacts it line by line before it can leave the machine
+ * (``crashBundle.ts`` → ``diagnosticsRedaction.ts``); the raw-log shortcut
+ * does not. Offering both next to each other under Help invites a
+ * bug-reporter to grab the un-redacted file — the exact leak the redaction
+ * exists to prevent.
+ *
+ * So a **packaged** (customer) build never gets the shortcut: its only
+ * supported way to hand over logs is the redacted "Save diagnostics
+ * bundle…". A **development** build keeps it — dev runs on the developer's
+ * own machine, so the raw log is a convenience, not a third-party leak. This
+ * mirrors the dev-only gating already applied to Reload / DevTools in the
+ * View menu.
+ *
+ * @param isPackaged - Electron's ``app.isPackaged``.
+ * @returns ``true`` only in development.
+ */
+export function rawBackendLogAffordanceEnabled(isPackaged: boolean): boolean {
+  return !isPackaged
+}
+
+/**
  * Validates one entry from ``recent-projects.json`` (debt #41).
  *
  * Beyond type-shape (the existing ``isRecentProject``), also caps
