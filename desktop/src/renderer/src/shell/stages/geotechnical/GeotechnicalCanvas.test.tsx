@@ -544,9 +544,11 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
     expect(banner.textContent).toMatch(/Every column inside the model footprint carries material/)
   })
 
-  it('GC6 — a named spot walks to its section', () => {
-    const setSectionsDeepLinkTarget = vi.fn()
-    const report: GaplessBuildReport = {
+  /** A one-broken-clause report whose only entry stands on Tie-section 7. */
+  function spotReport(
+    entry: GaplessBuildReport['clauses'][number]['entries'][number],
+  ): GaplessBuildReport {
+    return {
       verdict: 'fail',
       generated_at: '2026-08-26T02:00:00Z',
       clauses: [
@@ -555,17 +557,14 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
           number: 3,
           title: 'Every patch of unclassed ground has a known cause',
           status: 'fail',
-          entries: [
-            {
-              label: 'Tie-section 7, gap 12: ground left unclassed with no known cause',
-              section_id: 'tie7',
-              section_name: 'Tie-section 7',
-              gap_index: 12,
-            },
-          ],
+          entries: [entry],
         },
       ],
     }
+  }
+
+  /** Open the disclosure and press the single "Show me". */
+  function pressShowMe(report: GaplessBuildReport, setSectionsDeepLinkTarget: () => void): void {
     renderCanvas(
       makeCtx({
         activeLithoModel: makeLithoModel(),
@@ -578,6 +577,45 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
     )
     fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
     fireEvent.click(screen.getByTestId('geotech-build-report-visit'))
+  }
+
+  it('GC6 — a named spot walks to its section AND to the gap itself', () => {
+    // Owner dogfeed 2026-08-28: *"the show me button opens section but doesn't
+    // zoom to issue"*. The deep-link now carries the gap's own two columns, so
+    // the section panel centres between them through its OWN column list — the
+    // gap index never crosses this boundary (it indexes the litho frame's list
+    // and is a different gap on the geotech axis).
+    const setSectionsDeepLinkTarget = vi.fn()
+    pressShowMe(
+      spotReport({
+        label: 'Tie-section 7, gap 12: ground left unclassed with no known cause',
+        section_id: 'tie7',
+        section_name: 'Tie-section 7',
+        gap_index: 12,
+        gap_investigation_ids: ['S4', 'B6'],
+      }),
+      setSectionsDeepLinkTarget,
+    )
+    expect(setSectionsDeepLinkTarget).toHaveBeenCalledWith({
+      sectionId: 'tie7',
+      contactIds: [],
+      revealInvestigationIds: ['S4', 'B6'],
+    })
+  })
+
+  it('GC7 — a spot that cannot name its columns still opens the section', () => {
+    const setSectionsDeepLinkTarget = vi.fn()
+    pressShowMe(
+      spotReport({
+        label: 'Tie-section 7, gap 12: ground left unclassed with no known cause',
+        section_id: 'tie7',
+        section_name: 'Tie-section 7',
+        gap_index: 12,
+      }),
+      setSectionsDeepLinkTarget,
+    )
+    // Exactly what the press did before this change — no reveal request at all,
+    // rather than one the shell would have to guess a target for.
     expect(setSectionsDeepLinkTarget).toHaveBeenCalledWith({
       sectionId: 'tie7',
       contactIds: [],
