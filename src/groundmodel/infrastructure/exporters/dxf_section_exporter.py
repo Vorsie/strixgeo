@@ -83,6 +83,7 @@ from ezdxf.colors import RGB
 
 from groundmodel.application.section_snapshot import SectionFormation, SectionSnapshot
 from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
+from groundmodel.infrastructure.exporters.dxf_text_safety import strip_dxf_line_breaks
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
 from groundmodel.infrastructure.exporters.unit_identifier import (
     UnitMappingRow,
@@ -264,17 +265,22 @@ class DxfSectionExporter(SectionExporter):
             # Carry the formation code as a layer description when
             # present — surfaces in CAD's layer properties dialog.
             if f.code:
-                layer.description = f"Formation '{f.name}' (code {f.code})"
+                description = f"Formation '{f.name}' (code {f.code})"
             else:
-                layer.description = f"Formation '{f.name}'"
+                description = f"Formation '{f.name}'"
             # Append the three-level identifiers (debt #104). Metadata, not
             # naming: a litho unit's LAYER NAME must stay byte-identical, so
             # its soil code reaches CAD here instead. A geological formation
             # carries neither field and its description is untouched.
             if f.nad_class is not None:
-                layer.description += f" | NAD class {f.nad_class}"
+                description += f" | NAD class {f.nad_class}"
             if f.litho_main_soil_code:
-                layer.description += f" | soil {f.litho_main_soil_code}"
+                description += f" | soil {f.litho_main_soil_code}"
+            # The description is another string group code in the line-oriented
+            # DXF stream — a raw CR/LF (from a bad-import formation name) would
+            # corrupt it exactly as it would a layer name. Strip once on the
+            # assembled value; byte-identical when the name carries no break.
+            layer.description = strip_dxf_line_breaks(description)
         return layer_by_formation_id
 
     # ------------------------------------------------------------------
@@ -304,7 +310,7 @@ class DxfSectionExporter(SectionExporter):
             # Name label — a small offset above the column top so it
             # doesn't sit on the surface line.
             msp.add_text(
-                inv.name,
+                strip_dxf_line_breaks(inv.name),
                 dxfattribs={
                     "layer": _INVESTIGATIONS_LAYER,
                     "height": 0.5,
@@ -468,7 +474,7 @@ class DxfSectionExporter(SectionExporter):
             if not line:
                 continue
             msp.add_text(
-                line,
+                strip_dxf_line_breaks(line),
                 dxfattribs={"layer": _INVESTIGATIONS_LAYER, "height": 0.5},
             ).set_placement((0.0, anchor_y - i * line_height))
 
@@ -559,9 +565,13 @@ def _formation_layer_name(formation_name: str) -> str:
     We strip them rather than substitute — geological formation
     names rarely contain them, and the few that do (e.g. names with
     slashes) read better with the character dropped than with a
-    placeholder underscore.
+    placeholder underscore. CR/LF are stripped first (``strip_dxf_line_breaks``)
+    because a line break in a layer name corrupts the line-oriented DXF stream,
+    and ezdxf's own guard against it is an ``assert`` that ``python -O`` removes.
     """
-    safe = "".join(c for c in formation_name if c not in DXF_FORBIDDEN_LAYER_CHARS)
+    safe = "".join(
+        c for c in strip_dxf_line_breaks(formation_name) if c not in DXF_FORBIDDEN_LAYER_CHARS
+    )
     # AutoCAD truncates layer names at 255 chars; we use the prefix
     # + a generous body so the user sees ``GeoModel-Formation name``
     # in CAD without surprise truncation on common names.
