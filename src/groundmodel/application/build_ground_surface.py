@@ -209,11 +209,24 @@ class BuildGroundSurface(GroundModelLogger):
             f"res={grid.resolution_m:.2f}m from_cache={grid.from_cache}"
         )
 
+        # A test's own surveyed collar OUTRANKS the DEM at its location (owner
+        # ruling 2026-08-28: "I trust surface elevation of a test more than a
+        # DEM we pulled off the web"). Only tests that actually carry a Z go in
+        # the map — ``is not None`` keeps a real 0.0 m TAW collar (ordinary on
+        # the Belgian coast) as an override while an absent Z falls back to the
+        # DEM for that column.
+        surface_elevations = {
+            (p.x_m, p.y_m): p.surface_elevation_m
+            for p in ground_points
+            if p.surface_elevation_m is not None
+        }
+
         tin = build_ground_surface_tin(
             dem_sample=grid.sample_at,
             hull_points=hull_points,
             grid_spacing_m=self._grid_spacing_m,
             margin_m=self._margin_m,
+            surface_elevations=surface_elevations,
         )
 
         # The TIN spans NoData rather than leaving a hole, so a surface over
@@ -304,24 +317,44 @@ class BuildGroundSurface(GroundModelLogger):
                         BoreholeOrm.name,
                         BoreholeOrm.location_x,
                         BoreholeOrm.location_y,
+                        BoreholeOrm.elevation_m,
                     ).where(BoreholeOrm.id.in_(bh_rows))
                 )
             ).all()
-            for name, x, y in bh_locs:
+            for name, x, y, elev in bh_locs:
                 if x is not None and y is not None:
-                    points.append(GroundPoint(label=str(name), x_m=float(x), y_m=float(y)))
+                    # ``elev`` is the surveyed collar; ``None`` means unknown.
+                    # A collar of 0.0 is kept as a real value (not coerced).
+                    points.append(
+                        GroundPoint(
+                            label=str(name),
+                            x_m=float(x),
+                            y_m=float(y),
+                            surface_elevation_m=None if elev is None else float(elev),
+                        )
+                    )
 
         if cpt_rows:
             cpt_locs = (
                 await self._session.execute(
-                    select(CptOrm.name, CptOrm.location_x, CptOrm.location_y).where(
-                        CptOrm.id.in_(cpt_rows)
-                    )
+                    select(
+                        CptOrm.name,
+                        CptOrm.location_x,
+                        CptOrm.location_y,
+                        CptOrm.elevation_m,
+                    ).where(CptOrm.id.in_(cpt_rows))
                 )
             ).all()
-            for name, x, y in cpt_locs:
+            for name, x, y, elev in cpt_locs:
                 if x is not None and y is not None:
-                    points.append(GroundPoint(label=str(name), x_m=float(x), y_m=float(y)))
+                    points.append(
+                        GroundPoint(
+                            label=str(name),
+                            x_m=float(x),
+                            y_m=float(y),
+                            surface_elevation_m=None if elev is None else float(elev),
+                        )
+                    )
 
         # Deduplicate on location — multiple contacts at the same anchor
         # produce the same (x, y); qhull rejects coincident points.
