@@ -211,7 +211,15 @@ function countBands(bands: readonly LithoLayerResponse[]): {
 /**
  * Collapse a lone LEAF child into its parent — "a level with exactly one child
  * renders no expander and no child row; the parent row's click scopes the
- * parent's own identity (the pooled set is identical by construction)".
+ * parent's own identity".
+ *
+ * The absorbed row's scope is NOT re-pointed: the surviving row keeps pooling
+ * its own ground. For a fully subdivided litho body that is the same ground
+ * the class row covered; where a litho band is only PARTLY subdivided, the
+ * parent pools the unsubdivided stretch too. That is the honest reading of a
+ * row labelled with the litho body, but it is a product decision the owner
+ * has not been asked about — do not "fix" it by re-pointing the scope without
+ * a ruling.
  *
  * The collapse fires only when the single child is itself a LEAF: a single
  * INTERNAL child still renders, because absorbing it would hide its own
