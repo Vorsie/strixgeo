@@ -6,12 +6,13 @@
 // is mocked so the active stage is controllable (the handler is scoped
 // to the Data stage).
 
-import { render, cleanup, fireEvent } from '@testing-library/react'
+import { act, render, cleanup, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AppShell from './AppShell'
 import type { ShellContextValue } from './ShellContext'
 import type { StageId } from './StageDescriptor'
+import { sectionsRevealColumnCallback } from './stages/sections/sectionColumnRevealBridge'
 
 vi.mock('./StageSpine', () => ({ default: () => null }))
 vi.mock('./StageToolbar', () => ({ default: () => null }))
@@ -47,6 +48,7 @@ function makeCtx(
     bboxImportType?: string | null
     drawingSection?: boolean
     view?: 'map' | 'chart'
+    sectionsDeepLinkTarget?: unknown
   } = {},
 ): Ctx {
   const setSelectedId = vi.fn()
@@ -61,6 +63,9 @@ function makeCtx(
     sections: {
       drawingSection: over.drawingSection ?? false,
       selectedSectionId: over.selectedSectionId ?? null,
+      handleSelectSection: vi.fn(),
+      handleFocusContacts: vi.fn(),
+      setSectionModelAxis: vi.fn(),
     },
     coordinator: {
       selectedId: over.selectedId ?? null,
@@ -71,7 +76,7 @@ function makeCtx(
       setView,
       geoDeepLinkTarget: null,
       setGeoDeepLinkTarget: vi.fn(),
-      sectionsDeepLinkTarget: null,
+      sectionsDeepLinkTarget: over.sectionsDeepLinkTarget ?? null,
       setSectionsDeepLinkTarget: vi.fn(),
       correlationEdgesRefetchNonce: 0,
       bodyRecomputeLithoNonce: 0,
@@ -88,7 +93,43 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  sectionsRevealColumnCallback.current = null
+  vi.useRealTimers()
   vi.clearAllMocks()
+})
+
+describe('AppShell geotech report reveal', () => {
+  it('waits for the section bridge before clearing a geotech span request', () => {
+    vi.useFakeTimers()
+    const { ctx } = makeCtx({
+      sectionsDeepLinkTarget: {
+        sectionId: 'tie7',
+        contactIds: [],
+        revealInvestigationIds: ['S4', 'B6'],
+        sectionModelAxis: 'geotechnical',
+      },
+    })
+    const setTarget = ctx.coordinator.setSectionsDeepLinkTarget as ReturnType<typeof vi.fn>
+    const sections = ctx.sections as unknown as {
+      setSectionModelAxis: ReturnType<typeof vi.fn>
+      handleSelectSection: ReturnType<typeof vi.fn>
+    }
+
+    render(<AppShell context={ctx} />)
+    expect(sections.setSectionModelAxis).toHaveBeenCalledWith('geotechnical')
+    expect(sections.handleSelectSection).toHaveBeenCalledWith('tie7')
+
+    act(() => vi.advanceTimersByTime(600))
+    expect(setTarget).not.toHaveBeenCalledWith(null)
+
+    sectionsRevealColumnCallback.current = vi.fn(() => ({
+      revealed: true,
+      missingInvestigationIds: [],
+    }))
+    act(() => vi.advanceTimersByTime(50))
+    expect(sectionsRevealColumnCallback.current).toHaveBeenCalledWith(['S4', 'B6'])
+    expect(setTarget).toHaveBeenCalledWith(null)
+  })
 })
 
 describe('AppShell Esc peel (debt #43)', () => {
