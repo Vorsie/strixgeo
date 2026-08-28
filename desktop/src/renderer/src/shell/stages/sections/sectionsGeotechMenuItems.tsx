@@ -245,11 +245,9 @@ export function buildGeotechPipelineMenuItems(
                 // Visible tag instead of a hover title: a disabled menu item
                 // fires no mouse events, so the gate must SHOW its reason. The
                 // tag counts THIS section's proposals, because those are the
-                // only ones this press could throw away. NOTE: dividePendingTag /
-                // dividePendingTitle come from utils/geotechPendingScope and are
-                // still English (util-layer follow-up — not wired this slice).
+                // only ones this press could throw away.
                 tag: tiesBlockDivide
-                  ? dividePendingTag(pendingScope)
+                  ? dividePendingTag(t, pendingScope)
                   : boreholesStale
                     ? t('sections.geotech.staleReDivide')
                     : undefined,
@@ -259,7 +257,7 @@ export function buildGeotechPipelineMenuItems(
                     : !sectionHasPackingBands
                       ? t('sections.geotech.noBandsHere')
                       : tiesBlockDivide
-                        ? dividePendingTitle(pendingScope)
+                        ? dividePendingTitle(t, pendingScope)
                         : boreholesStale
                           ? t('sections.geotech.staleReDivideTitle')
                           : t('sections.geotech.step4Title'),
