@@ -32,7 +32,7 @@
 // LithologyCanvas — so the canvas-populated geotechVoxelRequestCallback ref is
 // always available when Build is clicked.
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Box, Layers } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -175,6 +175,16 @@ export default function GeotechnicalCanvas(): JSX.Element {
     [geotechFormations],
   )
 
+  // Per-instance record of the callbacks THIS canvas last wrote into the
+  // module-level toolbar-bridge refs. The unmount cleanup below surrenders a
+  // ref ONLY while it still holds this instance's callback — React can mount a
+  // replacement canvas before it runs this one's cleanup (and both stages can
+  // be alive at once in the split viewport), so an older instance must never
+  // null a ref a newer instance has already claimed (debt #276).
+  const ownedFenceExport = useRef<(() => Promise<void>) | null>(null)
+  const ownedVoxelRequest = useRef<VoxelRequestBuilder | null>(null)
+  const ownedSplitViewport = useRef<(() => void) | null>(null)
+
   // Shared 3D-view plumbing: view mode, wireframe, split state, ground
   // surface, fence-edge fetch + fence memos (audit FE-SHELL-CLIENTS-10).
   // ``fenceActive`` is left at its default (true) — this stage is 3D-only, so
@@ -207,9 +217,13 @@ export default function GeotechnicalCanvas(): JSX.Element {
     frameModelId: activeLithoModel?.id ?? null,
     frameLayers: lithoLayers,
     resetSplitViewportRef: resetGeotechSplitViewportCallback,
-    voxelRequestRef: geotechVoxelRequestCallback,
     packingClassOf,
   })
+
+  // ``useBody3DViewState`` wrote ``exitSplit`` into
+  // resetGeotechSplitViewportCallback; record it so the unmount guard can tell
+  // whether a newer canvas has since reclaimed the ref.
+  ownedSplitViewport.current = exitSplit
 
   // -------------------------------------------------------------------------
   // Voxel build payload — assembled on demand for the "Build model" toolbar
@@ -231,6 +245,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     frameLayers: lithoLayers,
     packingClassOf,
   })
+  ownedVoxelRequest.current = geotechVoxelRequestCallback.current
 
   // NAD-coloured formations for the 3D viewer (presentation-boundary recolour;
   // a geotech body must read its NAD packing colour, not the inherited litho
@@ -260,10 +275,23 @@ export default function GeotechnicalCanvas(): JSX.Element {
             toast,
           })
       : null
+  ownedFenceExport.current = geotechFenceExportCallback.current
 
+  // Null every toolbar-bridge ref this canvas owns when it unmounts, so a
+  // toolbar click after a stage switch is a no-op instead of a call against a
+  // destroyed view (debt #276). Each null is GUARDED — it fires only while the
+  // module ref still points at THIS instance's callback — so an older canvas's
+  // unmount cannot wipe a ref a newer canvas has already claimed. Declared
+  // ABOVE the early returns so the hook order never depends on which branch
+  // renders.
   useEffect(
     () => () => {
-      geotechFenceExportCallback.current = null
+      if (geotechFenceExportCallback.current === ownedFenceExport.current)
+        geotechFenceExportCallback.current = null
+      if (geotechVoxelRequestCallback.current === ownedVoxelRequest.current)
+        geotechVoxelRequestCallback.current = null
+      if (resetGeotechSplitViewportCallback.current === ownedSplitViewport.current)
+        resetGeotechSplitViewportCallback.current = null
     },
     [],
   )
