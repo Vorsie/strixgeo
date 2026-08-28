@@ -37,13 +37,12 @@
 
 import { test, expect } from '@playwright/test'
 import { Client } from 'pg'
-import { launchApp } from './helpers/electron_launch'
+import { launchApp, pinWindowSize } from './helpers/electron_launch'
 import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
 import { getGeologicalModelId } from './helpers/db_helper'
 import {
   WEBGL_MAX_DIFF_PIXEL_RATIO,
   blockExternalNetwork,
-  pinWindowBounds,
   reseedFixture,
 } from './helpers/visual_golden'
 import { closeAppOrKill, timedTeardownStep } from './helpers/golden_teardown'
@@ -101,7 +100,7 @@ test.describe('flow_litho_3d_golden', () => {
 
       // Pixel goldens need a pinned window — Electron restores persisted
       // bounds otherwise and the viewport size drifts run to run.
-      await pinWindowBounds(app)
+      await pinWindowSize(app)
       await blockExternalNetwork(page)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Litho')
