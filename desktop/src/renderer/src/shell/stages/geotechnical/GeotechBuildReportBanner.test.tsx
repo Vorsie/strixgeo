@@ -20,6 +20,13 @@
  * GB8  a report the BACKEND actually assembled renders — the one case the
  *      hand-written fixtures above cannot cover, because they are written to
  *      match the reader rather than the writer
+ * GB9  the press walks to the SPOT, not merely to the section — owner dogfeed
+ *      2026-08-28: *"the show me button opens section but doesn't zoom to
+ *      issue"*. What crosses the boundary is the gap's own two columns BY
+ *      NAME; the gap index never does, because it indexes the litho frame's
+ *      column list and is wrong on any other
+ * GB10 a spot whose columns cannot be named still opens its section — the
+ *      press degrades to what it did before rather than centring on a guess
  */
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -71,6 +78,7 @@ function failingReport(): GaplessBuildReport {
         section_id: 'tie7',
         section_name: 'Tie-section 7',
         gap_index: 12,
+        gap_investigation_ids: ['S4', 'B6'],
         measure: { value: 3.4, unit: 'm2' },
       },
       {
@@ -88,7 +96,7 @@ function renderBanner(
   report: GaplessBuildReport | null,
   onVisit = vi.fn(),
 ): { onVisit: ReturnType<typeof vi.fn> } {
-  render(<GeotechBuildReportBanner report={report} onVisitSection={onVisit} />)
+  render(<GeotechBuildReportBanner report={report} onVisitSpot={onVisit} />)
   return { onVisit }
 }
 
@@ -156,7 +164,41 @@ describe('the gapless build-report banner', () => {
     expect(visits).toHaveLength(1)
 
     fireEvent.click(visits[0])
-    expect(onVisit).toHaveBeenCalledWith('tie7')
+    expect(onVisit).toHaveBeenCalledWith('tie7', ['S4', 'B6'])
+  })
+
+  it('GB9 hands over the gap’s two columns by name, never its index', () => {
+    const { onVisit } = renderBanner(failingReport())
+    fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
+    fireEvent.click(screen.getByTestId('geotech-build-report-visit'))
+
+    // THE TRAP THIS PINS: ``gap_index`` is 12 on this entry and it indexes the
+    // LITHO FRAME's column list. On the geotech axis's own ``visibleColumns``
+    // the same number is a different gap — passing it across this boundary is
+    // what already centred the wrong gap once (``PartitionFillOverlay.
+    // onJumpToConflictGap``). Nothing numeric may travel.
+    expect(onVisit).toHaveBeenCalledWith('tie7', ['S4', 'B6'])
+    for (const arg of onVisit.mock.calls[0]) {
+      expect(typeof arg).not.toBe('number')
+    }
+  })
+
+  it('GB10 still opens the section when the spot cannot name its columns', () => {
+    const report = failingReport()
+    // A backend-assembled entry (clauses 5-7) knows a section but has no frame
+    // to resolve a gap's columns against — and an older report predates the
+    // field entirely. Either way the press must do what it always did.
+    report.clauses[2].entries[0] = {
+      label: 'Tie-section 7, gap 12: ground left unclassed with no known cause',
+      section_id: 'tie7',
+      section_name: 'Tie-section 7',
+      gap_index: 12,
+    }
+    const { onVisit } = renderBanner(report)
+    fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
+    fireEvent.click(screen.getByTestId('geotech-build-report-visit'))
+
+    expect(onVisit).toHaveBeenCalledWith('tie7', [])
   })
 
   it('GB7 gives each verdict its own word, not just its own colour', () => {
