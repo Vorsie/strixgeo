@@ -27,7 +27,10 @@ import type { ShellContextValue } from '../../ShellContext'
 import type { GeologicalModelResponse } from '../../../api/client'
 import type { GaplessBuildReport } from '../../../utils/gaplessGate/types'
 import { nadClassColor } from '../../../utils/nadClasses'
-import GeotechnicalCanvas from './GeotechnicalCanvas'
+import GeotechnicalCanvas, {
+  geotechVoxelRequestCallback,
+  resetGeotechSplitViewportCallback,
+} from './GeotechnicalCanvas'
 
 // ---------------------------------------------------------------------------
 // Module mocks — the canvas no longer imports SectionsCanvas (the 2D half is
@@ -579,5 +582,49 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
       sectionId: 'tie7',
       contactIds: [],
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Module-ref cleanup on unmount (debt #276)
+//
+// The geotech canvas ⟷ toolbar bridges are module-level refs written every
+// render. Debt #276: most were never nulled on unmount, so "a toolbar click
+// that fires after the canvas unmounted [ran] against a destroyed view". The
+// voxel + split refs are written ABOVE the early returns, so the guided
+// Build-empty-state branch populates them too — no built solids needed here.
+// ---------------------------------------------------------------------------
+
+describe('GeotechnicalCanvas module-ref cleanup on unmount (#276)', () => {
+  // GU1 — the split-viewport ref (never nulled before this fix). A Reset click
+  // after a stage switch must not run against a destroyed view.
+  it('GU1 — split-viewport ref is null after the canvas unmounts', () => {
+    const r = renderCanvas(makeCtx({ activeLithoModel: makeLithoModel() }))
+    expect(resetGeotechSplitViewportCallback.current).not.toBeNull()
+    r.unmount()
+    expect(resetGeotechSplitViewportCallback.current).toBeNull()
+  })
+
+  // GU2 — the voxel-build ref. A "Build model" click after unmount must not
+  // build a destroyed view's partition.
+  it('GU2 — voxel-request ref is null after the canvas unmounts', () => {
+    const r = renderCanvas(makeCtx({ activeLithoModel: makeLithoModel() }))
+    expect(geotechVoxelRequestCallback.current).not.toBeNull()
+    r.unmount()
+    expect(geotechVoxelRequestCallback.current).toBeNull()
+  })
+
+  // GU3 — the mount-order guard. Mount A, mount B, unmount A → the ref must
+  // still hold B's callback.
+  it('GU3 — an older canvas unmount does not wipe a ref the newer canvas claimed', () => {
+    const rA = renderCanvas(makeCtx({ activeLithoModel: makeLithoModel() }))
+    const aBuilder = geotechVoxelRequestCallback.current
+    const rB = renderCanvas(makeCtx({ activeLithoModel: makeLithoModel() }))
+    const bBuilder = geotechVoxelRequestCallback.current
+    expect(bBuilder).not.toBe(aBuilder)
+    rA.unmount()
+    expect(geotechVoxelRequestCallback.current).toBe(bBuilder)
+    rB.unmount()
+    expect(geotechVoxelRequestCallback.current).toBeNull()
   })
 })
