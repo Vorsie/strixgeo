@@ -17,6 +17,17 @@ import type { StageId, StageDescriptor } from './StageDescriptor'
 import { STAGE_ORDER, STAGE_REGISTRY } from './StageRegistry'
 import { useShell } from './ShellContext'
 import { log } from '../utils/log'
+import { useT } from '../i18n/translate'
+
+const SPINE_LABEL_KEYS = {
+  data: 'spine.data',
+  sections: 'spine.sections',
+  geology: 'spine.geology',
+  lithology: 'spine.lithology',
+  geotechnical: 'spine.geotechnical',
+  parameters: 'spine.parameters',
+  export: 'spine.export',
+} as const
 
 /** Props for each spine stage button — extracted so the per-stage hook call
  *  is isolated to its own component and hooks always run in a consistent
@@ -47,13 +58,15 @@ interface SpineButtonProps {
 function SpineButton({ descriptor, active, onSelect }: SpineButtonProps): JSX.Element {
   const summary = descriptor.useStageSummary()
   const Icon = descriptor.icon
+  const t = useT()
+  const label = t(SPINE_LABEL_KEYS[descriptor.id])
 
   return (
     <button
       type="button"
-      aria-label={summary.label}
+      aria-label={label}
       aria-pressed={active}
-      title={summary.label}
+      title={label}
       onClick={() => {
         if (!active) {
           log.debug('shell', `spine → ${descriptor.id}`)
@@ -94,7 +107,7 @@ function SpineButton({ descriptor, active, onSelect }: SpineButtonProps): JSX.El
       </div>
       {/* Abbreviated stage label */}
       <span className="text-[10px] font-medium leading-none">
-        {descriptor.spineLabel}
+        {label}
       </span>
     </button>
   )
@@ -127,9 +140,10 @@ export interface StageSpineProps {
  *     The spine rail element.
  */
 export default function StageSpine({ activeStageId, onSelectStage }: StageSpineProps): JSX.Element {
+  const t = useT()
   return (
     <nav
-      aria-label="Workflow stages"
+      aria-label={t('spine.title')}
       className="flex flex-col w-16 bg-spine-bg border-r border-border-subtle overflow-y-auto flex-shrink-0"
     >
       <div className="flex flex-col gap-1 p-2 flex-1">
@@ -177,6 +191,7 @@ export default function StageSpine({ activeStageId, onSelectStage }: StageSpineP
  */
 function SelectionFooter(): JSX.Element {
   const { coordinator } = useShell()
+  const t = useT()
   const { marqueeSelectedIds, setMarqueeSelectedIds } = coordinator
   const count = marqueeSelectedIds.size
   if (count === 0) {
@@ -187,19 +202,19 @@ function SelectionFooter(): JSX.Element {
       <button
         type="button"
         className="w-full flex flex-col items-center gap-0.5 rounded px-1 py-1.5 bg-amber-100/80 dark:bg-amber-950/40 border border-status-amber text-text-primary hover:bg-amber-200/80 dark:hover:bg-amber-950/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
-        aria-label={`${count} selected — click to clear`}
-        title={`${count} investigation${count === 1 ? '' : 's'} selected across stages — click to clear`}
+        aria-label={t('spine.selectionFooterAria', { n: count })}
+        title={t('spine.selectionFooterTitle', { n: count })}
         onClick={() => setMarqueeSelectedIds(new Set())}
         data-testid="selection-footer-clear"
       >
         <span className="text-[11px] font-semibold tabular-nums leading-none">{count}</span>
         <span
           className="text-[8px] uppercase tracking-wide text-text-secondary leading-none"
-          aria-label={`${count} selected`}
+          aria-label={t('spine.selectionFooterLabel', { n: count })}
         >
           {/* "sel." is a visual abbreviation; aria-label on the parent span
               announces the full word so screen readers say "N selected". */}
-          sel.
+          {t('spine.selectionFooterAbbr')}
         </span>
       </button>
     </div>
