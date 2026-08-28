@@ -73,18 +73,35 @@ const CODE_EXTENSIONS = new Set([
   'html',
 ])
 
-// Path characters stop at whitespace, quotes, brackets and pipes. Brackets are
-// excluded because a V8 stack frame wraps the path in parentheses — swallowing
-// the closing one would break the extension read below.
-const PATH_BODY = '[^\\s"\'<>|()\\[\\]]*'
+// A path SEGMENT can contain spaces ("OneDrive - Acme NV", "Two Words", a
+// "First Last" user folder), so the body allows a literal space and stops only
+// on a *real* delimiter — a quote, a pipe, an angle bracket, a bracket/paren (a
+// V8 stack frame wraps the path in parens; swallowing the closer would break
+// the extension read below), or any whitespace OTHER than a plain space
+// (newline, tab, form-feed: a filesystem path never spans a line, and neither
+// Windows nor a sane POSIX path holds a tab). Stopping at the first space —
+// the previous behaviour — left everything after it (the employer, the client,
+// the site, the engineer's surname) verbatim in a "redacted" bundle.
+//
+// The body is required to END on a non-space (``TAIL``) so trailing whitespace
+// is trimmed: a path that abuts following prose ("…x.gef (row 42)") keeps the
+// separator instead of eating it. The whole body is optional so a bare root
+// (``C:\``) or an empty ``file://`` still matches, exactly as before.
+const PATH_INNER = '[^\\r\\n\\t\\f\\v"\'<>|()\\[\\]]'
+const PATH_TAIL = '[^\\s"\'<>|()\\[\\]]'
+const PATH_BODY = `(?:${PATH_INNER}*${PATH_TAIL})?`
 
 const FILE_URL_RE = new RegExp(`file://${PATH_BODY}`, 'gi')
 const WINDOWS_PATH_RE = new RegExp(`[A-Za-z]:\\\\${PATH_BODY}`, 'g')
 // Anchored to real filesystem roots so an API route (``/cpt/import``) is never
 // mistaken for a path — routes are the most useful thing in an api diagnostic.
 const POSIX_PATH_RE = new RegExp(`/(?:Users|home|var|tmp|opt|private|Applications)/${PATH_BODY}`, 'g')
-const WINDOWS_USER_RE = /([A-Za-z]:\\Users\\)[^\\/\s"'<>|()[\]]+/g
-const POSIX_USER_RE = /(\/(?:Users|home)\/)[^/\s"'<>|()[\]]+/g
+// The user-folder name is a single segment and can contain a space
+// ("First Last"), so it stops at the next path separator or a real delimiter —
+// NOT at the first space, which used to leave the surname behind. It excludes
+// ``<>`` so an already-substituted ``<user>`` is never re-matched.
+const WINDOWS_USER_RE = /([A-Za-z]:\\Users\\)[^\\/\r\n\t\f\v"'<>|()[\]]+/g
+const POSIX_USER_RE = /(\/(?:Users|home)\/)[^/\r\n\t\f\v"'<>|()[\]]+/g
 const URL_QUERY_RE = /(https?:\/\/[^\s"'<>|?]*)\?[^\s"'<>|]*/g
 // The backend prints its own DSN — password included — on startup, and the
 // crash bundle carries backend.log. Matched by scheme so a future driver
