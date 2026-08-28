@@ -6,6 +6,7 @@ import * as Cesium from 'cesium'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
+import { useT } from '../../../i18n/translate'
 
 // Basemap picker panel
 // ---------------------------------------------------------------------------
@@ -35,6 +36,7 @@ export interface BasemapPanelProps {
  *     The basemap picker panel.
  */
 export function BasemapPanel({ activeBasemapId, onSelect }: BasemapPanelProps): JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
 
   return (
@@ -47,9 +49,9 @@ export function BasemapPanel({ activeBasemapId, onSelect }: BasemapPanelProps): 
           'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary border border-border-default shadow-sm',
           'hover:bg-surface-overlay transition-colors',
         ].join(' ')}
-        title="Switch basemap"
+        title={t('geology.switchBasemap')}
       >
-        {BASEMAP_SOURCES.find(b => b.id === activeBasemapId)?.label ?? 'Basemap'}
+        {BASEMAP_SOURCES.find(b => b.id === activeBasemapId)?.label ?? t('geology.basemap')}
       </button>
       {open && (
         <div className="absolute top-full right-0 mt-1 bg-surface-overlay border border-border-default rounded shadow-lg min-w-40 py-1 z-20">
