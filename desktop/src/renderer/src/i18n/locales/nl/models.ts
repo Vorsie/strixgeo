@@ -95,7 +95,7 @@ export const MODELS_NL = {
   // NOTE: ruled 2026-08-27 — owner chose "Samenvoegconflicten".
   'geology.lumpingCollisions': 'Samenvoegconflicten',
   'geology.selectFormationsBlurb':
-    'Selecteer de formaties die je wil opnemen. Gebruik "→ zelfde als" op een regel om ze bij een andere te voegen.',
+    'Selecteer de formaties die je wil opnemen. Gebruik "→ zelfde als" op een regel om ze bij een andere formatie te voegen. Als je selectie formaties weglaat die al in het model zitten, vraagt Toepassen of je ze aan het model toevoegt of het vervangt.',
   'geology.filterFormationPlaceholder': 'Filter of typ de naam van een doelformatie',
   'geology.rerankPlaceholder': 'Typ om te herordenen of geef een naam in…',
   'geology.noStratigraphyCandidates': 'Geen kandidaten uit de stratigrafie gevonden.',
@@ -144,6 +144,56 @@ export const MODELS_NL = {
   'geology.deleteModelBody':
     'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. Dit kan niet ongedaan gemaakt worden.',
   'geology.deleteModelButton': 'Geologisch model verwijderen',
+  // GeologyStage-samenvatting op de stappenbalk.
+  'geology.summaryFormationOne': '{n} formatie',
+  'geology.summaryFormationMany': '{n} formaties',
+  'geology.summaryStale': '{n} verouderd',
+  // Lege toestand van het geologiecanvas + inline CTA.
+  'geology.emptyBuildPrompt': 'Nog geen 3D-model — bouw het op uit de stratigrafie.',
+  'geology.adding': 'Toevoegen…',
+  // Geologie-detailvenster (kop, kruisingsbanner, verwijderbevestiging, regels).
+  'geology.stratigraphyLabel': 'Stratigrafie',
+  'geology.crossingsNotChecked':
+    'Kruisende vlakken niet gecontroleerd — bouw het 3D-model om te valideren.',
+  'geology.crossingsCheckFailed':
+    'Kruisende vlakken KONDEN niet gecontroleerd worden — dit is geen zuiver resultaat. Bouw opnieuw of heropen het project om opnieuw te controleren.',
+  'geology.crossingsDetectedOne': '{n} kruisend vlak gedetecteerd',
+  'geology.crossingsDetectedMany': '{n} kruisende vlakken gedetecteerd',
+  'geology.emptyRosterHint':
+    'Nog geen formaties — Vullen vanuit boringen of voeg er een toe, en bouw daarna het 3D-model.',
+  'geology.boreholeInModel': '{name} in het model',
+  'geology.deleteFormationBody':
+    'en elke laaggrens + geotechnische eenheid die ernaar verwijst, wordt uit het geologisch model verwijderd. Dit kan niet ongedaan gemaakt worden (tot Bestand → Opslaan zit de wijziging nog niet in de .gmproj — sluiten zonder opslaan draait ze terug).',
+  'geology.dragToReorderNamed': '{name} slepen om de volgorde te wijzigen',
+  'geology.colorClickToChange': '{color} — klik om de kleur te wijzigen',
+  'geology.changeColorOf': 'Kleur van {name} wijzigen',
+  // Formatieselectievenster (Vullen vanuit boringen).
+  'geology.formationsFoundOne': '{n} formatie gevonden',
+  'geology.formationsFoundMany': '{n} formaties gevonden',
+  'geology.candAll': 'Alle',
+  'geology.candNone': 'Geen',
+  'geology.foundInBoreholesOne': 'gevonden in {n} boring',
+  'geology.foundInBoreholesMany': 'gevonden in {n} boringen',
+  'geology.updating': 'Bijwerken…',
+  'geology.boreholeWordOne': 'boring',
+  'geology.boreholeWordMany': 'boringen',
+  'geology.boundaryWordOne': 'grens',
+  'geology.boundaryWordMany': 'grenzen',
+  'geology.formationWordOne': 'formatie',
+  'geology.formationWordMany': 'formaties',
+  'geology.contactWordOne': 'laaggrens',
+  'geology.contactWordMany': 'laaggrenzen',
+  'geology.collisionSummary':
+    '{count} {boreholeWord} had lagen die naar dezelfde formatie samengevoegd werden — ondiepste behouden, {dropped} {boundaryWord} weggelaten; controleer je groepering',
+  'geology.collisionInBorehole': 'in boring',
+  'geology.collisionCollidingNames': ': botsende namen:',
+  'geology.collisionKept': '. Bovenste behouden op {top}m, {dropped} weggelaten.',
+  'geology.deletionWarning':
+    '{fCount} {formationWord} en {cCount} {contactWord} zitten niet in je selectie. Toepassen zal vragen of je ze behoudt of verwijdert.',
+  'geology.reassignedToClickChange': 'Opnieuw toegewezen aan "{label}" — klik om te wijzigen',
+  'geology.reassignToAnother': '"{name}" aan een andere formatie toewijzen',
+  'geology.sameAs': '→ zelfde als',
+  'geology.useCustomName': 'Gebruik "{name}"',
 
   // -------------------------------------------------------------------------
   // lithostratigrafie
@@ -314,6 +364,28 @@ export const MODELS_NL = {
   'geotech.preflightIgnore':
     'Volledig negeren — het resultaat is het model zoals het was voor ze geïmporteerd werden',
   'geotech.subdivideFirst': 'Verdeel eerst de lichamen onder.',
+  // Body van het bevestigingsvenster "Opnieuw onderverdelen"
+  // (ReSubdivideConfirmDialog), gesplitst rond de vet/cursief benadrukte delen.
+  'geotech.thisSectionFallback': 'dit profiel',
+  'geotech.reSubdivideModelPre': 'Opnieuw afleiden onder',
+  'geotech.reSubdivideModelMid': 'wist alle onderverdelingen',
+  'geotech.reSubdivideModelWide': 'modelbreed',
+  'geotech.reSubdivideModelPost':
+    '— de pakkingsbanden en koppelingen van elk profiel worden opnieuw opgebouwd uit de sondeergegevens, en elke boring wordt leeg tot je ze opnieuw verdeelt.',
+  'geotech.reSubdivideRegenPre':
+    'Opnieuw onderverdelen genereert de geotechnische pakkingskoppelingen op',
+  'geotech.reSubdivideRegenPost':
+    '— alle handmatige koppelingen die je daar gemaakt hebt, worden gewist.',
+  'geotech.reSubdivideHandPre': 'Het bouwt ook de pakkingsbanden op',
+  'geotech.reSubdivideHandMid': 'opnieuw op uit de sondeergegevens, dus zijn',
+  'geotech.reSubdivideHandBandOne': '{n} handmatig bewerkte band',
+  'geotech.reSubdivideHandBandMany': '{n} handmatig bewerkte banden',
+  'geotech.reSubdivideHandPost':
+    'keren terug naar de grenzen van de segmenter. Dat kan niet hersteld worden.',
+  'geotech.reSubdivideAltPre': 'Om de automatische koppelingen terug te krijgen',
+  'geotech.reSubdivideAltEm': 'zonder',
+  'geotech.reSubdivideAltPost':
+    'je eigen kwijt te raken, annuleer en gebruik Pakking correleren → Automatisch correleren.',
   // Geotech-eenheden-lijst (rechterpaneel).
   'geotech.unitsWithBands': '{count} met banden',
   'geotech.collapseSoil': 'Deze grondsoort inklappen',
