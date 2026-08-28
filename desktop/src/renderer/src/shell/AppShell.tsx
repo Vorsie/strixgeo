@@ -132,6 +132,9 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
       `sections-deep-link: stage=sections section=${target.sectionId} contacts=${target.contactIds.length}`,
     )
     setActiveStage('sections')
+    if (target.sectionModelAxis !== undefined) {
+      context.sections.setSectionModelAxis(target.sectionModelAxis)
+    }
     context.sections.handleSelectSection(target.sectionId)
     // Defer the focus pulse.  600 ms covers the CPT-plot batch fetch
     // observed at ~440 ms on the test project + a margin for the
@@ -144,6 +147,7 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // body, and handleFocusContacts would never fire — which is
     // exactly the regression that hit both Geology-pane click AND
     // xsection-pane click in the previous commit.
+    let revealTimer: number | null = null
     const focusTimer = window.setTimeout(() => {
       context.sections.handleFocusContacts(target.contactIds, target.sectionId)
       // The column half of the same deep-link (owner ruling 2026-08-26): the
@@ -153,23 +157,36 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
       // and for the same reason — the freshly-mounted panel has to have placed
       // its columns before anything can ask where one of them is.
       const revealIds = target.revealInvestigationIds ?? []
-      if (revealIds.length > 0) {
-        const outcome = sectionsRevealColumnCallback.current?.(revealIds)
-        if (outcome === undefined || !outcome.revealed) {
-          log.warn(
-            'shell',
-            `sections-deep-link: could not centre '${revealIds.join(', ')}' on ` +
-              `section ${target.sectionId} — ` +
-              (outcome === undefined
-                ? 'the section canvas is not mounted'
-                : `not drawn there (missing: ${outcome.missingInvestigationIds.join(', ')})`),
-          )
-        }
+      if (revealIds.length === 0) {
+        context.coordinator.setSectionsDeepLinkTarget(null)
+        return
       }
-      context.coordinator.setSectionsDeepLinkTarget(null)
+      const deadline = Date.now() + 5_000
+      const attemptReveal = (): void => {
+        const outcome = sectionsRevealColumnCallback.current?.(revealIds)
+        if (outcome?.revealed) {
+          context.coordinator.setSectionsDeepLinkTarget(null)
+          return
+        }
+        if (Date.now() < deadline) {
+          revealTimer = window.setTimeout(attemptReveal, 50)
+          return
+        }
+        log.warn(
+          'shell',
+          `sections-deep-link: could not centre '${revealIds.join(', ')}' on ` +
+            `section ${target.sectionId} — ` +
+            (outcome === undefined
+              ? 'the section canvas is not mounted'
+              : `not drawn there (missing: ${outcome.missingInvestigationIds.join(', ')})`),
+        )
+        context.coordinator.setSectionsDeepLinkTarget(null)
+      }
+      attemptReveal()
     }, 600)
     return () => {
       window.clearTimeout(focusTimer)
+      if (revealTimer !== null) window.clearTimeout(revealTimer)
     }
     // reason: setActiveStage + sections handlers + coord setter are
     // stable callbacks; sectionsDeepLinkTarget is the only signal that
