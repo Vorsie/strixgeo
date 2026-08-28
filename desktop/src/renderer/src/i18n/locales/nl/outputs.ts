@@ -76,4 +76,11 @@ export const OUTPUTS_NL = {
   'export.reportGenerate': 'PDF van het profiel genereren',
   'export.reportNotes':
     'Optionele vrije tekst die onder de tabel met projectgegevens getoond wordt.',
+  'export.reportBlurb':
+    'Pas de titel en gegevens aan die in de hoofding van het rapport verschijnen. Alle velden zijn optioneel — laat de standaardtitel staan voor de profielnaam.',
+  'export.reportTitleLabel': 'Titel',
+  'export.reportAuthorLabel': 'Auteur',
+  'export.reportNotesLabel': 'Notities',
+  'export.reportGenerating': 'Genereren…',
+  'export.reportGeneratePdf': 'PDF genereren',
 } as const
