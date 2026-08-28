@@ -79,6 +79,9 @@ describe('gapless gate replay — clauses 1-3 on the live model', () => {
         hierarchical,
         lithoRegions: entry.inputs.lithoRegions,
         alongM: entry.inputs.alongM,
+        // The dump's own litho columns — the list the scene's gap indices are
+        // valid against, exactly as ``buildVoxelRequest`` supplies the frame's.
+        columnInvestigationIds: entry.inputs.lithoColumns.map(c => c.investigationId),
       })
       scenes += 1
       lines.push(`########## ${key}`)
