@@ -201,6 +201,19 @@ def test_sanitise_layer_name_strips_forbidden_characters() -> None:
     assert _sanitise_layer_name('Sand/Clay:"lens"') == "Fence-SandClaylens"
 
 
+def test_sanitise_layer_name_strips_line_breaks() -> None:
+    """A CR/LF in a panel name must never reach the line-oriented DXF stream.
+
+    ezdxf's only guard is a plain ``assert`` that ``python -O`` strips, so the
+    sanitiser removes CR/LF itself. A name without control characters is
+    unchanged (byte-identical).
+    """
+    assert _sanitise_layer_name("Sand\r\nClay") == "Fence-SandClay"
+    assert "\n" not in _sanitise_layer_name("a\nb")
+    # No control characters → identical to the plain forbidden-char strip.
+    assert _sanitise_layer_name("Sand") == "Fence-Sand"
+
+
 def test_sanitise_layer_name_truncates_over_long_name() -> None:
     """AutoCAD truncates layer names at 255 characters; the sanitiser matches."""
     long_name = "x" * 400
