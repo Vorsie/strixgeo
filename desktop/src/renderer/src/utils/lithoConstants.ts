@@ -30,6 +30,20 @@ export const LITHOLOGY_LABELS: Record<string, string> = {
   VEEN: 'Peat',
 }
 
+// Dutch (Flemish) base-lithology labels. Translate-at-the-presentation-boundary
+// means rendering Dutch is SELECTING the source token, not inventing one: the
+// five base lithologies ARE Dutch words in the domain (ZAND / KLEI / SILT /
+// GRIND / VEEN, the ``BASE_LITHOLOGIES`` the backend stores), so the NL label is
+// simply the title-cased source token. Keyed identically to ``LITHOLOGY_LABELS``
+// so a display helper can pick the table by language and get the SAME five keys.
+export const LITHOLOGY_LABELS_NL: Record<string, string> = {
+  GRIND: 'Grind',
+  ZAND: 'Zand',
+  SILT: 'Silt',
+  KLEI: 'Klei',
+  VEEN: 'Veen',
+}
+
 /** Fallback colour for an unrecognised lithology token (matches the
  * neutral-grey default used at formation create). Still used by the
  * ghost-suggestion overlay, which colours a layer before any formation
