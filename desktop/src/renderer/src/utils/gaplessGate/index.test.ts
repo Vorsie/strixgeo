@@ -66,11 +66,25 @@ function hierarchical(
 const NO_FRAME: SectionClosureInput = { hasFrame: false, frameSections: [], builtSectionIds: new Set() }
 
 function cleanSection(sectionId: string, sectionName: string): SectionClause2dInput {
-  return { sectionId, sectionName, hierarchical: hierarchical(), lithoRegions: [], alongM: [0, 10] }
+  return {
+    sectionId,
+    sectionName,
+    hierarchical: hierarchical(),
+    lithoRegions: [],
+    alongM: [0, 10],
+    columnInvestigationIds: ['A', 'B'],
+  }
 }
 
 function unevaluatedSection(sectionId: string, sectionName: string): SectionClause2dInput {
-  return { sectionId, sectionName, hierarchical: undefined, lithoRegions: [], alongM: [0, 10] }
+  return {
+    sectionId,
+    sectionName,
+    hierarchical: undefined,
+    lithoRegions: [],
+    alongM: [0, 10],
+    columnInvestigationIds: ['A', 'B'],
+  }
 }
 
 describe('assembleGaplessClauses2d — clean build', () => {
@@ -112,6 +126,7 @@ describe('assembleGaplessClauses2d — a violation on one section', () => {
       hierarchical: hierarchical({ diagnostics: diagnostics({ totalityViolations: [{ gapIndex: 2, faces: 1, areaM2: 9 }] }) }),
       lithoRegions: [],
       alongM: [0, 10],
+      columnInvestigationIds: ['A', 'B', 'C'],
     }
     const out = assembleGaplessClauses2d(
       [cleanSection('s1', 'Cross-section 1'), violating],
