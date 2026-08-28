@@ -24,6 +24,7 @@
 import { Box, Download, RefreshCw } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 import { ToolbarButton } from '../../ToolbarPrimitives'
 import ToolbarNoticeChip from '../../../components/sections/ToolbarNoticeChip'
 import {
@@ -76,6 +77,10 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
   // Above every early return — the hook order must not depend on whether a
   // geotech model exists yet (the TDZ / hook-order rule).
   const preflight = useGeotechBuildPreflight()
+  // Only the stale-litho chip is wired to i18n so far — the rest of this
+  // toolbar is still English (a separate slice). ``useT`` sits above the early
+  // return so the hook order is stable.
+  const t = useT()
 
   // No geotech model yet → nothing to build. "Subdivide all bodies" (the
   // SectionsToolbar geotech verb) creates the model first.
@@ -170,8 +175,8 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       {staleColumns.length > 0 && (
         <ToolbarNoticeChip
           testid="geotech-stale-litho-chip"
-          label={staleGeotechChipLabel(staleColumns.length)}
-          title={staleGeotechChipTitle(staleColumns)}
+          label={staleGeotechChipLabel(t, staleColumns.length)}
+          title={staleGeotechChipTitle(t, staleColumns)}
         />
       )}
       {hasGeotechSolids && (
