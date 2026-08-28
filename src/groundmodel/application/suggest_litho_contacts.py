@@ -198,7 +198,10 @@ class SuggestLithoContacts(GroundModelLogger):
             use_normalised_qc=use_normalised_qc,
         )
 
-        self.success(f"SuggestLithoContacts: cpt={cpt.name} → {len(suggestions)} suggested layers")
+        # Id (not name) at SUCCESS: the CPT name is its test_id, which encodes
+        # the project / site code, and ``backend.log`` is unredacted on disk.
+        # The name is already at DEBUG above (owner: "no user data leaks").
+        self.success(f"SuggestLithoContacts: cpt={cpt.id} → {len(suggestions)} suggested layers")
         return suggestions
 
     async def execute_for_borehole(
@@ -282,8 +285,11 @@ class SuggestLithoContacts(GroundModelLogger):
                 break
 
         if best_obs is None:
+            # Id (not name) even on this "what was NOT found" WARNING: a
+            # borehole name carries the site code, and ``backend.log`` is
+            # unredacted on disk. The id still answers "which borehole".
             self.warning(
-                f"Borehole {borehole.name} has no lithology observation layers "
+                f"Borehole {borehole_id} has no lithology observation layers "
                 f"(tried: {_LITHO_OBSERVATION_PRIORITY})"
             )
             raise InvestigationNotFoundError(borehole_id, "Borehole (no litho layers)")
@@ -318,8 +324,11 @@ class SuggestLithoContacts(GroundModelLogger):
             merge_same_lithology=merge_same_lithology,
         )
 
+        # Id (not name) at SUCCESS: the borehole name carries the site code,
+        # and ``backend.log`` is unredacted on disk. The name is already at
+        # DEBUG above (owner: "no user data leaks").
         self.success(
-            f"SuggestLithoContacts: borehole={borehole.name} → {len(suggestions)} suggested layers"
+            f"SuggestLithoContacts: borehole={borehole.id} → {len(suggestions)} suggested layers"
         )
         return suggestions
 
