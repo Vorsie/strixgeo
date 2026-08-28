@@ -28,6 +28,7 @@ import type { GeologicalModelResponse } from '../../../api/client'
 import type { FocusTarget } from '../../../components/sections/useFocusColumn'
 import type { UseGeologicalModelResult } from '../../../hooks/useGeologicalModel'
 import type { UseSectionsResult } from '../../../hooks/useSections'
+import type { Translator } from '../../../i18n/translate'
 
 /** A bulk-suggest anchor (an in-corridor CPT / borehole with surface Z). */
 export type SectionSuggestAnchor = {
@@ -42,6 +43,9 @@ export type SectionSuggestAnchor = {
  * builder uses only the subset it needs.
  */
 export interface LithoToolbarItemsDeps {
+  /** Active-language translator, threaded from the toolbar so a language flip
+   *  re-renders every verb in one pass. */
+  t: Translator
   isLitho: boolean
   hasSection: boolean
   activeLithoModel: GeologicalModelResponse | null
@@ -87,6 +91,7 @@ export interface LithoToolbarItemsDeps {
 /** The Suggest split-button's caret menu (bulk variants). */
 export function buildLithoSuggestMenuItems(deps: LithoToolbarItemsDeps): ToolbarDropdownItem[] {
   const {
+    t,
     isLitho,
     bulkAnchors,
     setBulkConfirmOpen,
@@ -104,25 +109,25 @@ export function buildLithoSuggestMenuItems(deps: LithoToolbarItemsDeps): Toolbar
   // axis-scoped state the other axes never populate.
   return !isLitho ? [] : [
     {
-      label: `Suggest all in this section${
+      label: `${t('sections.litho.suggestAllInSection')}${
         bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''
       }`,
       icon: <Sparkles size={12} />,
       onClick: () => setBulkConfirmOpen(true),
       disabled: !activeLithoModel || !hasSection || bulkLithoSuggesting || lithoSuggesting,
       title: !activeLithoModel
-        ? 'Create a lithostratigraphic model first'
+        ? t('sections.litho.createModelFirst')
         : !hasSection
-          ? 'Open a cross-section first'
+          ? t('sections.litho.openSectionFirst')
           : bulkLithoSuggesting
-            ? 'Running segmenter on every investigation in this section…'
-            : 'Suggest lithostratigraphic layers for every investigation in this section at once',
+            ? t('sections.litho.runningSegmenterAll')
+            : t('sections.litho.suggestAllInSectionTitle'),
       testid: 'litho-suggest-all',
     },
     {
       label: activeLithoModel
-        ? `Suggest for new tests (${newTestAnchors.length})`
-        : 'Suggest for new tests',
+        ? `${t('sections.litho.suggestNewTests')} (${newTestAnchors.length})`
+        : t('sections.litho.suggestNewTests'),
       icon: <Sparkles size={12} />,
       onClick: () => void handleSuggestNewTests(),
       disabled:
@@ -131,12 +136,19 @@ export function buildLithoSuggestMenuItems(deps: LithoToolbarItemsDeps): Toolbar
         lithoSuggesting ||
         newTestAnchors.length === 0,
       title: !activeLithoModel
-        ? 'Create a lithostratigraphic model first'
+        ? t('sections.litho.createModelFirst')
         : bulkLithoSuggesting
-          ? 'Running segmenter…'
+          ? t('sections.litho.runningSegmenter')
           : newTestAnchors.length === 0
-            ? 'All visible investigations already have litho contacts — import new tests to use this'
-            : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`,
+            ? t('sections.litho.allHaveContacts')
+            : t('sections.litho.suggestNewTestsTitle', {
+                n: newTestAnchors.length,
+                investigation: t(
+                  newTestAnchors.length === 1
+                    ? 'sections.litho.investigationOne'
+                    : 'sections.litho.investigationMany',
+                ),
+              }),
       testid: 'litho-suggest-new-tests',
     },
   ]
@@ -145,6 +157,7 @@ export function buildLithoSuggestMenuItems(deps: LithoToolbarItemsDeps): Toolbar
 /** The Correlate split-button's caret menu (auto / accept / clear). */
 export function buildLithoCorrelateMenuItems(deps: LithoToolbarItemsDeps): ToolbarDropdownItem[] {
   const {
+    t,
     isLitho,
     autoCorrelating,
     handleAutoCorrelateWithCheck,
@@ -160,37 +173,37 @@ export function buildLithoCorrelateMenuItems(deps: LithoToolbarItemsDeps): Toolb
   return !isLitho ? [] : [
     {
       icon: <Zap size={13} />,
-      label: autoCorrelating ? 'Correlating…' : 'Auto-correlate',
+      label: autoCorrelating ? t('sections.busy.correlating') : t('sections.litho.autoCorrelate'),
       onClick: () => {
         void handleAutoCorrelateWithCheck()
       },
       disabled: !activeLithoModel || autoCorrelating || !sectionHasLithoContacts,
       title: !activeLithoModel
-        ? 'Create a lithostratigraphic model first'
+        ? t('sections.litho.createModelFirst')
         : !sectionHasLithoContacts
-          ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+          ? t('sections.litho.acceptFirstToCorrelate')
           : autoCorrelating
-            ? 'Running auto-correlate…'
-            : 'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.',
+            ? t('sections.litho.runningAutoCorrelate')
+            : t('sections.litho.autoCorrelateTitle'),
       testid: 'litho-auto-correlate',
     },
     {
       icon: <CheckCheck size={13} />,
-      label: acceptingCorrelations ? 'Accepting…' : 'Accept correlations',
+      label: acceptingCorrelations ? t('sections.busy.accepting') : t('sections.litho.acceptCorrelations'),
       onClick: () => {
         void handleAcceptCorrelations()
       },
       disabled:
         !activeLithoModel || !hasSection || acceptingCorrelations || !sectionHasLithoContacts,
       title: !activeLithoModel
-        ? 'Create a lithostratigraphic model first'
+        ? t('sections.litho.createModelFirst')
         : !hasSection
-          ? 'Open a cross-section to accept correlations'
+          ? t('sections.litho.openSectionAcceptCorr')
           : !sectionHasLithoContacts
-            ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+            ? t('sections.litho.acceptFirstToCorrelate')
             : acceptingCorrelations
-              ? 'Accepting correlations…'
-              : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals',
+              ? t('sections.litho.acceptingCorrelations')
+              : t('sections.litho.acceptCorrelationsTitle'),
       testid: 'litho-accept-correlations',
     },
     {
@@ -203,14 +216,14 @@ export function buildLithoCorrelateMenuItems(deps: LithoToolbarItemsDeps): Toolb
       // acts as a caret-fallback (opens this menu) rather than being
       // fully disabled. Reversible via Auto-correlate.
       icon: <Trash2 size={13} />,
-      label: 'Clear correlation suggestions',
+      label: t('sections.toolbar.clearCorrelationSuggestions'),
       onClick: () => {
         void handleClearSuggestions()
       },
       disabled: !activeLithoModel,
       title: !activeLithoModel
-        ? 'Create a lithostratigraphic model first'
-        : 'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.',
+        ? t('sections.litho.createModelFirst')
+        : t('sections.litho.clearCorrelationsTitle'),
       testid: 'litho-clear-suggestions',
     },
   ]
@@ -219,6 +232,7 @@ export function buildLithoCorrelateMenuItems(deps: LithoToolbarItemsDeps): Toolb
 /** The Bodies dropdown menu (fill / overlays / reset points / samples). */
 export function buildLithoBodiesMenuItems(deps: LithoToolbarItemsDeps): ToolbarDropdownItem[] {
   const {
+    t,
     isLitho,
     bandsVisible,
     correlationsVisible,
@@ -236,23 +250,23 @@ export function buildLithoBodiesMenuItems(deps: LithoToolbarItemsDeps): ToolbarD
                 // Explicit, finish-then-click verb — colour every body's closed
                 // loop with its lithology. Do this AFTER correlating + pinch-outs;
                 // it never auto-draws (owner directive 2026-06-03). Toggles on/off.
-                label: bandsVisible ? 'Hide bands' : 'Fill bands',
+                label: bandsVisible ? t('sections.litho.hideBands') : t('sections.litho.fillBands'),
                 icon: <PaintBucket size={12} />,
                 onClick: () => toggleBandFill(),
                 testid: 'litho-fill-bands',
-                title:
-                  'Colour every body’s closed loop with its lithology, across the section. Do this once correlations + pinch-outs are done. Toggles on / off.',
+                title: t('sections.toolbar.lithoFillHint'),
               },
               {
                 // Show / hide the CorrelationEdgesOverlay (the ribbons + lines
                 // that visualise the user's correlations). Pure 2-D chrome —
                 // no link to the 3-D model. Defaults to shown.
-                label: correlationsVisible ? 'Hide correlations' : 'Show correlations',
+                label: correlationsVisible
+                  ? t('sections.litho.hideCorrelations')
+                  : t('sections.litho.showCorrelations'),
                 icon: <Network size={12} />,
                 onClick: () => toggleCorrelationOverlay(),
                 testid: 'litho-toggle-correlations',
-                title:
-                  'Show or hide the correlation ribbons + lines drawn across the section. A 2-D visualisation of your correlations only — it has no link to the 3-D model. Toggles on / off.',
+                title: t('sections.toolbar.correlationRibbonsHint'),
               },
               {
                 // Show / hide the ModelFillOverlay — the cross-section fill
@@ -261,29 +275,33 @@ export function buildLithoBodiesMenuItems(deps: LithoToolbarItemsDeps): ToolbarD
                 // the geological cross-section keeps its own formation fill.
                 // Eye/EyeOff icon conveys the action + avoids the Layers
                 // dropdown-trigger collision.
-                label: formationFillVisible ? 'Hide model fill' : 'Show model fill',
+                label: formationFillVisible
+                  ? t('sections.litho.hideModelFill')
+                  : t('sections.litho.showModelFill'),
                 icon: formationFillVisible ? <EyeOff size={12} /> : <Eye size={12} />,
                 onClick: () => toggleFormationFill(),
                 testid: 'litho-toggle-model-fill',
-                title:
-                  'Show or hide the cross-section fill sampled from the built 3-D solids. Toggles on / off.',
+                title: t('sections.toolbar.solidFillHint'),
               },
               {
                 // Reset manual points — clear every hand-drawn body boundary
                 // override so all bodies return to their engine-computed shape.
                 // Irreversible (DB delete): opens a ConfirmDialog first.
-                label: resettingBoundaries ? 'Resetting…' : 'Reset manual points',
+                label: resettingBoundaries
+                  ? t('sections.litho.resetting')
+                  : t('sections.litho.resetManualPoints'),
                 icon: <Eraser size={12} />,
                 onClick: () => setResetBoundariesConfirmOpen(true),
                 disabled: !activeLithoModel || resettingBoundaries,
                 testid: 'litho-reset-manual-points',
                 title: !activeLithoModel
-                  ? 'Create a lithostratigraphic model first'
-                  : 'Clear every hand-drawn body boundary point on this model. Bodies return to their computed shape. Cannot be undone.',
+                  ? t('sections.litho.createModelFirst')
+                  : t('sections.litho.resetManualPointsTitle'),
               },
               // The lab-sample markers draw on this axis too, so their
               // switches belong in the litho view menu as well.
               ...sampleDisplayMenuItems({
+                t,
                 sampleMarkersOn,
                 psdPreviewOn,
                 testidPrefix: 'litho',
@@ -295,6 +313,7 @@ export function buildLithoBodiesMenuItems(deps: LithoToolbarItemsDeps): ToolbarD
 /** The Admixtures dropdown menu (strip / reseed ghost admixtures). */
 export function buildLithoAdmixtureMenuItems(deps: LithoToolbarItemsDeps): ToolbarDropdownItem[] {
   const {
+    t,
     isLitho,
     cptGhostCount,
     boreholeGhostCount,
@@ -305,44 +324,44 @@ export function buildLithoAdmixtureMenuItems(deps: LithoToolbarItemsDeps): Toolb
   // axis-scoped state the other axes never populate.
   return !isLitho ? [] : [
               {
-                label: `Strip CPT admixtures${cptGhostCount > 0 ? ` (${cptGhostCount})` : ''}`,
+                label: `${t('sections.litho.stripCptAdmixtures')}${cptGhostCount > 0 ? ` (${cptGhostCount})` : ''}`,
                 icon: <Eraser size={12} />,
                 onClick: () => handleStripLithoAdmixtures('cpt'),
                 disabled: cptGhostCount === 0,
                 title:
                   cptGhostCount === 0
-                    ? 'No CPT ghost suggestions'
-                    : 'Clear admixtures from every CPT ghost suggestion',
+                    ? t('sections.litho.noCptGhosts')
+                    : t('sections.litho.stripCptTitle'),
                 testid: 'litho-strip-cpt',
               },
               {
-                label: `Strip borehole admixtures${boreholeGhostCount > 0 ? ` (${boreholeGhostCount})` : ''}`,
+                label: `${t('sections.litho.stripBoreholeAdmixtures')}${boreholeGhostCount > 0 ? ` (${boreholeGhostCount})` : ''}`,
                 icon: <Eraser size={12} />,
                 onClick: () => handleStripLithoAdmixtures('borehole'),
                 disabled: boreholeGhostCount === 0,
                 title:
                   boreholeGhostCount === 0
-                    ? 'No borehole ghost suggestions'
-                    : 'Clear admixtures from every borehole ghost suggestion',
+                    ? t('sections.litho.noBoreholeGhosts')
+                    : t('sections.litho.stripBoreholeTitle'),
                 testid: 'litho-strip-borehole',
               },
               {
-                label: 'Strip all admixtures',
+                label: t('sections.toolbar.stripAdmixtures'),
                 icon: <Eraser size={12} />,
                 onClick: () => handleStripLithoAdmixtures('all'),
                 disabled: cptGhostCount === 0 && boreholeGhostCount === 0,
-                title: 'Clear admixtures from every ghost suggestion',
+                title: t('sections.toolbar.clearGhostAdmixtures'),
                 testid: 'litho-strip-all',
               },
               {
-                label: 'Reseed borehole admixtures',
+                label: t('sections.toolbar.reseedAdmixtures'),
                 icon: <Sparkles size={12} />,
                 onClick: () => handleReseedLithoAdmixtures(),
                 disabled: boreholeGhostCount === 0,
                 title:
                   boreholeGhostCount === 0
-                    ? 'No borehole ghost suggestions'
-                    : 'Restore the segmenter’s admixtures on borehole ghosts (undo a strip)',
+                    ? t('sections.litho.noBoreholeGhosts')
+                    : t('sections.litho.reseedBoreholeTitle'),
                 testid: 'litho-reseed-borehole',
               },
             ]
