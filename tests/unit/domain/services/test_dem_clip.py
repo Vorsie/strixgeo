@@ -258,6 +258,83 @@ def test_a_test_on_a_nodata_cell_contributes_no_ground_vertex() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Owner ruling 2026-08-28: "I trust surface elevation of a test more than a DEM
+# we pulled off the web." Where an investigation carries its own surveyed
+# collar, that value WINS over the DEM at the test's own location; the DEM
+# stays the fallback for the ground BETWEEN tests.
+# ---------------------------------------------------------------------------
+
+
+def test_a_surveyed_collar_beats_the_dem_at_the_test() -> None:
+    """The ground above a surveyed test is the test's collar, not the web DEM.
+
+    The DEM reads 3.0 m everywhere, but the test at (105, 103) was surveyed
+    at 5.8 m TAW. The owner trusts the surveyed collar over the DEM, so the
+    ground vertex above the test must read 5.8, not the 3.0 the DEM sampled.
+    """
+    hull = [(105.0, 103.0), (140.0, 100.0), (100.0, 140.0)]
+    tin = build_ground_surface_tin(
+        _constant_dem(3.0),
+        hull,
+        grid_spacing_m=10.0,
+        margin_m=10.0,
+        surface_elevations={(105.0, 103.0): 5.8},
+    )
+
+    at_the_test = [v for v in tin.vertices if v[0] == 105.0 and v[1] == 103.0]
+    assert at_the_test, "the ground surface carries no vertex above the surveyed test"
+    assert at_the_test[0][2] == pytest.approx(5.8)
+
+
+def test_a_test_at_zero_m_taw_is_not_missing_data() -> None:
+    """A collar surveyed at exactly 0 m TAW is a real value, not "no data".
+
+    Owner ruling 2026-08-28: "if something has ground level 0 (often happens
+    in belgium) then this is a different case than no data." The DEM reads
+    3.0 m, but the test's own surveyed collar is 0 m TAW (ordinary on the
+    coast). The ground vertex above the test must anchor at 0.0 — the
+    surveyed collar — and must NOT be dropped or replaced by the DEM.
+    """
+    hull = [(105.0, 103.0), (140.0, 100.0), (100.0, 140.0)]
+    tin = build_ground_surface_tin(
+        _constant_dem(3.0),
+        hull,
+        grid_spacing_m=10.0,
+        margin_m=10.0,
+        surface_elevations={(105.0, 103.0): 0.0},
+    )
+
+    at_the_test = [v for v in tin.vertices if v[0] == 105.0 and v[1] == 103.0]
+    assert at_the_test, "a test surveyed at 0 m TAW was dropped as if it had no elevation"
+    assert at_the_test[0][2] == pytest.approx(0.0)
+
+
+def test_a_surveyed_collar_wins_even_where_the_dem_has_no_ground() -> None:
+    """A surveyed collar over a DEM hole still anchors the ground at the test.
+
+    The DEM returns None at the test (a water body returning nothing, say),
+    but the test carries its own surveyed collar. The collar is trusted, so
+    the ground gets a real vertex there instead of being dropped.
+    """
+    hull = [(105.0, 103.0), (140.0, 100.0), (100.0, 140.0)]
+
+    def dem_hole_at_the_test(x: float, y: float) -> float | None:
+        return None if (x == 105.0 and y == 103.0) else 12.0
+
+    tin = build_ground_surface_tin(
+        dem_hole_at_the_test,
+        hull,
+        grid_spacing_m=10.0,
+        margin_m=10.0,
+        surface_elevations={(105.0, 103.0): 4.0},
+    )
+
+    at_the_test = [v for v in tin.vertices if v[0] == 105.0 and v[1] == 103.0]
+    assert at_the_test, "a surveyed collar over a DEM hole produced no ground vertex"
+    assert at_the_test[0][2] == pytest.approx(4.0)
+
+
+# ---------------------------------------------------------------------------
 # assess_ground_coverage — say which tests the DEM could not answer for
 # ---------------------------------------------------------------------------
 
