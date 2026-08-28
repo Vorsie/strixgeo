@@ -72,6 +72,7 @@ import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { formationStableKey, normaliseFormationKey } from '../../../utils/formationKey'
 import { rankByPartialMatch } from '../../../utils/partialMatch'
+import { useT } from '../../../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -375,6 +376,7 @@ export default function FormationSelectionDialog({
   onConfirm,
   onCancel,
 }: FormationSelectionDialogProps): JSX.Element {
+  const t = useT()
   // ---------------------------------------------------------------------------
   // Checked state — stable keys
   // ---------------------------------------------------------------------------
@@ -628,44 +630,45 @@ export default function FormationSelectionDialog({
           id="fill-from-boreholes-title"
           className="text-sm font-semibold text-text-primary"
         >
-          Fill from boreholes
+          {t('geology.fillFromBoreholes')}
         </h2>
-        <p className="mt-1 text-xs text-text-secondary">
-          Select formations to include. Use "→ same as" on a row to lump it into another
-          formation. If your selection leaves out formations already in the model, Apply
-          asks whether to add to the model or replace it.
-        </p>
+        <p className="mt-1 text-xs text-text-secondary">{t('geology.selectFormationsBlurb')}</p>
       </div>
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto min-h-0">
 
         {/* ── Candidate list ──────────────────────────────────────────── */}
-        <section aria-label="Formation candidates" className="px-5 pt-4 pb-4">
+        <section aria-label={t('geology.formationCandidates')} className="px-5 pt-4 pb-4">
           {/* Select all/none row */}
           <div className="flex items-center gap-2 mb-2">
             <span className="flex-1 text-xs text-text-muted">
-              {candidates.length} formation{candidates.length === 1 ? '' : 's'} found
+              {t(
+                candidates.length === 1
+                  ? 'geology.formationsFoundOne'
+                  : 'geology.formationsFoundMany',
+                { n: candidates.length },
+              )}
             </span>
             <button
               type="button"
               className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded shrink-0"
               onClick={selectAll}
             >
-              All
+              {t('geology.candAll')}
             </button>
             <button
               type="button"
               className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded shrink-0"
               onClick={selectNone}
             >
-              None
+              {t('geology.candNone')}
             </button>
           </div>
 
           {candidates.length === 0 ? (
             <p className="py-4 text-center text-xs text-text-muted">
-              No stratigraphy candidates found.
+              {t('geology.noStratigraphyCandidates')}
             </p>
           ) : (
             <ul className="space-y-0.5" role="list">
@@ -732,8 +735,12 @@ export default function FormationSelectionDialog({
                             )}
                           </span>
                           <span className="block text-xs text-text-muted">
-                            found in {candidate.boreholeCount}{' '}
-                            {candidate.boreholeCount === 1 ? 'borehole' : 'boreholes'}
+                            {t(
+                              candidate.boreholeCount === 1
+                                ? 'geology.foundInBoreholesOne'
+                                : 'geology.foundInBoreholesMany',
+                              { n: candidate.boreholeCount },
+                            )}
                           </span>
                         </span>
                       </label>
@@ -760,19 +767,31 @@ export default function FormationSelectionDialog({
         {/* ── Collision warnings ───────────────────────────────────────── */}
         {(collisions.length > 0 || collisionsUpdating) && (
           <section
-            aria-label="Lumping collision warnings"
+            aria-label={t('geology.lumpingCollisions')}
             className="px-5 pb-4 pt-2 border-t border-border-subtle"
           >
             <h3 className="text-xs font-semibold text-status-warning uppercase tracking-wide mb-2 mt-2 flex items-center gap-1">
               <span aria-hidden="true">⚠</span>
               {collisionsUpdating ? (
-                <span className="text-text-muted normal-case font-normal">Updating…</span>
+                <span className="text-text-muted normal-case font-normal">
+                  {t('geology.updating')}
+                </span>
               ) : (
                 <>
-                  {collisions.length} borehole{collisions.length === 1 ? '' : 's'} had
-                  layers lumping to the same formation — kept shallowest, dropped{' '}
-                  {totalDropped}{' '}
-                  {totalDropped === 1 ? 'boundary' : 'boundaries'}; review your grouping
+                  {t('geology.collisionSummary', {
+                    count: collisions.length,
+                    boreholeWord: t(
+                      collisions.length === 1
+                        ? 'geology.boreholeWordOne'
+                        : 'geology.boreholeWordMany',
+                    ),
+                    dropped: totalDropped,
+                    boundaryWord: t(
+                      totalDropped === 1
+                        ? 'geology.boundaryWordOne'
+                        : 'geology.boundaryWordMany',
+                    ),
+                  })}
                 </>
               )}
             </h3>
@@ -787,16 +806,19 @@ export default function FormationSelectionDialog({
                       {col.targetFormationName}
                     </span>
                     <span className="text-text-muted ml-1">
-                      in borehole{' '}
+                      {t('geology.collisionInBorehole')}{' '}
                       <span className="font-mono">{col.boreholeId.slice(0, 8)}…</span>
-                      : colliding names:{' '}
+                      {t('geology.collisionCollidingNames')}{' '}
                       {col.collidingRawNames.map((n, j) => (
                         <span key={j}>
                           {j > 0 && ', '}
                           <span className="italic">{n}</span>
                         </span>
                       ))}
-                      . Kept top at {col.keptTopM}m, dropped {col.droppedCount}.
+                      {t('geology.collisionKept', {
+                        top: col.keptTopM,
+                        dropped: col.droppedCount,
+                      })}
                     </span>
                   </li>
                 ))}
@@ -815,9 +837,18 @@ export default function FormationSelectionDialog({
               here, and red is reserved for committed destructive intent
               (tailwind.config.js status-amber / status-danger split). */}
           <p className="text-xs text-status-amber font-medium">
-            {deletedFormationCount} formation{deletedFormationCount === 1 ? '' : 's'} and{' '}
-            {deletedContactCount} contact{deletedContactCount === 1 ? '' : 's'} are not in
-            your selection. Apply will ask whether to keep or remove them.
+            {t('geology.deletionWarning', {
+              fCount: deletedFormationCount,
+              formationWord: t(
+                deletedFormationCount === 1
+                  ? 'geology.formationWordOne'
+                  : 'geology.formationWordMany',
+              ),
+              cCount: deletedContactCount,
+              contactWord: t(
+                deletedContactCount === 1 ? 'geology.contactWordOne' : 'geology.contactWordMany',
+              ),
+            })}
           </p>
         </div>
       )}
@@ -825,7 +856,7 @@ export default function FormationSelectionDialog({
       {/* Footer */}
       <div className="flex justify-end gap-2 px-5 py-4 border-t border-border-default">
         <Button variant="secondary" size="md" onClick={onCancel}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         {/* Apply is no longer the destructive step (2026-08-03): when the
             selection would remove something, Apply opens the add-vs-overwrite
@@ -842,7 +873,7 @@ export default function FormationSelectionDialog({
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         >
-          Apply selection
+          {t('geology.applySelection')}
         </Button>
       </div>
     </Modal>
@@ -907,6 +938,7 @@ function RowReassignDropdown({
   rankedTargets: FormationCandidate[]
   onSelect: (key: string, target: ReassignTarget | null) => void
 }): JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -1038,8 +1070,8 @@ function RowReassignDropdown({
         type="button"
         aria-label={
           currentTargetLabel !== null
-            ? `Reassigned to "${currentTargetLabel}" — click to change`
-            : `Reassign "${candidateName}" to another formation`
+            ? t('geology.reassignedToClickChange', { label: currentTargetLabel })
+            : t('geology.reassignToAnother', { name: candidateName })
         }
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -1052,7 +1084,7 @@ function RowReassignDropdown({
         ].join(' ')}
         onClick={open ? handleClose : handleOpen}
       >
-        {currentTargetLabel !== null ? `→ ${currentTargetLabel}` : '→ same as'}
+        {currentTargetLabel !== null ? `→ ${currentTargetLabel}` : t('geology.sameAs')}
       </button>
 
       {open && (
@@ -1070,8 +1102,8 @@ function RowReassignDropdown({
                 if (e.key === 'Escape') { e.stopPropagation() }
                 if (e.key === 'Enter') { e.preventDefault(); handleTypeaheadEnter() }
               }}
-              placeholder="Type to re-rank or enter name…"
-              aria-label="Filter or type a target formation name"
+              placeholder={t('geology.rerankPlaceholder')}
+              aria-label={t('geology.filterFormationPlaceholder')}
               className="w-full text-xs px-2 py-1 rounded border border-border-default bg-surface-page text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
@@ -1083,7 +1115,7 @@ function RowReassignDropdown({
           <ul
             id={listboxId}
             role="listbox"
-            aria-label="Target formation options"
+            aria-label={t('geology.targetFormationOptions')}
             className="max-h-44 overflow-y-auto"
           >
             {/* Keep separate option — always first */}
@@ -1098,7 +1130,7 @@ function RowReassignDropdown({
               ].join(' ')}
               onClick={handleKeepSeparate}
             >
-              Keep separate
+              {t('geology.keepSeparate')}
             </li>
 
             {/* Custom-name option — only when user typed something new that
@@ -1114,7 +1146,7 @@ function RowReassignDropdown({
                   className="w-full text-left px-3 py-1.5 text-xs text-text-primary italic hover:bg-surface-page transition-colors cursor-pointer"
                   onClick={handleCustomPick}
                 >
-                  Use "{query.trim()}"
+                  {t('geology.useCustomName', { name: query.trim() })}
                 </li>
               )}
 
