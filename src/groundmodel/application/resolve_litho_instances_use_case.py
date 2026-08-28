@@ -533,7 +533,12 @@ class ResolveLithoInstances(GroundModelLogger):
             for item in raw_updates
         ]
         if renamed:
-            self.info(f"ResolveLithoInstances: {len(renamed)} name(s) displaced: {list(renamed)}")
+            # Count at INFO, the names themselves at DEBUG: unit names are
+            # normally stratigraphic labels, but a user can rename a unit to
+            # echo a site, and ``backend.log`` is unredacted on disk. The
+            # phase-summary count stays always-on; the list is a DEBUG detail.
+            self.info(f"ResolveLithoInstances: {len(renamed)} name(s) displaced")
+            self.debug(f"ResolveLithoInstances: names displaced: {list(renamed)}")
 
         if updated:
             self.success(
