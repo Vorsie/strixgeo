@@ -570,6 +570,70 @@ def test_formation_layer_name_strips_dxf_forbidden_chars(raw, expected) -> None:
     assert _formation_layer_name(raw) == expected
 
 
+# ---------------------------------------------------------------------------
+# Line-break safety — a newline in a name must never reach the DXF stream.
+#
+# DXF is line-oriented; a raw newline in a layer-name value splits the record
+# and corrupts the file. ezdxf backstops this with a plain ``assert '\n' not in
+# value`` at write time — which ``python -O`` strips, so a packaged/optimised
+# build would emit the corrupt DXF instead of failing. We strip CR/LF ourselves
+# so the guard never depends on assertions being enabled.
+# ---------------------------------------------------------------------------
+
+
+def test_strip_dxf_line_breaks_removes_cr_lf_but_is_otherwise_byte_identical() -> None:
+    """CR/LF are removed; every break-free string is returned unchanged."""
+    from groundmodel.infrastructure.exporters.dxf_text_safety import strip_dxf_line_breaks
+
+    # CR/LF are removed…
+    assert strip_dxf_line_breaks("Zand\r\nKlei") == "ZandKlei"
+    assert strip_dxf_line_breaks("a\nb\rc") == "abc"
+    # …and any string without a line break is returned unchanged (byte-identical).
+    for clean in ("GeoModel-Boom Klei  Diest", "Zand/Klei", "", "CPT-01", "x" * 300):
+        assert strip_dxf_line_breaks(clean) == clean
+
+
+def test_formation_layer_name_strips_line_breaks() -> None:
+    """A formation name with CR/LF yields a layer name with neither."""
+    name = _formation_layer_name("Zand\nKlei\rSilt")
+    assert "\n" not in name
+    assert "\r" not in name
+    assert name == "GeoModel-ZandKleiSilt"
+
+
+def test_section_export_with_newline_name_writes_valid_dxf() -> None:
+    """A formation whose name carries a newline still produces a readable DXF.
+
+    Before the fix, the raw newline reached ezdxf's layer-name export and tripped
+    its ``assert '\\n' not in value`` — which ``python -O`` would have stripped,
+    corrupting the file. The exporter must strip the break itself.
+    """
+    snap = _snapshot(
+        formations=[
+            SectionFormation(
+                formation_id=uuid4(),
+                name="Boom\nKlei",
+                code=None,
+                color="#ff8800",
+                display_order=0,
+            ),
+        ],
+        investigations=[
+            SectionInvestigationProjection(
+                investigation_id=uuid4(),
+                kind="cpt",
+                name="CPT\n-01",
+                along_distance_m=10.0,
+                surface_elevation_m=15.0,
+                total_depth_m=20.0,
+            ),
+        ],
+    )
+    payload = DxfSectionExporter().export(snap)
+    doc = _parse_dxf(payload)  # ezdxf re-read proves the stream is well-formed
+    assert all("\n" not in layer.dxf.name for layer in doc.layers)
+
+
 def test_colliding_layer_names_stay_distinct_at_the_dxf_length_limit() -> None:
     """A very long formation name must not truncate its own disambiguator off.
 
