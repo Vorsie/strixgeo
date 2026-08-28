@@ -52,6 +52,7 @@ import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { compareFormationsOldestFirst } from '../../../utils/formationOrder'
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Component
@@ -108,6 +109,7 @@ export default function GeologyInspector(): JSX.Element {
     overlays: { showConfidenceFade, handleSetShowConfidenceFade },
   } = useShell()
 
+  const t = useT()
   const projectId = project.id
 
   // ---------------------------------------------------------------------------
@@ -196,10 +198,7 @@ export default function GeologyInspector(): JSX.Element {
         cpts,
       )
       if (candidates.length === 0) {
-        toast(
-          'error',
-          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
-        )
+        toast('error', t('geology.noSectionForContact'))
         return
       }
       if (candidates.length === 1) {
@@ -211,7 +210,7 @@ export default function GeologyInspector(): JSX.Element {
       }
       setCrossingPicker({ contactIds: issue.contact_ids, candidates })
     },
-    [geoContacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast],
+    [geoContacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast, t],
   )
 
   // ---------------------------------------------------------------------------
@@ -676,7 +675,7 @@ export default function GeologyInspector(): JSX.Element {
       <div className="flex flex-col gap-0.5 text-text-secondary min-w-0">
         <div className="flex items-center gap-2">
           <Layers size={14} className="text-status-amber" />
-          <span className="text-xs font-medium">Formations</span>
+          <span className="text-xs font-medium">{t('geology.formations')}</span>
           <span className="text-[10px] text-text-muted tabular-nums">
             {visibleFormations.length}
           </span>
@@ -684,9 +683,9 @@ export default function GeologyInspector(): JSX.Element {
         {activeGeologicalModel && (
           <div
             className="text-[10px] text-text-muted pl-5 truncate"
-            title="Active stratigraphy — every formation pick belongs to this model"
+            title={t('geology.activeStratigraphy')}
           >
-            Stratigraphy{' '}
+            {t('geology.stratigraphyLabel')}{' '}
             <span className="text-text-secondary">· {activeGeologicalModel.name}</span>
           </div>
         )}
@@ -704,12 +703,12 @@ export default function GeologyInspector(): JSX.Element {
             setEditing(null)
             setDialogOpen(true)
           }}
-          title="Add a new formation to this project"
+          title={t('geology.addFormationHint')}
           className="ml-auto"
           data-testid="geology-create-formation-button"
         >
           <Plus size={12} className="mr-1" />
-          Add formation
+          {t('geology.addFormation')}
         </Button>
       </div>
 
@@ -719,9 +718,9 @@ export default function GeologyInspector(): JSX.Element {
           is extrapolating away from data. */}
       <div
         className="flex items-center justify-between gap-2 text-[11px] text-text-secondary border-t border-border-subtle pt-2"
-        title="Faded triangles in the 3D view + faded contact polylines on sections mark regions where the TIN extrapolates away from nearby data. Toggle off for a uniform colour."
+        title={t('geology.confidenceFadeHint')}
       >
-        <span>Show confidence fade</span>
+        <span>{t('geology.showConfidenceFade')}</span>
         <button
           type="button"
           role="switch"
@@ -753,15 +752,12 @@ export default function GeologyInspector(): JSX.Element {
         <div
           className="rounded border border-border-subtle bg-surface-app px-2 py-1.5 text-[11px] text-text-muted"
           role="status"
-          aria-label="Surface validation pending"
+          aria-label={t('geology.surfaceValidationPending')}
           data-testid="crossings-pending-banner"
         >
           <div className="flex items-center gap-1.5">
             <Info size={12} />
-            <span>
-              Surface crossings not checked — Build the 3D model to
-              validate.
-            </span>
+            <span>{t('geology.crossingsNotChecked')}</span>
           </div>
         </div>
       )}
@@ -773,15 +769,12 @@ export default function GeologyInspector(): JSX.Element {
         <div
           className="rounded border border-status-amber bg-amber-50 dark:bg-amber-950/30 px-2 py-1.5 text-[11px] text-text-primary"
           role="alert"
-          aria-label="Surface validation failed"
+          aria-label={t('geology.surfaceValidationFailed')}
           data-testid="crossings-check-failed"
         >
           <div className="flex items-center gap-1.5">
             <AlertTriangle size={12} />
-            <span>
-              Surface crossings could NOT be checked — this is not a clean
-              result. Rebuild or reopen the project to check again.
-            </span>
+            <span>{t('geology.crossingsCheckFailed')}</span>
           </div>
         </div>
       )}
@@ -796,14 +789,18 @@ export default function GeologyInspector(): JSX.Element {
         <div
           className="rounded border border-status-amber bg-amber-50 dark:bg-amber-950/30 px-2 py-1.5 text-[11px] text-text-primary"
           role="alert"
-          aria-label="Surface crossing warnings"
+          aria-label={t('geology.surfaceCrossingWarnings')}
           data-testid="crossings-banner"
         >
           <div className="flex items-center gap-1.5 font-medium">
             <AlertTriangle size={12} />
             <span>
-              {crossingIssues.length} surface crossing
-              {crossingIssues.length === 1 ? '' : 's'} detected
+              {t(
+                crossingIssues.length === 1
+                  ? 'geology.crossingsDetectedOne'
+                  : 'geology.crossingsDetectedMany',
+                { n: crossingIssues.length },
+              )}
             </span>
           </div>
           <ul className="mt-1 ml-5 list-disc space-y-0.5">
@@ -816,7 +813,7 @@ export default function GeologyInspector(): JSX.Element {
                       type="button"
                       className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-amber-100 dark:hover:bg-amber-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
                       onClick={() => handleClickCrossingIssue(issue)}
-                      title="Open the cross-section containing the offending contacts and pan to them."
+                      title={t('geology.openOffendingSection')}
                       data-testid="crossings-banner-item"
                     >
                       {issue.detail}
@@ -849,8 +846,7 @@ export default function GeologyInspector(): JSX.Element {
       {/* Empty-state guidance */}
       {visibleFormations.length === 0 && (
         <div className="text-[11px] text-text-muted leading-snug">
-          No formations yet — Fill from boreholes or add one, then build the
-          3D model.
+          {t('geology.emptyRosterHint')}
         </div>
       )}
 
@@ -910,7 +906,7 @@ export default function GeologyInspector(): JSX.Element {
                 'h-3 mx-2 rounded-sm border-t-2 border-dashed transition-colors',
                 dragOverId === 'end' ? 'border-accent' : 'border-border-default',
               ].join(' ')}
-              aria-label="Drop here to place at the bottom (oldest)"
+              aria-label={t('geology.dropAtBottom')}
             />
           )}
         </ul>
@@ -925,11 +921,11 @@ export default function GeologyInspector(): JSX.Element {
             type="button"
             onClick={() => setScopeOpen(prev => !prev)}
             className="flex items-center gap-1.5 w-full text-left text-text-secondary hover:text-text-primary"
-            title="Show / hide the per-borehole scope toggles"
+            title={t('geology.showBoreholeScopes')}
           >
             {scopeOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <Drill size={12} className="text-text-muted" />
-            <span className="text-xs font-medium">Boreholes in model</span>
+            <span className="text-xs font-medium">{t('geology.boreholesInModel')}</span>
             <span className="text-[10px] text-text-muted tabular-nums ml-auto">
               {visibleBoreholes.length - excludedSet.size}/{visibleBoreholes.length}
             </span>
@@ -955,7 +951,7 @@ export default function GeologyInspector(): JSX.Element {
                         void handleToggleBoreholeInModel(b.id, e.target.checked)
                       }
                       className="cursor-pointer shrink-0"
-                      aria-label={`${b.name} in model`}
+                      aria-label={t('geology.boreholeInModel', { name: b.name })}
                     />
                     <span
                       className={[
@@ -997,13 +993,10 @@ export default function GeologyInspector(): JSX.Element {
             id="delete-formation-title"
             className="text-base font-semibold text-text-primary mb-2"
           >
-            Delete formation?
+            {t('geology.deleteFormationConfirm')}
           </h2>
           <p className="text-xs text-text-secondary mb-4">
-            <strong>{pendingDelete?.name}</strong> and every contact + geotech
-            unit pointing at it will be removed from the geological model.
-            This can&apos;t be undone (until File → Save the change isn&apos;t
-            in the .gmproj yet — closing without saving reverts).
+            <strong>{pendingDelete?.name}</strong> {t('geology.deleteFormationBody')}
           </p>
           <div className="flex justify-end gap-2">
             <Button
@@ -1019,7 +1012,7 @@ export default function GeologyInspector(): JSX.Element {
               onClick={() => setPendingDelete(null)}
               disabled={deleteBusy}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
@@ -1027,7 +1020,7 @@ export default function GeologyInspector(): JSX.Element {
               onClick={() => void handleDelete()}
               disabled={deleteBusy}
             >
-              Delete
+              {t('common.delete')}
             </Button>
           </div>
         </div>
@@ -1106,6 +1099,7 @@ function FormationRow({
   onDrop,
   onDragEnd,
 }: FormationRowProps): JSX.Element {
+  const t = useT()
   // Pending colour while the native picker is open. ``null`` means
   // "no pick in progress — render formation.color". Committed on blur
   // via onColorChange (which equality-checks against formation.color
@@ -1149,10 +1143,10 @@ function FormationRow({
           onDragStart()
         }}
         onDragEnd={onDragEnd}
-        title="Drag to reorder (lower = older)"
+        title={t('geology.reorderHint')}
         data-testid={`geology-formation-drag-handle-${formation.id}`}
         className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text-secondary shrink-0 -ml-1 px-0.5"
-        aria-label={`Drag to reorder ${formation.name}`}
+        aria-label={t('geology.dragToReorderNamed', { name: formation.name })}
       >
         <GripVertical size={12} />
       </button>
@@ -1166,8 +1160,8 @@ function FormationRow({
         a no-op. ``sr-only`` keeps the input visually hidden but reachable.
       */}
       <label
-        title={`${displayedColor} — click to change colour`}
-        aria-label={`Change colour of ${formation.name}`}
+        title={t('geology.colorClickToChange', { color: displayedColor })}
+        aria-label={t('geology.changeColorOf', { name: formation.name })}
         data-testid={`geology-formation-color-swatch-${formation.id}`}
         className="inline-block w-3.5 h-3.5 rounded border border-border-default shrink-0 cursor-pointer focus-within:ring-2 focus-within:ring-accent"
         style={{ backgroundColor: displayedColor }}
@@ -1188,15 +1182,13 @@ function FormationRow({
       <button
         onClick={onEdit}
         className="flex-1 text-left min-w-0"
-        title="Edit formation"
+        title={t('geology.editFormation')}
       >
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-text-primary truncate">
             {formation.name}
           </span>
-          {unsaved && (
-            <DirtyAsterisk title="Created since last save — File → Save to commit" />
-          )}
+          {unsaved && <DirtyAsterisk title={t('project.createdSinceSave')} />}
         </div>
         {formation.regional_ref && (
           <div className="text-[10px] text-text-muted truncate">
@@ -1206,7 +1198,7 @@ function FormationRow({
       </button>
       <button
         onClick={onDelete}
-        title="Delete formation"
+        title={t('geology.deleteFormation')}
         className="p-1 rounded text-text-muted hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={11} />
