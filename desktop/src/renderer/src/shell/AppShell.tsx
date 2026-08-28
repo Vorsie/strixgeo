@@ -147,20 +147,22 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     const focusTimer = window.setTimeout(() => {
       context.sections.handleFocusContacts(target.contactIds, target.sectionId)
       // The column half of the same deep-link (owner ruling 2026-08-26): the
-      // Build pre-flight sends a TEST to visit rather than contacts to pulse.
-      // It runs after the same 600 ms beat and for the same reason — the
-      // freshly-mounted panel has to have placed its columns before anything
-      // can ask where one of them is.
-      if (target.revealInvestigationId !== undefined) {
-        const outcome = sectionsRevealColumnCallback.current?.(target.revealInvestigationId)
+      // Build pre-flight sends a TEST to visit rather than contacts to pulse,
+      // and the gapless build report sends a GAP as the two columns it stands
+      // between (owner dogfeed 2026-08-28). Both run after the same 600 ms beat
+      // and for the same reason — the freshly-mounted panel has to have placed
+      // its columns before anything can ask where one of them is.
+      const revealIds = target.revealInvestigationIds ?? []
+      if (revealIds.length > 0) {
+        const outcome = sectionsRevealColumnCallback.current?.(revealIds)
         if (outcome === undefined || !outcome.revealed) {
           log.warn(
             'shell',
-            `sections-deep-link: could not centre '${target.revealInvestigationId}' on ` +
+            `sections-deep-link: could not centre '${revealIds.join(', ')}' on ` +
               `section ${target.sectionId} — ` +
               (outcome === undefined
                 ? 'the section canvas is not mounted'
-                : `it is not drawn there (missing: ${outcome.missingInvestigationIds.join(', ')})`),
+                : `not drawn there (missing: ${outcome.missingInvestigationIds.join(', ')})`),
           )
         }
       }
