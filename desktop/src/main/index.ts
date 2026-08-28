@@ -52,6 +52,7 @@ import {
 } from './security'
 import { applyPackagedProfile } from './packagedProfile'
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
+import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 
 // FIRST userData-affecting statement in the process, deliberately ahead of the
 // single-instance lock and every store — see packagedProfile.ts for why a
@@ -1341,6 +1342,13 @@ if (process.env.STRIXGEO_DISABLE_GPU === '1') {
 // the user knows something went wrong before the app exits.
 // ---------------------------------------------------------------------------
 
+/**
+ * Has our stdout/stderr gone away? Latched on the first broken-pipe write so
+ * the main process stops trying to talk to a reader that no longer exists.
+ * Declared ABOVE its first reader on purpose (TDZ discipline).
+ */
+let consolePipeBroken = false
+
 function writeMainCrashLine(label: string, err: unknown): void {
   const ts = new Date().toISOString()
   const msg = err instanceof Error ? err.stack ?? err.message : String(err)
@@ -1350,8 +1358,12 @@ function writeMainCrashLine(label: string, err: unknown): void {
   // one is redacted and machine-readable so a crash bundle is safe to send.
   captureDiagnostic(
     {
-      kind: label === 'uncaughtException' ? 'main-uncaught' : 'main-unhandled-rejection',
-      severity: label === 'uncaughtException' ? 'fatal' : 'error',
+      // A broken pipe IS an uncaught exception in main, so it keeps that kind —
+      // but at warning severity, because the app survives it. Grouping a dead
+      // console with real crashes would make the fatal count meaningless.
+      kind: label === 'unhandledRejection' ? 'main-unhandled-rejection' : 'main-uncaught',
+      severity:
+        label === 'uncaughtException' ? 'fatal' : label === 'brokenPipe' ? 'warning' : 'error',
       scope: 'main',
       message: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
@@ -1365,11 +1377,30 @@ function writeMainCrashLine(label: string, err: unknown): void {
       // If we can't write the log, at least try the console.
     }
   }
-  // eslint-disable-next-line no-console
-  console.error(line)
+  // Guarded: when the crash we are reporting IS a dead stdout, an unguarded
+  // write here throws a SECOND EPIPE from inside the handler that is meant to
+  // contain the first one. Once the pipe is gone it stays gone, so stop
+  // writing to it entirely rather than re-throwing on every later log line.
+  if (!consolePipeBroken) {
+    try {
+      // eslint-disable-next-line no-console
+      console.error(line)
+    } catch (writeErr) {
+      if (isBrokenPipe(writeErr)) consolePipeBroken = true
+    }
+  }
 }
 
 process.on('uncaughtException', (err: Error): void => {
+  // A broken output pipe is NOT an application fault — see ./mainCrashPolicy.
+  // Nobody is reading our console any more (terminal closed, parent exited,
+  // a harness killed us); the app's own state is intact, so it keeps running
+  // and the user is never asked to dismiss a modal about it.
+  if (crashActionFor(err) === 'ignore-broken-pipe') {
+    consolePipeBroken = true
+    writeMainCrashLine('brokenPipe', err)
+    return
+  }
   writeMainCrashLine('uncaughtException', err)
   // Show a synchronous dialog — at this point the event loop may be
   // in an unrecoverable state, so we use the blocking variant.
