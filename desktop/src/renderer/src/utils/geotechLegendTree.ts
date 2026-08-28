@@ -46,11 +46,12 @@
 
 import type { AdmixtureItem } from '../api/client'
 import { geotechRowColorOverride } from './geotechRowColorOverride'
-import { formatLithoDisplayName } from './lithoLabels'
+import { formatLithoDisplayName, lithoDisplayName } from './lithoLabels'
 import {
   NAD_SOIL_FAMILY_ORDER,
   nadClassColor,
   nadClassName,
+  nadClassQualifier,
   nadPackingLabel,
   nadSoilFamilyName,
 } from './nadClasses'
@@ -164,18 +165,34 @@ export interface GeotechLegendFamilyNode {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** English family label for a unit: its soil code, else its class's soil word. */
+/**
+ * DISPLAY family label for a unit: its soil code, else its class's soil word,
+ * in the active interface language.
+ *
+ * The parallel ``familyLabelEnOf`` returns the English form — the STABLE key the
+ * sort and the class-row comparison run on. The two must never be conflated: the
+ * label the user reads follows the language toggle, but the grouping order and
+ * "is this class a stranger to this family" test must not move with it.
+ */
 function familyLabelOf(f: GeotechLegendFormationInput): string {
   if (f.litho_main_soil_code != null && f.litho_main_soil_code !== '') {
-    return formatLithoDisplayName(f.litho_main_soil_code, [])
+    return lithoDisplayName(f.litho_main_soil_code, [])
   }
   return nadSoilFamilyName(f.nad_class) || UNKNOWN_FAMILY_LABEL
 }
 
-/** The unit's own display name — soil + admixtures, the litho identity. */
+/** English (language-stable) family label — the sort + comparison key. */
+function familyLabelEnOf(f: GeotechLegendFormationInput): string {
+  if (f.litho_main_soil_code != null && f.litho_main_soil_code !== '') {
+    return formatLithoDisplayName(f.litho_main_soil_code, [])
+  }
+  return nadSoilFamilyName(f.nad_class, 'en') || UNKNOWN_FAMILY_LABEL
+}
+
+/** The unit's own display name — soil + admixtures, in the active language. */
 function unitLabelOf(f: GeotechLegendFormationInput): string {
   if (f.litho_main_soil_code != null && f.litho_main_soil_code !== '') {
-    return formatLithoDisplayName(f.litho_main_soil_code, f.litho_admixtures ?? [])
+    return lithoDisplayName(f.litho_main_soil_code, f.litho_admixtures ?? [])
   }
   return f.name
 }
@@ -199,9 +216,14 @@ function unitLabelOf(f: GeotechLegendFormationInput): string {
  * place under the litho body it subdivides — that grouping is what the tree is
  * for, and hiding the mismatch would hide the ground the viewer paints — but
  * the line the user reads is always a NAD class that exists.
+ *
+ * ``familyLabelEn`` is the ENGLISH family word (the stable key): the
+ * belongs-to-this-family test compares English-to-English so it can never be
+ * broken by the interface language, while the text returned (packing phrase or
+ * full class name) follows the active language for display.
  */
-function classRowLabel(nadClass: number, familyLabel: string): string {
-  return nadSoilFamilyName(nadClass) === familyLabel
+function classRowLabel(nadClass: number, familyLabelEn: string): string {
+  return nadSoilFamilyName(nadClass, 'en') === familyLabelEn
     ? nadPackingLabel(nadClass)
     : nadClassName(nadClass)
 }
@@ -283,6 +305,8 @@ export function buildGeotechLegendTree(
   interface FamilyBucket {
     key: string
     label: string
+    /** English family word — the language-stable sort + class-comparison key. */
+    labelEn: string
     classes: Map<string, { nadClass: number | null; units: GeotechLegendFormationInput[] }>
   }
   const families = new Map<string, FamilyBucket>()
@@ -291,7 +315,12 @@ export function buildGeotechLegendTree(
     const familyKey = f.litho_main_soil_code ?? ''
     let family = families.get(familyKey)
     if (!family) {
-      family = { key: familyKey, label: familyLabelOf(f), classes: new Map() }
+      family = {
+        key: familyKey,
+        label: familyLabelOf(f),
+        labelEn: familyLabelEnOf(f),
+        classes: new Map(),
+      }
       families.set(familyKey, family)
     }
     const classKey = `${familyKey}:${f.nad_class ?? 'none'}`
@@ -332,8 +361,8 @@ export function buildGeotechLegendTree(
           nadClass,
           label:
             nadClass === null
-              ? UNCLASSIFIED_CLASS_LABEL
-              : classRowLabel(nadClass, family.label),
+              ? nadClassQualifier(null)
+              : classRowLabel(nadClass, family.labelEn),
           color,
           bodyCount: bodies.length,
           formationIds: units.map(u => u.id),
@@ -372,11 +401,17 @@ export function buildGeotechLegendTree(
     })
   }
 
-  const rankOf = (label: string): number => {
-    const i = NAD_SOIL_FAMILY_ORDER.indexOf(label)
+  // Rank by the ENGLISH family word (NAD_SOIL_FAMILY_ORDER is English), never by
+  // the display label — otherwise a Dutch UI would sort families alphabetically
+  // ("KLEI/GRIND/…") instead of in the norm's geological order (GRAVEL→PEAT).
+  const labelEnByKey = new Map<string, string>()
+  for (const family of families.values()) labelEnByKey.set(family.key, family.labelEn)
+  const rankOf = (node: GeotechLegendFamilyNode): number => {
+    const i = NAD_SOIL_FAMILY_ORDER.indexOf(labelEnByKey.get(node.key) ?? node.label)
     return i === -1 ? UNKNOWN_FAMILY_RANK : i
   }
-  out.sort((a, b) => rankOf(a.label) - rankOf(b.label) || a.label.localeCompare(b.label))
+  const tieKey = (node: GeotechLegendFamilyNode): string => labelEnByKey.get(node.key) ?? node.label
+  out.sort((a, b) => rankOf(a) - rankOf(b) || tieKey(a).localeCompare(tieKey(b)))
 
   return out
 }
