@@ -13,7 +13,7 @@
 // helper), over the app's VISIBLE lists, so project-removed and
 // manifest-gated tests are already out. The header states the population.
 
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Layers, X } from 'lucide-react'
 
 import type { GeologicalFormationResponse } from '../../../api/client'
@@ -22,10 +22,15 @@ import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
 import { bandsForScope, type ParameterTreeInput } from './parameterBodyTree'
+import {
+  pickSectionForInvestigation,
+  sampleNotOnAnySectionMessage,
+} from './sampleSectionReveal'
 import { scopeHeaderLabel } from './parameterScopeHeader'
 import UnitDistributionPanels from './UnitDistributionPanels'
 import UnitFenceCutout from './UnitFenceCutout'
 import UnitIdentificationPanels from './UnitIdentificationPanels'
+import type { UnitPsdCurve } from './unitPsd'
 import { useModelBodies } from './useModelBodies'
 import { useUnitStatistics } from './useUnitStatistics'
 
@@ -83,9 +88,11 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     },
     coordinator: {
       setSelectedParameterUnit,
+      setSectionsDeepLinkTarget,
       bodyRecomputeLithoNonce,
       bodyRecomputeGeotechNonce,
     },
+    toasts: { toast },
   } = useShell()
 
   const projectId = project.id
@@ -104,6 +111,33 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     for (const ids of bySection.values()) for (const id of ids) union.add(id)
     return union
   }, [bySection])
+
+  // ── Right-click a PSD curve → the sample on a cross-section (owner
+  // 2026-08-28) ─────────────────────────────────────────────────────────────
+  // WHICH section: the canonical membership map (``bySection``), the FIRST that
+  // carries the borehole (its list order) — never a second membership rule.
+  // ON NO section: the honest toast, mirroring the pending-tie chip. The
+  // navigation reuses the Build pre-flight's deep-link — switch to Sections,
+  // select the section, centre + pulse the borehole column (AppShell drives it
+  // from ``setSectionsDeepLinkTarget``).
+  const revealSampleOnSection = useCallback(
+    (curve: UnitPsdCurve) => {
+      const sectionId = pickSectionForInvestigation(bySection, curve.boreholeId)
+      if (sectionId === null) {
+        toast('warning', sampleNotOnAnySectionMessage(curve))
+        return
+      }
+      setSectionsDeepLinkTarget({
+        sectionId,
+        // Empty on purpose: this is a COLUMN reveal, and ``handleFocusContacts``
+        // no-ops on an empty list, so the two halves never fight over the
+        // camera (the same shape the Build pre-flight's one-click visit uses).
+        contactIds: [],
+        revealInvestigationId: curve.boreholeId,
+      })
+    },
+    [bySection, toast, setSectionsDeepLinkTarget],
+  )
 
   // ── The body rosters (F9) ─────────────────────────────────────────────────
   // Both axes' rosters feed the path header labels (a geotech-body row names
@@ -254,6 +288,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
           <UnitIdentificationPanels
             scopeBands={scopeBands}
             memberInvestigationIds={memberIds}
+            onRevealSample={revealSampleOnSection}
           />
 
           {/* Fence cutout (R4) — the selected unit's walls over the basemap,
