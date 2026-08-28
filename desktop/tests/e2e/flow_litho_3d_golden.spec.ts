@@ -37,7 +37,7 @@
 
 import { test, expect } from '@playwright/test'
 import { Client } from 'pg'
-import { launchApp, closeApp } from './helpers/electron_launch'
+import { launchApp } from './helpers/electron_launch'
 import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
 import { getGeologicalModelId } from './helpers/db_helper'
 import {
@@ -45,8 +45,8 @@ import {
   blockExternalNetwork,
   pinWindowBounds,
   reseedFixture,
-  timedTeardownStep,
 } from './helpers/visual_golden'
+import { closeAppOrKill, timedTeardownStep } from './helpers/golden_teardown'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 
@@ -140,6 +140,25 @@ test.describe('flow_litho_3d_golden', () => {
       expect(await viewport.screenshot()).toMatchSnapshot('litho-3d-solid.png', {
         maxDiffPixelRatio: WEBGL_MAX_DIFF_PIXEL_RATIO,
       })
+
+      // FENCE mode as a second golden.
+      //
+      // BE HONEST ABOUT WHAT THESE TWO PIN. The viewer's default camera is
+      // near-nadir, so the solid view shows the top body's upper surface and
+      // the fence view shows its vertical panels edge-on, as thin lines. Both
+      // goldens therefore catch: a changed window/framing, missing or moved
+      // bodies (silhouette and line positions shift), a missing legend row, a
+      // broken viewer that renders nothing. Neither reliably catches a
+      // RECOLOURED or mis-stacked body deep in the model — too few pixels
+      // move. Closing that gap needs an oblique or cut-face camera, which the
+      // viewer only reaches through the free-hand "Split model" draw (no
+      // testid, picks 3-D positions from mouse coordinates) — an owner-facing
+      // design call, not something to approximate here.
+      await page.getByTestId('litho-view-mode-fence').click()
+      await page.waitForTimeout(LITHO_3D_SETTLE_MS)
+      expect(await viewport.screenshot()).toMatchSnapshot('litho-3d-fence.png', {
+        maxDiffPixelRatio: WEBGL_MAX_DIFF_PIXEL_RATIO,
+      })
     } finally {
       // Bounded + timed: an unbounded teardown burns the whole test budget and
       // reports as a timeout at the last body line, which is how this spec
@@ -150,7 +169,9 @@ test.describe('flow_litho_3d_golden', () => {
       await timedTeardownStep('deleteLithoSolids', 45_000, async () => {
         if (lithoModelId) await deleteLithoSolids(lithoModelId)
       })
-      await timedTeardownStep('closeApp', 90_000, () => closeApp(app))
+      // MEASURED: this spec's close never returns (90 s+) because the litho
+      // viewer's WebGL scene is mounted — kill it rather than fail the worker.
+      await closeAppOrKill(app)
       cleanupFixtureFile(tmpPath)
     }
   })
