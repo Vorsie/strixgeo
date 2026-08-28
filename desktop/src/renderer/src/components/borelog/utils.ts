@@ -25,6 +25,7 @@ import type {
   ObservationResponse,
 } from '../../api/client'
 import type { ToggleableTrackId } from '../../hooks/useHiddenBoreholeLogTracks'
+import type { Translator } from '../../i18n/translate'
 import {
   BASE_PX_PER_M,
   DRILL_TRACK_WIDTH,
@@ -196,31 +197,36 @@ export function computeLayout(
 // Pure formatters / math
 // ---------------------------------------------------------------------------
 
-/** Map an observation-type token to a human-readable label.
+/** Map an observation-type token to a human-readable, translated label.
  *
  * Used by ``TrackHeader`` and the legend so the user sees "Formal
- * stratigraphy" instead of ``formal_stratigraphy``.
+ * stratigraphy" instead of ``formal_stratigraphy``. The token is a raw DOV
+ * ``observation_type`` value and is never altered — only the rendered label is
+ * translated. An unknown token is returned verbatim.
+ *
+ * @param t - Active-language translator.
+ * @param token - Raw DOV ``observation_type`` token.
  */
-export function humanizeObservationType(t: string): string {
-  switch (t) {
+export function humanizeObservationType(t: Translator, token: string): string {
+  switch (token) {
     case 'coded_lithology':
-      return 'Coded lithology'
+      return t('borelog.obs.coded_lithology')
     case 'geotechnical_coding':
-      return 'Geotechnical coding'
+      return t('borelog.obs.geotechnical_coding')
     case 'lithological_description':
-      return 'Lithological description'
+      return t('borelog.obs.lithological_description')
     case 'informal_stratigraphy':
-      return 'Informal stratigraphy'
+      return t('borelog.obs.informal_stratigraphy')
     case 'formal_stratigraphy':
-      return 'Formal stratigraphy'
+      return t('borelog.obs.formal_stratigraphy')
     case 'quaternary_stratigraphy':
-      return 'Quaternary stratigraphy'
+      return t('borelog.obs.quaternary_stratigraphy')
     case 'hydrogeological_stratigraphy':
-      return 'Hydrogeological stratigraphy'
+      return t('borelog.obs.hydrogeological_stratigraphy')
     case 'informal_hydrogeological_stratigraphy':
-      return 'Informal hydrogeological stratigraphy'
+      return t('borelog.obs.informal_hydrogeological_stratigraphy')
     default:
-      return t
+      return token
   }
 }
 
