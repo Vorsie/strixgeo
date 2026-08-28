@@ -62,9 +62,9 @@ import {
   findSmallEnclosedLenses,
 } from './geotechLensSuggestion'
 import {
-  NAD_CLASS_ABBR,
   nadClassIsForeignToSoil,
   nadClassesForSoil,
+  nadCompactLabel,
   nadSoilFamilyName,
 } from '../../utils/nadClasses'
 import { MENU_ITEM_STYLE, UnitStatisticsItem } from './unitStatisticsMenuItem'
@@ -1239,7 +1239,7 @@ export default function GeotechBandEditOverlay({
                           : MENU_ITEM_STYLE
                       }
                     >
-                      {NAD_CLASS_ABBR[cls] ?? `NAD ${cls}`}
+                      {nadCompactLabel(cls)}
                       {cls === menu.currentClass ? ' (current)' : ''}
                     </button>
                   ))}
@@ -1257,7 +1257,7 @@ export default function GeotechBandEditOverlay({
                       disabled
                       style={{ ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }}
                     >
-                      {NAD_CLASS_ABBR[menu.foreignClass] ?? `NAD ${menu.foreignClass}`}
+                      {nadCompactLabel(menu.foreignClass)}
                       {` (current — a ${nadSoilFamilyName(menu.foreignClass)} class on this soil)`}
                     </button>
                   )}
