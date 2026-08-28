@@ -93,6 +93,49 @@ export const MODELS = {
   'geology.filterFormationPlaceholder': 'Filter or type a target formation name',
   'geology.rerankPlaceholder': 'Type to re-rank or enter name…',
   'geology.noStratigraphyCandidates': 'No stratigraphy candidates found.',
+  // Geology toolbar verbs + dialogs.
+  'geology.scanning': 'Scanning…',
+  'geology.applying': 'Applying…',
+  'geology.building': 'Building…',
+  'geology.cleaning': 'Cleaning…',
+  'geology.deleting': 'Deleting…',
+  'geology.noBoreholesVisible': 'No boreholes visible in this project',
+  'geology.scanningStratigraphy': 'Scanning borehole stratigraphy…',
+  'geology.applyingSelection': 'Applying selection…',
+  'geology.fillTitle':
+    'Discover formation names from borehole stratigraphy and select which to keep',
+  'geology.buildStale': 'Build 3D model · {n} stale',
+  'geology.buildNoModel': 'No active stratigraphy — create formations and contacts first',
+  'geology.buildNoContacts':
+    'No contacts yet — open a cross-section, then Seed from stratigraphy on the geology axis or pick contacts manually before Build',
+  'geology.building3d': 'Building 3D model…',
+  'geology.surfacesNeedRebuildOne': '{n} formation surface needs rebuilding — click to compute TINs',
+  'geology.surfacesNeedRebuildMany':
+    '{n} formation surfaces need rebuilding — click to compute TINs',
+  'geology.rebuildTins': 'Rebuild TIN surfaces from current contacts',
+  'geology.dedupe': 'Dedupe',
+  'geology.noActiveStratigraphy': 'No active stratigraphy',
+  'geology.dedupeTitle':
+    'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group',
+  'geology.resetView': 'Reset view',
+  'geology.resetViewTitle': 'Reset to single 3D view and fly camera to model bounding box',
+  'geology.deleteStratigraphyShort': 'Delete stratigraphy',
+  'geology.deleteStratigraphyTitle':
+    'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+  'geology.moreActions': 'More geology actions',
+  'geology.applyFailed': 'Could not apply formation selection — check the connection.',
+  'geology.deleteFailed': 'Could not delete the model.',
+  'geology.selectionExcludePrefix': 'Your selection does not include',
+  'geology.selectionExcludeSuffix': 'already in this model.',
+  'geology.unitWordOne': 'unit',
+  'geology.unitWordMany': 'units',
+  'geology.unitCount': '{n} {unit}',
+  'geology.addToModelExplain': 'keeps them and only adds what you selected.',
+  'geology.overwriteExplainPrefix': 'permanently removes {n} {unit} not in your selection:',
+  'geology.overwriteExplainSuffix': 'and every contact on them.',
+  'geology.deleteModelBody':
+    'and all its formations, contacts, and cached surfaces will be permanently deleted. This cannot be undone.',
+  'geology.deleteModelButton': 'Delete geological model',
 
   // -------------------------------------------------------------------------
   // lithology stage.
@@ -149,6 +192,65 @@ export const MODELS = {
     'Nothing to export — switch the 3-D view to Fence and make sure the fence has walls.',
   'litho.autoCorrelateNothing':
     'Auto-correlate: no correlatable units found — accept litho suggestions first.',
+  // Confirm / reassign / detach parent dialog.
+  'litho.assignParent': 'Assign parent formation',
+  'litho.confirmExtrapolatedParent': 'Confirm extrapolated parent',
+  'litho.orphanBlurb': 'No geology contact covered this litho unit at the investigation.',
+  'litho.extrapolatedBlurb':
+    'The parent was inferred from the geology TIN — please confirm or change it.',
+  'litho.detach': 'Detach',
+  'litho.confirm': 'Confirm',
+  'litho.reassign': 'Reassign',
+  // Model-kind picker row.
+  'litho.newShort': 'New',
+  'litho.selectPlaceholder': '— select —',
+  'litho.thisModelFallback': 'This model',
+  'litho.deleteModelBody':
+    'and all its formations, contacts, and cached surfaces will be permanently deleted. The geological parent is not affected. This cannot be undone.',
+  // Lithology toolbar (Build model / fence / reset).
+  'litho.building': 'Building…',
+  'litho.buildModelStale': 'Build model · stale',
+  'litho.buildModel': 'Build model',
+  'litho.buildNoContacts':
+    'No litho contacts yet — open a cross-section on the litho axis, Suggest litho, accept the layers, then return here to Build',
+  'litho.buildingSolids': 'Building watertight body solids…',
+  'litho.solidsStale': 'One or more body solids are stale — click to rebuild',
+  'litho.buildSolidsTitle': 'Build the 3-D body solids from accepted contacts',
+  // Lithology inspector (roster + solids legend).
+  'litho.createGeoFirst':
+    'Create a geological model first (Geology stage) — a lithostratigraphic model refines it.',
+  'litho.clearing': 'Clearing…',
+  'litho.clearShort': 'Clear',
+  'litho.instances': 'Instances',
+  'litho.resolving': 'Resolving…',
+  'litho.resolveInstances': 'Resolve instances',
+  'litho.clearModelBody':
+    'All litho units, contacts, correlations and surfaces in this model will be permanently deleted. This cannot be undone.',
+  'litho.clearModelButton': 'Clear litho model',
+  'litho.parentExtrapolatedReview': 'Parent extrapolated from TIN — click to confirm or reassign',
+  'litho.noParentReview': 'No parent assigned — click to assign or detach',
+  'litho.pillCounts': '{c} {cw}, {u} {uw}',
+  'litho.contactWordOne': 'contact',
+  'litho.contactWordMany': 'contacts',
+  'litho.unitWordOne': 'unit',
+  'litho.unitWordMany': 'units',
+  'litho.lensDefinedOne': '{n} lens defined in this formation',
+  'litho.lensDefinedMany': '{n} lenses defined in this formation',
+  'litho.showMarkersN': 'Show {n} marker {bodies}',
+  'litho.hideMarkersN': 'Hide {n} marker {bodies} (under-constrained)',
+  'litho.bodyWordOne': 'body',
+  'litho.bodyWordMany': 'bodies',
+  'litho.showMarkers': 'Show markers',
+  'litho.hideMarkers': 'Hide markers',
+  'litho.collapseGroup': 'Collapse group',
+  'litho.expandGroup': 'Expand group',
+  'litho.bodyCount': '{n} {bodies}',
+  'litho.markersHidden': '({n} {markers} hidden)',
+  'litho.markers': '({n} {markers})',
+  'litho.markerWordOne': 'marker',
+  'litho.markerWordMany': 'markers',
+  'litho.bodiesForName': 'Bodies for {name}',
+  'litho.colourForBody': 'Colour for {name} #{ordinal}',
 
   // -------------------------------------------------------------------------
   // geotechnical stage.
