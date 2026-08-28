@@ -71,4 +71,11 @@ export const OUTPUTS = {
   'export.reportEngineer': 'Engineer name',
   'export.reportGenerate': 'Generate section PDF',
   'export.reportNotes': 'Optional free-text description rendered under the metadata table.',
+  'export.reportBlurb':
+    'Customise the title and metadata that appear on the report’s header. All fields are optional — leave the title default for the section name.',
+  'export.reportTitleLabel': 'Title',
+  'export.reportAuthorLabel': 'Author',
+  'export.reportNotesLabel': 'Notes',
+  'export.reportGenerating': 'Generating…',
+  'export.reportGeneratePdf': 'Generate PDF',
 } as const
