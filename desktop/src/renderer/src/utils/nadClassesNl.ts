@@ -9,8 +9,17 @@
 // rendering Dutch here is SELECTING the source token, not inventing one. "gp" is
 // the norm sheet's abbreviation for "gepakt" (packed).
 //
-// FLAG (owner): (1) the full names keep the norm's terse "gp" — say if you would
-// rather see it expanded to "gepakt" in the UI. (2) The compact abbreviations
+// OWNER RULINGS 2026-08-28, verbatim: "gp is gepakt yes", "MD is medium dense
+// of matig gepakt, Dense is dichtgepakt", "mf is matig vast then ff vrij vast
+// and f vast". So the norm's terse "gp" is expanded to "gepakt" here, and the
+// cohesive ladder (weinig / matig / vrij vast) is his own wording.
+//
+// The granular ladder keeps "dicht gepakt" vs "zeer dicht gepakt" for D vs VD:
+// he gave "dichtgepakt" for BOTH, which would make the two classes
+// indistinguishable, and the source table's own Dutch separates them (its
+// docstring reads "zeer dicht is qc >= 15").
+//
+// FLAG (owner): the compact abbreviations
 // translate only the SOIL prefix (ZAND / KLEI / SILT / VEEN / GRIND); the packing
 // codes (MD / D / VD / L / SF / MF / FF / F) and the admixture markers ((f)/(s))
 // are left in the English short form — say if you want Dutch packing codes.
@@ -23,18 +32,18 @@
  * table is split — so the same soil-family + packing helpers work unchanged.
  */
 export const NAD_CLASS_NAMES_NL: Readonly<Record<number, string>> = {
-  1: 'GRIND, matig gp',
-  2: 'GRIND, dicht gp',
-  3: 'GRIND, silt-/kleihoudend, matig gp',
-  4: 'GRIND, silt- of kleihoudend, dicht gp',
-  5: 'ZAND, los gp',
-  6: 'ZAND, matig gp',
-  7: 'ZAND, dicht gp',
-  8: 'ZAND, zeer dicht gp',
-  9: 'ZAND, silt-/kleihoudend, los gp',
-  10: 'ZAND, silt-/kleihoudend, matig gp',
-  11: 'ZAND, silt-/kleihoudend, dicht gp',
-  12: 'ZAND, silt-/kleihoudend, zeer dicht gp',
+  1: 'GRIND, matig gepakt',
+  2: 'GRIND, dicht gepakt',
+  3: 'GRIND, silt-/kleihoudend, matig gepakt',
+  4: 'GRIND, silt- of kleihoudend, dicht gepakt',
+  5: 'ZAND, los gepakt',
+  6: 'ZAND, matig gepakt',
+  7: 'ZAND, dicht gepakt',
+  8: 'ZAND, zeer dicht gepakt',
+  9: 'ZAND, silt-/kleihoudend, los gepakt',
+  10: 'ZAND, silt-/kleihoudend, matig gepakt',
+  11: 'ZAND, silt-/kleihoudend, dicht gepakt',
+  12: 'ZAND, silt-/kleihoudend, zeer dicht gepakt',
   13: 'SILT, weinig vast',
   14: 'SILT, matig vast',
   15: 'SILT, vrij vast',
