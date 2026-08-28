@@ -89,6 +89,71 @@ describe('the project’s identity comes out', () => {
   })
 })
 
+describe('a path containing a space is still redacted', () => {
+  // The leak these pin: the path body used to stop at the first space, so
+  // everything after it (the employer, the client, the site, the surname)
+  // survived verbatim in a bundle the UI calls redacted. A path segment can
+  // and does contain spaces ("OneDrive - Acme NV", "Two Words") — redaction
+  // must consume the whole path, not just its first space-free fragment.
+
+  it('S1 — a Windows project path whose folders contain spaces leaves no client name', () => {
+    const out = redactText(
+      'cannot read C:\\Users\\robin\\OneDrive - Acme Geotechniek NV\\2026 Antwerp Docks\\Kaai 42.strix',
+    )
+
+    // Everything after the first space used to survive.
+    expect(out).not.toContain('Acme')
+    expect(out).not.toContain('Geotechniek')
+    expect(out).not.toContain('Antwerp Docks')
+    expect(out).not.toContain('Kaai')
+    expect(out).toContain('<path:.strix>')
+  })
+
+  it('S2 — a Windows user folder with a space keeps the surname out of a stack frame', () => {
+    const out = redactText(
+      'at fillGap (C:\\Users\\First Last\\app\\out\\main\\index.js:1200:9)',
+    )
+
+    // The user folder is one segment: "First Last". Stripping only "First"
+    // used to leak the surname.
+    expect(out).not.toContain('Last')
+    expect(out).toContain('<user>')
+    expect(out).toContain('out\\main\\index.js:1200:9')
+  })
+
+  it('S3 — a non-C drive path with spaces is reduced to its kind', () => {
+    const out = redactText('save failed for D:\\Projects\\Two Words\\x.strix')
+
+    expect(out).not.toContain('Two Words')
+    expect(out).toContain('<path:.strix>')
+  })
+
+  it('S4 — a file:// URL with a space is removed whole', () => {
+    const out = redactText(
+      'navigation blocked: file:///C:/Users/robin/OneDrive - Firm NV/index.html',
+    )
+
+    expect(out).not.toContain('Firm NV')
+    expect(out).toContain('<file-url>')
+  })
+
+  it('S5 — a POSIX project path with spaces leaves no client name', () => {
+    const out = redactText('cannot read /Users/robin/My Projects/Client ABC/site.strix')
+
+    expect(out).not.toContain('My Projects')
+    expect(out).not.toContain('Client ABC')
+    expect(out).toContain('<path:.strix>')
+  })
+
+  it('S6 — a POSIX user folder with a space keeps the surname out of a stack frame', () => {
+    const out = redactText('/Users/First Last/app/out/main/index.js:1200:9')
+
+    expect(out).not.toContain('Last')
+    expect(out).toContain('<user>')
+    expect(out).toContain('out/main/index.js')
+  })
+})
+
 describe('what stays, on purpose', () => {
   it('R10 — a stack frame inside our own code keeps its module path', () => {
     const out = redactText(
