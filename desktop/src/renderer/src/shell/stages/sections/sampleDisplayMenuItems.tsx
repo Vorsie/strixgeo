@@ -16,9 +16,13 @@ import { Eye, EyeOff } from 'lucide-react'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 import { toggleSampleMarkersOn } from '../../../utils/sampleMarkersOnStore'
 import { togglePsdPreviewOn } from '../../../utils/psdPreviewOnStore'
+import type { Translator } from '../../../i18n/translate'
 
 /** Inputs a caller menu supplies to render the pair. */
 export interface SampleDisplayMenuItemsInput {
+  /** Active-language translator, threaded from the caller so a language flip
+   *  re-renders both items in one pass. */
+  t: Translator
   /** Current "Show samples" state, read by the caller's own store hook. */
   sampleMarkersOn: boolean
   /** Current "PSD preview on hover" state. */
@@ -39,6 +43,7 @@ export interface SampleDisplayMenuItemsInput {
  * @returns The two items, in display order.
  */
 export function sampleDisplayMenuItems({
+  t,
   sampleMarkersOn,
   psdPreviewOn,
   testidPrefix,
@@ -46,19 +51,17 @@ export function sampleDisplayMenuItems({
 }: SampleDisplayMenuItemsInput): ToolbarDropdownItem[] {
   return [
     {
-      label: sampleMarkersOn ? 'Hide samples' : 'Show samples',
+      label: sampleMarkersOn ? t('sections.samples.hide') : t('sections.samples.show'),
       icon: sampleMarkersOn ? <EyeOff size={iconSize} /> : <Eye size={iconSize} />,
       onClick: () => toggleSampleMarkersOn(),
-      title:
-        'Show or hide the lab-sample markers on the borehole columns. Each marker spans the depth interval its sample was taken over.',
+      title: t('sections.toolbar.sampleMarkersHint'),
       testid: `${testidPrefix}-toggle-samples`,
     },
     {
-      label: psdPreviewOn ? 'Hide PSD preview on hover' : 'Show PSD preview on hover',
+      label: psdPreviewOn ? t('sections.samples.hidePsd') : t('sections.samples.showPsd'),
       icon: psdPreviewOn ? <EyeOff size={iconSize} /> : <Eye size={iconSize} />,
       onClick: () => togglePsdPreviewOn(),
-      title:
-        'Show a grain-size distribution card while hovering a sample marker. Press P to toggle without opening this menu.',
+      title: t('sections.toolbar.psdCardHint'),
       testid: `${testidPrefix}-toggle-psd-preview`,
     },
   ]
