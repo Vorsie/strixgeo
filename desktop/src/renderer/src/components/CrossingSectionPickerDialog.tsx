@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CrossSectionResponse } from '../api/client'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
+import { useT } from '../i18n/translate'
 
 interface Props {
   /** Truthy → render the dialog. */
@@ -35,6 +36,7 @@ export default function CrossingSectionPickerDialog({
   onPick,
   onCancel,
 }: Props): JSX.Element | null {
+  const t = useT()
   const [selectedId, setSelectedId] = useState<string | null>(
     candidates.length > 0 ? candidates[0].id : null,
   )
@@ -65,16 +67,16 @@ export default function CrossingSectionPickerDialog({
           id="crossing-section-picker-title"
           className="text-sm font-semibold text-text-primary mb-1"
         >
-          Open in which cross-section?
+          {t('dialog.crossingPickerTitle')}
         </h2>
         <p className="text-xs text-text-secondary mb-3">
-          The offending contacts appear on{' '}
+          {t('dialog.crossingPickerBodyPre')}{' '}
           <span className="font-semibold">{candidates.length}</span>{' '}
-          cross-sections. Pick one to navigate to.
+          {t('dialog.crossingPickerBodyPost')}
         </p>
 
         <fieldset className="mb-4 space-y-1.5 max-h-60 overflow-y-auto">
-          <legend className="sr-only">Pick a cross-section</legend>
+          <legend className="sr-only">{t('dialog.crossingPickerBlurb')}</legend>
           {candidates.map(s => {
             const checked = selectedId === s.id
             return (
@@ -107,7 +109,7 @@ export default function CrossingSectionPickerDialog({
             onClick={onCancel}
             data-testid="crossing-section-picker-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             ref={goBtnRef}
@@ -116,7 +118,7 @@ export default function CrossingSectionPickerDialog({
             onClick={() => onPick(selectedId)}
             data-testid="crossing-section-picker-go"
           >
-            Open section
+            {t('dialog.crossingPickerOpen')}
           </Button>
         </div>
       </div>
