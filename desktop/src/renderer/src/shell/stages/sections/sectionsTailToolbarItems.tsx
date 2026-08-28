@@ -24,13 +24,19 @@ import type {
   BoreholeListItem,
 } from '../../../api/client'
 import type { UseSectionsResult } from '../../../hooks/useSections'
+import type { Translator } from '../../../i18n/translate'
 
 /** Everything the axis-independent tail verbs read from ``SectionsToolbar``. */
 export interface TailToolbarItemsDeps {
+  /** Active-language translator, threaded from the toolbar so a language flip
+   *  re-renders every verb in one pass. */
+  t: Translator
   isLitho: boolean
   isGeotech: boolean
   hasSection: boolean
   hasModel: boolean
+  /** Already-translated model-level word ("lithostratigraphic" → NL
+   *  "lithostratigrafisch") — display only, never a filename or payload. */
   axisLevelLabel: string
   creating: boolean
   deleting: boolean
@@ -78,6 +84,7 @@ export interface TailToolbarItemsDeps {
  */
 export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSpec[] {
   const {
+    t,
     isLitho,
     isGeotech,
     hasSection,
@@ -115,12 +122,12 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
   } = deps
 
   const tieSectionsLabel =
-    suggestedTies.length > 0 ? 'Clear tie suggestions' : 'Suggest tie-sections'
+    suggestedTies.length > 0 ? t('sections.tie.clearSuggestions') : t('sections.tie.suggestSections')
 
   const tieSectionsMenuItems: ToolbarDropdownItem[] = [
           {
             icon: <Network size={13} />,
-            label: acceptingAllTies ? 'Accepting…' : 'Accept all ties',
+            label: acceptingAllTies ? t('sections.busy.accepting') : t('sections.tie.acceptAll'),
             onClick: () =>
               void (async () => {
                 setAcceptingAllTies(true)
@@ -133,58 +140,58 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
             disabled: suggestedTies.length === 0 || acceptingAllTies,
             title:
               suggestedTies.length === 0
-                ? 'Run "Suggest tie-sections" first'
+                ? t('sections.tie.acceptAllRunFirst')
                 : acceptingAllTies
-                  ? 'Creating cross-sections for all proposed ties…'
-                  : 'Create a cross-section for every proposed tie',
+                  ? t('sections.tie.acceptAllBusy')
+                  : t('sections.tie.acceptAllTitle'),
             testid: 'tie-accept-all',
           },
         ]
 
   const exportMenuItems: ToolbarDropdownItem[] = [
           {
-            label: exportingDxf ? 'Exporting DXF…' : 'Section DXF',
+            label: exportingDxf ? t('sections.export.exportingDxf') : t('sections.export.sectionDxf'),
             icon: <FileOutput size={12} />,
             onClick: () => void handleExportDxf(),
             disabled: !hasSection || !hasModel || exportingDxf,
             title:
               !hasSection
-                ? 'Select a section to export'
+                ? t('sections.export.selectSection')
                 : !hasModel
-                  ? `No active ${axisLevelLabel} model — contacts must exist first`
+                  ? t('sections.export.noModelContacts', { level: axisLevelLabel })
                   : exportingDxf
-                    ? 'Exporting…'
-                    : `Export this section's ${axisLevelLabel} model as DXF`,
+                    ? t('sections.busy.exporting')
+                    : t('sections.export.dxfTitle', { level: axisLevelLabel }),
             testid: 'export-section-dxf',
           },
           {
-            label: exportingPlaxis ? 'Exporting Plaxis…' : 'Plaxis 3D script',
+            label: exportingPlaxis ? t('sections.export.exportingPlaxis') : t('sections.export.plaxisScript'),
             icon: <Cpu size={12} />,
             onClick: () => void handleExportPlaxis(),
             disabled: geoVerbDisabled || exportingPlaxis,
             title:
               geoVerbHint ??
               (activeGeologicalModel === null
-                ? 'No active geological model'
+                ? t('sections.export.noGeologicalModel')
                 : exportingPlaxis
-                  ? 'Exporting…'
-                  : 'Export the geological model as a Plaxis 3D plxscripting Python script'),
+                  ? t('sections.busy.exporting')
+                  : t('sections.export.plaxisTitle')),
             testid: 'export-plaxis-3d',
           },
           {
             // Debt #52 slice 1: section PDF report.
-            label: exportingPdf ? 'Generating PDF…' : 'Section PDF report',
+            label: exportingPdf ? t('sections.export.generatingPdf') : t('sections.export.sectionPdf'),
             icon: <FileText size={12} />,
             onClick: () => setPdfDialogOpen(true),
             disabled: !hasSection || !hasModel || exportingPdf,
             title:
               !hasSection
-                ? 'Select a section to export'
+                ? t('sections.export.selectSection')
                 : !hasModel
-                  ? `No active ${axisLevelLabel} model — define one first`
+                  ? t('sections.export.noModelDefine', { level: axisLevelLabel })
                   : exportingPdf
-                    ? 'Generating PDF…'
-                    : `Generate a PDF report of this section's ${axisLevelLabel} model`,
+                    ? t('sections.export.generatingPdf')
+                    : t('sections.export.pdfTitle', { level: axisLevelLabel }),
             testid: 'export-section-pdf',
           },
           ...dseriesExportItems,
@@ -192,10 +199,12 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
 
   const recomputeTitle =
     recomputeModelId === null
-      ? `No active ${isGeotech ? 'geotech' : 'lithostratigraphic'} model to recompute`
+      ? t('sections.tail.recomputeNone', {
+          level: isGeotech ? t('sections.level.geotechShort') : t('sections.level.litho'),
+        })
       : recomputingBodies
-        ? 'Recomputing…'
-        : 'Re-derive the persisted geometric body identity from the current sections now'
+        ? t('sections.busy.recomputing')
+        : t('sections.tail.recomputeTitle')
 
   const tailItems: ToolbarItemSpec[] = [
     /* New cross-section — primary entry action, visually distinct from
@@ -209,11 +218,11 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       id: 'sections-new',
       priority: 'high',
       kind: 'button',
-      label: creating ? 'Creating…' : 'New cross-section',
+      label: creating ? t('sections.busy.creating') : t('sections.tail.newSection'),
       separatorBefore: true,
       overflowItems: [
         {
-          label: 'New cross-section',
+          label: t('sections.tail.newSection'),
           icon: <Plus size={12} />,
           onClick: handleNew,
           disabled: !canCreate || creating,
@@ -224,7 +233,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
         <PrimaryToolbarButton
           iconOnly={p === 'icon'}
           icon={<Plus size={13} />}
-          label={creating ? 'Creating…' : 'New cross-section'}
+          label={creating ? t('sections.busy.creating') : t('sections.tail.newSection')}
           onClick={handleNew}
           disabled={!canCreate || creating}
           busy={creating}
@@ -232,8 +241,8 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
             crsBlockReason !== null
               ? crsBlockReason
               : creating
-                ? 'Creating…'
-                : 'Create a new cross-section (placeholder endpoints)'
+                ? t('sections.busy.creating')
+                : t('sections.tail.newSectionTitle')
           }
         />
       ),
@@ -277,10 +286,10 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
           disabled={sections.length < 2}
           title={
             sections.length < 2
-              ? 'Need at least 2 sections to tie together'
+              ? t('sections.tie.needTwo')
               : suggestedTies.length > 0
-                ? 'Clear the current tie-section suggestions'
-                : 'Suggest perpendicular connector sections between existing sections (no crossings, no shared tests)'
+                ? t('sections.tie.clearTitle')
+                : t('sections.tie.suggestTitle')
           }
           amber={suggestedTies.length > 0}
           testid="suggest-tie-sections"
@@ -298,34 +307,34 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       id: 'sections-delete',
       priority: 'medium',
       kind: 'button',
-      label: deleting ? 'Deleting…' : 'Delete',
+      label: deleting ? t('sections.busy.deleting') : t('sections.tail.delete'),
       iconOnly: false,
       separatorBefore: true,
       overflowItems: [
         {
-          label: 'Delete cross-section…',
+          label: t('sections.tail.deleteSectionMenu'),
           icon: <Trash2 size={12} />,
           onClick: handleDelete,
           disabled: !hasSection || deleting,
           title: hasSection
-            ? `Delete "${selectedSection?.name}" — asks for confirmation first`
-            : 'Select a cross-section to delete it',
+            ? t('sections.tail.deleteConfirmMenuTitle', { name: selectedSection?.name ?? '' })
+            : t('sections.tail.deleteSelectFirst'),
         },
       ],
       render: () => (
         <ToolbarButton
           icon={<Trash2 size={13} />}
-          label={deleting ? 'Deleting…' : 'Delete'}
+          label={deleting ? t('sections.busy.deleting') : t('sections.tail.delete')}
           onClick={handleDelete}
           disabled={!hasSection || deleting}
           busy={deleting}
           danger
           title={
             !hasSection
-              ? 'Select a cross-section to delete it'
+              ? t('sections.tail.deleteSelectFirst')
               : deleting
-                ? 'Deleting…'
-                : `Delete "${selectedSection?.name}"`
+                ? t('sections.busy.deleting')
+                : t('sections.tail.deleteTitle', { name: selectedSection?.name ?? '' })
           }
         />
       ),
@@ -342,19 +351,21 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       id: 'sections-toolbar-export-dropdown',
       priority: 'medium',
       kind: 'dropdown',
-      label: 'Export',
+      label: t('sections.toolbar.export'),
       separatorBefore: true,
       overflowItems: exportMenuItems,
       render: p => (
         <ToolbarDropdown
           iconOnly={p === 'icon'}
           icon={<FileOutput size={13} />}
-          label="Export"
+          label={t('sections.toolbar.export')}
           disabled={
             (!hasSection || !hasModel || exportingDxf) && (geoVerbDisabled || exportingPlaxis)
           }
           title={
-            exportingDxf || exportingPlaxis ? 'Exporting…' : 'Export the model or this section'
+            exportingDxf || exportingPlaxis
+              ? t('sections.busy.exporting')
+              : t('sections.export.dropdownTitle')
           }
           testid="sections-toolbar-export-dropdown"
           items={exportMenuItems}
@@ -376,10 +387,10 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
             id: 'sections-recompute-bodies',
             priority: 'low' as const,
             kind: 'button' as const,
-            label: recomputingBodies ? 'Recomputing…' : 'Recompute bodies',
+            label: recomputingBodies ? t('sections.busy.recomputing') : t('sections.tail.recompute'),
             overflowItems: [
               {
-                label: 'Recompute bodies',
+                label: t('sections.tail.recompute'),
                 icon: <RefreshCw size={12} />,
                 onClick: () => void handleRecomputeBodies(),
                 disabled: recomputeModelId === null || recomputingBodies,
@@ -390,7 +401,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
               <ToolbarButton
                 iconOnly={p === 'icon'}
                 icon={<RefreshCw size={13} />}
-                label={recomputingBodies ? 'Recomputing…' : 'Recompute bodies'}
+                label={recomputingBodies ? t('sections.busy.recomputing') : t('sections.tail.recompute')}
                 onClick={() => void handleRecomputeBodies()}
                 disabled={recomputeModelId === null || recomputingBodies}
                 busy={recomputingBodies}
