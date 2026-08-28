@@ -90,6 +90,7 @@ from groundmodel.infrastructure.exporters.dxf_fence_exporter_constants import (
     MAX_LAYER_NAME_LEN,
 )
 from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
+from groundmodel.infrastructure.exporters.dxf_text_safety import strip_dxf_line_breaks
 from groundmodel.infrastructure.exporters.fence_panel_source import FencePanelSource
 from groundmodel.infrastructure.exporters.unit_identifier import unit_identifier
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -537,9 +538,11 @@ def _sanitise_layer_name(name: str) -> str:
     them rather than substitute, matching ``dxf_section_exporter.py``'s
     ``_formation_layer_name`` (geological/geotechnical unit names rarely
     contain these characters, and the rare one that does reads better
-    with the character dropped than with a placeholder underscore).
+    with the character dropped than with a placeholder underscore). CR/LF are
+    stripped first because a line break corrupts the line-oriented DXF stream
+    and ezdxf's only guard against it is an ``assert`` that ``python -O`` drops.
     """
-    safe = "".join(c for c in name if c not in FORBIDDEN_LAYER_CHARS)
+    safe = "".join(c for c in strip_dxf_line_breaks(name) if c not in FORBIDDEN_LAYER_CHARS)
     return (FENCE_LAYER_PREFIX + safe.strip())[:MAX_LAYER_NAME_LEN]
 
 
