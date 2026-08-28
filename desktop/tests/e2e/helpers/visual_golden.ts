@@ -66,6 +66,81 @@ export const WEBGL_MAX_DIFF_PIXEL_RATIO = 0.02
 export const CESIUM_SETTLE_MS = 4_000
 
 /**
+ * Run one teardown step under its own budget, logging what it cost.
+ *
+ * WHY: a ``finally`` block that hangs silently burns the WHOLE test timeout
+ * and reports as "test timeout" at whatever line the body last touched — the
+ * failure looks like a slow assertion when it is really a stuck teardown.
+ * Both golden specs consumed their entire budget that way (300 s and then
+ * 600 s, reaching the screenshot in both). Bounding each step turns a hang
+ * into a named, timed log line instead of a mystery.
+ *
+ * Never throws: a teardown failure must not mask the real assertion failure.
+ *
+ * Parameters
+ * ----------
+ * label
+ *     Step name for the log line.
+ * budgetMs
+ *     How long the step may take before it is abandoned.
+ * work
+ *     The step itself.
+ */
+export async function timedTeardownStep(
+  label: string,
+  budgetMs: number,
+  work: () => Promise<unknown>,
+): Promise<void> {
+  const started = Date.now()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      work(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`exceeded ${budgetMs} ms`)), budgetMs)
+      }),
+    ])
+    console.log(`[teardown] ${label}: ${Date.now() - started} ms`)
+  } catch (err) {
+    console.log(`[teardown] ${label}: ABANDONED after ${Date.now() - started} ms — ${String(err)}`)
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/**
+ * The pinned window size every pixel golden renders at.
+ *
+ * The Electron window's bounds are NOT deterministic across launches (the
+ * shell restores persisted state, and the first two bless runs produced two
+ * different viewport sizes — the diff showed the same scene at two scales).
+ * A pixel golden requires the element's size pinned, and the element sizes
+ * follow the window.
+ */
+export const GOLDEN_WINDOW = { width: 1600, height: 900 } as const
+
+/**
+ * Pin the app window to ``GOLDEN_WINDOW`` — call right after launch, before
+ * any stage that mounts Cesium, so every canvas is created at the pinned
+ * size.
+ *
+ * Parameters
+ * ----------
+ * app
+ *     The Playwright Electron application handle.
+ */
+export async function pinWindowBounds(
+  app: import('@playwright/test').ElectronApplication,
+): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, size) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (!win) throw new Error('pinWindowBounds: no BrowserWindow yet')
+    if (win.isMaximized()) win.unmaximize()
+    win.setBounds({ x: 0, y: 0, width: size.width, height: size.height })
+  }, GOLDEN_WINDOW)
+}
+
+/**
  * Re-run the synthetic fixture builder, restoring the seeded baseline.
  *
  * Spawns ``uv run python desktop/tests/e2e/fixtures/build_synthetic_fixture.py``
@@ -85,6 +160,7 @@ export const CESIUM_SETTLE_MS = 4_000
  *     When the builder exits non-zero or seeds a different project id.
  */
 export function reseedFixture(expectedProjectId: string): void {
+  const started = Date.now()
   // helpers/ → e2e → tests → desktop → repo root.
   const repoRoot = path.resolve(__dirname, '..', '..', '..', '..')
   // execFileSync (never a shell) — the arguments are static, and ``uv`` is a
@@ -104,6 +180,9 @@ export function reseedFixture(expectedProjectId: string): void {
         `expected ${expectedProjectId} — is DATABASE_URL pointing at the integration DB?`,
     )
   }
+  // The reseed is the single biggest slice of a golden spec's budget — logged
+  // so a timeout can be attributed instead of guessed at.
+  console.log(`[golden] reseedFixture: ${Date.now() - started} ms`)
 }
 
 /**
@@ -144,6 +223,39 @@ export interface FenceTargetUnit {
   bodyCount: number
   /** Approved same-unit edges over qc-bearing CPTs — the wall supply. */
   approvedEdgeCount: number
+  /**
+   * The litho unit (formation) hosting the target's bands — the tree's TOP
+   * level row (the Parameters pane lists litho units, not geotech units,
+   * since the 2026-08-27 body-tree redesign).
+   */
+  lithoUnitId: string
+  /** The litho resolver body the covering litho bands belong to (level 2). */
+  lithoBodyId: string
+  /** The target unit's NAD packing class — the class-row key component. */
+  nadClass: number
+  /**
+   * Distinct geotech bodies among the class row's bands inside that litho
+   * body — decides the leaf-absorb branch (≥2 → expander + body rows; 1 →
+   * the class row IS the leaf).
+   */
+  classBodyCount: number
+  /** Litho bodies homed to ``lithoUnitId`` — level-2 sibling count. */
+  lithoBodyCount: number
+  /** Distinct NAD classes inside ``lithoBodyId`` — level-3 sibling count. */
+  classCount: number
+  /**
+   * The DEEPEST tree row the leaf-absorb rule leaves standing for this chain,
+   * derived bottom-up from the sibling counts above — never from the DOM.
+   *
+   * The rule (spec §1, GT3 precedent): "a level with exactly one child renders
+   * no expander and no child row", applied only when that single child is
+   * itself a leaf. So a one-body / one-class / one-geotech-body chain collapses
+   * all the way up and the LITHO UNIT row is the leaf. The spec walks to this
+   * level and asserts the rows above it expand — pinning the ruling rather
+   * than assuming a fixed depth (the fixture's chain is fully single-child,
+   * which is exactly how a four-level walk failed on a correct tree).
+   */
+  deepestKind: 'litho-unit' | 'litho-body' | 'geotech-class'
 }
 
 /**
@@ -196,6 +308,7 @@ export async function resolveFenceTargetUnit(projectId: string): Promise<FenceTa
     cpt_id: string | null
     body_id: string | null
     status: string
+    parent_litho_layer_id: string | null
   }[]
   const edges = (await getJson(`${geologyBase}/models/${geotech.id}/contact-correlations`)) as {
     layer_a_id: string
@@ -261,10 +374,120 @@ export async function resolveFenceTargetUnit(projectId: string): Promise<FenceTa
       nameOf(x[0]).localeCompare(nameOf(y[0])),
   )[0][0]
 
+  // The tree hangs every geotech band under its covering litho band's body
+  // (``parent_litho_layer_id``, the Slice-A FK). Majority band count picks
+  // the litho home the golden pins; the tie-break is CONTENT (shallowest
+  // covering band) because every id is re-minted per seed.
+  const litho = models.find(m => m.kind === 'lithostratigraphic')
+  if (!litho) {
+    throw new Error('resolveFenceTargetUnit: no lithostratigraphic model in the fixture')
+  }
+  const lithoLayers = (await getJson(`${geologyBase}/models/${litho.id}/layers`)) as {
+    id: string
+    formation_id: string
+    body_id: string | null
+    depth_top: number | null
+  }[]
+  const lithoById = new Map(lithoLayers.map(l => [l.id, l] as const))
+
+  // The tree homes a litho body under the ROSTER's formation (BodyOrm
+  // .formation_id), falling back to the band's own formation only when the
+  // roster does not know the body — mirror of lithoBodyIdsForUnit. Deriving
+  // the unit from the band's formation alone addresses the wrong top-level
+  // row whenever a body's home differs (the twin case) — the first re-run
+  // failed exactly there.
+  const lithoBodies = (await getJson(`${geologyBase}/models/${litho.id}/bodies`)) as {
+    id: string
+    formation_id?: string | null
+  }[]
+  const bodyHomeById = new Map(lithoBodies.map(b => [b.id, b.formation_id ?? null] as const))
+
+  interface LithoHome {
+    unit: string
+    body: string
+    count: number
+    minTop: number
+    geotechBodies: Set<string>
+  }
+  const homeByKey = new Map<string, LithoHome>()
+  for (const l of acceptedById.values()) {
+    if (l.formation_id !== winner) continue
+    const parent =
+      l.parent_litho_layer_id === null ? undefined : lithoById.get(l.parent_litho_layer_id)
+    if (!parent || parent.body_id === null) continue
+    const homeUnit = bodyHomeById.get(parent.body_id) ?? parent.formation_id
+    const key = `${homeUnit}|${parent.body_id}`
+    const home = homeByKey.get(key) ?? {
+      unit: homeUnit,
+      body: parent.body_id,
+      count: 0,
+      minTop: Infinity,
+      geotechBodies: new Set<string>(),
+    }
+    home.count += 1
+    home.minTop = Math.min(home.minTop, parent.depth_top ?? Infinity)
+    if (l.body_id !== null) home.geotechBodies.add(l.body_id)
+    homeByKey.set(key, home)
+  }
+  if (homeByKey.size === 0) {
+    throw new Error(
+      'resolveFenceTargetUnit: no accepted band of the target unit carries ' +
+        'parent_litho_layer_id — reseed the fixture on a backend at migration ' +
+        'c9d0e1f2a3b4 or later (the parent-band FK).',
+    )
+  }
+  const home = [...homeByKey.values()].sort(
+    (x, y) => y.count - x.count || x.minTop - y.minTop,
+  )[0]
+
+  const nadClass = formationById.get(winner)?.nad_class
+  if (nadClass === null || nadClass === undefined) {
+    throw new Error(
+      'resolveFenceTargetUnit: the target unit has no nad_class — its class row cannot be addressed',
+    )
+  }
+
+  // Level-2 siblings: litho bodies homed to the target's litho unit.
+  const lithoBodiesOfUnit = new Set<string>()
+  for (const l of lithoLayers) {
+    if (l.body_id === null) continue
+    const homeUnit = bodyHomeById.get(l.body_id) ?? l.formation_id
+    if (homeUnit === home.unit) lithoBodiesOfUnit.add(l.body_id)
+  }
+
+  // Level-3 siblings: distinct NAD classes among EVERY accepted geotech band
+  // whose covering litho band sits in this litho body — other units' bands
+  // included, because they are this body's sibling class rows.
+  const classesInLithoBody = new Set<number>()
+  for (const l of acceptedById.values()) {
+    const parent =
+      l.parent_litho_layer_id === null ? undefined : lithoById.get(l.parent_litho_layer_id)
+    if (!parent || parent.body_id !== home.body) continue
+    const cls = formationById.get(l.formation_id)?.nad_class
+    if (cls !== null && cls !== undefined) classesInLithoBody.add(cls)
+  }
+
+  // Leaf-absorb, bottom-up: a single LEAF child collapses into its parent.
+  const classIsLeaf = home.geotechBodies.size <= 1
+  const lithoBodyIsLeaf = classesInLithoBody.size <= 1 && classIsLeaf
+  const unitIsLeaf = lithoBodiesOfUnit.size <= 1 && lithoBodyIsLeaf
+  const deepestKind = unitIsLeaf
+    ? ('litho-unit' as const)
+    : lithoBodyIsLeaf
+      ? ('litho-body' as const)
+      : ('geotech-class' as const)
+
   return {
     geotechModelId: geotech.id,
     unitId: winner,
     bodyCount: bodiesByUnit.get(winner)?.size ?? 0,
     approvedEdgeCount: edgeCountByUnit.get(winner) ?? 0,
+    lithoUnitId: home.unit,
+    lithoBodyId: home.body,
+    nadClass,
+    classBodyCount: home.geotechBodies.size,
+    lithoBodyCount: lithoBodiesOfUnit.size,
+    classCount: classesInLithoBody.size,
+    deepestKind,
   }
 }
