@@ -13,8 +13,17 @@
 // IP6 — a scalar panel's label carries the raw Dutch token as its tooltip
 //       (the presentation-boundary rule).
 
+// IP8 — a sample's scatter dot and that sample's PSD curve wear the SAME
+//       colour, keyed on the sample (owner 2026-08-28: "make the psd the same
+//       colour ... and all dots in the plots above").
+// IP9 — each scatter panel labels BOTH axes with units: the parameter + unit
+//       on the value axis, mTAW on the elevation axis (owner 2026-08-28:
+//       "properly label all axes").
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { sampleColor } from './sampleColor'
 
 const detailBatch = vi.fn()
 
@@ -230,5 +239,58 @@ describe('UnitIdentificationPanels — the OKP scatter panels', () => {
     )
     expect(label.textContent).toContain('Grain density')
     expect(label.getAttribute('title')).toContain('Korrelvolumemassa')
+  })
+
+  it('IP8 — a sample dot and its PSD curve wear the same colour', async () => {
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, {
+          water_content_tests: [{ id: 'w1', content_pct: 25, method: null, test_date: null }],
+          grain_sizes: [
+            { id: 'gs1', diameters_mm: [0.002, 0.063, 2], pct_larger: [90, 40, 5], method: null, test_date: null, lime_removed: null, organics_removed: null },
+          ],
+        }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scopeBands={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('unit-psd-panel')).toBeTruthy())
+    // The ``sample`` helper ids its sample ``s-${top}`` — here ``s-1``.
+    const expected = sampleColor('s-1')
+    const dot = screen.getByTestId('unit-idtests-dot-typed:water_content')
+    const curve = screen.getByTestId('unit-psd-curve-gs1')
+    expect(dot.getAttribute('fill')).toBe(expected)
+    expect(curve.getAttribute('stroke')).toBe(expected)
+    // The heart of the ask: one colour, both surfaces.
+    expect(dot.getAttribute('fill')).toBe(curve.getAttribute('stroke'))
+  })
+
+  it('IP9 — each scatter panel labels its value axis and its mTAW axis', async () => {
+    detailBatch.mockResolvedValue([
+      bhDetail('bh-1', 'B1', 10, [
+        sample(1, 2, { water_content_tests: [{ id: 'w1', content_pct: 25, method: null, test_date: null }] }),
+      ]),
+    ])
+    render(
+      <UnitIdentificationPanels
+        scopeBands={[bhBand('l1', 'bh-1')]}
+        memberInvestigationIds={new Set(['bh-1'])}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('unit-idtests-panel-typed:water_content')).toBeTruthy(),
+    )
+    expect(
+      screen.getByTestId('unit-idtests-yaxis-label-typed:water_content').textContent,
+    ).toMatch(/mtaw/i)
+    expect(
+      screen.getByTestId('unit-idtests-xaxis-label-typed:water_content').textContent,
+    ).toMatch(/water content/i)
   })
 })
