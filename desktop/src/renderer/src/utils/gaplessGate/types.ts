@@ -106,6 +106,27 @@ export interface GaplessClauseEntry {
   section_name?: string | null
   /** The frame gap index within that section. */
   gap_index?: number | null
+  /**
+   * The two investigations whose columns the gap stands between, in axis
+   * order — what a reader NAVIGATES by.
+   *
+   * ``gap_index`` above is a LABEL: the sentence says "gap 12" and the
+   * engineer quotes it. It is not a way to find the gap, because it indexes
+   * the litho FRAME's column list and nothing else — on the geotech axis's own
+   * ``visibleColumns`` the same number is a different gap, which is exactly how
+   * the crossing chip once centred the wrong one (``PartitionFillOverlay.
+   * onJumpToConflictGap``). So the clause resolves the pair against the frame
+   * at the moment it mints the entry, and the NAMES travel instead; the render
+   * surface turns them back into a position through its own column list
+   * (``resolveColumnReveal``, whose span midpoint IS the gap between them).
+   *
+   * Absent whenever the clause cannot name the pair — a backend-computed
+   * clause with no frame in scope, a gap index past the frame's own columns,
+   * or a report written before this field existed. A reader that finds it
+   * absent opens the section and centres nothing, which is honest; guessing a
+   * position would not be.
+   */
+  gap_investigation_ids?: readonly string[] | null
   /** A CPT / borehole id, where the finding names one. */
   investigation_id?: string | null
   /** Project-CRS easting, where the finding stands at a map position. */
