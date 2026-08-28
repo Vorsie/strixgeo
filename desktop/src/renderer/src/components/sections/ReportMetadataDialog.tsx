@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   open: boolean
@@ -37,6 +38,7 @@ export default function ReportMetadataDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const [title, setTitle] = useState(defaultTitle)
   const [author, setAuthor] = useState(defaultAuthor)
   const [notes, setNotes] = useState('')
@@ -82,16 +84,12 @@ export default function ReportMetadataDialog({
           className="text-sm font-semibold text-text-primary mb-1"
           data-testid="report-metadata-dialog-title"
         >
-          Generate section PDF
+          {t('export.reportGenerate')}
         </h2>
-        <p className="text-xs text-text-secondary mb-4">
-          Customise the title and metadata that appear on the report&apos;s
-          header.  All fields are optional — leave the title default for
-          the section name.
-        </p>
+        <p className="text-xs text-text-secondary mb-4">{t('export.reportBlurb')}</p>
 
         <label className="block text-xs font-medium text-text-secondary mb-1">
-          Title
+          {t('export.reportTitleLabel')}
         </label>
         <input
           ref={titleRef}
@@ -104,27 +102,27 @@ export default function ReportMetadataDialog({
         />
 
         <label className="block text-xs font-medium text-text-secondary mb-1">
-          Author
+          {t('export.reportAuthorLabel')}
         </label>
         <input
           type="text"
           value={author}
           onChange={e => setAuthor(e.target.value)}
           disabled={busy}
-          placeholder="Engineer name"
+          placeholder={t('export.reportEngineer')}
           className="w-full px-2 py-1.5 text-sm rounded border border-border-default bg-surface-card text-text-primary disabled:opacity-40 mb-3"
           data-testid="report-metadata-author-input"
         />
 
         <label className="block text-xs font-medium text-text-secondary mb-1">
-          Notes
+          {t('export.reportNotesLabel')}
         </label>
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
           disabled={busy}
           rows={3}
-          placeholder="Optional free-text description rendered under the metadata table."
+          placeholder={t('export.reportNotes')}
           className="w-full px-2 py-1.5 text-sm rounded border border-border-default bg-surface-card text-text-primary disabled:opacity-40 mb-4"
           data-testid="report-metadata-notes-input"
         />
@@ -137,7 +135,7 @@ export default function ReportMetadataDialog({
             className="px-3.5 py-1.5 text-sm font-medium rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:bg-surface-page dark:border-border-default dark:text-text-primary"
             data-testid="report-metadata-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <Button
             variant="primary"
@@ -146,7 +144,7 @@ export default function ReportMetadataDialog({
             disabled={busy}
             data-testid="report-metadata-submit"
           >
-            {busy ? 'Generating…' : 'Generate PDF'}
+            {busy ? t('export.reportGenerating') : t('export.reportGeneratePdf')}
           </Button>
         </div>
       </div>
