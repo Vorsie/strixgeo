@@ -67,7 +67,12 @@ class ProjectRepository(GroundModelLogger):
         self._session.add(project)
         if flush:
             await self._session.flush()
-            self.success(f"Project saved: {project.id} — {project.name}")
+            # Id at SUCCESS, name at DEBUG: ``backend.log`` is unredacted on
+            # disk and can travel to support, so a client-identifying project
+            # name must not sit on an always-on line (owner: "no user data
+            # should ever leak"). The id answers "which project" without it.
+            self.success(f"Project saved: {project.id}")
+            self.debug(f"Project saved: {project.id} — name {project.name!r}")
 
     async def get_by_id(self, project_id: UUID) -> ProjectOrm | None:
         """Return the project with the given id, or ``None``.
