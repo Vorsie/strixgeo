@@ -43,7 +43,9 @@ import { getGeologicalModelId } from './helpers/db_helper'
 import {
   WEBGL_MAX_DIFF_PIXEL_RATIO,
   blockExternalNetwork,
+  pinWindowBounds,
   reseedFixture,
+  timedTeardownStep,
 } from './helpers/visual_golden'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
@@ -82,8 +84,10 @@ test.describe('flow_litho_3d_golden', () => {
   )
 
   test('in-app voxel build renders the litho 3D scene matching the golden', async () => {
-    // Re-seed + shell open + full voxel build + Cesium mount — generous.
-    test.setTimeout(300_000)
+    // Re-seed (the in-spec fixture rebuild alone streams for minutes) +
+    // shell open + full voxel build + Cesium mount — 300 s proved too tight
+    // (the first bless run timed out with the reseed inside the budget).
+    test.setTimeout(600_000)
 
     // Deterministic baseline, whatever ran before this spec.
     reseedFixture(FIXTURE_PROJECT_ID)
@@ -95,6 +99,9 @@ test.describe('flow_litho_3d_golden', () => {
       lithoModelId = await getGeologicalModelId(FIXTURE_PROJECT_ID, 'lithostratigraphic')
       expect(lithoModelId, 'fixture must have a lithostratigraphic model').not.toBeNull()
 
+      // Pixel goldens need a pinned window — Electron restores persisted
+      // bounds otherwise and the viewport size drifts run to run.
+      await pinWindowBounds(app)
       await blockExternalNetwork(page)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Litho')
@@ -112,22 +119,38 @@ test.describe('flow_litho_3d_golden', () => {
       const viewport = page.locator('[id^="cesium-viewport-"]')
       await expect(viewport).toBeVisible({ timeout: 10_000 })
 
+      // The DEM ground surface is drawn OVER the bodies and, at the default
+      // near-overhead camera, hides them behind a near-white sheet — the first
+      // blessed image was exactly that, a golden that would still pass if every
+      // body were mis-coloured. Switch it off through the legend toggle the
+      // owner uses himself, so the golden looks at the MODEL. Conditional: the
+      // toggle only exists when a terrain TIN was built.
+      const hideGroundSurface = page.getByTitle('Hide ground surface')
+      if ((await hideGroundSurface.count()) > 0) {
+        await hideGroundSurface.click()
+      }
+
       // Camera flight + SwiftShader mesh upload before pinning pixels.
       await page.waitForTimeout(LITHO_3D_SETTLE_MS)
 
-      await expect(viewport).toHaveScreenshot('litho-3d-solid.png', {
+      // Single-shot compare: Cesium renders continuously, so toHaveScreenshot's
+      // stabilise-first loop (two identical consecutive frames) never converges
+      // and times the test out. One settled frame within the WebGL tolerance is
+      // the contract.
+      expect(await viewport.screenshot()).toMatchSnapshot('litho-3d-solid.png', {
         maxDiffPixelRatio: WEBGL_MAX_DIFF_PIXEL_RATIO,
       })
     } finally {
-      // Restore the no-solids state downstream specs expect.
-      try {
-        if (lithoModelId) {
-          await deleteLithoSolids(lithoModelId)
-        }
-      } catch {
-        /* non-fatal — the next run's TRUNCATE cleans up */
-      }
-      await closeApp(app)
+      // Bounded + timed: an unbounded teardown burns the whole test budget and
+      // reports as a timeout at the last body line, which is how this spec
+      // consumed 300 s and then 600 s while REACHING the screenshot both times
+      // (see timedTeardownStep). The DELETE can also wait on a row lock, and
+      // app.close() on a mounted WebGL scene is the other suspect — each step
+      // now names itself and its cost in the log.
+      await timedTeardownStep('deleteLithoSolids', 45_000, async () => {
+        if (lithoModelId) await deleteLithoSolids(lithoModelId)
+      })
+      await timedTeardownStep('closeApp', 90_000, () => closeApp(app))
       cleanupFixtureFile(tmpPath)
     }
   })
