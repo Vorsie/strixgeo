@@ -173,7 +173,11 @@ class BoreholeRepository(GroundModelLogger):
         self._session.add(borehole)
         if flush:
             await self._session.flush()
-            self.success(f"Borehole saved: {borehole.id} — {borehole.name}")
+            # Id at SUCCESS, name at DEBUG: a borehole name carries the site
+            # code — client-identifying text that must not sit on an always-on
+            # line in the unredacted ``backend.log``.
+            self.success(f"Borehole saved: {borehole.id}")
+            self.debug(f"Borehole saved: {borehole.id} — name {borehole.name!r}")
 
     async def get_by_id(
         self,
