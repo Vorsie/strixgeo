@@ -5,6 +5,8 @@
 // WebGL — see debt #41). The component keeps the rendering; this owns
 // the "what should the empty state say / offer" logic.
 
+import type { Translator } from '../../../i18n/translate'
+
 export interface GeologyEmptyState {
   /** Guidance sentence shown under the icon. */
   guidance: string
@@ -30,6 +32,8 @@ export interface GeologyEmptyState {
  *
  * Parameters
  * ----------
+ * t
+ *     Active-language translator (threaded so this stays a pure function).
  * hasFormations
  *     Whether the active model has at least one formation.
  * hasBoreholes
@@ -41,27 +45,24 @@ export interface GeologyEmptyState {
  *     The guidance sentence + whether to show the Add-formation CTA.
  */
 export function geologyEmptyState(
+  t: Translator,
   hasFormations: boolean,
   hasBoreholes: boolean,
 ): GeologyEmptyState {
   if (hasFormations) {
     return {
-      guidance: 'No 3D model yet — build it from the stratigraphy.',
+      guidance: t('geology.emptyBuildPrompt'),
       showAddFormation: false,
     }
   }
   if (hasBoreholes) {
     return {
-      guidance:
-        'No formations yet. Use "Fill from boreholes" in the toolbar to ' +
-        'seed them from borehole stratigraphy, or add one manually.',
+      guidance: t('geology.emptyWithBoreholes'),
       showAddFormation: true,
     }
   }
   return {
-    guidance:
-      'No formations yet. This project has no boreholes to fill from — ' +
-      'add a formation manually to start the model.',
+    guidance: t('geology.emptyNoBoreholes'),
     showAddFormation: true,
   }
 }
