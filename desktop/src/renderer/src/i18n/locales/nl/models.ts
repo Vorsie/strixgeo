@@ -99,6 +99,51 @@ export const MODELS_NL = {
   'geology.filterFormationPlaceholder': 'Filter of typ de naam van een doelformatie',
   'geology.rerankPlaceholder': 'Typ om te herordenen of geef een naam in…',
   'geology.noStratigraphyCandidates': 'Geen kandidaten uit de stratigrafie gevonden.',
+  // geologie-werkbalk + dialoogvensters
+  'geology.scanning': 'Scannen…',
+  'geology.applying': 'Toepassen…',
+  'geology.building': 'Bouwen…',
+  'geology.cleaning': 'Opschonen…',
+  'geology.deleting': 'Verwijderen…',
+  'geology.noBoreholesVisible': 'Geen boringen zichtbaar in dit project',
+  'geology.scanningStratigraphy': 'Boorstratigrafie scannen…',
+  'geology.applyingSelection': 'Selectie toepassen…',
+  'geology.fillTitle':
+    'Ontdek formatienamen uit de boorstratigrafie en kies welke je behoudt',
+  'geology.buildStale': '3D-model bouwen · {n} verouderd',
+  'geology.buildNoModel': 'Geen actieve stratigrafie — maak eerst formaties en laaggrenzen aan',
+  'geology.buildNoContacts':
+    'Nog geen laaggrenzen — open een dwarsprofiel, zaai dan vanuit de stratigrafie op de geologie-as of kies handmatig laaggrenzen voor je bouwt',
+  'geology.building3d': '3D-model bouwen…',
+  'geology.surfacesNeedRebuildOne':
+    '{n} formatie-oppervlak moet herbouwd worden — klik om TIN’s te berekenen',
+  'geology.surfacesNeedRebuildMany':
+    '{n} formatie-oppervlakken moeten herbouwd worden — klik om TIN’s te berekenen',
+  'geology.rebuildTins': 'Herbouw TIN-oppervlakken op basis van de huidige laaggrenzen',
+  'geology.dedupe': 'Ontdubbelen',
+  'geology.noActiveStratigraphy': 'Geen actieve stratigrafie',
+  'geology.dedupeTitle':
+    'Verwijder dubbele (anker, formatie) laaggrenzen — behoudt de meest recente keuze in elke groep',
+  'geology.resetView': 'Weergave herstellen',
+  'geology.resetViewTitle':
+    'Terug naar één 3D-weergave en vlieg de camera naar het omhullende kader van het model',
+  'geology.deleteStratigraphyShort': 'Stratigrafie verwijderen',
+  'geology.deleteStratigraphyTitle':
+    'Verwijder definitief het actieve geologische model en al zijn formaties, laaggrenzen en oppervlakken',
+  'geology.moreActions': 'Meer geologie-acties',
+  'geology.applyFailed': 'Kon de formatieselectie niet toepassen — controleer de verbinding.',
+  'geology.deleteFailed': 'Kon het model niet verwijderen.',
+  'geology.selectionExcludePrefix': 'Je selectie mist',
+  'geology.selectionExcludeSuffix': 'die al in dit model zitten.',
+  'geology.unitWordOne': 'eenheid',
+  'geology.unitWordMany': 'eenheden',
+  'geology.unitCount': '{n} {unit}',
+  'geology.addToModelExplain': 'behoudt ze en voegt enkel toe wat je geselecteerd hebt.',
+  'geology.overwriteExplainPrefix': 'verwijdert definitief {n} {unit} die niet in je selectie zitten:',
+  'geology.overwriteExplainSuffix': 'en elk contact erop.',
+  'geology.deleteModelBody':
+    'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. Dit kan niet ongedaan gemaakt worden.',
+  'geology.deleteModelButton': 'Geologisch model verwijderen',
 
   // -------------------------------------------------------------------------
   // lithostratigrafie
@@ -167,6 +212,67 @@ export const MODELS_NL = {
     'Niets om te exporteren — zet de 3D-weergave op Hekkendiagram en zorg dat de wand vlakken bevat.',
   'litho.autoCorrelateNothing':
     'Autocorrelatie: geen correleerbare eenheden gevonden — aanvaard eerst de lithovoorstellen.',
+  // dialoog bevestigen / opnieuw toewijzen / losmaken bovenliggende formatie
+  'litho.assignParent': 'Bovenliggende formatie toewijzen',
+  'litho.confirmExtrapolatedParent': 'Geëxtrapoleerde bovenliggende formatie bevestigen',
+  'litho.orphanBlurb': 'Geen geologische laaggrens dekte deze litho-eenheid bij het onderzoek.',
+  'litho.extrapolatedBlurb':
+    'De bovenliggende formatie is afgeleid uit de geologie-TIN — bevestig of wijzig ze.',
+  'litho.detach': 'Losmaken',
+  'litho.confirm': 'Bevestigen',
+  'litho.reassign': 'Opnieuw toewijzen',
+  // model-keuzerij
+  'litho.newShort': 'Nieuw',
+  'litho.selectPlaceholder': '— selecteer —',
+  'litho.thisModelFallback': 'Dit model',
+  'litho.deleteModelBody':
+    'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. De geologische bovenliggende formatie blijft ongemoeid. Dit kan niet ongedaan gemaakt worden.',
+  // lithologie-werkbalk (Model bouwen / hekkendiagram / camera herstellen)
+  'litho.building': 'Bouwen…',
+  'litho.buildModelStale': 'Model bouwen · verouderd',
+  'litho.buildModel': 'Model bouwen',
+  'litho.buildNoContacts':
+    'Nog geen litholaaggrenzen — open een dwarsprofiel op de litho-as, stel litho voor, aanvaard de lagen en kom hier terug om te bouwen',
+  'litho.buildingSolids': 'Waterdichte lichaamssolids bouwen…',
+  'litho.solidsStale': 'Een of meer lichaamssolids zijn verouderd — klik om te herbouwen',
+  'litho.buildSolidsTitle': 'Bouw de 3D-lichaamssolids op basis van de aanvaarde laaggrenzen',
+  // lithologie-detailvenster (rooster + solids-legende)
+  'litho.createGeoFirst':
+    'Maak eerst een geologisch model aan (geologiestap) — een lithostratigrafisch model verfijnt het.',
+  'litho.clearing': 'Wissen…',
+  'litho.clearShort': 'Wissen',
+  'litho.instances': 'Instanties',
+  'litho.resolving': 'Oplossen…',
+  'litho.resolveInstances': 'Instanties oplossen',
+  'litho.clearModelBody':
+    'Alle litho-eenheden, laaggrenzen, correlaties en oppervlakken in dit model worden permanent verwijderd. Dit kan niet ongedaan gemaakt worden.',
+  'litho.clearModelButton': 'Lithomodel wissen',
+  'litho.parentExtrapolatedReview':
+    'Bovenliggende formatie geëxtrapoleerd uit TIN — klik om te bevestigen of opnieuw toe te wijzen',
+  'litho.noParentReview':
+    'Geen bovenliggende formatie toegewezen — klik om toe te wijzen of los te maken',
+  'litho.pillCounts': '{c} {cw}, {u} {uw}',
+  'litho.contactWordOne': 'contact',
+  'litho.contactWordMany': 'contacten',
+  'litho.unitWordOne': 'eenheid',
+  'litho.unitWordMany': 'eenheden',
+  'litho.lensDefinedOne': '{n} lens gedefinieerd in deze formatie',
+  'litho.lensDefinedMany': '{n} lenzen gedefinieerd in deze formatie',
+  'litho.showMarkersN': 'Toon {n} markerings{bodies}',
+  'litho.hideMarkersN': 'Verberg {n} markerings{bodies} (onvoldoende bepaald)',
+  'litho.bodyWordOne': 'lichaam',
+  'litho.bodyWordMany': 'lichamen',
+  'litho.showMarkers': 'Markeringen tonen',
+  'litho.hideMarkers': 'Markeringen verbergen',
+  'litho.collapseGroup': 'Groep inklappen',
+  'litho.expandGroup': 'Groep uitklappen',
+  'litho.bodyCount': '{n} {bodies}',
+  'litho.markersHidden': '({n} {markers} verborgen)',
+  'litho.markers': '({n} {markers})',
+  'litho.markerWordOne': 'markering',
+  'litho.markerWordMany': 'markeringen',
+  'litho.bodiesForName': 'Lichamen voor {name}',
+  'litho.colourForBody': 'Kleur voor {name} #{ordinal}',
 
   // -------------------------------------------------------------------------
   // geotechniek
