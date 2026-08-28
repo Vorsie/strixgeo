@@ -5409,6 +5409,25 @@ actual base URL (`win.webContents.getURL()` after `loadFile`).
 
 ## 201. God-component file-size split (Tier E — readability, L)
 
+**Round 2026-08-28 — `SectionsToolbar.tsx` 2,917 → 902 lines (−69 %).**
+Thirteen extractions into siblings, each under the 500-line advisory:
+`SectionsAxisPill.tsx` (186) and `SectionsToolbarDialogs.tsx` (298) as
+subcomponents; the item/menu specs as PURE builder functions with no hooks,
+so there is zero hook-ordering risk — `sectionsLithoMenuItems.tsx` (350),
+`sectionsLithoToolbarItems.tsx` (393), `sectionsGeotechMenuItems.tsx` (373),
+`sectionsGeotechToolbarItems.tsx` (311), `sectionsTailToolbarItems.tsx`
+(408); and five stateful clusters as hooks — `useGeotechStatistic.ts` (161),
+`useLithoSuggestVerbs.ts` (273), `useSectionExportVerbs.ts` (187),
+`useGeotechSubdivideVerbs.ts` (154), `useLithoCorrelateVerbs.ts` (223).
+**Zero test files changed** — the component's public contract is unchanged,
+so all 15 existing suites (201 assertions on the component alone) pass
+untouched, which is the evidence the refactor preserved behaviour. Gates:
+tsc web+node clean, 4,927 vitest green, hook-order check clean. One
+non-verbatim edit: `selectedSection.name` → `selectedSection?.name` at two
+sites in `sectionsTailToolbarItems.tsx` — TS aliased-const narrowing does not
+cross a function boundary, and both sites sit inside the `hasSection` branch,
+so the rendered output is identical.
+
 **Counts update 2026-08-27 (F1–F12 audit fixes):** `CesiumViewport.tsx`
 crossed 500 (516 — prop declarations; the new zoom logic went to
 `useViewportZoomTuning.ts`); `SectionsCanvas.tsx` ~2,820 after the jump
@@ -8899,26 +8918,49 @@ same files twice.
 harvested and dogfed green — the owner fires it explicitly ("run the
 simplification campaign").
 
-## 276. Canvas module-refs are never nulled on unmount — stale-closure hazard (S)
+## 276. Canvas module-refs are never nulled on unmount — stale-closure hazard — RESOLVED 2026-08-28
 
 **What.** The canvas ⟷ toolbar bridges are module-level mutable refs
 (`lithoVoxelRequestCallback`, `geotechVoxelRequestCallback`,
 `resetLithoCameraCallback`, `resetGeotechCameraCallback`, and their split
 siblings — see `GeotechnicalCanvas.tsx`'s module header). They are assigned
-every render while the canvas is mounted, but most are **never nulled on
-unmount** — so after a stage switch the ref still holds a closure over the
+every render while the canvas is mounted, but most were **never nulled on
+unmount** — so after a stage switch the ref still held a closure over the
 LAST render's props. A toolbar click that fires before the next canvas mount
-runs against a destroyed view's state. Proven a real hazard during the
+ran against a destroyed view's state. Proven a real hazard during the
 D-Series toolbar wiring (B3, 2026-08-27): the fence-export ref got an
 explicit null-on-unmount `useEffect` for exactly this reason — the pattern
-the others still lack.
+the others still lacked.
 
-**Why deferred.** Today every consumer button lives in a toolbar co-mounted
-with its canvas, so the stale window is one stage-switch frame; no
-user-visible bug has been traced to it. Fixing it is mechanical (mirror the
-`geotechFenceExportCallback` cleanup effect on every ref) but touches every
-canvas, and the overnight program froze those files repeatedly.
+**Fix (landed 2026-08-28).** Every bridge ref is now nulled on the owning
+component's unmount, GUARDED against the mount-order race. The guard is the
+load-bearing part: React can mount a replacement canvas before it runs the
+previous one's cleanup (and both stages can be alive at once in the split
+viewport), so a naive `ref.current = null` on unmount would wipe a ref the
+newer instance already claimed. Each cleanup instead compares against a
+per-instance `useRef` of the value THIS instance last wrote and nulls only on
+identity match. The fence-export precedent (and the hook's async voxel null)
+were unguarded — both were upgraded, not copied. Per-ref outcome:
 
-**When to revisit.** First bug traced to a toolbar verb firing cross-stage,
-or the #201 SectionsToolbar extraction round — whichever comes first; the
-extraction already walks every one of these refs.
+* **fence / voxel** (`lithoFenceExportCallback` / `geotechFenceExportCallback`,
+  `lithoVoxelRequestCallback` / `geotechVoxelRequestCallback`): guarded null in
+  the canvas that writes them (`LithologyCanvas.tsx` / `GeotechnicalCanvas.tsx`).
+  The voxel ref's unmount null moved OUT of `useBody3DViewState` — the shared
+  hook could not guard a value it does not write, so the whole voxel-ref
+  lifecycle now lives in the canvas and the `voxelRequestRef` param was removed
+  from the hook.
+* **split-viewport** (`resetLithoSplitViewportCallback` /
+  `resetGeotechSplitViewportCallback`): guarded null in the canvas via the
+  `exitSplit` value the hook writes and returns (kept out of the shared hook so
+  the Geology / Parameters consumers are untouched).
+* **recompute / divide** (`sectionsBodyRecomputeCallback` /
+  `sectionsDividePartitionCallback`): guarded null in `useProjectBodyRecompute`.
+* **camera** (`resetLithoCameraCallback` / `resetGeotechCameraCallback`): already
+  nulled on unmount by `CesiumViewport` (co-located with its assignment); left
+  as-is. Geology's own `resetCameraCallback` / `resetSplitViewportCallback` and
+  the two `shell/stages/sections/` reveal bridges are the same class of ref but
+  out of this fix's scope — a follow-up if a cross-stage stale click surfaces.
+
+Red-first pins: `LithologyCanvas.test.tsx` U1/U3, `GeotechnicalCanvas.test.tsx`
+GU1/GU3, `useProjectBodyRecompute.test.ts` R1/R2 (split-never-nulled and the
+mount-order wipe, both watched RED on the old code); U2/U4/GU2 are guards.
