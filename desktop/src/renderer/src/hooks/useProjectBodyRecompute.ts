@@ -230,6 +230,26 @@ export function useProjectBodyRecompute(
   sectionsBodyRecomputeCallback.current = recomputeNow
   sectionsDividePartitionCallback.current = buildDividePartitionForSection
 
+  // Null the bridge refs on unmount so a toolbar click after this hook tears
+  // down is a no-op rather than a call against a destroyed shell (debt #276).
+  // Each null is GUARDED — it fires only while the module ref still holds THIS
+  // instance's callback — so an older instance's cleanup cannot wipe a ref a
+  // newer instance has already claimed. ownedRecompute / ownedDivide track the
+  // value written above (both change identity across renders).
+  const ownedRecompute = useRef(recomputeNow)
+  ownedRecompute.current = recomputeNow
+  const ownedDivide = useRef(buildDividePartitionForSection)
+  ownedDivide.current = buildDividePartitionForSection
+  useEffect(
+    () => () => {
+      if (sectionsBodyRecomputeCallback.current === ownedRecompute.current)
+        sectionsBodyRecomputeCallback.current = null
+      if (sectionsDividePartitionCallback.current === ownedDivide.current)
+        sectionsDividePartitionCallback.current = null
+    },
+    [],
+  )
+
   // ---- 1. PROJECT-OPEN once-markers, reset on switch/close. -----------------
   // Declared BEFORE the trigger effects so the reset runs first on the commit
   // where the project id changes (effects run in declaration order).
