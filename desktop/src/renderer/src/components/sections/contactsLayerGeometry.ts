@@ -34,7 +34,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
-import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { lithoDisplayName } from '../../utils/lithoLabels'
 import { geotechUnitColor, nadClassName } from '../../utils/nadClasses'
 import type { SectionLine2D } from '../../utils/sliceTin'
 import { columnMaxDepthM, depthAxisAtSurface, type PlacedColumn } from './utils'
@@ -390,7 +390,7 @@ export function formationDisplayLabel(formation: GeologicalFormationResponse): s
     return nadClassName(formation.nad_class)
   }
   if (formation.litho_main_soil_code != null) {
-    return formatLithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
+    return lithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
   }
   return formation.name ?? formation.regional_ref ?? ''
 }
