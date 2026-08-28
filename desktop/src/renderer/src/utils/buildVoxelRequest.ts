@@ -477,6 +477,11 @@ export function buildVoxelRequest(
     let hierarchicalForGate: HierarchicalGeotechFillResult | undefined;
     let lithoRegionsForGate: readonly SectionRegion[] = [];
     let alongMForGate: readonly number[] = alongM;
+    // The column list a gate finding's gap index is valid against — always the
+    // SAME list `alongMForGate` came off, so the two cannot drift. It is what
+    // lets clause 1-3 name a gap by its two columns instead of by an index no
+    // other surface can resolve (see `gaplessGate/clauses2d.ts`).
+    let gateColumnInvestigationIds: readonly string[] = columns.map((c) => c.investigationId);
     if (lithoFrame !== undefined) {
       // The frame owns the axis: its columns carry the tests the packing model
       // has not divided yet, and the regions below are indexed on ITS gaps, so
@@ -505,6 +510,7 @@ export function buildVoxelRequest(
       hierarchicalForGate = hierarchical;
       lithoRegionsForGate = lithoRegions;
       alongMForGate = lithoFrame.alongM;
+      gateColumnInvestigationIds = lithoFrame.columns.map((c) => c.investigationId);
       log.info(
         "litho-voxel",
         `hierarchical payload section: ${hierarchical.diagnostics.families} litho families, ` +
@@ -525,6 +531,7 @@ export function buildVoxelRequest(
       hierarchical: hierarchicalForGate,
       lithoRegions: lithoRegionsForGate,
       alongM: alongMForGate,
+      columnInvestigationIds: gateColumnInvestigationIds,
     });
 
     // What the ENGINE ACTUALLY RETURNED for this section, so a payload that does
