@@ -124,3 +124,91 @@ def test_bundle_pydantic_accepts_empty_children() -> None:
     assert bundle.cpts == []
     assert bundle.boreholes == []
     assert bundle.geological_models == []
+
+
+# ---------------------------------------------------------------------------
+# Cross-section NESTED collections — the per-array max_length above bounds the
+# number of cross-sections, but each cross-section carries its own unbounded
+# ARRAY(UUID) exclusion lists and a JSONB view_state bag. A hostile .strix can
+# fit the envelope budget yet ship ONE cross-section whose excluded_borehole_ids
+# is a 10⁷-UUID list, or a view_state with a 1 GB string value.
+# ---------------------------------------------------------------------------
+
+
+def _cross_section(**fields) -> dict:
+    """One minimal cross-section dict, overridden by ``fields``.
+
+    Only the id is required for the bound checks; each test supplies the one
+    oversized collection it is pinning.
+    """
+    base = {"id": "00000000-0000-0000-0000-000000000001"}
+    base.update(fields)
+    return base
+
+
+def test_bundle_rejects_oversized_excluded_borehole_ids() -> None:
+    """A section can't exclude more boreholes than a project could hold → reject."""
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBundleRequest(
+            **_minimal_body(
+                cross_sections=[
+                    _cross_section(excluded_borehole_ids=[str(i) for i in range(10_001)])
+                ],
+            ),
+        )
+    assert "excluded_borehole_ids" in str(exc_info.value)
+
+
+def test_bundle_rejects_oversized_seeded_formation_contact_ids() -> None:
+    """A section's seeded-contact list past the per-section cap is rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBundleRequest(
+            **_minimal_body(
+                cross_sections=[
+                    _cross_section(seeded_formation_contact_ids=[str(i) for i in range(50_001)])
+                ],
+            ),
+        )
+    assert "seeded_formation_contact_ids" in str(exc_info.value)
+
+
+def test_bundle_rejects_view_state_with_giant_value() -> None:
+    """A single view_state entry cannot carry a multi-MB string → reject."""
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBundleRequest(
+            **_minimal_body(
+                cross_sections=[_cross_section(view_state={"note": "x" * 100_000})],
+            ),
+        )
+    assert "view_state" in str(exc_info.value)
+
+
+def test_bundle_accepts_normal_cross_section_nested() -> None:
+    """A real section's small exclusion lists + toggle bag pass unchanged."""
+    bundle = ProjectBundleRequest(
+        **_minimal_body(
+            cross_sections=[
+                _cross_section(
+                    excluded_borehole_ids=["00000000-0000-0000-0000-0000000000aa"],
+                    excluded_cpt_ids=["00000000-0000-0000-0000-0000000000bb"],
+                    seeded_formation_contact_ids=["00000000-0000-0000-0000-0000000000cc"],
+                    view_state={"cpt_channels": {"qc": True, "rf": False}},
+                )
+            ],
+        ),
+    )
+    assert len(bundle.cross_sections) == 1
+
+
+def test_bundle_still_accepts_long_section_description() -> None:
+    """The nested-field guard must NOT bleed onto free-text fields.
+
+    ``description`` is a TEXT column; a long section description is legitimate
+    and must survive — the guard bounds only the four collection fields.
+    """
+    bundle = ProjectBundleRequest(
+        **_minimal_body(
+            cross_sections=[_cross_section(description="x" * 100_000)],
+        ),
+    )
+    assert len(bundle.cross_sections[0]["description"]) == 100_000
