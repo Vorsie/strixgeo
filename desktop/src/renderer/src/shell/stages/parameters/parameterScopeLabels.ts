@@ -17,6 +17,14 @@ import { bodyLabelOf, type BodyRosterEntry } from './parameterUnitBodies'
  * Kept out of ``nadClasses.ts`` so the tree owns its own naming; the
  * single-source ``NAD_CLASS_ABBR`` table stays authoritative.
  *
+ * LANGUAGE-INDEPENDENT BY CONSTRUCTION, so this deliberately does NOT use the
+ * language-aware ``nadCompactLabel``: the Dutch table (``NAD_CLASS_ABBR_NL``)
+ * translates only the leading SOIL word — ``GRAVEL·MD`` becomes ``GRIND·MD``
+ * — and this function returns the trailing packing segment, which is the same
+ * token in both languages. The 2026-08-28 Dutch sweep flagged this call site
+ * as a possible gap; it is not one. Revisit only if the packing codes
+ * themselves are ever translated.
+ *
  * @param nadClass  A NAD class (1..31).
  * @returns  The packing abbreviation, or ``"NAD {n}"`` for an unknown class.
  */
