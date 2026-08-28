@@ -195,10 +195,10 @@ function areaConservationFor(
         // The allowance, spelled out — clause 1 is the only 2-D clause with a
         // budget that is not zero, and it is derived from THIS gap's width, so
         // the bare difference alone is a number the engineer cannot judge.
-        // Naming what the gap was allowed turns it into a verdict he can act
-        // on. Clauses 2 and 3 forbid the thing outright, so "more than the 0
-        // allowed" would be noise there and they say nothing.
-        ` — more than the ${formatMeasure(epsilon)} m² allowed for a gap this wide`,
+        // Naming the machine-rounding floor makes clear that any material
+        // shortfall is real ground loss. Clauses 2 and 3 forbid the thing
+        // outright, so an allowance would be noise there and they say nothing.
+        ` — more than the ${formatMeasure(epsilon)} m² floating-point allowance`,
       ...gapLocator(sectionId, sectionName, gapIndex, columnInvestigationIds),
       measure: { value: Math.abs(deltaM2), unit: 'm2', budget: epsilon },
     })
