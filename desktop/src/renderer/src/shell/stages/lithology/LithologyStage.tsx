@@ -31,6 +31,7 @@ import LithologyCanvas, {
 } from './LithologyCanvas'
 import LithologyInspector from './LithologyInspector'
 import { ToolbarButton } from '../../ToolbarPrimitives'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Toolbar for the Lithology stage.
@@ -59,6 +60,8 @@ function LithologyToolbar(): JSX.Element | null {
       buildLithoSolids,
     },
   } = useShell()
+  // Unconditional hook — above the ``!activeLithoModel`` early return.
+  const t = useT()
 
   if (!activeLithoModel) return null
 
@@ -68,10 +71,10 @@ function LithologyToolbar(): JSX.Element | null {
   const hasLithoContacts = lithoContacts.length > 0
 
   const buildModelLabel = lithoSolidsBuilding
-    ? 'Building…'
+    ? t('litho.building')
     : hasStaleLithoSolid
-      ? 'Build model · stale'
-      : 'Build model'
+      ? t('litho.buildModelStale')
+      : t('litho.buildModel')
 
   return (
     <>
@@ -91,12 +94,12 @@ function LithologyToolbar(): JSX.Element | null {
         testid="litho-build-model-button"
         title={
           !hasLithoContacts
-            ? 'No litho contacts yet — open a cross-section on the litho axis, Suggest litho, accept the layers, then return here to Build'
+            ? t('litho.buildNoContacts')
             : lithoSolidsBuilding
-              ? 'Building watertight body solids…'
+              ? t('litho.buildingSolids')
               : hasStaleLithoSolid
-                ? 'One or more body solids are stale — click to rebuild'
-                : 'Build the 3-D body solids from accepted contacts'
+                ? t('litho.solidsStale')
+                : t('litho.buildSolidsTitle')
         }
       />
       {/* Fence diagram -> DXF. Only offered once solids exist (the fence needs
@@ -106,23 +109,23 @@ function LithologyToolbar(): JSX.Element | null {
       {hasLithoSolids && (
         <ToolbarButton
           icon={<Download size={13} />}
-          label="Export fence"
+          label={t('litho.exportFence')}
           onClick={() => void lithoFenceExportCallback.current?.()}
           testid="litho-export-fence-button"
-          title="Save the 3-D fence diagram as a DXF (switch the view to Fence first)"
+          title={t('litho.exportFenceHint')}
         />
       )}
       {hasLithoSolids && (
         <ToolbarButton
           icon={<RefreshCw size={13} />}
-          label="Reset camera"
+          label={t('litho.resetCamera')}
           onClick={() => {
             // Collapse split viewport (if active) then fly to model bounds —
             // mirrors GeologyToolbar's two-step Reset behaviour.
             resetLithoSplitViewportCallback.current?.()
             resetLithoCameraCallback.current?.()
           }}
-          title="Collapse any split view and fly the camera back to the model extent"
+          title={t('litho.resetCameraHint')}
         />
       )}
     </>
@@ -144,6 +147,7 @@ function useLithologyStageSummary(): StageSummary {
   const {
     geoModel: { lithoFormations, hasStaleLithoSolid },
   } = useShell()
+  const t = useT()
   const count = lithoFormations.length
   // STALENESS OUTRANKS THE COUNT (owner, 2026-08-10). The Build button already says
   // stale, but only once you are standing on this stage — and the edit that stales the
@@ -159,13 +163,13 @@ function useLithologyStageSummary(): StageSummary {
     // ellipsis, so the word would have rendered as "…" and said nothing. The WORD goes
     // in the label, which is the button's tooltip and its accessible name.
     return {
-      label: 'Lithology units — 3-D model is stale, rebuild it',
+      label: t('litho.unitsStale'),
       badge: '!',
       badgeIntent: 'amber',
     }
   }
   return {
-    label: 'Lithology units',
+    label: t('litho.units'),
     badge: count > 0 ? String(count) : null,
     badgeIntent: 'neutral',
   }
