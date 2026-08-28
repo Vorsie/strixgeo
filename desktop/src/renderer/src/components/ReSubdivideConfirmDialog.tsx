@@ -33,6 +33,7 @@
 // just Cancel + the destructive confirm.
 
 import ConfirmDialog from './ui/ConfirmDialog'
+import { useT } from '../i18n/translate'
 
 interface Props {
   /** Truthy = render the dialog. The caller owns the open lifecycle. */
@@ -91,10 +92,14 @@ export default function ReSubdivideConfirmDialog({
   sectionName = null,
   statisticRebuild = null,
 }: Props): JSX.Element {
+  const t = useT()
   const oneHandEdit = handEditCount === 1
   // "Cross-section 2" where there is a name; the generic phrase only where a
-  // caller has none. Both read as one section — never as the model.
-  const scope = statisticRebuild !== null ? 'the model' : (sectionName ?? 'this section')
+  // caller has none. Both read as one section — never as the model. ('the
+  // model' branch is never rendered — the model-wide paragraph does not use
+  // scope — so it stays a literal.)
+  const scope =
+    statisticRebuild !== null ? 'the model' : (sectionName ?? t('geotech.thisSectionFallback'))
   return (
     <ConfirmDialog
       open={open}
@@ -104,21 +109,22 @@ export default function ReSubdivideConfirmDialog({
       cancelTestid="re-subdivide-cancel"
       onCancel={onCancel}
       busy={busy}
-      title="Re-subdivide geotech model?"
+      title={t('geotech.reSubdivideConfirm')}
       body={
         <>
           {statisticRebuild !== null ? (
             <p data-testid="re-subdivide-model-wide">
-              Re-deriving under <span className="font-semibold">{statisticRebuild}</span>{' '}
-              clears all subdivisions <span className="font-bold">model-wide</span>{' '}
-              &mdash; every section&rsquo;s packing bands and connections are rebuilt from
-              the CPT data, and every borehole goes empty until you divide it again.
+              {t('geotech.reSubdivideModelPre')}{' '}
+              <span className="font-semibold">{statisticRebuild}</span>{' '}
+              {t('geotech.reSubdivideModelMid')}{' '}
+              <span className="font-bold">{t('geotech.reSubdivideModelWide')}</span>{' '}
+              {t('geotech.reSubdivideModelPost')}
             </p>
           ) : (
             <p>
-              Re-subdividing regenerates the geotech packing connections on{' '}
-              <span className="font-semibold">{scope}</span> &mdash; any manual connections
-              you made there will be cleared.
+              {t('geotech.reSubdivideRegenPre')}{' '}
+              <span className="font-semibold">{scope}</span>{' '}
+              {t('geotech.reSubdivideRegenPost')}
             </p>
           )}
           {/* The second loss, and the heavier one — a connection can be re-derived by
@@ -131,12 +137,18 @@ export default function ReSubdivideConfirmDialog({
               hedge would be the inaccuracy. */}
           {handEditCount > 0 && (
             <p className="mt-2" data-testid="re-subdivide-hand-edits">
-              It also rebuilds the packing bands on{' '}
-              <span className="font-semibold">{scope}</span> from the CPT data, so its{' '}
+              {t('geotech.reSubdivideHandPre')}{' '}
+              <span className="font-semibold">{scope}</span>{' '}
+              {t('geotech.reSubdivideHandMid')}{' '}
               <span className="font-semibold">
-                {handEditCount} hand-edited band{oneHandEdit ? '' : 's'}
+                {t(
+                  oneHandEdit
+                    ? 'geotech.reSubdivideHandBandOne'
+                    : 'geotech.reSubdivideHandBandMany',
+                  { n: handEditCount },
+                )}
               </span>{' '}
-              go back to the segmenter&rsquo;s boundaries. That cannot be recovered.
+              {t('geotech.reSubdivideHandPost')}
             </p>
           )}
           {/* There was a third paragraph here, warning that the other sections lost
@@ -148,13 +160,13 @@ export default function ReSubdivideConfirmDialog({
               them without touching anything, so the alternative belongs at the exact
               moment the engineer is deciding whether to accept the loss. */}
           <p className="mt-2 text-text-secondary">
-            To get the automatic ties back <em>without</em> losing your own, cancel and use
-            Correlate packing &rarr; Auto-correlate instead.
+            {t('geotech.reSubdivideAltPre')} <em>{t('geotech.reSubdivideAltEm')}</em>{' '}
+            {t('geotech.reSubdivideAltPost')}
           </p>
         </>
       }
       confirm={{
-        label: 'Re-subdivide',
+        label: t('geotech.reSubdivide'),
         onClick: onConfirm,
         variant: 'danger',
         testid: 're-subdivide-confirm',
