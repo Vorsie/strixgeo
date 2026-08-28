@@ -148,15 +148,82 @@ _MAX_LITHO_SOLIDS_PER_BUNDLE = 50_000
 # per-item DoS surface that the list-length bounds alone cannot close.
 _MAX_BOUNDARY_ITEM_KEY_LEN = 256
 _MAX_BOUNDARY_ITEM_VALUE_LEN = 4_096
+# Structural caps applied to any nested dict/list value inside a bundle item
+# (e.g. a cross-section's ``view_state`` JSONB bag). Generous ceilings that
+# never bind on real UI state while capping the per-item DoS surface a
+# list-length bound alone leaves open. The depth cap also stops a deeply-nested
+# payload from exhausting the recursion during validation.
+_MAX_BOUNDED_DICT_KEYS = 10_000
+_MAX_BOUNDED_LIST_ITEMS = 100_000
+_MAX_BOUNDED_NEST_DEPTH = 8
+
+# A cross-section's ``seeded_formation_contact_ids`` holds at most one id per
+# (formation, corridor investigation). 500 investigations × 50 formations is the
+# extreme upper bound the formation-absence cap already uses; 50 000 stays well
+# above any real section while capping the ARRAY(UUID) DoS surface. The two
+# other exclusion arrays cannot exceed the project's borehole / CPT counts, so
+# they reuse ``_MAX_BOREHOLES_PER_BUNDLE`` / ``_MAX_CPTS_PER_BUNDLE``.
+_MAX_SECTION_SEEDED_CONTACTS = 50_000
+
+
+def _validate_bounded_value(value: Any, *, label: str, depth: int) -> None:
+    """Recursively bound one bundle-derived value's size.
+
+    Enforces, for strings, ``_MAX_BOUNDARY_ITEM_VALUE_LEN``; for dicts, a key
+    count of ``_MAX_BOUNDED_DICT_KEYS`` plus ``_MAX_BOUNDARY_ITEM_KEY_LEN`` per
+    key; for lists, ``_MAX_BOUNDED_LIST_ITEMS`` items; and ``_MAX_BOUNDED_NEST_
+    DEPTH`` on nesting. Scalars (int/float/bool/None) are unbounded by nature.
+
+    Parameters
+    ----------
+    value : Any
+        The value to bound (string / list / dict / scalar).
+    label : str
+        Dotted path of the value, for the error message.
+    depth : int
+        Current nesting depth (0 at the item root).
+
+    Raises
+    ------
+    ValueError
+        When any cap is exceeded.
+    """
+    if depth > _MAX_BOUNDED_NEST_DEPTH:
+        raise ValueError(f"Bundle {label} nested beyond depth {_MAX_BOUNDED_NEST_DEPTH}")
+    if isinstance(value, str):
+        if len(value) > _MAX_BOUNDARY_ITEM_VALUE_LEN:
+            raise ValueError(
+                f"Bundle {label} value too long ({len(value)} > {_MAX_BOUNDARY_ITEM_VALUE_LEN})"
+            )
+    elif isinstance(value, dict):
+        if len(value) > _MAX_BOUNDED_DICT_KEYS:
+            raise ValueError(
+                f"Bundle {label} has too many keys ({len(value)} > {_MAX_BOUNDED_DICT_KEYS})"
+            )
+        for k, v in value.items():
+            if len(k) > _MAX_BOUNDARY_ITEM_KEY_LEN:
+                raise ValueError(
+                    f"Bundle {label} key too long "
+                    f"({len(k)} > {_MAX_BOUNDARY_ITEM_KEY_LEN}): {k[:64]!r}…"
+                )
+            _validate_bounded_value(v, label=f"{label}.{k}", depth=depth + 1)
+    elif isinstance(value, list):
+        if len(value) > _MAX_BOUNDED_LIST_ITEMS:
+            raise ValueError(
+                f"Bundle {label} list too long ({len(value)} > {_MAX_BOUNDED_LIST_ITEMS})"
+            )
+        for elem in value:
+            _validate_bounded_value(elem, label=f"{label}[]", depth=depth + 1)
 
 
 def _validate_bounded_dict_list(
     items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Validate that each item dict's keys and string values are bounded.
+    """Validate that each item dict's keys and (nested) values are bounded.
 
-    Raises ``ValueError`` if any key exceeds ``_MAX_BOUNDARY_ITEM_KEY_LEN``
-    or any string value exceeds ``_MAX_BOUNDARY_ITEM_VALUE_LEN``.
+    Raises ``ValueError`` if any key exceeds ``_MAX_BOUNDARY_ITEM_KEY_LEN``, any
+    string value exceeds ``_MAX_BOUNDARY_ITEM_VALUE_LEN``, or any nested dict /
+    list value breaches the structural caps (see ``_validate_bounded_value``).
 
     Parameters
     ----------
@@ -169,17 +236,7 @@ def _validate_bounded_dict_list(
         The validated items (unchanged).
     """
     for item in items:
-        for k, v in item.items():
-            if len(k) > _MAX_BOUNDARY_ITEM_KEY_LEN:
-                raise ValueError(
-                    f"Bundle item key too long "
-                    f"({len(k)} > {_MAX_BOUNDARY_ITEM_KEY_LEN}): {k[:64]!r}…"
-                )
-            if isinstance(v, str) and len(v) > _MAX_BOUNDARY_ITEM_VALUE_LEN:
-                raise ValueError(
-                    f"Bundle item value for key {k!r} too long "
-                    f"({len(v)} > {_MAX_BOUNDARY_ITEM_VALUE_LEN})"
-                )
+        _validate_bounded_value(item, label="item", depth=0)
     return items
 
 
@@ -325,6 +382,49 @@ class ProjectBundleRequest(BaseModel):
             The validated items, unchanged.
         """
         return _validate_bounded_dict_list(items)
+
+    @field_validator("cross_sections", mode="after")
+    @classmethod
+    def _bound_cross_section_collections(cls, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Bound each cross-section's nested exclusion arrays and ``view_state``.
+
+        The ``max_length`` cap on ``cross_sections`` bounds the NUMBER of
+        sections; this validator closes the per-section DoS surface — the three
+        ``ARRAY(UUID)`` exclusion lists and the JSONB ``view_state`` bag are
+        each unbounded in the raw payload, so a crafted .strix can fit the
+        envelope budget yet ship one section whose ``excluded_borehole_ids`` is
+        a 10⁷-UUID array. Only these four collection fields are bounded — free
+        text (``name``, ``description``) is deliberately left untouched.
+
+        Parameters
+        ----------
+        items : list[dict[str, Any]]
+            The list of raw cross-section dicts from the bundle payload.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            The validated items, unchanged.
+
+        Raises
+        ------
+        ValueError
+            When any of the four bounded fields exceeds its cap.
+        """
+        list_caps = (
+            ("excluded_borehole_ids", _MAX_BOREHOLES_PER_BUNDLE),
+            ("excluded_cpt_ids", _MAX_CPTS_PER_BUNDLE),
+            ("seeded_formation_contact_ids", _MAX_SECTION_SEEDED_CONTACTS),
+        )
+        for item in items:
+            for field_name, cap in list_caps:
+                value = item.get(field_name)
+                if isinstance(value, list) and len(value) > cap:
+                    raise ValueError(f"cross_section.{field_name} too long ({len(value)} > {cap})")
+            view_state = item.get("view_state")
+            if isinstance(view_state, dict):
+                _validate_bounded_value(view_state, label="cross_section.view_state", depth=0)
+        return items
 
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
