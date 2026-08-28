@@ -133,7 +133,10 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
         // no-ops on an empty list, so the two halves never fight over the
         // camera (the same shape the Build pre-flight's one-click visit uses).
         contactIds: [],
-        revealInvestigationId: curve.boreholeId,
+        // ONE id, so the panel centres AND pulses that column — this reveal is
+        // about the sample's borehole. (A two-id payload names a GAP instead;
+        // see ``ShellContext``'s own doc on the field.)
+        revealInvestigationIds: [curve.boreholeId],
       })
     },
     [bySection, toast, setSectionsDeepLinkTarget],
