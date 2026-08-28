@@ -57,7 +57,11 @@ class CptRepository(GroundModelLogger):
         self._session.add(cpt)
         if flush:
             await self._session.flush()
-            self.success(f"CPT saved: {cpt.id} — {cpt.name}")
+            # Id at SUCCESS, name at DEBUG: the CPT name is its test_id, which
+            # carries the project/site code — client-identifying text that must
+            # not sit on an always-on line in the unredacted ``backend.log``.
+            self.success(f"CPT saved: {cpt.id}")
+            self.debug(f"CPT saved: {cpt.id} — name {cpt.name!r}")
 
     async def get_by_id(self, cpt_id: UUID) -> CptOrm | None:
         """Return a CPT with its series loaded, or None if not found."""
