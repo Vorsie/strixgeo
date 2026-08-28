@@ -15,6 +15,8 @@
 //       scope); scalar numeric lab values, typed families included, all pool.
 // ID6 — a sample on a borehole with no collar elevation cannot be placed on
 //       an mTAW axis and is skipped, counted rather than silently dropped.
+// ID7 — each pooled point carries the SAMPLE id, so a dot and the sample's PSD
+//       curve wear the same colour (owner 2026-08-28).
 
 import { describe, expect, it } from 'vitest'
 
@@ -210,5 +212,20 @@ describe('poolIdentificationPanels — the OKP pool', () => {
     const wc = panels.find(p => p.label === 'Water content')
     expect(wc!.points).toHaveLength(1)
     expect(skippedNoElevation).toBe(1)
+  })
+
+  it('ID7 — each pooled point carries its sample id (the shared colour key)', () => {
+    const bands = unitBoreholeBands([bhBand('l1', 'unit-1', 'bh-1', 0, 5)])
+    const details = new Map([
+      [
+        'bh-1',
+        detail('bh-1', 'B1', 10, [
+          { id: 'sample-7', depth_top_m: 1, depth_base_m: 2, water_content_tests: [WC(20)] },
+        ]),
+      ],
+    ])
+    const { panels } = poolIdentificationPanels(bands, details)
+    const wc = panels.find(p => p.label === 'Water content')
+    expect(wc!.points[0].sampleId).toBe('sample-7')
   })
 })
