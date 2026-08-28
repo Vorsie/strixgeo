@@ -16,7 +16,7 @@
 // the geotech pane's disambiguation rule exists to prevent.
 
 import type { GeologicalFormationResponse } from '../api/client'
-import { formatLithoDisplayName } from './lithoLabels'
+import { lithoDisplayName } from './lithoLabels'
 
 /**
  * Build the ``litho formation id → English display name`` map.
@@ -44,7 +44,7 @@ export function buildSourceLithoNameMap(
     names.set(
       formation.id,
       formation.litho_main_soil_code != null
-        ? formatLithoDisplayName(
+        ? lithoDisplayName(
             formation.litho_main_soil_code,
             formation.litho_admixtures,
           )
