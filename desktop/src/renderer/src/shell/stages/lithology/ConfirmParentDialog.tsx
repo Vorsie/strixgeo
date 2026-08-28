@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GeologicalFormationResponse } from '../../../api/client'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
+import { useT } from '../../../i18n/translate'
 
 interface Props {
   open: boolean
@@ -44,6 +45,7 @@ export default function ConfirmParentDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   // Local selection — seeds from the unit's current parent. Reset every
   // time the dialog opens with a new formation.
   const [selectedParentId, setSelectedParentId] = useState<string | null>(
@@ -67,8 +69,8 @@ export default function ConfirmParentDialog({
 
   const isOrphan = formation?.parent_formation_id == null
   const titleText = isOrphan
-    ? 'Assign parent formation'
-    : 'Confirm extrapolated parent'
+    ? t('litho.assignParent')
+    : t('litho.confirmExtrapolatedParent')
 
   return (
     <Modal
@@ -86,16 +88,14 @@ export default function ConfirmParentDialog({
           {titleText}
         </h2>
         <p className="text-xs text-text-secondary mb-3">
-          {isOrphan
-            ? 'No geology contact covered this litho unit at the investigation.'
-            : 'The parent was inferred from the geology TIN — please confirm or change it.'}
+          {isOrphan ? t('litho.orphanBlurb') : t('litho.extrapolatedBlurb')}
         </p>
 
         <label
           htmlFor="confirm-parent-select"
           className="block text-[11px] font-medium text-text-secondary mb-1"
         >
-          Parent geological formation
+          {t('litho.parentFormation')}
         </label>
         <select
           id="confirm-parent-select"
@@ -106,7 +106,7 @@ export default function ConfirmParentDialog({
           className="w-full px-2 py-1.5 text-sm rounded border border-border-default bg-surface-card text-text-primary disabled:opacity-40"
           data-testid="confirm-parent-select"
         >
-          <option value="">— No parent (detach) —</option>
+          <option value="">{t('litho.noParent')}</option>
           {sortedParents.map(f => (
             <option key={f.id} value={f.id}>
               {f.name}
@@ -122,7 +122,7 @@ export default function ConfirmParentDialog({
             className="px-3.5 py-1.5 text-sm font-medium rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:bg-surface-page dark:border-border-default dark:text-text-primary"
             data-testid="confirm-parent-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <Button
             variant="primary"
@@ -132,10 +132,10 @@ export default function ConfirmParentDialog({
             data-testid="confirm-parent-submit"
           >
             {selectedParentId === null
-              ? 'Detach'
+              ? t('litho.detach')
               : selectedParentId === formation?.parent_formation_id
-                ? 'Confirm'
-                : 'Reassign'}
+                ? t('litho.confirm')
+                : t('litho.reassign')}
           </Button>
         </div>
       </div>
