@@ -7,6 +7,7 @@ import { soilStyle } from '../../../utils/soilColors'
 import { SoilPatterns, getSoilFillUrl } from '../../../utils/soilPatterns'
 import { LITHOLOGY_TYPES, STRATIGRAPHY_TYPES } from '../constants'
 import { LAB_TEST_ICONS } from '../labTestIcons'
+import { useT } from '../../../i18n/translate'
 import { LegendChip } from './LegendChip'
 import { LegendSection } from './LegendSection'
 
@@ -32,6 +33,7 @@ export function Legend({
 }: {
   borehole: BoreholeDetailResponse
 }): ReactElement {
+  const t = useT()
   const soilCodes = new Set<string>()
   for (const obs of borehole.observations) {
     if (!LITHOLOGY_TYPES.has(obs.observation_type)) continue
@@ -71,7 +73,7 @@ export function Legend({
   return (
     <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-4 py-2 text-[11px] flex flex-wrap gap-x-6 gap-y-2 shrink-0">
       {soilCodes.size > 0 && (
-        <LegendSection title="Lithology codes">
+        <LegendSection title={t('borelog.lithologyCodes')}>
           {[...soilCodes].sort().map(code => {
             const style = soilStyle(code)
             return (
@@ -102,7 +104,7 @@ export function Legend({
       )}
 
       {stratEntries.size > 0 && (
-        <LegendSection title="Stratigraphy">
+        <LegendSection title={t('borelog.stratigraphy')}>
           {[...stratEntries.entries()].map(([code, desc]) => (
             <LegendChip key={code} code={code} label={desc} />
           ))}
@@ -110,7 +112,7 @@ export function Legend({
       )}
 
       {drillMethods.size > 0 && (
-        <LegendSection title="Drill method">
+        <LegendSection title={t('borelog.drillMethod')}>
           {[...drillMethods].sort().map(m => {
             const s = drillMethodStyle(m)
             return (
@@ -131,23 +133,28 @@ export function Legend({
       )}
 
       {testIcons.length > 0 && (
-        <LegendSection title="Lab tests">
-          {testIcons.map(t => (
-            <span key={t.label} className="flex items-center gap-1.5 text-gray-700 dark:text-slate-200">
-              <span className="text-base leading-none" style={{ color: t.color }}>
-                {t.symbol}
+        <LegendSection title={t('borelog.labTests')}>
+          {testIcons.map(icon => (
+            <span
+              key={icon.label}
+              className="flex items-center gap-1.5 text-gray-700 dark:text-slate-200"
+            >
+              <span className="text-base leading-none" style={{ color: icon.color }}>
+                {icon.symbol}
               </span>
-              <span>{t.label}</span>
+              <span>{icon.label}</span>
             </span>
           ))}
-          <span className="text-[10px] text-gray-400 dark:text-slate-500 italic ml-2">click sample to view</span>
+          <span className="text-[10px] text-gray-400 dark:text-slate-500 italic ml-2">
+            {t('borelog.clickSampleToView')}
+          </span>
         </LegendSection>
       )}
 
       {borehole.elevation_m == null && (
         <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
           <AlertTriangle size={11} />
-          <span>Surface elevation missing — borelog renders without absolute level axis.</span>
+          <span>{t('borelog.noSurfaceElevation')}</span>
         </div>
       )}
     </div>
