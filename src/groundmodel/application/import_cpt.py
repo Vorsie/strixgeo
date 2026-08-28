@@ -157,7 +157,11 @@ class ImportCpt(GroundModelLogger):
         CptRefreshRefusedError
             When the fresh parse is too broken to overwrite stored data with.
         """
-        self.info(f"Importing CPT: {file_path.name}")
+        # File name at DEBUG, not INFO: a GEF file name carries the project /
+        # site code (client-identifying), and ``backend.log`` is unredacted on
+        # disk. The always-on phase boundary is the completion line below, which
+        # carries the stable ``cpt_id`` instead (owner: "no user data leaks").
+        self.debug(f"Importing CPT: {file_path.name}")
         content = file_path.read_bytes()
         result = self._parse(file_path, content)
         name = result.header.test_id.strip() or file_path.stem
@@ -265,7 +269,7 @@ class ImportCpt(GroundModelLogger):
                 # Order matters: refuse an unusable file BEFORE asking for
                 # consent. There is nothing to consent to — no confirmation may
                 # authorise replacing a good series with an empty one.
-                self._refuse_unusable_refresh(result, name)
+                self._refuse_unusable_refresh(result, name, existing_id=existing.id)
                 if not confirm_refresh:
                     raise self._confirmation_required(existing, result, name)
                 return await self._refresh(existing, result, name, commit=commit)
@@ -294,7 +298,9 @@ class ImportCpt(GroundModelLogger):
     # Refresh-on-duplicate
     # ------------------------------------------------------------------
 
-    def _refuse_unusable_refresh(self, result: GEFParseResult, name: str) -> None:
+    def _refuse_unusable_refresh(
+        self, result: GEFParseResult, name: str, *, existing_id: UUID | None = None
+    ) -> None:
         """Refuse to overwrite a stored CPT with a parse that cannot be trusted.
 
         Two shapes qualify, and neither is recoverable by confirming: a parse
@@ -308,7 +314,14 @@ class ImportCpt(GroundModelLogger):
         result : GEFParseResult
             The fresh parse offered as a replacement.
         name : str
-            Display name, quoted in the refusal.
+            Display name (the CPT test_id), carried in the user-facing refusal.
+        existing_id : UUID | None
+            Id of the stored CPT being protected. Logged INSTEAD of ``name`` so
+            the always-on WARNING carries no client-identifying text — the name
+            is the test_id, which encodes the project / site code, and
+            ``backend.log`` is unredacted on disk (owner: "no user data leaks").
+            The raised exception still names the CPT, because that message is
+            shown to the engineer looking at their own project.
 
         Raises
         ------
@@ -317,7 +330,7 @@ class ImportCpt(GroundModelLogger):
         """
         if len(result.data) == 0:
             self.warning(
-                f"CPT refresh refused for {name!r}: the file parsed to 0 rows — "
+                f"CPT refresh refused (id={existing_id}): the file parsed to 0 rows — "
                 "the stored series is left untouched"
             )
             raise CptRefreshRefusedError(
@@ -330,7 +343,7 @@ class ImportCpt(GroundModelLogger):
         if errors:
             codes = ", ".join(sorted({i.code for i in errors}))
             self.warning(
-                f"CPT refresh refused for {name!r}: {len(errors)} parse error(s) "
+                f"CPT refresh refused (id={existing_id}): {len(errors)} parse error(s) "
                 f"[{codes}] — the stored series is left untouched"
             )
             raise CptRefreshRefusedError(
@@ -362,11 +375,16 @@ class ImportCpt(GroundModelLogger):
         new_max_depth = max_depth_m(df)
         n_errors = sum(1 for i in result.issues if i.level == ValidationLevel.ERROR)
         n_warnings = sum(1 for i in result.issues if i.level == ValidationLevel.WARNING)
+        # Id (not name) at INFO: the name is the test_id, which encodes the
+        # project / site code, and ``backend.log`` is unredacted on disk. The
+        # numeric diff carries no client identity. The name stays recoverable at
+        # DEBUG, and the raised error still names the CPT for the engineer.
         self.info(
-            f"CPT refresh awaiting confirmation for {name!r} (id={existing.id}): "
+            f"CPT refresh awaiting confirmation (id={existing.id}): "
             f"{existing.n_rows} rows to {existing.max_depth_m} m → {len(df)} rows to "
             f"{new_max_depth} m"
         )
+        self.debug(f"CPT refresh awaiting confirmation (id={existing.id}): name {name!r}")
         return CptRefreshConfirmationRequiredError(
             existing_id=existing.id,
             name=existing.name or name,
