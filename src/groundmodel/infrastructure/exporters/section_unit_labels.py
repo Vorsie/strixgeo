@@ -18,10 +18,34 @@ from __future__ import annotations
 from uuid import UUID
 
 from groundmodel.application.section_polygon_set import SectionPolygonUnit
+from groundmodel.infrastructure.exporters.ascii_fold import ascii_fold
 from groundmodel.infrastructure.exporters.unit_identifier import unit_identifier
 from groundmodel.infrastructure.exporters.unit_identifier_constants import (
     DUPLICATE_MATERIAL_SUFFIX,
 )
+
+
+def _base_label(unit: SectionPolygonUnit) -> str:
+    """Return a unit's base export label — its identifier token or folded name.
+
+    A classified unit's identifier (``NAD-06_ZAND`` / ``ZAND``) is already a
+    closed-vocabulary ASCII token and passes through untouched. Only the
+    fallback — the raw, user-typed ``unit.name`` — is ASCII-folded, because the
+    label becomes a soil NAME/CODE that Deltares PARSES out of a cp1252 ``.shi``
+    / ``.stix`` GEOLib re-opens with the ambient locale: a non-ASCII fallback
+    name is the same ``UnicodeDecodeError``-on-Linux the identification block
+    already folds. The soil name is a self-referential key (its definition and
+    its profile reference are the same label), so folding keeps the only
+    invariant that matters. Folding here — BEFORE the caller disambiguates —
+    means two names that fold to the same ASCII collide in the same namespace
+    and get the ordinal suffix, instead of silently minting a duplicate soil.
+    Byte-identical for a fallback name that is already ASCII (``ascii_fold`` is
+    the identity on pure-ASCII input).
+    """
+    return unit_identifier(
+        nad_class=unit.nad_class,
+        litho_main_soil_code=unit.litho_main_soil_code,
+    ) or ascii_fold(unit.name)
 
 
 def build_unit_labels(units: tuple[SectionPolygonUnit, ...]) -> dict[UUID, str]:
@@ -50,13 +74,7 @@ def build_unit_labels(units: tuple[SectionPolygonUnit, ...]) -> dict[UUID, str]:
     labels: dict[UUID, str] = {}
     taken: dict[str, int] = {}
     for unit in units:
-        base = (
-            unit_identifier(
-                nad_class=unit.nad_class,
-                litho_main_soil_code=unit.litho_main_soil_code,
-            )
-            or unit.name
-        )
+        base = _base_label(unit)
         seen = taken.get(base, 0) + 1
         taken[base] = seen
         labels[unit.formation_id] = (
@@ -87,12 +105,6 @@ def label_collisions(units: tuple[SectionPolygonUnit, ...]) -> dict[str, int]:
     """
     counts: dict[str, int] = {}
     for unit in units:
-        base = (
-            unit_identifier(
-                nad_class=unit.nad_class,
-                litho_main_soil_code=unit.litho_main_soil_code,
-            )
-            or unit.name
-        )
+        base = _base_label(unit)
         counts[base] = counts.get(base, 0) + 1
     return {base: n for base, n in counts.items() if n > 1}
