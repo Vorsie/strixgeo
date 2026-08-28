@@ -300,3 +300,24 @@ def test_dp13_an_unclassified_unit_falls_back_to_its_soil_then_its_name(
 
     assert "ZAND" in text
     assert "Boom Klei" in text
+
+
+def test_dp_ascii_only_a_section_name_with_an_en_dash_stays_readable() -> None:
+    """A .shi must contain no byte outside ASCII.
+
+    Found by CI on Linux (run 33135927403): the fixture's section name
+    ``section A-A'`` carries an EN DASH (U+2013), which cp1252 encodes as the
+    single byte 0x96. GEOLib's own parser opens the file with the ambient
+    locale encoding, so the round-trip works on a cp1252 Windows box and dies
+    with ``UnicodeDecodeError: invalid start byte`` anywhere UTF-8 is the
+    default. A dash in a section name is not exotic — "A-A'" is how engineers
+    name sections — so the artefact, not the reader, has to be portable.
+
+    The identification block is free text whose only job is to say where the
+    file came from; folding it to ASCII costs nothing and makes the file
+    readable by every toolchain.
+    """
+    payload = DSheetPilingExporter().export(_two_layer_set())
+
+    non_ascii = [(i, payload[i]) for i in range(len(payload)) if payload[i] > 0x7F]
+    assert non_ascii == [], f"non-ASCII bytes in the .shi at {non_ascii[:5]}"
