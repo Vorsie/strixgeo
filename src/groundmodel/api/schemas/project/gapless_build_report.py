@@ -67,6 +67,16 @@ class GaplessClauseEntrySchema(BaseModel):
         Its display name, so the line reads without a lookup.
     gap_index : int or None
         The frame gap index within that section.
+    gap_investigation_ids : list of str or None
+        The two investigations whose columns the gap stands between, in axis
+        order — what a reader NAVIGATES by.  ``gap_index`` above is a label the
+        sentence quotes; it indexes the litho frame's column list and nothing
+        else, so it cannot be resolved to a position by any other surface.  The
+        renderer resolves the pair while the frame is still in scope and sends
+        the names; this schema only has to carry them through without dropping
+        them.  ``None`` whenever the clause could not name the pair — a
+        backend-computed clause, a gap index past the frame's own columns, or a
+        report written before this field existed.
     investigation_id : str or None
         A CPT / borehole id, where the finding names one.
     world_x, world_y : float or None
@@ -86,6 +96,7 @@ class GaplessClauseEntrySchema(BaseModel):
     section_id: str | None = None
     section_name: str | None = None
     gap_index: int | None = None
+    gap_investigation_ids: list[str] | None = None
     investigation_id: str | None = None
     world_x: float | None = None
     world_y: float | None = None
