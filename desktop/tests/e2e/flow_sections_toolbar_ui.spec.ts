@@ -29,7 +29,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test'
-import { launchApp, closeApp } from './helpers/electron_launch'
+import { launchApp, closeApp, pinWindowSize } from './helpers/electron_launch'
 import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/project_open'
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
@@ -109,6 +109,12 @@ test.describe('flow_sections_toolbar_ui', () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
+      // WIDTH IS PART OF THIS TEST. The toolbar's overflow planner moves
+      // low-priority items into the "More" menu when space is tight, so which
+      // items sit directly on the strip depends on the window — and Electron
+      // sizes it from whatever screen it opens on. Pin it so the assertions
+      // below mean the same thing on every machine.
+      await pinWindowSize(app)
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Sections')
       await selectFirstSection(page)
@@ -143,10 +149,26 @@ test.describe('flow_sections_toolbar_ui', () => {
       await expect(page.getByTestId('litho-fill-bands')).toBeVisible()
       await dismissMenu(page)
 
-      // --- Admixtures ToolbarDropdown: present (disabled until litho
+      // --- Admixtures ToolbarDropdown: REACHABLE (disabled until litho
       //     suggestions exist — its items act on ghost suggestions, so it
       //     can't be opened on a fresh model; assert reachability only).
-      await expect(page.getByTestId('litho-admixtures-dropdown')).toBeVisible()
+      //
+      //     Reachable means "on the strip OR in the overflow menu", not "on
+      //     the strip". Admixtures is priority `low` (see toolbarOverflow), so
+      //     the planner is entitled to move it into "More" — that IS the
+      //     owner-ruled behaviour, and asserting direct visibility made this
+      //     spec fail for a toolbar that was working correctly.
+      const admixtures = page.getByTestId('litho-admixtures-dropdown')
+      if ((await admixtures.count()) === 0) {
+        await page.getByTestId('toolbar-overflow-more').click()
+        await expect(
+          page.getByTestId('litho-admixtures-dropdown'),
+          'Admixtures must be reachable on the strip or in the overflow menu',
+        ).toBeVisible()
+        await dismissMenu(page)
+      } else {
+        await expect(admixtures).toBeVisible()
+      }
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
