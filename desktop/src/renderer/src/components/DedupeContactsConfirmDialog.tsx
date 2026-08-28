@@ -22,6 +22,7 @@
 // confirm.
 
 import ConfirmDialog from './ui/ConfirmDialog'
+import { useT } from '../i18n/translate'
 
 interface Props {
   /** Truthy = render the dialog. The caller owns the open lifecycle. */
@@ -55,6 +56,7 @@ export default function DedupeContactsConfirmDialog({
   onConfirm,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const oneContact = duplicateContacts === 1
   const onePair = duplicatePairs === 1
   return (
@@ -66,43 +68,38 @@ export default function DedupeContactsConfirmDialog({
       cancelTestid="dedupe-contacts-cancel"
       onCancel={onCancel}
       busy={busy}
-      title="Remove duplicate contacts?"
+      title={t('dialog.dedupeTitle')}
       body={
         <>
           {duplicateContacts > 0 ? (
             <p data-testid="dedupe-contacts-count">
               <span className="font-semibold">
-                {duplicateContacts} contact{oneContact ? '' : 's'}
+                {t(oneContact ? 'dialog.dedupeCountOne' : 'dialog.dedupeCountMany', {
+                  n: duplicateContacts,
+                })}
               </span>{' '}
-              will be permanently deleted, across {duplicatePairs} investigation-and-formation
-              pair{onePair ? '' : 's'} that carr{onePair ? 'ies' : 'y'} more than one pick.
+              {t(onePair ? 'dialog.dedupePairsOne' : 'dialog.dedupePairsMany', {
+                pairs: duplicatePairs,
+              })}
             </p>
           ) : (
             /* No number to quote — but the loaded list may lag the saved model,
                so the check itself still has to be reachable. */
-            <p data-testid="dedupe-contacts-nothing">
-              Nothing in the contacts loaded here looks duplicated. Running the cleanup
-              re-checks against the saved model and removes anything it finds.
-            </p>
+            <p data-testid="dedupe-contacts-nothing">{t('dialog.dedupeNothing')}</p>
           )}
           {/* Which pick survives is the question the engineer actually has when he
               reads a delete count, and the answer is not obvious from the button. */}
           <p className="mt-2" data-testid="dedupe-contacts-survivor">
-            One pick survives in each pair: a hand-placed pick is always kept over an
-            auto-placed one, and between two of the same kind the one still linked to a
-            borehole layer wins, then the newest.
+            {t('dialog.dedupeRule')}
           </p>
           {/* The only recovery is the project-wide one, and it is worth naming
               precisely: it rolls back everything since the last save, not just
               this cleanup, and it does nothing for a project never yet saved. */}
-          <p className="mt-2 text-text-secondary">
-            This cannot be undone &mdash; nothing puts a removed contact back. Closing the
-            project without saving rolls the whole project back to the last save.
-          </p>
+          <p className="mt-2 text-text-secondary">{t('dialog.dedupeUndo')}</p>
         </>
       }
       confirm={{
-        label: 'Remove duplicates',
+        label: t('dialog.dedupeConfirm'),
         onClick: onConfirm,
         variant: 'danger',
         testid: 'dedupe-contacts-confirm',
