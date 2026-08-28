@@ -2,7 +2,7 @@
  * The contract by which something outside the section canvas asks it to bring a
  * pair of columns into view.
  *
- * The caller names INVESTIGATIONS and an edge to flash. It never names a
+ * The caller names INVESTIGATIONS and an optional landing marker. It never names a
  * position, an index, or a column-list slot — resolving where a column is drawn
  * belongs to the surface that drew it, and only that surface. The same rule
  * cost a real bug once already on the crossing chip, where the conflict's
@@ -37,6 +37,15 @@ export interface SectionColumnRevealRequest {
    * no tie to mark, only a test he has to subdivide.
    */
   flashColumnId?: string
+  /**
+   * The two investigations bounding a GAP whose span gets the landing pulse.
+   *
+   * A model-check finding belongs to the ground between its columns, not to
+   * either column. The panel resolves this pair against the same live column
+   * layout it just centred, so even a very narrow gap receives a visible marker
+   * without an index or an X coordinate crossing the boundary.
+   */
+  flashGapInvestigationIds?: readonly [string, string]
 }
 
 /** What the section view did — or could not do — with the request. */
