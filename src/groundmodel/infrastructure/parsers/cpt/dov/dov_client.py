@@ -53,6 +53,7 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker import parse_cpt_xml
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import is_allowed_dov_url
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -350,6 +351,7 @@ class DovClient(GroundModelLogger):
 
         tuples: list[_WfsFeatureTuple] = []
         missing_url = 0
+        off_host = 0
         for feat in features:
             props = feat.get("properties", {})
             # `fiche` = the canonical URL of the sondering record.
@@ -368,9 +370,27 @@ class DovClient(GroundModelLogger):
                     if DOV_FICHE_URL_PREFIX in fiche_url
                     else fiche_url.rstrip("/") + ".xml"
                 )
+                # `fiche` is attacker-controllable (whoever authored the WFS
+                # response). Before it becomes a URL we GET, confirm it points
+                # at an allow-listed DOV host — otherwise it is a blind-SSRF
+                # steer (e.g. a link-local metadata endpoint) and is dropped,
+                # not fetched.
+                if not is_allowed_dov_url(xml_url):
+                    off_host += 1
+                    self.warning(
+                        f"DOV WFS: feature '{test_name}' has a non-DOV fiche URL "
+                        f"{fiche_url!r} → {xml_url!r} — refused, not fetched (SSRF guard)"
+                    )
+                    continue
                 tuples.append((xml_url, test_name, x_l72, y_l72))
             else:
                 missing_url += 1
+
+        if off_host:
+            self.warning(
+                f"DOV WFS: {off_host} feature(s) named a non-DOV host and were refused "
+                "— see the per-feature warnings above"
+            )
 
         if missing_url:
             available_keys = (
