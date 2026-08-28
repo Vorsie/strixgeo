@@ -34,6 +34,17 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'export.dSheetPiling',
   'export.title', // "Exports" is the plural used in BE Dutch too
   'sections.toolbar.export',
+  // D-Series export rows carry the product + file-extension name verbatim.
+  'sections.export.dstability',
+  'sections.export.dsheetpiling',
+  // Pure placeholder format strings (no translatable words) + the loanword
+  // "contact", which is spelled the same in BE Dutch (its plural "contacten"
+  // is NOT here — that one diverges).
+  'litho.pillCounts',
+  'litho.bodyCount',
+  'litho.markers',
+  'litho.contactWordOne',
+  'geology.unitCount',
   // Loanwords that are the SAME word in Dutch.
   'spine.data',
   'spine.parameters',
@@ -53,6 +64,11 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'sections.header.formalStratigraphyShort',
   'sections.header.informalStratigraphyShort',
   'sections.header.geotechnicalCodingShort',
+  // Axis-pill segment abbreviations — kept as-is in BE Dutch, like the
+  // stratigraphy short forms above.
+  'sections.axis.geoShort',
+  'sections.axis.litho',
+  'sections.axis.geotech',
   // Already Dutch at source: DOV's own product name, and the DOV borehole
   // header field label. Translating either would disagree with the data.
   'sections.vb.title',
