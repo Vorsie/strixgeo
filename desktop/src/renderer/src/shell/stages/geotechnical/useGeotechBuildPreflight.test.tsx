@@ -252,6 +252,7 @@ describe('useGeotechBuildPreflight', () => {
       // AND pulses that column. (A two-id payload names a gap instead — the
       // gapless report's "Show me" — and marks neither end.)
       revealInvestigationIds: ['B12'],
+      sectionModelAxis: 'geotechnical',
     })
     // The visit replaces the question: he is being sent somewhere else.
     expect(result.current.askingAbout).toBeNull()
