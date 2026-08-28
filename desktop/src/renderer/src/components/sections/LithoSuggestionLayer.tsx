@@ -7,7 +7,7 @@
  * Pure render component (no hooks).
  */
 import type { LithoLayerSuggestion } from '../../api/client'
-import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { lithoDisplayName } from '../../utils/lithoLabels'
 import { formatNadClass } from '../../utils/formatNadClass'
 import MultiLineLabel from './MultiLineLabel'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
@@ -125,7 +125,7 @@ export function LithoSuggestionLayer({
   // editing the composition produced no visible change because the
   // label was just the base lithology). Falls back to base name
   // when there are no admixtures.
-  const labelText = formatLithoDisplayName(
+  const labelText = lithoDisplayName(
     layer.suggested_lithology,
     layer.suggested_admixtures ?? [],
   )
