@@ -14,6 +14,7 @@ import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import StageSpine from './StageSpine'
+import { setLanguage } from '../i18n/languageSelect'
 
 const setMarqueeSelectedIds = vi.fn()
 
@@ -46,11 +47,31 @@ let currentSelection: Set<string> = new Set()
 
 afterEach(() => {
   cleanup()
+  setLanguage('en')
   setMarqueeSelectedIds.mockReset()
   currentSelection = new Set()
 })
 
 describe('StageSpine selection footer (debt #44)', () => {
+  it('renders the workflow rail in Dutch when Dutch is active', () => {
+    setLanguage('nl')
+    render(<StageSpine activeStageId="sections" onSelectStage={vi.fn()} />)
+    expect(screen.getByRole('navigation', { name: 'Werkvolgorde' })).toBeInTheDocument()
+    const sectionButton = screen.getByRole('button', { name: 'Profielen' })
+    expect(sectionButton).toHaveAttribute('title', 'Profielen')
+    expect(screen.getByText('Profielen')).toBeInTheDocument()
+  })
+
+  it('renders the selection footer in Dutch when Dutch is active', () => {
+    currentSelection = new Set(['cpt-1', 'cpt-2'])
+    setLanguage('nl')
+    render(<StageSpine activeStageId="data" onSelectStage={vi.fn()} />)
+    expect(screen.getByTestId('selection-footer-clear')).toHaveAttribute(
+      'aria-label',
+      '2 geselecteerd — klik om te wissen',
+    )
+  })
+
   it('S1 — footer is empty when nothing is selected', () => {
     currentSelection = new Set()
     render(<StageSpine activeStageId="data" onSelectStage={vi.fn()} />)
