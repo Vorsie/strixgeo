@@ -1900,7 +1900,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             ).all()
             for cr in cpt_rows:
-                cpt_xy[cr.id] = (cr.location_x, cr.location_y, cr.elevation_m or 0.0)
+                # A missing collar (NULL) falls back to a 0 m datum; a surveyed
+                # collar of exactly 0.0 m TAW is a real value and must NOT be
+                # conflated with "no elevation" (owner ruling 2026-08-28). The
+                # explicit ``is not None`` guards against that — ``or 0.0``
+                # would map a real 0.0 collar through the same fallback branch.
+                surface_elev = cr.elevation_m if cr.elevation_m is not None else 0.0
+                cpt_xy[cr.id] = (cr.location_x, cr.location_y, surface_elev)
                 cpt_names[cr.id] = cr.name
 
         # Phase 7 — where "left" and "right" are defined.
@@ -2072,8 +2078,16 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     ).where(BoreholeOrm.id.in_(bh_ids))
                 )
             ).all()
+            # As above: a real 0.0 m TAW collar is a value, not "no elevation";
+            # only a NULL collar takes the 0 m datum fallback (owner ruling
+            # 2026-08-28).
             bh_xy: dict[UUID, tuple[float, float, float]] = {
-                br.id: (br.location_x, br.location_y, br.elevation_m or 0.0) for br in bh_rows
+                br.id: (
+                    br.location_x,
+                    br.location_y,
+                    br.elevation_m if br.elevation_m is not None else 0.0,
+                )
+                for br in bh_rows
             }
             for br in bh_rows:
                 borehole_names[str(br.id)] = br.name
