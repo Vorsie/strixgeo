@@ -28,6 +28,7 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 from datetime import datetime
+from xml.sax.saxutils import escape
 
 import matplotlib
 
@@ -148,7 +149,14 @@ class SectionPdfReportExporter(GroundModelLogger):
         story: list = []
 
         # --- Title + metadata table -------------------------------------
-        story.append(Paragraph(metadata.title, styles["Title"]))
+        # ``metadata.title`` is user-controlled and the export route defaults
+        # it to "Cross-section: <section_name>", so an attacker-controlled
+        # section name from a crafted .strix reaches here. reportlab's
+        # Paragraph parses an intra-paragraph markup (``<b>``, ``<img>``,
+        # ...), so raw ``<`` breaks the render and ``<img src=...>`` opens a
+        # local file — XML-escape it so the markup is rendered as literal
+        # text. Ordinary names carry no ``<>&`` and pass through unchanged.
+        story.append(Paragraph(escape(metadata.title), styles["Title"]))
         story.append(Spacer(1, 4 * mm))
         meta_rows = [
             ["Project", snapshot.project_name],
@@ -178,7 +186,8 @@ class SectionPdfReportExporter(GroundModelLogger):
 
         if metadata.notes:
             story.append(Spacer(1, 3 * mm))
-            story.append(Paragraph(metadata.notes, styles["BodyText"]))
+            # Same markup surface as the title — escape the free-text notes.
+            story.append(Paragraph(escape(metadata.notes), styles["BodyText"]))
 
         # --- Section figure --------------------------------------------
         story.append(Spacer(1, 5 * mm))
