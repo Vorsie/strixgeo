@@ -26,7 +26,7 @@ import type {
   LithoLayerSuggestion,
 } from '../../api/client'
 import { useBoundaryDrag } from '../../hooks/useBoundaryDrag'
-import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { lithoDisplayName } from '../../utils/lithoLabels'
 import { formatNadClass } from '../../utils/formatNadClass'
 import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
@@ -592,7 +592,7 @@ export default function LithoSuggestionGhostColumns({
           },
           targetAnchorId: target.anchorId,
           targetIdx: target.idx,
-          targetLabel: formatLithoDisplayName(tgtEffectiveLitho, tgtEffectiveAdmix),
+          targetLabel: lithoDisplayName(tgtEffectiveLitho, tgtEffectiveAdmix),
         })
         setCopyDrag(null)
         return
@@ -1264,7 +1264,7 @@ export default function LithoSuggestionGhostColumns({
           className="bg-amber-500 text-white text-xs font-medium px-2 py-1 rounded shadow"
           data-testid="copy-composition-preview-chip"
         >
-          Copy {formatLithoDisplayName(
+          Copy {lithoDisplayName(
             edits?.get(copyDrag.sourceIdx)?.suggested_lithology ??
               suggestions[copyDrag.sourceIdx]?.suggested_lithology ??
               '?',
