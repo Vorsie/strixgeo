@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { t } from '../../i18n/translate'
 import type { BoreholeDetailResponse } from '../../api/client'
 import {
   DRILL_TRACK_WIDTH,
@@ -52,17 +53,17 @@ function makeBorehole(
 
 describe('humanizeObservationType', () => {
   it('translates known tokens to English titles', () => {
-    expect(humanizeObservationType('coded_lithology')).toBe('Coded lithology')
-    expect(humanizeObservationType('formal_stratigraphy')).toBe(
+    expect(humanizeObservationType(t, 'coded_lithology')).toBe('Coded lithology')
+    expect(humanizeObservationType(t, 'formal_stratigraphy')).toBe(
       'Formal stratigraphy',
     )
     expect(
-      humanizeObservationType('informal_hydrogeological_stratigraphy'),
+      humanizeObservationType(t, 'informal_hydrogeological_stratigraphy'),
     ).toBe('Informal hydrogeological stratigraphy')
   })
 
   it('passes unknown tokens through verbatim', () => {
-    expect(humanizeObservationType('something_new')).toBe('something_new')
+    expect(humanizeObservationType(t, 'something_new')).toBe('something_new')
   })
 })
 
