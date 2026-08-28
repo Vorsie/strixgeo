@@ -313,13 +313,27 @@ export default function GeotechnicalCanvas(): JSX.Element {
 
   // Walk to a spot the gapless report names. Same three-step deep-link the
   // pre-flight's "visit test" uses; ``contactIds`` stays empty because this is
-  // about a SECTION, and ``handleFocusContacts`` no-ops on an empty list, so
-  // the two paths cannot fight over the camera.
+  // about a COLUMN PAIR, and ``handleFocusContacts`` no-ops on an empty list,
+  // so the two paths cannot fight over the camera.
+  //
+  // The finding hands over the gap's own two columns BY NAME
+  // (``gap_investigation_ids``); the section panel turns them back into a
+  // position through its own column list, and the midpoint of their span IS
+  // the gap. Owner dogfeed 2026-08-28: *"the show me button opens section but
+  // doesn't zoom to issue"*.
+  //
+  // No names → no reveal request at all, so the press does exactly what it did
+  // before: it opens the section. Better a press that under-delivers than one
+  // that centres somewhere confidently wrong.
   // Declared ABOVE every early return — the hook order must not depend on
   // whether a model exists yet.
-  const visitReportSection = useCallback(
-    (sectionId: string) => {
-      setSectionsDeepLinkTarget({ sectionId, contactIds: [] })
+  const visitReportSpot = useCallback(
+    (sectionId: string, gapInvestigationIds: readonly string[]) => {
+      setSectionsDeepLinkTarget({
+        sectionId,
+        contactIds: [],
+        ...(gapInvestigationIds.length > 0 && { revealInvestigationIds: gapInvestigationIds }),
+      })
     },
     [setSectionsDeepLinkTarget],
   )
@@ -359,7 +373,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
         {content}
         <GeotechBuildReportBanner
           report={geotechGaplessReport}
-          onVisitSection={visitReportSection}
+          onVisitSpot={visitReportSpot}
         />
       </div>
     )
@@ -404,7 +418,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
 
       <GeotechBuildReportBanner
         report={geotechGaplessReport}
-        onVisitSection={visitReportSection}
+        onVisitSpot={visitReportSpot}
       />
     </div>
   )
