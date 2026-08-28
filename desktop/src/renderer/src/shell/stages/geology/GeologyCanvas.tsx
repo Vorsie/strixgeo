@@ -25,6 +25,7 @@ import { Mountain, Plus } from 'lucide-react'
 
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 import Geology3DViewer from './Geology3DViewer'
 import { useBody3DViewState } from '../shared/useBody3DViewState'
 import { geologyEmptyState } from './geologyEmptyState'
@@ -84,6 +85,8 @@ export default function GeologyCanvas(): JSX.Element {
     overlays: { showConfidenceFade },
   } = useShell()
 
+  const t = useT()
+
   // Debt #33: a CPT-only project has no boreholes, so "Fill from
   // boreholes" is permanently disabled — the empty canvas must not
   // dead-end there. This CTA creates a placeholder formation inline
@@ -96,6 +99,10 @@ export default function GeologyCanvas(): JSX.Element {
     if (creatingFormation) return
     setCreatingFormation(true)
     try {
+      // 'New formation' is a STORED placeholder name (written to the DB and
+      // carried into exports), not a rendered label — it stays English by the
+      // "never translate a stored/transported token" rule. The user renames it
+      // in the inspector.
       await handleInlineCreateFormation({ name: 'New formation' })
     } finally {
       setCreatingFormation(false)
@@ -199,6 +206,7 @@ export default function GeologyCanvas(): JSX.Element {
   // §5 addendum): the Geology canvas is 3D-or-message only; geographic
   // context lives in the Data stage.
   const { guidance, showAddFormation } = geologyEmptyState(
+    t,
     geologicalFormations.length > 0,
     visibleBoreholes.length > 0,
   )
@@ -212,7 +220,7 @@ export default function GeologyCanvas(): JSX.Element {
           type="button"
           onClick={() => void handleAddFormation()}
           disabled={creatingFormation}
-          title="Create a placeholder formation — rename and recolour it in the inspector"
+          title={t('geology.newFormationHint')}
           className={[
             'inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -222,7 +230,7 @@ export default function GeologyCanvas(): JSX.Element {
           ].join(' ')}
         >
           <Plus size={13} />
-          {creatingFormation ? 'Adding…' : 'Add formation'}
+          {creatingFormation ? t('geology.adding') : t('geology.addFormation')}
         </button>
       )}
     </div>
