@@ -37,10 +37,33 @@ export const PANELS_NL = {
   'borelog.labTests': 'Labproeven',
   'borelog.clickSampleToView': 'klik op een monster om te bekijken',
   'borelog.samplesAndLabTests': 'Monsters + labproeven',
+  'borelog.sampleCountOne': '{n} monster',
+  'borelog.sampleCountMany': '{n} monsters',
   'borelog.toggleColumns': 'Kolommen tonen/verbergen',
   'borelog.toggleColumnsHint': 'Toon of verberg kolommen van de boorstaat',
+  'borelog.columns': 'Kolommen',
+  'borelog.columnsHidden': 'Kolommen ({n} verborgen)',
+  'borelog.hideColumn': 'Kolom verbergen',
+  'borelog.trackNotPresent': 'Deze kolom is niet aanwezig op deze boring',
+  'borelog.cannotHideLast': 'Kan niet verbergen — dit is de laatste zichtbare kolom',
+  'borelog.missingValue': '— ontbreekt —',
+  // Weergavelabels van de observatiekolommen — de DOV observation_type-token
+  // blijft ruw in het domein; enkel het getoonde label wordt vertaald.
+  'borelog.obs.coded_lithology': 'Gecodeerde lithologie',
+  'borelog.obs.geotechnical_coding': 'Geotechnische codering',
+  'borelog.obs.lithological_description': 'Lithologische beschrijving',
+  'borelog.obs.formal_stratigraphy': 'Formele stratigrafie',
+  'borelog.obs.informal_stratigraphy': 'Informele stratigrafie',
+  'borelog.obs.quaternary_stratigraphy': 'Kwartaire stratigrafie',
+  'borelog.obs.hydrogeological_stratigraphy': 'Hydrogeologische stratigrafie',
+  'borelog.obs.informal_hydrogeological_stratigraphy':
+    'Informele hydrogeologische stratigrafie',
   'borelog.followSection': 'Profiel volgen',
   'borelog.toggleVirtueleBoring': 'DOV Virtuele Boring-overlay aan/uit',
+  'borelog.dovPickModelHint':
+    'Kies een DOV-model in de keuzelijst of het profielvenster om deze overlay in te schakelen',
+  'borelog.hideDovOverlay': 'DOV Virtuele Boring-overlay verbergen',
+  'borelog.showDovOverlay': 'DOV Virtuele Boring-overlay tonen',
   'borelog.dovOverlayModel': 'DOV-overlaymodel voor dit venster',
   'borelog.overrideDovModel': 'Kies zelf welk DOV-model dit venster toont',
   'borelog.loadingDovPredictions': 'DOV-voorspellingen laden',
@@ -120,15 +143,32 @@ export const PANELS_NL = {
   'dialog.dedupeTitle': 'Dubbele laaggrenzen verwijderen?',
   'dialog.dedupeConfirm': 'Duplicaten verwijderen',
   'dialog.dedupeNothing':
-    'Niets in de hier geladen laaggrenzen ziet eruit als een duplicaat. De opschoning zou niets veranderen.',
+    'Niets in de hier geladen laaggrenzen ziet eruit als een duplicaat. De opschoning toetst opnieuw aan het opgeslagen model en verwijdert wat ze vindt.',
   'dialog.dedupeRule':
-    'Uit elk paar blijft er één over: een handmatig geplaatste keuze wint altijd van een automatisch afgeleide.',
+    'Uit elk paar blijft er één over: een handmatig geplaatste keuze wint altijd van een automatisch geplaatste, en tussen twee van dezelfde soort wint degene die nog aan een boorlaag gekoppeld is, daarna de nieuwste.',
+  // Zin met het aantal verwijderingen, gesplitst zodat het vetgedrukte aantal en
+  // de paar-zin elk apart in enkel- of meervoud gaan.
+  'dialog.dedupeCountOne': '{n} laaggrens',
+  'dialog.dedupeCountMany': '{n} laaggrenzen',
+  'dialog.dedupePairsOne':
+    'worden definitief verwijderd, verspreid over {pairs} onderzoek-en-formatiepaar dat meer dan één keuze draagt.',
+  'dialog.dedupePairsMany':
+    'worden definitief verwijderd, verspreid over {pairs} onderzoek-en-formatieparen die meer dan één keuze dragen.',
+  'dialog.dedupeUndo':
+    'Dit kan niet ongedaan gemaakt worden — niets zet een verwijderde laaggrens terug. Het project sluiten zonder opslaan zet het hele project terug naar de laatste bewaaractie.',
   'dialog.reCorrelateTitle': 'Autocorrelatie vond bestaande verbindingen',
   'dialog.reCorrelateRerun':
     'Opnieuw correleren — automatische verbindingen verwijderen en opnieuw uitvoeren',
   'dialog.reCorrelateSkip': 'Overslaan — bestaande behouden',
   'dialog.reCorrelateNote':
     'Handmatige verbindingen — en voorstellen van andere profielen — blijven hoe dan ook bewaard.',
+  // Tekstzin, gesplitst rond het vetgedrukte aantal zodat "{n}" benadrukt kan worden.
+  'dialog.reCorrelateBodyPreOne': 'Er is al',
+  'dialog.reCorrelateBodyPreMany': 'Er zijn al',
+  'dialog.reCorrelateBodyPostOne':
+    'automatische correlatieverbinding op dit profiel. Wat wil je doen?',
+  'dialog.reCorrelateBodyPostMany':
+    'automatische correlatieverbindingen op dit profiel. Wat wil je doen?',
   'dialog.snapTitle': 'Vastklikken op de geologische laaggrens?',
   'dialog.snapLithoToGeo': 'Litho op geologie vastklikken',
   'dialog.snapGeoToLitho': 'Geologie naar litho verplaatsen',
@@ -146,6 +186,9 @@ export const PANELS_NL = {
   'dialog.crossingPickerTitle': 'In welk dwarsprofiel openen?',
   'dialog.crossingPickerBlurb': 'Kies een dwarsprofiel',
   'dialog.crossingPickerOpen': 'Profiel openen',
+  // Tekstzin, gesplitst rond het vetgedrukte aantal.
+  'dialog.crossingPickerBodyPre': 'De betrokken laaggrenzen komen voor op',
+  'dialog.crossingPickerBodyPost': 'dwarsprofielen. Kies er een om ernaartoe te gaan.',
   'dialog.recoveryRestore': 'Herstellen',
   'dialog.recoveryNotNow': 'Niet nu',
   'dialog.recoveryDeleteBackup': 'Back-up verwijderen',
