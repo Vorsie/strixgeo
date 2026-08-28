@@ -22,14 +22,39 @@ which projected CRS the X/Y values are in.
 
 What the DXF carries
 ---------------------
-One ``3DFACE`` entity per triangle, grouped onto one DXF layer per
-``formation_id`` (named after the panel's display ``name``, coloured
-with the panel's ``color``). Each face has its INTERIOR edges (shared
-with a neighbouring triangle in the same panel) marked invisible via
-the 3DFACE edge-visibility flags, so CAD renders a clean panel outline
-instead of a visible triangle mesh — deterministic, with no boundary-
-walk / outline-polyline pass needed (and no multi-loop failure mode to
-debug if one existed).
+One ``3DFACE`` entity per triangle. Faces are grouped onto DXF layers
+named by the unit's **machine identifier** — ``Fence-NAD-06_ZAND`` for a
+geotech unit, ``Fence-ZAND`` for a litho unit — built by the shared
+``unit_identifier`` scheme the section DXF and Plaxis exports already use
+(debt #104), NOT by the panel's display ``name``. Two consequences the
+owner asked for (2026-08-28):
+
+* **A layer name identifies the unit.** ``Fence-NAD-06_ZAND`` tells a CAD
+  user which packing class the panel is, where the old ``Fence-SAND``
+  (display name) plus a uuid8 collision suffix told them nothing — 34 of
+  the owner's formations shared one uuid8 prefix.
+* **Panels of the same identifier share ONE layer** ("extend thinning to
+  the fence"). The #104b ``ThinExportUnits`` pass cannot run here — it
+  needs a ``SectionSnapshot``'s per-column depth contacts, which a
+  triangulated 3-D fence does not carry — but naming the layer by the
+  bare identifier delivers the same outcome: every same-class body lands
+  on one material layer. No panel GEOMETRY is merged (owner: connected
+  bodies are already merged upstream in the sections stage); a visible
+  seam between two same-identifier panels is an UPSTREAM connectivity
+  bug, not the exporter's to paper over.
+
+The unit's ``nad_class`` + ``litho_main_soil_code`` are NOT on the
+renderer-POSTed panel; the export route looks them up from the panel's
+``formation_id`` and passes them in ``identity_by_formation_id``. A unit
+that carries neither (a geological formation, or a formation the lookup
+could not resolve) keeps its display ``name`` as the layer, byte-
+identical to before, and is disambiguated on collision as before.
+
+Each face has its INTERIOR edges (shared with a neighbouring triangle in
+the same panel) marked invisible via the 3DFACE edge-visibility flags,
+so CAD renders a clean panel outline instead of a visible triangle mesh
+— deterministic, with no boundary-walk / outline-polyline pass needed
+(and no multi-loop failure mode to debug if one existed).
 
 Why this is NOT a ``SectionExporter``
 --------------------------------------
@@ -49,7 +74,8 @@ from __future__ import annotations
 
 import io
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 
 import ezdxf
 from ezdxf.colors import RGB
@@ -65,7 +91,32 @@ from groundmodel.infrastructure.exporters.dxf_fence_exporter_constants import (
 )
 from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
 from groundmodel.infrastructure.exporters.fence_panel_source import FencePanelSource
+from groundmodel.infrastructure.exporters.unit_identifier import unit_identifier
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+@dataclass(frozen=True)
+class FenceFormationIdentity:
+    """The machine-identity a fence layer name is derived from (debt #104).
+
+    The renderer-POSTed panel carries no ``nad_class`` / ``litho_main_soil_code``
+    — the export route looks them up from the panel's ``formation_id`` and hands
+    them in, keyed by that id. Data only, no behaviour, so it does not inherit
+    ``GroundModelLogger`` (CLAUDE.md "Logging via inheritance").
+
+    Attributes
+    ----------
+    nad_class : int | None
+        Belgian NAD packing class 1..31 on a geotechnical unit; ``None`` on a
+        litho unit, a geological formation, or an unclassified geotech band.
+    litho_main_soil_code : str | None
+        BaseLithology token (ZAND / KLEI / SILT / GRIND / VEEN) on a litho or
+        geotech unit; ``None`` on a geological formation.
+    """
+
+    nad_class: int | None
+    litho_main_soil_code: str | None
+
 
 # A 3DFACE built from 3 vertices gets a 4th, duplicated vertex from ezdxf
 # (vtx3 = vtx2) so DXF edge index 2 (vtx2-vtx3) is always a zero-length,
@@ -93,6 +144,7 @@ class DxfFenceExporter(GroundModelLogger):
         *,
         project_name: str,
         crs_epsg: int | None,
+        identity_by_formation_id: Mapping[str, FenceFormationIdentity] | None = None,
     ) -> bytes:
         """Build the fence DXF and return the serialised bytes.
 
@@ -110,6 +162,14 @@ class DxfFenceExporter(GroundModelLogger):
             has no resolvable default (legacy project with no
             investigation to fall back to) — the DXF is still emitted,
             just without the ``EPSG`` custom property.
+        identity_by_formation_id : Mapping[str, FenceFormationIdentity] or None
+            The ``nad_class`` + ``litho_main_soil_code`` of each panel's
+            formation, resolved by the export route from the panel's
+            ``formation_id`` (debt #104). Used to name each layer by the
+            unit's machine identifier. ``None`` / empty (or a formation not
+            in the map) falls back to the panel's display ``name`` for that
+            layer — the pre-#104 behaviour, so a geological-model fence and
+            any caller that omits the map are unchanged.
 
         Returns
         -------
@@ -117,9 +177,11 @@ class DxfFenceExporter(GroundModelLogger):
             DXF file content (UTF-8 encoded) ready to stream as an HTTP
             response body.
         """
+        identities = identity_by_formation_id or {}
         self.info(
             f"Exporting fence DXF: project={project_name!r} "
-            f"panels={len(panels)} crs_epsg={crs_epsg}"
+            f"panels={len(panels)} crs_epsg={crs_epsg} "
+            f"identities={len(identities)}"
         )
         doc = ezdxf.new(dxfversion="R2018", setup=True)
         msp = doc.modelspace()
@@ -138,33 +200,70 @@ class DxfFenceExporter(GroundModelLogger):
                 f"project={project_name!r}"
             )
 
-        layer_by_formation_id = self._setup_layers(doc, panels)
+        layer_by_formation_id = self._setup_layers(doc, panels, identities)
         face_count = self._draw_panels(msp, panels, layer_by_formation_id)
 
         sink = io.StringIO()
         doc.write(sink)
         payload = sink.getvalue().encode("utf-8")
+        # Identifier coverage (debt #104): "my geotech fence DXF has no NAD
+        # layer names" must be diagnosable from the log alone. Count the
+        # DISTINCT formations that resolved to an identifier vs fell back to
+        # their display name.
+        identifier_formations = sum(
+            1
+            for fid, identity in identities.items()
+            if unit_identifier(
+                nad_class=identity.nad_class,
+                litho_main_soil_code=identity.litho_main_soil_code,
+            )
+            is not None
+        )
+        # Distinct layer count, not formation count — same-identifier formations
+        # collapse onto one layer, which is the whole point of the naming.
         self.success(
             f"Fence DXF exported: project={project_name!r} "
-            f"panels={len(panels)} layers={len(layer_by_formation_id)} "
+            f"panels={len(panels)} "
+            f"formations={len(layer_by_formation_id)} "
+            f"layers={len(set(layer_by_formation_id.values()))} "
+            f"[identifier-named formations {identifier_formations}] "
             f"faces={face_count} size={len(payload)} bytes"
         )
         return payload
 
     # ------------------------------------------------------------------
-    # Layer setup — one per distinct formation_id across all panels.
+    # Layer setup — one per distinct unit IDENTIFIER (debt #104), collapsing
+    # same-identifier formations, with a name fallback for the unclassified.
     # ------------------------------------------------------------------
 
-    def _setup_layers(self, doc: Drawing, panels: Sequence[FencePanelSource]) -> dict[str, str]:
-        """Register one DXF layer per distinct ``formation_id``.
+    def _setup_layers(
+        self,
+        doc: Drawing,
+        panels: Sequence[FencePanelSource],
+        identity_by_formation_id: Mapping[str, FenceFormationIdentity],
+    ) -> dict[str, str]:
+        """Register the DXF layers and return ``formation_id -> layer name``.
 
-        The FIRST panel seen for a given ``formation_id`` decides that
-        layer's display name and colour; later panels for the same
-        formation only contribute faces to the already-registered layer.
-        Mirrors ``dxf_section_exporter.py``'s ``_setup_layers`` collision
-        handling: two panels can want the same sanitised layer name (two
-        distinct formations that happen to share a display name), so a
-        collision is disambiguated instead of raising.
+        A panel's layer name is the unit's machine identifier
+        (``Fence-NAD-06_ZAND``) when the route resolved one for its formation,
+        else the panel's display ``name`` (``Fence-Boom Klei``). The two paths
+        differ in collision handling, which is the whole point of the ruling:
+
+        * **Identifier path** — panels of the SAME identifier deliberately share
+          ONE layer ("two units of the same identifier land on one layer"), so
+          an already-registered identifier layer is reused, never disambiguated.
+        * **Display-name path** — two DISTINCT formations that happen to share a
+          sanitised name are disambiguated so each keeps its own surface, exactly
+          as before #104 (and as ``dxf_section_exporter.py`` does).
+
+        When several formations collapse onto one identifier layer they may carry
+        different colours (a litho colour, or an engineer's ``color_override``);
+        the layer takes the colour of the SHALLOWEST contributing panel — highest
+        top elevation, #104b's "shallower parent wins" expressed geometrically —
+        tie-broken by ``formation_id`` so the choice never depends on the order
+        the panels arrive in. For the common geotech case there is no conflict:
+        the NAD colour is a function of the class, so every ``NAD-06_ZAND`` panel
+        already carries the same colour.
 
         Parameters
         ----------
@@ -172,35 +271,87 @@ class DxfFenceExporter(GroundModelLogger):
             The DXF document being built.
         panels : Sequence[FencePanelSource]
             The panels to export.
+        identity_by_formation_id : Mapping[str, FenceFormationIdentity]
+            ``formation_id -> (nad_class, litho_main_soil_code)`` from the route.
 
         Returns
         -------
         dict[str, str]
-            ``formation_id -> layer name``.
+            ``formation_id -> layer name``. Several ids can map to one layer.
         """
         layer_by_formation_id: dict[str, str] = {}
+        # Per layer, the shallowest contributor decides the colour:
+        # (top_elevation, formation_id, rgb). A layer is styled once, after every
+        # panel has voted, so the colour never depends on registration order.
+        color_winner: dict[str, tuple[float, str, RGB | None]] = {}
+
         for panel in panels:
-            if panel.formation_id in layer_by_formation_id:
-                continue
-            layer_name = _sanitise_layer_name(panel.name)
-            if doc.layers.has_entry(layer_name):
-                layer_name = _disambiguate_layer_name(
-                    layer_name, panel.formation_id, doc.layers.has_entry
-                )
-                self.warning(
-                    f"DXF layer name collision on fence panel {panel.name!r} "
-                    f"(formation_id={panel.formation_id}) — exporting it as "
-                    f"{layer_name!r}"
-                )
-            layer = doc.layers.add(name=layer_name)
-            rgb = _parse_hex_color(panel.color)
-            # style_layer, not a bare ``layer.rgb =``: the visible 3DFACE edges
-            # are drawn from the INDEX colour, which defaults to white, and
-            # from LWDEFAULT, which is heavier than a panel edge should be
-            # (owner 2026-08-28: "the white bounding lines are a bit thick").
-            style_layer(layer, rgb if rgb is not None else DEFAULT_LAYER_RGB)
-            layer_by_formation_id[panel.formation_id] = layer_name
+            layer_name = layer_by_formation_id.get(panel.formation_id)
+            if layer_name is None:
+                layer_name = self._layer_name_for(doc, panel, identity_by_formation_id)
+                layer_by_formation_id[panel.formation_id] = layer_name
+
+            top = _panel_top(panel)
+            candidate = (
+                top if top is not None else float("-inf"),
+                panel.formation_id,
+                _parse_hex_color(panel.color),
+            )
+            current = color_winner.get(layer_name)
+            if current is None or _colour_candidate_wins(candidate, current):
+                color_winner[layer_name] = candidate
+
+        # style_layer, not a bare ``layer.rgb =``: the visible 3DFACE edges are
+        # drawn from the INDEX colour (defaults to white) and from LWDEFAULT
+        # (heavier than a panel edge should be) — owner 2026-08-28, "the white
+        # bounding lines are a bit thick".
+        for layer_name, (_, _, rgb) in color_winner.items():
+            style_layer(doc.layers.get(layer_name), rgb if rgb is not None else DEFAULT_LAYER_RGB)
         return layer_by_formation_id
+
+    def _layer_name_for(
+        self,
+        doc: Drawing,
+        panel: FencePanelSource,
+        identity_by_formation_id: Mapping[str, FenceFormationIdentity],
+    ) -> str:
+        """Resolve (and register, if new) the layer name for one panel.
+
+        Parameters
+        ----------
+        doc : ezdxf.document.Drawing
+            The DXF document being built.
+        panel : FencePanelSource
+            The panel whose layer is being resolved.
+        identity_by_formation_id : Mapping[str, FenceFormationIdentity]
+            ``formation_id -> identity`` from the route.
+
+        Returns
+        -------
+        str
+            The layer name this panel's faces go on.
+        """
+        body, is_identifier = _resolve_layer_body(panel, identity_by_formation_id)
+        layer_name = _sanitise_layer_name(body)
+        if is_identifier:
+            # Same-identifier collapse: reuse the existing layer, do NOT
+            # disambiguate — that IS the ruling.
+            if not doc.layers.has_entry(layer_name):
+                doc.layers.add(name=layer_name)
+            return layer_name
+        # Fallback display-name path — disambiguate distinct formations sharing a
+        # sanitised name so neither silently absorbs the other's geometry.
+        if doc.layers.has_entry(layer_name):
+            layer_name = _disambiguate_layer_name(
+                layer_name, panel.formation_id, doc.layers.has_entry
+            )
+            self.warning(
+                f"DXF layer name collision on fence panel {panel.name!r} "
+                f"(formation_id={panel.formation_id}) — exporting it as "
+                f"{layer_name!r}"
+            )
+        doc.layers.add(name=layer_name)
+        return layer_name
 
     # ------------------------------------------------------------------
     # Face emission — one 3DFACE per triangle, interior edges hidden.
@@ -258,6 +409,89 @@ class DxfFenceExporter(GroundModelLogger):
 # ---------------------------------------------------------------------------
 # Module helpers — pure, no logging, easy to unit-test.
 # ---------------------------------------------------------------------------
+
+
+def _resolve_layer_body(
+    panel: FencePanelSource,
+    identity_by_formation_id: Mapping[str, FenceFormationIdentity],
+) -> tuple[str, bool]:
+    """Return ``(layer-name body, is_identifier)`` for one panel.
+
+    The body is the unit's machine identifier when the route resolved an
+    identity for the panel's formation AND that identity yields one
+    (``unit_identifier`` returns non-``None``); otherwise it is the panel's
+    display ``name``. The boolean tells the caller which collision rule to
+    apply — identifier bodies collapse, display-name bodies disambiguate.
+
+    Parameters
+    ----------
+    panel : FencePanelSource
+        The panel whose layer body is being resolved.
+    identity_by_formation_id : Mapping[str, FenceFormationIdentity]
+        ``formation_id -> identity`` from the route.
+
+    Returns
+    -------
+    tuple[str, bool]
+        ``(body, is_identifier)`` — the pre-sanitisation layer text and
+        whether it is a machine identifier (``True``) or a display name.
+    """
+    identity = identity_by_formation_id.get(panel.formation_id)
+    if identity is not None:
+        identifier = unit_identifier(
+            nad_class=identity.nad_class,
+            litho_main_soil_code=identity.litho_main_soil_code,
+        )
+        if identifier is not None:
+            return identifier, True
+    return panel.name, False
+
+
+def _panel_top(panel: FencePanelSource) -> float | None:
+    """The panel's shallowest vertex elevation (max z), or ``None`` if empty.
+
+    Used only to pick the colour of a layer several formations collapse onto:
+    the shallowest panel wins. An empty panel (no vertices) has no top and does
+    not compete.
+
+    Parameters
+    ----------
+    panel : FencePanelSource
+        The panel to measure.
+
+    Returns
+    -------
+    float | None
+        The highest elevation among the panel's vertices, or ``None`` when the
+        panel carries no vertices.
+    """
+    if not panel.vertices:
+        return None
+    return max(v[2] for v in panel.vertices)
+
+
+def _colour_candidate_wins(
+    candidate: tuple[float, str, RGB | None],
+    current: tuple[float, str, RGB | None],
+) -> bool:
+    """True when ``candidate`` should replace ``current`` as a layer's colour.
+
+    The shallowest panel wins (higher top elevation); an exact tie is broken by
+    the lower ``formation_id`` so the winner is independent of panel order.
+
+    Parameters
+    ----------
+    candidate, current : tuple[float, str, RGB | None]
+        ``(top_elevation, formation_id, rgb)`` triples.
+
+    Returns
+    -------
+    bool
+        Whether ``candidate`` beats ``current``.
+    """
+    if candidate[0] != current[0]:
+        return candidate[0] > current[0]
+    return candidate[1] < current[1]
 
 
 def interior_triangle_edges(
