@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 
 import type { BoreholeDetailResponse } from '../../../api/client'
 import { verticalDatumShort } from '../../../utils/verticalDatum'
+import { useT } from '../../../i18n/translate'
 import ElevationEditor from '../../ElevationEditor'
 import { Field } from './Field'
 
@@ -25,11 +26,13 @@ export function BoreholeHeader({
   borehole: BoreholeDetailResponse
   onElevationChange?: (elevationM: number | null, zEpsg: number | null) => Promise<void>
 }): ReactElement {
+  const t = useT()
   const zDatumShort = verticalDatumShort(borehole.z_epsg)
   const zLabel = zDatumShort ? `Z (${zDatumShort})` : 'Z'
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-[11px] shrink-0">
-      <Field label="Boring" value={borehole.name} bold />
+      {/* "Boring" is the DOV header field name kept verbatim in NL too. */}
+      <Field label={t('borelog.boring')} value={borehole.name} bold />
       <Field
         label="X / Y"
         value={
@@ -51,20 +54,24 @@ export function BoreholeHeader({
       ) : (
         <Field
           label={zLabel}
-          value={borehole.elevation_m != null ? borehole.elevation_m.toFixed(2) : '— missing —'}
+          value={
+            borehole.elevation_m != null
+              ? borehole.elevation_m.toFixed(2)
+              : t('borelog.missingValue')
+          }
           warn={borehole.elevation_m == null}
         />
       )}
       <Field
-        label="Depth"
+        label={t('common.depth')}
         value={borehole.total_depth_m != null ? `0 – ${borehole.total_depth_m.toFixed(2)} m` : '—'}
       />
-      <Field label="Date" value={borehole.start_date ?? '—'} />
-      <Field label="Executor" value={borehole.executor ?? '—'} />
+      <Field label={t('borelog.date')} value={borehole.start_date ?? '—'} />
+      <Field label={t('borelog.executor')} value={borehole.executor ?? '—'} />
       {borehole.water_table_depth_m != null && (
-        <Field label="Water at" value={`${borehole.water_table_depth_m.toFixed(2)} m`} />
+        <Field label={t('borelog.waterAt')} value={`${borehole.water_table_depth_m.toFixed(2)} m`} />
       )}
-      {borehole.drill_method && <Field label="Method" value={borehole.drill_method} />}
+      {borehole.drill_method && <Field label={t('borelog.method')} value={borehole.drill_method} />}
     </div>
   )
 }
