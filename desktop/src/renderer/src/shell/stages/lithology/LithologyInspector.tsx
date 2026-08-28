@@ -44,7 +44,7 @@ import type {
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
 import { isGeologicalFormation } from '../../../utils/formationKind'
-import { formatLithoDisplayName } from '../../../utils/lithoLabels'
+import { lithoDisplayName } from '../../../utils/lithoLabels'
 import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
@@ -491,7 +491,7 @@ function LithoUnitRow({
           English pipe label (debt #96). */}
       <span className="flex-1 truncate">
         {f.litho_main_soil_code != null
-          ? formatLithoDisplayName(f.litho_main_soil_code, f.litho_admixtures)
+          ? lithoDisplayName(f.litho_main_soil_code, f.litho_admixtures)
           : f.name}
       </span>
 
@@ -799,7 +799,7 @@ function LithoSolidLegend({
       {groups.map(({ formation, formationId, solids }) => {
         const displayName = formation
           ? (formation.litho_main_soil_code != null
-              ? formatLithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
+              ? lithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
               : formation.name)
           : formationId
         const flaggedCount = solids.filter(s => s.is_flagged === true).length
