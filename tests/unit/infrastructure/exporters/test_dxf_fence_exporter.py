@@ -30,11 +30,18 @@ from groundmodel.api.schemas.project.fence_export_request import (
 )
 from groundmodel.infrastructure.exporters.dxf_fence_exporter import (
     DxfFenceExporter,
+    FenceFormationIdentity,
     _disambiguate_layer_name,
     _sanitise_layer_name,
     interior_triangle_edges,
 )
 from groundmodel.infrastructure.exporters.dxf_layer_style import THIN_LAYER_LINEWEIGHT
+
+
+def _identity(*, nad_class: int | None = None, soil: str | None = None) -> FenceFormationIdentity:
+    """Build the machine-identity a fence layer name is derived from."""
+    return FenceFormationIdentity(nad_class=nad_class, litho_main_soil_code=soil)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -285,3 +292,156 @@ def test_ls5_exported_layers_carry_a_material_index_colour_and_a_thin_weight() -
     assert layer.color != 7
     # A real weight in 1/100 mm, not LWDEFAULT (-3).
     assert layer.dxf.lineweight == THIN_LAYER_LINEWEIGHT
+
+
+# ---------------------------------------------------------------------------
+# Ruling 1 — layers named by the unit identifier (owner 2026-08-28,
+# "use unit identifier for layer names you can do that already")
+# ---------------------------------------------------------------------------
+
+
+def test_a_layer_name_identifies_the_geotech_unit() -> None:
+    """A geotech sand panel of NAD class 6 lands on ``Fence-NAD-06_ZAND`` — the
+    machine identifier a CAD user can read straight off the layer list — not on
+    ``Fence-Sand`` (the display name, which never says which class it is) and
+    not on a uuid8-suffixed layer that tells the engineer nothing.
+    """
+    panel = _panel(formation_id="fm-1", name="Sand", color="#c2a15b")
+    payload = DxfFenceExporter().export(
+        [panel],
+        project_name="p",
+        crs_epsg=31370,
+        identity_by_formation_id={"fm-1": _identity(nad_class=6, soil="ZAND")},
+    )
+    doc = _parse_dxf(payload)
+    names = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert names == {"Fence-NAD-06_ZAND"}
+
+
+def test_two_units_of_the_same_identifier_land_on_one_layer() -> None:
+    """Two DISTINCT formations (Quaternary sand and Diest sand — different
+    formation_ids and different display names) that both resolve to
+    ``NAD-06_ZAND`` collapse onto a single ``Fence-NAD-06_ZAND`` layer, and
+    every face of both panels lands on it. This is the fence's expressible form
+    of the #104b thinning: adjacent same-identifier units read as one material,
+    with no uuid8 suffix splitting them and no panel geometry merged.
+    """
+    panel_a = _panel(formation_id="fm-quaternary", name="Quaternary sand", color="#c2a15b")
+    panel_b = _panel(
+        formation_id="fm-diest",
+        name="Diest sand",
+        color="#c2a15b",
+        vertices=[(5.0, 5.0, 3.0), (6.0, 5.0, 3.0), (6.0, 5.0, 1.0)],
+        triangles=[(0, 1, 2)],
+    )
+    payload = DxfFenceExporter().export(
+        [panel_a, panel_b],
+        project_name="p",
+        crs_epsg=31370,
+        identity_by_formation_id={
+            "fm-quaternary": _identity(nad_class=6, soil="ZAND"),
+            "fm-diest": _identity(nad_class=6, soil="ZAND"),
+        },
+    )
+    doc = _parse_dxf(payload)
+    fence_layers = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert fence_layers == {"Fence-NAD-06_ZAND"}
+    faces = list(doc.modelspace().query("3DFACE"))
+    assert len(faces) == 3  # panel_a's 2 triangles + panel_b's 1
+    assert {f.dxf.layer for f in faces} == {"Fence-NAD-06_ZAND"}
+
+
+def test_a_geotech_identifier_layer_still_carries_index_colour_and_thin_weight() -> None:
+    """Ruling 1 must not regress the styling that landed 2026-08-28: an
+    identifier-named layer is styled through ``style_layer`` just like a
+    display-name one — index colour off the material, thin line weight."""
+    panel = _panel(formation_id="fm-1", name="Sand", color="#d4b84a")
+    payload = DxfFenceExporter().export(
+        [panel],
+        project_name="p",
+        crs_epsg=31370,
+        identity_by_formation_id={"fm-1": _identity(nad_class=6, soil="ZAND")},
+    )
+    doc = _parse_dxf(payload)
+    layer = doc.layers.get("Fence-NAD-06_ZAND")
+    assert layer.rgb == (0xD4, 0xB8, 0x4A)
+    assert layer.color != 7
+    assert layer.dxf.lineweight == THIN_LAYER_LINEWEIGHT
+
+
+def test_litho_unit_names_the_layer_by_its_soil_code() -> None:
+    """A litho unit carries no NAD class; the scheme's identity for it IS the
+    soil code (``unit_identifier(None, 'ZAND') == 'ZAND'``), so its layer is
+    ``Fence-ZAND`` rather than a uuid8-disambiguated display name."""
+    panel = _panel(formation_id="fm-1", name="Sand", color="#c2a15b")
+    payload = DxfFenceExporter().export(
+        [panel],
+        project_name="p",
+        crs_epsg=None,
+        identity_by_formation_id={"fm-1": _identity(soil="ZAND")},
+    )
+    doc = _parse_dxf(payload)
+    names = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert names == {"Fence-ZAND"}
+
+
+def test_unit_with_no_identity_falls_back_to_the_display_name() -> None:
+    """A geological formation carries neither a NAD class nor a soil code
+    (``unit_identifier`` returns None), and a formation the route could not
+    resolve is simply absent from the identity map. Both keep the display name,
+    byte-identical to the pre-#104 behaviour, so no geometry is ever dropped.
+    """
+    panel_geo = _panel(formation_id="fm-geo", name="Boom Klei", color="#4a7d3c")
+    panel_absent = _panel(
+        formation_id="fm-missing",
+        name="Orphan",
+        color="#4a7d3c",
+        vertices=[(5.0, 5.0, 3.0), (6.0, 5.0, 3.0), (6.0, 5.0, 1.0)],
+        triangles=[(0, 1, 2)],
+    )
+    payload = DxfFenceExporter().export(
+        [panel_geo, panel_absent],
+        project_name="p",
+        crs_epsg=None,
+        # fm-geo carries neither field; fm-missing is absent from the map.
+        identity_by_formation_id={"fm-geo": _identity()},
+    )
+    doc = _parse_dxf(payload)
+    names = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert names == {"Fence-Boom Klei", "Fence-Orphan"}
+
+
+def test_same_identifier_conflicting_colours_pick_the_shallowest_deterministically() -> None:
+    """Two formations that collapse to one identifier can carry different
+    colours (a litho colour, or an engineer's colour_override). The layer takes
+    the colour of the SHALLOWEST contributing panel — highest top elevation,
+    #104b's "shallower parent wins" expressed geometrically — and the choice is
+    independent of the order the panels arrive in.
+    """
+    shallow = _panel(
+        formation_id="fm-shallow",
+        name="Sand",
+        color="#111111",
+        vertices=[(0.0, 0.0, 20.0), (1.0, 0.0, 20.0), (1.0, 0.0, 18.0)],
+        triangles=[(0, 1, 2)],
+    )
+    deep = _panel(
+        formation_id="fm-deep",
+        name="Sand",
+        color="#eeeeee",
+        vertices=[(0.0, 0.0, 5.0), (1.0, 0.0, 5.0), (1.0, 0.0, 3.0)],
+        triangles=[(0, 1, 2)],
+    )
+    identity = {
+        "fm-shallow": _identity(nad_class=6, soil="ZAND"),
+        "fm-deep": _identity(nad_class=6, soil="ZAND"),
+    }
+    for order in ([shallow, deep], [deep, shallow]):
+        payload = DxfFenceExporter().export(
+            order, project_name="p", crs_epsg=None, identity_by_formation_id=identity
+        )
+        doc = _parse_dxf(payload)
+        layer = doc.layers.get("Fence-NAD-06_ZAND")
+        # The shallow panel's top is 20 vs the deep panel's 5, so its colour wins
+        # in both input orders.
+        assert layer.rgb == (0x11, 0x11, 0x11)
