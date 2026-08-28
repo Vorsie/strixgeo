@@ -35,7 +35,7 @@ import { geotechBodyLabel, lithoBodyLabel } from './parameterScopeLabels'
  * Faithfully EXPANDS the plan's sketch: it adds ``geotechFormations`` (a class
  * row needs each geotech band's ``nad_class``) and types both body rosters as
  * the ``id → entry`` map ``useModelBodies`` returns, matching ``bodyLabelOf``
- * and ``unitBodyRows`` — the plan's ``BodyRosterEntry[]`` carries no id.
+ * — the plan's ``BodyRosterEntry[]`` carries no id.
  */
 export interface ParameterTreeInput {
   /** The litho model's formation rows (the tree's top level). */
@@ -231,10 +231,10 @@ function collapseSingleLeafChild(children: ParameterTreeNode[]): ParameterTreeNo
 /**
  * The litho body ids homed to a litho unit, in roster-ordinal order.
  *
- * Mirrors ``unitBodyRows``' homing: a body renders under its HOME formation
- * (the roster's ``formation_id``); a body the roster does not know falls back
- * to the layer's own ``formation_id``. Distinct body ids only, ordered by
- * ordinal so the tree reads the way the 3-D legend numbers bodies.
+ * The F1 homing rule: a body renders under its HOME formation (the roster's
+ * ``formation_id``); a body the roster does not know falls back to the
+ * layer's own ``formation_id``. Distinct body ids only, ordered by ordinal
+ * so the tree reads the way the 3-D legend numbers bodies.
  */
 function lithoBodyIdsForUnit(
   lithoLayers: readonly LithoLayerResponse[],
