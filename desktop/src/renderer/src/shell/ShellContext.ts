@@ -24,6 +24,7 @@ import type { UseProjectLifecycleResult } from '../hooks/useProjectLifecycle'
 import type { UseInvestigationDataResult } from '../hooks/useInvestigationData'
 import type { UseUndoStackResult } from '../hooks/useUndoStack'
 import type { UseMapStateResult } from '../hooks/useMapState'
+import type { SectionModelAxis } from '../hooks/useSections'
 import type { CptListItem, BoreholeListItem, ProjectResponse } from '../api/client'
 
 /** The five node kinds a Parameters scope can be (spec §2, 2026-08-27). */
@@ -258,6 +259,8 @@ export interface Coordinator {
   sectionsDeepLinkTarget: {
     sectionId: string
     contactIds: readonly string[]
+    /** Axis the destination must select before opening this section. */
+    sectionModelAxis?: SectionModelAxis
     /**
      * Investigations whose COLUMNS to bring on screen once the section is open.
      *
@@ -284,6 +287,7 @@ export interface Coordinator {
     target: {
       sectionId: string
       contactIds: readonly string[]
+      sectionModelAxis?: SectionModelAxis
       revealInvestigationIds?: readonly string[]
     } | null,
   ) => void
