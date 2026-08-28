@@ -47,9 +47,11 @@ vi.mock('../../ShellContext', async () => {
           handleSelect: async () => {},
           selectedParameterUnit: mockSelectedParameterUnit,
           setSelectedParameterUnit: vi.fn(),
+          setSectionsDeepLinkTarget: vi.fn(),
           parametersActiveTab: tab,
           setParametersActiveTab: setTab,
         },
+        toasts: { toast: vi.fn() },
         geoModel: {
           lithoFormations: [],
           geotechFormations: [],

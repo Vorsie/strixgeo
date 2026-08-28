@@ -81,9 +81,11 @@ vi.mock('../../ShellContext', () => ({
     },
     coordinator: {
       setSelectedParameterUnit: vi.fn(),
+      setSectionsDeepLinkTarget: vi.fn(),
       bodyRecomputeLithoNonce: 0,
       bodyRecomputeGeotechNonce: mockGeotechNonce,
     },
+    toasts: { toast: vi.fn() },
   }),
 }))
 

@@ -122,7 +122,9 @@ vi.mock('../../../ShellContext', () => ({
     coordinator: {
       selectedParameterUnit: mockScope,
       setSelectedParameterUnit: vi.fn(),
+      setSectionsDeepLinkTarget: vi.fn(),
     },
+    toasts: { toast: vi.fn() },
   }),
 }))
 

@@ -19,6 +19,8 @@
 //       still reports the true value.
 // AX6 — each row names its axis ends (0 and the full-scale value) so the
 //       shared scale is readable, not implied.
+// AX7 — each row carries an explicit value-axis title with its unit (owner
+//       2026-08-28: "properly label all axes").
 
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -119,5 +121,17 @@ describe('UnitDistributionPanels — the CPT plot axes, starting at zero', () =>
     expect(screen.getByTestId('unit-stats-axis-max-fs').textContent).toContain('1')
     expect(screen.getByTestId('unit-stats-axis-max-rf').textContent).toContain('10')
     expect(screen.getByTestId('unit-stats-axis-zero-qc').textContent).toContain('0')
+  })
+
+  it('AX7 — each row carries an explicit value-axis title with its unit', () => {
+    render(
+      <UnitDistributionPanels
+        statistics={singleReadingStatistics(10, 0.25, 2.5)}
+        unitLabel="Zand"
+      />,
+    )
+    expect(screen.getByTestId('unit-stats-xaxis-label-qc').textContent).toMatch(/cone resistance.*MPa/i)
+    expect(screen.getByTestId('unit-stats-xaxis-label-fs').textContent).toMatch(/sleeve friction.*MPa/i)
+    expect(screen.getByTestId('unit-stats-xaxis-label-rf').textContent).toMatch(/friction ratio.*%/i)
   })
 })
