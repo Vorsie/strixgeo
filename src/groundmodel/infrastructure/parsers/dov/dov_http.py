@@ -39,11 +39,64 @@ from __future__ import annotations
 
 import httpx
 
+from groundmodel.infrastructure.parsers.dov.dov_common import is_allowed_dov_url
 from groundmodel.infrastructure.parsers.dov.dov_fixture_transport import (
     _build_fixture_transport,
     fixture_root_path,
     is_fixture_mode,
 )
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+_logger = LoggerFactory.get_logger(__name__)
+
+
+class _HostAllowlistTransport(httpx.AsyncBaseTransport):
+    """Refuse any request whose host is not an allow-listed DOV host.
+
+    ``follow_redirects=True`` (needed for the legitimate same-host 302 from a
+    ``fiche``.xml URL to the proxy) will otherwise chase a redirect to ANY
+    host. Because httpx routes every redirect hop back through the client's
+    transport, wrapping the real transport here refuses a cross-host redirect
+    target BEFORE the socket is opened — the guard the raw client lacks. The
+    initial DOV requests (WFS, and the fiche-derived XML URLs already
+    allow-listed at construction in ``dov_client``) pass straight through; only
+    an off-host hop — a blind-SSRF steer — is blocked.
+
+    Parameters
+    ----------
+    inner : httpx.AsyncBaseTransport
+        The real transport that performs the network I/O once a request has
+        cleared the host allow-list.
+    """
+
+    def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
+        self._inner = inner
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        """Delegate to the inner transport, or refuse an off-host request.
+
+        Raises
+        ------
+        httpx.ConnectError
+            When the request host is not allow-listed. A ``RequestError``
+            subclass so the DOV download helper's existing ``except
+            httpx.RequestError`` catches it and fails that one row, not the
+            whole import.
+        """
+        if not is_allowed_dov_url(str(request.url)):
+            host = request.url.host
+            _logger.warning(
+                f"DOV: refusing request to non-DOV host {host!r} (url={request.url}) "
+                "— blocked cross-host redirect / SSRF attempt"
+            )
+            raise httpx.ConnectError(
+                f"refusing request to non-allowed host {host!r}", request=request
+            )
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        """Close the wrapped transport."""
+        await self._inner.aclose()
 
 
 def make_dov_async_client() -> httpx.AsyncClient:
@@ -77,10 +130,18 @@ def make_dov_async_client() -> httpx.AsyncClient:
             limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
         )
 
-    # Production path — unchanged from before this commit.
-    return httpx.AsyncClient(
-        timeout=httpx.Timeout(60.0, connect=10.0),
-        follow_redirects=True,
+    # Production path. The real transport carries the http2 + pool tuning
+    # (when a custom transport is supplied, httpx ignores ``http2=``/``limits=``
+    # on the client, so they must live on the inner transport). The
+    # host-allowlist wrapper refuses any request — including a redirect hop —
+    # aimed at a non-DOV host, so ``follow_redirects=True`` can no longer be
+    # steered off-host by a hostile response.
+    inner = httpx.AsyncHTTPTransport(
         http2=True,
         limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
+    )
+    return httpx.AsyncClient(
+        transport=_HostAllowlistTransport(inner),
+        timeout=httpx.Timeout(60.0, connect=10.0),
+        follow_redirects=True,
     )
