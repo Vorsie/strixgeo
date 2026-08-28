@@ -120,6 +120,10 @@ export const CHROME = {
   'spine.geotechnical': 'Geotech',
   'spine.parameters': 'Parameters',
   'spine.export': 'Export',
+  'spine.selectionFooterAria': '{n} selected — click to clear',
+  'spine.selectionFooterTitle': '{n} selected across stages — click to clear',
+  'spine.selectionFooterLabel': '{n} selected',
+  'spine.selectionFooterAbbr': 'sel.',
   'shell.toolbar': 'Stage toolbar',
   'shell.inspector': 'Stage inspector',
 } as const
