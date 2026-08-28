@@ -248,7 +248,10 @@ describe('useGeotechBuildPreflight', () => {
     expect(stubs.setSectionsDeepLinkTarget).toHaveBeenCalledWith({
       sectionId: 'cs1',
       contactIds: [],
-      revealInvestigationId: 'B12',
+      // ONE id: the pre-flight visit is about one test, so the panel centres
+      // AND pulses that column. (A two-id payload names a gap instead — the
+      // gapless report's "Show me" — and marks neither end.)
+      revealInvestigationIds: ['B12'],
     })
     // The visit replaces the question: he is being sent somewhere else.
     expect(result.current.askingAbout).toBeNull()
@@ -268,8 +271,8 @@ describe('useGeotechBuildPreflight', () => {
     act(() => result.current.visitNextExcluded())
 
     const visited = stubs.setSectionsDeepLinkTarget.mock.calls.map(
-      c => (c[0] as { revealInvestigationId: string }).revealInvestigationId,
+      c => (c[0] as { revealInvestigationIds: readonly string[] }).revealInvestigationIds,
     )
-    expect(visited).toEqual(['S2', 'B12', 'S2'])
+    expect(visited).toEqual([['S2'], ['B12'], ['S2']])
   })
 })
