@@ -27,6 +27,8 @@ import type { LithoLayerLike } from '../utils/assembleLithoSectionInputs'
 import { BODY_RECOMPUTE_DEBOUNCE_MS, BODY_RECOMPUTE_MAX_LATENCY_MS } from './useBodyRecompute'
 import {
   useProjectBodyRecompute,
+  sectionsBodyRecomputeCallback,
+  sectionsDividePartitionCallback,
   type UseProjectBodyRecomputeArgs,
 } from './useProjectBodyRecompute'
 
@@ -209,5 +211,51 @@ describe('useProjectBodyRecompute — project-open trigger', () => {
     })
     expect(recomputeBodies).toHaveBeenCalledTimes(3)
     expect(postedModels()[2]).toBe('L1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Module-ref cleanup on unmount (debt #276)
+//
+// The toolbar-bridge refs (Recompute / Divide) are written every render while
+// the shell hook is mounted. Debt #276: they were never nulled on unmount, so
+// "a toolbar click that fires after the [shell] unmounted [ran] against a
+// destroyed view". They must be nulled on unmount, GUARDED so an older hook
+// instance cannot wipe a ref a newer instance already claimed.
+// ---------------------------------------------------------------------------
+
+describe('useProjectBodyRecompute module-ref cleanup on unmount (#276)', () => {
+  // R1 — both bridge refs are null after the hook unmounts.
+  it('R1 — the Recompute and Divide refs are null after the hook unmounts', () => {
+    const { unmount } = renderHook(
+      (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
+      { initialProps: args() },
+    )
+    expect(sectionsBodyRecomputeCallback.current).not.toBeNull()
+    expect(sectionsDividePartitionCallback.current).not.toBeNull()
+    unmount()
+    expect(sectionsBodyRecomputeCallback.current).toBeNull()
+    expect(sectionsDividePartitionCallback.current).toBeNull()
+  })
+
+  // R2 — the mount-order guard. Mount A, mount B, unmount A → the ref must
+  // still hold B's callback (a different projectId gives B a distinct
+  // useCallback identity).
+  it('R2 — an older hook unmount does not wipe a ref the newer hook claimed', () => {
+    const a = renderHook(
+      (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
+      { initialProps: args() },
+    )
+    const aDivide = sectionsDividePartitionCallback.current
+    const b = renderHook(
+      (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
+      { initialProps: args({ projectId: 'p2' }) },
+    )
+    const bDivide = sectionsDividePartitionCallback.current
+    expect(bDivide).not.toBe(aDivide)
+    a.unmount()
+    expect(sectionsDividePartitionCallback.current).toBe(bDivide)
+    b.unmount()
+    expect(sectionsDividePartitionCallback.current).toBeNull()
   })
 })
