@@ -152,19 +152,19 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
                 id: 'geotech-pending-tie-chip',
                 priority: 'high' as const,
                 kind: 'custom' as const,
-                label: pendingChipLabel(pendingScope),
+                label: pendingChipLabel(t, pendingScope),
                 iconOnly: false,
                 widthPx: {
                   full:
                     PENDING_CHIP_BASE_PX +
-                    pendingChipLabel(pendingScope).length *
+                    pendingChipLabel(t, pendingScope).length *
                       DEFAULT_TOOLBAR_METRICS.charAdvancePx,
                 },
                 overflowItems: [],
                 render: () => (
                   <ToolbarNoticeChip
-                    label={pendingChipLabel(pendingScope)}
-                    title={pendingChipTitle(pendingScope, tieStatus.accepted)}
+                    label={pendingChipLabel(t, pendingScope)}
+                    title={pendingChipTitle(t, pendingScope, tieStatus.accepted)}
                     // Interactive only where this section HAS a pending tie to
                     // find. With the count scoped elsewhere in the model (the
                     // "0 pending here" case) there is nothing on this canvas to
@@ -196,20 +196,20 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
                 id: 'geotech-stale-litho-chip',
                 priority: 'high' as const,
                 kind: 'custom' as const,
-                label: staleGeotechChipLabel(staleGeotechColumns.length),
+                label: staleGeotechChipLabel(t, staleGeotechColumns.length),
                 iconOnly: false,
                 widthPx: {
                   full:
                     PENDING_CHIP_BASE_PX +
-                    staleGeotechChipLabel(staleGeotechColumns.length).length *
+                    staleGeotechChipLabel(t, staleGeotechColumns.length).length *
                       DEFAULT_TOOLBAR_METRICS.charAdvancePx,
                 },
                 overflowItems: [],
                 render: () => (
                   <ToolbarNoticeChip
                     testid="geotech-stale-litho-chip"
-                    label={staleGeotechChipLabel(staleGeotechColumns.length)}
-                    title={staleGeotechChipTitle(staleGeotechColumns)}
+                    label={staleGeotechChipLabel(t, staleGeotechColumns.length)}
+                    title={staleGeotechChipTitle(t, staleGeotechColumns)}
                   />
                 ),
               },
