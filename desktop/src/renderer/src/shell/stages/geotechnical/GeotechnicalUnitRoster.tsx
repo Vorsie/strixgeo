@@ -20,6 +20,8 @@
 // to the instance rows underneath.
 
 import { useMemo, useState } from 'react'
+import { useT } from '../../../i18n/translate'
+import { useLanguage } from '../../../i18n/languageSelect'
 import { ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
 
 import type {
@@ -68,6 +70,7 @@ function GeotechUnitInstanceRow({
   nadClass: number | null
   isSelected: boolean
 }): JSX.Element {
+  const t = useT()
   return (
     <li
       className={[
@@ -87,7 +90,11 @@ function GeotechUnitInstanceRow({
       <ConfidenceBadge confidence={instance.confidence} idKey={instance.formationId} />
       <span
         className="text-[10px] tabular-nums text-text-muted flex-shrink-0"
-        title={`${instance.bandCount} contact${instance.bandCount === 1 ? '' : 's'} in this model`}
+        title={
+          instance.bandCount === 1
+            ? t('geotech.contactLabel', { count: instance.bandCount })
+            : t('geotech.contactsLabel', { count: instance.bandCount })
+        }
         data-testid={`geotech-unit-contact-count-${instance.formationId}`}
       >
         {instance.bandCount}
@@ -140,6 +147,7 @@ function GeotechClassRowItem({
   onPickColor: (formationIds: readonly string[], color: string | null) => void
   selectedFormationId: string | null
 }): JSX.Element {
+  const t = useT()
   // A class carried by one unit IS that unit, so the row answers to that unit's
   // ids; several units share the class key instead.
   const single = row.instances.length === 1 ? row.instances[0] : null
@@ -205,14 +213,14 @@ function GeotechClassRowItem({
         <label
           className="h-3 w-3 flex-shrink-0 cursor-pointer rounded-sm border border-border-subtle focus-within:ring-2 focus-within:ring-accent"
           style={{ backgroundColor: shownColor }}
-          title={`${shownColor} — click to choose a colour for this unit`}
+          title={t('geotech.chooseColor', { color: shownColor })}
           data-testid={`geotech-unit-swatch-${idKey}`}
         >
           <input
             type="color"
             className="sr-only"
             value={shownColor}
-            aria-label={`Colour for ${row.label}`}
+            aria-label={t('geotech.colorForUnit', { label: row.label })}
             onChange={e => setPendingColor(e.currentTarget.value)}
             onBlur={() => {
               const picked = pendingColor
@@ -238,7 +246,7 @@ function GeotechClassRowItem({
           <button
             type="button"
             className="flex-shrink-0 rounded text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title="Back to the automatic packing colour"
+            title={t('geotech.resetAutoColour')}
             onClick={() =>
               onPickColor(
                 row.instances.map(i => i.formationId),
@@ -261,7 +269,7 @@ function GeotechClassRowItem({
         {expandable && (
           <span
             className="text-[10px] text-text-muted flex-shrink-0"
-            title={`${row.instances.length} separate units carry this class`}
+            title={t('geotech.unitsCarryClass', { count: row.instances.length })}
           >
             ×{row.instances.length}
           </span>
@@ -272,7 +280,11 @@ function GeotechClassRowItem({
 
         <span
           className="text-[10px] tabular-nums text-text-muted flex-shrink-0"
-          title={`${row.bandCount} contact${row.bandCount === 1 ? '' : 's'} in this model`}
+          title={
+            row.bandCount === 1
+              ? t('geotech.contactLabel', { count: row.bandCount })
+              : t('geotech.contactsLabel', { count: row.bandCount })
+          }
           data-testid={`geotech-unit-contact-count-${idKey}`}
         >
           {row.bandCount}
@@ -280,7 +292,7 @@ function GeotechClassRowItem({
       </div>
 
       {expandable && expanded && (
-        <ul className="flex flex-col gap-0.5" aria-label={`Units classed ${row.label}`}>
+        <ul className="flex flex-col gap-0.5" aria-label={t('geotech.unitsClassed', { label: row.label })}>
           {row.instances.map(instance => (
             <GeotechUnitInstanceRow
               key={instance.formationId}
@@ -362,6 +374,10 @@ export default function GeotechnicalUnitRoster({
   onPickColor,
   selectedFormationId = null,
 }: GeotechnicalUnitRosterProps): JSX.Element {
+  const t = useT()
+  // Subscribe so the roster (and its language-aware unit-tree memo) re-render
+  // when the interface language flips.
+  const lang = useLanguage()
   // Collapsed-by-exception, not expanded-by-effect: tracking the CLOSED set
   // makes "everything open" the initial state with no effect to sync, so the
   // tree cannot briefly render collapsed while the layers load.
@@ -386,7 +402,9 @@ export default function GeotechnicalUnitRoster({
         layers: geotechLayers,
         sourceLithoNameById,
       }),
-    [geotechFormations, geotechContacts, geotechLayers, sourceLithoNameById],
+    // ``lang``: the tree's labels come from language-aware helpers, so it must
+    // rebuild when the language flips (the builder reads the language itself).
+    [geotechFormations, geotechContacts, geotechLayers, sourceLithoNameById, lang],
   )
 
   function toggleSoil(soil: string): void {
@@ -412,14 +430,14 @@ export default function GeotechnicalUnitRoster({
       <div className="flex items-center justify-between gap-2">
         <span
           className="text-[10px] uppercase tracking-wide text-text-muted"
-          title="Geotech units that describe ground in this model. A unit that describes nothing is not listed — there is nothing in it."
+          title={t('geotech.rosterBlurb')}
           data-testid="geotech-roster-summary"
         >
-          {tree.unitCount} with bands
+          {t('geotech.unitsWithBands', { count: tree.unitCount })}
         </span>
       </div>
 
-      <ul className="flex flex-col gap-0.5" aria-label="Geotechnical NAD units">
+      <ul className="flex flex-col gap-0.5" aria-label={t('geotech.nadUnits')}>
         {tree.groups.map(group => {
           const expanded = !collapsedSoils.has(group.soil)
           return (
@@ -429,7 +447,7 @@ export default function GeotechnicalUnitRoster({
                 onClick={() => toggleSoil(group.soil)}
                 aria-expanded={expanded}
                 className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                title={expanded ? 'Collapse this soil' : 'Expand this soil'}
+                title={expanded ? t('geotech.collapseSoil') : t('geotech.expandSoil')}
                 data-testid={`geotech-soil-header-${group.soil}`}
               >
                 {expanded ? (
@@ -441,12 +459,17 @@ export default function GeotechnicalUnitRoster({
                   {group.soil}
                 </span>
                 <span className="flex-shrink-0 text-[10px] tabular-nums text-text-muted">
-                  {group.bandCount} band{group.bandCount === 1 ? '' : 's'}
+                  {group.bandCount === 1
+                    ? t('geotech.bandLabel', { count: group.bandCount })
+                    : t('geotech.bandsLabel', { count: group.bandCount })}
                 </span>
               </button>
 
               {expanded && (
-                <ul className="flex flex-col gap-0.5 pl-3" aria-label={`${group.soil} classes`}>
+                <ul
+                  className="flex flex-col gap-0.5 pl-3"
+                  aria-label={t('geotech.soilClasses', { soil: group.soil })}
+                >
                   {group.classes.map(row => (
                     <GeotechClassRowItem
                       key={row.key}
