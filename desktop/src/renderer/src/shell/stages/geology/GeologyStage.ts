@@ -9,6 +9,7 @@ import { Mountain } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import GeologyCanvas from './GeologyCanvas'
 import GeologyToolbar from './GeologyToolbar'
@@ -24,14 +25,18 @@ import GeologyInspector from './GeologyInspector'
  */
 function useGeologyStageSummary(): StageSummary {
   const { geoModel } = useShell()
+  const t = useT()
   // Filter to geological-kind formations only.  visibleFormations is
   // project-scoped and contains litho + geotech rows alongside geological
   // ones; without the filter the badge counted all 100+ formations instead
   // of the handful of actual geological units (dogfeed 2026-06-30).
   const count = geoModel.visibleFormations.filter(isGeologicalFormation).length
   const stale = geoModel.staleSurfaceCount
-  const label = `${count} formation${count !== 1 ? 's' : ''}`
-  const badge = stale > 0 ? `${stale} stale` : count > 0 ? `${count}` : null
+  const label = t(count === 1 ? 'geology.summaryFormationOne' : 'geology.summaryFormationMany', {
+    n: count,
+  })
+  const badge =
+    stale > 0 ? t('geology.summaryStale', { n: stale }) : count > 0 ? `${count}` : null
   const badgeIntent = stale > 0 ? 'amber' : 'neutral'
   return { label, badge, badgeIntent }
 }
