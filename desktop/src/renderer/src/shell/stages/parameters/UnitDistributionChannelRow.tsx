@@ -307,6 +307,16 @@ export default function ChannelRow({
             tickTestid={`unit-stats-axis-tick-${channel.channel}`}
           />
 
+          {/* Value-axis title with its unit (owner 2026-08-28: "properly label
+              all axes"). The vertical spread is jitter, not a scale, so there
+              is no second axis to title. */}
+          <div
+            className="text-center text-[9px] text-text-muted truncate"
+            data-testid={`unit-stats-xaxis-label-${channel.channel}`}
+          >
+            {spec.title} ({spec.unit})
+          </div>
+
           {/* S2 — the notifier: readings the axis could not place. Rendered
               only when something actually fell off, so the quiet case stays
               quiet. F6 adds the WHY when summary marks are missing too — a
