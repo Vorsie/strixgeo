@@ -15,6 +15,8 @@ import { nadClassName } from '../../../utils/nadClasses'
 import { useGeotechBodySelection } from '../../../utils/geotechBodySelectionStore'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
+import { useLanguage } from '../../../i18n/languageSelect'
 import GeotechnicalUnitRoster from './GeotechnicalUnitRoster'
 
 /**
@@ -47,6 +49,9 @@ const ASSIGNMENT_SOURCE_LABELS: Record<string, string> = {
  *     The inspector panel content.
  */
 export default function GeotechnicalInspector(): JSX.Element {
+  const t = useT()
+  // Subscribe so the selected-body NAD name (``nadClassName``) re-renders on flip.
+  useLanguage()
   const {
     project,
     geoModel: {
@@ -108,13 +113,13 @@ export default function GeotechnicalInspector(): JSX.Element {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <div className="text-xs font-semibold text-text-primary">Geotech units</div>
+      <div className="text-xs font-semibold text-text-primary">{t('geotech.units')}</div>
 
       {geotechFormations.length === 0 ? (
         <EmptyState
           icon={<FlaskConical />}
-          title="No geotech units yet"
-          hint="Run 'Subdivide all bodies' to classify the lithostratigraphic units into NAD packing classes."
+          title={t('geotech.noUnits')}
+          hint={t('geotech.runSubdivideHint')}
           compact
         />
       ) : (
@@ -136,7 +141,7 @@ export default function GeotechnicalInspector(): JSX.Element {
           className="rounded border border-border-subtle bg-surface-raised p-2 text-[11px] leading-snug text-text-secondary"
           data-testid="geotech-sample-source"
         >
-          <span className="font-semibold text-text-primary">Selected body</span>
+          <span className="font-semibold text-text-primary">{t('geotech.selectedBody')}</span>
 
           {/* S2: show packing-class name + NAD number for the selected body so the
               inspector identifies the unit by name, not just by dot position. */}
@@ -160,7 +165,7 @@ export default function GeotechnicalInspector(): JSX.Element {
                   if a future token is added before the lookup table is updated.
                   S3: title exposes the raw backend token so domain experts can
                   verify the mapping without opening DevTools. */}
-              Sample source:{' '}
+              {t('geotech.sampleSource')}{' '}
               <span title={bodySelection.assignmentSource}>
                 {ASSIGNMENT_SOURCE_LABELS[bodySelection.assignmentSource] ??
                   bodySelection.assignmentSource}
@@ -170,10 +175,7 @@ export default function GeotechnicalInspector(): JSX.Element {
         </div>
       )}
 
-      <p className="text-[11px] leading-snug text-text-muted">
-        NAD packing classes are CPT-derived estimates — verify against the
-        borehole log before use.
-      </p>
+      <p className="text-[11px] leading-snug text-text-muted">{t('geotech.estimateDisclaimer')}</p>
     </div>
   )
 }
