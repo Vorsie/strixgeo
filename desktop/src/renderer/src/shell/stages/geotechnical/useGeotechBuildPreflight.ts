@@ -196,7 +196,10 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
         // ``handleFocusContacts`` no-ops on an empty list, so the two halves of
         // the shared payload never fight over the camera.
         contactIds: [],
-        revealInvestigationId: test.investigationId,
+        // One id: this deep-link is about ONE test, so the panel centres AND
+        // pulses that column. (Two ids would name a gap — the gapless report's
+        // "Show me" — and pulse nothing.)
+        revealInvestigationIds: [test.investigationId],
       })
     },
     [setSectionsDeepLinkTarget],
