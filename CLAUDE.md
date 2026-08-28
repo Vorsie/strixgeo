@@ -211,6 +211,14 @@ git config core.hooksPath .githooks
 Skip in emergencies with `git commit --no-verify` / `git push --no-verify`
 — treat either as a flag that something needs a follow-up commit/fix.
 
+**`STRIX_BATCH=1` — landing-batch mode (2026-08-28).** Set ONLY by a scripted
+one-file-per-commit batch: the pre-commit hook then skips the test layers
+(pytest / tsc / Vitest / smoke) and keeps the instant guards (CLAUDE.md budget,
+eslint-reason). The hook checks the WORKING TREE, which is the identical final
+state for every commit in a batch, so N re-runs prove nothing the first proved.
+The contract: run the full gates on the final tree BEFORE the batch, and let
+CI re-prove on push. Never export it in an interactive shell.
+
 ---
 
 ## Distribution build (Windows installer)
@@ -534,4 +542,4 @@ Priority is **milestone-gated** — the current milestone is the **Geotech-subdi
 
 **Tier D — Phase-4 export step + post-launch:** #104 three-level export gap · #106 application layer welded to the ORM · #107 schema integrity hardening · #108 documentation refresh · #109 BaseExporter ABC split · #110 export-path duplication · #111 useGeologicalModel duplication · #116 test coverage gaps · #44 cross-stage selection · #52 PDF report slices B/C/D · #56 manual-lump reuse · #70/#71 decision-log + ML pipeline · #79 DOV Phase-2 import wall (instrument before speed work) · #93 first-use tutorial/onboarding (pre-coworker-binary) · #11 multilingual stratigraphy catalog · #100b Correlate sticky reveal · #220 smooth non-blocky litho 3D (Phase 5 visual).
 
-**Tier E — lower debt:** #16 telemetry/crash reporting · #17 legacy NULL-permkey runbook-only · #27 bathymetry DEM cells · #62 pinch-out ghost-UX residual · #65 excluded-boreholes UI · #68 CorrelationEdgesOverlay menu robustness · #82 drag-from-ghost-edge correlation · #240 fence-panels alongM divergence (owner visual call; one-liner flagged in buildProjectFence) · #201 god-component decomposition (round 2 landed 2026-07-13: partitionFill/ pkg, geology.types, overlay trio, Geology3DViewer, 2 SectionsCanvas sub-hooks; remainder = SectionPanel #168 rerouting + 2 entangled SectionsCanvas clusters + #178 backend trio — see debt entry) · #156 "Edit in Geology" deep-link mis-lands · #155 litho bulk flow secondary levers · #227 manual geotech edits (SHIPPED 2026-08-08; dogfeed + 2 owner questions pending) · #228 litho engine slivers · #242 model floor shallower than the deepest investigations (owner call) · #269 borehole packing preview covers the first divide only (re-divide diff render undesigned) · #274 seam-stroke doubling = the pale helper lines · #275 codebase-wide simplification/deletion campaign (fresh session; owner fires it after the constructive-fill harvest).
+**Tier E — lower debt:** #16 telemetry/crash reporting · #17 legacy NULL-permkey runbook-only · #27 bathymetry DEM cells · #62 pinch-out ghost-UX residual · #65 excluded-boreholes UI · #68 CorrelationEdgesOverlay menu robustness · #82 drag-from-ghost-edge correlation · #240 fence-panels alongM divergence (owner visual call; one-liner flagged in buildProjectFence) · #201 god-component decomposition (rounds + remainder in the debt entry) · #156 "Edit in Geology" deep-link mis-lands · #155 litho bulk flow secondary levers · #227 manual geotech edits (SHIPPED 2026-08-08; dogfeed + 2 owner questions pending) · #228 litho engine slivers · #242 model floor shallower than the deepest investigations (owner call) · #269 borehole packing preview covers the first divide only (re-divide diff render undesigned) · #274 seam-stroke doubling = the pale helper lines · #275 codebase-wide simplification/deletion campaign (fresh session; owner fires it after the constructive-fill harvest).
