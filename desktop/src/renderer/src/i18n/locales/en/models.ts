@@ -89,7 +89,7 @@ export const MODELS = {
   'geology.applySelection': 'Apply selection',
   'geology.lumpingCollisions': 'Lumping collision warnings',
   'geology.selectFormationsBlurb':
-    'Select formations to include. Use "→ same as" on a row to lump it into another.',
+    'Select formations to include. Use "→ same as" on a row to lump it into another formation. If your selection leaves out formations already in the model, Apply asks whether to add to the model or replace it.',
   'geology.filterFormationPlaceholder': 'Filter or type a target formation name',
   'geology.rerankPlaceholder': 'Type to re-rank or enter name…',
   'geology.noStratigraphyCandidates': 'No stratigraphy candidates found.',
@@ -136,6 +136,55 @@ export const MODELS = {
   'geology.deleteModelBody':
     'and all its formations, contacts, and cached surfaces will be permanently deleted. This cannot be undone.',
   'geology.deleteModelButton': 'Delete geological model',
+  // GeologyStage spine summary.
+  'geology.summaryFormationOne': '{n} formation',
+  'geology.summaryFormationMany': '{n} formations',
+  'geology.summaryStale': '{n} stale',
+  // Geology canvas empty state + inline CTA (geologyEmptyState / GeologyCanvas).
+  'geology.emptyBuildPrompt': 'No 3D model yet — build it from the stratigraphy.',
+  'geology.adding': 'Adding…',
+  // Geology inspector (roster header, crossings banner, delete confirm, rows).
+  'geology.stratigraphyLabel': 'Stratigraphy',
+  'geology.crossingsNotChecked': 'Surface crossings not checked — Build the 3D model to validate.',
+  'geology.crossingsCheckFailed':
+    'Surface crossings could NOT be checked — this is not a clean result. Rebuild or reopen the project to check again.',
+  'geology.crossingsDetectedOne': '{n} surface crossing detected',
+  'geology.crossingsDetectedMany': '{n} surface crossings detected',
+  'geology.emptyRosterHint':
+    'No formations yet — Fill from boreholes or add one, then build the 3D model.',
+  'geology.boreholeInModel': '{name} in model',
+  'geology.deleteFormationBody':
+    'and every contact + geotech unit pointing at it will be removed from the geological model. This can’t be undone (until File → Save the change isn’t in the .gmproj yet — closing without saving reverts).',
+  'geology.dragToReorderNamed': 'Drag to reorder {name}',
+  'geology.colorClickToChange': '{color} — click to change colour',
+  'geology.changeColorOf': 'Change colour of {name}',
+  // Formation selection dialog (Fill from boreholes).
+  'geology.formationsFoundOne': '{n} formation found',
+  'geology.formationsFoundMany': '{n} formations found',
+  'geology.candAll': 'All',
+  'geology.candNone': 'None',
+  'geology.foundInBoreholesOne': 'found in {n} borehole',
+  'geology.foundInBoreholesMany': 'found in {n} boreholes',
+  'geology.updating': 'Updating…',
+  'geology.boreholeWordOne': 'borehole',
+  'geology.boreholeWordMany': 'boreholes',
+  'geology.boundaryWordOne': 'boundary',
+  'geology.boundaryWordMany': 'boundaries',
+  'geology.formationWordOne': 'formation',
+  'geology.formationWordMany': 'formations',
+  'geology.contactWordOne': 'contact',
+  'geology.contactWordMany': 'contacts',
+  'geology.collisionSummary':
+    '{count} {boreholeWord} had layers lumping to the same formation — kept shallowest, dropped {dropped} {boundaryWord}; review your grouping',
+  'geology.collisionInBorehole': 'in borehole',
+  'geology.collisionCollidingNames': ': colliding names:',
+  'geology.collisionKept': '. Kept top at {top}m, dropped {dropped}.',
+  'geology.deletionWarning':
+    '{fCount} {formationWord} and {cCount} {contactWord} are not in your selection. Apply will ask whether to keep or remove them.',
+  'geology.reassignedToClickChange': 'Reassigned to "{label}" — click to change',
+  'geology.reassignToAnother': 'Reassign "{name}" to another formation',
+  'geology.sameAs': '→ same as',
+  'geology.useCustomName': 'Use "{name}"',
 
   // -------------------------------------------------------------------------
   // lithology stage.
@@ -289,6 +338,27 @@ export const MODELS = {
   'geotech.preflightIgnore':
     'Ignore them completely — the result is the model you had before they were imported',
   'geotech.subdivideFirst': 'Subdivide the bodies first.',
+  // Re-subdivide confirm dialog body (ReSubdivideConfirmDialog). Split around
+  // the bold / em-emphasised fragments so each keeps its emphasis.
+  'geotech.thisSectionFallback': 'this section',
+  'geotech.reSubdivideModelPre': 'Re-deriving under',
+  'geotech.reSubdivideModelMid': 'clears all subdivisions',
+  'geotech.reSubdivideModelWide': 'model-wide',
+  'geotech.reSubdivideModelPost':
+    '— every section’s packing bands and connections are rebuilt from the CPT data, and every borehole goes empty until you divide it again.',
+  'geotech.reSubdivideRegenPre':
+    'Re-subdividing regenerates the geotech packing connections on',
+  'geotech.reSubdivideRegenPost': '— any manual connections you made there will be cleared.',
+  'geotech.reSubdivideHandPre': 'It also rebuilds the packing bands on',
+  'geotech.reSubdivideHandMid': 'from the CPT data, so its',
+  'geotech.reSubdivideHandBandOne': '{n} hand-edited band',
+  'geotech.reSubdivideHandBandMany': '{n} hand-edited bands',
+  'geotech.reSubdivideHandPost':
+    'go back to the segmenter’s boundaries. That cannot be recovered.',
+  'geotech.reSubdivideAltPre': 'To get the automatic ties back',
+  'geotech.reSubdivideAltEm': 'without',
+  'geotech.reSubdivideAltPost':
+    'losing your own, cancel and use Correlate packing → Auto-correlate instead.',
   // Geotech units roster (right pane).
   'geotech.unitsWithBands': '{count} with bands',
   'geotech.collapseSoil': 'Collapse this soil',
