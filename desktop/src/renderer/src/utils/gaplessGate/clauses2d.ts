@@ -19,9 +19,9 @@
  * TWO THINGS THIS MODULE OWES THE ENGINEER, both learned from a real report he
  * read on 2026-08-28:
  *
- *  1. **A magnitude he can act on.** See ``formatMeasure`` — clause 1's budget
- *     is small enough that every genuine failure used to round to the word
- *     "0", and a guarantee reported broken by nothing is worse than silence.
+ *  1. **A magnitude he can act on.** See ``formatMeasure`` — a small genuine
+ *     mismatch must not round to the word "0", because a guarantee reported
+ *     broken by nothing is worse than silence.
  *  2. **Somewhere to go.** Every entry names the gap's own two COLUMNS, not
  *     just its index — see ``gapLocator`` and ``gap_investigation_ids`` in
  *     ``types.ts``. This is the only place in the app where the frame's column
@@ -31,11 +31,15 @@
  * @module utils/gaplessGate/clauses2d
  */
 
-import { areaConservationEpsilonM2 } from './gaplessGate_constants'
+import ArrayList from 'jsts/java/util/ArrayList.js'
+import Coordinate from 'jsts/org/locationtech/jts/geom/Coordinate.js'
+import GeometryFactory from 'jsts/org/locationtech/jts/geom/GeometryFactory.js'
+import CascadedPolygonUnion from 'jsts/org/locationtech/jts/operation/union/CascadedPolygonUnion.js'
+import OverlayOp from 'jsts/org/locationtech/jts/operation/overlay/OverlayOp.js'
+
 import type { GaplessClauseEntry, GaplessClauseKey, GaplessClauseStatus } from './types'
 import type { HierarchicalGeotechFillResult } from '../geotechHierarchicalFill'
 import type { SectionRegion } from '../partitionFill'
-import { regionAreaM2FromAlongM } from '../partitionFill/regionArea'
 
 /** The three 2-D clause keys this module answers (clause 4 lives in ``sectionClosure.ts``). */
 export type Clause2dKey = Extract<GaplessClauseKey, 'area-conservation' | 'edge-reach' | 'cause-closure'>
@@ -84,12 +88,11 @@ const NO_FILL_REASON =
  * Format a measurement for a human sentence.
  *
  * Two decimals is the readable default and was, until 2026-08-28, the whole
- * rule. It is a LIE for clause 1. That clause's budget is one snap-grid
- * millimetre per metre of gap width (``areaConservationEpsilonM2``), so on any
- * normal gap the SMALLEST difference it can call a defect is far below
- * 0.005 m² — the point where two decimals round to the word "0". The owner was
- * shown *"which is 0 m² less than the litho cover's 8.42 m²"*: a guarantee
- * reported broken by an amount of nothing.
+ * rule. It is a LIE for clause 1. That clause compares the covers exactly, so
+ * any nonzero mismatch can be a defect while two decimals round all values
+ * below 0.005 m² to the word "0". The owner was shown *"which is 0 m² less
+ * than the litho cover's 8.42 m²"*: a guarantee reported broken by an amount
+ * of nothing.
  *
  * So: two decimals while two decimals still say something, and three
  * significant figures when they do not. Significant figures rather than more
@@ -146,16 +149,34 @@ function gapLocator(
   }
 }
 
-/** Sum a region list's area, per gap index, using ``regionAreaM2FromAlongM``. */
-function areaByGap(
-  regions: readonly SectionRegion[],
-  alongM: readonly number[],
-): Map<number, number> {
-  const out = new Map<number, number>()
+const geometryFactory = new GeometryFactory()
+
+/**
+ * Measure one cover as a set, never as a sum of its source rings.
+ *
+ * A hierarchical result partitions its parent litho regions. Its sibling
+ * rings can meet, cross a snapped junction, or overlap while still painting
+ * exactly the same ground once. Raw shoelace sums turn that implementation
+ * detail into an invented shortfall/excess. The geometry engine unions the
+ * original physical-coordinate rings first, so every covered patch is counted
+ * once at the coordinates the section actually holds. Thus any genuinely
+ * unpainted litho patch or paint outside litho changes the result; duplicate
+ * child-ring area does not.
+ */
+function coverGeometry(regions: readonly SectionRegion[], widthM: number) {
+  const polygons = new ArrayList([])
   for (const region of regions) {
-    out.set(region.gapIndex, (out.get(region.gapIndex) ?? 0) + regionAreaM2FromAlongM(region, alongM))
+    if (region.polygon.length < 3) continue
+    const ring = region.polygon.map(
+      (point) => new Coordinate(point.fraction * Math.abs(widthM), point.elevation),
+    )
+    ring.push(ring[0])
+    polygons.add(geometryFactory.createPolygon(ring))
   }
-  return out
+  const geometry = polygons.isEmpty()
+    ? geometryFactory.createPolygon()
+    : CascadedPolygonUnion.union(polygons)
+  return { geometry, areaM2: geometry.getArea() }
 }
 
 /** Clause 1 (area-conservation) for one section that DID run a hierarchical fill. */
@@ -167,40 +188,33 @@ function areaConservationFor(
   alongM: readonly number[],
   columnInvestigationIds: readonly string[],
 ): SectionClauseEvidence {
-  const classed = areaByGap(hierarchical.regions, alongM)
-  const unclassed = areaByGap(hierarchical.lithoFallback, alongM)
-  const cover = areaByGap(lithoRegions, alongM)
-  const gapIndices = new Set<number>([...classed.keys(), ...unclassed.keys(), ...cover.keys()])
+  const gapIndices = new Set<number>(
+    [...hierarchical.regions, ...hierarchical.lithoFallback, ...lithoRegions].map(
+      (region) => region.gapIndex,
+    ),
+  )
   const entries: GaplessClauseEntry[] = []
   for (const gapIndex of [...gapIndices].sort((a, b) => a - b)) {
     const width = alongM[gapIndex + 1] - alongM[gapIndex]
     if (!Number.isFinite(width)) continue // gapIndex outside this frame's own axis — nothing to measure
-    const classedM2 = classed.get(gapIndex) ?? 0
-    const unclassedM2 = unclassed.get(gapIndex) ?? 0
-    const coverM2 = cover.get(gapIndex) ?? 0
-    const deltaM2 = classedM2 + unclassedM2 - coverM2
-    const epsilon = areaConservationEpsilonM2(width)
-    if (Math.abs(deltaM2) <= epsilon) continue
-    const direction = deltaM2 > 0 ? 'more than' : 'less than'
-    // The two TOTALS deliberately stay at reading precision, so on a small
-    // difference the sentence says "totals 8.42 m², which is 0.0012 m² less
-    // than … 8.42 m²". That is not a bug to fix by printing more decimals on
-    // them: the difference is the finding, the totals are only its scale, and
-    // a pair of eight-decimal numbers would bury the one number that matters.
+    const painted = [...hierarchical.regions, ...hierarchical.lithoFallback].filter(
+      (region) => region.gapIndex === gapIndex,
+    )
+    const frame = lithoRegions.filter((region) => region.gapIndex === gapIndex)
+    const paintedCover = coverGeometry(painted, width)
+    const lithoCover = coverGeometry(frame, width)
+    const differenceM2 = OverlayOp.symDifference(
+      paintedCover.geometry,
+      lithoCover.geometry,
+    ).getArea()
+    if (differenceM2 === 0) continue
     entries.push({
       label:
-        `${sectionName}, gap ${gapIndex}: classed + unclassed cover totals ` +
-        `${formatMeasure(classedM2 + unclassedM2)} m², which is ${formatMeasure(Math.abs(deltaM2))} m² ` +
-        `${direction} the litho cover's ${formatMeasure(coverM2)} m²` +
-        // The allowance, spelled out — clause 1 is the only 2-D clause with a
-        // budget that is not zero, and it is derived from THIS gap's width, so
-        // the bare difference alone is a number the engineer cannot judge.
-        // Naming the machine-rounding floor makes clear that any material
-        // shortfall is real ground loss. Clauses 2 and 3 forbid the thing
-        // outright, so an allowance would be noise there and they say nothing.
-        ` — more than the ${formatMeasure(epsilon)} m² floating-point allowance`,
+        `${sectionName}, gap ${gapIndex}: classed + unclassed ground differs from ` +
+        `the litho cover by ${formatMeasure(differenceM2)} m² ` +
+        `(geotech ${formatMeasure(paintedCover.areaM2)} m²; litho ${formatMeasure(lithoCover.areaM2)} m²)`,
       ...gapLocator(sectionId, sectionName, gapIndex, columnInvestigationIds),
-      measure: { value: Math.abs(deltaM2), unit: 'm2', budget: epsilon },
+      measure: { value: differenceM2, unit: 'm2', budget: 0 },
     })
   }
   return { key: 'area-conservation', status: entries.length > 0 ? 'fail' : 'pass', entries }
