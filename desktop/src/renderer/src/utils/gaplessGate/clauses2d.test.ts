@@ -3,8 +3,8 @@
  *
  * Written FIRST, in the rule's own words, before ``clauses2d.ts`` exists:
  *
- *  - clause 1 (area-conservation): classed + unclassed cover must equal the
- *    litho cover, per gap, within the engine's own snap-grid tolerance.
+ *  - clause 1 (area-conservation): classed + unclassed ground must match the
+ *    litho cover geometrically, per gap.
  *  - clause 2 (edge-reach): a gap the hierarchical fill flags as unreadable at
  *    a column edge is a clause 2 failure, verbatim — this clause NEVER
  *    re-derives the check, only reports what ``edgeReach.ts`` already found.
@@ -146,6 +146,51 @@ describe('clauses2dForSection — clause 1 (area-conservation)', () => {
     const clause = clauses2dForSection(input).find((c) => c.key === 'area-conservation')!
     expect(clause.status).toBe('pass')
     expect(clause.entries).toEqual([])
+  })
+
+  it('passes when subdivided paint overlaps but its covered ground equals litho', () => {
+    // The model guarantee is about ground coverage, not the sum of every
+    // constituent ring. These two classed regions overlap by 1 m², but their
+    // union is precisely the 100 m² litho frame: no litho ground is absent
+    // and no paint escapes the frame.
+    const lithoRegions = [box(0, 0, 1, 0, 10)]
+    const hier = hierarchical({
+      regions: [box(0, 0, 0.6, 0, 10), box(0, 0.5, 1, 0, 10)],
+      lithoFallback: [],
+    })
+    const clause = clauses2dForSection({
+      sectionId: 's1',
+      sectionName: 'Cross-section 1',
+      hierarchical: hier,
+      lithoRegions,
+      alongM: ALONG_M,
+      columnInvestigationIds: ONE_GAP_COLUMNS,
+    }).find((c) => c.key === 'area-conservation')!
+
+    expect(clause.status).toBe('pass')
+    expect(clause.entries).toEqual([])
+  })
+
+  it('fails when same-area paint is shifted outside the litho cover', () => {
+    // Equal square metres are insufficient: the actual covered ground must be
+    // the litho ground. This paint loses 10 m² at the left and invents 10 m²
+    // at the right, despite keeping the same total area.
+    const lithoRegions = [box(0, 0, 1, 0, 10)]
+    const hier = hierarchical({
+      regions: [box(0, 0.1, 1.1, 0, 10)],
+      lithoFallback: [],
+    })
+    const clause = clauses2dForSection({
+      sectionId: 's1',
+      sectionName: 'Cross-section 1',
+      hierarchical: hier,
+      lithoRegions,
+      alongM: ALONG_M,
+      columnInvestigationIds: ONE_GAP_COLUMNS,
+    }).find((c) => c.key === 'area-conservation')!
+
+    expect(clause.status).toBe('fail')
+    expect(clause.entries[0].measure?.value).toBeCloseTo(20, 6)
   })
 
   it('fails with exactly one named entry when a gap comes up short', () => {
@@ -314,12 +359,12 @@ describe('clauses2dForSection — clause 3 (cause-closure)', () => {
 // ---------------------------------------------------------------------------
 // GG10-GG12 — the failure sentence must not round its own evidence away
 //
-// Clause 1 permits only machine rounding, so a small real shortfall must still
-// read as a real number rather than the word "0".
+// Clause 1 compares the two ground covers exactly, so a small real difference
+// must still read as a real number rather than the word "0".
 // ---------------------------------------------------------------------------
 
 /** The owner's own scene: a ~8.42 m2 cover on a 1 m wide gap, index 1. */
-const OWNER_ALONG_M = [0, 5, 6] // gap 1 is 1 m wide -> budget 0.001 m2
+const OWNER_ALONG_M = [0, 5, 6]
 const OWNER_COLUMNS = ['S1', 'S4', 'B6']
 
 describe('clause 1 — a broken guarantee is never reported as broken by 0', () => {
@@ -344,7 +389,7 @@ describe('clause 1 — a broken guarantee is never reported as broken by 0', () 
     expect(entry.label).toContain('0.0012 m²')
   })
 
-  it('GG11 names the floating-point-only allowance, so the number is a judgement', () => {
+  it('GG11 names the exact geometric difference without an allowance', () => {
     const lithoRegions = [box(1, 0, 1, 0, 8.42)]
     const hier = hierarchical({ regions: [box(1, 0, 1, 0, 8.4188)], lithoFallback: [] })
     const clause = clauses2dForSection({
@@ -357,13 +402,12 @@ describe('clause 1 — a broken guarantee is never reported as broken by 0', () 
     }).find((c) => c.key === 'area-conservation')!
 
     expect(clause.entries[0].label).toBe(
-      'Cross-section 2, gap 1: classed + unclassed cover totals 8.42 m², which is ' +
-        "0.0012 m² less than the litho cover's 8.42 m² — more than the 1e-9 m² " +
-        'floating-point allowance',
+      'Cross-section 2, gap 1: classed + unclassed ground differs from the litho cover by ' +
+        '0.0012 m² (geotech 8.42 m²; litho 8.42 m²)',
     )
   })
 
-  it('GG12 leaves a metre-scale difference reading exactly as it always did', () => {
+  it('GG12 keeps a metre-scale exact geometric difference readable', () => {
     // The shared formatter must not grow noise digits on numbers that were
     // already readable: 50 m2 short of 100 m2 stays "50", not "50.0000".
     const lithoRegions = [box(0, 0, 1, 0, 10)]
@@ -378,7 +422,7 @@ describe('clause 1 — a broken guarantee is never reported as broken by 0', () 
     }).find((c) => c.key === 'area-conservation')!
 
     expect(clause.entries[0].label).toContain(
-      "totals 50 m², which is 50 m² less than the litho cover's 100 m²",
+      'differs from the litho cover by 50 m² (geotech 50 m²; litho 100 m²)',
     )
   })
 })
