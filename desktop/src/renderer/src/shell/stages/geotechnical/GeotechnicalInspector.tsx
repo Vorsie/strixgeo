@@ -6,7 +6,7 @@
 // the tree landed — the flat list fitted here, the tree does not, and debt #201
 // is about not letting a stage component absorb everything again.
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { FlaskConical } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -17,6 +17,7 @@ import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
 import { useLanguage } from '../../../i18n/languageSelect'
+import { useModelBodies } from '../parameters/useModelBodies'
 import GeotechnicalUnitRoster from './GeotechnicalUnitRoster'
 
 /**
@@ -59,14 +60,27 @@ export default function GeotechnicalInspector(): JSX.Element {
       geotechContacts,
       geotechLayers,
       lithoFormations,
+      activeGeotechModel,
       refetchFormations,
       handleFormationUpdated,
     },
+    coordinator: { bodyRecomputeGeotechNonce },
   } = useShell()
   // Reactive: re-renders when the engineer clicks a sample dot.
   const bodySelection = useGeotechBodySelection()
 
   const projectId = project?.id ?? null
+
+  // The geotech model's bodies, for the crossed-formation subtitle (debt #278,
+  // R2). Reuses the Parameters stage's fetch hook — the roster reads only their
+  // ``geo_formations`` lists. Follows the body-recompute nonce so the subtitle
+  // refreshes after a recompute; a null active model fetches nothing.
+  const geotechBodiesById = useModelBodies(
+    projectId,
+    activeGeotechModel?.id ?? null,
+    bodyRecomputeGeotechNonce,
+  )
+  const geotechBodies = useMemo(() => [...geotechBodiesById.values()], [geotechBodiesById])
 
   // The colour the engineer picks on a roster row (owner ruling 2026-08-26).
   //
@@ -128,6 +142,7 @@ export default function GeotechnicalInspector(): JSX.Element {
           geotechContacts={geotechContacts}
           geotechLayers={geotechLayers}
           lithoFormations={lithoFormations}
+          geotechBodies={geotechBodies}
           onPickColor={handlePickUnitColor}
           selectedFormationId={selectedFormation?.id ?? null}
         />
