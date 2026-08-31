@@ -21,7 +21,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn } from './sectionPartition'
 import { toRegionInputs } from './buildVoxelRequest'
 
 const DUMP_PATH = resolve(__dirname, '../../../../../scripts/throwaway_geotech_axis_inputs.json')
