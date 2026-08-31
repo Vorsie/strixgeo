@@ -76,22 +76,35 @@ async function openBodyMenu(page: Page): Promise<void> {
   // ON; each fires onBodyContextMenu on right-click when the body has a bodyId.
   await enableFillBands(page)
   // The context menu is wired only once the model's BODY LIST has loaded
-  // (interactive = onBodyContextMenu && body): wait for an INTERACTIVE region
-  // (cursor: context-menu) and dispatch on it. Dispatching on merely the first
-  // rendered path raced the body-list fetch — the single contextmenu event
-  // landed on a pointer-events:none path and the menu could never open (the
-  // historic "body-detection" flake was THIS race).
+  // (``interactive = onBodyContextMenu && bodyById.get(region.bodyId)``, and
+  // the list arrives as ``bodies={lenses}``). Dispatching before it lands means
+  // the event hits a region the overlay has not armed, and the menu can never
+  // open — the historic "body-detection" flake was THIS race.
+  //
+  // WAITING ON ``cursor: context-menu`` NO LONGER PROVES THE LIST ARRIVED.
+  // Since the unit-statistics jump landed (R2/S7b, 2026-08-27),
+  // ``PartitionFillOverlay`` gives that cursor to statistics regions too —
+  // ``interactive || statsInteractive`` — while wiring the BODY menu only for
+  // the first. So the old guard passed on an un-armed region, the statistics
+  // menu answered instead, and the spec waited out its timeout for a body menu
+  // that was never coming.
+  //
+  // There is no DOM signal that separates the two, so ask the only question
+  // that actually matters: retry the right-click until the BODY menu opens.
+  // ``toPass`` bounds it, and the body list landing is what makes it succeed.
   const partitionRegion = page
     .locator('[data-testid^="partition-region-"][style*="context-menu"]')
     .first()
   await expect(partitionRegion).toBeVisible({ timeout: 30_000 })
-  await partitionRegion.dispatchEvent('contextmenu', {
-    button: 2,
-    clientX: 360,
-    clientY: 360,
-    bubbles: true,
-  })
-  await expect(page.getByTestId('body-context-menu')).toBeVisible({ timeout: 5_000 })
+  await expect(async () => {
+    await partitionRegion.dispatchEvent('contextmenu', {
+      button: 2,
+      clientX: 360,
+      clientY: 360,
+      bubbles: true,
+    })
+    await expect(page.getByTestId('body-context-menu')).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 test.describe('flow_body_actions_ui', () => {
@@ -116,7 +129,15 @@ test.describe('flow_body_actions_ui', () => {
       })
 
       await openBodyMenu(page)
-      await page.getByTestId('body-ctx-dissolve-body').click()
+      // DISPATCHED, not ``.click()``. The menu is portalled into the SVG, and a
+      // real click fails Playwright's actionability check — the item is visible
+      // (the failure screenshot shows the whole menu) but something above it
+      // owns the hit test. Dispatching matches how this spec already delivers
+      // the right-click that opens the menu, and keeps the assertion about the
+      // ACTION rather than about hit-testing.
+      const dissolve = page.getByTestId('body-ctx-dissolve-body')
+      await expect(dissolve).toBeVisible({ timeout: 5_000 })
+      await dissolve.dispatchEvent('click')
 
       // The confirm dialog fired (gesture reached it) and — dismissed — the
       // body survives (partition region still present).
