@@ -10,7 +10,7 @@ import {
   LENS_PINCH_FRACTION,
   type PartitionRegion,
   type SectionRegion,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 
 // ---------------------------------------------------------------------------
 // Label placement helpers (module-level, pure — no I/O)
