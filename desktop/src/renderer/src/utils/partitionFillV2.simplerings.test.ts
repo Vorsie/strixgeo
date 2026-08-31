@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type PartitionPoint } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type PartitionPoint } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
