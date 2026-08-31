@@ -35,17 +35,22 @@ No I/O, no database access, no logging. The caller
 writes the results back (creating/reconciling body rows + stamping
 ``litho_layer.body_id``).
 
+The layer-level resolver groups nodes with a CONSTRAINED union-find (cannot-link
+constraints from user "Separate" rulings, debt #278 R5) — see
+``_constrained_components``. It does NOT use ``_bfs_reachable``.
+
 This module also hosts ``connected_formation_ids`` (+ its ``CorrelationEdge``
 input DTO), a separate pure BFS helper consumed by
 ``application.propagate_litho_admixtures`` to walk the formation-level
 correlation graph. It is intentionally kept distinct from the layer-level
-resolver above (different node kind, different filters), but both share the
-``_bfs_reachable`` traversal core.
+resolver above (different node kind, different filters, different traversal):
+``connected_formation_ids`` is the only remaining caller of ``_bfs_reachable``.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -118,6 +123,35 @@ class LayerEdge:
 
 
 @dataclass(frozen=True)
+class LayerSeparation:
+    """One user "Separate" ruling — a cannot-link constraint between two layers.
+
+    Owner ruling 2026-08-31 (debt #278, R5): the "Separate" verb is the
+    counterpart to Dissolve, so the engineer can state *"these two are NOT the
+    same body"* and have the resolver honour it PERMANENTLY. Where a
+    ``LayerEdge`` (a tie or a geometry fact) UNIONS its two layers, a separation
+    FORBIDS its two anchors from ever landing in one body — even when a chain of
+    edges would otherwise connect them.
+
+    The constraint is expressed in LAYER-id space, never body-id space: body ids
+    re-mint on every resolve (the ``(formation, ordinal)`` key recycles rows), so
+    a body-anchored constraint would bind the wrong mass after the next
+    renumbering. Anchoring on the layer rows survives that.
+
+    Attributes
+    ----------
+    layer_a_id : UUID
+        One anchor (litho_layer id). Order is irrelevant to the constraint — the
+        two anchors simply may not share a body.
+    layer_b_id : UUID
+        The other anchor (litho_layer id).
+    """
+
+    layer_a_id: UUID
+    layer_b_id: UUID
+
+
+@dataclass(frozen=True)
 class InstanceAssignment:
     """One resolved instance (connected component of layers).
 
@@ -168,9 +202,10 @@ class ResolveResult:
 def _bfs_reachable(seed: UUID, adjacency: dict[UUID, set[UUID]]) -> list[UUID]:
     """Return every node reachable from ``seed``, in BFS discovery order.
 
-    Shared BFS core for :func:`_components` (layer-level resolver) and
-    :func:`connected_formation_ids` (formation-level graph) — the two loops
-    were hand-rolled copies of the same traversal before this helper.
+    Traversal core for :func:`connected_formation_ids` (the formation-level
+    correlation graph). The layer-level resolver no longer uses it — it groups
+    nodes with the constrained union-find in :func:`_constrained_components`, so
+    a user "Separate" ruling can cut an edge BFS would blindly follow.
 
     Parameters
     ----------
@@ -198,35 +233,95 @@ def _bfs_reachable(seed: UUID, adjacency: dict[UUID, set[UUID]]) -> list[UUID]:
     return order
 
 
-def _components(node_ids: set[UUID], adjacency: dict[UUID, set[UUID]]) -> list[list[UUID]]:
-    """Return connected components (BFS). Singletons are single-element lists.
+def _constrained_components(
+    node_ids: set[UUID],
+    edges: list[tuple[UUID, UUID]],
+    separations: list[tuple[UUID, UUID]],
+) -> list[list[UUID]]:
+    """Connected components under user "Separate" (cannot-link) constraints.
+
+    Plain connectivity would union every layer reachable by an edge. A
+    separation FORBIDS its two anchors from sharing a body, so this is a
+    constrained union-find: an edge whose union would place both sides of one
+    separation under a single root is SKIPPED rather than applied.
+
+    Determinism note: without constraints, connected components are independent
+    of the order edges are processed. WITH cannot-link constraints they are NOT —
+    which of two competing edges is dropped depends on which is seen first. The
+    caller therefore sorts ``edges`` canonically before calling this, and that
+    sort IS the determinism guarantee.
 
     Parameters
     ----------
     node_ids : set[UUID]
-        All layer ids to cover. An id absent from ``adjacency`` is a singleton.
-    adjacency : dict[UUID, set[UUID]]
-        Undirected adjacency list (both directions populated by the caller).
+        Every layer id to cover. An id touched by no surviving edge is a
+        singleton component.
+    edges : list[tuple[UUID, UUID]]
+        Surviving edges (already filtered by lithology / packing / dangling
+        guards AND sorted canonically) as ``(u, v)`` pairs.
+    separations : list[tuple[UUID, UUID]]
+        Live cannot-link pairs (already filtered so both anchors are in
+        ``node_ids`` — a dangling anchor is inert and must be dropped by the
+        caller).
 
     Returns
     -------
     list[list[UUID]]
-        One sub-list per component; order within each is BFS discovery order.
+        One sub-list per component. Members within a component are in ascending
+        ``str(id)`` order (deterministic; the grouping, not the order, is what
+        downstream ordinal assignment consumes).
     """
-    visited: set[UUID] = set()
-    out: list[list[UUID]] = []
-    for start in node_ids:
-        if start in visited:
+    parent: dict[UUID, UUID] = {n: n for n in node_ids}
+    # root -> {separation_index -> set of sides ('A' / 'B') present under it}.
+    # The invariant maintained below: no single root ever holds BOTH sides of
+    # one separation, because the union that would create that is skipped.
+    incidence: dict[UUID, dict[int, set[str]]] = {}
+
+    def find(x: UUID) -> UUID:
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:  # path compression
+            parent[x], x = root, parent[x]
+        return root
+
+    # Seed each anchor's singleton root with its side BEFORE any edge is unioned,
+    # so the constraints are active from the very first union.
+    for idx, (a, b) in enumerate(separations):
+        incidence.setdefault(find(a), {}).setdefault(idx, set()).add("A")
+        incidence.setdefault(find(b), {}).setdefault(idx, set()).add("B")
+
+    for u, v in edges:
+        ru, rv = find(u), find(v)
+        if ru == rv:
             continue
-        comp = _bfs_reachable(start, adjacency)
-        visited.update(comp)
-        out.append(comp)
-    return out
+        inc_u = incidence.get(ru, {})
+        inc_v = incidence.get(rv, {})
+        # Would merging give some separation both its sides under one root?
+        # Only indices present on BOTH roots can newly complete the pair.
+        if any(inc_u[i] | inc_v[i] == {"A", "B"} for i in inc_u.keys() & inc_v.keys()):
+            continue  # honour the user's "these two are NOT the same body"
+        # Union: keep the root carrying the LARGER incidence map so the smaller
+        # one is what gets copied across (fewer entries to merge).
+        if len(inc_u) < len(inc_v):
+            ru, rv, inc_u, inc_v = rv, ru, inc_v, inc_u
+        parent[rv] = ru
+        if inc_v:
+            dest = incidence.setdefault(ru, {})
+            for i, sides in inc_v.items():
+                dest.setdefault(i, set()).update(sides)
+            incidence.pop(rv, None)
+
+    groups: dict[UUID, list[UUID]] = defaultdict(list)
+    for n in sorted(node_ids, key=str):
+        groups[find(n)].append(n)
+    return list(groups.values())
 
 
 def resolve_litho_instances(
     layers: list[LayerNode],
     edges: list[LayerEdge],
+    separations: Sequence[LayerSeparation] = (),
 ) -> ResolveResult:
     """Resolve instances (connected components) and assign group ordinals.
 
@@ -237,6 +332,14 @@ def resolve_litho_instances(
     edges : list[LayerEdge]
         User-approved correlation edges (layer-id endpoints). Endpoints not
         present in ``layers`` are ignored (dangling-edge guard).
+    separations : Sequence[LayerSeparation], optional
+        User "Separate" rulings — cannot-link constraints (debt #278, R5).
+        Each forbids its two anchors from ever landing in one body, even when a
+        chain of edges would otherwise connect them. A separation whose anchor is
+        absent from ``layers`` this run is INERT (the dangling-anchor mirror of
+        the dangling-edge guard). Default empty: the litho/geotech resolve is
+        byte-identical to plain connectivity when the engineer has separated
+        nothing.
 
     Returns
     -------
@@ -250,7 +353,7 @@ def resolve_litho_instances(
     node_map: dict[UUID, LayerNode] = {ln.layer_id: ln for ln in layers}
     node_ids: set[UUID] = set(node_map)
 
-    adjacency: dict[UUID, set[UUID]] = defaultdict(set)
+    surviving_edges: list[tuple[UUID, UUID]] = []
     for e in edges:
         a = node_map.get(e.layer_a_id)
         b = node_map.get(e.layer_b_id)
@@ -294,10 +397,25 @@ def resolve_litho_instances(
         # surviving filter. The Boom-Klei-on-clay case stays two bodies because
         # the engineer does not correlate across that contact (merging is
         # edge-driven, never lithology-alone).
-        adjacency[e.layer_a_id].add(e.layer_b_id)
-        adjacency[e.layer_b_id].add(e.layer_a_id)
+        surviving_edges.append((e.layer_a_id, e.layer_b_id))
 
-    components = _components(node_ids, adjacency)
+    # Determinism: with the cannot-link constraints below, the partition depends
+    # on the order edges are unioned. Sorting the surviving edges canonically
+    # (by their two endpoints as strings) fixes that order, so the resolved
+    # bodies are the same whatever order the edges arrived from the DB.
+    surviving_edges.sort(key=lambda uv: (min(str(uv[0]), str(uv[1])), max(str(uv[0]), str(uv[1]))))
+
+    # A separation whose anchor left the model this run is INERT — the
+    # dangling-anchor mirror of the dangling-edge guard above. A deleted or
+    # rebuilt layer neutralises the constraint (the re-anchor pass restores it on
+    # the next rebuild), so a stale separation can never fragment the wrong body.
+    live_separations: list[tuple[UUID, UUID]] = [
+        (s.layer_a_id, s.layer_b_id)
+        for s in separations
+        if s.layer_a_id in node_ids and s.layer_b_id in node_ids
+    ]
+
+    components = _constrained_components(node_ids, surviving_edges, live_separations)
 
     # Sort key for the shallowest member of a component: by depth, then layer
     # UUID for determinism.
