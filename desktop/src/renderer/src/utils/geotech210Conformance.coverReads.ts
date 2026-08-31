@@ -36,7 +36,7 @@ import {
 import { coverContactOf, type CoverContact } from './geotechHierarchicalFill/constructive/coverWeld'
 import type { Mass } from './geotechHierarchicalFill/constructive/emitKernel'
 import { CONTACT_EPS } from './geotechHierarchicalFill/constructive/farBand'
-import type { PartitionColumn } from './partitionFill'
+import type { PartitionColumn } from './sectionPartition'
 
 /** One band's reading of ONE of its cover contacts across ONE gap. */
 export interface CoverRead {
