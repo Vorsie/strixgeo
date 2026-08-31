@@ -29,7 +29,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { LENS_PINCH_FRACTION } from '../sectionPartition'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 import { type Point } from './types'
 
