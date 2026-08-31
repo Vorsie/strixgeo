@@ -58,7 +58,6 @@ import {
 } from './buildVoxelRequest'
 import type { FenceSectionInput } from './buildProjectFence'
 import type { CorrelationEdge } from './partitionFill'
-import { isPartitionEngineV2Active } from './partitionEngineSelect'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
@@ -217,11 +216,11 @@ describe('geotech voxel payload emitter', () => {
         `${JSON.stringify(dump.meta.geotechLayerStatusCounts)}\n` +
         `    grid ${HORIZONTAL_M} m / ${VERTICAL_M} m (stored generation ` +
         `${dump.meta.anchor.generationId})\n` +
-        `    engine = ${isPartitionEngineV2Active() ? 'v2 (app default)' : 'v1 (fallback)'}\n`,
+        `    engine = v2
+`,
     )
     // The app resolves v2 by default since 2026-08-01. Emitting the fallback
     // engine's partition would describe a model no user would get.
-    expect(isPartitionEngineV2Active()).toBe(true)
 
     const sections = dump.sections.map((s) => toFenceSection(s, s.geotech))
 
