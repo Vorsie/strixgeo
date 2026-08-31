@@ -21,7 +21,7 @@
 
 import { type BodyBoundaryNode, type BodyBoundaryResponse } from '../../api/client'
 import { contactApexOverrideKey } from '../../utils/partitionFillV2/contactOverride'
-import { type LensApexOverride, type PartitionColumn, type PartitionUnit } from '../../utils/partitionFill'
+import { type LensApexOverride, type PartitionColumn, type PartitionUnit } from '../../utils/sectionPartition'
 
 /** Contact-elevation match epsilon in metres (the units are pre-arrangement-snap). */
 const CONTACT_MATCH_M = 1e-3
