@@ -76,10 +76,8 @@ function fixture(): { columns: PartitionColumn[]; edges: CorrelationEdge[]; alon
 describe('fill identity — geometric column-edge attribution (v2 identity path)', () => {
   beforeEach(() => {
     // The identity path is the v2 engine's; pin it regardless of device pref.
-    process.env.STRIX_PARTITION_V2 = '1'
   })
   afterEach(() => {
-    delete process.env.STRIX_PARTITION_V2
   })
 
   it('all four same-formation layers (3 interbedded + 1 thick) land in ONE identity group', () => {
