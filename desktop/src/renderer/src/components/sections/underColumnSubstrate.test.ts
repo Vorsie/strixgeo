@@ -23,7 +23,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { PartitionColumn, SectionRegion } from '../../utils/partitionFill'
+import type { PartitionColumn, SectionRegion } from '../../utils/sectionPartition'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
 
 /** Column with a gap-free unit stack (depths from a surface at ``surface``). */
