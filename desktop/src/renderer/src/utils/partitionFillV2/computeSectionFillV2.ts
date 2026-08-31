@@ -43,7 +43,7 @@ import {
   type PartitionColumn,
   type PartitionPoint,
   type SectionRegion,
-} from '../partitionFill'
+} from '../sectionPartition'
 
 /**
  * Compute the v2 partition fill for a whole section.
