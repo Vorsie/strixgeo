@@ -241,6 +241,24 @@ function realGroundM2(difference: { getArea(): number }, halfCellM: number): num
   return total
 }
 
+/**
+ * Name a geometry failure in the few words a report line can carry.
+ *
+ * The geometry library raises objects that are not always ``Error`` instances
+ * (``TopologyException`` carries its own ``name``), so both shapes are read and
+ * an unrecognised one still yields something rather than "undefined".
+ *
+ * @param error Whatever the geometry call threw.
+ * @returns A short phrase naming the failure.
+ */
+function describeGeometryFailure(error: unknown): string {
+  const named = error as { name?: string; message?: string } | null
+  const name = named?.name
+  const message = named?.message
+  const text = name && message ? `${name}: ${message}` : (name ?? message ?? String(error))
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text
+}
+
 /** Clause 1 (area-conservation) for one section that DID run a hierarchical fill. */
 function areaConservationFor(
   sectionId: string,
@@ -263,18 +281,42 @@ function areaConservationFor(
       (region) => region.gapIndex === gapIndex,
     )
     const frame = lithoRegions.filter((region) => region.gapIndex === gapIndex)
-    const paintedCover = coverGeometry(painted, width)
-    const lithoCover = coverGeometry(frame, width)
-    const differenceM2 = realGroundM2(
-      OverlayOp.symDifference(paintedCover.geometry, lithoCover.geometry),
-      SNAP_GRID_M / 2,
-    )
+    // THIS CLAUSE RUNS INSIDE ``buildVoxelRequest``, so anything it throws takes
+    // the Build button with it, not just the report. A region whose ring
+    // crosses itself — which an engine bug can emit — makes the symmetric
+    // difference throw. Both obvious responses are wrong: crashing hides the
+    // finding behind a stack trace, and swallowing it passes a gap nobody
+    // measured. It is REPORTED instead, in those words, and with no number,
+    // because no number was obtained.
+    let measured: { differenceM2: number; paintedM2: number; lithoM2: number }
+    try {
+      const paintedCover = coverGeometry(painted, width)
+      const lithoCover = coverGeometry(frame, width)
+      measured = {
+        differenceM2: realGroundM2(
+          OverlayOp.symDifference(paintedCover.geometry, lithoCover.geometry),
+          SNAP_GRID_M / 2,
+        ),
+        paintedM2: paintedCover.areaM2,
+        lithoM2: lithoCover.areaM2,
+      }
+    } catch (error) {
+      entries.push({
+        label:
+          `${sectionName}, gap ${gapIndex}: the cover geometry could not be measured ` +
+          `(${describeGeometryFailure(error)}) — most often a region whose own ring ` +
+          `crosses itself`,
+        ...gapLocator(sectionId, sectionName, gapIndex, columnInvestigationIds),
+      })
+      continue
+    }
+    const { differenceM2, paintedM2, lithoM2 } = measured
     if (differenceM2 === 0) continue
     entries.push({
       label:
         `${sectionName}, gap ${gapIndex}: classed + unclassed ground differs from ` +
         `the litho cover by ${formatMeasure(differenceM2)} m² ` +
-        `(geotech ${formatMeasure(paintedCover.areaM2)} m²; litho ${formatMeasure(lithoCover.areaM2)} m²)`,
+        `(geotech ${formatMeasure(paintedM2)} m²; litho ${formatMeasure(lithoM2)} m²)`,
       ...gapLocator(sectionId, sectionName, gapIndex, columnInvestigationIds),
       measure: { value: differenceM2, unit: 'm2', budget: 0 },
     })
