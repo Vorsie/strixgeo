@@ -14,7 +14,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type PartitionPoint } from '../partitionFill'
+import { type PartitionPoint } from '../sectionPartition'
 
 /** Output-fraction snap grid (design §3) — mirrors ``slice.ts`` FRACTION_SNAP. */
 const FRACTION_SNAP = 1e-6
