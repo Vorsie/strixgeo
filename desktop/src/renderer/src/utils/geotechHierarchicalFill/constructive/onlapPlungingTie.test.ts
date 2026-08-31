@@ -42,7 +42,7 @@ import { silentConstructs } from './onlapClosure'
 import { computeHierarchicalGeotechFill } from '../index'
 import { column, paintAt, tie as lithoTie } from '../scene.test-helpers'
 import { computeSectionFillActive } from '../../partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn } from '../../partitionFill'
+import type { CorrelationEdge, PartitionColumn } from '../../sectionPartition'
 
 /** Class keys, named for the NAD density they stand for. */
 const LOOSE = 'ZAND|5'
