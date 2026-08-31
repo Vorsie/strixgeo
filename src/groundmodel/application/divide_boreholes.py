@@ -3287,8 +3287,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         self.info(f"DivideBoreholes: deleted {deleted} prior borehole geotech layer(s)")
 
         # Phase 8 (write half) — transcribe the plan into rows, in plan order.
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
+        classified_by_key: dict[tuple[int, UUID], GeologicalFormationOrm] = {}
+        skeleton_by_key: dict[tuple[UUID], GeologicalFormationOrm] = {}
         created_formation_ids: list[UUID] = []
         # borehole_fill_bands: accumulates Band objects per borehole across ALL
         # body groups so Phase 9 (sample assignment) has the complete picture for
@@ -4896,8 +4896,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         project_id: UUID,
         geotech_model_id: UUID,
         segment: PlannedBoreholeSegment,
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
+        classified_by_key: dict[tuple[int, UUID], GeologicalFormationOrm],
+        skeleton_by_key: dict[tuple[UUID], GeologicalFormationOrm],
         created_formation_ids: list[UUID],
         geotech_layer_by_inv_depth: dict[
             str, list[tuple[float, float, UUID, UUID, int | None, UUID | None]]
