@@ -35,7 +35,7 @@ import { coverContactOf, type CoverContact } from './coverWeld'
 import { emitFor, sameMass, type Emit, type Mass } from './emitKernel'
 import { CONTACT_EPS, farBandOf } from './farBand'
 import { freeContactAt, restOnlapsOnPinches, type FreeVertex } from './onlapRestsOn'
-import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../partitionFill'
+import { LENS_PINCH_FRACTION, type CorrelationEdge, type PartitionColumn } from '../../sectionPartition'
 import { edgeKey } from '../../partitionFillV2/crossingConflicts'
 
 /** Smallest lens reach (fraction of the gap) — below this the lens is a hair. */
