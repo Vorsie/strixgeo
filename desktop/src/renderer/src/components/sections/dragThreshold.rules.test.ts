@@ -25,7 +25,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../../utils/partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../../utils/sectionPartition'
 import { computeSectionFillV2 } from '../../utils/partitionFillV2'
 import { setTwoSidedTerminations } from '../../utils/partitionFillV2/tileFlags'
 import { pendingContactTieForDrag } from './correlateOnDrag'
