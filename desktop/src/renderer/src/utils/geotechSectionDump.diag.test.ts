@@ -100,7 +100,6 @@ describe('SECTION dump diag', () => {
     return
   }
   it('dumps both partitions of the named section', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const name = process.env.SECTION_DUMP_NAME ?? 'Cross-section 1'
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
     const sec = raw.sections.find((s) => s.name === name)
@@ -113,7 +112,7 @@ describe('SECTION dump diag', () => {
     const litho = computeSectionFillActive(
       L.columns,
       lithoEdges,
-      deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty, true),
+      deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty),
       L.alongM,
     )
     // The RAW arm — the packing model's own whole-section partition, kept in
@@ -122,7 +121,7 @@ describe('SECTION dump diag', () => {
     const geo = computeSectionFillActive(
       G.columns,
       geoEdges,
-      deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, empty, true),
+      deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, empty),
       G.alongM,
     )
     // What the geotech axis actually draws: densities within lithos.
