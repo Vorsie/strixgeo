@@ -102,7 +102,6 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
   }
 
   it('reports stacks, edges and emitted polygons at gaps 0 and 1', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const rep: string[] = []
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
@@ -139,7 +138,6 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
       lithoEdges,
       alongM,
       new Map<string, BodyBoundaryResponse>(),
-      true,
     )
     const regions = computeSectionFillActive(columns, lithoEdges, overrides, alongM)
 
@@ -265,7 +263,6 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
       packingEdges,
       geoAlongM,
       new Map<string, BodyBoundaryResponse>(),
-      true,
     )
     const direct = computeSectionFillActive(geoColumns, packingEdges, geoOverrides, geoAlongM)
 
@@ -287,7 +284,6 @@ describe('GAP diag — S10/S6/B6 packing fill (real dev model)', () => {
       fixedAll,
       geoAlongM,
       new Map<string, BodyBoundaryResponse>(),
-      true,
     )
     const fixed = computeSectionFillActive(geoColumns, fixedAll, fixedOverrides, geoAlongM)
 
