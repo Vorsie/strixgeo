@@ -51,7 +51,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../sectionPartition'
 import { terminationApexOverride } from './apexOverride'
 import { type Corr0Diamond, detourBandContourAroundLenses } from './detourBandContour'
 import { type ResolvedTie } from './emitCurves'
