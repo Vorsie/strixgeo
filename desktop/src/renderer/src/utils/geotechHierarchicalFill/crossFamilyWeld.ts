@@ -19,7 +19,7 @@
  * @module utils/geotechHierarchicalFill/crossFamilyWeld
  */
 import { mergeFaces } from './constructive/mergeFaces'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 /**
  * Point-to-segment distance below which a vertex lies ON the edge. Faces from
