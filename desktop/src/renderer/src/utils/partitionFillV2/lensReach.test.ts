@@ -13,7 +13,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { LENS_PINCH_FRACTION } from '../sectionPartition'
 import { enclosedLensReach, interiorLensReachToTies, lensReachFraction, lensReachM, type ReachTie } from './lensReach'
 import { setTwoSidedTerminations } from './tileFlags'
 
