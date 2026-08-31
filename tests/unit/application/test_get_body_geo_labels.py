@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from groundmodel.application.get_body_geo_labels import GetBodyGeoLabels
+from groundmodel.application.get_body_geo_labels import BodyGeoLabel, GetBodyGeoLabels
 
 MODEL_ID: UUID = uuid4()
 GEO_MODEL_ID: UUID = uuid4()
@@ -53,7 +53,9 @@ async def test_happy_path_labels_body_with_majority_formation() -> None:
 
     labels = await GetBodyGeoLabels(session).execute(litho_model_id=MODEL_ID, body_ids=[BODY_ID])
 
-    assert labels == {BODY_ID: (GEO_FID, "Formatie van Gent")}
+    assert labels == {
+        BODY_ID: BodyGeoLabel(GEO_FID, "Formatie van Gent", [(GEO_FID, "Formatie van Gent")])
+    }
 
 
 @pytest.mark.asyncio
@@ -99,5 +101,46 @@ async def test_unresolvable_body_maps_to_none_none() -> None:
 
     labels = await GetBodyGeoLabels(session).execute(litho_model_id=MODEL_ID, body_ids=[BODY_ID])
 
-    assert labels == {BODY_ID: (None, None)}
+    assert labels == {BODY_ID: BodyGeoLabel(None, None, [])}
     assert session.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_label_carries_the_full_list_of_crossed_formations() -> None:
+    """R2: a body crossing two geo formations lists both, shallowest first.
+
+    Owner ruling 2026-08-31 — the derived label is a LIST (every formation the
+    body crosses), not just the majority stamp. A body with a thin Quartair
+    member at one investigation and a thicker Pleistoceen member at another
+    lists ``[(Quartair), (Pleistoceen)]`` shallowest first, while the majority
+    singular stays the thickness winner (Pleistoceen).
+    """
+    q_fid = uuid4()
+    p_fid = uuid4()
+    inv_a = uuid4()
+    inv_b = uuid4()
+    session = AsyncMock()
+    litho_model = MagicMock()
+    litho_model.parent_model_id = GEO_MODEL_ID
+    session.get.return_value = litho_model
+    session.execute.side_effect = [
+        # Two members: thin in Quartair at inv_a, thicker in Pleistoceen at inv_b.
+        _result_with_rows(
+            [
+                (BODY_ID, inv_a, 0.0, 4.0),  # mid 2 -> Quartair, thickness 4
+                (BODY_ID, inv_b, 10.0, 20.0),  # mid 15 -> Pleistoceen, thickness 10
+            ]
+        ),
+        # Contacts: inv_a all Quartair, inv_b all Pleistoceen.
+        _result_with_rows([(inv_a, 0.0, q_fid), (inv_b, 0.0, p_fid)]),
+        # Names for both formations.
+        _result_with_rows([(q_fid, "Quartair"), (p_fid, "Pleistoceen")]),
+    ]
+
+    labels = await GetBodyGeoLabels(session).execute(litho_model_id=MODEL_ID, body_ids=[BODY_ID])
+
+    label = labels[BODY_ID]
+    # The full crossed-formation list, shallowest first.
+    assert label.formations == [(q_fid, "Quartair"), (p_fid, "Pleistoceen")]
+    # The additive singular majority stays the thickness winner.
+    assert (label.formation_id, label.formation_name) == (p_fid, "Pleistoceen")
