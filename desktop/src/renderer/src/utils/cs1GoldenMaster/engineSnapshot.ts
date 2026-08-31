@@ -116,7 +116,6 @@ export function computeEngineSnapshot(scene: Cs1Scene = loadCs1Scene()): EngineS
       scene.lithoEdges,
       scene.alongM,
       noBoundaries,
-      true,
     ),
     scene.alongM,
   )
