@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { augmentRegionLayerIdsAtColumnEdges } from './fillIdentity'
 import { type ColumnGeom, type RawLayerContact } from './sectionGeom'
 import { computeSectionFillActiveWithIdentity } from '../partitionEngineSelect'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../sectionPartition'
 
 const CLAY = 'clay'
 const SILT = 'silt'
