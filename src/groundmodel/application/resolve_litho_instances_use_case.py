@@ -37,11 +37,13 @@ from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.domain.services.resolve_litho_instances import (
     LayerEdge,
     LayerNode,
+    LayerSeparation,
     resolve_litho_instances,
 )
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -297,12 +299,29 @@ async def _run_resolver(
     ).all()
     edges.extend(LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in fact_rows)
 
+    # 2c. User "Separate" rulings (debt #278 R5) — cannot-link constraints that
+    #     forbid two anchors from ever landing in one body, however the ties and
+    #     facts above would connect them. ONLY the user writes these (the
+    #     tombstone rule): the resolver READS them and drops any union that would
+    #     violate one. A separation whose anchor left the model is inert inside
+    #     the pure resolver (the dangling-anchor guard), so a stale row never
+    #     fragments the wrong body between a wipe and the re-anchor.
+    separation_rows = (
+        await session.execute(
+            select(
+                BodySeparationOrm.layer_a_id,
+                BodySeparationOrm.layer_b_id,
+            ).where(BodySeparationOrm.model_id == model_id)
+        )
+    ).all()
+    separations = [LayerSeparation(layer_a_id=a, layer_b_id=b) for a, b in separation_rows]
+
     logger.debug(
         f"_run_resolver: {len(nodes)} layer(s), {len(edge_rows)} edge(s), "
-        f"{len(fact_rows)} geometry fact(s)"
+        f"{len(fact_rows)} geometry fact(s), {len(separation_rows)} separation(s)"
     )
 
-    result = resolve_litho_instances(layers=nodes, edges=edges)
+    result = resolve_litho_instances(layers=nodes, edges=edges, separations=separations)
 
     # 3. Reconcile bodies. Existing bodies keyed (formation_id, ordinal).
     existing_bodies = (
