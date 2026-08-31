@@ -42,7 +42,7 @@ import {
   type CorrelationEdge,
   type PartitionColumn,
   type SectionRegion,
-} from './partitionFill'
+} from './sectionPartition'
 import { computeSectionFillV2WithConflicts } from './partitionFillV2'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { emitCurves } from './partitionFillV2/emitCurves'
