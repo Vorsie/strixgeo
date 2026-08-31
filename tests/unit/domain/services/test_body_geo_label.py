@@ -6,6 +6,7 @@ from uuid import UUID
 
 from groundmodel.domain.services.body_geo_label import (
     geo_formation_at_depth,
+    geo_formations_present,
     majority_geo_formation,
 )
 
@@ -63,3 +64,80 @@ def test_no_geological_contacts_returns_none() -> None:
     """With no geological model defined at the members, the label is None."""
     members = [(INV_A, 2.0, 6.0)]
     assert majority_geo_formation(members, {}) is None
+
+
+# ---------------------------------------------------------------------------
+# R2 (owner ruling 2026-08-31): a body crossing two formations LISTS them both,
+# not a majority stamp. The list is ordered shallowest-first.
+# ---------------------------------------------------------------------------
+
+
+def test_a_body_crossing_two_formations_lists_them_both_shallowest_first() -> None:
+    """A body crossing two formations lists them both, shallowest first.
+
+    A continuous sand straddling the Q/P boundary: a member sitting in Quartair
+    (shallow) and a member sitting in Pleistoceen (deep). The ruling is the unit
+    row LISTS both, not a single majority stamp — and shallowest first, so
+    Quartair leads.
+    """
+    members = [
+        (INV_A, 0.0, 3.0),  # mid 1.5 -> Q, top 0.0
+        (INV_B, 10.0, 16.0),  # mid 13.0 -> P, top 10.0
+    ]
+    assert geo_formations_present(members, {INV_A: CONTACTS, INV_B: CONTACTS}) == [Q, P]
+
+
+def test_single_formation_body_lists_one_entry() -> None:
+    """A body wholly inside one formation lists exactly that formation."""
+    members = [(INV_A, 2.0, 6.0)]  # midpoint 4.0 -> Q
+    assert geo_formations_present(members, {INV_A: CONTACTS}) == [Q]
+
+
+def test_member_attributing_to_none_contributes_no_entry() -> None:
+    """A member whose midpoint sits above the shallowest contact adds nothing.
+
+    An open shallow band (midpoint above every geological contact) attributes to
+    no formation, exactly as the majority derivation skips it, so it must not
+    appear in the present-list either.
+    """
+    contacts = [(2.0, Q)]  # Q tops at 2 m; anything above 2 m has no formation.
+    members = [
+        (INV_A, 0.0, 1.0),  # mid 0.5 -> None (open shallow band)
+        (INV_A, 3.0, 5.0),  # mid 4.0 -> Q
+    ]
+    assert geo_formations_present(members, {INV_A: contacts}) == [Q]
+
+
+def test_ties_on_shallowest_break_to_larger_thickness_then_uuid() -> None:
+    """Formations sharing a shallowest member break to larger thickness, then UUID.
+
+    Two members top out at the same depth in different investigations (one all
+    Quartair, one all Pleistoceen). Their shallowest attributed member ties, so
+    the one owning the greater thickness share is listed first.
+    """
+    contacts_a = [(0.0, Q)]  # every depth in INV_A is Quartair.
+    contacts_b = [(0.0, P)]  # every depth in INV_B is Pleistoceen.
+    members = [
+        (INV_A, 0.0, 2.0),  # Q, top 0.0, thickness 2
+        (INV_B, 0.0, 6.0),  # P, top 0.0, thickness 6
+    ]
+    # Shallowest ties at 0.0 -> larger thickness (P, 6) leads (Q, 2).
+    assert geo_formations_present(members, {INV_A: contacts_a, INV_B: contacts_b}) == [P, Q]
+
+
+def test_full_tie_breaks_to_smallest_uuid_for_determinism() -> None:
+    """Equal shallowest AND equal thickness breaks to the smallest UUID."""
+    contacts_a = [(0.0, Q)]
+    contacts_b = [(0.0, P)]
+    members = [
+        (INV_A, 0.0, 4.0),  # Q, top 0.0, thickness 4
+        (INV_B, 0.0, 4.0),  # P, top 0.0, thickness 4
+    ]
+    # Q (...a1) < P (...a2) -> Q first.
+    assert geo_formations_present(members, {INV_A: contacts_a, INV_B: contacts_b}) == [Q, P]
+
+
+def test_present_list_is_empty_when_no_member_resolves() -> None:
+    """No geological model at the members -> an empty present-list."""
+    members = [(INV_A, 2.0, 6.0)]
+    assert geo_formations_present(members, {}) == []
