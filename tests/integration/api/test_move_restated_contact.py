@@ -734,28 +734,26 @@ async def _band_pair_at(
 async def test_gl1_moving_the_geo_contact_unlocks_the_band_merge_without_resubdivide(
     contact_scene: dict, async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """GL1 (kept, re-aimed 2026-08-26) — a written band takes its geological parent LIVE.
+    """GL1 (kept, re-aimed 2026-08-26; re-scoped 2026-08-31 for R1) — the merge succeeds.
 
     The wall half of this test is gone: the owner dropped the geological wall
     (*"just drop the wall everywhere, user wil have to manually do it"*), so the
     merge below no longer needs the contact to move out of the way — it would
-    succeed either way. What survives, and is still worth pinning, is the STAMP
-    half from the same 2026-08-12 dogfeed (GEO-23/125-S6): the union's
-    geological parent is read from the LIVE model, so a hand edit heals a stale
-    build-time stamp on touch instead of copying it forward.
+    succeed either way.
 
-    The discriminator is real here: the BUILD stamps from geological SURFACES,
-    and this scene has none, so every band is built carrying ``None``. The merge
-    then stamps from the live CONTACT list and must produce ``GL-Formatie``. A
-    writer that copied the surviving row's build-time stamp forward would leave
-    ``None`` and fail. The 9.0 → 6.0 move is kept from the original test so the
-    live position it reads is unambiguously not the one the bands were built at.
+    The STAMP half is gone too, as of R1 (owner 2026-08-31, debt #278): the
+    geotech formation identity no longer STORES a geological parent — one row per
+    (class, litho parent) — so the merge stamps no geo on the row, and the
+    geological label is derived LIVE from the contacts on read
+    (``geo_parent_for_interval`` / ``GetBodyGeoLabels``). What this test now pins
+    is that the merge succeeds without a re-subdivide and leaves the formation
+    identity free of a geological parent (``None``). The live-from-model /
+    majority rule the stored stamp used to prove is unit-tested in
+    ``test_geotech_geo_parent_stamp.py`` (GP1-GP7). The 9.0 → 6.0 contact move is
+    kept so the scene still exercises a moved geological line.
     """
     # The contact exists BEFORE the build, so the bands break AND stamp at it.
     geo_contact_id = await _geo_contact_at(db_session, contact_scene, "GL-Formatie", 9.0)
-    geo_contact = await db_session.get(FormationContactOrm, geo_contact_id)
-    assert geo_contact is not None
-    geo_formation_id = geo_contact.formation_id
     gid = await _subdivide(async_client, contact_scene)
     upper_id, lower_id = await _band_pair_at(db_session, gid, contact_scene["cpt_id"], 9.0)
 
@@ -779,10 +777,16 @@ async def test_gl1_moving_the_geo_contact_unlocks_the_band_merge_without_resubdi
     assert survivor.depth_base_m == pytest.approx(12.0)
     formation = await db_session.get(GeologicalFormationOrm, survivor.formation_id)
     assert formation is not None
-    assert formation.source_geo_formation_id == geo_formation_id, (
-        "the union's geological parent must come from the LIVE model (the "
-        "contact now sits at 6.0 m, above the whole union), not from the "
-        "stale build-time stamp"
+    # R1 (owner 2026-08-31, debt #278): the geotech formation identity no longer
+    # STORES the geological parent — one row per (class, litho parent). The
+    # geological label is derived LIVE from the contacts on read
+    # (geo_parent_for_interval / GetBodyGeoLabels), so the merge no longer stamps
+    # it here and the row carries None. The live-from-model / majority rule the
+    # stored stamp used to prove is unit-tested in test_geotech_geo_parent_stamp.py
+    # (GP1-GP7).
+    assert formation.source_geo_formation_id is None, (
+        "R1: the merge must not store a geological parent on the formation "
+        f"identity; got {formation.source_geo_formation_id}"
     )
 
 
@@ -797,14 +801,14 @@ async def test_gl2_a_live_contact_between_the_bands_no_longer_refuses(
     sits at 9.0 m, squarely between the two KLEI bands, and the merge must
     simply happen.
 
-    It also pins the straddling-stamp rule end-to-end, which is new ground the
-    wall used to make unreachable: the union spans the contact, and its
-    geological parent is the unit holding the MAJORITY of its thickness. The
-    contact is placed at 7.0 m in a 6.0–12.0 m union — 1 m above it, 5 m below —
-    so the survivor must carry ``GL2-Formatie``, the deeper unit. (The exact
-    50/50 tie-break is pinned deterministically in the unit test GP5; putting a
-    contact on the midpoint here would ride on the segmenter's boundary landing
-    to the micrometre.)
+    Since R1 (owner 2026-08-31, debt #278) the geotech formation identity no
+    longer STORES the geological parent — one row per (class, litho parent) — so
+    the merge stamps no geo on the row (it carries ``None``) and the majority
+    geological label is derived LIVE on read. This test now pins that the
+    cross-contact merge happens at the database and leaves the formation identity
+    free of a geological parent. The straddling-majority rule (contact at 7.0 m
+    in a 6.0–12.0 m union → the deeper unit) and its 50/50 tie-break are
+    unit-tested in ``test_geotech_geo_parent_stamp.py`` (GP2/GP5).
 
     Note the ORDER: the column is subdivided BEFORE the geological contact
     exists. That is deliberate — under the ruling the contact cannot influence
@@ -820,7 +824,6 @@ async def test_gl2_a_live_contact_between_the_bands_no_longer_refuses(
     geo_contact_id = await _geo_contact_at(db_session, contact_scene, "GL2-Formatie", 7.0)
     geo_contact = await db_session.get(FormationContactOrm, geo_contact_id)
     assert geo_contact is not None
-    gl2_formation_id = geo_contact.formation_id
 
     resp = await async_client.post(
         f"/projects/{contact_scene['project_id']}/geology/models/{gid}/geotech/bands/merge",
@@ -838,7 +841,12 @@ async def test_gl2_a_live_contact_between_the_bands_no_longer_refuses(
     assert survivor.depth_base_m == pytest.approx(12.0)
     formation = await db_session.get(GeologicalFormationOrm, survivor.formation_id)
     assert formation is not None
-    assert formation.source_geo_formation_id == gl2_formation_id, (
-        "a band straddling a geological contact takes the unit holding the "
-        "majority of its thickness — here 5 m of 6 below the contact at 7.0 m"
+    # R1 (owner 2026-08-31, debt #278): the geotech formation identity no longer
+    # STORES the geological parent (one row per (class, litho parent)); the
+    # majority/midpoint geological label is derived LIVE on read, so the row
+    # carries None. The straddling-majority rule is unit-tested in
+    # test_geotech_geo_parent_stamp.py (GP1-GP7, incl. the GP5 tie-break).
+    assert formation.source_geo_formation_id is None, (
+        "R1: a merge across a geological contact must not store a geological "
+        f"parent on the formation identity; got {formation.source_geo_formation_id}"
     )
