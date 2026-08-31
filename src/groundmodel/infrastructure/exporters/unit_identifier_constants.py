@@ -67,3 +67,13 @@ MAPPING_TABLE_ID_HEADING = "Strix formation id"
 # the delivered file rather than only in the app.
 MAPPING_TABLE_ABSORBED_HEADING = "Absorbed units"
 MAPPING_TABLE_ABSORBED_JOIN = " + "
+
+# Column that appears only when at least one unit crosses more than one
+# geological formation (debt #278, R2). A body may span geological
+# boundaries, so its geological attribution is a LIST — every formation
+# it falls in, shallowest first — not a single majority stamp. Named
+# here so a downstream reader can see the crossing that the single-value
+# geological label would have hidden. Absent on a geology-agnostic
+# export, which keeps every existing artefact byte-identical.
+MAPPING_TABLE_GEO_HEADING = "Geo"
+MAPPING_TABLE_GEO_JOIN = " + "
