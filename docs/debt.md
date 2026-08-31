@@ -9103,45 +9103,52 @@ verb + its UI) and because the seven rulings would otherwise live only in
 start it piecemeal: the migration in 3 is only safe once 4 and 6 have settled
 what a body is, or it will merge rows the new rules would have kept apart.
 
-## 279. Right-click a body and you may silently get the statistics menu (S)
+## 279. Two menus share one cursor, so you cannot tell which you will get (S)
 
-**What.** `PartitionFillOverlay` decides a region's right-click in two branches
-that resolve the body DIFFERENTLY:
+**What.** `PartitionFillOverlay` answers right-click on a fill region with EITHER
+the body menu (Dissolve / Name / colour) or the unit-statistics menu, and gives
+both `cursor: context-menu`:
 
-* body menu (`:3530`) — `bodyById.get(sr.region.bodyId)`, trusting the id the
-  region carries;
-* statistics menu (`:3596`) — `resolveRegionBodyId(sr.region.layerIds,
-  bodyIdByLayerId)`, resolving through the region's LAYERS.
+```
+interactive     = Boolean(onBodyContextMenu && bodyById.get(region.bodyId)) && !viewOnly
+statsInteractive = unitStatsHandlerForAxis !== undefined && !interactive
+style            = interactive || statsInteractive ? { cursor: 'context-menu' } : …
+```
 
-Both branches give the region `cursor: context-menu`, so they look identical to
-the user. When a region's own `bodyId` does not resolve in the loaded body list,
-`interactive` is false and the STATISTICS menu answers instead — the body menu
-is simply unavailable, with no indication why.
+So which menu a region gives depends on whether the BODY LIST (`bodies={lenses}`,
+`SectionPanel.tsx:3543`) has arrived, and nothing on screen distinguishes the two
+states. Before it lands, right-click silently yields the statistics menu.
 
-**Evidence (2026-08-31).** On the e2e fixture, Section B, litho axis: 18 regions
-rendered, 9 with `cursor: context-menu`, and the first of them — carrying a real
-body id, `partition-region-01a0574d-749a-79bc-a3bb-a9d8028d9b9d` — opened the
-statistics menu, not the body menu. This is what fails
-`flow_body_actions_ui > Dissolve body`, which is RED and was red before the
-2026-08-31 session (proved by replaying the spec at `7a65673c3` in a clean
-worktree). The failure screenshot carries a *"Bodies recomputed: 3 merged, 0
-split"* toast, which is the suspected trigger: after a merge the regions still
-carry pre-merge body ids until the fill is re-derived.
+**How it surfaced, and the correction that matters.** This made
+`flow_body_actions_ui > Dissolve body` red. The spec had been immunised against
+the ORIGINAL body-list race in `c9f6313b2` by waiting for a region with
+`cursor: context-menu` — which used to prove the list had loaded. When the
+unit-statistics jump landed (R2/S7b, 2026-08-27) and started setting that same
+cursor, the guard stopped proving anything and the old race came straight back,
+merely disguised. FIXED 2026-08-31 in the spec: it now retries the right-click
+until the BODY menu opens, which is the only question that actually matters.
 
-**Why it matters beyond the test.** A user right-clicking a body shortly after a
-recompute gets the wrong menu and cannot reach Dissolve, Separate, colour or
-rename. Nothing tells them the body menu declined.
+⚠ An earlier version of this entry blamed the two branches resolving the body
+differently (`bodyById.get(region.bodyId)` vs `resolveRegionBodyId(layerIds, …)`)
+and proposed making them match. That was TESTED and is REFUTED — it changed
+nothing, because `bodyById` is empty while the list is in flight, so no
+resolution path can find a body. The asymmetry is real and still worth knowing
+(`regionBodyId.ts`'s own doc calls `region.bodyId` a label the recompute
+rewrites), but it is NOT what caused this.
 
-**The likely fix is already in the file.** The statistics branch's
-`resolveRegionBodyId` is the robust resolution; the body branch just does not use
-it. Making both resolve the same way is small — but it changes which body a
-right-click acts on, which is exactly the territory of the body-identity rulings
-in #278, so it should be ruled on rather than quietly changed.
+**What is still open.**
 
-**Why deferred.** Needs an owner ruling (see above), and #278 may move the
-resolver anyway.
+1. **The shared cursor is a genuine UX wart.** A user cannot predict which menu a
+   right-click gives, and during load they get the wrong one with no explanation.
+   Worth a distinct affordance, or arming the body menu only once the list is in.
+2. **The menu's items fail Playwright's actionability check** — the item is
+   visible (the whole menu is in the failure screenshot) but a real `.click()`
+   times out; the spec now dispatches instead. Most likely an SVG-portal
+   hit-testing artefact (`ContextMenu portal="svg"`) rather than a user-facing
+   defect, since the owner uses Dissolve daily — but that is an inference, not a
+   measurement. Verify before trusting it.
 
-**When to revisit.** With #278, or sooner if the wrong menu is seen in a real
-dogfeed. Re-check by running
-`.\scriptsun-e2e.ps1 flow_body_actions_ui --workers=1`; it fails serially, so
-it is not the known parallelism flake.
+**When to revisit.** Item 1 with the body-identity slice (#278), which may change
+when the list is available anyway. Item 2 the next time anyone touches
+`ContextMenu`'s SVG portal.
+
