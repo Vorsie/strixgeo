@@ -24,7 +24,7 @@
  * @module utils/geotechHierarchicalFill/families
  */
 
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 
 /** One litho body as it appears on this section. */
 export interface LithoFamily {
