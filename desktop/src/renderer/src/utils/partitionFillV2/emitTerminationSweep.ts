@@ -60,7 +60,7 @@ import { type TerminationPlan } from './terminationPlan'
 import { splitHostIntoRawPieces } from './rawUnitSplit'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { type InputCurve } from './types'
-import { LENS_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
+import { LENS_PINCH_FRACTION, type LensApexOverride } from '../sectionPartition'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
