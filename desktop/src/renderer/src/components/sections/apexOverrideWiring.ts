@@ -90,8 +90,6 @@ export interface ApexOverrideInputs {
   screenToLevel: ((y: number) => number) | undefined
   lensDrag: LensDragState | null
   boundaryDrag: ContactDragState | null
-  /** Whether the v2 engine (the ``contact:`` consumer) is active. */
-  partitionEngineV2: boolean
   /**
    * ``gapIndex:bodyId`` for TWO-SIDED bodies whose STORED (persisted) in-gap node is a
    * genuine LENS tip, NOT a shared-contact bend (§91). The caller (``PartitionFillOverlay``)
@@ -145,7 +143,6 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
     screenToLevel,
     lensDrag,
     boundaryDrag,
-    partitionEngineV2,
     persistedLensBodies,
   } = inputs
 
@@ -305,7 +302,7 @@ export function buildApexOverridesForGaps(inputs: ApexOverrideInputs): ApexOverr
     // dragged as a LENS tip in this gap so its node is never applied twice (once as a
     // lens apex, once as a contact bend) — the drag KIND (lens) decides, not the
     // body's two-sidedness (which classifies it as a contact by geometry alone).
-    if (partitionEngineV2) {
+    {
       const gapOverridden = collectContactOverridesForGap(
         i,
         left,
