@@ -11,7 +11,7 @@
  * Pure module — no React, no I/O.
  */
 
-import { type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type PartitionPoint, type SectionRegion } from './sectionPartition'
 
 /** Nonzero-winding point-in-polygon (x=fraction, y=elevation) — the SVG fill rule. */
 export function inPolygon(px: number, py: number, poly: readonly PartitionPoint[]): boolean {
