@@ -163,80 +163,19 @@ closure→pinch, LENS→lens). Consumers that must not change:
 `PartitionFillOverlay`, `refineLithoPartition` (geotech), the voxel builder,
 `buildSectionModelFill`, fence/`buildProjectFence`.
 
-## 6. Migration & verification (parallel build, never big-bang)
+## 6. Migration — COMPLETE, v1 archived (2026-08-31)
 
-* New module `desktop/src/renderer/src/utils/partitionFillV2/` — the v1
-  package is NOT touched. Entry: `computeSectionFillV2` (same signature).
-* Cutover switch: a dev-only toggle (Settings → Litho segmenter, plus env
-  `STRIX_PARTITION_V2=1` for tests) selecting the engine in the ONE place
-  the overlay/build call it. Old engine remains the beta fallback until the
-  owner has dogfed v2 on the real model.
-* **A/B parity harness (exists today, reuse):**
-  - 14 real sections: `scripts/diag_allsections_extract.py` →
-    `scripts/diag_allsections_input.json` (thread REAL alongM).
-  - Region-diff runner: new `partitionFillV2.parity.diag.test.ts` — run both
-    engines per section, match regions by (gapIndex, formationId, bodyId),
-    report area deltas + classification changes. Every intentional
-    difference must map to a v1 bug class (documented per section);
-    everything else must be < 1 cm² noise.
-  - Invariant gates on v2 output: holes/overlaps reporter (0/0 on all
-    sections), the **ground-truth overpaint gate** (`partitionFillV2.groundTruth.diag.test.ts`
-    — 0 drilled-unit overpaints across all 14 sections; the hidden-data-loss
-    invariant the holes/overlaps gate is blind to, §11), `cs1lensdisjoint`,
-    `cs1sandbody`, `cs1bandauthority`, `cs1void`, tie-straddle diag. The FROZEN
-    gate pins v1 only; v2 gets its own frozen snapshot after owner dogfeed sign-off.
-  - **Full 2/1/0 conformance gate** (`partitionFillV2.conformance.diag.test.ts`,
-    `SHAPE_AUDIT=1`, 2026-07-15): per unit per gap, the engine's own tie
-    state vs the rendered shape — `0corr-not-lens` / `1corr-not-onlap` /
-    `2corr-not-band` + advisory `0corr-reach-exceeds-cap` (ruling 8b) and
-    `q3-legit`. **CORRECTED baseline (ruling 8d landed 2026-07-15): the top
-    band is an implicit tie for FIRST units — a surface-topped first unit
-    whose base rides a real/derived tie is 2-corr (band between the top band
-    and the base tie; midpoint quads when the facing first unit's formation
-    differs). ``topBandTies``/``firstUnitTopBandBand`` in
-    `partitionFillV2.conformance.classify.ts` fold this in; the `corr===2`
-    render check accepts the midpoint-quad ``onlap``-per-side shape when the
-    facing first unit differs.** CURRENT STANDARD (2026-07-26): the gate runs TWO ratchets. The **flag-ON
-    literal-8l PRODUCT path is a true 0** — all three counters 0; the five
-    former render-correct false positives (TS10-g0 ZAND, CS1-g12 KLEI, CS1-g18
-    ZAND, CS1-g19 KLEI, CS1-g22 SILT) are accepted by three guarded predicates
-    in the classify loop (same-litho facing band / sub-TD substrate straddle /
-    own full-width band component), each with a negative guard and ALL proven
-    non-data-loss by the ground-truth overpaint gate (§11). The **flag-OFF
-    frozen seam-engine reference stays pinned by identity at 10** (a different,
-    older arrangement, `twoSidedTerminationsEnabled === false`; the accepts are
-    scoped to flag-ON so this reference is byte-identical). Band authority for
-    the "2" classification = the engine's matched-pair `collectGapBands` + the
-    ruling-8d first-unit case (naive both-contacts-tied miscounts mixed-bracket
-    minorities).
-    CUTOVER CRITERION (matches the executable gate exactly): flag-ON
-    conformance == 0 AND the ground-truth overpaint gate green (every drilled
-    unit renders its own litho at its own column edge, all 14 sections) AND
-    holes/overlaps 0/0/0. The flag-OFF 10 is a frozen reference, not a blocker.
-    Determinism for the frozen snapshot: VERIFIED 2026-07-15 evening —
-    `computeSectionFillV2` output is byte-identical (SHA-256 of the raw
-    SectionRegion geometry, all 14 sections) across 5 separate node
-    processes; the Map/Set-iteration audit found every output-feeding
-    spread already sort-anchored (the earlier flap predates the anchors).
-    No engine change needed. The snapshot may be frozen.
-  - Verification note (2026-07-14): overlap claims are settled by BOTH the
-    interval-scan diag AND an independent dense point-in-polygon
-    double-coverage sample — increment 3 asserted the CS1 gap18 triple
-    junction was a diag false positive, but the PIP sample proved a real
-    ~cm-scale patch claimed by three output polygons at once. The
-    `SectionRegion` polygons are the output contract; "the arrangement
-    faces are disjoint" is not sufficient — the sliced output must be.
-  - Unit tests: the pure-geometry cases in `partitionFill.test.ts` /
-    `partitionFill.oneGesture.test.ts` run against BOTH engines via the
-    2-column wrapper (parameterised), except cases that pin v1 bug
-    behaviour — those get inverted for v2 with a comment citing this doc.
-* Definition of cutover-ready: all gates green on v2 (holes/overlaps 0/0,
-  ground-truth overpaint 0, flag-ON conformance 0) + parity diffs fully
-  explained + owner dogfeed on the real model (litho AND geotech axes) +
-  voxel build from v2 output passes the fidelity harness
-  (`scripts/eval_strat_fidelity.py`). Status 2026-07-26: geometry gates + litho
-  dogfeed done; geotech-axis dogfeed, v2-fed voxel fidelity, and the
-  approval-gated v2-default/beta-fallback wiring remain.
+The parallel build ran its course: v2 became the measured default on
+2026-08-01 (drilled gate identical at 54 exact / 0 wrong; p90 contact error
+0.125 → 0.123 m; worst 5.335 → 3.145 m), the owner declared it the main
+engine on 2026-08-27, and on 2026-08-31 he archived v1 outright — see
+docs/debt.md #280. There is no engine choice left: the Settings toggle, the
+``STRIX_PARTITION_V2`` env override, the v1 fallback arms, v1's own test
+suites and the A/B parity tooling are all deleted. The shared vocabulary
+(types, matcher, the surviving column-reduction helpers, ``SectionRegion``,
+``regionArea``) lives in ``utils/sectionPartition/``; the entry points in
+``partitionEngineSelect`` keep their names and wrap v2 with its sweep-flag
+wiring.
 
 ## 7. Out of scope for v2
 
