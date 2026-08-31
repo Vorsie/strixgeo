@@ -1,14 +1,17 @@
 /**
  * The canonical packing-class identity — *"same litho and packing density"*.
  *
- * The geotech model stores one formation ROW per (NAD class, litho parent,
- * GEOLOGICAL parent) — deliberate provenance — so the same class exists under
- * several row ids wherever a litho unit spans a geological boundary. The law
- * compares the CLASS: two NAD-6 sands tied across that boundary are one mass
- * and one body (owner ruling 2026-08-21, *"yes one mass one body"*; his A2
- * ruling already said a body may span a geological boundary). This module is
- * the ONE place the row → class translation is written down, so the fill, the
- * voxel build, the fences and the gates all compare the same identity.
+ * Since R1 (owner 2026-08-31, debt #278) the geotech model stores one formation
+ * ROW per (NAD class, litho parent) — the GEOLOGICAL parent is a live-derived
+ * LABEL, not identity, so a litho unit spanning a geological boundary keeps ONE
+ * row. The law still compares the CLASS: two NAD-6 sands tied together are one
+ * mass and one body (owner ruling 2026-08-21, *"yes one mass one body"*; his A2
+ * ruling already said a body may span a geological boundary). This module is the
+ * ONE place the row → class translation is written down, so the fill, the voxel
+ * build, the fences and the gates all compare the same identity. (It still holds
+ * up under legacy data with pre-R1 geo-label twins — two rows of the same class
+ * collapse to the same key, which is exactly what the twin-merge migration and
+ * the resolver converge on.)
  *
  * @module utils/geotechHierarchicalFill/packingClassOf
  */
