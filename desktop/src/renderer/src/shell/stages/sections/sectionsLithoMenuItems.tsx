@@ -252,6 +252,8 @@ export function buildLithoBodiesMenuItems(deps: LithoToolbarItemsDeps): ToolbarD
                 // it never auto-draws (owner directive 2026-06-03). Toggles on/off.
                 label: bandsVisible ? t('sections.litho.hideBands') : t('sections.litho.fillBands'),
                 icon: <PaintBucket size={12} />,
+                // The bare-L hook dispatches this key (axis-aware) — hint only.
+                shortcutHint: 'l',
                 onClick: () => toggleBandFill(),
                 testid: 'litho-fill-bands',
                 title: t('sections.toolbar.lithoFillHint'),
