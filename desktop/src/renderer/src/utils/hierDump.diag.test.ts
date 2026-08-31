@@ -95,7 +95,7 @@ describe.skipIf(process.env.HIER_DUMP !== '1')('hierarchical fill dump', () => {
     const lithoRegions = computeSectionFillActive(
       L.columns,
       lithoEdges,
-      deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, new Map(), true),
+      deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, new Map()),
       L.alongM,
     )
     const out = computeHierarchicalGeotechFill({
