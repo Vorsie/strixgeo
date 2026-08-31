@@ -9047,3 +9047,58 @@ size. That makes this a latent representation issue, not a reporting one.
 decomposes every clause-1 difference into its pieces and reports each one's
 size, shape, side and true width. It is what produced the table above and is
 the acceptance instrument for B or C.
+
+## 278. Body identity is decided by the machine, from the wrong picture (L)
+
+**What.** Seven rulings taken 2026-08-31 that only make sense together, because
+each one is about the same question: what IS one body?
+
+1. **Collapse the geo label from geotech unit identity.** One connected body =
+   ONE row, with an FK to its litho parent. `BodyOrm` is already
+   one-row-per-connected-body (234 rows) and the litho link exists at BAND level
+   (`parent_litho_layer_id`), so the gap is roughly one additive column
+   (`parent_litho_body_id`). MEASURED cost of not doing it: **775 of 898**
+   visible fence seams are geo-label twins — same soil, same NAD class, split
+   only by the formation row — and 32 unit rows collapse to 15.
+2. **A body crossing two formations LISTS them both**, not a majority stamp.
+   Variable-length labels in the units pane and exports are accepted. The
+   derived midpoint/majority stamp (GP1-GP7) stays as the per-BAND attribution;
+   this is about what the unit ROW says.
+3. **A one-time Alembic migration merges the existing twins** on upgrade —
+   explicitly NOT heal-on-next-press. It rewrites rows the owner did not touch
+   and he accepted that.
+4. **A point contact does NOT weld two bodies.** They must share a boundary with
+   real extent. Kill the class-keyed point-contact weld (`body_geometry_fact`,
+   all-pairs clique) — on his sand #19 it fused three vertically stacked NAD-6
+   sheets, separated by NAD-7 partings, that only amalgamate 25-35 m away.
+5. **Build a "Separate" verb** — the counterpart to Dissolve, so he can state
+   "these two are NOT the same body" and have the resolver honour it
+   permanently. His standing ruling has two halves (*"a body is only a body if
+   it is geometrically connected, or if the user says this body is the same as
+   that body"*) and only Dissolve exists, so today the machine can overrule him.
+6. **The resolver moves to the hierarchical fill** — the same arm the 2-D
+   screen, the 3-D build and the fence already run. Today it runs the older
+   direct-v2 (`buildBodyRecomputePayload`), so which masses count as one body is
+   decided from a DIFFERENT picture than the one on screen.
+7. Also in scope: the `_span_at_fraction` envelope over-union in
+   `merge_bodies_across_sections.py:80-111`.
+
+**Why it is one slice.** 4, 5 and 6 all change which masses resolve to one
+body; 1, 2 and 3 all change how that body is named and stored. Landing them
+separately means re-deriving bodies several times and re-migrating rows, and
+each intermediate state is one the owner would have to dogfeed and judge.
+
+**Fence follow-on.** With 1 landed, also emit one panel per connected body per
+section — the remaining 123 vertical seams are the per-gap panel split, a
+separate fix in the fence builder. Identifier-keyed DXF layer naming already
+shipped and does NOT help here: twins share a layer but are still two panels.
+
+**Why deferred.** Not deferred by preference — it is the next substantial slice
+after the geotech stage settles. It is recorded here because it is large,
+cross-cutting (desktop resolver + backend merge + an Alembic migration + a new
+verb + its UI) and because the seven rulings would otherwise live only in
+`CLAUDE.local.md`.
+
+**When to revisit.** Next, once the constructive-fill round is harvested. Do NOT
+start it piecemeal: the migration in 3 is only safe once 4 and 6 have settled
+what a body is, or it will merge rows the new rules would have kept apart.
