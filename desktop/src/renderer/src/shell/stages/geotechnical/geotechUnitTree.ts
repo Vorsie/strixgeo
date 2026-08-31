@@ -134,6 +134,12 @@ export interface GeotechUnitTreeInput {
    * Used to tell same-class instances apart when a class carries several.
    */
   sourceLithoNameById?: ReadonlyMap<string, string>
+  /**
+   * Geotech unit id → the geological formations that unit's bodies cross,
+   * shallowest first (debt #278, R2). Surfaced as a class-row subtitle. A class
+   * row standing for several units unions their lists. Absent → no subtitle.
+   */
+  geoFormationNamesById?: ReadonlyMap<string, readonly string[]>
 }
 
 /** One unit instance under a NAD-class row. */
@@ -171,6 +177,12 @@ export interface GeotechClassRow {
   provenance: ClassProvenance
   /** Worst confidence among the instances; null when none has layers. */
   confidence: LithoLayerConfidence | null
+  /**
+   * The geological formations this row's units cross, shallowest first, unioned
+   * across the units and deduped (debt #278, R2). Rendered as a subtitle;
+   * empty when nothing crosses a formation or no map was supplied.
+   */
+  geoFormations: string[]
   /** Every instance, ordered. Render them only when there is more than one. */
   instances: GeotechUnitInstance[]
 }
@@ -277,7 +289,7 @@ const UNCLASSIFIED_SORT_KEY = Number.MAX_SAFE_INTEGER
  *     yields an empty tree.
  */
 export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTree {
-  const { units, contacts, layers, sourceLithoNameById } = input
+  const { units, contacts, layers, sourceLithoNameById, geoFormationNamesById } = input
 
   // One pass each over the two big arrays — the flat roster re-filtered both
   // per row, which is O(units x rows) on a project with ~650 bands.
@@ -350,6 +362,16 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
     // same class — see ``geotechRowColorOverride`` for the rule.
     const colorOverride = geotechRowColorOverride(ordered)
 
+    // R2: list every geological formation the row's units cross, unioned in the
+    // units' own order (already sorted above) and deduped, so a class row that
+    // stands for several units shows the whole crossing rather than one unit's.
+    const geoFormations: string[] = []
+    for (const u of ordered) {
+      for (const name of geoFormationNamesById?.get(u.id) ?? []) {
+        if (!geoFormations.includes(name)) geoFormations.push(name)
+      }
+    }
+
     const row: GeotechClassRow = {
       key: `${bucket.soil}|${bucket.nadClass ?? ''}`,
       soil: bucket.soil,
@@ -366,6 +388,7 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
         (acc, i) => worseConfidence(acc, i.confidence),
         null,
       ),
+      geoFormations,
       instances,
     }
     const rows = classRowsBySoil.get(bucket.soil)
