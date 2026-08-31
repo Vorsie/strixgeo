@@ -23,7 +23,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 
