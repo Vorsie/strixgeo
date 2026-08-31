@@ -1,12 +1,17 @@
-// Fetch one model's body roster (``GET .../bodies``) for the Parameters
-// stage's body labels — the name/ordinal the 3-D legend names bodies with.
+// Fetch one model's body roster (``GET .../bodies``) — the per-body metadata
+// (name, ordinal, and the R2 crossed-formation list) that several read-only
+// stage slots decorate their views with.
 //
-// Own hook rather than shell state: the roster is label COSMETICS for this
-// stage only (the grouping itself comes from the layers' ``body_id``), the
-// two consumers (the unit list pane and the statistics canvas) are separate
-// no-props stage slots, and each fetch is one small GET. A missing or failed
-// roster degrades to id-prefix labels — see ``parameterUnitBodies.bodyLabelOf``
-// — never to a blocked pane.
+// Own hook rather than shell state: each consumer needs the roster as label /
+// annotation COSMETICS layered over data it already holds (the grouping itself
+// comes from the layers' ``body_id``), each is a separate no-props stage slot,
+// and each fetch is one small GET keyed by (project, model, recompute nonce).
+// The consumer set has grown past the Parameters stage: the unit list pane and
+// the statistics canvas (Parameters), the sections canvas unit-jump rosters
+// (Sections), and the geotech units roster's crossed-formation subtitle
+// (Geotechnical inspector, debt #278 R2). A missing or failed roster degrades
+// to id-prefix labels / a dropped subtitle — see ``parameterUnitBodies.bodyLabelOf``
+// — never to a blocked pane. (Deferred: the file still lives under parameters/.)
 
 import { useEffect, useState } from 'react'
 
