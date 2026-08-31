@@ -28,7 +28,7 @@ import { describe, expect, it } from 'vitest'
 
 import { buildGapConstructs, type RunBand, type RunColumn, type RunTie } from './constructive/constructs'
 import { computeHierarchicalGeotechFill } from './index'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 import { computeSectionFillActive } from '../partitionEngineSelect'
 
 interface UnitSpec {
