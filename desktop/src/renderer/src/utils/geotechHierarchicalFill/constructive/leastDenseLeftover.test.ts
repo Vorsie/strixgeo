@@ -32,7 +32,7 @@ import { computeHierarchicalGeotechFill } from '../index'
 import { column, paintAt, tie } from '../scene.test-helpers'
 import { totalityViolationOf } from './fillTotality'
 import { computeSectionFillActive } from '../../partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../../sectionPartition'
 
 /** The one litho soil every band below subdivides. */
 const SAND = 'f-sand'
