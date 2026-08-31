@@ -15,7 +15,7 @@ import { buildArrangement } from './arrangement'
 import { labelFaces } from './labelFaces'
 import { buildSectionInput } from './sectionGeom'
 import { setTwoSidedTerminations } from './tileFlags'
-import type { CorrelationEdge, PartitionColumn } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn } from '../sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../../..')
