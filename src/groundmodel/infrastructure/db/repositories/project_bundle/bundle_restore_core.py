@@ -57,6 +57,7 @@ from .bundle_build import BundleIntegrityError
 from .bundle_restore_litho import (
     _attach_companion_body_links,
     _restore_bodies,
+    _restore_body_separations,
     _restore_contact_edges,
     _restore_formation_absences,
     _restore_geological_models,
@@ -635,6 +636,7 @@ async def _restore_project_bundle_impl(
     # shifts every later payload into the wrong restorer (found the hard way
     # — a boundary shape restored as a "tombstone" and was dropped).
     geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
+    body_separations_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
     replace: bool = False,
@@ -692,6 +694,10 @@ async def _restore_project_bundle_impl(
     body_geometry_facts_payload : list[dict[str, Any]] | None
         Geometric body-connectivity fact rows (owner ruling 2026-08-12) —
         restored after litho layers, unioned by the post-restore resolver.
+    body_separations_payload : list[dict[str, Any]] | None
+        User "Separate" rulings (owner 2026-08-31, debt #278 R5) — cannot-link
+        layer pairs restored after litho layers, honoured by the post-restore
+        resolver; absent in bundles saved before 2026-08-31 → empty.
     body_boundary_shapes_payload : list[dict[str, Any]] | None
         Lens boundary shape rows.
     body_boundary_nodes_payload : list[dict[str, Any]] | None
@@ -729,6 +735,7 @@ async def _restore_project_bundle_impl(
     litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
     body_geometry_facts_payload = body_geometry_facts_payload or []
     geotech_tie_tombstones_payload = geotech_tie_tombstones_payload or []
+    body_separations_payload = body_separations_payload or []
     body_boundary_shapes_payload = body_boundary_shapes_payload or []
     body_boundary_nodes_payload = body_boundary_nodes_payload or []
     # Legacy tolerance: a bundle saved before the litho_solids field existed
@@ -906,6 +913,20 @@ async def _restore_project_bundle_impl(
         project_id,
         geotech_tie_tombstones_payload,
         valid_model_ids,
+        logger=logger,
+    )
+
+    # ---- Phase 10d: User "Separate" rulings -------------------------------
+    # After the litho layers (both anchors FK litho_layer.id) and before the
+    # route's reconcile_bodies_after_restore, so the restored resolver run
+    # already honours the cannot-link and the two bodies stay split (owner
+    # 2026-08-31, debt #278 R5 — the ruling is "permanent").
+    new_separations, skipped_separations, dropped_separations = await _restore_body_separations(
+        session,
+        project_id,
+        body_separations_payload,
+        valid_model_ids,
+        geological_models_payload,
         logger=logger,
     )
 
