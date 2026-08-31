@@ -20,7 +20,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { LithoLayerResponse } from '../../api/client'
 import type { SectionRegion } from '../../utils/partitionFill'
-import { setPartitionEngineV2 } from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
 import type { PlacedColumn } from './utils'
@@ -42,9 +41,7 @@ vi.mock('../../utils/partitionEngineSelect', async (importOriginal) => {
 
 afterEach(() => {
   cleanup()
-  setPartitionEngineV2(false)
 })
-beforeEach(() => setPartitionEngineV2(false))
 
 function layer(
   id: string,
@@ -195,7 +192,6 @@ function mStripPaths(container: HTMLElement): { fill: string; top: number }[] {
 
 describe('PartitionFillOverlay — sub-TD strip under the glyph (S60 Stage A)', () => {
   it("UC-V2: v2 active — the partition's sand runs continuously under the glyph below the TD; clay only below the sand base", () => {
-    setPartitionEngineV2(true)
     mockRegions.value = straddlingRegions
     const { container } = render(
       <svg>
@@ -215,19 +211,4 @@ describe('PartitionFillOverlay — sub-TD strip under the glyph (S60 Stage A)', 
     expect(clay!.top).not.toBeCloseTo(140, 0)
   })
 
-  it('UC-V1: v1 fallback — the frozen helper behaviour is preserved (straddling sand rejected, clay up to the TD)', () => {
-    setPartitionEngineV2(false)
-    mockRegions.value = straddlingRegions
-    const { container } = render(
-      <svg>
-        <PartitionFillOverlay {...props} />
-      </svg>,
-    )
-    const strips = mStripPaths(container)
-    // v1 render byte-identical: no sand strip; clay extended up to the TD.
-    expect(strips.find((p) => p.fill === SAND)).toBeUndefined()
-    const clay = strips.find((p) => p.fill === CLAY)
-    expect(clay).toBeDefined()
-    expect(clay!.top).toBeCloseTo(140, 0)
-  })
 })
