@@ -24,7 +24,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { type BodyBoundaryResponse } from '../../api/client'
-import { lensApexOverrideKey, type PartitionColumn } from '../../utils/partitionFill'
+import { lensApexOverrideKey, type PartitionColumn } from '../../utils/sectionPartition'
 import { buildApexOverridesForGaps, type GapExtent, type LensDragState } from './apexOverrideWiring'
 
 // --------------------------------------------------------------------------
