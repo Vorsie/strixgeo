@@ -29,8 +29,8 @@
  * Pure geometry bookkeeping, no I/O; the caller owns the engine and memoises.
  */
 
-import { lensApexOverrideKey, type LensApexOverride } from './partitionFill'
-import type { PartitionColumn, SectionRegion } from './partitionFill'
+import { lensApexOverrideKey, type LensApexOverride } from './sectionPartition'
+import type { PartitionColumn, SectionRegion } from './sectionPartition'
 
 /** One run of consecutive banded columns, placed on the frame's axis. */
 export interface FrameGapRun {
