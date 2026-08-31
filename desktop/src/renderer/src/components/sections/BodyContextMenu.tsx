@@ -84,6 +84,15 @@ export default function BodyContextMenu({
   onShowUnitStatistics,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
+  // R2 (owner ruling 2026-08-31): a body may cross more than one geological
+  // formation, so its geological context is the full LIST — every formation it
+  // falls in, shallowest first, joined with "+". Falls back to the singular
+  // majority field for an old cached response that predates the list.
+  const geoContext =
+    body.geo_formations && body.geo_formations.length > 0
+      ? body.geo_formations.map(g => g.name).join(' + ')
+      : (body.geo_formation_name ?? '')
+
   const items: (ContextMenuItem | false | null)[] = [
     {
       label: 'Name body…',
@@ -124,9 +133,10 @@ export default function BodyContextMenu({
       height={200}
       header={
         `Lens · ${displayLabel ?? body.name ?? body.id.slice(0, 8)}` +
-        // A2: the derived geological formation this body mostly falls in,
-        // shown as context next to the lithology name (e.g. "Sa · Pleistoceen").
-        (body.geo_formation_name ? ` · ${body.geo_formation_name}` : '')
+        // R2: the geological formation(s) this body falls in, shown as context
+        // next to the lithology name. One formation reads "Sa · Pleistoceen";
+        // a body crossing two reads "Sa · Holoceen + Pleistoceen".
+        (geoContext ? ` · ${geoContext}` : '')
       }
       ariaLabel="Body extent actions"
       testid="body-context-menu"
