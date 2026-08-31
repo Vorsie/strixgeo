@@ -24,7 +24,7 @@ import { sliceFaces } from './slice'
 import { type LabelledFace } from './labelFaces'
 import { type ColumnGeom } from './sectionGeom'
 import { type Face, type Point } from './types'
-import { type PartitionPoint } from '../partitionFill'
+import { type PartitionPoint } from '../sectionPartition'
 
 /** Two columns 100 m apart (real alongM), so one gap covers x ∈ [0, 100]. */
 const COLUMNS: ColumnGeom[] = [
