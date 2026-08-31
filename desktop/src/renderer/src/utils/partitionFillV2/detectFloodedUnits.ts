@@ -15,7 +15,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type PartitionPoint, type SectionRegion } from '../partitionFill'
+import { type PartitionPoint, type SectionRegion } from '../sectionPartition'
 import { forceOnlapKey } from './forceOnlapUnits'
 import { type ColumnGeom } from './sectionGeom'
 
