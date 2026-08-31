@@ -13,7 +13,7 @@
 // Edge matching relies on the v2 arrangement's guarantee that adjacent
 // regions share their cut vertices verbatim (T-junctions are split with
 // shared points), so a seam appears as identical segments in both rings.
-import type { SectionRegion } from './partitionFill'
+import type { SectionRegion } from './sectionPartition'
 
 /** One outline segment to draw, in gap-fraction × elevation space. */
 export interface OutlineSegment {
