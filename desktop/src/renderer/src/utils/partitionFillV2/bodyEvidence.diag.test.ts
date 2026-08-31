@@ -52,7 +52,6 @@ describe('BODY-EVIDENCE diagnostic (real dev model)', () => {
   }
 
   it('reports the silt groups + the regions carrying the S10<->S6 connection', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const report: string[] = []
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
