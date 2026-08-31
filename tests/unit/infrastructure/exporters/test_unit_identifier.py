@@ -32,6 +32,7 @@ from groundmodel.infrastructure.exporters.unit_identifier import (
 from groundmodel.infrastructure.exporters.unit_identifier_constants import (
     DXF_FORBIDDEN_LAYER_CHARS,
     MAPPING_TABLE_ABSENT,
+    MAPPING_TABLE_GEO_HEADING,
     MAPPING_TABLE_TITLE,
 )
 
@@ -150,3 +151,46 @@ def test_mapping_table_is_empty_for_no_rows() -> None:
     """A geological-model export has no identifiers, so it must emit no
     table at all rather than an empty-bodied header."""
     assert format_mapping_table([], label_heading="Plaxis material") == []
+
+
+# ---------------------------------------------------------------------------
+# R2 (owner ruling 2026-08-31): a body crossing two geological formations lists
+# them BOTH — the export gains an optional "Geo" column, emitted only when at
+# least one row carries geological names, so every existing artefact stays
+# byte-identical.
+# ---------------------------------------------------------------------------
+
+
+def test_geo_column_appears_only_when_a_row_carries_geo_names() -> None:
+    """A row that crosses two formations lists both in a joined "Geo" column."""
+    rows = [
+        UnitMappingRow(
+            export_label="NAD-06_ZAND - Zand van Diest (NAD 6)",
+            nad_class=6,
+            soil_code="ZAND",
+            display_name="Zand van Diest (NAD 6)",
+            formation_id=UUID("00000000-0000-0000-0000-0000000000aa"),
+            geo_formations=("Holoceen", "Pleistoceen"),
+        ),
+    ]
+    lines = format_mapping_table(rows, label_heading="Plaxis material")
+    body = "\n".join(lines)
+    assert MAPPING_TABLE_GEO_HEADING in body
+    # Both crossed formations are named, shallowest first, joined for one cell.
+    assert "Holoceen + Pleistoceen" in body
+
+
+def test_geo_column_is_absent_when_no_row_carries_geo_names() -> None:
+    """With no geo names on any row the table is byte-identical to before —
+    the "Geo" column must not appear at all."""
+    rows = [
+        UnitMappingRow(
+            export_label="NAD-06_ZAND - Zand van Diest (NAD 6)",
+            nad_class=6,
+            soil_code="ZAND",
+            display_name="Zand van Diest (NAD 6)",
+            formation_id=UUID("00000000-0000-0000-0000-0000000000aa"),
+        ),
+    ]
+    with_field = format_mapping_table(rows, label_heading="Plaxis material")
+    assert MAPPING_TABLE_GEO_HEADING not in "\n".join(with_field)
