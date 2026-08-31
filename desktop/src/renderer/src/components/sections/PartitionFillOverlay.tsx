@@ -74,7 +74,6 @@ import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActive,
   computeSectionFillActiveWithDiagnostics,
-  usePartitionEngineV2,
 } from '../../utils/partitionEngineSelect'
 import { topologyKey, usePartitionGhostHandles } from './usePartitionGhostHandles'
 import type { TieConflict } from '../../utils/partitionFillV2'
@@ -514,10 +513,6 @@ export default function PartitionFillOverlay({
   // ``lithoFrame`` — the "Show litho fill" toggle withholds the frame while the
   // axis is still geotech, and a view-only axis must stay view-only either way.
   const viewOnly = axisMode === 'geotechnical'
-  // Active partition engine (v2 default / v1 old fallback), device-local dev
-  // pref. Read as a hook so a flip in Settings re-renders the overlay live; it
-  // feeds the sectionFillData memo's dep array so the partition recomputes.
-  const partitionEngineV2 = usePartitionEngineV2()
   // In correlate mode every interactive partition element drops its pointer
   // events so the correlate gesture targets beneath receive the click. Use
   // this in place of the literal ``'auto'`` at every interactive site.
@@ -1104,7 +1099,7 @@ export default function PartitionFillOverlay({
     // and the frame is view-only, so a hand-drawn shape would bend an outline
     // the engineer cannot grab. Matches the build arm, which derives its
     // overrides from the boundaries of the model it is building.
-    const engineKey = topologyKey(lithoColumns, lithoEdges, lithoAlongM, partitionEngineV2)
+    const engineKey = topologyKey(lithoColumns, lithoEdges, lithoAlongM)
     const cached = lithoFrameEngineRef.current
     const lithoRegions =
       cached && cached.key === engineKey
@@ -1122,7 +1117,7 @@ export default function PartitionFillOverlay({
       lithoEdges,
       lithoScreenByInv: litho.screenByInv,
     }
-  }, [lithoFrame, showBands, placedColumns, partitionEngineV2])
+  }, [lithoFrame, showBands, placedColumns])
 
   const sectionFillData = useMemo((): {
     sectionRegions: SectionRegion[]
@@ -1370,7 +1365,6 @@ export default function PartitionFillOverlay({
       screenToLevel,
       lensDrag: gatedLensDrag,
       boundaryDrag: gatedBoundaryDrag,
-      partitionEngineV2,
       persistedLensBodies,
     })
 
@@ -1411,7 +1405,7 @@ export default function PartitionFillOverlay({
     // families and its cover), so the frame's own topology joins the key —
     // without it, editing a litho contact would leave the geotech axis showing
     // the fill of the previous frame.
-    const engineKey = `${topologyKey(orderedColumns, edges, alongM, partitionEngineV2)}|${[
+    const engineKey = `${topologyKey(orderedColumns, edges, alongM)}|${[
       ...apexOverrides.entries(),
     ]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -1422,7 +1416,6 @@ export default function PartitionFillOverlay({
             lithoFramePartition.lithoColumns,
             lithoFramePartition.lithoEdges,
             lithoFramePartition.lithoAlongM,
-            partitionEngineV2,
           )
         : ''
     }`
@@ -1626,7 +1619,7 @@ export default function PartitionFillOverlay({
     // for (body, gap) yet the resulting region for that body in that gap is NOT
     // apex-shapeable (flooded to a band spanning both columns). Keyed ``gap:bodyId``.
     const unroutableBodies = new Set<string>()
-    if (partitionEngineV2) {
+    {
       // Region per (gap, bodyId): the shape the engine actually produced.
       const regionByKey = new Map<string, SectionRegion>()
       for (const r of sectionRegions) {
@@ -1690,8 +1683,6 @@ export default function PartitionFillOverlay({
     lensDrag,
     // Live contact-bend preview: re-partition while dragging a matched contact.
     boundaryDrag,
-    // Recompute the partition when the active engine flips (Settings toggle).
-    partitionEngineV2,
   ])
 
   // Crossing-tie conflicts (owner §8 Q4): approved correlation ties that
@@ -1844,13 +1835,12 @@ export default function PartitionFillOverlay({
         partitionTopology.orderedColumns,
         partitionTopology.edges,
         partitionTopology.alongM,
-        partitionEngineV2,
       )
   const ghostTopoRef = useRef(partitionTopology)
   ghostTopoRef.current = partitionTopology
   const ghostBase = useMemo(
     () =>
-      !viewOnly && ghostTopoRef.current.orderedColumns.length >= 2 && partitionEngineV2
+      !viewOnly && ghostTopoRef.current.orderedColumns.length >= 2
         ? computeSectionFillActive(
             ghostTopoRef.current.orderedColumns,
             ghostTopoRef.current.edges,
@@ -1859,12 +1849,12 @@ export default function PartitionFillOverlay({
           )
         : EMPTY_REGIONS,
     // reason: the engine output depends only on the topology CONTENT, which
-    // ``ghostTopoKey`` captures in full (unit stacks / edges / along-metres / engine).
+    // ``ghostTopoKey`` captures in full (unit stacks / edges / along-metres).
     // The inputs are read through a ref so the memo sees current values without
     // depending on an identity that churns with the viewport — the same technique
     // ``usePartitionGhostHandles`` already uses for the probe itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ghostTopoKey, partitionEngineV2, viewOnly],
+    [ghostTopoKey, viewOnly],
   )
   const deadHandleBodies = usePartitionGhostHandles(
     ghostBase,
@@ -1872,7 +1862,7 @@ export default function PartitionFillOverlay({
     partitionTopology.edges,
     partitionTopology.alongM,
     computeSectionFillActive,
-    partitionEngineV2 && !viewOnly,
+    !viewOnly,
   )
 
   // ---- SCREEN MEMO: project domain geometry to pixel coords. ---------------
@@ -1931,251 +1921,21 @@ export default function PartitionFillOverlay({
         out.push({ region, points, leftX, rightX, minX, maxX, minY, maxY })
       }
 
-      // ----- POST-BEND PASS for matched-boundary multi-node control points. -----
-      // Within this gap, find consecutive MAIN (non-lens) regions. The partition
-      // algorithm emits main regions top→bottom first, lenses last, so we scan
-      // the tail of ``out`` for the regions just added.
-      //
-      // For each consecutive main pair (upper, lower):
-      //   • Collect ALL in-gap lower_nodes for the upper body (multi-node).
-      //   • Sort them by x position left→right.
-      //   • Apply live-drag override to the dragged node's position.
-      //   • Insert ALL control points into the BASE edge of the upper polygon
-      //     AND the TOP edge of the lower polygon (same points in both → partition
-      //     invariant preserved: the shared edge is identical in both polygons).
-      //
-      // ENGINE-ONLY RESHAPE ON V2 (§77): this off-engine pass reshapes ONE band's
-      // edge from stored nodes without re-partitioning the neighbour — the SOLE gap
-      // source (§66/§71). On v2 the engine consumes matched-contact overrides
-      // (``contact:U|L@g``, S68) and the live preview re-runs the engine per frame
-      // (S65), so the engine is the only geometry source needed. Skipping this pass
-      // entirely on v2 makes a gap IMPOSSIBLE BY CONSTRUCTION: a contact the engine
-      // did NOT consume renders its truthful (unbent) 0/0 partition — a visual no-op,
-      // never a gap. v1 (no engine consumer) keeps the pass → byte-identical.
-      if (!partitionEngineV2) {
-        const mainIdxInGap: number[] = []
-        for (let k = out.length - 1; k >= 0; k--) {
-          if (out[k].leftX !== leftX || out[k].rightX !== rightX) break
-          if (out[k].region.kind !== 'lens') mainIdxInGap.unshift(k)
-        }
+      // The off-engine POST-BEND pass (matched-boundary multi-node reshape)
+      // was v1-only and left with the v1 engine (#280): on v2 the engine
+      // consumes contact overrides itself (S68/S65), so an un-consumed
+      // contact renders its truthful unbent partition — a visual no-op,
+      // never a gap (§77).
 
-        for (let mi = 0; mi + 1 < mainIdxInGap.length; mi += 1) {
-        const upperIdx = mainIdxInGap[mi]
-        const lowerIdx = mainIdxInGap[mi + 1]
-        const upper = out[upperIdx]
-        const lower = out[lowerIdx]
-        if (!upper.region.bodyId || !lower.region.bodyId) continue
-
-        const uId = upper.region.bodyId
-        const lId = lower.region.bodyId
-
-        // ENGINE consumed this contact (S68): the ``contact:U|L@g`` override
-        // already re-partitioned BOTH bands. Running the off-engine POST-BEND
-        // reshape too would double-move ONE band's edge (the §71 root of the
-        // "targets top + gap" dogfeed). Skip it — the engine output is truthful.
-        if (contactOverriddenBodies.has(`${i}:${uId}`) || contactOverriddenBodies.has(`${i}:${lId}`))
-          continue
-
-        // TIE-OWNED seam (owner demo defect 2026-08-05): the boundary this pair
-        // shares is the lower band's TOP (= the upper band's base). When an
-        // accepted tie owns it, the correlation — not a stored reshape node —
-        // decides where the seam runs: bending it here painted a KLEI wedge
-        // ABOVE the tie from a stale July-27 node. v2 refuses such nodes via
-        // §77 (un-routable → no-op); v1 must refuse identically.
-        if (tieOwnedTopBodies.has(lId) || tieOwnedBaseBodies.has(uId)) continue
-
-        // Clamp bounds: upper's top y (minY) and lower's base y (maxY).
-        const clampMinY = upper.minY + 1
-        const clampMaxY = lower.maxY - 1
-
-        // Collect all in-gap nodes for this upper body from the store.
-        const inGapNodes: { x: number; y: number }[] = []
-
-        if (boundariesByBodyId && alongToScreenX && screenToLevel) {
-          const storedBnd = boundariesByBodyId.get(uId)
-          const stored = (storedBnd?.lower_nodes ?? []).filter((n) => {
-            const nx = alongToScreenX(n.along_m)
-            return nx >= leftX && nx <= rightX
-          })
-          for (let ni = 0; ni < stored.length; ni += 1) {
-            const n = stored[ni]
-            let cx = Math.max(leftX + 1, Math.min(rightX - 1, alongToScreenX(n.along_m)))
-            let cy = Math.max(clampMinY, Math.min(clampMaxY, levelToScreen(n.elevation_m)))
-            // Apply live drag override if this is the dragged node.
-            if (
-              boundaryDrag &&
-              boundaryDrag.upperBodyId === uId &&
-              boundaryDrag.lowerBodyId === lId &&
-              boundaryDrag.nodeIndex === ni
-            ) {
-              cx = Math.max(leftX + 1, Math.min(rightX - 1, boundaryDrag.x))
-              cy = boundaryDrag.y // already clamped in the mousemove handler
-            }
-            inGapNodes.push({ x: cx, y: cy })
-          }
-        }
-
-        if (inGapNodes.length === 0) continue // no stored nodes → straight edge
-
-        // Sort control points left→right so the polygon winding is preserved.
-        inGapNodes.sort((a, b) => a.x - b.x)
-
-        // Insert ALL control points into the upper region's BASE edge
-        // (between pts[n-2] and pts[n-1]) and into the lower region's TOP edge
-        // (between pts[0] and pts[1]).  Using the SAME array in both polygons
-        // ensures the shared edge is identical — the partition invariant holds.
-        const uPts = upper.points
-        const n = uPts.length
-        upper.points = [
-          ...uPts.slice(0, n - 1), // [topL, ..., baseR] inclusive
-          ...inGapNodes,
-          uPts[n - 1], // baseL
-        ]
-
-        const lPts = lower.points
-        lower.points = [lPts[0], ...inGapNodes, ...lPts.slice(1)]
-
-        // Recompute bounds for both regions after point insertion.
-        for (const sr of [upper, lower]) {
-          let mxn = Infinity
-          let mxx = -Infinity
-          let myn = Infinity
-          let myx = -Infinity
-          for (const pt of sr.points) {
-            if (pt.x < mxn) mxn = pt.x
-            if (pt.x > mxx) mxx = pt.x
-            if (pt.y < myn) myn = pt.y
-            if (pt.y > myx) myx = pt.y
-          }
-          sr.minX = mxn
-          sr.maxX = mxx
-          sr.minY = myn
-          sr.maxY = myx
-        }
-        }
-      } // end !partitionEngineV2 POST-BEND guard (§77)
-
-      // ----- POST-LENS PASS: rebuild lens polygons from multi-node edges. -----
-      // For each lens region in this gap, if the body has stored upper_nodes or
-      // lower_nodes (the freedraw polyline), replace the legacy triangle polygon
-      // with the freedraw polygon built from the source corners + edge nodes.
-      //
-      // This is done in the overlay (not in partitionFill.ts) because it involves
-      // screen coordinates: the source corners come from the polygon's fraction-0
-      // or fraction-1 screen points, which are already computed above.
-      //
-      // WHY upper_nodes / lower_nodes for a lens: the top taper and base taper
-      // have independent shapes (unlike a matched boundary where both adjacent
-      // regions consume the SAME set of nodes). Separating them preserves
-      // per-edge freedom without entangling the two regions.
-      //
-      // ENGINE-ONLY RESHAPE ON V2 (§77): ``buildLensPolygon`` rebuilds a lens
-      // wedge OFF-ENGINE from source corners + nodes without knowing the neighbour
-      // matrix — so it can gap/overlap it (§66/§71 root). On v2 the engine consumes
-      // the lens override (``lensApex@gap``) and the domain builds the clipped +
-      // notched shape; a lens the engine consumed was ALREADY skipped by the
-      // ``apexOverrides.has`` guard below, so the ONLY lenses reaching this rebuild
-      // on v2 are UN-consumed ones — exactly the gap source. Skipping the whole
-      // pass on v2 leaves the engine as the sole geometry source → no gap can render
-      // (an un-consumed override becomes a visual no-op, not a gap). v1 keeps the
-      // rebuild → byte-identical.
-      if (!partitionEngineV2)
-      for (let k = out.length - 1; k >= 0; k--) {
-        if (out[k].leftX !== leftX || out[k].rightX !== rightX) break
-        const sr = out[k]
-        // Rebuild the fill polygon for ANY shapeable tip (v2 lens + pinch/onlap tip)
-        // that the user has shaped with stored nodes — mirrors the ``screenLenses``
-        // handle gate so the coloured fill follows the same freedraw the handles show.
-        if (!isApexShapeable(sr.region)) continue
-        const bodyId = sr.region.bodyId
-        if (!bodyId || !onSaveBoundary) continue // only when saving is wired
-        // The domain now owns the freedraw shape (built + clipped + notched) when
-        // an override carries this body's chains for this gap — skip the legacy
-        // un-clipped rebuild so a straddle lens can't cross the seam.
-        if (apexOverrides.has(lensApexOverrideKey(bodyId, i))) continue
-
-        const b = boundariesByBodyId?.get(bodyId)
-        const upperStored = b?.upper_nodes ?? []
-        const lowerStored = b?.lower_nodes ?? []
-        // Only the nodes this gap OWNS (along-x inside the gap) shape its lens — a
-        // two-gap lens's other apex lives in the neighbour gap. With no owned
-        // node, keep the domain (default-apex) polygon so it matches the notch.
-        const ownsNode = (n: BodyBoundaryNode): boolean => {
-          if (!alongToScreenX) return false
-          const x = alongToScreenX(n.along_m)
-          return x >= leftX - NODE_OWN_EPS && x <= rightX + NODE_OWN_EPS
-        }
-        if (upperStored.filter(ownsNode).length + lowerStored.filter(ownsNode).length === 0) {
-          continue
-        }
-
-        // Source side + corners from the polygon EXTENT (v2 pinch polygons may not
-        // start at the column-face vertex — see ``resolveSourceCorners``).
-        const corners = resolveSourceCorners(sr.region.polygon)
-        if (!corners) continue
-        const side = corners.side
-
-        // Source corners in screen coords: fraction=0 or fraction=1 → column edge.
-        const gapW = rightX - leftX
-        const srcTop = corners.sourceTop
-        const srcBase = corners.sourceBase
-        const sourceTopPt = {
-          x: leftX + srcTop.fraction * gapW,
-          y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(srcTop.elevation))),
-        }
-        const sourceBasePt = {
-          x: leftX + srcBase.fraction * gapW,
-          y: Math.max(plotTop, Math.min(plotBottom, levelToScreen(srcBase.elevation))),
-        }
-
-        // Map stored nodes to screen coords; apply live drag overrides.
-        const toScreen = (
-          nodes: readonly BodyBoundaryNode[],
-          edge: 'upper' | 'lower',
-        ): { x: number; y: number }[] => {
-          if (!alongToScreenX || !levelToScreen) return []
-          const pts: { x: number; y: number }[] = []
-          nodes.forEach((n, ni) => {
-            if (!ownsNode(n)) return // node belongs to the neighbour gap
-            if (
-              lensDrag &&
-              lensDrag.regionIdx === k &&
-              lensDrag.bodyId === bodyId &&
-              lensDrag.edge === edge &&
-              lensDrag.nodeIndex === ni
-            ) {
-              pts.push({ x: lensDrag.x, y: lensDrag.y })
-              return
-            }
-            pts.push({
-              x: Math.max(leftX, Math.min(rightX, alongToScreenX!(n.along_m))),
-              y: Math.max(plotTop, Math.min(plotBottom, levelToScreen!(n.elevation_m))),
-            })
-          })
-          return pts
-        }
-
-        const upperPts = toScreen(upperStored, 'upper')
-        const lowerPts = toScreen(lowerStored, 'lower')
-
-        // Rebuild the polygon.
-        sr.points = buildLensPolygon(sourceTopPt, sourceBasePt, upperPts, lowerPts, leftX, rightX, side)
-
-        // Recompute bounds.
-        let mxn = Infinity; let mxx = -Infinity; let myn = Infinity; let myx = -Infinity
-        for (const pt of sr.points) {
-          if (pt.x < mxn) mxn = pt.x
-          if (pt.x > mxx) mxx = pt.x
-          if (pt.y < myn) myn = pt.y
-          if (pt.y > myx) myx = pt.y
-        }
-        sr.minX = mxn; sr.maxX = mxx; sr.minY = myn; sr.maxY = myx
-      }
+      // The off-engine POST-LENS rebuild (lens polygons from stored edge
+      // nodes) was v1-only and left with the v1 engine (#280): on v2 the
+      // engine consumes the lens override (``lensApex@gap``) and builds the
+      // clipped + notched shape itself, so an un-consumed override is a
+      // visual no-op, never a gap (§77).
     }
     return out
   }, [
     sectionFillData,
-    partitionEngineV2,
     levelToScreen,
     plotTop,
     plotBottom,
@@ -2224,16 +1984,12 @@ export default function PartitionFillOverlay({
     // edge flat on the silt base, so the under-column clay now sits correctly below it.
     const { sectionRegions, orderedColumns, columnScreens } = sectionFillData
     // The pure domain pass returns sloped below-TD quads per column; here we
-    // only project them to screen. ENGINE-GATED (S60 Stage A): v2 emits a
-    // column's own bottom unit as ONE region running continuously through the
-    // TD, which the frozen v1 helper's straddle guard rejects — painting the
-    // deeper clay from the TD straight down (the B2 phantom gray block). The
-    // component-side fork clips straddling slices to the below-TD band instead
-    // (owner rule: the partition owns the sub-TD space). v1 keeps the frozen
-    // helper so the fallback engine's render is byte-identical.
-    const fills = partitionEngineV2
-      ? computeUnderColumnSubstrateForRender(orderedColumns, sectionRegions)
-      : computeUnderColumnSubstrate(orderedColumns, sectionRegions)
+    // only project them to screen. The v2 engine emits a column's own bottom
+    // unit as ONE region running continuously through the TD, so the render
+    // helper clips straddling slices to the below-TD band (owner rule: the
+    // partition owns the sub-TD space; S60 Stage A). The frozen v1 helper and
+    // its fork left with the v1 engine (#280).
+    const fills = computeUnderColumnSubstrateForRender(orderedColumns, sectionRegions)
     const out: Fill[] = []
     for (const f of fills) {
       const sc = columnScreens[f.columnIndex]
@@ -2272,7 +2028,6 @@ export default function PartitionFillOverlay({
     plotTop,
     plotBottom,
     formationColorById,
-    partitionEngineV2,
   ])
 
   // ---- SEAM-AWARE STROKES (S60 Stage B — owner clause 5, merged view). ------
