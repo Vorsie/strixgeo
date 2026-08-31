@@ -9102,3 +9102,46 @@ verb + its UI) and because the seven rulings would otherwise live only in
 **When to revisit.** Next, once the constructive-fill round is harvested. Do NOT
 start it piecemeal: the migration in 3 is only safe once 4 and 6 have settled
 what a body is, or it will merge rows the new rules would have kept apart.
+
+## 279. Right-click a body and you may silently get the statistics menu (S)
+
+**What.** `PartitionFillOverlay` decides a region's right-click in two branches
+that resolve the body DIFFERENTLY:
+
+* body menu (`:3530`) — `bodyById.get(sr.region.bodyId)`, trusting the id the
+  region carries;
+* statistics menu (`:3596`) — `resolveRegionBodyId(sr.region.layerIds,
+  bodyIdByLayerId)`, resolving through the region's LAYERS.
+
+Both branches give the region `cursor: context-menu`, so they look identical to
+the user. When a region's own `bodyId` does not resolve in the loaded body list,
+`interactive` is false and the STATISTICS menu answers instead — the body menu
+is simply unavailable, with no indication why.
+
+**Evidence (2026-08-31).** On the e2e fixture, Section B, litho axis: 18 regions
+rendered, 9 with `cursor: context-menu`, and the first of them — carrying a real
+body id, `partition-region-01a0574d-749a-79bc-a3bb-a9d8028d9b9d` — opened the
+statistics menu, not the body menu. This is what fails
+`flow_body_actions_ui > Dissolve body`, which is RED and was red before the
+2026-08-31 session (proved by replaying the spec at `7a65673c3` in a clean
+worktree). The failure screenshot carries a *"Bodies recomputed: 3 merged, 0
+split"* toast, which is the suspected trigger: after a merge the regions still
+carry pre-merge body ids until the fill is re-derived.
+
+**Why it matters beyond the test.** A user right-clicking a body shortly after a
+recompute gets the wrong menu and cannot reach Dissolve, Separate, colour or
+rename. Nothing tells them the body menu declined.
+
+**The likely fix is already in the file.** The statistics branch's
+`resolveRegionBodyId` is the robust resolution; the body branch just does not use
+it. Making both resolve the same way is small — but it changes which body a
+right-click acts on, which is exactly the territory of the body-identity rulings
+in #278, so it should be ruled on rather than quietly changed.
+
+**Why deferred.** Needs an owner ruling (see above), and #278 may move the
+resolver anyway.
+
+**When to revisit.** With #278, or sooner if the wrong menu is seen in a real
+dogfeed. Re-check by running
+`.\scriptsun-e2e.ps1 flow_body_actions_ui --workers=1`; it fails serially, so
+it is not the known parallelism flake.
