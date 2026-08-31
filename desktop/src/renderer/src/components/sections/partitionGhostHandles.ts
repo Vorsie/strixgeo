@@ -33,7 +33,7 @@ import {
   type PartitionColumn,
   type PartitionPoint,
   type SectionRegion,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
 
 /** Compute-partition signature — either engine (the active selector or raw v2). */
