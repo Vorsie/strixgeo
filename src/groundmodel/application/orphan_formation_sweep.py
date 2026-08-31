@@ -16,11 +16,12 @@ the owner's Geotech-units pane on 2026-08-26.
 Why it is safe to delete them
 -----------------------------
 Nothing about a formation row is authored.  Its identity is the find-or-create
-key — ``(app_project_id, nad_class, source_litho_formation_id,
-source_geo_formation_id)`` for a classified unit
-(``geotech_borehole_materialiser._find_or_create_classified``) and the same
-tuple without ``nad_class`` for a skeleton (``_find_or_create_skeleton``) — and
-every column of a re-created row is copied from the source litho formation at
+key — ``(app_project_id, nad_class, source_litho_formation_id)`` for a classified
+unit (``geotech_borehole_materialiser._find_or_create_classified``) and the same
+tuple without ``nad_class`` (``(app_project_id, source_litho_formation_id)``) for
+a skeleton (``_find_or_create_skeleton``) — the GEOLOGICAL parent dropped out of
+identity under R1 (owner 2026-08-31, debt #278; it is a live-derived label now).
+Every column of a re-created row is copied from the source litho formation at
 create time (name, colour, soil code, admixtures, display order).  None of that
 lives on the geotech row itself, so a later divide that needs the class again
 rebuilds an equivalent row.  Hand edits go through the SAME function
