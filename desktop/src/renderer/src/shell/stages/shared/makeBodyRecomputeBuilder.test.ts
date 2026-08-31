@@ -134,12 +134,10 @@ function params(layers: LithoLayerLike[]): Parameters<typeof assembleBodyRecompu
 
 beforeEach(() => {
   // The identity path is the v2 engine's; pin it regardless of device pref.
-  process.env.STRIX_PARTITION_V2 = '1'
   listContactCorrelations.mockReset()
 })
 
 afterEach(() => {
-  delete process.env.STRIX_PARTITION_V2
 })
 
 describe('assembleBodyRecomputePayload', () => {
