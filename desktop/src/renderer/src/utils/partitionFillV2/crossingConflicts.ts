@@ -38,7 +38,7 @@
  */
 
 import { type SectionInput } from './sectionGeom'
-import { type CorrelationEdge } from '../partitionFill'
+import { type CorrelationEdge } from '../sectionPartition'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
