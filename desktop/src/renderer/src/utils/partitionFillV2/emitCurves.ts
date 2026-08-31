@@ -52,7 +52,7 @@ import { emitTerminationSweep } from './emitTerminationSweep'
 import { buildTerminationPlans } from './terminationPlan'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 import { firstLithoTopElev, type ColumnGeom, type SectionInput } from './sectionGeom'
-import { type CorrelationEdge } from '../partitionFill'
+import { type CorrelationEdge } from '../sectionPartition'
 import { type InputCurve, type Point } from './types'
 
 /**
