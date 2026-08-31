@@ -1920,10 +1920,18 @@ def label_voxels(
     xmin, ymin = float(ring[:, 0].min()), float(ring[:, 1].min())
     xmax, ymax = float(ring[:, 0].max()), float(ring[:, 1].max())
 
-    # --- vertical extent: the global min/max region elevation --------------
-    # The section partitions are the only carrier of elevation in the voxel
-    # payload (columns hold world_x/y but no surface/base), so the z-range is
-    # the min/max elevation over every region polygon point.
+    # --- vertical extent: regions AND honored logs -------------------------
+    # The section partitions carry most of the elevation range (columns hold
+    # world_x/y but no surface/base), but a honored investigation can be logged
+    # DEEPER than any section region reaches — the owner's GEO-05/040-S2 was
+    # drilled 3.28 m below the partition floor, and framing the grid from the
+    # partitions alone silently cut those metres off (debt #242).  Owner ruling
+    # 2026-08-31: *"down to the deepest investigation"* — the grid's vertical
+    # range covers the honored logs too, so nothing that was measured falls
+    # outside the model.  Only the honored columns LABEL anything down there;
+    # every other column keeps its stack and the extra depth below it is
+    # under-floor void — invisible to the interior-void clause, which reads
+    # stacks, never the grid frame.
     zmin = math.inf
     zmax = -math.inf
     for s in sections:
@@ -1935,6 +1943,12 @@ def label_voxels(
                     zmax = elev
     if not math.isfinite(zmin) or not math.isfinite(zmax) or zmax - zmin <= _EPS:
         raise ValueError("label_voxels: no section regions carry an elevation range to grid over")
+    for inv in investigation_columns:
+        for _body, _formation, top_elev, base_elev in inv.intervals:
+            if base_elev < zmin:
+                zmin = base_elev
+            if top_elev > zmax:
+                zmax = top_elev
 
     # Horizontal spacing (X and Y) is ``grid_spacing_m``; the vertical (Z) spacing
     # is ``vertical_spacing_m`` when set, else the same — the cubic case, in which
