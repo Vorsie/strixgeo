@@ -1092,3 +1092,66 @@ def test_both_labellers_agree_on_a_voxel_sitting_exactly_on_a_contact():
     gapped = _column_labels_gapped(stack, gz, _TWO_BODIES, {})
 
     assert fast.tolist() == gapped.tolist()
+
+
+def test_grid_floor_reaches_the_deepest_honored_investigation():
+    """The model bottoms out at the deepest test, not at the 2-D partition.
+
+    Owner ruling 2026-08-31 (debt #242): *"down to the deepest investigation"*
+    — nothing he paid to measure may fall outside the model, and the floor
+    moves as he imports.  The sections here stop at -10 m, but the honored
+    CPT logged KLEI on to -16 m — the exact shape of his GEO-05/040-S2, whose
+    deepest 3.28 m the old partition-framed grid silently cut off.
+
+    Three things must hold, and the last two are what made this a ruling
+    rather than a one-liner:
+
+    * the grid's vertical range reaches the deep log's base;
+    * the honored column itself is labelled down to that base (the measured
+      ground is IN the model);
+    * a column AWAY from the deep test keeps its own stack ending where the
+      sections end — the extra depth below it is under-floor void, not an
+      interior void, so the gapless clauses stay quiet on a correct model.
+    """
+    domain = _domain_for_two_sections()
+    deep = InvestigationColumn(
+        investigation_id="CPT-deep",
+        world_x=40.0,
+        world_y=20.0,
+        # Observed KLEI from +10 all the way to -16: six metres below the
+        # deepest section region (-10).
+        intervals=(("bodyDeepKlei", _KLEI, 10.0, -16.0),),
+        kind="cpt",
+    )
+    grid = label_voxels(
+        domain,
+        2.0,
+        [_section_klei_all(0.0, "P"), _section_klei_all(40.0, "Q")],
+        investigation_columns=(deep,),
+    )
+
+    # The floor is the deepest measured base, not the partition's.
+    assert float(grid.gz.min()) <= -16.0 + 1.0  # within one 2 m voxel of -16
+
+    # The deep column carries its own measured KLEI to the bottom voxel of
+    # the log — labelled, not void.
+    ix = int(np.argmin(np.abs(grid.gx - 40.0)))
+    iy = int(np.argmin(np.abs(grid.gy - 20.0)))
+    col = grid.labels[ix, iy, :]
+    deep_cells = [k for k in range(len(grid.gz)) if grid.gz[k] <= -10.0]
+    assert any(col[k] >= 0 for k in deep_cells), (
+        "the honored log's deepest metres are still cut off"
+    )
+
+    # A column on section P keeps its section stack: labelled to the section
+    # base, void below — and NOTHING between its labelled cells (no interior
+    # void invented by the deeper grid).
+    jx = int(np.argmin(np.abs(grid.gx - 40.0)))
+    jy = int(np.argmin(np.abs(grid.gy - 0.0)))
+    colp = grid.labels[jx, jy, :]
+    labelled = [k for k in range(len(grid.gz)) if colp[k] >= 0]
+    assert labelled, "section column lost its labels"
+    lo, hi = min(labelled), max(labelled)
+    assert all(colp[k] >= 0 for k in range(lo, hi + 1)), (
+        "extending the floor invented an interior void in a section column"
+    )
