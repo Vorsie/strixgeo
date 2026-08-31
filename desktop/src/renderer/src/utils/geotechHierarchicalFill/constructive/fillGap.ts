@@ -38,6 +38,7 @@ import { fillGapProbe, type ProbeFace } from './fillGapProbe'
 import { resolveLeftovers } from './leastDenseLeftover'
 import { mergeFaces, type LabelledFace } from './mergeFaces'
 import { nearestFamilyColumns } from './nearestFamilyColumns'
+import { ownContactTiesOf } from './ownContactTies'
 import { resolveIslands } from './pocketFaces'
 import { pickRemainder } from './remainderLadder'
 import { drapeHolds, seamDrapeOf, type SeamDrape } from './seamDrape'
@@ -279,6 +280,17 @@ export function fillGap(input: GapFillInput): GapFillResult {
           massKeyOf,
           densityRankOf,
         })
+
+  /** Every band of the family, on every column of the run. */
+  const familyBands = columns.flatMap((c) => c.bands)
+  /**
+   * The correlations drawn on each band's OWN contacts — its own boundary,
+   * wherever its class is proposed (see ``ownContactTies.ts``). Run-wide, NOT
+   * filtered to this gap: the tie bounding a band's contact was often drawn in
+   * a neighbouring gap, and that is precisely the case the very dense sand of
+   * his CS1 gap 14 was painted across.
+   */
+  const ownContactTies = ownContactTiesOf(familyBands, ties)
 
   /** The correlation lines actually drawn across this gap — the fill's walls. */
   const drawnTies: RunTie[] = []
@@ -714,7 +726,7 @@ export function fillGap(input: GapFillInput): GapFillResult {
       // falls all the way through and the onlap takes it back.
       const dominant = pickRemainder({
         flankBands: allBands,
-        familyBands: columns.flatMap((c) => c.bands),
+        familyBands,
         closedAtMiddle,
         middle: middleX,
         lo,
@@ -723,8 +735,10 @@ export function fillGap(input: GapFillInput): GapFillResult {
         y,
         massKeyOf,
         drawnTies,
+        ownContactTies,
         closureBars,
         shapedByLayer,
+        stacks,
       })
       band = dominant.band
       if (band !== null) {
