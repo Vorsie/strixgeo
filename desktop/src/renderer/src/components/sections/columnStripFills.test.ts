@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildColumnStripFills } from './columnStripFills'
-import type { PartitionColumn } from '../../utils/partitionFill'
+import type { PartitionColumn } from '../../utils/sectionPartition'
 
 /** 10 px per metre, elevation 100 at y 0 — the section's downward axis. */
 const levelToScreen = (level: number): number => (100 - level) * 10
