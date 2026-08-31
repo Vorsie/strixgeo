@@ -16,7 +16,7 @@ import { describe, it } from 'vitest'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, PartitionPoint, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, PartitionPoint, SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
