@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { setTwoSidedTerminations, twoSidedTerminationsEnabled } from './partitionFillV2/tileFlags'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
