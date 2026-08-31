@@ -18,7 +18,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { BodyBoundaryResponse, LithoLayerResponse } from '../../api/client'
-import type { SectionRegion } from '../../utils/partitionFill'
+import type { SectionRegion } from '../../utils/sectionPartition'
 import * as engineSelect from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay, { type Props } from './PartitionFillOverlay'
 import { REJECT_COLOR } from './unsafeDragUX'
