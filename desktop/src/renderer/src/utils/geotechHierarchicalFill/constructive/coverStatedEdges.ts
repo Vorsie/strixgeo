@@ -32,7 +32,7 @@
  * @module utils/geotechHierarchicalFill/constructive/coverStatedEdges
  */
 
-import type { SectionRegion } from '../../partitionFill'
+import type { SectionRegion } from '../../sectionPartition'
 
 /**
  * How far off a cover edge a vertex may sit and still count as on it.
