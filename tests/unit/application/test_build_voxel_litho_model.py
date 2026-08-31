@@ -131,6 +131,9 @@ async def _run(
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         await use_case.execute(
             uuid4(),
@@ -291,6 +294,9 @@ async def _run_capturing_domain(
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         await use_case.execute(uuid4(), [_section()], grid_spacing_m=grid_spacing_m, force=True)
 
@@ -441,6 +447,9 @@ async def test_the_investigation_kind_reaches_the_labeller() -> None:
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         await use_case.execute(uuid4(), [_section()], grid_spacing_m=1.0, force=True)
 
@@ -511,6 +520,9 @@ async def test_investigations_outside_the_footprint_ride_out_on_the_outcome() ->
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         outcome = await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
             uuid4(),
@@ -556,6 +568,9 @@ async def _run_empty(
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         return await BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
             uuid4(),
@@ -621,6 +636,9 @@ async def test_a_build_that_produced_bodies_carries_no_empty_reason() -> None:
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
         patch.object(BuildVoxelLithoModel, "_write_generation", new=AsyncMock()),
         patch.object(BuildVoxelLithoModel, "_mesh_rows", return_value=[{}]),
         patch.object(BuildVoxelLithoModel, "_batch_upsert", new=AsyncMock(return_value=1)),
@@ -667,6 +685,9 @@ async def test_a_successful_build_carries_its_gapless_report_into_write_generati
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
         patch.object(BuildVoxelLithoModel, "_write_generation", new=write_generation),
         patch.object(BuildVoxelLithoModel, "_mesh_rows", return_value=[{}]),
         patch.object(BuildVoxelLithoModel, "_batch_upsert", new=AsyncMock(return_value=1)),
@@ -774,6 +795,9 @@ async def test_a_crash_inside_the_gate_does_not_take_the_build_down_with_it() ->
         patch(f"{_PATH}.reconcile_sections", side_effect=ZeroDivisionError("gap width was 0")),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
         patch.object(BuildVoxelLithoModel, "_write_generation", new=AsyncMock()),
         patch.object(BuildVoxelLithoModel, "_mesh_rows", return_value=[{}]),
         patch.object(BuildVoxelLithoModel, "_batch_upsert", new=AsyncMock(return_value=1)),
@@ -896,6 +920,9 @@ async def test_another_request_is_served_while_the_labelling_runs() -> None:
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         await asyncio.gather(
             BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
@@ -953,6 +980,9 @@ async def test_a_second_build_waits_instead_of_labelling_alongside_the_first() -
         patch(f"{_PATH}.reconcile_sections", return_value=()),
         patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
         patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
     ):
         await asyncio.gather(
             BuildVoxelLithoModel(cast(Any, AsyncMock())).execute(
