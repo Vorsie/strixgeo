@@ -106,7 +106,7 @@ function buildScene(name: string): Scene {
   const litho = computeSectionFillActive(
     L.columns,
     lithoEdges,
-    deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty, true),
+    deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty),
     L.alongM,
   )
   const hierarchical = computeHierarchicalGeotechFill({
