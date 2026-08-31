@@ -20,7 +20,7 @@ import { type LabelledFace } from './labelFaces'
 import { splitAtSelfIntersections } from './ringSelfIntersect'
 import { clipToStrip, splitAnnulus } from './sliceAnnulus'
 import { type Point } from './types'
-import { type PartitionPoint, type SectionRegion } from '../partitionFill'
+import { type PartitionPoint, type SectionRegion } from '../sectionPartition'
 
 /** Snap grid for the OUTPUT fraction axis (design §3 numerical robustness). */
 const FRACTION_SNAP = 1e-6
