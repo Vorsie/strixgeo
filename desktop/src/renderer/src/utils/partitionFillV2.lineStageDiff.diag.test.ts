@@ -58,7 +58,7 @@ import {
   LENS_PINCH_FRACTION,
   type CorrelationEdge,
   type PartitionColumn,
-} from './partitionFill'
+} from './sectionPartition'
 import { emitCurves, type ResolvedTie } from './partitionFillV2/emitCurves'
 import { effectiveCorrForSide, type TieRef } from './partitionFillV2/effectiveCorr'
 import { buildTerminationPlans, type TerminationPlan } from './partitionFillV2/terminationPlan'
