@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './computeSectionFillV2'
 import { setTwoSidedTerminations } from './tileFlags'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../sectionPartition'
 
 const CLAY = 'clay'
 const SAND = 'sand'
