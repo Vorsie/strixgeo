@@ -20,7 +20,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type CorrelationEdge } from '../partitionFill'
+import { type CorrelationEdge } from '../sectionPartition'
 import { type ColumnGeom } from './sectionGeom'
 
 /**
