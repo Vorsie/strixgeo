@@ -6,22 +6,32 @@
 // (``assembleSectionPartitionFrames``) so the identity geometry can never drift from
 // the built geometry — the engine CALL is what differs:
 //
-//   * the fill runs through ``computeSectionFillActiveWithIdentity``, whose v2 arm
-//     welds same-litho regions with ``excludeFallback`` (substrate/flood paint never
-//     unions two drilled bodies) and returns the weld's merge GROUPS in LAYER-id
-//     space — layer ids never change, so the same geometry always plans the same
-//     facts server-side. The first wire design sent BODY ids and oscillated in
-//     production: after a successful merge every refetched region carried the merged
-//     id, the next payload's evidence collapsed to singletons, and the wholesale
-//     fact replace undid the merge (facts flapping 74→3→69 live, 2026-08-12);
+//   * a GEOTECH recompute with a litho FRAME (``frameSections``) runs the SAME
+//     hierarchical fill the geotech axis renders, the voxel build posts, and the
+//     fence draws (``computeFramedGeotechFill``) — owner ruling R6 (debt #278):
+//     which masses count as one body must be decided from the picture the render
+//     shows (the hierarchical fill on the litho frame's columns), NOT from the
+//     litho v2 engine on the geotech band columns. Its ``layer_groups`` are the
+//     class-keyed groups those framed regions weld into, and the fill's
+//     ``lithoFallback`` cover is never posted (inferred fill is not geometry);
+//   * a LITHO recompute (or a geotech section with no usable frame) runs
+//     ``computeSectionFillActiveWithIdentity``, whose v2 arm welds same-litho
+//     regions with ``excludeFallback`` (substrate/flood paint never unions two
+//     drilled bodies) and returns the weld's merge GROUPS in LAYER-id space —
+//     layer ids never change, so the same geometry always plans the same facts
+//     server-side. The first wire design sent BODY ids and oscillated in
+//     production: after a successful merge every refetched region carried the
+//     merged id, the next payload's evidence collapsed to singletons, and the
+//     wholesale fact replace undid the merge (facts flapping 74→3→69 live,
+//     2026-08-12);
 //   * regions painted by a fallback authority (``fallback === true``) are OMITTED
 //     from the payload — inferred fill is not geometry evidence;
 //   * every region carries ``layer_ids`` (its producing layers) so the backend's
 //     cross-section rule (shared columns + fence crossings) runs label-free.
 //
 // The async orchestration around this (edge fetch with suspended-review drop,
-// boundary fetch, refusal on failed sections) lives in
-// ``shell/stages/shared/makeBodyRecomputeBuilder.ts`` — mirroring the
+// boundary fetch, the litho FRAME's own edge fetch, refusal on failed sections)
+// lives in ``shell/stages/shared/makeBodyRecomputeBuilder.ts`` — mirroring the
 // makeVoxelRequestBuilder / buildVoxelRequest split.
 
 import type { BodyBoundaryResponse } from "../api/clients/geology.types";
@@ -31,8 +41,10 @@ import {
   toRegionInputs,
   type SectionPartitionInput,
 } from "./buildVoxelRequest";
+import { buildFrameBySectionId, computeFramedGeotechFill, sectionFrameKey } from "./framedGeotechFill";
 import { computeSectionFillActiveWithIdentity } from "./partitionEngineSelect";
 import { mergeTouchingBodiesWithGroups } from "./partitionFillV2/mergeTouchingBodies";
+import type { SectionRegion } from "./sectionPartition";
 import { log } from "./log";
 
 /** The full payload POSTed to ``POST .../bodies/recompute``. */
@@ -71,6 +83,15 @@ export interface RecomputeBodiesRequest {
  *     Stored hand-drawn boundaries, so the identity partition matches the drawn one.
  * logLabel : string
  *     Log channel label (per-model: 'litho-recompute' / 'geotech-recompute').
+ * packingClassOf : ReadonlyMap<string, string>, optional
+ *     Geotech formation id → canonical class key (``buildPackingClassOf``) — the
+ *     mass identity the evidence groups by (owner 2026-08-21: one mass one body).
+ *     Omit for the litho model, which keeps row identity.
+ * frameSections : readonly FenceSectionInput[], optional
+ *     The LITHO frame sections, for a GEOTECH recompute (owner ruling R6, debt
+ *     #278). With them, each geotech section's identity is the hierarchical fill
+ *     on its matching litho frame — the picture the render shows. A section with
+ *     no matching frame falls back to the v2-identity path on its own columns.
  *
  * Returns
  * -------
@@ -84,46 +105,83 @@ export function buildBodyRecomputePayload(
   boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse> | undefined,
   logLabel: string,
   packingClassOf?: ReadonlyMap<string, string>,
+  frameSections?: readonly FenceSectionInput[],
 ): RecomputeBodiesRequest | null {
   const outSections: SectionPartitionInput[] = [];
   const sectionIds: string[] = [];
   const layerGroups: string[][][] = [];
   let totalRegions = 0;
 
+  // THE LITHO FRAME, for a GEOTECH recompute — built by the SAME helper the
+  // voxel build uses so the two join a section to its frame identically. Absent
+  // (every litho recompute) leaves this empty and every section takes the
+  // v2-identity path below, unchanged.
+  const frameBySectionId = buildFrameBySectionId(frameSections);
+
   for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
-    const { input, columns, payloadColumns, alongM, apexOverrides } = frame;
-    const { regions, groups: rowGroups } = computeSectionFillActiveWithIdentity(
-      columns,
-      input.edges,
-      apexOverrides,
-      alongM,
-    );
-    // GEOTECH: identity is the CLASS, never the formation row (owner
-    // 2026-08-21, "one mass one body" + option 3 — a touching same-class lens
-    // welds without a tie). The identity engine grouped per row; re-derive the
-    // groups with the class key so the evidence states what the ruling states.
-    // The regions posted below stay the identity engine's own — only the
-    // GROUPS change. Litho passes no map and keeps row groups.
-    const groups = packingClassOf
-      ? mergeTouchingBodiesWithGroups(
-          regions,
-          // Only the along positions matter here (the per-gap snap tolerance).
-          alongM.map((x) => ({ x })),
-          {
-            excludeFallback: true,
-            identityKeyOf: (formationId) => packingClassOf.get(formationId) ?? formationId,
-          },
-        ).groups
-      : rowGroups;
+    const { input, columns, alongM, apexOverrides } = frame;
+    let { payloadColumns } = frame;
+
+    const lithoFrame = frameBySectionId.get(sectionFrameKey(input));
+    let regions: SectionRegion[];
+    let groups: string[][];
+    if (lithoFrame !== undefined) {
+      // FRAMED GEOTECH (owner ruling R6, debt #278): identity is decided from the
+      // picture the render shows — the hierarchical fill on the litho FRAME's
+      // columns, welded by packing CLASS — not the v2 engine on the geotech band
+      // columns. The frame owns the axis, so the payload names ITS columns; the
+      // fill's ``lithoFallback`` cover is never posted (inferred fill is not body
+      // geometry). ``computeFramedGeotechFill`` is the one derivation the render,
+      // the build and this recompute all share.
+      payloadColumns = lithoFrame.payloadColumns;
+      const { hierarchical } = computeFramedGeotechFill(
+        lithoFrame,
+        columns,
+        input.edges,
+        packingClassOf,
+      );
+      regions = hierarchical.regions;
+      groups = mergeTouchingBodiesWithGroups(
+        regions,
+        // Only the along positions matter (the per-gap snap tolerance); the
+        // regions are indexed on the FRAME's gaps, so this is the frame's axis.
+        lithoFrame.alongM.map((x) => ({ x })),
+        {
+          excludeFallback: true,
+          identityKeyOf: (formationId) => packingClassOf?.get(formationId) ?? formationId,
+        },
+      ).groups;
+    } else {
+      // LITHO, or a geotech section with no usable frame: the v2 identity fill on
+      // the model's own columns. Identity is the CLASS when a packing-class map is
+      // supplied (owner 2026-08-21, "one mass one body" — a touching same-class
+      // lens welds without a tie); the identity engine grouped per row, so
+      // re-derive with the class key. The regions stay the identity engine's own —
+      // only the GROUPS change. Litho passes no map and keeps row groups.
+      const identity = computeSectionFillActiveWithIdentity(columns, input.edges, apexOverrides, alongM);
+      regions = identity.regions;
+      groups = packingClassOf
+        ? mergeTouchingBodiesWithGroups(
+            regions,
+            // Only the along positions matter here (the per-gap snap tolerance).
+            alongM.map((x) => ({ x })),
+            {
+              excludeFallback: true,
+              identityKeyOf: (formationId) => packingClassOf.get(formationId) ?? formationId,
+            },
+          ).groups
+        : identity.groups;
+    }
     // Fallback-painted regions (substrate / flood label authority) are NOT geometry
     // evidence — the backend must never anchor identity facts on inferred fill.
+    // Belt-and-braces on the framed arm (the hierarchical fill never sets it).
     const drilled = regions.filter((r) => r.fallback !== true);
     totalRegions += drilled.length;
     log.debug(
       logLabel,
       `recompute section: ${payloadColumns.length} cols, ${drilled.length} regions ` +
         `(${regions.length - drilled.length} fallback omitted), ${groups.length} groups, ` +
-        `engine=v2`,
+        `engine=${lithoFrame !== undefined ? "hierarchical" : "v2"}`,
     );
     if (input.sectionId === undefined) {
       // Without the id the server cannot verify coverage — refusing to build
