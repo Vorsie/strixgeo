@@ -222,6 +222,14 @@ export interface ToolbarDropdownItem {
   testid?: string
   /** Optional trailing pill (e.g. a "Phase 4" not-yet-available tag). */
   tag?: string
+  /**
+   * Optional keyboard shortcut that fires this item's ``onClick`` while its
+   * toolbar is mounted — menu open or not (see ``useToolbarShortcuts``).
+   * Rendered after the label in parentheses (owner ask 2026-08-31: "like
+   * between parentheses at the back"). One printable key, matched on
+   * ``KeyboardEvent.key`` with no modifiers.
+   */
+  shortcut?: string
 }
 
 /**
@@ -369,7 +377,12 @@ export function PortalMenu({
           ].join(' ')}
         >
           {item.icon}
-          <span className="flex-1">{item.label}</span>
+          <span className="flex-1">
+            {item.label}
+            {item.shortcut && (
+              <span className="text-text-muted"> ({item.shortcut})</span>
+            )}
+          </span>
           {item.tag && (
             <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">
               {item.tag}
