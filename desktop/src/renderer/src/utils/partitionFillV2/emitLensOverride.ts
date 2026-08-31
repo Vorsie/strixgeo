@@ -20,7 +20,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type LensApexOverride } from '../partitionFill'
+import { type LensApexOverride } from '../sectionPartition'
 import { terminationApexOverride } from './apexOverride'
 import { type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
