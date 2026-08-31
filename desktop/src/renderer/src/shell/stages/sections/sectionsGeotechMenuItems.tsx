@@ -333,6 +333,8 @@ export function buildGeotechDisplayMenuItems(
               {
                 label: geotechFillVisible ? t('sections.geotech.hideFill') : t('sections.geotech.showFill'),
                 icon: geotechFillVisible ? <EyeOff size={13} /> : <Eye size={13} />,
+                // The bare-F hook dispatches this key — hint only.
+                shortcutHint: 'f',
                 onClick: () => toggleGeotechFill(),
                 title: t('sections.toolbar.packingFillHint'),
                 testid: 'geotech-toggle-fill',
@@ -354,6 +356,8 @@ export function buildGeotechDisplayMenuItems(
               },
               {
                 label: lithoFillOnGeotech ? t('sections.geotech.hideLithoFill') : t('sections.geotech.showLithoFill'),
+                // The bare-L hook dispatches this key (axis-aware) — hint only.
+                shortcutHint: 'l',
                 icon: lithoFillOnGeotech ? <EyeOff size={13} /> : <Eye size={13} />,
                 onClick: () => toggleLithoFillOnGeotech(),
                 title: t('sections.toolbar.swapFillHint'),
