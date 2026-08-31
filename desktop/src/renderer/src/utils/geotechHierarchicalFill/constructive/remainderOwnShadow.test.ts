@@ -73,8 +73,15 @@ function ask(y: number, lo: number, hi: number): RunBand | null {
     y,
     massKeyOf: (b) => b.formationId,
     drawnTies: [] as RunTie[],
+    // No correlation is drawn anywhere on this scene, so no band has a boundary
+    // of its own to honour.
+    ownContactTies: new Map(),
     closureBars: new Map(),
     shapedByLayer: new Map([[LOOSE.layerId, WEDGE]]),
+    // ONE test, no facing column — which is why the sub-TD relaxation of
+    // 2026-08-28 does not reach this scene: "the facing test measured nothing
+    // here" has to be a fact about ITS total depth, and there is no facing test.
+    stacks: new Map([[LOOSE.ci, [LOOSE]]]),
   }
   return pickRemainder(input).band
 }
