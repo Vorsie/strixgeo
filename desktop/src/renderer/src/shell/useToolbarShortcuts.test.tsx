@@ -59,6 +59,15 @@ describe('useToolbarShortcuts — the dispatch half', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it('a display-only hint (legacy-hook keys like L/F/P) never fires from here', () => {
+    // Those keys are dispatched by their dedicated hooks; firing them from the
+    // dispatcher too would toggle twice, and a fill toggled twice never moves.
+    const run = vi.fn()
+    render(<Host items={[item({ shortcutHint: 'l', onClick: run })]} />)
+    fireEvent.keyDown(window, { key: 'l' })
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it('keys with no declared item are ignored', () => {
     const run = vi.fn()
     render(<Host items={[item({ shortcut: '1', onClick: run })]} />)
@@ -78,5 +87,17 @@ describe('PortalMenu — the display half', () => {
       />,
     )
     expect(screen.getByTestId('row').textContent).toContain('Subdivide (1)')
+  })
+
+  it('a legacy-hook hint renders identically', () => {
+    render(
+      <PortalMenu
+        anchorRect={new DOMRect(0, 0, 100, 20)}
+        ariaLabel="test menu"
+        items={[item({ label: 'Fill bands', shortcutHint: 'l', testid: 'row' })]}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByTestId('row').textContent).toContain('Fill bands (l)')
   })
 })
