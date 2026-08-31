@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 
 import { deriveSectionApexOverrides } from './buildVoxelRequest'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn } from './sectionPartition'
 import type { BodyBoundaryResponse } from '../api/clients/geology.types'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
