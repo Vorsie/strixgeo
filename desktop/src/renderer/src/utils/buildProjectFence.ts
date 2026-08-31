@@ -1,6 +1,6 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { computeSectionFillActive } from './partitionEngineSelect'
