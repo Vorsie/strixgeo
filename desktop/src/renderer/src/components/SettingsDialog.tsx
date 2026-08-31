@@ -34,10 +34,6 @@ import {
   type LithoSegmenterPrefs,
 } from '../utils/lithoSegmenterPrefs'
 import {
-  setPartitionEngineV2,
-  usePartitionEngineV2,
-} from '../utils/partitionEngineSelect'
-import {
   SECTION_DEFAULTS,
   SECTION_DEFAULTS_BOUNDS,
   type SectionDefaults,
@@ -226,11 +222,6 @@ function LithoSection({
   onSubmit: () => void
 }): JSX.Element {
   const t = useT()
-  // Device-local partition-engine pref (dev only). Reversible chrome — applied
-  // immediately via setPartitionEngineV2, no Save step (matches the theme
-  // toggle). Read as a hook so the checkbox reflects flips from elsewhere.
-  const partitionEngineV2 = usePartitionEngineV2()
-
   const thicknessBounds = LITHO_SEGMENTER_BOUNDS.minimumLayerThicknessM
   const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
   const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
@@ -468,42 +459,6 @@ function LithoSection({
         disabled={!hasProject}
         invalid={!voxelVValid}
       />
-
-      {/* Dev-only v1-fallback engine toggle (v2 is the default engine since
-          2026-08-01; owner 2026-08-27). Device-scoped (localStorage),
-          NOT part of the project draft — applied immediately, no Save. The
-          section badge reads "Stored in this project"; this one row is the
-          exception, hence the "(this device)" hint. Hidden in production
-          builds — gated on !import.meta.env.PROD (the typed env flag under
-          this tsconfig; DEV === !PROD). */}
-      {!import.meta.env.PROD && (
-        <div className="pt-1 border-t border-border-subtle mt-2">
-          <div className="pt-3">
-            <CheckboxRow
-              id="settings-partition-engine-v2"
-              label={t('settings.litho.engineV2')}
-              hint={t('settings.litho.engineV2Hint')}
-              checked={partitionEngineV2}
-              onChange={setPartitionEngineV2}
-            />
-            {/* Live status line — this row applies INSTANTLY and never enables
-                the section's Save button (dogfeed 2026-07-14: owner flipped the
-                box, found Save greyed, assumed the change had not taken). */}
-            <p
-              className="mt-1 text-xs text-emerald-600 dark:text-emerald-400"
-              data-testid="partition-engine-status"
-            >
-              {t('settings.litho.engineV2Status', {
-                engine: t(
-                  partitionEngineV2
-                    ? 'settings.litho.engineV2Name'
-                    : 'settings.litho.engineV1Name',
-                ),
-              })}
-            </p>
-          </div>
-        </div>
-      )}
 
       <SectionFooter
         hasProject={hasProject}
