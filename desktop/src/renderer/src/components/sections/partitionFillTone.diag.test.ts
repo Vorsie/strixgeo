@@ -145,7 +145,6 @@ describe('TONE diag — composited coats either side of a card edge', () => {
     return
   }
   it('samples every card edge on every section', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
     const lithoSoil = new Map(Object.entries(raw.refinementBundle.lithoSoilByFormationId))
     const geoSoil = new Map<string, string | null>(
@@ -163,13 +162,13 @@ describe('TONE diag — composited coats either side of a card edge', () => {
       const lithoRegions = computeSectionFillActive(
         L.columns,
         lithoEdges,
-        deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty, true),
+        deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty),
         L.alongM,
       )
       const geoRegionsRaw = computeSectionFillActive(
         G.columns,
         geoEdges,
-        deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, empty, true),
+        deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, empty),
         G.alongM,
       )
       const columnsMatch =
