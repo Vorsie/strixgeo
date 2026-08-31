@@ -20,6 +20,7 @@ import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import { ToolbarButton } from '../../ToolbarPrimitives'
 import ResponsiveToolbarRow, { type ToolbarItemSpec } from '../../ResponsiveToolbarRow'
+import { useToolbarShortcuts } from '../../useToolbarShortcuts'
 import { AXIS_PILL_COMPACT_PX, AXIS_PILL_FULL_PX } from './sectionsToolbar_constants'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
@@ -906,10 +907,17 @@ export default function SectionsToolbar(): JSX.Element {
     handleClearTieSuggestions,
   })
 
+  const rowItems = [...headItems, ...lithoItems, ...geotechItems, ...tailItems]
+  // Bare-key shortcuts for dropdown verbs that declare one (today: the geotech
+  // pipeline steps 1-4). Fires whether or not the menu is open; obeys each
+  // item's own disabled gate. Display half: "(4)" after the label.
+  useToolbarShortcuts(rowItems.flatMap((i) => i.overflowItems))
+
+
   return (
     <>
       <ResponsiveToolbarRow
-        items={[...headItems, ...lithoItems, ...geotechItems, ...tailItems]}
+        items={rowItems}
         overflowMenuLabel={t('sections.moreActions')}
       />
       <SectionsToolbarDialogs
