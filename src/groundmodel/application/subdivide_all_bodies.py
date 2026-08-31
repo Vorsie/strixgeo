@@ -850,8 +850,8 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # immediately; boreholes in a CPT-bearing body are TIN-divided by the
         # body's CPT packing-transition surfaces in the same pass).
         created_formation_ids: list[UUID] = []
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm] = {}
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm] = {}
+        classified_by_key: dict[tuple[int, UUID], GeologicalFormationOrm] = {}
+        skeleton_by_key: dict[tuple[UUID], GeologicalFormationOrm] = {}
 
         total_layers = 0
         split_body_count = 0
