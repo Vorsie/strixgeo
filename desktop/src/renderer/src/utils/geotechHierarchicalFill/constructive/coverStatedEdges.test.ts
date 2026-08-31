@@ -36,7 +36,7 @@ import { shapeAuthorship, slopingEdges } from './coverStatedEdges'
 import { computeHierarchicalGeotechFill } from '../index'
 import { column, tie } from '../scene.test-helpers'
 import { computeSectionFillActive } from '../../partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../../sectionPartition'
 
 const SILT = 'f-silt'
 const SAND = 'f-sand'
