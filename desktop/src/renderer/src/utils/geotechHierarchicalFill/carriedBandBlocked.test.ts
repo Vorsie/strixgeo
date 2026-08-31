@@ -39,7 +39,7 @@ import { describe, expect, it } from 'vitest'
 import { computeHierarchicalGeotechFill } from './index'
 import { column, paintAt, tie, type UnitSpec } from './scene.test-helpers'
 import { computeSectionFillActive } from '../partitionEngineSelect'
-import type { PartitionColumn, SectionRegion } from '../partitionFill'
+import type { PartitionColumn, SectionRegion } from '../sectionPartition'
 
 /** The soils. A clay under MID's shallow sand puts MID's deep bands in another family. */
 const SAND = 'f-sand'
