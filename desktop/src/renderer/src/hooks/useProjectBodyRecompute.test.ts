@@ -196,6 +196,26 @@ describe('useProjectBodyRecompute — project-open trigger', () => {
     expect(postedModels()).toEqual(['G1'])
   })
 
+  it('the geotech recompute defers until the litho frame layers load (R6, #278)', async () => {
+    // The geotech identity is the framed picture, so it NEEDS the litho frame.
+    // Geotech data ready, a litho model present but its layers not loaded yet →
+    // the geotech recompute waits rather than framing on an empty litho model.
+    const lithoPending = args({ lithoLayers: [] })
+    const { rerender } = renderHook(
+      (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
+      { initialProps: lithoPending },
+    )
+    await drainDebounce()
+    // Litho has no layers yet (so it cannot fire) and geotech waits for the frame.
+    expect(postedModels()).toEqual([])
+    // The frame loads → both models recompute, once each.
+    rerender(args())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(postedModels().sort()).toEqual(['G1', 'L1'])
+  })
+
   it('a coordinator nonce bump schedules a recompute after the open trigger already ran', async () => {
     const { rerender } = renderHook((p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p), {
       initialProps: args(),
