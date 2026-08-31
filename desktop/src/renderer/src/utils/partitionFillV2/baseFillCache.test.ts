@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { classifyOverrideOutcome } from './computeSectionFillV2'
 import { setTwoSidedTerminations } from './tileFlags'
-import type { CorrelationEdge, LensApexOverride, PartitionColumn } from '../partitionFill'
+import type { CorrelationEdge, LensApexOverride, PartitionColumn } from '../sectionPartition'
 
 /** A two-column section whose single unit spans the given depths. */
 function columnsOf(baseDepth: number): PartitionColumn[] {
