@@ -152,7 +152,6 @@ describe('no holes in the model (geometric)', () => {
     return
   }
   it('every litho face is painted by a class or the correlate-me hatch', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as {
       sections: RawSection[]
@@ -173,7 +172,7 @@ describe('no holes in the model (geometric)', () => {
       const lithoRegions = computeSectionFillActive(
         L.columns,
         L.edges,
-        deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty, true),
+        deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty),
         L.alongM,
       )
       const out = computeHierarchicalGeotechFill({
