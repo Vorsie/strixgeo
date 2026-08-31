@@ -1,6 +1,6 @@
 // desktop/src/renderer/src/utils/sectionFenceData.ts
 import type { FenceColumn } from './fencePanels'
-import type { PartitionColumn, PartitionUnit } from './partitionFill'
+import type { PartitionColumn, PartitionUnit } from './sectionPartition'
 import { projectionFoot, type SectionEndpoints } from './sectionProjection'
 
 /** A projected investigation column on a section (output of investigationsOnSection + elevation). */
