@@ -11,8 +11,8 @@ export const DATA_NL = {
   // FLAG alt: CPT importeren (.gef) — THE call of this whole review. The owner
   // writes "sonderingen"; BE practice says sondering, the file format and the
   // international literature say CPT. Ruling here propagates to ~30 strings.
-  'data.toolbar.importCptGef': 'Sondering importeren (.gef)',
-  'data.toolbar.importCptDov': 'Sondering importeren uit DOV (kader tekenen)',
+  'data.toolbar.importCptGef': 'Sondering (CPT) importeren (.gef)',
+  'data.toolbar.importCptDov': 'Sondering (CPT) importeren uit DOV (kader tekenen)',
   'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (kader tekenen)',
   'data.toolbar.importDmt': 'DMT importeren',
   'data.toolbar.importLabTest': 'Labproef importeren',
