@@ -13,6 +13,7 @@ from fastapi import APIRouter
 
 from . import (
     bodies,
+    body_separations,
     contact_correlations,
     contacts,
     exports,
@@ -34,6 +35,7 @@ router.include_router(surfaces.router)
 router.include_router(exports.router)
 router.include_router(contact_correlations.router)
 router.include_router(bodies.router)
+router.include_router(body_separations.router)
 router.include_router(litho_layers.router)
 router.include_router(litho_solids.router)
 router.include_router(geotech.router)
