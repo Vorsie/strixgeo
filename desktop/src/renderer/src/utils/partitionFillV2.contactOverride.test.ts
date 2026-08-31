@@ -24,7 +24,7 @@ import {
   lensApexOverrideKey,
   type PartitionColumn,
   type PartitionPoint,
-} from './partitionFill'
+} from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { contactApexOverrideKey } from './partitionFillV2/contactOverride'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
