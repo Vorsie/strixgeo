@@ -1,5 +1,5 @@
 // desktop/src/renderer/src/utils/fencePanels.ts
-import type { PartitionPoint } from './partitionFill'
+import type { PartitionPoint } from './sectionPartition'
 import { triangulatePolygon2D, type Vec2 } from './polygonTriangulate'
 import { projectionFoot, type SectionEndpoints } from './sectionProjection'
 
