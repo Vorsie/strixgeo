@@ -28,7 +28,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { LENS_PINCH_FRACTION } from '../sectionPartition'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { emitLonePinch, type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
