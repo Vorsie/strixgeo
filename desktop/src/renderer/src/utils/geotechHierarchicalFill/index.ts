@@ -46,7 +46,7 @@ import type { TotalityViolation } from './constructive/fillTotality'
 import { weldAcrossFamilies } from './crossFamilyWeld'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
 import type { Mass } from './constructive/emitKernel'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 import type { TieConflict } from '../partitionFillV2'
 
 /** Elevation tolerance (m) at which a band's contact IS its unit's own. */
