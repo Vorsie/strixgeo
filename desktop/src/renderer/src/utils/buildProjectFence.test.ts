@@ -34,6 +34,30 @@ describe('buildProjectFence', () => {
     expect(buildProjectFence([])).toEqual([])
   })
 
+  it('merges per SECTION — two sections resolving to one body stay two panels', () => {
+    // The merge collapses per-gap panels WITHIN a section; it never fuses walls
+    // across sections. Two separate cross-sections, each a single through-going
+    // body, both resolving to the SAME body id, must still yield one panel each.
+    const oneBodySection = (y: number, aId: string, bId: string): FenceSectionInput => ({
+      section: { start_x: 0, start_y: y, end_x: 100, end_y: y },
+      projectedColumns: [
+        { investigationId: `${aId}i`, alongM: 0, surfaceElevM: 10 },
+        { investigationId: `${bId}i`, alongM: 100, surfaceElevM: 10 },
+      ],
+      layers: [
+        { investigationId: `${aId}i`, layerId: aId, formationId: 'ZAND', bodyId: 'z', topDepthM: 0, baseDepthM: 5, accepted: true },
+        { investigationId: `${bId}i`, layerId: bId, formationId: 'ZAND', bodyId: 'z', topDepthM: 0, baseDepthM: 5, accepted: true },
+      ],
+      edges: [{ a: aId, b: bId }],
+    })
+    const sections = [oneBodySection(0, 'a1', 'b1'), oneBodySection(300, 'c1', 'd1')]
+    // Every layer resolves to ONE shared body — a global merge would collapse to
+    // a single panel; the per-section scope keeps them separate.
+    const resolveBody = (): string | null => 'shared'
+    const panels = buildProjectFence(sections, undefined, undefined, resolveBody)
+    expect(panels.filter(p => p.formationId === 'ZAND')).toHaveLength(2)
+  })
+
   // Tie-snap (dogfeed 2026-06-10): a tie's two ends should render at the
   // cross-section column positions of the same tests, NOT at the tie line's own
   // projection. Two dense cross-sections (3 cols each, at y=0 and y=200) place
