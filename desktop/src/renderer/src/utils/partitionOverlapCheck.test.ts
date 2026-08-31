@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { SectionRegion } from './partitionFill'
+import type { SectionRegion } from './sectionPartition'
 import { findNonLensOverlaps } from './partitionOverlapCheck'
 
 /** Four-corner region: left edge (f0) from eTop0 down to eBase0, right edge (f1)
