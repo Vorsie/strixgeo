@@ -373,7 +373,7 @@ export const MODELS_NL = {
   'geotech.reSubdivideModelPost':
     '— de pakkingsbanden en koppelingen van elk profiel worden opnieuw opgebouwd uit de sondeergegevens, en elke boring wordt leeg tot je ze opnieuw verdeelt.',
   'geotech.reSubdivideRegenPre':
-    'Opnieuw onderverdelen genereert de geotechnische pakkingskoppelingen op',
+    'Opnieuw onderverdelen genereert de geotechnische pakkingscorrelaties op',
   'geotech.reSubdivideRegenPost':
     '— alle handmatige koppelingen die je daar gemaakt hebt, worden gewist.',
   'geotech.reSubdivideHandPre': 'Het bouwt ook de pakkingsbanden op',
