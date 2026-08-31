@@ -43,7 +43,7 @@ import {
 } from './geotech210Conformance.audit'
 import { resolveLeftovers } from './geotechHierarchicalFill/constructive/leastDenseLeftover'
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
