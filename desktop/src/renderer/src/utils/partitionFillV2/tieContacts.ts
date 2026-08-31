@@ -17,7 +17,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type CorrelationEdge, type PartitionColumn } from '../partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from '../sectionPartition'
 import { type UnitGeom } from './sectionGeom'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 
