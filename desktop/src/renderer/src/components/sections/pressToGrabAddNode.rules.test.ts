@@ -113,7 +113,6 @@ describe('S86 — press-to-grab: an isNew lens drag renders the new node LIVE (r
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const key = lensApexOverrideKey(LENS, 0)
     expect(
@@ -148,7 +147,6 @@ describe('S86 — press-to-grab: an isNew lens drag renders the new node LIVE (r
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const ov = apexOverrides.get(lensApexOverrideKey(LENS, 0))!
     expect(ov, 'isNew append produced no override').toBeTruthy()
@@ -330,7 +328,6 @@ describe.skipIf(!RUN_CS1)('S86 — a press-to-grab NEW lens-tip node reshapes + 
         screenToLevel: cs1ScreenToLevel,
         lensDrag: liveDrag,
         boundaryDrag: null,
-        partitionEngineV2: true,
       })
       const lensKey = lensApexOverrideKey(CS1_BID, CS1_GAP)
       expect(live.apexOverrides.has(lensKey), 'isNew press-to-grab drag built no live lens override on real CS1').toBe(true)
@@ -361,7 +358,6 @@ describe.skipIf(!RUN_CS1)('S86 — a press-to-grab NEW lens-tip node reshapes + 
         screenToLevel: cs1ScreenToLevel,
         lensDrag: null,
         boundaryDrag: null,
-        partitionEngineV2: true,
         // The stored node is a genuine lens tip → route as a lens (the §91 discriminator).
         persistedLensBodies: new Set([`${CS1_GAP}:${CS1_BID}`]),
       })
