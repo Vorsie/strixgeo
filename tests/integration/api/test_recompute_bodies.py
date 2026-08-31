@@ -520,3 +520,292 @@ async def test_rb9_the_post_merge_snapshot_holds_the_merge(
     assert resp2.json()["bodies_split"] == 0, "the merge must hold"
     assert resp2.json()["bodies_merged"] == 0
     assert len(await _body_ids(db_session, scene)) == 1
+
+
+# ---------------------------------------------------------------------------
+# RB11 (debt #278) — twin formation rows of ONE packing class merge across
+# sections.  The geotech model stores one geological_formation ROW per (NAD
+# class, litho parent, GEOLOGICAL parent), so the same class exists under
+# several row ids where a litho unit spans a geological boundary.  Two NAD-6
+# sands touching across a shared column are one mass and one body (owner
+# 2026-08-21, "yes one mass one body"), even though their formation rows
+# differ — the recompute must compare the CLASS, not the row.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _TwinScene:
+    """Ids the twin-formation scene exposes to RB11."""
+
+    project_id: UUID
+    model_id: UUID
+    f1_id: UUID
+    f2_id: UUID
+    layer1_id: UUID
+    layer2_id: UUID
+    body1_id: UUID
+    body2_id: UUID
+    inv_x_id: UUID
+    inv_1_id: UUID
+    inv_2_id: UUID
+    section_a_id: UUID
+    section_b_id: UUID
+
+
+async def _build_twin_scene(db_session: AsyncSession) -> _TwinScene:
+    """A geotech model with two NAD-6 ZAND rows under different geo parents.
+
+    The two layers resolve to TWO bodies (distinct formation rows, no ties),
+    exactly the state a real geotech model reaches wherever one packing class
+    is split across a geological boundary.
+    """
+    project = ProjectOrm(id=uuid7(), name="RB twin scene", status="active")
+    db_session.add(project)
+    await db_session.flush()
+
+    geo = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project.id, name="RB-Twin-Geo", kind="geological"
+    )
+    db_session.add(geo)
+    await db_session.flush()
+    litho = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="RB-Twin-Litho",
+        kind="lithostratigraphic",
+        parent_model_id=geo.id,
+    )
+    db_session.add(litho)
+    await db_session.flush()
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="RB-Twin-Geotech",
+        kind="geotechnical",
+        parent_model_id=litho.id,
+    )
+    # The two distinct GEOLOGICAL parents that make the twins separate rows.
+    geo_a = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="GEO-A", color="#808080", display_order=0
+    )
+    geo_b = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="GEO-B", color="#909090", display_order=1
+    )
+    db_session.add_all([model, geo_a, geo_b])
+    await db_session.flush()
+
+    # Twin geotech rows: same NAD class + soil, different source geo parent.
+    f1 = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND-NAD6-A",
+        color="#e0c068",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+        nad_class=6,
+        source_geo_formation_id=geo_a.id,
+        instance_ordinal=0,
+    )
+    f2 = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND-NAD6-B",
+        color="#e0c068",
+        display_order=1,
+        litho_main_soil_code="ZAND",
+        nad_class=6,
+        source_geo_formation_id=geo_b.id,
+        instance_ordinal=0,
+    )
+    db_session.add_all([f1, f2])
+    await db_session.flush()
+
+    boreholes = []
+    for i in (1, 2):
+        bh = BoreholeOrm(
+            id=uuid7(),
+            name=f"BH-TW-{i}",
+            app_project_id=project.id,
+            project_id="TW",
+            test_id=f"BH-TW-{i}",
+            location_x=160000.0 + i * 25.0,
+            location_y=200000.0,
+            epsg=31370,
+            total_depth_m=20.0,
+        )
+        boreholes.append(bh)
+    db_session.add_all(boreholes)
+    await db_session.flush()
+
+    layer1 = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=f1.id,
+        borehole_id=boreholes[0].id,
+        depth_top_m=2.0,
+        depth_base_m=8.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    layer2 = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=f2.id,
+        borehole_id=boreholes[1].id,
+        depth_top_m=2.0,
+        depth_base_m=8.0,
+        status="accepted",
+        source="manual",
+        confidence="medium",
+    )
+    db_session.add_all([layer1, layer2])
+
+    section_a = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="TW-Section-A",
+        start_x=160000.0,
+        start_y=200000.0,
+        end_x=160025.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=60.0,
+    )
+    section_b = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="TW-Section-B",
+        start_x=160025.0,
+        start_y=200000.0,
+        end_x=160050.0,
+        end_y=200100.0,
+        epsg=31370,
+        projection_buffer_m=60.0,
+    )
+    db_session.add_all([section_a, section_b])
+
+    project_id, model_id = project.id, model.id
+    f1_id, f2_id = f1.id, f2.id
+    layer1_id, layer2_id = layer1.id, layer2.id
+    inv_1_id, inv_2_id = boreholes[0].id, boreholes[1].id
+    section_a_id, section_b_id = section_a.id, section_b.id
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=model_id)
+    db_session.expire_all()
+    l1 = await db_session.get(LithoLayerOrm, layer1_id)
+    l2 = await db_session.get(LithoLayerOrm, layer2_id)
+    assert l1 is not None and l2 is not None
+    assert l1.body_id is not None and l2.body_id is not None
+    assert l1.body_id != l2.body_id, "twin-row layers start as TWO bodies"
+
+    return _TwinScene(
+        project_id=project_id,
+        model_id=model_id,
+        f1_id=f1_id,
+        f2_id=f2_id,
+        layer1_id=layer1_id,
+        layer2_id=layer2_id,
+        body1_id=l1.body_id,
+        body2_id=l2.body_id,
+        inv_x_id=uuid7(),
+        inv_1_id=inv_1_id,
+        inv_2_id=inv_2_id,
+        section_a_id=section_a_id,
+        section_b_id=section_b_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_rb11_twin_class_rows_merge_across_sections(
+    db_session: AsyncSession, async_client: AsyncClient
+) -> None:
+    """RB11 — two NAD-6 ZAND rows touching a shared column resolve to ONE body.
+
+    The only connectivity is geometric: each section carries one region reaching
+    the SHARED column with overlapping elevation, but the regions carry DIFFERENT
+    formation rows. Only when ``plan_layer_groups`` compares the packing CLASS
+    (not the raw row) do the two layers group, one fact lands, and the resolver
+    fuses them. Without the class key threaded through, they stay two bodies.
+    """
+    s = await _build_twin_scene(db_session)
+    section_a = {
+        "start_x": 160000.0,
+        "start_y": 200000.0,
+        "end_x": 160025.0,
+        "end_y": 200000.0,
+        "columns": [
+            {
+                "investigation_id": str(s.inv_x_id),
+                "along_m": 0.0,
+                "world_x": 160000.0,
+                "world_y": 200000.0,
+            },
+            {
+                "investigation_id": str(s.inv_1_id),
+                "along_m": 25.0,
+                "world_x": 160025.0,
+                "world_y": 200000.0,
+            },
+        ],
+        "regions": [
+            {
+                "formation_id": str(s.f1_id),
+                "body_id": str(s.body1_id),
+                "polygon": [[0.0, 0.0], [1.0, 0.0], [1.0, -5.0], [0.0, -5.0]],
+                "gap_index": 0,
+                "kind": "quad",
+                "layer_ids": [str(s.layer1_id)],
+            }
+        ],
+    }
+    section_b = {
+        "start_x": 160025.0,
+        "start_y": 200000.0,
+        "end_x": 160050.0,
+        "end_y": 200100.0,
+        "columns": [
+            {
+                "investigation_id": str(s.inv_1_id),
+                "along_m": 0.0,
+                "world_x": 160025.0,
+                "world_y": 200000.0,
+            },
+            {
+                "investigation_id": str(s.inv_2_id),
+                "along_m": 25.0,
+                "world_x": 160050.0,
+                "world_y": 200100.0,
+            },
+        ],
+        "regions": [
+            {
+                "formation_id": str(s.f2_id),
+                "body_id": str(s.body2_id),
+                "polygon": [[0.0, -1.0], [1.0, -1.0], [1.0, -4.0], [0.0, -4.0]],
+                "gap_index": 0,
+                "kind": "quad",
+                "layer_ids": [str(s.layer2_id)],
+            }
+        ],
+    }
+    payload = {
+        "sections": [section_a, section_b],
+        "section_ids": [str(s.section_a_id), str(s.section_b_id)],
+        "layer_groups": [],
+    }
+    url = f"/projects/{s.project_id}/geology/models/{s.model_id}/bodies/recompute"
+    resp = await async_client.post(url, json=payload)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["bodies_merged"] == 1
+    ids = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm.body_id).where(LithoLayerOrm.model_id == s.model_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(set(ids)) == 1, "the twin-class layers must share ONE body id"
