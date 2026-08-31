@@ -158,11 +158,18 @@ describe('computeUnderColumnSubstrateForRender — parity with the frozen v1 cas
     expect(fills.find((f) => f.columnIndex === 1)).toBeUndefined()
   })
 
-  it('UCS-P3: closes a lens-spot gap by extending the OVERLYING band downward', () => {
+  it('UCS-P3: a lens PINCHED OUT at the column edge closes by extending the OVERLYING band downward', () => {
+    // The closure rule's own rationale: "at a column edge the lens wedges have
+    // pinched out, so the matrix slices alone may leave a vertical gap where a
+    // lens sat". The fixture now matches the rationale — the SILT lens tapers
+    // to a point AT column S's edge (fraction 0), so it truly contributes
+    // nothing there and CLAY closes over the spot. (It used to use a lens at
+    // FULL thickness across the gap, which the owner ruled must carry — see
+    // UCS-L1.)
     const columns = [shallowCol('S', 9.5), shallowCol('R', -2)]
     const regions: SectionRegion[] = [
       reg(0, 'CLAY', 8, 4, 8, 4),
-      reg(0, 'SILT', 4, 2, 4, 2, 'lens'),
+      reg(0, 'SILT', 3, 3, 4, 2, 'lens'),
       reg(0, 'SAND', 2, -2, 2, -2),
     ]
     const fills = computeUnderColumnSubstrateForRender(columns, regions)
@@ -175,6 +182,31 @@ describe('computeUnderColumnSubstrateForRender — parity with the frozen v1 cas
     expect(upper.baseLeftElev).toBeCloseTo(lower.topLeftElev, 1)
     expect(lower.topLeftElev).toBeCloseTo(2, 1)
     expect(upper.baseLeftElev).toBeCloseTo(2, 1)
+  })
+
+  it("UCS-L1: a band crossing under a shallow test at FULL thickness carries through, whatever its kind (the owner's S7A silt)", () => {
+    // Owner, 2026-08-31, on CS1's S7A: "i don't need to interpret s7a, it is
+    // an undeep test that is fully interpreted, the silt lens that is missing
+    // comes from the column on the right". The neighbour's silt travels the
+    // gap as kind='lens' (no ties, per the 2/1/0 law) but arrives at the
+    // shallow test's edge at its full 2 m thickness — the substrate under the
+    // TD must carry it, not paint the host closed over it.
+    const columns = [shallowCol('S7A', 9.5), shallowCol('S7', -2)]
+    const regions: SectionRegion[] = [
+      reg(0, 'CLAY', 8, 4, 8, 4),
+      reg(0, 'SILT', 4, 2, 4, 2, 'lens'),
+      reg(0, 'SAND', 2, -2, 2, -2),
+    ]
+    const fills = computeUnderColumnSubstrateForRender(columns, regions)
+    const c0 = fills.find((f) => f.columnIndex === 0)
+    expect(c0).toBeDefined()
+    const silt = c0!.quads.find((q) => q.formationId === 'SILT')
+    expect(silt).toBeDefined()
+    expect(silt!.topLeftElev).toBeCloseTo(4, 1)
+    expect(silt!.baseLeftElev).toBeCloseTo(2, 1)
+    // ...and the stack stays gapless around it: CLAY above, SAND below.
+    const forms = c0!.quads.map((q) => q.formationId)
+    expect(forms).toEqual(['CLAY', 'SILT', 'SAND'])
   })
 
   it('UCS-P4: fills a run of 2+ consecutive shallow tests', () => {
