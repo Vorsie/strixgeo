@@ -955,6 +955,13 @@ export interface BodyListItem {
   /** A2-derived geological-formation label (thickness-weighted majority). */
   geo_formation_id?: string | null
   geo_formation_name?: string | null
+  /**
+   * Every geological formation this body crosses, shallowest first (debt #278,
+   * R2). A body may span geological boundaries, so its geological attribution is
+   * a LIST, not just the majority singular above. Absent on old cached responses
+   * — consumers fall back to the singular field.
+   */
+  geo_formations?: { id: string; name: string }[]
   created_at: string
   updated_at: string
   /** Stable identity hash of the body's 3 defining contact ids. */
