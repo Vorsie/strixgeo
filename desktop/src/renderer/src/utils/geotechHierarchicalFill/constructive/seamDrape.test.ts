@@ -41,7 +41,7 @@ import { interiorVerticals } from './onlapClosure'
 import { computeHierarchicalGeotechFill } from '../index'
 import { column, paintAt, tie } from '../scene.test-helpers'
 import { computeSectionFillActive } from '../../partitionEngineSelect'
-import type { SectionRegion } from '../../partitionFill'
+import type { SectionRegion } from '../../sectionPartition'
 
 const SAND = 'f-sand'
 const CLAY = 'f-clay'
