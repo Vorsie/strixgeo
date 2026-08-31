@@ -35,11 +35,8 @@ import type {
   PartitionColumn,
   SectionRegion,
 } from "./sectionPartition";
-import { frameAlignedColumns } from "./frameAlignedPartition";
-import {
-  computeHierarchicalGeotechFill,
-  type HierarchicalGeotechFillResult,
-} from "./geotechHierarchicalFill";
+import type { HierarchicalGeotechFillResult } from "./geotechHierarchicalFill";
+import { buildFrameBySectionId, computeFramedGeotechFill, sectionFrameKey } from "./framedGeotechFill";
 import {
   computeSectionFillActive,
 } from "./partitionEngineSelect";
@@ -445,23 +442,15 @@ export function buildVoxelRequest(
   // the geotech axis renders — one path, so the built model is the drawn model.
   // Without it (every litho build) nothing changes: the whole-section run below
   // is the litho stage's own partition.
-  // Keyed on the section id when the caller supplies one, else on the line's
-  // own endpoints — the same section always projects the same line, and the two
-  // models' inputs are assembled from the SAME cross-section rows.
-  const sectionKey = (input: FenceSectionInput): string =>
-    input.sectionId ??
-    `${input.section.start_x},${input.section.start_y},${input.section.end_x},${input.section.end_y}`;
-  const frameBySectionId = new Map<string, SectionPartitionFrame>();
-  if (frameSections !== undefined) {
-    for (const frame of assembleSectionPartitionFrames(frameSections, undefined)) {
-      frameBySectionId.set(sectionKey(frame.input), frame);
-    }
-  }
+  // The per-section litho frame index — the SAME builder the body-recompute
+  // uses, so the two join their frame identically. Still iterated below for
+  // ``frameSectionRefs`` and the gapless gate.
+  const frameBySectionId = buildFrameBySectionId(frameSections);
   for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
     const { input, columns, alongM, apexOverrides } = frame;
     let { payloadColumns } = frame;
 
-    const lithoFrame = frameBySectionId.get(sectionKey(input));
+    const lithoFrame = frameBySectionId.get(sectionFrameKey(input));
     let engineRegions: SectionRegion[];
     // Gate inputs for THIS section: undefined `hierarchical` is the signal
     // clauses 1-3 read as "not-evaluated" (see `gaplessGate/clauses2d.ts`).
@@ -476,27 +465,15 @@ export function buildVoxelRequest(
     if (lithoFrame !== undefined) {
       // The frame owns the axis: its columns carry the tests the packing model
       // has not divided yet, and the regions below are indexed on ITS gaps, so
-      // the payload must name its columns too.
+      // the payload must name its columns too. ``computeFramedGeotechFill`` is
+      // the one derivation the render / build / body-recompute all share.
       payloadColumns = lithoFrame.payloadColumns;
-      const lithoRegions = computeSectionFillActive(
-        lithoFrame.columns,
-        lithoFrame.input.edges,
-        lithoFrame.apexOverrides,
-        lithoFrame.alongM,
-      );
-      const hierarchical = computeHierarchicalGeotechFill({
-        lithoColumns: lithoFrame.columns,
-        lithoEdges: lithoFrame.input.edges,
-        lithoRegions,
-        geotechColumns: frameAlignedColumns(
-          lithoFrame.columns,
-          new Map(columns.map((c) => [c.investigationId, c])),
-        ),
-        geotechEdges: input.edges,
-        alongM: lithoFrame.alongM,
-        // Same class identity as the render — one mass one body (2026-08-21).
+      const { lithoRegions, hierarchical } = computeFramedGeotechFill(
+        lithoFrame,
+        columns,
+        input.edges,
         packingClassOf,
-      });
+      );
       engineRegions = hierarchical.regions;
       hierarchicalForGate = hierarchical;
       lithoRegionsForGate = lithoRegions;
@@ -513,7 +490,7 @@ export function buildVoxelRequest(
     }
     const regions = toRegionInputs(engineRegions);
 
-    const sectionKeyValue = sectionKey(input);
+    const sectionKeyValue = sectionFrameKey(input);
     const sectionIdForGate = input.sectionId ?? sectionKeyValue;
     builtSectionKeys.add(sectionKeyValue);
     section2dInputs.push({
