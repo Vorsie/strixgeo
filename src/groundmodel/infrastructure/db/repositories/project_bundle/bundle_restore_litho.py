@@ -39,6 +39,7 @@ from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoun
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -1063,6 +1064,144 @@ async def _restore_geometry_facts(
             f"(model or layer not in project)"
         )
     return new_facts, skipped, dropped
+
+
+async def _restore_body_separations(
+    session: AsyncSession,
+    project_id: UUID,
+    body_separations_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    geological_models_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert user "Separate" rulings from the bundle.
+
+    Separations (owner 2026-08-31, debt #278 R5) are cannot-link constraints the
+    resolver reads: "the body containing layer_a is never the same body as the
+    body containing layer_b". Restored after the litho layers so both FK anchors
+    resolve, and BEFORE ``reconcile_bodies_after_restore`` runs, so the restored
+    resolver pass already honours them — a reopened project keeps its bodies
+    split exactly as the engineer left them, never silently rejoined (the
+    ruling's word was "permanent").
+
+    Guards mirror ``_restore_geometry_facts`` exactly (same layer-pair shape,
+    same ``a < b`` CHECK): dedupe by id, model-scope guard, both anchor layers
+    must belong to the separation's own model (DB rows or rows queued in this
+    transaction), and the endpoints are re-canonicalised so a clone whose id
+    remap flipped the order cannot trip the CHECK. An anchor whose layer is
+    absent in the restored project drops that row (counted + logged), never
+    fails the restore.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    body_separations_payload : list[dict[str, Any]]
+        Raw separation dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts — includes litho layers queued in this transaction.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_separations, skipped_separations, dropped_separations)``.
+    """
+    # layer id → OWNING MODEL: a separation's anchors must belong to its own
+    # model, mirroring the geometry-fact guard (a project-wide set would let a
+    # malformed separation for model A anchor on model B's layer).
+    layer_model: dict[UUID, UUID] = {
+        row.id: row.model_id
+        for row in (
+            await session.execute(
+                select(LithoLayerOrm.id, LithoLayerOrm.model_id)
+                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        ).all()
+    }
+    for m_payload in geological_models_payload:
+        mid = _uuid(m_payload.get("id"))
+        if mid is None:
+            continue
+        for ly in m_payload.get("litho_layers") or []:
+            lid = _uuid(ly.get("id"))
+            if lid is not None:
+                layer_model[lid] = mid
+
+    existing = set(
+        (
+            await session.execute(
+                select(BodySeparationOrm.id)
+                .join(GeologicalModelOrm, BodySeparationOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_separations = 0
+    skipped = 0
+    dropped = 0
+    pending_rows: list[dict[str, UUID]] = []
+    total = len(body_separations_payload)
+    if total:
+        logger.info(f"restore_project_bundle({project_id}): restoring {total} body separation(s)")
+    for i, sep_payload in enumerate(body_separations_payload, start=1):
+        sep_id = _uuid(sep_payload.get("id"))
+        if sep_id is None or sep_id in existing:
+            skipped += 1
+            continue
+        sep_model_id = _require_fk(
+            sep_payload,
+            "model_id",
+            valid_model_ids,
+            label=f"body separation {sep_id}",
+            note="bundle-injection guard",
+            i=i,
+            total=total,
+            logger=logger,
+        )
+        if sep_model_id is None:
+            dropped += 1
+            continue
+        a_id = _uuid(sep_payload.get("layer_a_id"))
+        b_id = _uuid(sep_payload.get("layer_b_id"))
+        if a_id is None or b_id is None or a_id == b_id:
+            logger.warning(f"[{i}/{total}] body separation {sep_id} has no valid pair — dropped")
+            dropped += 1
+            continue
+        if layer_model.get(a_id) != sep_model_id or layer_model.get(b_id) != sep_model_id:
+            logger.warning(
+                f"[{i}/{total}] body separation {sep_id}: layer anchor(s) not in the "
+                f"separation's own model — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        if str(a_id) > str(b_id):
+            a_id, b_id = b_id, a_id
+        pending_rows.append(
+            {"id": sep_id, "model_id": sep_model_id, "layer_a_id": a_id, "layer_b_id": b_id}
+        )
+        new_separations += 1
+    if pending_rows:
+        await session.execute(insert(BodySeparationOrm), pending_rows)
+        logger.debug(
+            f"restore_project_bundle({project_id}): bulk-inserted {len(pending_rows)} "
+            f"body separation(s)"
+        )
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} body separation(s) "
+            f"(model or layer not in project)"
+        )
+    return new_separations, skipped, dropped
 
 
 async def _restore_litho_solids(
