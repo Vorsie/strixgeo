@@ -30,7 +30,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { LENS_PINCH_FRACTION } from '../partitionFill'
+import { LENS_PINCH_FRACTION } from '../sectionPartition'
 import { collectGapBands, emitBandContourCurve, emitSideSubSeams, meetFraction, untiedUnitsInInterval, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
