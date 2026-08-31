@@ -226,7 +226,6 @@ describe('S110 — the onlap-intervening grab ROUTES to a contact bend (not a le
           rightX,
           isNew: true,
         },
-        partitionEngineV2: true,
       })
       // The wiring must produce the contact:A|C override (keyed on the dragged matrix, not the onlap).
       expect(apexOverrides.has(contactApexOverrideKey(A, C, 0)), 'contact:A|C override is wired').toBe(true)
