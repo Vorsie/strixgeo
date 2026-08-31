@@ -48,6 +48,16 @@ export interface BodyRecomputeAssemblyParams {
    * Omit for the litho model, which keeps row identity.
    */
   packingClassOf?: ReadonlyMap<string, string>
+  /**
+   * The LITHO model to frame this recompute on — set on the GEOTECH recompute
+   * only (owner ruling R6, debt #278). With it, body identity is the
+   * hierarchical fill on the litho frame's columns (the picture the geotech axis
+   * renders); without it the recompute is the model's own whole-section
+   * partition, which is what the litho stage wants.
+   */
+  frameModelId?: string | null
+  /** The frame model's litho-layer rows; required alongside ``frameModelId``. */
+  frameLayers?: readonly LithoLayerLike[]
 }
 
 /**
@@ -56,6 +66,8 @@ export interface BodyRecomputeAssemblyParams {
  *
  * ``null`` covers: no project/model/sections; a section's approved-edge fetch
  * failed (partial input — the payload would encode a differently-tied model);
+ * the LITHO FRAME's approved-edge fetch failed on a framed geotech recompute
+ * (same reason — a payload from a partial frame would state the wrong families);
  * the boundary-shape fetch failed while freedraw is enabled (same reason); or
  * the assembly came out EMPTY (the endpoint 422s on an empty payload).
  *
@@ -72,8 +84,17 @@ export interface BodyRecomputeAssemblyParams {
 export async function assembleBodyRecomputePayload(
   params: BodyRecomputeAssemblyParams,
 ): Promise<RecomputeBodiesRequest | null> {
-  const { projectId, modelId, visibleSections, investigations, layers, logLabel, packingClassOf } =
-    params
+  const {
+    projectId,
+    modelId,
+    visibleSections,
+    investigations,
+    layers,
+    logLabel,
+    packingClassOf,
+    frameModelId,
+    frameLayers,
+  } = params
   if (!projectId || !modelId || visibleSections.length === 0) return null
 
   // Section-scoped approved edges, minus resolver-suspended flagged ties. A failed
@@ -131,5 +152,47 @@ export async function assembleBodyRecomputePayload(
     lithoLayers: layers,
     edgesBySectionId,
   })
-  return buildBodyRecomputePayload(sectionInputs, boundariesByBodyId, logLabel, packingClassOf)
+
+  // The LITHO FRAME, for a GEOTECH recompute (owner ruling R6, debt #278): body
+  // identity is decided from the picture the render shows — the hierarchical fill
+  // on the litho frame's columns. Its correlations decide which litho units are
+  // ONE body, which is what the framed fill groups its per-family runs by, so a
+  // failed fetch REFUSES the whole assembly (null + warning, not a throw — this
+  // is a background debounce, and the next mutation reschedules): a payload from
+  // a partial frame would state the wrong families. The frame edges are fetched
+  // PLAIN — the litho frame is geometry scaffolding and the suspended review
+  // reasons are GEOTECH tie reasons, so ``dropSuspendedReviewEdges`` (which the
+  // geotech fetch above uses) must NOT silence a litho tie here.
+  let frameSectionInputs: ReturnType<typeof assembleLithoSectionInputs> | undefined
+  if (frameModelId && frameLayers !== undefined) {
+    const frameEdges = await fetchApprovedEdgesBySection(projectId, frameModelId, visibleSections)
+    if (frameEdges.failedSectionIds.length > 0) {
+      log.warn(
+        logLabel,
+        `recompute skipped: ${frameEdges.failedSectionIds.length} of ${visibleSections.length} ` +
+          'section(s) failed to load their LITHO frame correlations — a payload from a ' +
+          'partial frame would state the wrong families; the next mutation reschedules',
+      )
+      return null
+    }
+    frameSectionInputs = assembleLithoSectionInputs({
+      visibleSections,
+      investigations,
+      lithoLayers: frameLayers,
+      edgesBySectionId: frameEdges.edgesBySectionId,
+    })
+    log.debug(
+      logLabel,
+      `framing the recompute on ${frameSectionInputs.length} litho section(s), ` +
+        `${frameEdges.totalApprovedEdges} approved litho edges`,
+    )
+  }
+
+  return buildBodyRecomputePayload(
+    sectionInputs,
+    boundariesByBodyId,
+    logLabel,
+    packingClassOf,
+    frameSectionInputs,
+  )
 }
