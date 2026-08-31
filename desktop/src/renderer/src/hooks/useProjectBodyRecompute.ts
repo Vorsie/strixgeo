@@ -185,6 +185,16 @@ export function useProjectBodyRecompute(
         layers: isGeotechTarget ? geotechLayers : lithoLayers,
         logLabel: isGeotechTarget ? 'geotech-recompute' : 'litho-recompute',
         packingClassOf: isGeotechTarget ? geotechPackingClassOf : undefined,
+        // FRAME the geotech identity on the litho model — the picture the render
+        // shows (owner ruling R6, debt #278). Litho passes no frame and keeps its
+        // own whole-section partition. The project-open / nonce triggers below
+        // defer until the litho layers load; the MANUAL toolbar recompute bypasses
+        // that gate but is safe regardless — ``assembleSectionPartitionInput``
+        // drops zero-layer columns, so an un-loaded (or genuinely empty) litho
+        // model assembles to NO frames and the builder falls back to the
+        // v2-identity arm per section.
+        frameModelId: isGeotechTarget ? lithoModelId : undefined,
+        frameLayers: isGeotechTarget ? lithoLayers : undefined,
       })
     },
     [
@@ -193,6 +203,7 @@ export function useProjectBodyRecompute(
       visibleSections,
       investigations,
       geotechLayers,
+      lithoModelId,
       lithoLayers,
       geotechPackingClassOf,
     ],
@@ -272,15 +283,21 @@ export function useProjectBodyRecompute(
   }, [projectId, lithoModelId, visibleSections.length, lithoLayers.length, scheduleRecompute])
 
   // GEOTECH project-open trigger — same rule, gated on the loaded FLAG too
-  // (an empty geotechLayers array is ambiguous without it).
+  // (an empty geotechLayers array is ambiguous without it). ALSO gated on the
+  // litho FRAME being loaded (owner ruling R6, debt #278): the geotech identity
+  // is the framed picture, so firing before the litho layers land would frame it
+  // on an empty model. A closed litho gate leaves the once-marker unconsumed, so
+  // the trigger re-fires when the layers load (the same event-driven rule). A
+  // project genuinely without a litho model does not wait.
   useEffect(() => {
     if (projectId === null || geotechModelId === null) return
     if (visibleSections.length === 0 || !geotechLayersLoaded || geotechLayers.length === 0) return
+    if (lithoModelId !== null && lithoLayers.length === 0) return
     const key = `${projectId}|${geotechModelId}`
     if (firedThisOpenRef.current.has(key)) return
     firedThisOpenRef.current.add(key)
     scheduleRecompute(geotechModelId)
-  }, [projectId, geotechModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, scheduleRecompute])
+  }, [projectId, geotechModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, lithoModelId, lithoLayers.length, scheduleRecompute])
 
   // ---- 2. NONCE WATCH — one debounced schedule per bump, gate-respecting. ----
   // The last PROCESSED nonce lives in a ref seeded with the mount-time value, so
@@ -305,9 +322,12 @@ export function useProjectBodyRecompute(
       geotechLayers.length === 0
     )
       return
+    // Wait for the litho FRAME (owner ruling R6, debt #278) — a bump arriving
+    // before the frame loads is NOT consumed and re-fires when it does.
+    if (lithoModelId !== null && lithoLayers.length === 0) return
     lastGeotechNonceRef.current = bodyRecomputeGeotechNonce
     scheduleRecompute(geotechModelId)
-  }, [bodyRecomputeGeotechNonce, geotechModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, scheduleRecompute])
+  }, [bodyRecomputeGeotechNonce, geotechModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, lithoModelId, lithoLayers.length, scheduleRecompute])
 
   return { scheduleRecompute, recomputeNow }
 }
