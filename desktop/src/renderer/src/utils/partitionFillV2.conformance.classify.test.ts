@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type PartitionPoint, type SectionRegion } from './sectionPartition'
 import { renderedShape } from './partitionFillV2.conformance.classify'
 
 /** Build a SectionRegion from (fraction, elevation) vertex pairs. */
