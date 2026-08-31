@@ -34,7 +34,7 @@ import type {
   LensApexOverride,
   PartitionColumn,
   SectionRegion,
-} from "./partitionFill";
+} from "./sectionPartition";
 import { frameAlignedColumns } from "./frameAlignedPartition";
 import {
   computeHierarchicalGeotechFill,
