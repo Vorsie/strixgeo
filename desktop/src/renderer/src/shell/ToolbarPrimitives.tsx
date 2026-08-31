@@ -230,6 +230,14 @@ export interface ToolbarDropdownItem {
    * ``KeyboardEvent.key`` with no modifiers.
    */
   shortcut?: string
+  /**
+   * Display-ONLY hint for a key some dedicated hook already dispatches (the
+   * legacy bare-key toggles: L litho fill, F geotech fill, P sample markers).
+   * Renders exactly like ``shortcut`` but ``useToolbarShortcuts`` never fires
+   * it — setting ``shortcut`` here instead would double-dispatch the press
+   * (hook + dispatcher), and a fill toggled twice is a fill that never moves.
+   */
+  shortcutHint?: string
 }
 
 /**
@@ -379,8 +387,8 @@ export function PortalMenu({
           {item.icon}
           <span className="flex-1">
             {item.label}
-            {item.shortcut && (
-              <span className="text-text-muted"> ({item.shortcut})</span>
+            {(item.shortcut ?? item.shortcutHint) && (
+              <span className="text-text-muted"> ({item.shortcut ?? item.shortcutHint})</span>
             )}
           </span>
           {item.tag && (
