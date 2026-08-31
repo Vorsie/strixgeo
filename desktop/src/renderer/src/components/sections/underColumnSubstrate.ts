@@ -2,7 +2,7 @@
  * Component-side under-column substrate for the section fill (S60 Stage A).
  *
  * Forked VERBATIM from the frozen v1 helper ``computeUnderColumnSubstrate``
- * (``utils/partitionFill/sectionResolve.ts`` — READ-ONLY during the
+ * (``utils/sectionPartition/sectionRegion.ts`` — READ-ONLY during the
  * partition-engine-v2 campaign) with EXACTLY ONE delta, implementing the S60
  * owner rule:
  *
@@ -31,8 +31,8 @@
  * delete this fork (single source of truth).
  */
 
-import type { PartitionColumn, SectionRegion, UnderColumnFill, UnderColumnQuad } from '../../utils/partitionFill'
-import { slicePolygonAtFraction } from '../../utils/partitionFill/sectionResolve'
+import type { PartitionColumn, SectionRegion, UnderColumnFill, UnderColumnQuad } from '../../utils/sectionPartition'
+import { slicePolygonAtFraction } from '../../utils/sectionPartition/sectionRegion'
 
 /** Elevation tolerance (m) — matches the v1 helper's local EPS. */
 const EPS = 0.01
