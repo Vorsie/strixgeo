@@ -18,7 +18,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './partitionFillV2'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './sectionPartition'
 
 let seq = 0
 const layer = (): string => `L${seq++}`
