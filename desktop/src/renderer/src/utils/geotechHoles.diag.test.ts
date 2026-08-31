@@ -28,7 +28,7 @@ import { NEEDLE_WIDTH_M } from './geotechHierarchicalFill/dropNeedleSpurs'
 import { overlayFaces, pointInRing } from './geotechHierarchicalFill/frameClipGeometry'
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
