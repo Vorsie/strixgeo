@@ -215,7 +215,7 @@ export function auditedPartition(
     const rawRegions = computeSectionFillActive(
       G.columns,
       G.edges,
-      deriveSectionApexOverrides(G.columns, G.edges, G.alongM, empty, true),
+      deriveSectionApexOverrides(G.columns, G.edges, G.alongM, empty),
       G.alongM,
     )
     return {
