@@ -27,7 +27,7 @@ import {
   lensApexOverrideKey,
   type PartitionColumn,
   type SectionRegion,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 import { collectContactOverridesForGap, type ContactDragState } from './contactOverrideWiring'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
 
