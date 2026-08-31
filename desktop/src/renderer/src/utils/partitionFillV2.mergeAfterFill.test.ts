@@ -29,7 +29,7 @@ import {
   type PartitionColumn,
   type PartitionPoint,
   type SectionRegion,
-} from './partitionFill'
+} from './sectionPartition'
 
 let seq = 0
 const layer = (): string => `L${seq++}`
