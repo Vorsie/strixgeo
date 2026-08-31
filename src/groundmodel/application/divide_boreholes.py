@@ -93,7 +93,7 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Protocol, TypeVar
 from uuid import UUID
 
 from sqlalchemy import delete, select, text
@@ -101,6 +101,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.body_separation_reanchor import BodySeparationReanchor
 from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import _parse_admixtures
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
@@ -224,6 +225,73 @@ _DEPTH_OVERLAP_EPS = 0.001
 # for now" — donor-derived bands take confidence_from_donor_distance(nearest
 # donor); the conservative fallbacks (body_min, absolute_min) have no donor and
 # stay 'low' via the same helper's None arm.
+
+
+class _BoreholeAnchored(Protocol):
+    """A captured item whose two anchors expose their kind + band identity.
+
+    Both :class:`~groundmodel.application.geotech_tie_reanchor.CapturedTie` and
+    :class:`~groundmodel.application.body_separation_reanchor.CapturedSeparation`
+    satisfy this structurally, so the borehole-scope filter below serves both.
+
+    Members are read-only (``@property``) so the FROZEN dataclasses that
+    implement them match: a plain annotated Protocol member is read-write, which
+    a frozen field cannot satisfy.
+    """
+
+    @property
+    def anchor_kind_a(self) -> str: ...
+    @property
+    def anchor_kind_b(self) -> str: ...
+    @property
+    def identity_a(self) -> BandIdentity: ...
+    @property
+    def identity_b(self) -> BandIdentity: ...
+
+
+_BoreholeAnchoredT = TypeVar("_BoreholeAnchoredT", bound=_BoreholeAnchored)
+
+
+def _filter_by_borehole_scope(
+    items: list[_BoreholeAnchoredT], keys: set[str], *, require_in: bool
+) -> list[_BoreholeAnchoredT]:
+    """Keep captured items with a borehole anchor whose column is in/out of ``keys``.
+
+    DivideBoreholes rebuilds only the borehole bands, so only rows anchored on a
+    rebuilt borehole column are at risk of the cascade — a row whose sole touched
+    anchor's row survives must NOT be re-created (it would be doubled). Both the
+    geotech-tie and the body-separation captures need the identical subset /
+    skipped filter, differing only in element type, so it lives here once
+    (extract-on-second-copy).
+
+    Parameters
+    ----------
+    items : list[_BoreholeAnchoredT]
+        Captured ties or separations.
+    keys : set[str]
+        Stringified borehole investigation ids to match against.
+    require_in : bool
+        ``True`` keeps an item with a borehole anchor whose column is IN ``keys``
+        (the subset filter — these columns are being rebuilt); ``False`` keeps an
+        item with a borehole anchor whose column is NOT in ``keys`` (the skipped
+        filter — these columns are being spared).
+
+    Returns
+    -------
+    list[_BoreholeAnchoredT]
+        The kept items, order preserved.
+    """
+
+    def kept(item: _BoreholeAnchoredT) -> bool:
+        return (
+            item.anchor_kind_a == ANCHOR_BOREHOLE
+            and (item.identity_a.investigation_id in keys) == require_in
+        ) or (
+            item.anchor_kind_b == ANCHOR_BOREHOLE
+            and (item.identity_b.investigation_id in keys) == require_in
+        )
+
+    return [item for item in items if kept(item)]
 
 
 @dataclass(frozen=True)
@@ -3234,42 +3302,32 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 "through that column and means nothing"
             )
 
+        # Only the borehole bands are wiped here, so only rows with a borehole
+        # anchor on a rebuilt column are at risk of the cascade: keep the subset's
+        # columns (borehole_ids) and drop the spared ones (skipped_bh). Re-creating
+        # a row whose only touched anchor's row survived would double it. The same
+        # scope filter serves ties and separations (``_filter_by_borehole_scope``).
         tie_reanchor = GeotechTieReanchor(self._session)
         captured_ties = await tie_reanchor.capture(
             geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
         )
+        # Carry the engineer's "Separate" rulings across the same rebuild (#278 R5).
+        sep_reanchor = BodySeparationReanchor(self._session)
+        captured_separations = await sep_reanchor.capture(
+            geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
+        )
         if borehole_ids is not None:
-            # Only the subset's bands are deleted, so only the ties anchored on
-            # THOSE columns are at risk. Re-creating a tie whose row was never
-            # destroyed would double it.
             subset_keys = {str(b) for b in borehole_ids}
-            captured_ties = [
-                tie
-                for tie in captured_ties
-                if (
-                    tie.anchor_kind_a == ANCHOR_BOREHOLE
-                    and tie.identity_a.investigation_id in subset_keys
-                )
-                or (
-                    tie.anchor_kind_b == ANCHOR_BOREHOLE
-                    and tie.identity_b.investigation_id in subset_keys
-                )
-            ]
-
+            captured_ties = _filter_by_borehole_scope(captured_ties, subset_keys, require_in=True)
+            captured_separations = _filter_by_borehole_scope(
+                captured_separations, subset_keys, require_in=True
+            )
         if skipped_bh:
             skipped_keys = {str(b) for b in skipped_bh}
-            captured_ties = [
-                tie
-                for tie in captured_ties
-                if (
-                    tie.anchor_kind_a == ANCHOR_BOREHOLE
-                    and tie.identity_a.investigation_id not in skipped_keys
-                )
-                or (
-                    tie.anchor_kind_b == ANCHOR_BOREHOLE
-                    and tie.identity_b.investigation_id not in skipped_keys
-                )
-            ]
+            captured_ties = _filter_by_borehole_scope(captured_ties, skipped_keys, require_in=False)
+            captured_separations = _filter_by_borehole_scope(
+                captured_separations, skipped_keys, require_in=False
+            )
 
         # Phase 7 — delete existing borehole geotech layers (subset-scoped when
         # the caller named the boreholes to divide).
@@ -3333,11 +3391,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # nothing materialised for it) has permanently lost the tie, and must be
         # reported as ``band_absent`` rather than as waiting for a step that
         # already ran.
+        divide_rebuilt_bands = rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth)
         reanchor_plan = await tie_reanchor.reanchor(
             geotech_model_id=geotech_model_id,
             captured=captured_ties,
-            rebuilt_bands=rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
+            rebuilt_bands=divide_rebuilt_bands,
             borehole_bands_are_final=True,
+        )
+        # Re-anchor the "Separate" rulings against the SAME bands, BEFORE the
+        # Phase 8.5 re-resolve below, so that resolve honours the restored
+        # separations (debt #278 R5). ``divide_rebuilt_bands`` carries both the
+        # untouched CPT bands (a CPT anchor matches its own unchanged band) and
+        # the freshly-written borehole bands (what a borehole anchor needs).
+        await sep_reanchor.reanchor(
+            model_id=geotech_model_id,
+            captured=captured_separations,
+            rebuilt_bands=divide_rebuilt_bands,
         )
 
         # Phase 8.5 — derive the borehole-mediated geotech edges + re-resolve.
