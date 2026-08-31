@@ -46,7 +46,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
-import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
