@@ -404,3 +404,150 @@ async def test_list_bodies_derives_majority_geo_label(
     assert len(items) == 1
     assert items[0]["geo_formation_id"] == str(pleistocene.id)
     assert items[0]["geo_formation_name"] == "Pleistoceen"
+
+
+@pytest.mark.asyncio
+async def test_list_bodies_lists_every_geo_formation_a_body_crosses(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    bodies_api_fixture: tuple,
+) -> None:
+    """R2: a body crossing two geological formations answers BOTH, shallowest first.
+
+    Owner ruling 2026-08-31: a body may span geological-formation boundaries, so
+    its geological attribution is a LIST — every formation it falls in, shallowest
+    first — not just the majority stamp. The body has a shallow, thin member in
+    Quartair at one borehole and a deeper, thicker member in Pleistoceen at
+    another. The response lists [Quartair, Pleistoceen], AND the additive singular
+    fields still carry the thickness-majority winner (Pleistoceen).
+
+    Geometry note: the litho column is kept gap-free by triggers that snap a
+    non-last layer's base to the next layer's top and extend a lone layer's base
+    to the borehole's total depth. To keep the thickness deterministic (and to
+    avoid a same-borehole second layer losing its ``body_id`` to the resolver),
+    each member is the ONLY layer in its own borehole, with its base already at
+    that borehole's total depth. A shallow 5 m Quartair borehole and a deep 20 m
+    Pleistoceen borehole therefore make Pleistoceen the genuine thickness winner.
+    """
+    project, litho, _litho_formation, _bh, _nbr = bodies_api_fixture
+    geo_model_id = litho.parent_model_id
+
+    # Two purpose-built boreholes with controlled total depths — see the note.
+    bh_q = BoreholeOrm(
+        id=uuid7(),
+        name="BH-Q",
+        app_project_id=project.id,
+        project_id="API",
+        test_id="BH-Q-API",
+        location_x=150600.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=5.0,
+    )
+    bh_p = BoreholeOrm(
+        id=uuid7(),
+        name="BH-P",
+        app_project_id=project.id,
+        project_id="API",
+        test_id="BH-P-API",
+        location_x=150900.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+    db_session.add_all([bh_q, bh_p])
+    await db_session.flush()
+
+    quartair = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="Quartair", color="#ffcc00", display_order=0
+    )
+    pleistocene = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="Pleistoceen", color="#cc8800", display_order=1
+    )
+    db_session.add_all([quartair, pleistocene])
+    await db_session.flush()
+    # bh_q is all Quartair; bh_p is all Pleistoceen (the body spans the boundary).
+    db_session.add_all(
+        [
+            FormationContactOrm(
+                id=uuid7(),
+                model_id=geo_model_id,
+                formation_id=quartair.id,
+                borehole_id=bh_q.id,
+                depth_top_m=0.0,
+                source="manual_pick",
+                confidence="high",
+            ),
+            FormationContactOrm(
+                id=uuid7(),
+                model_id=geo_model_id,
+                formation_id=pleistocene.id,
+                borehole_id=bh_p.id,
+                depth_top_m=0.0,
+                source="manual_pick",
+                confidence="high",
+            ),
+        ]
+    )
+
+    sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND",
+        color="#fbbf24",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    db_session.add(sand)
+    await db_session.flush()
+    body = BodyOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        model_id=litho.id,
+        formation_id=sand.id,
+        body_ordinal=0,
+        source_investigation_id=bh_q.id,
+    )
+    db_session.add(body)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            # Shallow, thin Quartair member (0..5 m → mid 2.5 m, thickness 5).
+            LithoLayerOrm(
+                id=uuid7(),
+                model_id=litho.id,
+                formation_id=sand.id,
+                borehole_id=bh_q.id,
+                depth_top_m=0.0,
+                depth_base_m=5.0,
+                status="accepted",
+                source="segmenter",
+                body_id=body.id,
+            ),
+            # Deeper, thicker Pleistoceen member (8..20 m → mid 14 m, thickness 12).
+            LithoLayerOrm(
+                id=uuid7(),
+                model_id=litho.id,
+                formation_id=sand.id,
+                borehole_id=bh_p.id,
+                depth_top_m=8.0,
+                depth_base_m=20.0,
+                status="accepted",
+                source="segmenter",
+                body_id=body.id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    resp = await async_client.get(f"/projects/{project.id}/geology/models/{litho.id}/bodies")
+    assert resp.status_code == 200, resp.text
+    items = resp.json()
+    assert len(items) == 1
+    item = items[0]
+    # Both crossed formations, shallowest first (Quartair at 0 m, then Pleistoceen).
+    assert [g["name"] for g in item["geo_formations"]] == ["Quartair", "Pleistoceen"]
+    assert [g["id"] for g in item["geo_formations"]] == [str(quartair.id), str(pleistocene.id)]
+    # The additive singular fields still carry the thickness-majority winner.
+    assert item["geo_formation_id"] == str(pleistocene.id)
+    assert item["geo_formation_name"] == "Pleistoceen"
