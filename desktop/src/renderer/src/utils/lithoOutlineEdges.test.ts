@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { lithoOutlineEdges } from './lithoOutlineEdges'
-import type { SectionRegion } from './partitionFill'
+import type { SectionRegion } from './sectionPartition'
 
 const region = (
   formationId: string,
