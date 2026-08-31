@@ -37,7 +37,7 @@ import {
   type CorrelationEdge,
   type PartitionColumn,
   type SectionRegion,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
 import { type ComputePartition, detectDeadHandleBodies } from './partitionGhostHandles'
 
