@@ -30,7 +30,7 @@ import {
   type PartitionColumn,
   type PartitionPoint,
   type SectionRegion,
-} from './partitionFill'
+} from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
