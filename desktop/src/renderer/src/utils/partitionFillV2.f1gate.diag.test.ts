@@ -26,7 +26,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { inPolygon } from './partitionFillV2.parityCoverage'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
