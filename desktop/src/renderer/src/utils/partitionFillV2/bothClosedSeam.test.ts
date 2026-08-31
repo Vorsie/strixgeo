@@ -25,7 +25,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './computeSectionFillV2'
 import { setTwoSidedTerminations } from './tileFlags'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 
 /** The left test's own classes — GEO-23/125-S34's sand/silt package. */
 const LEFT_ONLY = ['zand6', 'silt15', 'zand7']
