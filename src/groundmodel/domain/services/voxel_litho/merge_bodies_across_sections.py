@@ -61,9 +61,13 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import replace
 
-from groundmodel.domain.services.voxel_litho.snap_grid import gap_edge_fraction_margin
+from groundmodel.domain.services.voxel_litho.snap_grid import (
+    FRACTION_EPS,
+    gap_edge_fraction_margin,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionPartitionInput,
@@ -77,40 +81,6 @@ __all__ = ["apply_body_aliases", "plan_body_aliases", "plan_layer_groups"]
 _ELEV_OVERLAP_M = 1e-3
 
 
-def _span_at_fraction(
-    region: RegionInput, fraction: float, touch: float
-) -> tuple[float, float] | None:
-    """Return the elevation span a region covers at a gap-local ``fraction``.
-
-    Parameters
-    ----------
-    region : RegionInput
-        The partition region to measure.
-    fraction : float
-        Gap-local horizontal position: ``0.0`` = left column, ``1.0`` = right.
-    touch : float
-        How close a vertex has to be, in gap-local fraction, to count as ON the
-        column. This is the SNAP-CELL MARGIN (``SNAP_MARGIN_CELLS`` cells)
-        expressed in this gap's own fraction space —
-        :mod:`~groundmodel.domain.services.voxel_litho.snap_grid` owns the cell
-        count and the reason for it, so it is not restated here. A fixed 1e-6
-        was wrong: the engine snaps to a 1 mm grid in METRES, so a band drawn
-        across an 11 m gap stops 8.9e-5 short of fraction 1 and was read as
-        never touching the column (#259, measured on 33 of 69 real gaps).
-
-    Returns
-    -------
-    tuple of (float, float) or None
-        ``(low, high)`` elevations, or ``None`` when the region does not reach
-        that column at all — a wedge that pinches out mid-gap touches only one
-        of its two columns.
-    """
-    elevations = [e for f, e in region.polygon if abs(f - fraction) <= touch]
-    if not elevations:
-        return None
-    return min(elevations), max(elevations)
-
-
 def _gap_touch_fraction(section: SectionPartitionInput, gap_index: int) -> float:
     """The snap-cell margin (``SNAP_MARGIN_CELLS`` cells), in this gap's fraction space."""
     if gap_index < 0 or gap_index + 1 >= len(section.columns):
@@ -122,44 +92,123 @@ def _gap_touch_fraction(section: SectionPartitionInput, gap_index: int) -> float
     )
 
 
-def _spans_at_fraction(region: RegionInput, fraction: float) -> list[tuple[float, float]]:
+def _merge_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Union overlapping / touching elevation intervals; drop zero-height ones.
+
+    Parameters
+    ----------
+    intervals : list of (float, float)
+        ``(low, high)`` intervals in any order.
+
+    Returns
+    -------
+    list of (float, float)
+        Disjoint ``(low, high)`` intervals, lowest first, each with strictly
+        positive height. Intervals that overlap or merely touch are fused, so a
+        wall reported by BOTH the scanline and the vertical-edge pass collapses
+        to one span rather than being double-counted (which, fed back through an
+        even-odd pairing, would cancel itself to nothing).
+    """
+    ordered = sorted((low, high) for low, high in intervals if high - low > 0.0)
+    merged: list[tuple[float, float]] = []
+    for low, high in ordered:
+        if merged and low <= merged[-1][1]:
+            if high > merged[-1][1]:
+                merged[-1] = (merged[-1][0], high)
+        else:
+            merged.append((low, high))
+    return merged
+
+
+def _spans_at_fraction(
+    region: RegionInput, fraction: float, touch: float
+) -> list[tuple[float, float]]:
     """Elevation intervals a region covers on the vertical line at ``fraction``.
 
-    Intersects the gap-local vertical line with the region ring and pairs the
-    crossings even-odd, which is exact for a simple ring. Used where two section
-    fences CROSS mid-gap, so the meeting point is at an arbitrary fraction rather
-    than at a column edge.
+    Replaces the earlier envelope reader (``min`` / ``max`` over every vertex
+    within ``touch`` of the column). A re-entrant region — one that touches the
+    line at two disjoint elevation stretches, connected only away from the line
+    — had an envelope that spanned the void between them, and the weld test then
+    fused a neighbour sitting in that void (R7, debt #278). This returns the
+    TRUE intervals instead.
+
+    Two crossing families are unioned:
+
+    * the scanline's even-odd crossings, exact for a simple ring, taken at the
+      sample CLAMPED strictly inside the ring's fraction extent — so a wall that
+      sits on (or one snap cell short of) the sample line is caught through the
+      edges that bound it, rather than missed by the half-open straddle at the
+      extent itself; and
+    * any VERTICAL edge whose fraction is within ``touch`` of the sample — a
+      band's own column edge, which the scanline's ``f_a == f_b`` skip drops;
+      its two endpoints bound the interval it covers.
+
+    Unioning the two families (rather than concatenating them into one even-odd
+    list) is what keeps a wall found by both from cancelling itself.
 
     Parameters
     ----------
     region : RegionInput
         The partition region to slice.
     fraction : float
-        Gap-local horizontal position in ``[0, 1]``.
+        Gap-local horizontal position in ``[0, 1]``: ``0.0`` = the gap's left
+        column, ``1.0`` = its right column, or an interior value where two
+        section fences cross mid-gap.
+    touch : float
+        How close, in gap-local fraction, a vertical edge (or the ring extent)
+        has to be to the sample to count as ON it — the SNAP-CELL MARGIN
+        (``SNAP_MARGIN_CELLS`` cells) in this gap's own fraction space, owned by
+        :mod:`~groundmodel.domain.services.voxel_litho.snap_grid`. A fixed 1e-6
+        was wrong: the engine snaps to a 1 mm grid in METRES, so a band drawn
+        across an 11 m gap stops 8.9e-5 short of fraction 1 and was read as
+        never touching the column (#259, measured on 33 of 69 real gaps). A
+        region that dies MORE than ``touch`` short of the sample is a genuine
+        pinch-out and yields ``[]``.
 
     Returns
     -------
     list of (float, float)
-        ``(low, high)`` intervals, lowest first; empty when the line misses.
+        Disjoint ``(low, high)`` intervals, lowest first; empty when the region
+        does not reach the sample line within ``touch``.
     """
-    crossings: list[float] = []
     points = region.polygon
+    # A ring needs at least three vertices to enclose area; a degenerate region
+    # (empty or a single edge — the schema sets no min_length, so one can arrive)
+    # reaches nothing, and taking min/max over its fractions would raise.
+    if len(points) < 3:
+        return []
+    fractions = [f for f, _ in points]
+    f_min, f_max = min(fractions), max(fractions)
+    # A region that dies more than a snap margin short of the sample line never
+    # reaches it — a genuine pinch-out, not the snap grid.
+    if fraction < f_min - touch or fraction > f_max + touch:
+        return []
+
+    # Clamp the sample strictly inside the ring's fraction extent so the
+    # scanline straddles the edges bounding a wall that sits on (or a snap cell
+    # short of) the sample line — the half-open straddle would miss it at the
+    # extent itself.
+    lo_bound, hi_bound = f_min + FRACTION_EPS, f_max - FRACTION_EPS
+    sample = min(max(fraction, lo_bound), hi_bound) if hi_bound >= lo_bound else fraction
+
+    intervals: list[tuple[float, float]] = []
+    crossings: list[float] = []
     for i in range(len(points)):
         f_a, e_a = points[i]
         f_b, e_b = points[(i + 1) % len(points)]
         if f_a == f_b:
+            # Vertical edge: contributes its whole span when it sits within
+            # ``touch`` of the sample line — the scanline below skips it.
+            if abs(f_a - fraction) <= touch:
+                intervals.append((min(e_a, e_b), max(e_a, e_b)))
             continue
-        # Half-open straddle test so a vertex is counted once, not twice.
+        # Half-open straddle test so a shared vertex is counted once, not twice.
         lo, hi = (f_a, f_b) if f_a < f_b else (f_b, f_a)
-        if not (lo <= fraction < hi):
-            continue
-        crossings.append(e_a + (e_b - e_a) * ((fraction - f_a) / (f_b - f_a)))
+        if lo <= sample < hi:
+            crossings.append(e_a + (e_b - e_a) * ((sample - f_a) / (f_b - f_a)))
     crossings.sort()
-    return [
-        (crossings[i], crossings[i + 1])
-        for i in range(0, len(crossings) - 1, 2)
-        if crossings[i + 1] - crossings[i] > 0.0
-    ]
+    intervals.extend((crossings[i], crossings[i + 1]) for i in range(0, len(crossings) - 1, 2))
+    return _merge_intervals(intervals)
 
 
 def _segment_crossing(
@@ -192,13 +241,25 @@ def _segment_crossing(
     return t, u
 
 
-def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
+def plan_body_aliases(
+    sections: list[SectionPartitionInput],
+    identity_key_of: Callable[[str], str] | None = None,
+) -> dict[str, str]:
     """Map every body id to the representative of its cross-section component.
 
     Parameters
     ----------
     sections : list of SectionPartitionInput
         The per-section 2-D partitions exactly as POSTed by the frontend.
+    identity_key_of : callable of (str) -> str, optional
+        Collapses a region's ``formation_id`` to the identity two regions must
+        share to be the same body. Two regions weld only when their keys agree.
+        The geotech model stores one formation ROW per (NAD class, litho parent,
+        GEOLOGICAL parent), so the same packing class exists under several row
+        ids wherever a litho unit spans a geological boundary; keying on the
+        class fuses the twins (debt #278). ``None`` (the default) keys on the
+        raw ``formation_id`` — byte-identical to before, and correct for the
+        litho model, whose rows carry no packing class to collapse.
 
     Returns
     -------
@@ -208,6 +269,7 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
         (never-correlated minorities) never appear: they have no identity to
         alias and must not adopt a neighbour's.
     """
+    key_of = identity_key_of if identity_key_of is not None else (lambda formation: formation)
     # Every region's reach at each of its gap's two columns.
     reaches: list[tuple[str, str, str, float, float]] = []  # (body, inv, formation, low, high)
     for section in sections:
@@ -218,18 +280,19 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
             for fraction, column_index in ((0.0, region.gap_index), (1.0, region.gap_index + 1)):
                 if column_index >= len(section.columns):
                     continue
-                span = _span_at_fraction(region, fraction, touch)
-                if span is None:
-                    continue
-                reaches.append(
-                    (
-                        region.body_id,
-                        section.columns[column_index].investigation_id,
-                        region.formation_id,
-                        span[0],
-                        span[1],
+                # One bucket entry PER disjoint interval: a re-entrant region
+                # reaching the column at two stretches is two reaches, never the
+                # envelope that spans the void between them.
+                for low, high in _spans_at_fraction(region, fraction, touch):
+                    reaches.append(
+                        (
+                            region.body_id,
+                            section.columns[column_index].investigation_id,
+                            region.formation_id,
+                            low,
+                            high,
+                        )
                     )
-                )
 
     parent: dict[str, str] = {}
 
@@ -250,11 +313,12 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
             parent[max(ra, rb)] = min(ra, rb)
 
     # Group by the only two things that can make two regions the same body, then
-    # compare within each group — same column, same lithology.
+    # compare within each group — same column, same IDENTITY (raw formation, or
+    # the collapsed packing class when ``identity_key_of`` is supplied).
     buckets: dict[tuple[str, str], list[tuple[str, float, float]]] = defaultdict(list)
     for body, inv, formation, low, high in reaches:
         find(body)  # every body is at least its own component
-        buckets[(inv, formation)].append((body, low, high))
+        buckets[(inv, key_of(formation))].append((body, low, high))
 
     for bucket in buckets.values():
         for i, (body_a, low_a, high_a) in enumerate(bucket):
@@ -267,7 +331,7 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
     # --- second way two sections touch: their fences CROSS between columns ---
     # Each gap segment runs between two consecutive columns' TRUE world
     # positions, so a crossing is a segment-segment intersection. At the crossing
-    # both sections have a real stack, and any same-formation pair that overlaps
+    # both sections have a real stack, and any same-IDENTITY pair that overlaps
     # in elevation there is one body passing through the intersection.
     for i, section_a in enumerate(sections):
         for section_b in sections[i + 1 :]:
@@ -290,23 +354,25 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
                     if hit is None:
                         continue
                     frac_a, frac_b = hit
+                    touch_a = _gap_touch_fraction(section_a, gap_a)
+                    touch_b = _gap_touch_fraction(section_b, gap_b)
                     spans_a = [
                         (r.body_id, r.formation_id, span)
                         for r in section_a.regions
                         if r.gap_index == gap_a and r.body_id is not None
-                        for span in _spans_at_fraction(r, frac_a)
+                        for span in _spans_at_fraction(r, frac_a, touch_a)
                     ]
                     spans_b = [
                         (r.body_id, r.formation_id, span)
                         for r in section_b.regions
                         if r.gap_index == gap_b and r.body_id is not None
-                        for span in _spans_at_fraction(r, frac_b)
+                        for span in _spans_at_fraction(r, frac_b, touch_b)
                     ]
                     for body_a, form_a, (low_a, high_a) in spans_a:
                         find(str(body_a))
                         for body_b, form_b, (low_b, high_b) in spans_b:
                             find(str(body_b))
-                            if form_a != form_b or body_a == body_b:
+                            if key_of(form_a) != key_of(form_b) or body_a == body_b:
                                 continue
                             if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
                                 union(str(body_a), str(body_b))
@@ -314,7 +380,10 @@ def plan_body_aliases(sections: list[SectionPartitionInput]) -> dict[str, str]:
     return {body: find(body) for body in parent}
 
 
-def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
+def plan_layer_groups(
+    sections: list[SectionPartitionInput],
+    identity_key_of: Callable[[str], str] | None = None,
+) -> list[set[str]]:
     """Group LAYER ids whose regions meet across sections — label-independent.
 
     The sibling of :func:`plan_body_aliases` for the persisted body recompute
@@ -338,6 +407,13 @@ def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
     sections : list of SectionPartitionInput
         The per-section 2-D partitions exactly as POSTed by the frontend
         (fallback regions already omitted — they never define identity).
+    identity_key_of : callable of (str) -> str, optional
+        Collapses a region's ``formation_id`` to the identity two regions must
+        share to connect — see :func:`plan_body_aliases`. On a geotech model it
+        fuses the twin formation rows one packing class carries across a
+        geological boundary (debt #278). ``None`` (the default) keys on the raw
+        ``formation_id``, byte-identical to before and correct for the litho
+        model.
 
     Returns
     -------
@@ -346,6 +422,7 @@ def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
         components contributing fewer than two layers are dropped (they state
         nothing the per-section groups do not already state).
     """
+    key_of = identity_key_of if identity_key_of is not None else (lambda formation: formation)
     parent: dict[tuple[int, int], tuple[int, int]] = {}
 
     def find(node: tuple[int, int]) -> tuple[int, int]:
@@ -364,8 +441,10 @@ def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    # Shared investigation columns: bucket every region's reach at its gap's
-    # two columns by (investigation, formation), then union overlapping pairs.
+    # Shared investigation columns: bucket every region's reach at its gap's two
+    # columns by (investigation, IDENTITY), then union overlapping pairs. The
+    # identity is the raw formation id, or the collapsed packing class when
+    # ``identity_key_of`` is supplied.
     buckets: dict[tuple[str, str], list[tuple[tuple[int, int], float, float]]] = defaultdict(list)
     for si, section in enumerate(sections):
         for ri, region in enumerate(section.regions):
@@ -375,12 +454,14 @@ def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
             for fraction, column_index in ((0.0, region.gap_index), (1.0, region.gap_index + 1)):
                 if column_index >= len(section.columns):
                     continue
-                span = _span_at_fraction(region, fraction, touch)
-                if span is None:
-                    continue
-                buckets[
-                    (section.columns[column_index].investigation_id, region.formation_id)
-                ].append((key, span[0], span[1]))
+                # One bucket entry per disjoint interval (see plan_body_aliases).
+                for low, high in _spans_at_fraction(region, fraction, touch):
+                    buckets[
+                        (
+                            section.columns[column_index].investigation_id,
+                            key_of(region.formation_id),
+                        )
+                    ].append((key, low, high))
 
     for bucket in buckets.values():
         for i, (key_a, low_a, high_a) in enumerate(bucket):
@@ -414,21 +495,23 @@ def plan_layer_groups(sections: list[SectionPartitionInput]) -> list[set[str]]:
                     if hit is None:
                         continue
                     frac_a, frac_b = hit
+                    touch_a = _gap_touch_fraction(section_a, gap_a)
+                    touch_b = _gap_touch_fraction(section_b, gap_b)
                     spans_a = [
                         ((i, ri), r.formation_id, span)
                         for ri, r in enumerate(section_a.regions)
                         if r.gap_index == gap_a
-                        for span in _spans_at_fraction(r, frac_a)
+                        for span in _spans_at_fraction(r, frac_a, touch_a)
                     ]
                     spans_b = [
                         ((j, ri), r.formation_id, span)
                         for ri, r in enumerate(section_b.regions)
                         if r.gap_index == gap_b
-                        for span in _spans_at_fraction(r, frac_b)
+                        for span in _spans_at_fraction(r, frac_b, touch_b)
                     ]
                     for key_a, form_a, (low_a, high_a) in spans_a:
                         for key_b, form_b, (low_b, high_b) in spans_b:
-                            if form_a != form_b:
+                            if key_of(form_a) != key_of(form_b):
                                 continue
                             if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
                                 union(key_a, key_b)
