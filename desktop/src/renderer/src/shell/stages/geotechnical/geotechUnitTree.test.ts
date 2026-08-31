@@ -512,3 +512,43 @@ describe('the empty scene (T8)', () => {
     expect(t.bandCount).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// T10 — the crossed geological formations, listed as a class-row subtitle
+//
+// Owner ruling 2026-08-31 (R2): a body crossing two geological formations LISTS
+// them both, shallowest first — not a majority stamp. The units pane surfaces
+// that list as a subtitle on the class row; a class row standing for several
+// units unions their lists.
+// ---------------------------------------------------------------------------
+
+describe('a class row lists every geological formation its units cross (T10)', () => {
+  it('T10a — a class row standing for two units unions their crossed formations', () => {
+    const t = tree({
+      units: [unit('a', 6), unit('b', 6, { display_order: 1 })],
+      contacts: [...bands('a', 1), ...bands('b', 1)],
+      geoFormationNamesById: new Map([
+        ['a', ['Holoceen']],
+        ['b', ['Holoceen', 'Pleistoceen']],
+      ]),
+    })
+
+    // Union, deduped, shallowest-first order preserved (a's list, then b's new).
+    expect(t.groups[0].classes[0].geoFormations).toEqual(['Holoceen', 'Pleistoceen'])
+  })
+
+  it('T10b — a single-unit class row carries just that unit list', () => {
+    const t = tree({
+      units: [unit('a', 6)],
+      contacts: bands('a', 1),
+      geoFormationNamesById: new Map([['a', ['Pleistoceen']]]),
+    })
+
+    expect(t.groups[0].classes[0].geoFormations).toEqual(['Pleistoceen'])
+  })
+
+  it('T10c — with no crossed-formation map the subtitle is empty, never undefined', () => {
+    const t = tree({ units: [unit('a', 6)], contacts: bands('a', 1) })
+    expect(t.groups[0].classes[0].geoFormations).toEqual([])
+  })
+})
