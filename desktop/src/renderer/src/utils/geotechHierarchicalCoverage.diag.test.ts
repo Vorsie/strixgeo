@@ -32,7 +32,7 @@ import { frameAlignedColumns, frameGapRuns, shiftRegionGaps } from './frameAlign
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
