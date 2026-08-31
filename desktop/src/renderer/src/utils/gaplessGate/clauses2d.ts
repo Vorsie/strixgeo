@@ -36,10 +36,12 @@ import Coordinate from 'jsts/org/locationtech/jts/geom/Coordinate.js'
 import GeometryFactory from 'jsts/org/locationtech/jts/geom/GeometryFactory.js'
 import CascadedPolygonUnion from 'jsts/org/locationtech/jts/operation/union/CascadedPolygonUnion.js'
 import OverlayOp from 'jsts/org/locationtech/jts/operation/overlay/OverlayOp.js'
+import BufferOp from 'jsts/org/locationtech/jts/operation/buffer/BufferOp.js'
 
 import type { GaplessClauseEntry, GaplessClauseKey, GaplessClauseStatus } from './types'
 import type { HierarchicalGeotechFillResult } from '../geotechHierarchicalFill'
 import type { SectionRegion } from '../partitionFill'
+import { SNAP_GRID_M } from '../partitionFillV2/types'
 
 /** The three 2-D clause keys this module answers (clause 4 lives in ``sectionClosure.ts``). */
 export type Clause2dKey = Extract<GaplessClauseKey, 'area-conservation' | 'edge-reach' | 'cause-closure'>
@@ -179,6 +181,66 @@ function coverGeometry(regions: readonly SectionRegion[], widthM: number) {
   return { geometry, areaM2: geometry.getArea() }
 }
 
+/**
+ * The part of a difference that is really missing (or really extra) ground.
+ *
+ * WHY THIS IS A WIDTH QUESTION AND NOT AN AREA ONE (owner ruling, 2026-08-31).
+ * The two covers are produced by two engines that snap-round independently: the
+ * litho partition in ``partitionFillV2`` and the geotech fill in its own
+ * ``frameClipGeometry`` arrangement (see ``partitionFillV2/snap.ts`` — one pass,
+ * every input vertex AND every computed intersection, onto a fixed millimetre
+ * grid). Where the geotech cuts a sloping litho contact it must say where its
+ * cut lands on that contact, and halfway between 7.509 and 5.21 is 6.3595 —
+ * half a millimetre, so on a millimetre grid it can only be written 6.359 or
+ * 6.360, neither of which is on the straight line the litho drew.
+ *
+ * What that leaves is a REAL triangle: on the owner's Cross-section 1 gap 3 its
+ * corners are (0, 7.509), (45.191, 6.359) and (90.382, 5.21) — all exactly on
+ * the grid, 90 m long and half a millimetre thick. It is not floating-point
+ * noise and not a rounding artefact, so nothing removes it by rounding; three
+ * separate attempts to reconcile the two covers geometrically (vertex snapping,
+ * a millimetre precision model, inserting the shared vertex) each drove JTS's
+ * overlay into degenerate edges and threw on his real data.
+ *
+ * So the clause asks the question the engineer actually has: is any ground
+ * MISSING? Ground has width. A difference that is nowhere wider than the grid
+ * the model is drawn on is one contact stated twice, not a hole — while a real
+ * hole survives erosion and is then reported at its FULL area, never the eroded
+ * remnant, because the engineer has to be told how much ground is at stake.
+ *
+ * The limit, stated plainly: a missing sliver narrower than a millimetre but
+ * very long would be forgiven. No coordinate in this model can express such a
+ * sliver, but it is a real weakening rather than a free one.
+ *
+ * @param difference The symmetric difference of the two covers.
+ * @param halfCellM Half a snap-grid cell, in metres.
+ * @returns Total area of the pieces that hold real ground; 0 when none do.
+ */
+function realGroundM2(difference: { getArea(): number }, halfCellM: number): number {
+  const source = difference as {
+    getArea(): number
+    getNumGeometries?: () => number
+    getGeometryN?: (i: number) => { getArea(): number }
+  }
+  const count = source.getNumGeometries ? source.getNumGeometries() : 1
+  let total = 0
+  for (let i = 0; i < count; i++) {
+    const piece = source.getGeometryN ? source.getGeometryN(i) : source
+    const areaM2 = piece.getArea()
+    if (areaM2 === 0) continue
+    let holdsGround: boolean
+    try {
+      holdsGround = !(BufferOp.bufferOp(piece, -halfCellM) as { isEmpty(): boolean }).isEmpty()
+    } catch {
+      // A geometry this pass cannot measure is REPORTED, never dropped: the one
+      // thing worse than a false alarm here is silently swallowing real ground.
+      holdsGround = true
+    }
+    if (holdsGround) total += areaM2
+  }
+  return total
+}
+
 /** Clause 1 (area-conservation) for one section that DID run a hierarchical fill. */
 function areaConservationFor(
   sectionId: string,
@@ -203,10 +265,10 @@ function areaConservationFor(
     const frame = lithoRegions.filter((region) => region.gapIndex === gapIndex)
     const paintedCover = coverGeometry(painted, width)
     const lithoCover = coverGeometry(frame, width)
-    const differenceM2 = OverlayOp.symDifference(
-      paintedCover.geometry,
-      lithoCover.geometry,
-    ).getArea()
+    const differenceM2 = realGroundM2(
+      OverlayOp.symDifference(paintedCover.geometry, lithoCover.geometry),
+      SNAP_GRID_M / 2,
+    )
     if (differenceM2 === 0) continue
     entries.push({
       label:
