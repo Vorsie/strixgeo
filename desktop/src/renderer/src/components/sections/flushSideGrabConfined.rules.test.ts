@@ -133,7 +133,6 @@ function overridesForGrab(
       rightX,
       isNew: true,
     },
-    partitionEngineV2: true,
   })
   return apexOverrides
 }
