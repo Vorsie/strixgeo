@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from groundmodel.api.schemas.project.body.body_geo_formation_ref import BodyGeoFormationRef
+
 
 class BodyListItem(BaseModel):
     """One row returned by ``GET /projects/{pid}/geology/models/{mid}/lenses``.
@@ -51,6 +53,12 @@ class BodyListItem(BaseModel):
     geo_formation_name : str | None
         Display name of ``geo_formation_id`` (e.g. ``"Quartair: Pleistoceen"``),
         or ``None`` when unresolved.
+    geo_formations : list[BodyGeoFormationRef]
+        EVERY geological formation this body crosses, shallowest first (debt
+        #278, R2). A body may span geological boundaries, so its attribution is
+        a list, not just the ``geo_formation_id`` majority above. Empty when
+        unresolved; additive, so an old client that reads only the singular
+        fields is unaffected.
 
     created_at : datetime
         Row creation timestamp.
@@ -79,6 +87,11 @@ class BodyListItem(BaseModel):
     # the body's investigations.
     geo_formation_id: UUID | None = None
     geo_formation_name: str | None = None
+
+    # R2 (debt #278): the full list of geological formations this body crosses,
+    # shallowest first. Additive — defaults to empty so a body wholly inside one
+    # formation (or an old client) is unaffected.
+    geo_formations: list[BodyGeoFormationRef] = []
 
     created_at: datetime
     updated_at: datetime
