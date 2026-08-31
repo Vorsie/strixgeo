@@ -64,6 +64,7 @@ import hashlib
 import struct
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 from uuid import UUID
@@ -79,6 +80,7 @@ from groundmodel.application.litho_solid_persistence import (
     _SolidMeta,
     storage_body_id,
 )
+from groundmodel.application.packing_class_key_loader import load_packing_class_key
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
     read_view_state_float,
@@ -93,6 +95,7 @@ from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import
     apply_body_aliases,
     plan_body_aliases,
 )
+from groundmodel.domain.services.voxel_litho.packing_class_key import packing_class_key_of
 from groundmodel.domain.services.voxel_litho.section_reconciliation import reconcile_sections
 from groundmodel.domain.services.voxel_litho.true_column_positions import (
     apply_true_column_positions,
@@ -566,7 +569,13 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # made a reproduction come back 21 grid cells narrower.
         sections_received = sections
 
-        aliases = plan_body_aliases(sections)
+        # Packing-class identity (debt #278): fuse the twin formation rows one
+        # NAD class carries across a geological boundary, so a body spanning
+        # that boundary keeps ONE id (owner 2026-08-21, "yes one mass one
+        # body"). Inert on a litho model — its rows carry no NAD class, so the
+        # key is the identity function and the alias plan is byte-identical.
+        identity_key_of = await self._packing_class_key(model_id)
+        aliases = plan_body_aliases(sections, identity_key_of)
         merged_away = sum(1 for src, dst in aliases.items() if src != dst)
         if merged_away:
             sections = apply_body_aliases(sections, aliases)
@@ -1365,3 +1374,39 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             grid_spacing_m,
         )
         return radius if radius >= 0.0 else grid_spacing_m
+
+    async def _packing_class_key(self, model_id: UUID) -> Callable[[str], str]:
+        """Build the packing-class identity function for this model's project.
+
+        The cross-section body merge fuses two regions only when their formation
+        identity agrees. On a geotech model the same packing class exists under
+        several formation ROW ids (one per NAD class × litho parent × geological
+        parent), so the merge must compare the CLASS to keep a body whole across
+        a geological boundary (debt #278; owner 2026-08-21, "yes one mass one
+        body"). This resolves the model's project, then delegates to the shared
+        :func:`~groundmodel.application.packing_class_key_loader.load_packing_class_key`
+        (the same wiring the recompute uses), so the domain merge never sees an
+        ORM row.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model being built (to find its project's formations).
+
+        Returns
+        -------
+        callable of (str) -> str
+            Maps a region's ``formation_id`` to its class key, or to itself when
+            the row carries no NAD class — so a litho build is byte-identical. A
+            model whose row has vanished (deleted mid-build) yields the identity
+            function, so the alias plan degrades to the row-keyed merge rather
+            than raising.
+        """
+        project_id = (
+            await self._session.execute(
+                select(GeologicalModelOrm.app_project_id).where(GeologicalModelOrm.id == model_id)
+            )
+        ).scalar_one_or_none()
+        if project_id is None:
+            return packing_class_key_of(())
+        return await load_packing_class_key(self._session, project_id)
