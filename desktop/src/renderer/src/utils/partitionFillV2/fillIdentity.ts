@@ -32,7 +32,7 @@ import {
 } from './mergeTouchingBodies'
 import { type ColumnGeom, type RawLayerContact } from './sectionGeom'
 import { twoSidedTerminationsEnabled } from './tileFlags'
-import { type SectionRegion } from '../partitionFill'
+import { type SectionRegion } from '../sectionPartition'
 
 /**
  * Strict elevation-overlap floor (metres) for column-edge attribution — mirrors the
