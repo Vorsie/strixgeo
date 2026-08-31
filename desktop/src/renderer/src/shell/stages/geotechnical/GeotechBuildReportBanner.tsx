@@ -24,7 +24,7 @@
  * * **A spot is one press away only when there is somewhere to go.** Entries
  *   standing on a section get a visit button; entries that name a grid column in
  *   open space do not — the same passive-unless-it-can-act contract
- *   ``ToolbarNoticeChip`` set.
+ *   ``AttentionChip`` set.
  *
  * Positioned ``bottom-2 right-2``: the canvas already spends ``top-2 left-2``
  * (Layers legend), ``top-2 right-2`` (BasemapPanel), ``bottom-2 left-2``
