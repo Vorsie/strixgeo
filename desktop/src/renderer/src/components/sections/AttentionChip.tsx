@@ -1,7 +1,8 @@
 /**
  * An amber toolbar chip that is a plain label unless it can act.
  *
- * NAMED FOR WHAT IT IS, not what it was (renamed from ``PendingTieChip``
+ * NAMED BY THE OWNER (2026-08-31): the one place the toolbar says
+ * "something here needs your eye". (Renamed from ``PendingTieChip``
  * 2026-08-28, owner ruling). It carries whatever the toolbar needs to say:
  * "N pending here" (pending packing ties), "N tests excluded" (after a Build
  * without them), and the stale-litho column notice — three of its four call
@@ -82,7 +83,7 @@ export interface Props {
  * JSX.Element
  *     A ``<button>`` when it can act, otherwise a ``<span>``.
  */
-export default function ToolbarNoticeChip({
+export default function AttentionChip({
   label,
   title,
   onReveal,
