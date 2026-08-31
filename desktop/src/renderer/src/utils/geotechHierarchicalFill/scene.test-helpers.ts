@@ -14,7 +14,7 @@
  * @module utils/geotechHierarchicalFill/scene.test-helpers
  */
 
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 
 /** One band of a scene column, in metres BELOW the collar. */
 export interface UnitSpec {
