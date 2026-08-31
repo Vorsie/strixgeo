@@ -14,17 +14,48 @@ plumbing, and needed to be unit-testable with a mocked session.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.domain.services.body_geo_label import majority_geo_formation
+from groundmodel.domain.services.body_geo_label import (
+    geo_formations_present,
+    majority_geo_formation,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+@dataclass(frozen=True)
+class BodyGeoLabel:
+    """One body's derived geological-formation label.
+
+    Holds data only — no behaviour — so it does not inherit
+    ``GroundModelLogger`` (CLAUDE.md "Logging via inheritance").
+
+    Attributes
+    ----------
+    formation_id : UUID | None
+        The thickness-weighted MAJORITY geological formation, or ``None`` when
+        no member resolves to a formation. The additive singular label, kept
+        for callers that show one name.
+    formation_name : str | None
+        Display name of ``formation_id``, or ``None`` when unresolved.
+    formations : list[tuple[UUID, str]]
+        EVERY geological formation the body's members cross, shallowest first
+        (debt #278, R2). A body may span geological boundaries, so its
+        attribution is a list, not just the majority stamp. Empty when no
+        member resolves.
+    """
+
+    formation_id: UUID | None
+    formation_name: str | None
+    formations: list[tuple[UUID, str]] = field(default_factory=list)
 
 
 class GetBodyGeoLabels(GroundModelLogger):
@@ -46,8 +77,8 @@ class GetBodyGeoLabels(GroundModelLogger):
         *,
         litho_model_id: UUID,
         body_ids: list[UUID],
-    ) -> dict[UUID, tuple[UUID | None, str | None]]:
-        """Return each body's derived majority geological-formation label.
+    ) -> dict[UUID, BodyGeoLabel]:
+        """Return each body's derived geological-formation label.
 
         Parameters
         ----------
@@ -59,11 +90,11 @@ class GetBodyGeoLabels(GroundModelLogger):
 
         Returns
         -------
-        dict[UUID, tuple[UUID | None, str | None]]
-            ``body_id -> (geo_formation_id, geo_formation_name)``. A
-            body absent from the map (or mapped to ``(None, None)``)
-            has no resolvable geological label — e.g. no geological
-            model is defined at its investigations.
+        dict[UUID, BodyGeoLabel]
+            ``body_id -> BodyGeoLabel`` carrying the majority singular pair
+            AND the full crossed-formation list (debt #278, R2). A body absent
+            from the map has no resolvable geological label — e.g. no
+            geological model is defined at its investigations.
         """
         if not body_ids:
             self.debug(f"geo labels: model={litho_model_id} no bodies — empty map")
@@ -126,12 +157,21 @@ class GetBodyGeoLabels(GroundModelLogger):
             ).all()
             names = {fid: name for fid, name in name_rows}
 
-        labels: dict[UUID, tuple[UUID | None, str | None]] = {}
+        labels: dict[UUID, BodyGeoLabel] = {}
         for body_id in body_ids:
-            geo_fid = majority_geo_formation(members_by_body.get(body_id, []), geo_contacts_by_inv)
-            labels[body_id] = (geo_fid, names.get(geo_fid) if geo_fid is not None else None)
+            members = members_by_body.get(body_id, [])
+            geo_fid = majority_geo_formation(members, geo_contacts_by_inv)
+            # R2: the full crossed-formation list is one extra pass over the SAME
+            # members already loaded above — no new query. Present ids come from
+            # the contacts, so their names are already in ``names``.
+            present = geo_formations_present(members, geo_contacts_by_inv)
+            labels[body_id] = BodyGeoLabel(
+                formation_id=geo_fid,
+                formation_name=names.get(geo_fid) if geo_fid is not None else None,
+                formations=[(fid, names[fid]) for fid in present if fid in names],
+            )
         self.debug(
             f"geo labels: model={litho_model_id} labelled {len(labels)} body/bodies "
-            f"({sum(1 for v in labels.values() if v[0] is not None)} resolved)"
+            f"({sum(1 for v in labels.values() if v.formation_id is not None)} resolved)"
         )
         return labels
