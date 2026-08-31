@@ -14,7 +14,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type PartitionPoint, type SectionRegion } from './sectionPartition'
 import { inPolygon } from './partitionFillV2.parityCoverage'
 
 // The 8e / 8g(b) merge predicates now live in the ENGINE package as the SINGLE source of
