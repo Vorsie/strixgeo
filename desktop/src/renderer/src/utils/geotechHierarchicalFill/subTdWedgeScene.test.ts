@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeHierarchicalGeotechFill } from './index'
 import { column, inRegion, paintAt, tie } from './scene.test-helpers'
-import type { PartitionColumn, SectionRegion } from '../partitionFill'
+import type { PartitionColumn, SectionRegion } from '../sectionPartition'
 import { computeSectionFillActive } from '../partitionEngineSelect'
 
 const CLAY = 'litho-clay'
