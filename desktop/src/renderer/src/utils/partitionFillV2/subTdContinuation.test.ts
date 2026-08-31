@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './computeSectionFillV2'
 import { setTwoSidedTerminations } from './tileFlags'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 
 /** Nonzero-winding point-in-polygon (fraction × elevation) — the SVG fill rule. */
 function inPolygon(
