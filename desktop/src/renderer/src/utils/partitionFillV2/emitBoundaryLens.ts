@@ -48,7 +48,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, type LensApexOverride } from '../sectionPartition'
 import { terminationApexOverride } from './apexOverride'
 import { emitFloodWedge } from './emitFloodWedge'
 import { facingMatrixLabel } from './facingMatrix'
