@@ -184,10 +184,14 @@ class LithoLayerOrm(Base):
     # The accepted litho band this geotech band subdivides (self-referencing).
     # NULL on litho-model rows (they ARE litho bands) and on a geotech band with
     # no covering accepted litho band (a true orphan — the honest state the
-    # Parameters tree reports). Band-level, not body-level: litho recomputes
-    # re-mint litho BODY ids, so a body FK would dangle on every recompute while
-    # this band FK is stable and the body is derived live. SET NULL on delete so
-    # the geotech band survives a litho reshuffle that drops its parent.
+    # Parameters tree reports). Band-level, not body-level: this band FK is
+    # STABLE across litho recomputes (which re-mint litho BODY ids). The
+    # body-level litho parent DOES now exist as a stored FK —
+    # ``body.parent_litho_body_id`` (debt #278, R1, owner 2026-08-31) — derived
+    # FROM this band FK and kept current by the resolver (it re-stamps sibling
+    # geotech bodies on every litho recompute), reversing the earlier
+    # "a body FK would dangle" decision. SET NULL on delete so the geotech band
+    # survives a litho reshuffle that drops its parent.
     parent_litho_layer_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("litho_layer.id", ondelete="SET NULL"),
