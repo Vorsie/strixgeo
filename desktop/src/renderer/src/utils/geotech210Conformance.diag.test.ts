@@ -77,7 +77,6 @@ describe('2/1/0 conformance gate', () => {
     return
   }
   it('every band obeys 2/1/0, ratcheted against the frozen baseline', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
     const packingClassOf = loadPackingClassOf()
     const perSection: Record<string, Counts> = {}
