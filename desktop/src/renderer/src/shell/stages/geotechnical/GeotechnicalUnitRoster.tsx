@@ -25,10 +25,12 @@ import { useLanguage } from '../../../i18n/languageSelect'
 import { ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
 
 import type {
+  BodyListItem,
   FormationContactResponse,
   GeologicalFormationResponse,
   LithoLayerResponse,
 } from '../../../api/client'
+import { buildGeoFormationNamesByUnit } from '../../../utils/geoFormationNames'
 import { buildSourceLithoNameMap } from '../../../utils/sourceLithoNames'
 import { ConfidenceBadge, ProvenanceBadge } from './geotechBadges'
 import { buildGeotechUnitTree } from './geotechUnitTree'
@@ -260,10 +262,22 @@ function GeotechClassRowItem({
         )}
 
         <span
-          className="flex-1 truncate"
+          className="flex-1 min-w-0"
           title={row.nadClass === null ? undefined : `NAD ${row.nadClass}`}
         >
-          {row.label}
+          <span className="block truncate">{row.label}</span>
+          {/* R2: the geological formation(s) this class row's units cross,
+              shallowest first, joined with "+". A body may span geological
+              boundaries, so a unit may list several. */}
+          {row.geoFormations.length > 0 && (
+            <span
+              className="block truncate text-[10px] font-normal text-text-muted"
+              title={row.geoFormations.join(' + ')}
+              data-testid={`geotech-class-geo-${idKey}`}
+            >
+              {row.geoFormations.join(' + ')}
+            </span>
+          )}
         </span>
 
         {expandable && (
@@ -321,6 +335,12 @@ interface GeotechnicalUnitRosterProps {
   /** Litho units, for naming a geotech unit's source when several share a class. */
   lithoFormations: readonly GeologicalFormationResponse[]
   /**
+   * The geotech model's bodies (``GET .../bodies``). Their ``geo_formations``
+   * lists are folded onto each unit for the crossed-formation subtitle (debt
+   * #278, R2). Optional — an absent/empty list simply drops the subtitle.
+   */
+  geotechBodies?: readonly BodyListItem[]
+  /**
    * Commit a colour choice for every unit a row stands for; ``null`` clears the
    * choice and returns them to the automatic packing colour.
    */
@@ -371,6 +391,7 @@ export default function GeotechnicalUnitRoster({
   geotechContacts,
   geotechLayers,
   lithoFormations,
+  geotechBodies,
   onPickColor,
   selectedFormationId = null,
 }: GeotechnicalUnitRosterProps): JSX.Element {
@@ -394,6 +415,14 @@ export default function GeotechnicalUnitRoster({
     [lithoFormations],
   )
 
+  // R2: fold each body's crossed-formation list onto its geotech unit, so a
+  // class row can list every formation its units span. Keyed by unit id (=
+  // ``body.formation_id``); empty when no bodies are supplied.
+  const geoFormationNamesById = useMemo(
+    () => buildGeoFormationNamesByUnit(geotechBodies ?? []),
+    [geotechBodies],
+  )
+
   const tree = useMemo(
     () =>
       buildGeotechUnitTree({
@@ -401,10 +430,18 @@ export default function GeotechnicalUnitRoster({
         contacts: geotechContacts,
         layers: geotechLayers,
         sourceLithoNameById,
+        geoFormationNamesById,
       }),
     // ``lang``: the tree's labels come from language-aware helpers, so it must
     // rebuild when the language flips (the builder reads the language itself).
-    [geotechFormations, geotechContacts, geotechLayers, sourceLithoNameById, lang],
+    [
+      geotechFormations,
+      geotechContacts,
+      geotechLayers,
+      sourceLithoNameById,
+      geoFormationNamesById,
+      lang,
+    ],
   )
 
   function toggleSoil(soil: string): void {
