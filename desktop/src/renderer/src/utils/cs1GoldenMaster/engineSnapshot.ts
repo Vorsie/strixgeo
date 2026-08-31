@@ -23,7 +23,7 @@ import { computeHierarchicalGeotechFill } from '../geotechHierarchicalFill'
 import { computeSectionFillActive } from '../partitionEngineSelect'
 import { loadCs1Scene, type Cs1Scene } from './input'
 import type { BodyBoundaryResponse } from '../../api/clients/geology.types'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 /**
  * Coordinate quantum. Fractions and elevations are rounded to 1e-6 before
