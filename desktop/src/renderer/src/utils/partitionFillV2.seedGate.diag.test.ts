@@ -54,7 +54,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type CorrelationEdge,
   type PartitionColumn,
-} from './partitionFill'
+} from './sectionPartition'
 import { buildArrangement } from './partitionFillV2/arrangement'
 import { emitCurves, resolveJumpTies } from './partitionFillV2/emitCurves'
 import { labelFaces } from './partitionFillV2/labelFaces'
