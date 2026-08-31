@@ -26,7 +26,7 @@
  * not comparable.
  */
 
-import type { PartitionPoint, SectionRegion } from './partitionFill'
+import type { PartitionPoint, SectionRegion } from './sectionPartition'
 
 /** Identity of one region in an overlap report (full ids for diagnostics). */
 export interface OverlapRegionRef {
