@@ -530,11 +530,13 @@ def _endpoint_reason(
     return REASON_BAND_ABSENT
 
 
-def _overlap_mm(identity: BandIdentity, band: RebuiltBand) -> int:
+def overlap_mm(identity: BandIdentity, band: RebuiltBand) -> int:
     """Millimetres of the old interval a rebuilt band covers (0 when disjoint).
 
     Strict overlap: a band merely abutting the old one at a shared boundary
-    covers nothing of it.
+    covers nothing of it. Public so the body-separation re-anchor
+    (``body_separation_reanchor``) shares one overlap definition with the tie
+    re-anchor rather than keeping a second copy.
 
     Parameters
     ----------
@@ -598,7 +600,7 @@ def _follow_moved_band(
     overlapping = [
         band
         for band in by_investigation.get(identity.investigation_id, [])
-        if _overlap_mm(identity, band) > 0
+        if overlap_mm(identity, band) > 0
     ]
     if not overlapping:
         return None, None
@@ -609,7 +611,7 @@ def _follow_moved_band(
 
     pool = same_class or overlapping
     reason = REVIEW_AMBIGUOUS_BAND if same_class else REVIEW_CLASS_CHANGED
-    best = min(pool, key=lambda b: (-_overlap_mm(identity, b), b.identity.depth_top_mm))
+    best = min(pool, key=lambda b: (-overlap_mm(identity, b), b.identity.depth_top_mm))
     return best.layer_id, reason
 
 
@@ -751,6 +753,65 @@ def _canonical_key(tie: CapturedTie, new_a: UUID, new_b: UUID) -> tuple[UUID, UU
     if new_a < new_b:
         return (tie.section_id, new_a, new_b, tie.layer_a_side, tie.layer_b_side)
     return (tie.section_id, new_b, new_a, tie.layer_b_side, tie.layer_a_side)
+
+
+async def load_band_identities(
+    session: AsyncSession, layer_ids: set[UUID]
+) -> dict[UUID, tuple[BandIdentity, str]]:
+    """Load the three-part identity + anchor kind of a set of geotech layers.
+
+    ``nad_class`` lives on the band's ``geological_formation``, not on the layer
+    row, so the join is mandatory. Shared by the tie re-anchor
+    (:class:`GeotechTieReanchor`) and the body-separation re-anchor
+    (``body_separation_reanchor``) — both capture a layer id's band identity the
+    same way.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session owned by the caller.
+    layer_ids : set[UUID]
+        Geotech ``litho_layer`` ids.
+
+    Returns
+    -------
+    dict[UUID, tuple[BandIdentity, str]]
+        ``layer_id → (identity, 'cpt' | 'borehole')``.
+    """
+    if not layer_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(
+                LithoLayerOrm.id,
+                LithoLayerOrm.cpt_id,
+                LithoLayerOrm.borehole_id,
+                LithoLayerOrm.depth_top_m,
+                LithoLayerOrm.depth_base_m,
+                GeologicalFormationOrm.nad_class,
+            )
+            .join(
+                GeologicalFormationOrm,
+                LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
+            )
+            .where(LithoLayerOrm.id.in_(layer_ids))
+        )
+    ).all()
+    out: dict[UUID, tuple[BandIdentity, str]] = {}
+    for row in rows:
+        # The XOR CHECK guarantees exactly one anchor is set.
+        kind = ANCHOR_BOREHOLE if row.borehole_id is not None else ANCHOR_CPT
+        investigation_id = str(row.borehole_id if row.borehole_id is not None else row.cpt_id)
+        out[row.id] = (
+            BandIdentity(
+                investigation_id=investigation_id,
+                depth_top_mm=depth_to_mm(row.depth_top_m),
+                depth_base_mm=depth_to_mm(row.depth_base_m),
+                nad_class=row.nad_class,
+            ),
+            kind,
+        )
+    return out
 
 
 class GeotechTieReanchor(GroundModelLogger):
@@ -1138,8 +1199,9 @@ class GeotechTieReanchor(GroundModelLogger):
     ) -> dict[UUID, tuple[BandIdentity, str]]:
         """Load the three-part identity + anchor kind of a set of geotech layers.
 
-        ``nad_class`` lives on the band's ``geological_formation``, not on the
-        layer row, so the join is mandatory.
+        Thin instance wrapper around the module-level :func:`load_band_identities`
+        — the body-separation re-anchor needs the same query, so the
+        implementation is shared rather than copied.
 
         Parameters
         ----------
@@ -1151,40 +1213,7 @@ class GeotechTieReanchor(GroundModelLogger):
         dict[UUID, tuple[BandIdentity, str]]
             ``layer_id → (identity, 'cpt' | 'borehole')``.
         """
-        if not layer_ids:
-            return {}
-        rows = (
-            await self._session.execute(
-                select(
-                    LithoLayerOrm.id,
-                    LithoLayerOrm.cpt_id,
-                    LithoLayerOrm.borehole_id,
-                    LithoLayerOrm.depth_top_m,
-                    LithoLayerOrm.depth_base_m,
-                    GeologicalFormationOrm.nad_class,
-                )
-                .join(
-                    GeologicalFormationOrm,
-                    LithoLayerOrm.formation_id == GeologicalFormationOrm.id,
-                )
-                .where(LithoLayerOrm.id.in_(layer_ids))
-            )
-        ).all()
-        out: dict[UUID, tuple[BandIdentity, str]] = {}
-        for row in rows:
-            # The XOR CHECK guarantees exactly one anchor is set.
-            kind = ANCHOR_BOREHOLE if row.borehole_id is not None else ANCHOR_CPT
-            investigation_id = str(row.borehole_id if row.borehole_id is not None else row.cpt_id)
-            out[row.id] = (
-                BandIdentity(
-                    investigation_id=investigation_id,
-                    depth_top_mm=depth_to_mm(row.depth_top_m),
-                    depth_base_mm=depth_to_mm(row.depth_base_m),
-                    nad_class=row.nad_class,
-                ),
-                kind,
-            )
-        return out
+        return await load_band_identities(self._session, layer_ids)
 
     async def _load_existing_keys(
         self, geotech_model_id: UUID
