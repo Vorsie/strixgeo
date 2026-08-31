@@ -58,7 +58,7 @@ import {
   onlapTerminationsByGap,
   silentConstructs,
 } from './geotechHierarchicalFill/constructive/onlapClosure'
-import type { SectionRegion } from './partitionFill'
+import type { SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
