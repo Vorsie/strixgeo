@@ -26,6 +26,8 @@
  */
 
 import { claims, tieElevAt, type BandConstruct, type RunBand, type RunTie } from './constructs'
+import { facingTestHasBottomedOut } from './facingBottomedOut'
+import { wallElevAt, wallsFor, type WallScope } from './ownContactTies'
 
 /**
  * Smallest overlap (m) that counts as a band COVERING a loop.
@@ -72,10 +74,18 @@ export interface RemainderInput {
   massKeyOf: (band: RunBand) => string
   /** The correlation lines actually drawn across this gap — the fill's walls. */
   drawnTies: readonly RunTie[]
+  /** The ties on each band's OWN contacts, run-wide (see ``ownContactTies.ts``). */
+  ownContactTies: ReadonlyMap<string, readonly RunTie[]>
   /** Where each band's closures stand, run-wide (see ``GapFillInput.closureBars``). */
   closureBars: ReadonlyMap<string, readonly number[]>
   /** A band's own onlap construct, by layer — the own-shape guard. */
   shapedByLayer: ReadonlyMap<string, BandConstruct>
+  /**
+   * EVERY packing band per frame column, whatever family owns it — the same
+   * section-wide stacks ``constructs.ts`` reads. Asked one question only: did
+   * the facing test measure this ground at all (see ``columnReading.ts``)?
+   */
+  stacks: ReadonlyMap<number, readonly RunBand[]>
 }
 
 /**
@@ -88,18 +98,29 @@ export interface RemainderInput {
  * side owns it. Counted (``split``) so the case stays visible.
  *
  * @param candidates The bands this rung may ask.
- * @param walls The correlation lines that separate a candidate from the ground.
+ * @param scope Which correlation lines this rung tests against ({@link wallsFor}).
  * @param flankColumns Frame column indices of the gap's own two tests.
  * @param input The decision's context (see {@link RemainderInput}).
  * @returns The winning band (or null) and whether the vertical decided it.
  */
 function pickDominant(
   candidates: readonly RunBand[],
-  walls: readonly RunTie[],
+  scope: WallScope,
   flankColumns: ReadonlySet<number>,
   input: RemainderInput,
 ): { band: RunBand | null; split: boolean } {
   const { closedAtMiddle, middle, lo, hi, x, y, massKeyOf, closureBars, shapedByLayer } = input
+  const bottomedOut = (band: RunBand, shaped: BandConstruct): boolean =>
+    facingTestHasBottomedOut({
+      band,
+      shaped,
+      flankColumns,
+      stacks: input.stacks,
+      lo,
+      hi,
+      x,
+      y,
+    })
   let best: RunBand | null = null
   let bestScore: [number, number, number, number] | null = null
   let split = false
@@ -167,13 +188,20 @@ function pickDominant(
     // allows — *"the wedge that onlap pinches away from is taken by the mass
     // immediately above it"* (his S24). ``COVER_EPS`` keeps a 1e-15 m shared
     // boundary from reading as overlap.
+    //
+    // ...AND ONLY WHERE SOMEBODY ELSE CAN SPEAK FOR THE GROUND (ruled
+    // 2026-08-28). Under the pinching base, below the FACING test's total
+    // depth, there is no facing statement at all — see ``facingBottomedOut.ts``
+    // for his CS1 gap 14 and the four conditions that scope it.
     const shaped = shapedByLayer.get(band.layerId)
     if (shaped !== undefined && shaped.emit === 'onlap' && shaped.apexX !== undefined) {
       const span = shaped.apexX - shaped.band.x
       const here = x - shaped.band.x
       const withinOwnSpan = span !== 0 && here * span >= 0 && Math.abs(here) < Math.abs(span)
       const insideOwnWindow = Math.min(band.top, hi) - Math.max(band.base, lo) > COVER_EPS
-      if (withinOwnSpan && insideOwnWindow && !claims(shaped, x, y)) continue
+      if (withinOwnSpan && insideOwnWindow && !claims(shaped, x, y) && !bottomedOut(band, shaped)) {
+        continue
+      }
     }
     // A CLASS MAY NEVER CROSS A CORRELATION (the standing absolute, and the
     // owner's 2026-08-21 spills: the deep VD answering ground ABOVE its own
@@ -182,9 +210,9 @@ function pickDominant(
     // correlation line answers nothing here; level lines are not walls (the
     // sub-TD reach below a band's own untied base stays legal).
     const bandMid = (band.top + band.base) / 2
-    const separated = walls.some((tie) => {
-      const atSample = y - tieElevAt(tie, x)
-      const atBand = bandMid - tieElevAt(tie, band.x)
+    const separated = wallsFor(scope, band, input).some((wall) => {
+      const atSample = y - wallElevAt(wall, x)
+      const atBand = bandMid - wallElevAt(wall, band.x)
       return atSample !== 0 && atBand !== 0 && atSample > 0 !== atBand > 0
     })
     if (separated) continue
@@ -280,7 +308,7 @@ function pickDominant(
  *   whether the vertical had to decide it.
  */
 export function pickRemainder(input: RemainderInput): { band: RunBand | null; split: boolean } {
-  const { flankBands, familyBands, closedAtMiddle, drawnTies, lo, hi, y } = input
+  const { flankBands, familyBands, closedAtMiddle, lo, hi, y } = input
   const open = (bands: readonly RunBand[]): RunBand[] =>
     bands.filter((b) => !closedAtMiddle.has(b.layerId))
   const flankColumns = new Set(flankBands.map((b) => b.ci))
@@ -371,6 +399,14 @@ export function pickRemainder(input: RemainderInput): { band: RunBand | null; sp
   // never un-class ground (measured: 345 cells of KLEI-23 went to hatch
   // without that last resort).
   //
+  // WHAT THE LAST RUNG MAY NOT DROP IS THE CANDIDATE'S OWN BOUNDARY (owner,
+  // 2026-08-28: *"i don't want the VD sand to spill below that bottom tie"*).
+  // Dropping the walls made every correlation vanish, including the one he drew
+  // ON the candidate's own contact, and his S9 very dense sand took the wedge
+  // 33.7 m away and 0.6 m below its own tied base. The scope names WHICH lines
+  // a rung tests against and ``wallsFor`` composes the set per candidate, so no
+  // rung can ask for none at all.
+  //
   // RUNG 2 IS BOTH PACKAGES CLOSED AT THE MIDDLE (owner, 2026-08-24, on his
   // CS2 gap 0 — GEO-23/125-S34 to GEO-10/117-B1): asked what owns the ground
   // left between two closed loops when neither side runs through — left half
@@ -393,17 +429,17 @@ export function pickRemainder(input: RemainderInput): { band: RunBand | null; sp
   // Rung 1 is untouched and still comes first, so the SF-silt fill-through is
   // exactly as ruled: an open flank mass answers before anything closed is
   // consulted, and it fills through past the middle.
-  const rungs: [readonly RunBand[], readonly RunTie[], Relevance][] = [
-    [open(flankBands), drawnTies, 'off'],
-    [flankBands, drawnTies, 'relate'],
-    [open(familyBands), drawnTies, 'off'],
-    [familyBands, drawnTies, 'relate'],
-    [familyBands, [], 'own'],
+  const rungs: [readonly RunBand[], WallScope, Relevance][] = [
+    [open(flankBands), 'drawn', 'off'],
+    [flankBands, 'drawn', 'relate'],
+    [open(familyBands), 'drawn', 'off'],
+    [familyBands, 'drawn', 'relate'],
+    [familyBands, 'own-contacts', 'own'],
   ]
   let dominant: { band: RunBand | null; split: boolean } | null = null
-  for (const [candidates, walls, relevance] of rungs) {
+  for (const [candidates, scope, relevance] of rungs) {
     if (candidates.length === 0) continue
-    dominant = pickDominant(candidates, walls, flankColumns, input)
+    dominant = pickDominant(candidates, scope, flankColumns, input)
     dominant = { ...dominant, band: relatesToTheseLevels(dominant.band, relevance) }
     if (dominant.band !== null) break
   }
