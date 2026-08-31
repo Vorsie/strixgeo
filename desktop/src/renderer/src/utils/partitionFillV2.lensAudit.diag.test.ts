@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { effectiveCorrForSide } from './partitionFillV2/effectiveCorr'
