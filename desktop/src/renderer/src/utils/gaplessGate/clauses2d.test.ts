@@ -43,7 +43,7 @@ import type {
   HierarchicalGeotechFillDiagnostics,
   HierarchicalGeotechFillResult,
 } from '../geotechHierarchicalFill'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 /** A rectangle over [f0, f1] × [base, top] on one gap. */
 function box(gapIndex: number, f0: number, f1: number, base: number, top: number): SectionRegion {
