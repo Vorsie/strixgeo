@@ -30,7 +30,7 @@ import { nadClassColor } from '../nadClasses'
 import { loadCs1Scene, type Cs1Scene } from './input'
 import type { LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
 import type { PlacedColumn } from '../../components/sections/utils'
-import type { CorrelationEdge, PartitionColumn } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn } from '../sectionPartition'
 
 /** Fixed viewport — the snapshot freezes geometry, never a window size. */
 const PLOT = { top: 0, bottom: 600, left: 0, right: 1200 } as const
