@@ -1,5 +1,6 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
+import { mergeFencePanels } from './mergeFencePanels'
 import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
@@ -47,17 +48,27 @@ export interface FenceSectionInput {
  *     One entry per section in the project (order is irrelevant — each section
  *     is independent).
  *
+ * resolveBody : optional
+ *     ``layerIds → body id | null`` — the label-independent body identity used to
+ *     collapse a section's per-gap panels to ONE panel per connected body (debt
+ *     #278 fence follow-on). Supplied by the scoped call site (backed by
+ *     ``resolveRegionBodyId`` + the axis's ``litho_layer id → body_id`` map).
+ *     When omitted, ``mergeFencePanels`` falls back to ``formationId|bodyId``
+ *     label grouping — correct on the litho arm, whose labels are cross-gap
+ *     consistent.
+ *
  * Returns
  * -------
  * FencePanel[]
  *     All wall panels across every section, ready for 3D rendering. Each panel
  *     carries ``formationId``, ``bodyId``, world-space ``vertices`` and
- *     ``triangles``.
+ *     ``triangles``. One panel per connected body per section.
  */
 export function buildProjectFence(
   sections: readonly FenceSectionInput[],
   frameSections?: readonly FenceSectionInput[],
   packingClassOf?: ReadonlyMap<string, string>,
+  resolveBody?: (layerIds: readonly string[] | undefined) => string | null,
 ): FencePanel[] {
   // Pass 1 (shared with ``buildVoxelRequest``): assemble every section +
   // compute the canonical per-test world positions.
@@ -139,7 +150,9 @@ export function buildProjectFence(
       gapIndex: r.gapIndex,
       polygon: r.polygon,
     }))
-    all.push(...buildFencePanels(input.section, worldColumns, fenceRegions))
+    // Collapse this section's per-gap panels to one per connected body before
+    // pushing — the shared column seams weld away (debt #278 fence follow-on).
+    all.push(...mergeFencePanels(buildFencePanels(input.section, worldColumns, fenceRegions), resolveBody))
   }
   return all
 }
