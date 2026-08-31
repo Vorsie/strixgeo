@@ -23,7 +23,7 @@ import {
   type LensApexOverride,
   type PartitionColumn,
   type PartitionPoint,
-} from './partitionFill'
+} from './sectionPartition'
 import { contactApexOverrideKey } from './partitionFillV2/contactOverride'
 import { computeSectionFillV2 } from './partitionFillV2/computeSectionFillV2'
 
