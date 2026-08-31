@@ -187,6 +187,9 @@ export function buildGeotechPipelineMenuItems(
                     ? t('sections.geotech.step1OpenSection')
                     : t('sections.geotech.step1Title'),
                 testid: 'geotech-subdivide-cpts',
+                // The step labels already read "1 · ..." — the key IS the
+                // number the owner reads (ask 2026-08-31).
+                shortcut: '1',
                 onClick: () => pressSubdivide(selectedSectionId),
               },
               {
@@ -203,6 +206,7 @@ export function buildGeotechPipelineMenuItems(
                       ? t('sections.geotech.noBandsHere')
                       : t('sections.geotech.step2Title'),
                 testid: 'geotech-auto-correlate',
+                shortcut: '2',
                 onClick: () => {
                   void runAutoCorrelateGeotech(selectedSectionId)
                 },
@@ -227,6 +231,7 @@ export function buildGeotechPipelineMenuItems(
                       ? t('sections.geotech.noBandsHere')
                       : t('sections.geotech.step3Title'),
                 testid: 'geotech-accept-correlations',
+                shortcut: '3',
                 onClick: () => {
                   void runAcceptGeotechCorrelations(selectedSectionId)
                 },
@@ -262,6 +267,7 @@ export function buildGeotechPipelineMenuItems(
                           ? t('sections.geotech.staleReDivideTitle')
                           : t('sections.geotech.step4Title'),
                 testid: 'geotech-divide-boreholes',
+                shortcut: '4',
                 onClick: () => {
                   if (
                     dividingBoreholes ||
