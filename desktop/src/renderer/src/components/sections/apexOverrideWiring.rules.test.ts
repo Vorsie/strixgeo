@@ -129,7 +129,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const key = lensApexOverrideKey(BAND, 0)
     // THE fix: the override is now BUILT (not NONE) for the two-sided lens tip.
@@ -159,7 +158,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     // Exactly ONE override key, and it is the lens apex — no ``contact:`` twin.
     expect([...apexOverrides.keys()]).toEqual([lensApexOverrideKey(BAND, 0)])
@@ -194,7 +192,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const ov = apexOverrides.get(lensApexOverrideKey(BAND, 0))!
     expect(ov, 'two-sided band lens-tip drag produced no override').toBeTruthy()
@@ -220,7 +217,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag: null,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     // The contact path claims BAND for gap 0 (its lower_nodes shape the shared contact).
     expect(contactOverriddenBodies.has(`0:${BAND}`)).toBe(true)
@@ -249,7 +245,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const ov = apexOverrides.get(lensApexOverrideKey(BAND, 0))!
     expect(ov.rawApexFraction, 'in-gap drag must carry a raw reach').toBeCloseTo(0.7, 5)
@@ -269,7 +264,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const ov = apexOverrides.get(lensApexOverrideKey(BAND, 0))!
     // THE over-reach signal: raw reach past the far column (1.60), OUTSIDE [0,1].
@@ -299,7 +293,6 @@ describe('§88 — two-sided band lens-tip drag builds an apex override (real se
       screenToLevel,
       lensDrag: null,
       boundaryDrag: null,
-      partitionEngineV2: true,
     })
     const ov = apexOverrides.get(lensApexOverrideKey('lens-1', 0))
     expect(ov, 'one-sided stored lens builds an override').toBeTruthy()
