@@ -10,7 +10,7 @@ import {
   computeSectionFillV2,
   computeSectionFillV2WithConflicts,
 } from './computeSectionFillV2'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../sectionPartition'
 
 // --- fixture helpers -------------------------------------------------------
 
