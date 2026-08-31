@@ -34,9 +34,9 @@
  * @module utils/geotechHierarchicalFill/edgeReach
  */
 
-import { slicePolygonAtFraction } from '../partitionFill/sectionResolve'
+import { slicePolygonAtFraction } from '../sectionPartition/sectionRegion'
 import { SNAP_GRID_M } from '../partitionFillV2/types'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 /**
  * How many snap cells the build's query is inset by.
