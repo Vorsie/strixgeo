@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './computeSectionFillV2'
 import { setTwoSidedTerminations } from './tileFlags'
-import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type SectionRegion } from '../sectionPartition'
 
 // One formation row PER COLUMN, as the geotech axis really carries them: two
 // boreholes' silt of the very same class are two different formation ids, so the
