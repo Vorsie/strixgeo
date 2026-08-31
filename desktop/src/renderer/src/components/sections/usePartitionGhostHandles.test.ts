@@ -87,20 +87,20 @@ describe('S78 topologyKey — stable under pan/zoom, distinct on topology change
   const { columns, edges, alongM } = synthSection()
 
   it('identical inputs → identical key', () => {
-    expect(topologyKey(columns, edges, alongM, true)).toBe(topologyKey(columns, edges, alongM, true))
+    expect(topologyKey(columns, edges, alongM)).toBe(topologyKey(columns, edges, alongM))
   })
 
   it('the key ignores screen x (it never reads placedColumns / nudgedX)', () => {
     // The key is built ONLY from columns/edges/alongM/engine — there is no screen
     // input to it, so a pan/zoom (which changes only nudgedX elsewhere) cannot alter
     // it. Passing the SAME topology twice is exactly what a pan does to this hook.
-    const before = topologyKey(columns, edges, alongM, true)
+    const before = topologyKey(columns, edges, alongM)
     // Simulate a re-render with fresh object identities but identical VALUES (what a
     // pan produces: colByInv/screenByInv rebuild, unit values unchanged).
     const columns2 = columns.map((c) => ({ ...c, units: c.units.map((u) => ({ ...u })) }))
     const edges2 = edges.map((e) => ({ ...e }))
     const alongM2 = [...alongM]
-    expect(topologyKey(columns2, edges2, alongM2, true)).toBe(before)
+    expect(topologyKey(columns2, edges2, alongM2)).toBe(before)
   })
 
   it('a unit depth change → different key', () => {
@@ -109,24 +109,20 @@ describe('S78 topologyKey — stable under pan/zoom, distinct on topology change
         ? { ...c, units: c.units.map((u) => (u.layerId === 'm-clay' ? { ...u, baseDepthM: 6 } : u)) }
         : c,
     )
-    expect(topologyKey(moved, edges, alongM, true)).not.toBe(topologyKey(columns, edges, alongM, true))
+    expect(topologyKey(moved, edges, alongM)).not.toBe(topologyKey(columns, edges, alongM))
   })
 
   it('a new edge → different key', () => {
     const more = [...edges, { a: 'm-sand-bot', b: 'r-sand', aSide: 'base' as const, bSide: 'base' as const }]
-    expect(topologyKey(columns, more, alongM, true)).not.toBe(topologyKey(columns, edges, alongM, true))
+    expect(topologyKey(columns, more, alongM)).not.toBe(topologyKey(columns, edges, alongM))
   })
 
   it('an along-metre shift → different key', () => {
-    expect(topologyKey(columns, edges, [0, 60, 100], true)).not.toBe(topologyKey(columns, edges, alongM, true))
-  })
-
-  it('engine flag off → empty key (no probe on v1)', () => {
-    expect(topologyKey(columns, edges, alongM, false)).toBe('')
+    expect(topologyKey(columns, edges, [0, 60, 100])).not.toBe(topologyKey(columns, edges, alongM))
   })
 
   it('< 2 columns → empty key', () => {
-    expect(topologyKey(columns.slice(0, 1), edges, alongM, true)).toBe('')
+    expect(topologyKey(columns.slice(0, 1), edges, alongM)).toBe('')
   })
 })
 
