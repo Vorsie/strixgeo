@@ -211,7 +211,6 @@ describe('geotech fill — litho-consistency gate', () => {
           `then re-run with GEOTECH_LITHO_CONSISTENCY=1.`,
       )
     }
-    process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
 
@@ -234,7 +233,7 @@ describe('geotech fill — litho-consistency gate', () => {
       const lithoRegions = computeSectionFillActive(
         L.columns,
         lithoEdges,
-        deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, emptyBoundaries, true),
+        deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, emptyBoundaries),
         L.alongM,
       )
       const geoEdges = toEdges(sec.geotech.edges)
@@ -258,7 +257,7 @@ describe('geotech fill — litho-consistency gate', () => {
           ? computeSectionFillActive(
               G.columns,
               geoEdges,
-              deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, emptyBoundaries, true),
+              deriveSectionApexOverrides(G.columns, geoEdges, G.alongM, emptyBoundaries),
               G.alongM,
             )
           : []
@@ -275,8 +274,7 @@ describe('geotech fill — litho-consistency gate', () => {
                   geoEdges,
                   run.alongM,
                   emptyBoundaries,
-                  true,
-                ),
+    ),
                 run.alongM,
               ),
               run.offset,
