@@ -41,7 +41,7 @@
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve } from './types'
-import { computeBottomTieLine, type CorrelationEdge, type PartitionColumn } from '../partitionFill'
+import { computeBottomTieLine, type CorrelationEdge, type PartitionColumn } from '../sectionPartition'
 
 /** A contact this deep the arrangement already anchors — a 1 mm tolerance floor. */
 const ELEV_EPS = 1e-3
