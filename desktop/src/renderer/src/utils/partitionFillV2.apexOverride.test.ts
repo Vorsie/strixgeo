@@ -23,7 +23,7 @@ import {
   lensApexOverrideKey,
   type PartitionColumn,
   type PartitionPoint,
-} from './partitionFill'
+} from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 
