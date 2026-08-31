@@ -82,7 +82,6 @@ describe('construct probe — the fill decisions of one gap', () => {
     return
   }
   it('dumps constructs, lines and face owners', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as {
       sections: RawSection[]
@@ -100,7 +99,7 @@ describe('construct probe — the fill decisions of one gap', () => {
     const lithoRegions = computeSectionFillActive(
       L.columns,
       L.edges,
-      deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty, true),
+      deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty),
       L.alongM,
     )
     // Band names for the report: layer id → class + elevation window.
