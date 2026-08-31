@@ -639,3 +639,45 @@ describe('clauses2dForSection — clause 1 (one contact stated twice is not a di
     expect(clause.entries[0].measure!.value).toBeCloseTo(261.4, 0)
   })
 })
+
+describe('clauses2dForSection — clause 1 (a cover it cannot measure)', () => {
+  // Clause 1 runs inside ``buildVoxelRequest``, so anything it throws takes the
+  // BUILD BUTTON with it, not just the report. A region whose ring crosses
+  // itself -- which an engine bug can emit -- makes the geometry library's
+  // symmetric difference throw, and that must never be how the owner finds out.
+  //
+  // The two wrong answers are crashing and passing. A gap whose cover cannot be
+  // measured is REPORTED, and the report says so in those words, because an
+  // unmeasured guarantee is an unkept one.
+  it('reports a gap it cannot measure instead of throwing or passing it', () => {
+    const bowtie: SectionRegion = {
+      formationId: 'F',
+      bodyId: null,
+      gapIndex: 0,
+      kind: 'quad',
+      // the ring crosses itself between the 2nd and 4th corner
+      polygon: [
+        { fraction: 0, elevation: 0 },
+        { fraction: 1, elevation: 10 },
+        { fraction: 1, elevation: 0 },
+        { fraction: 0, elevation: 10 },
+      ],
+    } as SectionRegion
+
+    const clause = clauses2dForSection({
+      sectionId: 's1',
+      sectionName: 'Cross-section 1',
+      hierarchical: hierarchical({ regions: [bowtie] }),
+      lithoRegions: [box(0, 0, 1, 0, 10)],
+      alongM: ALONG_M,
+      columnInvestigationIds: ONE_GAP_COLUMNS,
+    }).find((c) => c.key === 'area-conservation')!
+
+    expect(clause.status).toBe('fail')
+    expect(clause.entries).toHaveLength(1)
+    expect(clause.entries[0].label).toContain('could not be measured')
+    expect(clause.entries[0].gap_index).toBe(0)
+    // No number is honest here: nothing was successfully measured.
+    expect(clause.entries[0].measure ?? null).toBeNull()
+  })
+})
