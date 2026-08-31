@@ -255,6 +255,7 @@ class ProjectBundleService(GroundModelLogger):
         body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
         litho_solids_payload: list[dict[str, Any]] | None = None,
         geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
+        body_separations_payload: list[dict[str, Any]] | None = None,
         *,
         replace: bool = False,
     ) -> ProjectOrm:
@@ -295,6 +296,8 @@ class ProjectBundleService(GroundModelLogger):
             Lens boundary node rows.
         litho_solids_payload : list[dict[str, Any]] | None
             Cached watertight body-solid rows (watertight-loft Task 9).
+        body_separations_payload : list[dict[str, Any]] | None
+            User "Separate" rulings (owner 2026-08-31, debt #278 R5).
         replace : bool
             When True, wipe the project's child collections before inserting
             (revert-to-last-save, debt #160) so the project ends up matching
@@ -332,6 +335,7 @@ class ProjectBundleService(GroundModelLogger):
             # mid-list insertion once shifted three payloads into the wrong
             # restorers); everything new travels by name.
             geotech_tie_tombstones_payload=geotech_tie_tombstones_payload,
+            body_separations_payload=body_separations_payload,
             logger=self,
             replace=replace,
         )
@@ -385,6 +389,7 @@ async def restore_project_bundle(
     body_boundary_nodes_payload: list[dict[str, Any]] | None = None,
     litho_solids_payload: list[dict[str, Any]] | None = None,
     geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
+    body_separations_payload: list[dict[str, Any]] | None = None,
     *,
     replace: bool = False,
 ) -> ProjectOrm:
@@ -426,6 +431,8 @@ async def restore_project_bundle(
         Cached watertight body-solid rows (watertight-loft Task 9).
     geotech_tie_tombstones_payload : list[dict[str, Any]] | None
         The engineer's deleted packing ties, keyed by place (owner 2026-08-17).
+    body_separations_payload : list[dict[str, Any]] | None
+        User "Separate" rulings (owner 2026-08-31, debt #278 R5).
     replace : bool
         When True, wipe before insert (revert-to-last-save).
 
@@ -456,5 +463,6 @@ async def restore_project_bundle(
         body_boundary_nodes_payload,
         litho_solids_payload,
         geotech_tie_tombstones_payload=geotech_tie_tombstones_payload,
+        body_separations_payload=body_separations_payload,
         replace=replace,
     )
