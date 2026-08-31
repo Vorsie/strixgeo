@@ -128,6 +128,12 @@ async def clone_project_children(
     remapped["body_geometry_facts"] = [
         _canonicalise_fact_endpoints(fact) for fact in remapped["body_geometry_facts"]
     ]
+    # body_separation carries the SAME (layer_a_id < layer_b_id) CHECK and no
+    # side columns, so the id-remap can flip its endpoints just like a fact's —
+    # re-canonicalise with the same helper.
+    remapped["body_separations"] = [
+        _canonicalise_fact_endpoints(sep) for sep in remapped["body_separations"]
+    ]
 
     await _restore_project_bundle_impl(
         session,
