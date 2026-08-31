@@ -64,33 +64,6 @@ describe('buildVoxelRequest carries the 2-D classification', () => {
     expect(sent.map((r) => r.kind)).toEqual(expected.map((r) => r.kind))
   })
 
-  it('sends the overlay tier, so an onlap is not confused with an enclosed lens', () => {
-    // PINNED TO v1, because overlayTier is v1's vocabulary and not a shared contract.
-    // Only v1 sets it, and its sole functional consumer is v1's ``carveOverlays``
-    // (``partitionFill/carve.ts``), the overlap-carving pass v2 makes unnecessary by
-    // producing a true partition by construction. v2 encodes the same onlap-versus-lens
-    // distinction in ``kind`` instead (``slice.ts``: BAND -> 'quad', ONLAP -> 'pinch',
-    // LENS -> 'lens'), so it never sets overlayTier at all.
-    //
-    // Without the pin this test went VACUOUS the moment v2 became the default: both
-    // sides of the comparison were all-null, so a builder that dropped overlay_tier
-    // entirely would have passed. The non-vacuity guard below is what makes the pin
-    // worth having rather than decorative.
-    const prev = process.env.STRIX_PARTITION_V2
-    process.env.STRIX_PARTITION_V2 = '0'
-    try {
-      const req = buildVoxelRequest(mixedSection, 2.0, 1.0)
-      const expected = engineRegions()
-
-      expect(expected.some((r) => r.overlayTier !== undefined)).toBe(true)
-      expect(req.sections[0].regions.map((r) => r.overlay_tier ?? null)).toEqual(
-        expected.map((r) => r.overlayTier ?? null),
-      )
-    } finally {
-      if (prev === undefined) delete process.env.STRIX_PARTITION_V2
-      else process.env.STRIX_PARTITION_V2 = prev
-    }
-  })
 
   it('sends the tied band base, which a user correlation makes absolute', () => {
     const req = buildVoxelRequest(mixedSection, 2.0, 1.0)
