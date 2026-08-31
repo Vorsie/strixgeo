@@ -62,6 +62,8 @@ from groundmodel.infrastructure.exporters.unit_identifier_constants import (
     MAPPING_TABLE_ABSORBED_HEADING,
     MAPPING_TABLE_ABSORBED_JOIN,
     MAPPING_TABLE_GAP,
+    MAPPING_TABLE_GEO_HEADING,
+    MAPPING_TABLE_GEO_JOIN,
     MAPPING_TABLE_ID_HEADING,
     MAPPING_TABLE_NAD_HEADING,
     MAPPING_TABLE_NAME_HEADING,
@@ -115,6 +117,11 @@ class UnitMappingRow:
     # Units merged into this one by export thinning (debt #104b). Always
     # empty on the Plaxis artefacts, which the owner ruled stay exact.
     absorbed: tuple[str, ...] = ()
+    # Geological formations this unit's body crosses (debt #278, R2),
+    # shallowest first. Empty on a geology-agnostic export and on a unit
+    # wholly inside one formation carrying no explicit list; the "Geo"
+    # column is emitted only when at least one row is non-empty.
+    geo_formations: tuple[str, ...] = ()
 
 
 def unit_identifier(*, nad_class: int | None, litho_main_soil_code: str | None) -> str | None:
@@ -222,6 +229,14 @@ def format_mapping_table(rows: list[UnitMappingRow], *, label_heading: str) -> l
         MAPPING_TABLE_NAME_HEADING,
         MAPPING_TABLE_ID_HEADING,
     ]
+    # The geo column appears ONLY when a unit crosses more than one
+    # geological formation (debt #278, R2) — same absorbed-column pattern:
+    # a geology-agnostic export carries no geo names, so its table renders
+    # byte-identically to before.
+    if any(row.geo_formations for row in rows):
+        headings.append(MAPPING_TABLE_GEO_HEADING)
+        for cell_row, row in zip(cells, rows, strict=True):
+            cell_row.append(MAPPING_TABLE_GEO_JOIN.join(row.geo_formations) or MAPPING_TABLE_ABSENT)
     # The absorbed column appears ONLY when something was thinned
     # (debt #104b), so an unthinned artefact — every Plaxis script, every
     # geological export — renders the table byte-identically to before.
