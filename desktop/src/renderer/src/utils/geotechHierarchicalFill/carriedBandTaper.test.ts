@@ -39,7 +39,7 @@ import { describe, expect, it } from 'vitest'
 
 import { computeHierarchicalGeotechFill } from './index'
 import { computeSectionFillActive } from '../partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 
 interface UnitSpec {
   layerId: string
