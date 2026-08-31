@@ -42,7 +42,6 @@ import {
 } from "./geotechHierarchicalFill";
 import {
   computeSectionFillActive,
-  isPartitionEngineV2Active,
 } from "./partitionEngineSelect";
 import { assembleSectionsWithCanonical } from "./sectionFenceData";
 
@@ -186,9 +185,6 @@ export interface VoxelBuildRequest {
  * boundariesByBodyId : ReadonlyMap<string, BodyBoundaryResponse>, optional
  *     Every body's stored hand-drawn boundary. Omitted / empty means nothing was
  *     drawn, which skips the extra no-override base engine pass entirely.
- * partitionEngineV2 : boolean
- *     Whether the ACTIVE engine consumes contact overrides (v2 does).
- *
  * Returns
  * -------
  * Map<string, LensApexOverride>
@@ -200,7 +196,6 @@ export function deriveSectionApexOverrides(
   edges: readonly CorrelationEdge[],
   alongM: readonly number[],
   boundariesByBodyId: ReadonlyMap<string, BodyBoundaryResponse> | undefined,
-  partitionEngineV2: boolean,
 ): Map<string, LensApexOverride> {
   const gapXs: GapExtent[] = alongM
     .slice(0, -1)
@@ -228,7 +223,6 @@ export function deriveSectionApexOverrides(
     screenToLevel: undefined,
     lensDrag: null,
     boundaryDrag: null,
-    partitionEngineV2,
     persistedLensBodies,
   });
   return apexOverrides;
@@ -253,7 +247,6 @@ export interface SectionPartitionFrame {
   /** Screen-free hand-drawn apex/contact overrides for this section. */
   apexOverrides: Map<string, LensApexOverride>;
   /** Which engine the overrides were derived for (v2 consumes contact overrides). */
-  partitionEngineV2: boolean;
 }
 
 /**
@@ -336,16 +329,14 @@ export function assembleSectionPartitionFrames(
     // The derivation is SCREEN-FREE — see ``deriveSectionApexOverrides``, which
     // owns it so the agreement gate can measure the SAME derivation instead of a
     // hand-copy that drifts.
-    const partitionEngineV2 = isPartitionEngineV2Active();
     const apexOverrides = deriveSectionApexOverrides(
       columns,
       input.edges,
       alongM,
       boundariesByBodyId,
-      partitionEngineV2,
     );
 
-    frames.push({ input, columns, payloadColumns, alongM, apexOverrides, partitionEngineV2 });
+    frames.push({ input, columns, payloadColumns, alongM, apexOverrides });
   }
   return frames;
 }
@@ -467,7 +458,7 @@ export function buildVoxelRequest(
     }
   }
   for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
-    const { input, columns, alongM, apexOverrides, partitionEngineV2 } = frame;
+    const { input, columns, alongM, apexOverrides } = frame;
     let { payloadColumns } = frame;
 
     const lithoFrame = frameBySectionId.get(sectionKey(input));
@@ -551,7 +542,7 @@ export function buildVoxelRequest(
       "litho-voxel",
       `payload section: ${payloadColumns.length} cols, ${regions.length} regions ` +
         `(${countSpanningRegions(engineRegions)} span their gap), ${input.edges.length} edges over ` +
-        `${tiedLayerIds.size} tied layers, engine=${partitionEngineV2 ? "v2" : "v1"}, ` +
+        `${tiedLayerIds.size} tied layers, engine=v2, ` +
         `overrides=${apexOverrides.size}`,
     );
 
