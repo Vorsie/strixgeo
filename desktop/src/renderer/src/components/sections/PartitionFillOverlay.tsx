@@ -54,7 +54,6 @@ import type {
   LithoLayerResponse,
 } from '../../api/client'
 import {
-  computeUnderColumnSubstrate,
   type CorrelationEdge,
   type LensApexOverride,
   type PartitionColumn,
@@ -62,7 +61,7 @@ import {
   type SectionRegion,
   LENS_PINCH_FRACTION,
   lensApexOverrideKey,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
 import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOverrideWiring'
 import { fillIdentityOf } from './sectionFillIdentity'
