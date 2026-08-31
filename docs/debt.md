@@ -9171,3 +9171,65 @@ rewrites), but it is NOT what caused this.
 when the list is available anyway. Item 2 the next time anyone touches
 `ContextMenu`'s SVG portal.
 
+## 280. Archive the v1 partition engine — v2 is the standard (M)
+
+**Owner ruling 2026-08-31:** *"archive the first faulty engine. the new one is
+de standard."* Four sub-rulings taken the same day: full separation (move the
+shared types out, delete v1 outright), delete v1's own tests with it, retire the
+A/B tooling, and strip the `STRIX_PARTITION_V2` env flag.
+
+Context already in the code: `partitionEngineSelect.ts` quotes him from
+2026-08-27 — *"dit is niet meer experimenteel maar de main engine"* — and v2 has
+been the measured default since 2026-08-01 (drilled gate identical at 54 exact /
+0 wrong; p90 contact error 0.125 → 0.123 m; worst 5.335 → 3.145 m; mesh 1.5 %
+smaller).
+
+**MEASURED SURFACE — this is a refactor, not a delete.**
+
+* Every one of ~228 import sites goes through the BARREL (`./partitionFill`,
+  `../partitionFill`, …). Nothing outside reaches into v1's internals, so the
+  specifier change is mechanical.
+* `computeSectionFill` — the v1 engine itself — has NO live callers. Only the
+  selector's fallback branches and the three A/B diagnostics being retired.
+* BUT the barrel mixes the dead engine with live code. Five functions and the
+  whole type vocabulary survive and are embedded in v1's largest files:
+
+  | Survivor | Lives in | Used by |
+  |---|---|---|
+  | the type vocabulary (`SectionRegion`, `PartitionColumn`, `CorrelationEdge`, `PartitionPoint`, `PartitionRegion`, `PartitionUnit`, `LensApexOverride`) | `types.ts` (+ `SectionRegion` in `sectionResolve.ts`) | ~190 uses app-wide |
+  | `matchColumns`, `classifyTermination` | `matcher.ts` | v2 `emitBands` / `emitIntervals`, `ColumnFindBar` |
+  | `collapseAdjacentSameFormation`, `computeBottomTieLine` | `columnReduce.ts` (39 KB) | v2 `sectionGeom`, `emitCurves` |
+  | `computeUnderColumnSubstrate` | `sectionResolve.ts` (79 KB) | `PartitionFillOverlay` |
+  | `regionArea` | `regionArea.ts` | the gapless gate, others |
+
+  `computeUnderColumnSubstrate` is 120 lines and needs only
+  `slicePolygonAtFraction` + `stackAtEdge`, so extraction is tractable.
+
+**PLAN — three independently verifiable steps, in order.**
+
+1. **Make v2 unconditional.** Delete `isPartitionEngineV2Active`,
+   `setPartitionEngineV2`, `usePartitionEngineV2`, the env parse, the
+   localStorage pref and the subscriber set; the three `computeSectionFillActive*`
+   entry points call v2 directly. Drop the `engineV2` return flag and the
+   `engineV2` parameter threaded through `usePartitionGhostHandles`. Remove the
+   Settings toggle (`SettingsDialog.tsx:484`) and its two i18n keys. Clean the
+   test harnesses that call `setPartitionEngineV2` (many sites in
+   `PartitionFillOverlay.test.tsx`, `PartitionFillOverlay.conflictKeys.test.tsx`)
+   — ⚠ check whether any of those deliberately assert V1 rendering rather than
+   merely resetting a default that has since flipped.
+2. **Delete v1's tests and the A/B tooling.** The 13 `partitionFill.*.test.ts`
+   files (including the CS1 gates and goldens — superseded by the CS1 golden
+   master), plus `partitionFillV2.parity.diag.test.ts`,
+   `partitionFillV2.parityCoverage.ts`, the v1 arms of
+   `shapeaudit.diag` / `zerocorr.classify.diag`, and
+   `scripts/diag_engine_fidelity_ab.py`.
+3. **Extract the survivors, then delete `partitionFill/`.** New
+   `utils/sectionPartition/` holding the types, the five functions and
+   `regionArea`, with a barrel exporting the same names; rewrite the ~228
+   specifiers; delete the old directory (`carve.ts`, `clip.ts`, `emit.ts`,
+   `polygonBuilders.ts`, `disjoint.ts`, and the dead bulk of `sectionResolve.ts`
+   / `columnReduce.ts`).
+
+**When to revisit.** In progress 2026-08-31. Do the steps in order and run the
+full desktop suite plus the CS1 golden master between each — step 3 touches
+every section-rendering import in the app.
