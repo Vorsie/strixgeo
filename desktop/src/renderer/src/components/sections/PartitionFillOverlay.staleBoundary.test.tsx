@@ -145,21 +145,11 @@ function minYOfFill(container: HTMLElement, color: string): number {
   return minY
 }
 
-describe.each([
-  { engine: 'v2', env: '1' },
-  // v1 is the engine that actually painted the owner's demo wedge: its
-  // off-engine POST-BEND pass bent the tied seam from the stored node.
-  { engine: 'v1', env: '0' },
-])('PartitionFillOverlay ($engine) — a stale boundary node never repaints across a tie', ({ env }) => {
-  let saved: string | undefined
-  beforeEach(() => {
-    saved = process.env.STRIX_PARTITION_V2
-    process.env.STRIX_PARTITION_V2 = env
-  })
-  afterEach(() => {
-    if (saved === undefined) delete process.env.STRIX_PARTITION_V2
-    else process.env.STRIX_PARTITION_V2 = saved
-  })
+// Ran as a describe.each over BOTH engines until v1 was archived (#280) —
+// v1 was the engine that actually painted the owner's demo wedge, through its
+// off-engine POST-BEND pass. That pass left with v1; the invariant is pinned
+// on the one engine that remains.
+describe('PartitionFillOverlay — a stale boundary node never repaints across a tie', () => {
 
   it('SB1 — the KLEI fill stays below the tied seam despite the stored node above it', () => {
     const { container } = render(
