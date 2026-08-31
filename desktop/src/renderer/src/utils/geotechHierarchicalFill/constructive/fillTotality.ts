@@ -29,7 +29,7 @@
  */
 
 import type { GapFillInput, GapFillResult } from './fillGap'
-import { regionAreaM2 } from '../../partitionFill/regionArea'
+import { regionAreaM2 } from '../../sectionPartition/regionArea'
 
 /** One gap that kept ground the law should have owned. */
 export interface TotalityViolation {
