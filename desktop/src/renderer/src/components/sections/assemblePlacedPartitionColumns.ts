@@ -11,7 +11,7 @@
 // identical columns; only the screen x-edge derivation is overlay-local.
 
 import type { LithoLayerResponse } from '../../api/client'
-import type { PartitionColumn } from '../../utils/partitionFill'
+import type { PartitionColumn } from '../../utils/sectionPartition'
 import {
   assembleSectionPartitionInput,
   type FenceLayerInput,
