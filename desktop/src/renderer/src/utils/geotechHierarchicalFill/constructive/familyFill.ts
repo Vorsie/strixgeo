@@ -28,8 +28,8 @@ import {
 } from './constructs'
 import type { Mass } from './emitKernel'
 import type { LithoFamily } from '../families'
-import type { CorrelationEdge, SectionRegion } from '../../partitionFill'
-import { regionAreaM2FromAlongM } from '../../partitionFill/regionArea'
+import type { CorrelationEdge, SectionRegion } from '../../sectionPartition'
+import { regionAreaM2FromAlongM } from '../../sectionPartition/regionArea'
 import type { TieConflict } from '../../partitionFillV2'
 
 /** Everything one family's fill needs from the section around it. */
