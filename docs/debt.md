@@ -9067,10 +9067,17 @@ each one is about the same question: what IS one body?
 3. **A one-time Alembic migration merges the existing twins** on upgrade —
    explicitly NOT heal-on-next-press. It rewrites rows the owner did not touch
    and he accepted that.
-4. **A point contact does NOT weld two bodies.** They must share a boundary with
-   real extent. Kill the class-keyed point-contact weld (`body_geometry_fact`,
-   all-pairs clique) — on his sand #19 it fused three vertically stacked NAD-6
-   sheets, separated by NAD-7 partings, that only amalgamate 25-35 m away.
+4. ~~A point contact does not weld.~~ **RETRACTED 2026-08-31, same day.** It
+   contradicted ruling 8l (2026-07-17), which `mergeTouchingBodies.ts` states
+   verbatim: two facing onlaps meeting at the 0.5 apex share that vertex and
+   MUST weld — one band thinning to nothing, not two bodies. Shown the clash the
+   owner ruled *"8l wins — leave welding as it is"*. **The weld rule does not
+   change.**
+   The sand #19 over-fusion (three stacked NAD-6 sheets, split by NAD-7 partings,
+   amalgamating only 25-35 m away) is STILL OPEN and wants a different fix. His
+   hint: *"for example by only welding within the same soil layer"* — scope the
+   weld, do not delete it. Investigate before building; do not invent the scoping
+   rule.
 5. **Build a "Separate" verb** — the counterpart to Dissolve, so he can state
    "these two are NOT the same body" and have the resolver honour it
    permanently. His standing ruling has two halves (*"a body is only a body if
@@ -9083,8 +9090,9 @@ each one is about the same question: what IS one body?
 7. Also in scope: the `_span_at_fraction` envelope over-union in
    `merge_bodies_across_sections.py:80-111`.
 
-**Why it is one slice.** 4, 5 and 6 all change which masses resolve to one
-body; 1, 2 and 3 all change how that body is named and stored. Landing them
+**Why it is one slice.** 5 and 6 change which masses resolve to one body (4 was
+retracted, but its subject — the sand #19 over-fusion — still wants a scoping
+rule, and 5 is the only way to undo a weld until it exists); 1, 2 and 3 all change how that body is named and stored. Landing them
 separately means re-deriving bodies several times and re-migrating rows, and
 each intermediate state is one the owner would have to dogfeed and judge.
 
