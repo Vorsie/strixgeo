@@ -9171,7 +9171,7 @@ rewrites), but it is NOT what caused this.
 when the list is available anyway. Item 2 the next time anyone touches
 `ContextMenu`'s SVG portal.
 
-## 280. Archive the v1 partition engine — v2 is the standard (M)
+## 280. Archive the v1 partition engine — RESOLVED 2026-08-31 (M)
 
 **Owner ruling 2026-08-31:** *"archive the first faulty engine. the new one is
 de standard."* Four sub-rulings taken the same day: full separation (move the
@@ -9230,6 +9230,19 @@ smaller).
    `polygonBuilders.ts`, `disjoint.ts`, and the dead bulk of `sectionResolve.ts`
    / `columnReduce.ts`).
 
-**When to revisit.** In progress 2026-08-31. Do the steps in order and run the
-full desktop suite plus the CS1 golden master between each — step 3 touches
-every section-rendering import in the app.
+**RESOLVED 2026-08-31, same day, all three steps.** v2 unconditional (selector
+flag machinery, Settings toggle, env override, engineV2 plumbing and the two
+v1-only off-engine overlay passes deleted; the overlay lost ~240 lines);
+v1's 13 suites + the A/B tooling deleted; the survivors extracted to
+``utils/sectionPartition/`` (types, matcher, closeColumnGaps +
+collapseAdjacentSameFormation + computeBottomTieLine, SectionRegion +
+slicePolygonAtFraction, regionArea) and ``partitionFill/`` deleted — ~200
+import sites rewritten mechanically. Gates at every step: tsc web+node clean,
+full desktop suite green (finally 4901 passed / 0 failed, CS1 golden master
+included). Two notes that outlive the work: (a) ``parityCoverage`` STAYS
+despite its name — the conformance classifier, CS1 gates and f1gate import
+it; (b) FD1's deletion records a REAL v2 capability gap — the two-node
+contact bend only v1 performed (v2's contact free-draw is single-node by
+design); owner call if multi-node contact freedraw is ever wanted. The
+``overlay_tier`` wire field is now written by nothing (v1's vocabulary) —
+drop it from the payload/backend at the next voxel-contract touch.
