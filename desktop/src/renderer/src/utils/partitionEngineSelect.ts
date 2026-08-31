@@ -27,7 +27,7 @@ import type {
   LensApexOverride,
   PartitionColumn,
   SectionRegion,
-} from './partitionFill'
+} from './sectionPartition'
 import {
   classifyOverrideOutcome,
   computeSectionFillV2,
