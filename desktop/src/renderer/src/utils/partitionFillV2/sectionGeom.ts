@@ -23,8 +23,8 @@ import {
   type LensApexOverride,
   type PartitionColumn,
   type PartitionUnit,
-} from '../partitionFill'
-import { closeColumnGaps } from '../partitionFill/columnReduce'
+} from '../sectionPartition'
+import { closeColumnGaps } from '../sectionPartition/columnReduce'
 import { enforceMinimumColumnSeparation } from './columnSeparation'
 import { buildTieContactElevs, interbedContactTied } from './tieContacts'
 import { twoSidedTerminationsEnabled } from './tileFlags'
