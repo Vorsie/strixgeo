@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.packing_class_key_loader import load_packing_class_key
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.body_fact_translation import plan_geometry_facts
 from groundmodel.domain.services.voxel_litho.merge_bodies_across_sections import (
@@ -188,9 +189,18 @@ class RecomputeBodies(GroundModelLogger):
 
         await lock_body_partition(self._session, model_id=model_id, operation="bodies/recompute")
 
+        # Packing-class identity (debt #278): the geotech model keeps one
+        # formation ROW per (NAD class, litho parent, geological parent), so the
+        # same class exists under several ids where a litho unit spans a
+        # geological boundary. Comparing the CLASS (not the row) fuses those
+        # twins into one body (owner 2026-08-21, "yes one mass one body").
+        # Unconditional — a litho model's rows carry no NAD class, so the key is
+        # the identity function there and this is byte-identical to before.
+        identity_key_of = await load_packing_class_key(self._session, project_id)
+
         planned = plan_geometry_facts(
             section_layer_groups=section_layer_groups,
-            cross_section_layer_groups=plan_layer_groups(sections),
+            cross_section_layer_groups=plan_layer_groups(sections, identity_key_of),
         )
 
         # Pre-image: the layer→body partition BEFORE the resolve, and the set
