@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import { fillGap } from './constructive/fillGap'
 import type { RunColumn } from './constructive/constructs'
 import { interiorPoint } from './frameClipGeometry'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 const region = (
   gapIndex: number,
