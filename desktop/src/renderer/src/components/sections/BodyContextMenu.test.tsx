@@ -79,6 +79,47 @@ describe('BodyContextMenu', () => {
     expect(onShowUnitStatistics).toHaveBeenCalledWith(makeBody().formation_id, makeBody().id)
   })
 
+  // R2 (owner ruling 2026-08-31): a body crossing two geological formations
+  // LISTS them both. The header field separator stays "·"; inside the geo field
+  // the crossed formations join with "+", shallowest first.
+  it('BCM9 — the header lists every crossed geo formation, joined with "+"', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody({
+            geo_formation_name: 'Holoceen',
+            geo_formations: [
+              { id: 'g1', name: 'Holoceen' },
+              { id: 'g2', name: 'Pleistoceen' },
+            ],
+          })}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.getByText(/· Holoceen \+ Pleistoceen/)).toBeInTheDocument()
+  })
+
+  it('BCM10 — an old cached response with only the singular field still shows it', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody({ geo_formation_name: 'Pleistoceen' })}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.getByText(/· Pleistoceen$/)).toBeInTheDocument()
+  })
+
   it('BCM8 — no statistics handler, no item (the no-affordance rule)', () => {
     render(
       <svg>
