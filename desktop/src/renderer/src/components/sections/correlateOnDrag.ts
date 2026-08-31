@@ -34,7 +34,7 @@ import {
   INTERIOR_PINCH_FRACTION,
   type PartitionColumn,
   type PartitionUnit,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 
 /** Contact-elevation match epsilon in metres (units are pre-arrangement-snap; 1 mm grid). */
 const CONTACT_MATCH_M = 1e-3
