@@ -19,7 +19,7 @@ import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
