@@ -9,7 +9,7 @@
 // than inline (and it keeps the count out of the already-oversized overlay,
 // debt #201).
 
-import type { SectionRegion } from './partitionFill'
+import type { SectionRegion } from './sectionPartition'
 
 /** A ring must reach within this of 0 and 1 to count as spanning its gap. */
 const EDGE_TOL = 0.01
