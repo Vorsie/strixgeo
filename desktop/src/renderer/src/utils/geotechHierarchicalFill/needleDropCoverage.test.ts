@@ -13,8 +13,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { computeHierarchicalGeotechFill } from './index'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../partitionFill'
-import { regionAreaM2 } from '../partitionFill/regionArea'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
+import { regionAreaM2 } from '../sectionPartition/regionArea'
 
 // The owner's own real needle ring (B3|S9, CS1 gap 12), verbatim from
 // dropNeedleSpurs.test.ts's NS1 — the exact detour that started this whole
