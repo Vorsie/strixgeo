@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type PartitionPoint } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type PartitionPoint } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 
