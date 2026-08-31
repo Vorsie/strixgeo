@@ -26,7 +26,7 @@ import { Box, Download, RefreshCw } from 'lucide-react'
 import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
 import { ToolbarButton } from '../../ToolbarPrimitives'
-import ToolbarNoticeChip from '../../../components/sections/ToolbarNoticeChip'
+import AttentionChip from '../../../components/sections/AttentionChip'
 import {
   staleGeotechChipLabel,
   staleGeotechChipTitle,
@@ -140,7 +140,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           pending-tie one: it is a real button because it can act, and pressing
           it walks the excluded tests one by one. */}
       {excludedCount > 0 && (
-        <ToolbarNoticeChip
+        <AttentionChip
           testid="geotech-excluded-tests-chip"
           label={`${excludedCount} test${excludedCount === 1 ? '' : 's'} excluded`}
           title={
@@ -173,7 +173,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           Passive — the columns can sit on any section, so there is no single
           "next" thing this stage could centre; it names them instead. */}
       {staleColumns.length > 0 && (
-        <ToolbarNoticeChip
+        <AttentionChip
           testid="geotech-stale-litho-chip"
           label={staleGeotechChipLabel(t, staleColumns.length)}
           title={staleGeotechChipTitle(t, staleColumns)}
