@@ -44,8 +44,8 @@ import { pickRemainder } from './remainderLadder'
 import { drapeHolds, seamDrapeOf, type SeamDrape } from './seamDrape'
 import { nadClassRank, seamHalfBand, stackedSeamOf, type StackedSeam } from './stackedSeamHalf'
 import { overlayFaces, pointInRing } from '../frameClipGeometry'
-import type { SectionRegion } from '../../partitionFill'
-import { ringAreaM2 } from '../../partitionFill/regionArea'
+import type { SectionRegion } from '../../sectionPartition'
+import { ringAreaM2 } from '../../sectionPartition/regionArea'
 
 /** How far construct lines are drawn past the gap so they cross it cleanly. */
 const EXTEND = 0.02
