@@ -19,7 +19,7 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { LithoLayerResponse } from '../../api/client'
-import type { SectionRegion } from '../../utils/partitionFill'
+import type { SectionRegion } from '../../utils/sectionPartition'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
 import type { PlacedColumn } from './utils'
