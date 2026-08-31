@@ -36,7 +36,7 @@
  * @module utils/geotechHierarchicalFill/dropNeedleSpurs
  */
 
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 /**
  * How thin an out-and-back detour must be to count as a needle, in METRES —
