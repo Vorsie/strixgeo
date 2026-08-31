@@ -330,7 +330,7 @@ export const SECTIONS_NL = {
   // ---------------------------------------------------------------------------
   // litho-as werkbalkwerkwoorden + menu's
   // FLAG: "CPT" wordt hier vertaald als "sondering/sondeer-" (bestaande
-  // catalogusconventie); de eigenaar heeft "Sondering vs CPT" nog niet beslist.
+  // catalogusconventie); eigenaar 2026-08-31: "Sondering (CPT)" bij de eerste vermelding per scherm, daarna Sondering.
   // ---------------------------------------------------------------------------
   'sections.litho.suggest': 'Voorstellen',
   'sections.litho.suggestAll': 'Alles voorstellen',
@@ -447,14 +447,14 @@ export const SECTIONS_NL = {
   'sections.geotech.step1OpenSection':
     'Open eerst een dwarsprofiel — deze stap verdeelt de sonderingen op het profiel dat je open hebt onder',
   'sections.geotech.step1Title':
-    'Stap 1 van 4 — leid NAD-pakkingsklassen (1–31) af op de sonderingen van DIT profiel, en laat de banden, koppelingen en lichamen van elk ander profiel ongemoeid. Correleert niets: “2 · Automatisch correleren” stelt daarna de pakkingskoppelingen voor. Maakt het geotechnisch model aan bij de eerste uitvoering. Een sondering die op geen enkel dwarsprofiel ligt, wordt nooit onderverdeeld.',
+    'Stap 1 van 4 — leid NAD-pakkingsklassen (1–31) af op de sonderingen van DIT profiel, en laat de banden, koppelingen en lichamen van elk ander profiel ongemoeid. Correleert niets: “2 · Automatisch correleren” stelt daarna de pakkingscorrelaties voor. Maakt het geotechnisch model aan bij de eerste uitvoering. Een sondering die op geen enkel dwarsprofiel ligt, wordt nooit onderverdeeld.',
   'sections.geotech.step2': '2 · Automatisch correleren',
   'sections.geotech.step2OpenSection':
     'Open eerst een dwarsprofiel — deze stap stelt koppelingen voor op het profiel dat je open hebt',
   'sections.geotech.noBandsHere':
     'Nog geen pakkingsbanden op dit profiel — gebruik eerst “1 · Sonderingen onderverdelen” op dit profiel',
   'sections.geotech.step2Title':
-    'Stap 2 van 4 — leid de pakkingskoppelingen van dezelfde klasse af binnen elke gecorreleerde litho-eenheid OP DIT PROFIEL, en spring over boorkolommen die nog geen pakking dragen. Koppelingen die een litho-correlatie herhalen die je al goedgekeurd hebt, komen AANVAARD binnen; de rest komt als voorstel. Handgetekende correlaties worden nooit aangeraakt.',
+    'Stap 2 van 4 — leid de pakkingscorrelaties van dezelfde klasse af binnen elke gecorreleerde litho-eenheid OP DIT PROFIEL, en spring over boorkolommen die nog geen pakking dragen. Koppelingen die een litho-correlatie herhalen die je al goedgekeurd hebt, komen AANVAARD binnen; de rest komt als voorstel. Handgetekende correlaties worden nooit aangeraakt.',
   'sections.geotech.step3': '3 · Koppelingen aanvaarden',
   'sections.geotech.pendingHere': '{n} openstaand hier',
   'sections.geotech.step3OpenSection':
@@ -480,8 +480,8 @@ export const SECTIONS_NL = {
 
   // openstaande-koppelingen-chip + tooltip (utils/geotechPendingScope)
   'sections.geotech.pendingModel': '{n} openstaand',
-  'sections.geotech.tiesOne': '{n} pakkingskoppeling',
-  'sections.geotech.tiesMany': '{n} pakkingskoppelingen',
+  'sections.geotech.tiesOne': '{n} pakkingscorrelatie',
+  'sections.geotech.tiesMany': '{n} pakkingscorrelaties',
   'sections.geotech.sectionsOne': '{n} profiel',
   'sections.geotech.sectionsMany': '{n} profielen',
   'sections.geotech.pendingTitleModel':
