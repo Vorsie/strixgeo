@@ -595,6 +595,20 @@ async def _restore_bodies(
         # were dropped from BodyOrm (migration d8868bb27884), so
         # _apply_json_to_kwargs's "unknown key → skip" rule drops them here.
         kwargs = _apply_json_to_kwargs(BodyOrm, lens_payload)
+        # parent_litho_body_id is resolver-maintained, never restored (debt #278,
+        # R1). Two reasons, and the FIRST is the durable one — do not revert this
+        # pop to "carry it through":
+        #  1. INSERT-ORDERING SAFETY. body is a self-referencing table and these
+        #     rows insert one-by-one in payload order; a geotech body's
+        #     parent_litho_body_id may name a litho body row that has not been
+        #     inserted yet, which would FK-violate mid-loop. Popping keeps this a
+        #     single-pass insert with no ordering dependency and no second pass.
+        #  2. STALENESS. Even in the right order the bundled value names a litho
+        #     body id from the SAVING session, which this restore re-mints, so it
+        #     would be wrong on arrival.
+        # The post-restore reconcile (reconcile_bodies_after_restore,
+        # litho-before-geotech) re-stamps it from the freshly-resolved litho bodies.
+        kwargs.pop("parent_litho_body_id", None)
         kwargs["app_project_id"] = project_id
         session.add(BodyOrm(**kwargs))
         existing.add(lens_id)
