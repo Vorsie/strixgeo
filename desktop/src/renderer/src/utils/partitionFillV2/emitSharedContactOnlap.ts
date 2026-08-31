@@ -30,7 +30,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION } from '../sectionPartition'
 import { type IntervalUnit } from './emitIntervalLenses'
 import { type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
