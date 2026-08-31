@@ -9083,10 +9083,21 @@ each one is about the same question: what IS one body?
    permanently. His standing ruling has two halves (*"a body is only a body if
    it is geometrically connected, or if the user says this body is the same as
    that body"*) and only Dissolve exists, so today the machine can overrule him.
-6. **The resolver moves to the hierarchical fill** — the same arm the 2-D
-   screen, the 3-D build and the fence already run. Today it runs the older
-   direct-v2 (`buildBodyRecomputePayload`), so which masses count as one body is
-   decided from a DIFFERENT picture than the one on screen.
+6. **Geotech body identity is computed from the LITHO fill.**
+   `makeBodyRecomputeBuilder` serves BOTH kinds ("litho / geotech"), and both go
+   through `buildBodyRecomputePayload`, which calls
+   `computeSectionFillActiveWithIdentity` — the litho v2 engine. So for a GEOTECH
+   model, which masses count as one body is decided from the litho picture,
+   while the 2-D screen, the 3-D build and the fence all show
+   `computeHierarchicalGeotechFill`.
+   ⚠ Wording correction (2026-08-31): an earlier version of this entry called it
+   "the older direct-v2 engine". That is wrong and would send someone hunting a
+   version difference. `buildBodyRecomputePayload`'s own header is explicit that
+   it deliberately shares the voxel build's frames "so the identity geometry can
+   never drift from the built geometry — the engine CALL is what differs", and
+   the identity entry point exists for real reasons: it returns the weld's merge
+   GROUPS in layer-id space (body ids oscillated in production, 2026-08-12) and
+   it excludes fallback paint. Any fix must preserve BOTH of those.
 7. Also in scope: the `_span_at_fraction` envelope over-union in
    `merge_bodies_across_sections.py:80-111`.
 
