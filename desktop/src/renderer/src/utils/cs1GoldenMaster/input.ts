@@ -11,7 +11,7 @@
 
 import fixture from '../__fixtures__/cs1_golden_input.json'
 import { buildPackingClassOf } from '../geotechHierarchicalFill/packingClassOf'
-import type { CorrelationEdge, PartitionColumn } from '../partitionFill'
+import type { CorrelationEdge, PartitionColumn } from '../sectionPartition'
 
 /** One anonymised column as the fixture stores it. */
 interface FixtureColumn {
