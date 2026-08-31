@@ -72,7 +72,7 @@ describe('LITHO ledger diag', () => {
       const regions: SectionRegion[] = computeSectionFillActive(
         columns,
         edges,
-        deriveSectionApexOverrides(columns, edges, alongM, empty, true),
+        deriveSectionApexOverrides(columns, edges, alongM, empty),
         alongM,
       )
       // Region dump — sorted so the diff is order-insensitive.
