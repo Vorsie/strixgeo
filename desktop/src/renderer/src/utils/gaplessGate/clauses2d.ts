@@ -40,7 +40,7 @@ import BufferOp from 'jsts/org/locationtech/jts/operation/buffer/BufferOp.js'
 
 import type { GaplessClauseEntry, GaplessClauseKey, GaplessClauseStatus } from './types'
 import type { HierarchicalGeotechFillResult } from '../geotechHierarchicalFill'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 import { SNAP_GRID_M } from '../partitionFillV2/types'
 
 /** The three 2-D clause keys this module answers (clause 4 lives in ``sectionClosure.ts``). */
