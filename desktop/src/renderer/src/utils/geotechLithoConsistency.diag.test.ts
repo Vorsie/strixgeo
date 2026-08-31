@@ -59,7 +59,7 @@ import {
 } from './frameAlignedPartition'
 import { selectLithoFallbackRegions, type FallbackPackingBand } from './geotechFillFallback'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
