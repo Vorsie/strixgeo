@@ -114,7 +114,6 @@ describe('hierarchical fill — structural sweep', () => {
     return
   }
   it('sweeps every section', () => {
-    process.env.STRIX_PARTITION_V2 = '1'
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
     const geotechSoil = new Map<string, string | null>(
       Object.entries(raw.refinementBundle.nadMeta).map(([k, v]) => [k, v.soilCode]),
