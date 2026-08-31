@@ -30,6 +30,7 @@ from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
@@ -187,6 +188,7 @@ async def _run_resolver(
                 LithoLayerOrm.borehole_id,
                 LithoLayerOrm.cpt_id,
                 LithoLayerOrm.body_id,
+                LithoLayerOrm.parent_litho_layer_id,
                 GeologicalFormationOrm.parent_formation_id,
                 GeologicalFormationOrm.litho_main_soil_code,
                 GeologicalFormationOrm.nad_class,
@@ -222,6 +224,12 @@ async def _run_resolver(
         for r in layer_rows
     ]
     existing_body_id_by_layer: dict[UUID, UUID | None] = {r.id: r.body_id for r in layer_rows}
+    # (depth_top_m, parent_litho_layer_id) per layer — read by the geotech-body
+    # litho-parent stamp (step 5b, debt #278 R1). parent_litho_layer_id is NULL
+    # on litho-model rows, so this only carries anything on a geotech resolve.
+    layer_meta: dict[UUID, tuple[float, UUID | None]] = {
+        r.id: (r.depth_top_m, r.parent_litho_layer_id) for r in layer_rows
+    }
 
     # 2. User-approved edges, MINUS the ones under review — endpoints already FK
     #    litho_layer.id.
@@ -433,6 +441,61 @@ async def _run_resolver(
             update(LithoLayerOrm).where(LithoLayerOrm.id.in_(lids)).values(body_id=bid)
         )
 
+    # 5b. Stamp body.parent_litho_body_id — the litho parent BODY each geotech
+    #     body subdivides (debt #278, R1, owner 2026-08-31: "one connected
+    #     geotech body = one row with an FK to its litho parent"). It is derivable
+    #     via the SHALLOWEST member band's ``parent_litho_layer_id`` -> that litho
+    #     layer's ``body_id`` — mirroring the shallowest-member rule the body
+    #     formation stamp uses — but the owner ruled it STORED so the units pane,
+    #     fence and exports read one connected body's litho parent from one column.
+    #     A LITHO resolve re-stamps these from the other side (step 6) whenever it
+    #     re-mints litho body ids, so the stored FK cannot dangle.
+    if is_geotechnical:
+        parent_layer_ids = {plid for _dt, plid in layer_meta.values() if plid is not None}
+        litho_body_by_parent_layer: dict[UUID, UUID | None] = {}
+        if parent_layer_ids:
+            litho_body_by_parent_layer = {
+                ll_id: ll_body_id
+                for ll_id, ll_body_id in (
+                    await session.execute(
+                        select(LithoLayerOrm.id, LithoLayerOrm.body_id).where(
+                            LithoLayerOrm.id.in_(parent_layer_ids)
+                        )
+                    )
+                ).all()
+            }
+        for inst in result.instances:
+            body = body_by_key[(inst.formation_id, inst.ordinal)]
+            # Members carrying a covering litho band, as (depth_top, band id,
+            # parent layer id). ``member_layer_ids`` is a SET, so iteration order
+            # is meaningless; the tie-break must be explicit and must match the
+            # rest of the system (domain ``_key``, step 6's SQL, the PLB test
+            # oracle) or an exact depth tie between members with DIFFERENT litho
+            # parents would pick nondeterministically and could disagree with
+            # step 6. So sort by ``(depth_top_m, str(band id))`` — the same order
+            # step 6 takes with ``geo_band.depth_top_m, geo_band.id``. A member
+            # with no parent_litho_layer_id contributes nothing.
+            members: list[tuple[float, str, UUID]] = []
+            for lid in inst.member_layer_ids:
+                meta = layer_meta.get(lid)
+                if meta is None or meta[1] is None:
+                    continue
+                members.append((meta[0], str(lid), meta[1]))
+            members.sort(key=lambda m: (m[0], m[1]))
+            if not members:
+                body.parent_litho_body_id = None
+                continue
+            distinct_parents = {litho_body_by_parent_layer.get(plid) for _d, _lid, plid in members}
+            distinct_parents.discard(None)
+            shallowest_parent = litho_body_by_parent_layer.get(members[0][2])
+            if len(distinct_parents) > 1:
+                logger.info(
+                    f"_run_resolver: geotech body {body.id} members disagree on litho "
+                    f"parent body ({sorted(str(b) for b in distinct_parents)}); stamping "
+                    f"the shallowest member's parent {shallowest_parent}"
+                )
+            body.parent_litho_body_id = shallowest_parent
+
     if changed or n_stamped:
         await session.flush()
         pairs = [(model_id, UUID(c["formation_id"])) for c in changed]
@@ -446,6 +509,68 @@ async def _run_resolver(
         )
     else:
         logger.debug(f"_run_resolver: no changes for model {model_id}")
+
+    # 6. A LITHO resolve re-mints litho body ids, so re-stamp every sibling
+    #    GEOTECH model's body.parent_litho_body_id in the SAME transaction —
+    #    otherwise a re-minted litho body id would leave every geotech body under
+    #    it dangling until the next subdivide (debt #278, R1). One set-based
+    #    UPDATE: each geotech body takes the litho body its SHALLOWEST member band
+    #    subdivides (DISTINCT ON, shallowest first — the same rule step 5b stamps
+    #    from the geotech side).
+    #
+    #    This UPDATE writes body.parent_litho_body_id on the GEOTECH model — the
+    #    same column step 5b writes from the geotech side. The two sides share no
+    #    lock by default (litho verbs — correlate / accept / delete-layer /
+    #    update-contact / litho recompute — vs geotech verbs — set-class / split /
+    #    merge / move-boundary / geotech recompute), so without a lock a concurrent
+    #    geotech resolve's step-5b ORM write and this UPDATE could both write one
+    #    body's FK last-commit-wins from possibly-stale snapshots — a silently
+    #    WRONG non-NULL parent that persists (feeding the units pane / fence /
+    #    exports) until that geotech model next resolves. So take each sibling
+    #    geotech model's partition lock HERE, with the litho lock already held:
+    #    litho-parent-first is exactly the order ``body_partition_lock`` mandates,
+    #    so the geotech lock taken second introduces no new deadlock class. Sorted
+    #    so two litho resolves acquire the sibling locks in one canonical order.
+    if not is_geotechnical:
+        sibling_geotech_ids = (
+            (
+                await session.execute(
+                    select(GeologicalModelOrm.id).where(
+                        GeologicalModelOrm.parent_model_id == model_id,
+                        GeologicalModelOrm.kind == MODEL_KIND_GEOTECHNICAL,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if sibling_geotech_ids:
+            for sibling_id in sorted(sibling_geotech_ids, key=str):
+                await lock_body_partition(
+                    session, model_id=sibling_id, operation="restamp-parent-litho-body"
+                )
+            geo_band = aliased(LithoLayerOrm)
+            litho_band = aliased(LithoLayerOrm)
+            parent_subq = (
+                select(
+                    geo_band.body_id.label("geo_body_id"),
+                    litho_band.body_id.label("litho_body_id"),
+                )
+                .join(litho_band, litho_band.id == geo_band.parent_litho_layer_id)
+                .where(
+                    geo_band.model_id.in_(sibling_geotech_ids),
+                    geo_band.body_id.is_not(None),
+                    geo_band.parent_litho_layer_id.is_not(None),
+                )
+                .distinct(geo_band.body_id)
+                .order_by(geo_band.body_id, geo_band.depth_top_m.asc(), geo_band.id.asc())
+                .subquery()
+            )
+            await session.execute(
+                update(BodyOrm)
+                .where(BodyOrm.id == parent_subq.c.geo_body_id)
+                .values(parent_litho_body_id=parent_subq.c.litho_body_id)
+            )
 
     return changed, tuple(renamed)
 
