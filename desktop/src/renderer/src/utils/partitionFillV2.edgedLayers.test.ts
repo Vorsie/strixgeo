@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge } from './partitionFill'
+import { type CorrelationEdge } from './sectionPartition'
 import { buildEdgedLayers } from './partitionFillV2/edgedLayers'
 import { type ColumnGeom, type UnitGeom } from './partitionFillV2/sectionGeom'
 
