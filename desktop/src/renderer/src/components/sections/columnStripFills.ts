@@ -20,7 +20,7 @@
  * Pure: no React, no DOM — see ``columnStripFills.test.ts``.
  */
 
-import type { PartitionColumn } from '../../utils/partitionFill'
+import type { PartitionColumn } from '../../utils/sectionPartition'
 import type { ColumnScreen } from './partitionFillOverlayHelpers'
 
 /** The column identity + screen-edge maps one partition assembly produced. */
