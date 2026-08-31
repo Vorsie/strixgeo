@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { computeSectionFillV2 } from './partitionFillV2/computeSectionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 
 const CLAY = 'clay'
 const SAND = 'sand'
