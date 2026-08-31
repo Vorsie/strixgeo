@@ -101,7 +101,12 @@ router = APIRouter()
 
 
 def _to_list_item(body: BodyOrm, geo_label: tuple[UUID | None, str | None]) -> BodyListItem:
-    """Build a ``BodyListItem`` from a body row + its derived geo label."""
+    """Build a ``BodyListItem`` from a body row + its derived geo label.
+
+    ``parent_litho_body_id`` (debt #278, R1) is a real ORM column, so
+    ``from_attributes`` fills it straight off ``body`` here — only the DERIVED
+    geo label has to be set by hand.
+    """
     item = BodyListItem.model_validate(body)
     item.geo_formation_id, item.geo_formation_name = geo_label
     return item
