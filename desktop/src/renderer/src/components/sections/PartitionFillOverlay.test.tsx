@@ -54,7 +54,7 @@ import type {
   LithoContactCorrelationEdge,
   LithoLayerResponse,
 } from '../../api/client'
-import type { PartitionRegion } from '../../utils/partitionFill'
+import type { PartitionRegion } from '../../utils/sectionPartition'
 import * as partitionEngineSelect from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
