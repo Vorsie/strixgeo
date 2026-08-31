@@ -133,7 +133,6 @@ describe('geotech fill — clamped-edge reach on the live model', () => {
           `\nthen re-run with GEOTECH_EDGE_REACH=1.`,
       )
     }
-    process.env.STRIX_PARTITION_V2 = '1'
     const NL = String.fromCharCode(10)
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as RawFile
     const classOf = buildPackingClassOf(Object.entries(raw.refinementBundle.nadMeta))
@@ -154,7 +153,7 @@ describe('geotech fill — clamped-edge reach on the live model', () => {
       const lithoRegions = computeSectionFillActive(
         L.columns,
         lithoEdges,
-        deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty, true),
+        deriveSectionApexOverrides(L.columns, lithoEdges, L.alongM, empty),
         L.alongM,
       )
       const hier = computeHierarchicalGeotechFill({
