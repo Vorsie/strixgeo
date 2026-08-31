@@ -30,6 +30,7 @@ from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoun
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -223,6 +224,19 @@ async def _build_project_bundle_impl(
         )
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
+    # The engineer's "Separate" rulings (owner 2026-08-31, debt #278 R5: a body
+    # is only a body if geometrically connected OR the user says so). Scoped
+    # through geological_model like the facts; a layer-id pair the resolver reads
+    # as a cannot-link. Without it a save/restore or clone would silently rejoin
+    # bodies the engineer explicitly separated — the ruling's word was "permanent".
+    body_separations_stmt = (
+        select(BodySeparationOrm)
+        .join(
+            GeologicalModelOrm,
+            BodySeparationOrm.model_id == GeologicalModelOrm.id,
+        )
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
     # Lens boundary shapes + nodes (#163f Slice 2). Scoped through
     # geological_model (the shape carries model_id; nodes hang off the shape).
     lens_shapes_stmt = (
@@ -261,6 +275,7 @@ async def _build_project_bundle_impl(
     contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
     geometry_facts = (await session.execute(geometry_facts_stmt)).scalars().all()
     tie_tombstones = (await session.execute(tie_tombstones_stmt)).scalars().all()
+    body_separations = (await session.execute(body_separations_stmt)).scalars().all()
     lens_shapes = (await session.execute(lens_shapes_stmt)).scalars().all()
     lens_boundary_nodes = (await session.execute(lens_boundary_nodes_stmt)).scalars().all()
     litho_solids = (
@@ -359,6 +374,11 @@ async def _build_project_bundle_impl(
         # Deleted packing ties, keyed by place (owner 2026-08-17). Additive:
         # older bundles open cleanly via the restore's empty-list default.
         "geotech_tie_tombstones": [_column_to_json(t, _SKIP_COLUMNS) for t in tie_tombstones],
+        # User "Separate" rulings (owner 2026-08-31, debt #278 R5). Each row
+        # carries (model_id, layer_a_id, layer_b_id) — the cannot-link the
+        # resolver honours. Additive: older bundles open cleanly via the
+        # restore's empty-list default.
+        "body_separations": [_column_to_json(s, _SKIP_COLUMNS) for s in body_separations],
         # Body boundary shapes + control nodes (#163f Slice 2). Shapes carry
         # (model_id, body_id, render_style); nodes carry (shape_id,
         # boundary, node_index, along_m, elevation_m). Additive — bundles saved
