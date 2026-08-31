@@ -8964,3 +8964,86 @@ were unguarded — both were upgraded, not copied. Per-ref outcome:
 Red-first pins: `LithologyCanvas.test.tsx` U1/U3, `GeotechnicalCanvas.test.tsx`
 GU1/GU3, `useProjectBodyRecompute.test.ts` R1/R2 (split-never-nulled and the
 mount-order wipe, both watched RED on the old code); U2/U4/GU2 are guards.
+
+## 277. The litho and geotech engines snap-round independently (M)
+
+**What.** The two engines each perform their own snap-rounding pass onto a
+1 mm grid — the litho partition in `partitionFillV2` (`snap.ts`: one pass,
+every input vertex AND every computed intersection, so the arrangement walk
+downstream is exact integer arithmetic), the geotech fill in its own
+`frameClipGeometry` arrangement. Wherever the geotech subdivides a SLOPING
+litho contact it must state where its cut lands on that contact, and that
+elevation is generally not on the grid. Rounding it produces a polyline that
+bows up to half a millimetre off the straight line the litho drew between the
+same two columns, and the area between the two descriptions is a hairline
+sliver.
+
+Measured on the owner's real model 2026-08-31 (`__GEOFILL_SAVE()` dumps of
+CS1/CS2/CS3, replayed offline):
+
+| Section | unpainted | painted outside | widest patch |
+|---|---|---|---|
+| CS1 (24 col) | 0.1315 m² | 0.0543 m² | 0.5 mm across |
+| CS2 (24 col) | 0.0404 m² | 0.0280 m² | 0.5 mm across |
+| CS3 (10 col) | 0.0220 m² | 0.0134 m² | 0.2 mm across |
+
+The canonical case is CS1 gap 3: the contact runs +7.509 m to +5.21 m, the
+geotech cuts at mid-gap, and (7.509 + 5.21) / 2 = **6.3595** — exactly on a
+half-millimetre, so it can only be written 6.359 or 6.360. What is left is a
+real grid-aligned triangle 90 m long and 0.5 mm thick. Gaps whose contacts are
+horizontal, or whose cut lands on a grid value, read EXACTLY zero — which is
+what proves the mechanism is rounding and not a modelling defect.
+
+Neither model is internally wrong: every geotech region shares full edges with
+its neighbours, and so does every litho region. The sliver exists only when one
+model's boundary is laid over the other's.
+
+**Two structural cures, both real engine work:**
+
+* **B — the geotech copies the litho's own segment** wherever it borders it,
+  instead of re-deriving where its cut lands.
+* **C — one snapping pass for both engines**, so a shared point is computed
+  once. Kills the class permanently; the larger change.
+
+**What was tried and does NOT work** (do not re-attempt without new tooling —
+all three threw on the owner's real data):
+
+* `GeometrySnapper` to give both covers each other's vertices →
+  `TopologyException: side location conflict`.
+* A millimetre `PrecisionModel` on the overlay → does not collapse the sliver
+  at all (its corners are already grid-aligned), and throws on CS1 gap 19.
+* Inserting the shared vertex structurally, moving nothing →
+  `IndexOutOfBoundsException` in `OverlayOp.replaceCollapsedEdges`.
+
+The root obstacle is that this jsts build ships only the legacy `OverlayOp`;
+JTS's robust replacement (`OverlayNG`) is absent. Landing B or C may well want
+a jsts upgrade first.
+
+**Why deferred.** Sub-millimetre. The voxel model is built at 0.25 m cells, so
+the worst patch is 500× smaller than one voxel, and 0.13 m² against CS1's
+~18,200 m² of cover is 0.0007 %. Nothing downstream — 3-D build, exports,
+statistics — can see it. Both cures touch the shared fill engine, putting the
+CS1 golden master and the 33 loop scenes in the blast radius, for no visible
+gain. Owner directive 2026-08-31: *"write it down for after mvp that we can
+have a crack at resolving this."*
+
+Clause 1 of the gapless gate no longer cries wolf about it: it asks whether any
+difference has real WIDTH rather than comparing areas (`clauses2d.ts`,
+`realGroundM2`), so a hairline is silent while a real hole is reported at full
+size. That makes this a latent representation issue, not a reporting one.
+
+**When to revisit.** After v1.0 ships. Bring it forward if ANY of these fire:
+
+* A cross-section is built whose gaps exceed ~100 m. Clause 1's threshold is a
+  fixed half-cell (0.5 mm) because a width-scaled one grows without bound; it
+  covers the x grid only while `SNAP_GRID_M / FRACTION_SCALE / 2 * width` stays
+  under 0.5 mm, i.e. width ≤ 100 m. The widest gap in today's model is 98 m,
+  so this margin is nearly spent.
+* `SNAP_GRID_M` or `FRACTION_SCALE` changes in either engine.
+* Any downstream consumer starts working below the millimetre.
+
+**Tooling.** `desktop/src/renderer/src/utils/coverDiffShape.diag.test.ts`
+(dormant unless `COVER_DIFF=1`, reads `scripts/geofill_live_dump.json`)
+decomposes every clause-1 difference into its pieces and reports each one's
+size, shape, side and true width. It is what produced the table above and is
+the acceptance instrument for B or C.
