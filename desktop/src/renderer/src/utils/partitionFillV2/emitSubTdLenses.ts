@@ -59,7 +59,7 @@ import { type LensLabel } from './emitLenses'
 import { splitHostIntoRawPieces } from './rawUnitSplit'
 import { type TerminationPlan } from './terminationPlan'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
-import { INTERIOR_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION } from '../sectionPartition'
 import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
