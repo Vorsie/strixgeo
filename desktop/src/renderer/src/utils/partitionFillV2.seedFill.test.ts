@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 import { buildArrangement } from './partitionFillV2/arrangement'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { labelFaces, type LabelledFace } from './partitionFillV2/labelFaces'
