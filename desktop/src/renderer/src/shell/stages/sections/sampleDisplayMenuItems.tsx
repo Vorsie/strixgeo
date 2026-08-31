@@ -53,6 +53,8 @@ export function sampleDisplayMenuItems({
     {
       label: sampleMarkersOn ? t('sections.samples.hide') : t('sections.samples.show'),
       icon: sampleMarkersOn ? <EyeOff size={iconSize} /> : <Eye size={iconSize} />,
+      // The bare-P hook dispatches this key — hint only.
+      shortcutHint: 'p',
       onClick: () => toggleSampleMarkersOn(),
       title: t('sections.toolbar.sampleMarkersHint'),
       testid: `${testidPrefix}-toggle-samples`,
