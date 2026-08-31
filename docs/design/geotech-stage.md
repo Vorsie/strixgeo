@@ -124,9 +124,8 @@ else is plumbing that DRAWS what the kernel decides.
 
 **Mass identity is the CLASS, never the formation row** (owner 2026-08-21:
 *"yes one mass one body"*). The subdivide keeps one geotech formation ROW per
-`(nad_class, litho parent, GEOLOGICAL parent)` â€” deliberate provenance â€” so the
-same NAD class exists under several row ids wherever a litho unit spans a
-geological boundary. Everything that compares masses therefore translates row â†’
+`(nad_class, litho parent)` â€” the geological parent is a live-derived LABEL, not identity (R1, owner 2026-08-31, debt #278) â€” so a litho unit spanning a geological boundary keeps ONE row
+instead of one per geological band. Everything that compares masses therefore translates row â†’
 class first: the fill takes `packingClassOf` (built by
 `geotechHierarchicalFill/packingClassOf.ts` from the formations' soil + class;
 threaded from the overlay, the voxel build and the fence so render = build =
