@@ -75,6 +75,7 @@ BUNDLE_COLLECTION_KEYS: tuple[str, ...] = (
     "litho_contact_correlation_edges",
     "body_geometry_facts",
     "geotech_tie_tombstones",
+    "body_separations",
     "body_boundary_shapes",
     "body_boundary_nodes",
     "litho_solids",
