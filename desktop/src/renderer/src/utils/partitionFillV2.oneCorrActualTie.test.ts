@@ -29,7 +29,7 @@ import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 import { type InputCurve } from './partitionFillV2/types'
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 
 let seq = 0
 const layer = (): string => `L${seq++}`
