@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { renderedShape } from './partitionFillV2.conformance.classify'
 
