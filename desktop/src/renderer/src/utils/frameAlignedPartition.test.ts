@@ -24,7 +24,7 @@ import {
   shiftGapIndexed,
   shiftRegionGaps,
 } from './frameAlignedPartition'
-import type { PartitionColumn, SectionRegion } from './partitionFill'
+import type { PartitionColumn, SectionRegion } from './sectionPartition'
 
 function col(inv: string, unitCount = 1): PartitionColumn {
   return {
