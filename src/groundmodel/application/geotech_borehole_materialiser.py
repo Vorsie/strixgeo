@@ -410,8 +410,8 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         self,
         *,
         project_id: UUID,
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
+        classified_by_key: dict[tuple[int, UUID], GeologicalFormationOrm],
+        skeleton_by_key: dict[tuple[UUID], GeologicalFormationOrm],
         created_formation_ids: list[UUID],
         nad_class: int | None,
         source_litho_formation_id: UUID,
@@ -494,17 +494,22 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         self,
         *,
         project_id: UUID,
-        classified_by_key: dict[tuple[int, UUID, UUID | None], GeologicalFormationOrm],
+        classified_by_key: dict[tuple[int, UUID], GeologicalFormationOrm],
         created_formation_ids: list[UUID],
         nad_class: int,
         source_litho_formation_id: UUID,
         source_geo_formation_id: UUID | None,
     ) -> GeologicalFormationOrm:
-        """Find-or-create a classified geotech formation by the full triple.
+        """Find-or-create a classified geotech formation by (class, litho parent).
 
-        The triple ``(nad_class, source_litho_formation_id,
-        source_geo_formation_id)`` is the stable find-or-create key for
-        classified geotech formations.
+        The pair ``(nad_class, source_litho_formation_id)`` is the stable
+        find-or-create key. The geological parent is a LABEL, not identity
+        (owner ruling 2026-08-31, R1, debt #278), so one row serves a class +
+        litho unit however many geological units the bands straddle; the DB
+        lookup takes the OLDEST matching row (the twin-merge migration's
+        survivor rule). ``source_geo_formation_id`` is still accepted — it is
+        the band's attribution, recorded on the band's own
+        ``source_geo_formation_id`` stamp — but never forks the row.
 
         Parameters
         ----------
@@ -519,32 +524,38 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         source_litho_formation_id : UUID
             The litho formation this geotech unit subdivides.
         source_geo_formation_id : UUID | None
-            The geological formation the unit sits within.
+            The geological formation the unit sits within — attribution only,
+            NOT part of the row identity (R1).
 
         Returns
         -------
         GeologicalFormationOrm
             The found-or-created classified formation row.
         """
-        key = (nad_class, source_litho_formation_id, source_geo_formation_id)
+        key = (nad_class, source_litho_formation_id)
         cached = classified_by_key.get(key)
         if cached is not None:
             return cached
 
-        geo_filter = (
-            GeologicalFormationOrm.source_geo_formation_id.is_(None)
-            if source_geo_formation_id is None
-            else GeologicalFormationOrm.source_geo_formation_id == source_geo_formation_id
-        )
+        # R1 (owner 2026-08-31, debt #278): the geological parent is a LABEL, not
+        # identity — one row per (class, litho parent), whatever geological unit a
+        # band sits in. The lookup drops the geological filter and takes the
+        # OLDEST matching row: that is the survivor rule the one-time twin-merge
+        # migration applies, so a re-subdivide converges on the row the migration
+        # will keep even before it has run.
         db_row = (
             (
                 await self._session.execute(
-                    select(GeologicalFormationOrm).where(
+                    select(GeologicalFormationOrm)
+                    .where(
                         GeologicalFormationOrm.app_project_id == project_id,
                         GeologicalFormationOrm.nad_class == nad_class,
                         GeologicalFormationOrm.source_litho_formation_id
                         == source_litho_formation_id,
-                        geo_filter,
+                    )
+                    .order_by(
+                        GeologicalFormationOrm.created_at.asc(),
+                        GeologicalFormationOrm.id.asc(),
                     )
                 )
             )
@@ -577,7 +588,12 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
             litho_main_soil_code=soil_code,
             litho_admixtures=admixtures,
             source_litho_formation_id=source_litho_formation_id,
-            source_geo_formation_id=source_geo_formation_id,
+            # R1: the geological parent is not identity — the row is shared
+            # across geological units. The band's geological label is DERIVED
+            # LIVE from geometry on read (the GP1 midpoint rule in
+            # ``geo_parent_for_interval`` for band edits, ``majority_geo_formation``
+            # in ``GetBodyGeoLabels`` for the units pane), never stored here.
+            source_geo_formation_id=None,
         )
         self._session.add(formation)
         await self._session.flush()
@@ -594,15 +610,21 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         self,
         *,
         project_id: UUID,
-        skeleton_by_key: dict[tuple[UUID, UUID | None], GeologicalFormationOrm],
+        skeleton_by_key: dict[tuple[UUID], GeologicalFormationOrm],
         source_litho_formation_id: UUID,
         source_geo_formation_id: UUID | None,
     ) -> GeologicalFormationOrm:
-        """Find-or-create a skeleton (``nad_class=None``) formation.
+        """Find-or-create a skeleton (``nad_class=None``) formation by litho parent.
 
         Used for borehole-only sub-bodies in a CPT-free body (permanent — they
         cannot be TIN-divided), and as a last resort when no CPT data exists in
         the model at all.
+
+        The key is ``(source_litho_formation_id,)`` — the geological parent is a
+        LABEL, not identity (owner ruling 2026-08-31, R1, debt #278), so one
+        skeleton row serves a litho unit across every geological boundary and
+        the lookup takes the OLDEST matching row (the twin-merge migration's
+        survivor rule).
 
         Parameters
         ----------
@@ -613,32 +635,35 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         source_litho_formation_id : UUID
             The litho formation this geotech unit subdivides.
         source_geo_formation_id : UUID | None
-            The geological formation the unit sits within.
+            The geological formation the unit sits within — attribution only,
+            NOT part of the row identity (R1).
 
         Returns
         -------
         GeologicalFormationOrm
             The found-or-created skeleton formation row.
         """
-        key = (source_litho_formation_id, source_geo_formation_id)
+        key = (source_litho_formation_id,)
         cached = skeleton_by_key.get(key)
         if cached is not None:
             return cached
 
-        geo_filter = (
-            GeologicalFormationOrm.source_geo_formation_id.is_(None)
-            if source_geo_formation_id is None
-            else GeologicalFormationOrm.source_geo_formation_id == source_geo_formation_id
-        )
+        # R1 (owner 2026-08-31, debt #278): the geological parent is attribution,
+        # not identity — one skeleton row per litho parent, oldest wins (the
+        # twin-merge migration's survivor rule).
         db_row = (
             (
                 await self._session.execute(
-                    select(GeologicalFormationOrm).where(
+                    select(GeologicalFormationOrm)
+                    .where(
                         GeologicalFormationOrm.app_project_id == project_id,
                         GeologicalFormationOrm.nad_class.is_(None),
                         GeologicalFormationOrm.source_litho_formation_id
                         == source_litho_formation_id,
-                        geo_filter,
+                    )
+                    .order_by(
+                        GeologicalFormationOrm.created_at.asc(),
+                        GeologicalFormationOrm.id.asc(),
                     )
                 )
             )
@@ -666,7 +691,9 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
             litho_main_soil_code=soil_code,
             litho_admixtures=admixtures,
             source_litho_formation_id=source_litho_formation_id,
-            source_geo_formation_id=source_geo_formation_id,
+            # R1: the geological parent is attribution, not identity — the row is
+            # shared across geological units; the band carries its own stamp.
+            source_geo_formation_id=None,
         )
         self._session.add(formation)
         await self._session.flush()
