@@ -18,7 +18,7 @@ import { clampedEdgeFractions, edgeReachViolations } from './edgeReach'
 import { computeHierarchicalGeotechFill } from './index'
 import { column, tie } from './scene.test-helpers'
 import { computeSectionFillActive } from '../partitionEngineSelect'
-import type { SectionRegion } from '../partitionFill'
+import type { SectionRegion } from '../sectionPartition'
 
 /** A rectangle over [f0, f1] × [base, top] on one gap. */
 function box(
