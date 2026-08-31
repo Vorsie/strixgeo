@@ -188,7 +188,6 @@ describe.skipIf(!RUN)('§91 — a safe lens drag PERSISTS as the SAME reshaped r
         screenToLevel,
         lensDrag,
         boundaryDrag: null,
-        partitionEngineV2: true,
       })
       const lensKey = lensApexOverrideKey(BID, GAP)
       // Sanity: the live drag builds the LENS override (this is the routable path that reshapes).
@@ -208,7 +207,6 @@ describe.skipIf(!RUN)('§91 — a safe lens drag PERSISTS as the SAME reshaped r
         screenToLevel,
         lensDrag: null,
         boundaryDrag: null,
-        partitionEngineV2: true,
         persistedLensBodies,
       })
 
@@ -222,7 +220,6 @@ describe.skipIf(!RUN)('§91 — a safe lens drag PERSISTS as the SAME reshaped r
         screenToLevel,
         lensDrag: null,
         boundaryDrag: null,
-        partitionEngineV2: true,
         // persistedLensBodies omitted → legacy behaviour
       })
 
