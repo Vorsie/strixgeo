@@ -56,7 +56,6 @@ import type {
 } from '../../api/client'
 import type { PartitionRegion } from '../../utils/partitionFill'
 import * as partitionEngineSelect from '../../utils/partitionEngineSelect'
-import { setPartitionEngineV2 } from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
 import type { Props } from './PartitionFillOverlay'
@@ -622,61 +621,6 @@ describe('PartitionFillOverlay', () => {
     expect(savedLower[0].along_m).toBeCloseTo(80, 5)
   })
 
-  // --------------------------------------------------------------------------
-  // FD1: Two stored nodes → two handles, both polygons gain two vertices
-  //
-  // ENGINE v1 ONLY — deliberately, not incidentally. Multi-node contact freedraw is
-  // the v1 off-engine bend, which inserts EVERY stored node into both incident
-  // polygons. v2 retired the off-engine reshape (see RC3) and consumes contact
-  // control points through ``contactOverrideWiring``, which takes the FIRST in-gap
-  // node as the single control point ("multi-node contact freedraw stays on the
-  // existing per-node handles for now"). So on v2 a second stored node draws its
-  // handle but does not bend the contact. That is a real v2 capability gap worth its
-  // own owner call — it is NOT something this test can express, because asserting
-  // "two interior vertices" against an engine whose contact bend is single-node by
-  // design would contradict RC3. Pin v1, where the behaviour under test lives.
-  // --------------------------------------------------------------------------
-  it('FD1 — a matched boundary with TWO stored lower_nodes renders two handles and both polygons gain TWO interior vertices', () => {
-    const priorEngine = process.env.STRIX_PARTITION_V2
-    process.env.STRIX_PARTITION_V2 = '0'
-    try {
-      // Two control points at x=40 and x=60 (both inside gap 20..80).
-      const { getByTestId, queryAllByTestId } = renderOverlay({
-        ...transforms,
-        onSaveBoundary: vi.fn(),
-        boundariesByBodyId: new Map([
-          [
-            'sand',
-            {
-              upper_nodes: [],
-              lower_nodes: [
-                { along_m: 40, elevation_m: 4.5 },
-                { along_m: 60, elevation_m: 3.5 },
-              ],
-            } as unknown as BodyBoundaryResponse,
-          ],
-        ]),
-      })
-      // Both handles rendered.
-      expect(getByTestId('partition-boundary-handle-sand-clay-0')).toBeTruthy()
-      expect(getByTestId('partition-boundary-handle-sand-clay-1')).toBeTruthy()
-
-      // Sand polygon should have ≥6 vertex commands (4 natural + 2 inserted).
-      const sandPaths = queryAllByTestId('partition-region-sand')
-      const sandD = sandPaths[0].getAttribute('d') ?? ''
-      const sandVertexCount = (sandD.match(/[ML]/g) ?? []).length
-      expect(sandVertexCount).toBeGreaterThanOrEqual(6)
-
-      // Clay polygon should also have ≥6 vertex commands.
-      const clayPaths = queryAllByTestId('partition-region-clay')
-      const clayD = clayPaths[0].getAttribute('d') ?? ''
-      const clayVertexCount = (clayD.match(/[ML]/g) ?? []).length
-      expect(clayVertexCount).toBeGreaterThanOrEqual(6)
-    } finally {
-      if (priorEngine === undefined) delete process.env.STRIX_PARTITION_V2
-      else process.env.STRIX_PARTITION_V2 = priorEngine
-    }
-  })
 
   // --------------------------------------------------------------------------
   // FD2: Clicking the add-strip inserts a new node
@@ -1292,14 +1236,7 @@ describe('PartitionFillOverlay', () => {
 // freedraw gesture on EITHER engine.
 // ---------------------------------------------------------------------------
 describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
-  // Force the v2 engine for this block only, then PIN v1 afterward so the rest of
-  // the suite (which asserts v1 shapes) is unaffected. Note the afterEach no longer
-  // "restores" anything: since v2 became the default, setPartitionEngineV2(false)
-  // writes an explicit opt-out rather than clearing the pref, so it selects v1
-  // deliberately instead of returning to whatever was there before.
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -1552,9 +1489,7 @@ describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
 // matched two-band boundary. A stored ``lower_nodes`` node on the UPPER (sand)
 // body is the shaped contact control point.
 describe('PartitionFillOverlay — contact wiring on engine v2 (CW)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -1731,9 +1666,7 @@ describe('PartitionFillOverlay — contact wiring on engine v2 (CW)', () => {
 // The fix: a GLOBAL nearest-boundary router — every add-strip click picks the
 // candidate whose segment is physically nearest the cursor across ALL bodies.
 describe('PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -1814,9 +1747,7 @@ describe('PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)', ()
 // under the cursor"), not the impl's nearest-segment math.
 // ===========================================================================
 describe('PartitionFillOverlay — region-containment targeting invariant (RC, engine v2)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -1995,39 +1926,6 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
     expect(edgeGrabbed, 'no on-edge click grabbed a body — the line must be grabbable').toBeGreaterThanOrEqual(1)
   })
 
-  it('RC3 — no drag can open a gap: the off-engine reshape is retired on v2 (engine is the sole geometry source)', () => {
-    // Gap-impossible-by-construction: on v1 a stored lens node triggers the
-    // off-engine POST-LENS ``buildLensPolygon`` rebuild (the §66/§71 gap source —
-    // it reshapes ONE body without the neighbour). On v2 that pass is gated OFF, so
-    // the coloured fill is ONLY the engine's validated 0/0 partition. Observable
-    // proof: render the SAME stored-node fixture under v1 and v2 and confirm the
-    // lens region geometry DIFFERS — if v2 still ran the off-engine rebuild, its
-    // ``d`` would equal v1's. Reading the actual rendered ``d`` is behaviour-shaped.
-    const collectSiltDs = (): string[] => {
-      const r = renderOverlay({
-        lithoLayers: stackLayers,
-        ...transforms,
-        onSaveBoundary: vi.fn(),
-        boundariesByBodyId: stackBoundaries,
-      })
-      const ds = ['silt2', 'silt3', 'silt4'].flatMap((b) =>
-        r.queryAllByTestId(`partition-region-${b}`).map((el) => el.getAttribute('d') ?? ''),
-      )
-      r.unmount()
-      return ds
-    }
-    setPartitionEngineV2(false)
-    const v1Ds = collectSiltDs()
-    setPartitionEngineV2(true)
-    const v2Ds = collectSiltDs()
-    // Both engines rendered silt regions.
-    expect(v1Ds.length).toBeGreaterThan(0)
-    expect(v2Ds.length).toBeGreaterThan(0)
-    // The off-engine rebuild is retired on v2: at least one silt region's geometry
-    // differs from the v1 (off-engine-rebuilt) shape. (Identical sets would mean v2
-    // still ran buildLensPolygon.)
-    expect(v2Ds.join('|')).not.toBe(v1Ds.join('|'))
-  })
 })
 
 // ===========================================================================
@@ -2039,9 +1937,7 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
 // suppressed) must render NO grab handle. Every handle the tool shows reshapes.
 // ===========================================================================
 describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine v2)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -2140,9 +2036,7 @@ describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine 
 // stored node / rendered add-strip, paraphrasing the owner's words.
 // ===========================================================================
 describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -2285,9 +2179,7 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
 // a FILL-SHAPE edit, NOT a correlation-tie move — see the S72 report note.
 // ===========================================================================
 describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
@@ -2415,9 +2307,7 @@ describe('isApexShapeable — the engine-agnostic tip predicate', () => {
 // a lens/tip body's node is a LENS-edge node (screenLenses owns it); a full-width
 // band's node is a CONTACT-bend node (sharedBoundaries owns it). Never both.
 describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2)', () => {
-  beforeEach(() => setPartitionEngineV2(true))
   afterEach(() => {
-    setPartitionEngineV2(false)
     cleanup()
   })
 
