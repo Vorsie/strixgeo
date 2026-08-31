@@ -91,7 +91,7 @@ export function buildBodyRecomputePayload(
   let totalRegions = 0;
 
   for (const frame of assembleSectionPartitionFrames(sections, boundariesByBodyId)) {
-    const { input, columns, payloadColumns, alongM, apexOverrides, partitionEngineV2 } = frame;
+    const { input, columns, payloadColumns, alongM, apexOverrides } = frame;
     const { regions, groups: rowGroups } = computeSectionFillActiveWithIdentity(
       columns,
       input.edges,
@@ -123,7 +123,7 @@ export function buildBodyRecomputePayload(
       logLabel,
       `recompute section: ${payloadColumns.length} cols, ${drilled.length} regions ` +
         `(${regions.length - drilled.length} fallback omitted), ${groups.length} groups, ` +
-        `engine=${partitionEngineV2 ? "v2" : "v1"}`,
+        `engine=v2`,
     );
     if (input.sectionId === undefined) {
       // Without the id the server cannot verify coverage — refusing to build
