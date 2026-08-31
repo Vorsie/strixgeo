@@ -35,7 +35,7 @@
 import { effectiveCorrForSide, type EffectiveCorr, type TieRef } from './effectiveCorr'
 import { type ResolvedTie } from './emitCurves'
 import { bridgeGapAnchorKey } from './emitSubstrate'
-import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../sectionPartition'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
