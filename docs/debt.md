@@ -6883,7 +6883,7 @@ log.
 `uv run python scripts/diag_voxel_newly_covered.py` and the A/B with
 `scripts/diag_voxel_fidelity_delta.py`.
 
-## 242. The 3-D model floor is shallower than the deepest investigations (S)
+## 242. The 3-D model floor is shallower than the deepest investigations — RESOLVED 2026-08-31 (S)
 
 **What.** `label_voxels` frames the grid's vertical range from the 2-D section
 partition polygons alone (`zmin` = the lowest region-polygon elevation). On the
@@ -6928,7 +6928,21 @@ of it inside the existing grid, and **0 m3 of it was a hole inside the old model
 newly filled cell lay outside the top-to-bottom span of its own column. The watertight
 invariant was never in question; the model simply occupies more of its own grid.
 
-**Why deferred — it is NOT a one-line fix.** Extending the grid below the 2-D
+**RESOLVED 2026-08-31.** Owner ruling: *"down to the deepest investigation"* —
+the grid's vertical extent now reads the honored investigation intervals as
+well as the section regions (``label_voxels``). The modelling question below
+answered itself through the gapless rulings: only the honored columns label the
+new depth (their own measured ground), every other column keeps its stack, and
+the under-floor space beside a deep column is plain sub-floor void — invisible
+to the interior-void clause, which reads stacks, never the grid frame. The
+``logs_below_grid_floor`` tripwire (this entry's detector) stays as a backstop
+and its test now pins the cure. Note the original 7c2e/7c2f numbers above were
+about honored-log truncation, not drilled-base-beyond-picks: an investigation's
+DRILLED depth below its deepest accepted pick is still not in the payload and
+still not modelled — that is unmeasured-by-interpretation ground, not measured
+ground, and stays out by design.
+
+**The original deferral reasoning (kept for the record) — it is NOT a one-line fix.** Extending the grid below the 2-D
 partition creates voxels with no partition data to label from. Only the honored
 log could fill them, so each deep investigation would grow an isolated column
 hanging below the model floor with nothing beside it — almost certainly worse
