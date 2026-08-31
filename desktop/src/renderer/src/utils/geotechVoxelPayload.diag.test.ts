@@ -57,7 +57,7 @@ import {
   type VoxelBuildRequest,
 } from './buildVoxelRequest'
 import type { FenceSectionInput } from './buildProjectFence'
-import type { CorrelationEdge } from './partitionFill'
+import type { CorrelationEdge } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
