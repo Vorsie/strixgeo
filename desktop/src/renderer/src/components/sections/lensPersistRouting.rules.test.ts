@@ -46,7 +46,7 @@ import {
   type PartitionColumn,
   type PartitionPoint,
   type SectionRegion,
-} from '../../utils/partitionFill'
+} from '../../utils/sectionPartition'
 import { computeSectionFillV2 } from '../../utils/partitionFillV2'
 import { setTwoSidedTerminations } from '../../utils/partitionFillV2/tileFlags'
 import {
