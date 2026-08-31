@@ -55,7 +55,7 @@
 
 import { type ColumnGeom } from './sectionGeom'
 import { SNAP_GRID_M } from './types'
-import { type PartitionPoint, type SectionRegion } from '../partitionFill'
+import { type PartitionPoint, type SectionRegion } from '../sectionPartition'
 
 /** Elevation touch tolerance (metres) — half the 1 mm arrangement grid, so two vertices/edges
  *  snapped to the SAME 1 mm cell match, while a real vertical gap (≥ cm) never does. */
