@@ -40,7 +40,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../partitionFill'
+import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from '../sectionPartition'
 import { lensReachFraction } from './lensReach'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { routeLoneStack } from './emitLoneStack'
