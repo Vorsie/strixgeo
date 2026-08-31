@@ -143,6 +143,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.body_separation_reanchor import BodySeparationReanchor
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
@@ -703,6 +704,13 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         captured_ties = await tie_reanchor.capture(
             geotech_model.id, restrict_to_investigation_ids=scoped_members
         )
+        # Carry the engineer's "Separate" rulings across the same reset (debt
+        # #278 R5): a separation anchors two geotech bands, and the wipe cascades
+        # them away exactly as it does the accepted ties. Same scope as the ties.
+        sep_reanchor = BodySeparationReanchor(self._session)
+        captured_separations = await sep_reanchor.capture(
+            geotech_model.id, restrict_to_investigation_ids=scoped_members
+        )
         self.info(
             f"SubdivideAllBodies: {len(picks)} pick(s) on section "
             f"(of {len(all_picks)} in the litho model)"
@@ -755,6 +763,15 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 # cascade take them in silence.
                 self.warning(
                     f"SubdivideAllBodies: {len(captured_ties)} ACCEPTED packing tie(s) "
+                    f"could not be carried — the litho model has no picks, so the "
+                    f"rebuild produced no bands to re-anchor them to "
+                    f"(model {geotech_model.id})"
+                )
+            if captured_separations:
+                # Same story for the engineer's "Separate" rulings: the wipe took
+                # their anchor bands and there is nothing to re-anchor onto.
+                self.warning(
+                    f"SubdivideAllBodies: {len(captured_separations)} user separation(s) "
                     f"could not be carried — the litho model has no picks, so the "
                     f"rebuild produced no bands to re-anchor them to "
                     f"(model {geotech_model.id})"
@@ -1033,13 +1050,22 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         # This runs BEFORE the derivation pass so the pass's per-section dedup
         # set (loaded below) already carries the restored ties and cannot stack
         # an unapproved proposal beside one of them.
+        all_rebuilt_bands = [
+            *rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
+            *surviving_bands,
+        ]
         reanchor_plan = await tie_reanchor.reanchor(
             geotech_model_id=geotech_model.id,
             captured=captured_ties,
-            rebuilt_bands=[
-                *rebuilt_bands_from_layer_index(geotech_layer_by_inv_depth),
-                *surviving_bands,
-            ],
+            rebuilt_bands=all_rebuilt_bands,
+        )
+        # Re-anchor the "Separate" rulings against the SAME bands, BEFORE the
+        # post-rebuild body resolve below, so that resolve honours the restored
+        # separations (debt #278 R5).
+        await sep_reanchor.reanchor(
+            model_id=geotech_model.id,
+            captured=captured_separations,
+            rebuilt_bands=all_rebuilt_bands,
         )
 
         # Phase 9 — load all project sections; derive geotech edges per section.
