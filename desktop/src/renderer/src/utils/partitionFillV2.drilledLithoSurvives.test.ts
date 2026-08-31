@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type SectionRegion } from './sectionPartition'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { computeSectionFillV2WithConflicts } from './partitionFillV2/computeSectionFillV2'
 import { detectFloodedUnits } from './partitionFillV2/detectFloodedUnits'
