@@ -221,10 +221,17 @@ describe('clauses2dForSection — clause 1 (area-conservation)', () => {
 
   it('fails a material shortfall however wide the gap is', () => {
     // The litho-derived cover must be retained exactly. A wide gap does not
-    // make a missing patch acceptable; only machine rounding is harmless.
+    // make a missing patch acceptable; only a difference finer than the model's
+    // own millimetre grid is harmless.
+    //
+    // The strip left unpainted here is 2 mm wide over a 5 km gap — as close to
+    // nothing as this model can still WRITE DOWN. (It used to be 0.1 mm, which
+    // no coordinate here can express: every vertex is snapped to 1 mm long
+    // before this clause sees it, so that strip never existed in the geometry
+    // being compared.)
     const lithoRegions = [box(1, 0, 1, 0, 10)]
     const hier = hierarchical({
-      regions: [box(1, 0, 0.99999998, 0, 10)],
+      regions: [box(1, 0, 0.9999996, 0, 10)],
       lithoFallback: [],
     })
     const clause = clauses2dForSection({
@@ -237,7 +244,7 @@ describe('clauses2dForSection — clause 1 (area-conservation)', () => {
     }).find((c) => c.key === 'area-conservation')!
 
     expect(clause.status).toBe('fail')
-    expect(clause.entries[0].measure?.value).toBeCloseTo(0.001, 9)
+    expect(clause.entries[0].measure?.value).toBeCloseTo(0.02, 6)
   })
 })
 
@@ -557,5 +564,78 @@ describe('every 2-D entry carries the gap’s own two columns', () => {
 
     expect(entry.gap_index).toBe(1)
     expect(entry.gap_investigation_ids).toEqual(['S4', 'B6'])
+  })
+})
+
+describe('clauses2dForSection — clause 1 (one contact stated twice is not a difference)', () => {
+  // The owner's real Cross-section 1, gap 3, reduced to the one thing that
+  // matters. His ruling: *"there shouldn't be any mismatch because we pull the
+  // litho into the geotech"* -- the geotech SUBDIVIDES the litho, so wherever
+  // it cuts, both are describing one piece of ground and the check must read
+  // zero.
+  //
+  // The litho states one sloping contact, column to column. The geotech cuts
+  // the gap in the middle, so it has to say where its cut meets that contact.
+  // Halfway between 7.509 and 5.21 is 6.3595 -- exactly half a millimetre, and
+  // every coordinate here is snapped to a millimetre, so the shared point can
+  // only be written 6.359 or 6.360. Neither sits on the straight line the litho
+  // drew between the same two columns, and what is left over is a REAL triangle
+  // with all three corners on the grid -- half a millimetre thick and 90 m long.
+  //
+  // Nothing is missing and nothing is painted twice. A difference no wider than
+  // the grid the model is drawn on is not a difference.
+  const GAP_W = 90.382 // the real gap 3 width, so the magnitude is his
+  const LEFT_TOP = 7.509
+  const RIGHT_TOP = 5.21
+  const CUT_TOP = 6.359 // (7.509 + 5.21) / 2 = 6.3595, written on the mm grid
+
+  function sloping(f0: number, f1: number, y0: number, y1: number): SectionRegion {
+    return {
+      formationId: 'F',
+      bodyId: null,
+      gapIndex: 0,
+      kind: 'quad',
+      polygon: [
+        { fraction: f0, elevation: y0 },
+        { fraction: f1, elevation: y1 },
+        { fraction: f1, elevation: 0 },
+        { fraction: f0, elevation: 0 },
+      ],
+    } as SectionRegion
+  }
+
+  it('reads no difference when the geotech cuts a sloping litho contact in the middle', () => {
+    const clause = clauses2dForSection({
+      sectionId: 'S',
+      sectionName: 'CS1',
+      // the geotech states the contact as two segments through its own cut
+      hierarchical: hierarchical({
+        regions: [sloping(0, 0.5, LEFT_TOP, CUT_TOP), sloping(0.5, 1, CUT_TOP, RIGHT_TOP)],
+      }),
+      // the litho states the same contact as one straight segment
+      lithoRegions: [sloping(0, 1, LEFT_TOP, RIGHT_TOP)],
+      alongM: [0, GAP_W],
+      columnInvestigationIds: ONE_GAP_COLUMNS,
+    }).find((c) => c.key === 'area-conservation')!
+
+    expect(clause.entries).toEqual([])
+    expect(clause.status).toBe('pass')
+  })
+
+  it('still fails, at full size, when the geotech really leaves litho unpainted', () => {
+    // Same scene, but the right half is simply not painted. A hole with real
+    // WIDTH, which no amount of grid reasoning may explain away -- and the
+    // magnitude reported must be the whole hole, never the eroded remnant.
+    const clause = clauses2dForSection({
+      sectionId: 'S',
+      sectionName: 'CS1',
+      hierarchical: hierarchical({ regions: [sloping(0, 0.5, LEFT_TOP, CUT_TOP)] }),
+      lithoRegions: [sloping(0, 1, LEFT_TOP, RIGHT_TOP)],
+      alongM: [0, GAP_W],
+      columnInvestigationIds: ONE_GAP_COLUMNS,
+    }).find((c) => c.key === 'area-conservation')!
+
+    expect(clause.status).toBe('fail')
+    expect(clause.entries[0].measure!.value).toBeCloseTo(261.4, 0)
   })
 })
