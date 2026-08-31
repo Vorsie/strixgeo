@@ -243,6 +243,9 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
               label: correlateMode
                 ? t('sections.geotech.exitPackingCorrelate')
                 : t('sections.geotech.correlatePackingByHand'),
+              // Same letter as the litho axis's correlate — one key, one verb,
+              // whichever axis is under the cursor (owner 2026-08-31).
+              shortcut: 'c',
               onClick: () => (correlateMode ? exitCorrelateMode() : enterCorrelateMode()),
               disabled: activeGeotechModel === null && !correlateMode,
             },
