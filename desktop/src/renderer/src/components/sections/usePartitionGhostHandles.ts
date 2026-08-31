@@ -60,23 +60,21 @@ const PROBE_BUDGET_FLOOR_MS = 4
  *
  * Serialises every VALUE the ghost probe reads — each column's investigation id +
  * surface elevation + unit stack (layer id / formation / body / top / base), the
- * approved edges (id pair + sides), the along-metres, and the engine flag. Two
+ * approved edges (id pair + sides), and the along-metres. Two
  * renders with the same geological topology but different pan/zoom (only screen x
  * changed) produce the SAME key, so the probe's cached result is reused.
  *
  * @param columns Ordered partition columns.
  * @param edges   Approved correlation edges.
  * @param alongM  True along-section metres per column.
- * @param engineV2 Whether the v2 engine is active (the probe is v2-only).
  * @returns       A content key stable under pan/zoom, distinct on any topology change.
  */
 export function topologyKey(
   columns: readonly PartitionColumn[],
   edges: readonly CorrelationEdge[],
   alongM: readonly number[] | undefined,
-  engineV2: boolean,
 ): string {
-  if (!engineV2 || columns.length < 2) return ''
+  if (columns.length < 2) return ''
   const cols = columns
     .map(
       (c) =>
@@ -130,7 +128,7 @@ function scheduleIdle(fn: (deadline?: IdleBudget) => void): () => void {
  * @param edges   Approved correlation edges.
  * @param alongM  True along-section metres per column.
  * @param compute The active partition engine (injected; ``computeSectionFillActive``).
- * @param engineV2 Whether v2 is active (off → always empty, no probe).
+ * @param enabled Whether the probe may run at all (off on a view-only axis → always empty).
  * @returns       The resolved DEAD set (empty while a fresh topology's probe is in flight).
  */
 export function usePartitionGhostHandles(
@@ -139,9 +137,9 @@ export function usePartitionGhostHandles(
   edges: readonly CorrelationEdge[],
   alongM: readonly number[] | undefined,
   compute: ComputePartition,
-  engineV2: boolean,
+  enabled: boolean,
 ): Set<string> {
-  const key = topologyKey(columns, edges, alongM, engineV2)
+  const key = enabled ? topologyKey(columns, edges, alongM) : ''
   const [resolved, setResolved] = useState<{ key: string; dead: Set<string> }>({
     key: '',
     dead: new Set(),
