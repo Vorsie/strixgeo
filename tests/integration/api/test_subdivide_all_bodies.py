@@ -75,6 +75,7 @@ from groundmodel.application.geotech_tie_reanchor import depth_to_mm
 from groundmodel.application.reconcile_bodies_after_restore import (
     reconcile_bodies_after_restore,
 )
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -1786,15 +1787,16 @@ async def test_sab_a_geological_surface_never_cuts_a_packing_band(
     1. NO packing boundary lands at 3.0 m — the ruling itself. Before the ruling
        there was one on every column here.
     2. The straddling layer yields ONE body group per body, not two.
-    3. That group's geological label is the MIDPOINT unit — ``Q_DEEP``, since
-       the pick's midpoint (5.0 m depth, 0.0 m elevation) is below the surface
-       at 2.0 m elevation, and 7 of its 10 m lie in that unit. The label is
-       derived and informational; it decides nothing about geometry.
+    3. Since R1 (owner 2026-08-31, debt #278) the geotech formation ROW no longer
+       STORES the geological parent — one row per (class, litho parent), and the
+       geological label is a live-derived attribution (the MIDPOINT unit,
+       ``Q_DEEP`` here; the derivation is unit-tested in
+       ``test_geotech_geo_parent_stamp.py`` GP1-GP7). So the row carries ``None``,
+       never a per-geological-band split.
     """
     scene = geo_band_scene
     project = scene["project"]
     litho_model_id = scene["litho_model"].id
-    geo_deep_id = scene["geo_deep_id"]
 
     result = await SubdivideAllBodies(db_session).execute(
         project_id=project.id,
@@ -1843,11 +1845,15 @@ async def test_sab_a_geological_surface_never_cuts_a_packing_band(
         .scalars()
         .all()
     )
+    # R1 (owner 2026-08-31, debt #278): the geotech formation identity no longer
+    # encodes the geological parent — one row per (class, litho parent), the
+    # geological label is live-derived, so the row stores ``None`` rather than a
+    # per-geological-band split. The majority rule itself is unit-tested in
+    # test_geotech_geo_parent_stamp.py GP1-GP7.
     geo_parents = {f.source_geo_formation_id for f in formations}
-    assert geo_parents == {geo_deep_id}, (
-        "the straddling layer must resolve to ONE geological parent — the unit "
-        "holding the majority of its thickness (Q_DEEP, 7 m of 10) — not one "
-        f"per geological band; got {geo_parents}"
+    assert geo_parents == {None}, (
+        "R1: the geotech formation identity must not encode the geological parent "
+        f"(it is a live-derived label now); got {geo_parents}"
     )
 
 
@@ -2317,6 +2323,238 @@ async def test_geotech_body_id_survives_project_reopen(
         "geotech litho_layer.body_id must survive project reopen — the post-restore "
         "reconcile must re-stamp geotech bodies, not only litho models"
     )
+
+
+# ---------------------------------------------------------------------------
+# PLB — body.parent_litho_body_id: one geotech body carries an FK to its
+#       litho parent BODY (owner ruling 2026-08-31, debt #278 R1)
+# ---------------------------------------------------------------------------
+
+
+async def _litho_body_of_geotech_body(
+    db_session: AsyncSession,
+    *,
+    geotech_model_id: UUID,
+    geotech_body_id: UUID,
+) -> UUID | None:
+    """The litho body a geotech body's SHALLOWEST member band subdivides.
+
+    Mirrors the resolver's step-5b rule independently, so the test derives the
+    expected parent from the band chain rather than trusting the stamp it checks.
+    """
+    rows = (
+        await db_session.execute(
+            select(LithoLayerOrm.parent_litho_layer_id)
+            .where(
+                LithoLayerOrm.model_id == geotech_model_id,
+                LithoLayerOrm.body_id == geotech_body_id,
+                LithoLayerOrm.parent_litho_layer_id.is_not(None),
+            )
+            .order_by(LithoLayerOrm.depth_top_m.asc(), LithoLayerOrm.id.asc())
+        )
+    ).all()
+    if not rows:
+        return None
+    shallow_parent_layer_id = rows[0].parent_litho_layer_id
+    return (
+        await db_session.execute(
+            select(LithoLayerOrm.body_id).where(LithoLayerOrm.id == shallow_parent_layer_id)
+        )
+    ).scalar_one_or_none()
+
+
+@pytest.mark.asyncio
+async def test_plb1_geotech_body_carries_an_fk_to_its_litho_parent_body(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """PLB1 — a geotech recompute stamps each body with the litho body its bands subdivide.
+
+    Owner ruling 2026-08-31 (debt #278, R1): "One connected geotech body = ONE db
+    row with an FK to its litho parent." The subdivide's own geotech resolve
+    (step 5b) stamps ``body.parent_litho_body_id`` from the SHALLOWEST member
+    band's covering litho band's body. The stamp must equal the litho body the
+    bands actually subdivide, and that litho body must be a real row.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    geotech_bodies = (
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == geotech_model_id)))
+        .scalars()
+        .all()
+    )
+    assert geotech_bodies, "the subdivide produced no geotech bodies"
+    litho_body_ids = set(
+        (await db_session.execute(select(BodyOrm.id).where(BodyOrm.model_id == litho_model_id)))
+        .scalars()
+        .all()
+    )
+
+    stamped = 0
+    for body in geotech_bodies:
+        expected = await _litho_body_of_geotech_body(
+            db_session, geotech_model_id=geotech_model_id, geotech_body_id=body.id
+        )
+        assert body.parent_litho_body_id == expected, (
+            f"geotech body {body.id} must carry the litho body its shallowest member "
+            f"band subdivides (expected {expected}, got {body.parent_litho_body_id})"
+        )
+        if expected is not None:
+            assert expected in litho_body_ids, (
+                "the stamped litho parent must be a real litho body of this model"
+            )
+            stamped += 1
+    assert stamped > 0, "at least one geotech body must resolve a stored litho parent"
+
+
+@pytest.mark.asyncio
+async def test_plb2_a_litho_remint_leaves_no_geotech_body_dangling(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """PLB2 — a litho re-mint leaves every geotech body on a CURRENT litho body id.
+
+    The litho recompute re-mints body ids, and without the step-6 re-stamp the
+    geotech bodies would go on pointing at the vanished ids. Here the re-mint is
+    forced by dropping the litho body rows (``ON DELETE SET NULL`` nulls both
+    ``litho_layer.body_id`` and the geotech ``parent_litho_body_id``) and
+    re-resolving the litho model in the SAME transaction — the resolver mints
+    fresh ids and re-stamps every sibling geotech body (step 6). No geotech body
+    may be left on a stale id.
+
+    Concurrency note: step 6 acquires each sibling geotech model's partition lock
+    (litho lock already held → geotech second, the mandated order) BEFORE its
+    ``UPDATE``, so the litho-side re-stamp cannot race a concurrent geotech
+    resolve's step-5b write of the same ``body.parent_litho_body_id`` column. This
+    test does not force the race (a true concurrency test is not required); it
+    pins the correctness the lock protects.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+
+    old_litho_body_ids = set(
+        (await db_session.execute(select(BodyOrm.id).where(BodyOrm.model_id == litho_model_id)))
+        .scalars()
+        .all()
+    )
+    assert old_litho_body_ids, "precondition: the litho model must have bodies"
+
+    # Force the re-mint, then re-resolve — both in one transaction (one request).
+    await db_session.execute(delete(BodyOrm).where(BodyOrm.model_id == litho_model_id))
+    await db_session.flush()
+    await ResolveLithoInstances(db_session).execute(model_id=litho_model_id, commit=False)
+    await db_session.commit()
+
+    new_litho_body_ids = set(
+        (await db_session.execute(select(BodyOrm.id).where(BodyOrm.model_id == litho_model_id)))
+        .scalars()
+        .all()
+    )
+    assert new_litho_body_ids and new_litho_body_ids.isdisjoint(old_litho_body_ids), (
+        "the litho bodies must actually have been re-minted for this to test a dangle"
+    )
+
+    geotech_bodies = (
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == geotech_model_id)))
+        .scalars()
+        .all()
+    )
+    stamped = [b for b in geotech_bodies if b.parent_litho_body_id is not None]
+    assert stamped, "after the re-mint some geotech body must still resolve a litho parent"
+    for body in stamped:
+        assert body.parent_litho_body_id in new_litho_body_ids, (
+            f"geotech body {body.id} dangles at a stale litho body id after the re-mint"
+        )
+
+
+@pytest.mark.asyncio
+async def test_plb3_parent_litho_body_repopulated_after_restore(
+    sab_scene: dict,
+    db_session: AsyncSession,
+) -> None:
+    """PLB3 — bundle restore + reconcile ends with parent_litho_body_id populated.
+
+    The restore POPs ``parent_litho_body_id`` (a bundled value would name a litho
+    body id from the saving session), so a restored geotech body arrives NULL; the
+    post-restore reconcile (litho-before-geotech) must re-stamp it. Mirrors the
+    real save/reopen pipeline: build_project_bundle → restore_project_bundle
+    (replace) → reconcile_bodies_after_restore.
+    """
+    project = sab_scene["project"]
+    litho_model_id = UUID(sab_scene["litho_model_id"])
+
+    result = await SubdivideAllBodies(db_session).execute(
+        project_id=project.id,
+        litho_model_id=litho_model_id,
+    )
+    geotech_model_id = result.geotech_model_id
+    before = (
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == geotech_model_id)))
+        .scalars()
+        .all()
+    )
+    assert any(b.parent_litho_body_id is not None for b in before), (
+        "precondition: some geotech body must carry a litho parent after subdivide"
+    )
+
+    bundle = await build_project_bundle(db_session, project)
+    db_session.expunge_all()
+    project = await db_session.get(ProjectOrm, project.id)
+    assert project is not None
+
+    await restore_project_bundle(
+        db_session,
+        project.id,
+        bundle["project"],
+        bundle.get("cpts", []),
+        bundle.get("boreholes", []),
+        bundle.get("geological_formations", []),
+        bundle.get("geological_models", []),
+        bundle.get("cross_sections", []),
+        bundle.get("investigation_reviews", []),
+        bodies_payload=bundle.get("bodies", []),
+        formation_absences_payload=bundle.get("formation_absences", []),
+        litho_contact_correlation_edges_payload=bundle.get("litho_contact_correlation_edges", []),
+        body_boundary_shapes_payload=bundle.get("body_boundary_shapes", []),
+        body_boundary_nodes_payload=bundle.get("body_boundary_nodes", []),
+        replace=True,
+    )
+    await reconcile_bodies_after_restore(db_session, project.id)
+    await db_session.commit()
+
+    geotech_bodies = (
+        (await db_session.execute(select(BodyOrm).where(BodyOrm.model_id == geotech_model_id)))
+        .scalars()
+        .all()
+    )
+    assert geotech_bodies, "geotech bodies must exist after reopen"
+    stamped = [b for b in geotech_bodies if b.parent_litho_body_id is not None]
+    assert stamped, (
+        "the post-restore reconcile must re-stamp parent_litho_body_id — a restored "
+        "geotech body reopened NULL"
+    )
+    litho_body_ids = set(
+        (await db_session.execute(select(BodyOrm.id).where(BodyOrm.model_id == litho_model_id)))
+        .scalars()
+        .all()
+    )
+    for body in stamped:
+        assert body.parent_litho_body_id in litho_body_ids, (
+            "a restored geotech body points at a litho body that does not exist"
+        )
 
 
 # ---------------------------------------------------------------------------
