@@ -37,6 +37,12 @@ class BodyListItem(BaseModel):
     primary_section_id : UUID | None
         The cross-section from which the naming gesture was invoked.
 
+    parent_litho_body_id : UUID | None
+        The litho parent BODY this geotech body subdivides (debt #278, R1) —
+        a resolver-maintained stored FK, mapped straight off the ORM row.
+        ``None`` on litho-model bodies and on a geotech body with no derivable
+        litho parent.
+
     geo_formation_id : UUID | None
         A2-derived geological-formation label: the geological formation owning
         the majority (by thickness) of this body's member layers. Computed fresh
@@ -62,6 +68,10 @@ class BodyListItem(BaseModel):
     source_investigation_id: UUID
     name: str | None
     primary_section_id: UUID | None
+
+    # The litho parent BODY this geotech body subdivides (debt #278, R1). Stored
+    # FK, resolver-maintained; mapped straight off the ORM row via from_attributes.
+    parent_litho_body_id: UUID | None = None
 
     # A2: derived (not stored) geological-formation label — the geological
     # formation owning the majority of this body's member-layer thickness,
