@@ -66,6 +66,9 @@ class BodyOrm(Base):
         # filter ``BodyOrm.app_project_id == project_id``; without this index
         # those are seq-scans (every other project-scoped root has one).
         Index("idx_body_app_project_id", "app_project_id"),
+        # Litho-parent-body backlink (debt #278, R1) — the resolver re-stamps
+        # every sibling geotech body of a litho recompute through this column.
+        Index("idx_body_parent_litho_body", "parent_litho_body_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -121,6 +124,31 @@ class BodyOrm(Base):
     primary_section_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("cross_section.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # The litho parent BODY this geotech body subdivides (self-referencing).
+    #
+    # Owner ruling 2026-08-31 (debt #278, R1): one connected geotech body is one
+    # row with an FK to its litho parent. NULL on litho-model rows (they ARE
+    # litho bodies) and on a geotech body with no derivable litho parent (every
+    # member band lacks a covering accepted litho band).
+    #
+    # MAINTENANCE CONTRACT — resolver-maintained, never restored from a bundle:
+    # * every GEOTECH resolve stamps this from the body's SHALLOWEST member
+    #   band's ``litho_layer.parent_litho_layer_id`` -> that litho layer's
+    #   ``body_id`` (mirrors the shallowest-member rule the body formation uses);
+    # * every LITHO resolve re-mints litho body ids, so it re-stamps every
+    #   sibling geotech model's bodies in the SAME transaction — a re-minted
+    #   litho body id therefore never leaves a geotech body dangling;
+    # * ``ON DELETE SET NULL`` catches the residual case where a litho body row
+    #   is deleted outright.
+    # This deliberately reverses the band-FK-only note on
+    # ``litho_layer.parent_litho_layer_id`` (that FK stays — it is the band-level
+    # link this body-level FK is derived FROM).
+    parent_litho_body_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("body.id", ondelete="SET NULL"),
         nullable=True,
     )
 
