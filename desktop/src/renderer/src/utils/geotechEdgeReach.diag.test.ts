@@ -37,7 +37,7 @@ import { clampedEdgeFractions, edgeReachViolations } from './geotechHierarchical
 import { buildPackingClassOf } from './geotechHierarchicalFill/packingClassOf'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './sectionPartition'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '../../../../..')
