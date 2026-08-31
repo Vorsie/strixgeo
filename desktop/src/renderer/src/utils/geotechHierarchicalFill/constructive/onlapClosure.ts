@@ -43,7 +43,7 @@
  */
 
 import type { ProbeEntry } from './fillGapProbe'
-import type { SectionRegion } from '../../partitionFill'
+import type { SectionRegion } from '../../sectionPartition'
 
 /**
  * Smallest elevation step (m) a vertical edge must span to count.
