@@ -34,7 +34,7 @@ import { effectiveCorrForSide } from './partitionFillV2/effectiveCorr'
 import { emitCurves } from './partitionFillV2/emitCurves'
 import { computeSectionFillV2 } from './partitionFillV2'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 
 let seq = 0
 const layer = (): string => `L${seq++}`
