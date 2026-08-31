@@ -28,7 +28,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { mergeTouchingBodies, mergeTouchingBodiesWithGroups } from './mergeTouchingBodies'
-import { type PartitionPoint, type SectionRegion } from '../partitionFill'
+import { type PartitionPoint, type SectionRegion } from '../sectionPartition'
 
 const SAND = 'sand'
 const CLAY = 'clay'
