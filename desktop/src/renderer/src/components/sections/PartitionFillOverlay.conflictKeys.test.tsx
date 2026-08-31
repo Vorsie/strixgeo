@@ -14,7 +14,6 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { LithoLayerResponse } from '../../api/client'
-import { setPartitionEngineV2 } from '../../utils/partitionEngineSelect'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
@@ -39,11 +38,9 @@ vi.mock('../../utils/partitionEngineSelect', async (importOriginal) => {
 
 afterEach(() => {
   cleanup()
-  setPartitionEngineV2(false)
 })
 beforeEach(() => {
   mockConflicts.value = []
-  setPartitionEngineV2(false)
 })
 
 function layer(id: string, inv: string, formationId: string): LithoLayerResponse {
