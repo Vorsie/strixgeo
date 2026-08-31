@@ -28,7 +28,7 @@ import {
   silentConstructs,
 } from './onlapClosure'
 import { computeSectionFillActive } from '../../partitionEngineSelect'
-import type { SectionRegion } from '../../partitionFill'
+import type { SectionRegion } from '../../sectionPartition'
 
 const SAND = 'f-sand'
 const N5 = 'g-zand-5'
