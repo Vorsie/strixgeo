@@ -17,7 +17,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { type LensApexOverride, lensApexOverrideKey } from '../partitionFill'
+import { type LensApexOverride, lensApexOverrideKey } from '../sectionPartition'
 
 /**
  * The apex fraction / elevation for a termination tip, honouring a per-body free-draw override.
