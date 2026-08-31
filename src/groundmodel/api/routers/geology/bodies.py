@@ -49,6 +49,7 @@ from groundmodel.api.schemas.project.body import (
     BodyBoundaryNodeItem,
     BodyBoundaryResponse,
     BodyBoundaryWriteRequest,
+    BodyGeoFormationRef,
     BodyListItem,
     ClearBoundariesResponse,
     MergeEnclosedLensResponse,
@@ -75,7 +76,7 @@ from groundmodel.application.body_boundary import (
 from groundmodel.application.clear_body_boundaries import ClearBodyBoundaries
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_body import DeleteBody
-from groundmodel.application.get_body_geo_labels import GetBodyGeoLabels
+from groundmodel.application.get_body_geo_labels import BodyGeoLabel, GetBodyGeoLabels
 from groundmodel.application.merge_enclosed_lens_bodies import MergeEnclosedLensBodies
 from groundmodel.application.name_body import NameBody
 from groundmodel.application.recompute_bodies import RecomputeBodies
@@ -100,15 +101,18 @@ logger = LoggerFactory.get_logger(__name__)
 router = APIRouter()
 
 
-def _to_list_item(body: BodyOrm, geo_label: tuple[UUID | None, str | None]) -> BodyListItem:
+def _to_list_item(body: BodyOrm, label: BodyGeoLabel) -> BodyListItem:
     """Build a ``BodyListItem`` from a body row + its derived geo label.
 
     ``parent_litho_body_id`` (debt #278, R1) is a real ORM column, so
     ``from_attributes`` fills it straight off ``body`` here — only the DERIVED
-    geo label has to be set by hand.
+    geo label (the majority singular pair AND the R2 crossed-formation list) is
+    set by hand.
     """
     item = BodyListItem.model_validate(body)
-    item.geo_formation_id, item.geo_formation_name = geo_label
+    item.geo_formation_id = label.formation_id
+    item.geo_formation_name = label.formation_name
+    item.geo_formations = [BodyGeoFormationRef(id=fid, name=name) for fid, name in label.formations]
     return item
 
 
@@ -170,7 +174,7 @@ async def list_bodies(
         litho_model_id=model_id, body_ids=[b.id for b in bodies]
     )
     logger.debug(f"list_bodies: project={project_id} model={model_id} → {len(bodies)} body row(s)")
-    return [_to_list_item(b, labels.get(b.id, (None, None))) for b in bodies]
+    return [_to_list_item(b, labels.get(b.id, BodyGeoLabel(None, None))) for b in bodies]
 
 
 @router.post(
