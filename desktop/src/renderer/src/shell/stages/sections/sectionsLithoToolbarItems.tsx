@@ -101,6 +101,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
           {
             label: suggestLabel,
             icon: <Sparkles size={12} />,
+            // Letter keys on the litho verbs (owner 2026-08-31: "make an
+            // analogy with the geotech stage ... like (f), (l) those
+            // shortcuts") — the litho flow is not numbered, so mnemonics.
+            shortcut: 's',
             onClick:
               suggestPrimaryMode === 'all'
                 ? () => setBulkConfirmOpen(true)
@@ -164,6 +168,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
                 {
                   label: t('sections.toolbar.acceptAllSuggestions'),
                   icon: <Sparkles size={12} />,
+                  shortcut: 'a',
                   onClick: () => void handleAcceptAll(),
                   disabled: acceptingAll,
                 },
@@ -297,6 +302,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
           {
             icon: <GitMerge size={12} />,
             label: correlateMode ? t('sections.litho.exitCorrelate') : t('sections.litho.enterCorrelate'),
+            shortcut: 'c',
             onClick: () => (correlateMode ? exitCorrelateMode() : enterCorrelateMode()),
             disabled:
               !activeLithoModel || !hasSection || (!correlateMode && !sectionHasLithoContacts),
