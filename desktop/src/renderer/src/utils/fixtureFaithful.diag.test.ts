@@ -47,7 +47,7 @@ describe('PROBE — is the anonymised CS1 fixture faithful to the live dump?', (
     const litho = computeSectionFillActive(
       L.columns,
       toEdges(sec.edges),
-      deriveSectionApexOverrides(L.columns, toEdges(sec.edges), L.alongM, noB, true),
+      deriveSectionApexOverrides(L.columns, toEdges(sec.edges), L.alongM, noB),
       L.alongM,
     )
     const live = computeHierarchicalGeotechFill({
