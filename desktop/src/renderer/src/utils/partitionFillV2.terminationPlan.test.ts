@@ -35,8 +35,8 @@ import { type ResolvedTie } from './partitionFillV2/emitCurves'
 import { buildSectionInput } from './partitionFillV2/sectionGeom'
 import { bridgeGapAnchorKey } from './partitionFillV2/emitSubstrate'
 import { buildTerminationPlans, type TerminationPlan } from './partitionFillV2/terminationPlan'
-import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from './partitionFill'
-import { type CorrelationEdge, type PartitionColumn } from './partitionFill'
+import { INTERIOR_PINCH_FRACTION, LENS_PINCH_FRACTION } from './sectionPartition'
+import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 
 let seq = 0
 const layer = (): string => `L${seq++}`
