@@ -96,7 +96,7 @@ import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
 import { CONTACT_EPS } from './geotechHierarchicalFill/constructive/farBand'
 import { buildLithoFamilies } from './geotechHierarchicalFill/families'
 import { computeSectionFillActive } from './partitionEngineSelect'
-import type { CorrelationEdge, PartitionColumn, SectionRegion } from './partitionFill'
+import type { CorrelationEdge, PartitionColumn, SectionRegion } from './sectionPartition'
 
 /** A 0/1-tie construct may be this many times taller than its own band. */
 const BALLOON_SLACK = 2.0
