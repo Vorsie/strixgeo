@@ -340,6 +340,15 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
+    # User "Separate" rulings (owner 2026-08-31, debt #278 R5: a body is only a
+    # body if geometrically connected OR the user says so). Additive — absent in
+    # older bundles. Restore order: after litho layers (both anchors FK
+    # litho_layer.id). Same ceiling as edges: each is a pair the engineer drew by
+    # hand, one at a time.
+    body_separations: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
+    )
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive — absent
     # in older bundles; default_factory=list. Restore order: shapes after
     # geological_models (model_id FK), nodes after shapes (shape_id FK).
@@ -460,6 +469,8 @@ class ProjectBundleResponse(BaseModel):
     body_geometry_facts: list[dict[str, Any]] = Field(default_factory=list)
     # Deleted packing ties, keyed by place (owner 2026-08-17). Additive.
     geotech_tie_tombstones: list[dict[str, Any]] = Field(default_factory=list)
+    # User "Separate" rulings (owner 2026-08-31, debt #278 R5). Additive.
+    body_separations: list[dict[str, Any]] = Field(default_factory=list)
     # Body boundary shapes + control nodes (#163f Slice 2).  Additive.
     body_boundary_shapes: list[dict[str, Any]] = Field(default_factory=list)
     body_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
