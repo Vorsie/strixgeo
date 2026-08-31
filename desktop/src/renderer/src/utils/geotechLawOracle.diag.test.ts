@@ -197,7 +197,7 @@ function auditSection(sec: RawSection): string[] {
   const lithoRegions = computeSectionFillActive(
     L.columns,
     L.edges,
-    deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty, true),
+    deriveSectionApexOverrides(L.columns, L.edges, L.alongM, empty),
     L.alongM,
   )
   const out = computeHierarchicalGeotechFill({
