@@ -19,7 +19,7 @@
  * @module utils/geotechHierarchicalFill/bandParents
  */
 
-import type { PartitionColumn } from '../partitionFill'
+import type { PartitionColumn } from '../sectionPartition'
 
 /** Where every band's parent landed, plus how well the fit went. */
 export interface BandParentResolution {
