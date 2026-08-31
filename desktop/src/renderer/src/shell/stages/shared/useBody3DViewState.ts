@@ -61,6 +61,7 @@ import {
   fetchApprovedEdgesBySection,
   type ApprovedEdgePair,
 } from './fetchApprovedEdgesBySection'
+import { resolveRegionBodyId } from '../../../components/sections/regionBodyId'
 
 // ---------------------------------------------------------------------------
 // Stable empty surfaces map — always passed to Geology3DViewer on the litho /
@@ -485,13 +486,18 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
   ])
 
   // Fence panels — built only in Fence mode to avoid the CPU cost otherwise.
-  const fencePanels = useMemo(
-    () =>
-      fenceActive && viewMode === 'fence'
-        ? buildProjectFence(fenceSectionInputs, frameSectionInputs, packingClassOf)
-        : undefined,
-    [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs, packingClassOf],
-  )
+  // The body resolver collapses each section's per-gap panels to ONE panel per
+  // connected body (debt #278 fence follow-on): ``litho_layer id → body_id`` over
+  // this axis's own layers is the label-independent identity ``mergeFencePanels``
+  // groups on (the same authority the cutout filter resolves through).
+  const fencePanels = useMemo(() => {
+    if (!(fenceActive && viewMode === 'fence')) return undefined
+    const bodyIdByLayerId = new Map<string, string | null>()
+    for (const l of layers) bodyIdByLayerId.set(l.id, l.body_id ?? null)
+    const resolveBody = (layerIds: readonly string[] | undefined): string | null =>
+      resolveRegionBodyId(layerIds, bodyIdByLayerId)
+    return buildProjectFence(fenceSectionInputs, frameSectionInputs, packingClassOf, resolveBody)
+  }, [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs, packingClassOf, layers])
 
   // The ring, placed at the top of whatever this pane actually renders. Split
   // from the fetch because the elevation moves when the ground surface or the
