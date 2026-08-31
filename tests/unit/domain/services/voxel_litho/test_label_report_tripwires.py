@@ -163,8 +163,19 @@ def test_a_centimetre_void_stays_under_the_limit_but_is_still_measured() -> None
 # ---------------------------------------------------------------------------
 
 
-def test_a_log_reaching_below_the_grid_floor_is_named() -> None:
-    """The borehole reaches 15 m below anything a section drew, and says so."""
+def test_a_log_reaching_below_the_section_floor_is_inside_the_grid() -> None:
+    """The borehole reaches 15 m below anything a section drew — and is IN.
+
+    This used to pin the ``logs_below_grid_floor`` WARNING: the grid was framed
+    from the section partitions alone, so a deeper log was truncated and the
+    tripwire named it on every build (debt #242's detector). Owner ruling
+    2026-08-31 — *"down to the deepest investigation"* — cured the truncation at
+    the frame: the grid's vertical range now covers the honored logs, so the
+    situation the warning existed for is unreachable from here. The tripwire
+    STAYS as a backstop against a future framing regression, and this test now
+    pins both halves of the cure: the floor reaches the log, and the warning
+    stays silent.
+    """
     deep = InvestigationColumn(
         investigation_id="B-DEEP",
         world_x=40.0,
@@ -174,8 +185,8 @@ def test_a_log_reaching_below_the_grid_floor_is_named() -> None:
 
     grid = label_voxels(_domain(), 4.0, [_whole(0.0), _whole(40.0)], investigation_columns=(deep,))
 
-    assert [name for name, _depth in grid.report.logs_below_grid_floor] == ["B-DEEP"]
-    assert grid.report.logs_below_grid_floor[0][1] == pytest.approx(15.0)
+    assert float(grid.gz.min()) <= -25.0 + 4.0  # within one voxel of the log base
+    assert grid.report.logs_below_grid_floor == ()
 
 
 def test_a_log_inside_the_grid_range_is_not_named() -> None:
