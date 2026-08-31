@@ -64,15 +64,26 @@ export function computeUnderColumnSubstrateForRender(
   if (nCol < 2) return []
 
   /**
-   * Contiguous matrix (non-lens) stack at one gap edge, below ``tdElev``.
-   * Slices are CLIPPED to the below-TD band (S60 delta — see module doc);
-   * lens spots are closed by extending the overlying formation downward.
+   * Contiguous stack at one gap edge, below ``tdElev``.
+   * Slices are CLIPPED to the below-TD band (S60 delta — see module doc).
    * Returns top→bottom with no vertical gap.
+   *
+   * EVERY region is sliced GEOMETRICALLY — including a ``kind === 'lens'``
+   * (owner ruling 2026-08-31, CS1's S7A: *"i don't need to interpret s7a, it
+   * is an undeep test that is fully interpreted, the silt lens that is
+   * missing comes from the column on the right"*). A neighbour's band that
+   * travels the gap as a lens (no ties, per the 2/1/0 law) but arrives at
+   * this edge at real thickness is ground the partition carries there, and
+   * the substrate's job is to mirror the partition. A lens that has PINCHED
+   * OUT at the edge slices to nothing and contributes nothing — which is the
+   * closure rule's own rationale, now enforced by the geometry instead of by
+   * the region's kind label. The overlying-formation closure below survives
+   * for the true-void case.
    */
   const stackAtEdge = (gapIdx: number, frac: number, tdElev: number) => {
     const segs: Array<{ lo: number; hi: number; formationId: string }> = []
     for (const r of regions) {
-      if (r.gapIndex !== gapIdx || r.kind === 'lens') continue
+      if (r.gapIndex !== gapIdx) continue
       for (const [lo, hi] of slicePolygonAtFraction(r.polygon, frac)) {
         // S60 owner rule: the partition owns the sub-TD space, so a region
         // running continuously through the TD contributes its below-TD portion
