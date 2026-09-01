@@ -18,6 +18,12 @@ export const SECTIONS = {
   'sections.deleteConfirm': 'Delete cross-section?',
   'sections.rename': 'Click to rename this cross-section',
   'sections.name': 'Section name',
+  // Presentation-boundary translation of the English canonical default section
+  // names ("Cross-section N" / "Tie-section N" stored at creation). Only the
+  // untouched defaults are matched; a user-renamed section shows its own name
+  // verbatim. ``{n}`` is the 1-based ordinal.
+  'sections.kindLabel.cross': 'Cross-section {n}',
+  'sections.kindLabel.tie': 'Tie-section {n}',
   'sections.properties': 'Section properties',
   'sections.modelActions': 'Model actions',
   'sections.moreActions': 'More section actions',
