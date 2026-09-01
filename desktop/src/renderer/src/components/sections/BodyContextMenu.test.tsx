@@ -1,10 +1,17 @@
 // Unit tests for BodyContextMenu.
 //
-// The claim + clear submenus were retired with the body-extent system
-// (body-extent retirement, 2026-06-06). Only Name body and Dissolve body remain.
+// Owner ruling 2026-09-01 ("way too complicated") — the body verbs are stripped
+// to Join + Ontkoppelen. Separate / Rejoin are GONE. The geotech body menu shows
+// Name, Unit statistics, "Voeg samen met…" (Join), "Ontkoppelen" (un-join, one
+// per standing group), and Dissolve.
 //
-//   BCM5  Name body fires onNameBody.
-//   BCM6  Dissolve body fires onDissolveBody.
+//   BCM5   Name body fires onNameBody.
+//   BCM6   Dissolve body fires onDissolveBody.
+//   BCM7/8 Unit statistics jump.
+//   BCM9-11 header shows the crossed-formation list.
+//   BCM16/17 Join with… arms.
+//   BCM18-20 Ontkoppelen (un-join) lifts a standing group.
+//   BCM21  the menu has NO Separate / Rejoin items (the simplification pin).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,10 +67,7 @@ describe('BodyContextMenu', () => {
 
   // Owner ruling R1 (2026-08-27): a litho unit between columns is reachable
   // through its BODY's menu — the region carries the body, the body carries
-  // the formation, and the statistics are the formation's. Body-scope ruling
-  // (2026-08-27, verbatim: "a body is only a body if it is geometrically
-  // connected or if the users says, this body is the same as that body"):
-  // this menu HAS the body, so the jump reports it alongside the unit.
+  // the formation, and the statistics are the formation's.
   it('BCM7 — "Unit statistics…" reports the body FORMATION id as the unit, AND the clicked body', () => {
     const onShowUnitStatistics = vi.fn()
     render(
@@ -84,9 +88,24 @@ describe('BodyContextMenu', () => {
     expect(onShowUnitStatistics).toHaveBeenCalledWith(makeBody().formation_id, makeBody().id)
   })
 
+  it('BCM8 — no statistics handler, no item (the no-affordance rule)', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId(TESTIDS.unitStatistics)).toBeNull()
+  })
+
   // R2 (owner ruling 2026-08-31): a body crossing two geological formations
-  // LISTS them both. The header field separator stays "·"; inside the geo field
-  // the crossed formations join with "+", shallowest first.
+  // LISTS them both, joined with "+", shallowest first.
   it('BCM9 — the header lists every crossed geo formation, joined with "+"', () => {
     render(
       <svg>
@@ -125,9 +144,7 @@ describe('BodyContextMenu', () => {
     expect(screen.getByText(/· Pleistoceen$/)).toBeInTheDocument()
   })
 
-  // Owner dogfeed 2026-09-01: the menu header "just says lens silt, weinig vast
-  // silt". The literal "Lens · " prefix is dropped — the body label + the
-  // crossed-formation list stand alone.
+  // Owner dogfeed 2026-09-01: the menu header drops the literal "Lens · " prefix.
   it('BCM11 — the header drops the literal "Lens · " prefix', () => {
     render(
       <svg>
@@ -151,142 +168,10 @@ describe('BodyContextMenu', () => {
     expect(screen.queryByText(/Lens ·/)).not.toBeInTheDocument()
   })
 
-  it('BCM8 — no statistics handler, no item (the no-affordance rule)', () => {
-    render(
-      <svg>
-        <BodyContextMenu
-          x={10}
-          y={10}
-          body={makeBody()}
-          onNameBody={vi.fn()}
-          onDissolveBody={vi.fn()}
-          onClose={vi.fn()}
-        />
-      </svg>,
-    )
-    expect(screen.queryByTestId(TESTIDS.unitStatistics)).toBeNull()
-  })
-
-  // Debt #278 R5 (owner ruling 2026-08-31): a "Separate" verb, the counterpart
-  // to Dissolve — "these two are NOT the same body". Offered only when wired
-  // (the no-affordance rule), and NON-danger (it is reversible via Rejoin,
-  // unlike Dissolve). Fires the clicked body's id so SectionPanel can arm.
-  it('BCM11 — "Separate from…" fires onSeparateBody with the clicked body id', () => {
-    const onSeparateBody = vi.fn()
-    render(
-      <svg>
-        <BodyContextMenu
-          x={10}
-          y={10}
-          body={makeBody()}
-          onNameBody={vi.fn()}
-          onDissolveBody={vi.fn()}
-          onSeparateBody={onSeparateBody}
-          onClose={vi.fn()}
-        />
-      </svg>,
-    )
-    fireEvent.click(screen.getByTestId(TESTIDS.separateBody))
-    expect(onSeparateBody).toHaveBeenCalledOnce()
-    expect(onSeparateBody).toHaveBeenCalledWith('B1')
-  })
-
-  it('BCM12 — no separate handler, no "Separate from…" item (no-affordance rule)', () => {
-    render(
-      <svg>
-        <BodyContextMenu
-          x={10}
-          y={10}
-          body={makeBody()}
-          onNameBody={vi.fn()}
-          onDissolveBody={vi.fn()}
-          onClose={vi.fn()}
-        />
-      </svg>,
-    )
-    expect(screen.queryByTestId(TESTIDS.separateBody)).toBeNull()
-  })
-
-  // Each existing separation involving this body is offered back as a "Rejoin
-  // with <label>" item, labelled from the backend's server-resolved display
-  // info; clicking it fires onRejoinBody with the separation id to lift.
-  it('BCM13 — a "Rejoin with <label>" item fires onRejoinBody with the separation id', () => {
-    const onRejoinBody = vi.fn()
-    render(
-      <svg>
-        <BodyContextMenu
-          x={10}
-          y={10}
-          body={makeBody()}
-          onNameBody={vi.fn()}
-          onDissolveBody={vi.fn()}
-          onRejoinBody={onRejoinBody}
-          separations={[{ separationId: 'sep-1', label: 'ZAND #2' }]}
-          onClose={vi.fn()}
-        />
-      </svg>,
-    )
-    const item = screen.getByTestId(`${TESTIDS.rejoinBody}-sep-1`)
-    expect(item.textContent).toContain('ZAND #2')
-    fireEvent.click(item)
-    expect(onRejoinBody).toHaveBeenCalledOnce()
-    expect(onRejoinBody).toHaveBeenCalledWith('sep-1')
-  })
-
-  // The menu is genuinely wired to the i18n catalogue (the keys existed but
-  // nothing read them before). This is the "toggle exists AND something moved"
-  // pin — a locale file alone cannot prove the component reads it. NL wording
-  // is provisional (flagged for the ux/owner pass), so this asserts the FLIP,
-  // not the exact phrasing being final.
-  it('BCM15 — labels follow the language flip (Separate/Rejoin render in NL)', () => {
-    setLanguage('nl')
-    render(
-      <svg>
-        <BodyContextMenu
-          x={10}
-          y={10}
-          body={makeBody()}
-          onNameBody={vi.fn()}
-          onDissolveBody={vi.fn()}
-          onSeparateBody={vi.fn()}
-          onRejoinBody={vi.fn()}
-          separations={[{ separationId: 'sep-1', label: 'ZAND #2' }]}
-          onClose={vi.fn()}
-        />
-      </svg>,
-    )
-    expect(screen.getByTestId(TESTIDS.separateBody).textContent).toBe('Scheiden van…')
-    expect(screen.getByTestId(TESTIDS.dissolveBody).textContent).toBe('Lichaam ontbinden')
-    // The {label} placeholder interpolates in NL too. Owner ruled 2026-09-01:
-    // Rejoin reads "Herenig met …" ("Voeg samen met…" is reserved for Join).
-    expect(screen.getByTestId(`${TESTIDS.rejoinBody}-sep-1`).textContent).toBe(
-      'Herenig met ZAND #2',
-    )
-  })
-
-  it('BCM14 — no separations, no Rejoin items', () => {
-    render(
-      <svg>
-        <BodyContextMenu
-          x={10}
-          y={10}
-          body={makeBody()}
-          onNameBody={vi.fn()}
-          onDissolveBody={vi.fn()}
-          onRejoinBody={vi.fn()}
-          onClose={vi.fn()}
-        />
-      </svg>,
-    )
-    expect(screen.queryByTestId(`${TESTIDS.rejoinBody}-sep-1`)).toBeNull()
-  })
-
-  // Debt #278 (owner ruling 2026-08-31): a "Join with…" verb — "these two ARE
-  // the same body" — the additive counterpart to Separate. Offered only when
-  // wired (the no-affordance rule keeps it geotech-only, where the owner said he
-  // would use it), and NON-danger (it is reversible via Disjoin). Fires the
-  // clicked body's id so SectionPanel can arm the pick-the-other-body gesture.
-  it('BCM16 — "Join with…" fires onJoinBody with the clicked body id', () => {
+  // Join (owner ruling 2026-09-01) — "these two ARE the same body", the additive
+  // verb. Offered only when wired (keeps it geotech-only), NON-danger. Fires the
+  // clicked body's id so SectionPanel arms the pick-the-other-body gesture.
+  it('BCM16 — "Voeg samen met…" fires onJoinBody with the clicked body id', () => {
     const onJoinBody = vi.fn()
     render(
       <svg>
@@ -306,7 +191,7 @@ describe('BodyContextMenu', () => {
     expect(onJoinBody).toHaveBeenCalledWith('B1')
   })
 
-  it('BCM17 — no join handler, no "Join with…" item (no-affordance rule)', () => {
+  it('BCM17 — no join handler, no "Voeg samen met…" item (no-affordance rule)', () => {
     render(
       <svg>
         <BodyContextMenu
@@ -322,10 +207,10 @@ describe('BodyContextMenu', () => {
     expect(screen.queryByTestId(TESTIDS.joinBody)).toBeNull()
   })
 
-  // Each existing union involving this body is offered back as a "Disjoin
-  // <label>" item, labelled from the backend's server-resolved display info;
-  // clicking it fires onDisjoinBody with the union id to lift.
-  it('BCM18 — a "Disjoin <label>" item fires onDisjoinBody with the union id', () => {
+  // Each standing group involving this body is offered back as an "Ontkoppelen"
+  // item, labelled from the backend's server-resolved display info; clicking it
+  // fires onDisjoinBody with the group (union) id to lift.
+  it('BCM18 — an "Ontkoppelen" item fires onDisjoinBody with the group id', () => {
     const onDisjoinBody = vi.fn()
     render(
       <svg>
@@ -341,14 +226,14 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
-    const item = screen.getByTestId(`${TESTIDS.disjoinBody}-union-1`)
+    const item = screen.getByTestId(`${TESTIDS.unjoinBody}-union-1`)
     expect(item.textContent).toContain('ZAND #5')
     fireEvent.click(item)
     expect(onDisjoinBody).toHaveBeenCalledOnce()
     expect(onDisjoinBody).toHaveBeenCalledWith('union-1')
   })
 
-  it('BCM19 — no unions, no Disjoin items', () => {
+  it('BCM19 — no groups, no Ontkoppelen items', () => {
     render(
       <svg>
         <BodyContextMenu
@@ -362,14 +247,13 @@ describe('BodyContextMenu', () => {
         />
       </svg>,
     )
-    expect(screen.queryByTestId(`${TESTIDS.disjoinBody}-union-1`)).toBeNull()
+    expect(screen.queryByTestId(`${TESTIDS.unjoinBody}-union-1`)).toBeNull()
   })
 
-  // The Join/Disjoin labels follow the language flip. Owner ruled 2026-08-31:
-  // Join reads "Voeg samen met…" in NL. Disjoin's NL is FLAGGED-not-ruled
-  // (proposed "Ontkoppel van {label}"), so this pins the FLIP + interpolation,
-  // not the phrasing being final.
-  it('BCM20 — labels follow the language flip (Join/Disjoin render in NL)', () => {
+  // The menu is genuinely wired to the i18n catalogue. Owner ruled 2026-08-31:
+  // Join reads "Voeg samen met…". The un-join reads "Ontkoppelen" (owner's
+  // approved word 2026-09-01); the "van {label}" suffix names which group.
+  it('BCM20 — labels follow the language flip (Join / Ontkoppelen render in NL)', () => {
     setLanguage('nl')
     render(
       <svg>
@@ -387,8 +271,34 @@ describe('BodyContextMenu', () => {
       </svg>,
     )
     expect(screen.getByTestId(TESTIDS.joinBody).textContent).toBe('Voeg samen met…')
-    expect(screen.getByTestId(`${TESTIDS.disjoinBody}-union-1`).textContent).toBe(
-      'Ontkoppel van ZAND #5',
+    expect(screen.getByTestId(`${TESTIDS.unjoinBody}-union-1`).textContent).toBe(
+      'Ontkoppelen van ZAND #5',
     )
+  })
+
+  // The simplification pin (owner 2026-09-01): Separate / Rejoin are GONE. No
+  // handler prop for them exists, and no item can render — even the old testids
+  // resolve to nothing.
+  it('BCM21 — the menu has NO Separate or Rejoin items', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onJoinBody={vi.fn()}
+          onDisjoinBody={vi.fn()}
+          unions={[{ unionId: 'union-1', label: 'ZAND #5' }]}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId('body-ctx-separate-body')).toBeNull()
+    expect(screen.queryByTestId('body-ctx-rejoin-body-sep-1')).toBeNull()
+    // The surviving verbs ARE present.
+    expect(screen.getByTestId(TESTIDS.joinBody)).toBeInTheDocument()
+    expect(screen.getByTestId(`${TESTIDS.unjoinBody}-union-1`)).toBeInTheDocument()
   })
 })
