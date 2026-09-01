@@ -505,6 +505,10 @@ export const SECTIONS = {
   'sections.menu.body': 'Body extent actions',
   'sections.menu.dissolveBody': 'Dissolve body',
   'sections.menu.nameBody': 'Name body…',
+  // Debt #278 R5 — the "Separate" verb + its Rejoin undo. ``{label}`` is the
+  // other body's display label. (Wording flagged for the ux/owner pass.)
+  'sections.menu.separateBody': 'Separate from…',
+  'sections.menu.rejoinBody': 'Rejoin with {label}',
   'sections.menu.focusTest': 'Focus this test',
   'sections.menu.openDetail': 'Open detail',
   'sections.menu.removeFromSection': 'Remove from this section',
