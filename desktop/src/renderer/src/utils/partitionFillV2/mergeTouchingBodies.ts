@@ -54,6 +54,11 @@
  */
 
 import { type ColumnGeom } from './sectionGeom'
+import {
+  absorbSeparationIncidence,
+  seedSeparationIncidence,
+  unionCompletesSeparation,
+} from './separationConstraint'
 import { SNAP_GRID_M } from './types'
 import { type PartitionPoint, type SectionRegion } from '../sectionPartition'
 
@@ -306,6 +311,27 @@ export interface MergeTouchingBodiesOptions {
    * merge is unchanged.
    */
   identityKeyOf?: (formationId: string) => string
+  /**
+   * User "Separate" rulings threaded in as a CANNOT-LINK on the weld (owner
+   * 2026-08-31, debt #278 R5). Each entry is a canonical ``a|b`` pair of
+   * LAYER ids, ``a < b`` lexicographic — the two layers the engineer stated
+   * are NOT one body. The merge honours them exactly like the backend's
+   * constrained union-find (``resolve_litho_instances._constrained_components``):
+   * a union that would place BOTH sides of a separation under one root is
+   * SKIPPED, so a same-class touching pair the user split stays two bodies and
+   * the paint seam appears.
+   *
+   * A region's side membership for a pair is decided by its ``layerIds``
+   * (contains ``a`` → side A, contains ``b`` → side B). A single region that
+   * carries BOTH sides is already-welded evidence the merge cannot split — it
+   * stays whole and its unrelated welds still happen (identity is re-split by
+   * the recompute/resolver, not this relabel).
+   *
+   * Default absent / empty: the weld is BYTE-IDENTICAL to the pre-change merge
+   * (the CS1 golden / HIER_COV invariant) — the cannot-link is inert when the
+   * engineer has separated nothing.
+   */
+  separatedPairs?: ReadonlySet<string>
 }
 
 /**
@@ -344,10 +370,26 @@ export function mergeTouchingBodiesWithGroups(
   const participates = (i: number): boolean => !(excludeFallback && regions[i].fallback === true)
   const n = regions.length
   const parent = Array.from({ length: n }, (_, i) => i)
+  // The "Separate" cannot-link (debt #278 R5): per-root incidence of which side of each
+  // separation a component contains. Empty when the caller passes no separations — the
+  // union below is then byte-identical to the unconstrained merge.
+  const { incidence, pairCount } = seedSeparationIncidence(
+    n,
+    (i) => regions[i].layerIds,
+    participates,
+    opts?.separatedPairs,
+  )
   const union = (a: number, b: number): void => {
     const ra = ufFind(parent, a)
     const rb = ufFind(parent, b)
-    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb)
+    if (ra === rb) return
+    // Honour a standing separation: skip the union that would place BOTH sides of a
+    // pair under one root (the paint seam the engineer drew must stay visible).
+    if (pairCount > 0 && unionCompletesSeparation(incidence, ra, rb)) return
+    const root = Math.min(ra, rb)
+    const other = Math.max(ra, rb)
+    parent[other] = root
+    if (pairCount > 0) absorbSeparationIncidence(incidence, root, other)
   }
 
   const ext = regions.map((r) => extent(r.polygon))
