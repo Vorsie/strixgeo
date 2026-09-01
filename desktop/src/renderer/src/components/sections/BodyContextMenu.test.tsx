@@ -125,6 +125,32 @@ describe('BodyContextMenu', () => {
     expect(screen.getByText(/· Pleistoceen$/)).toBeInTheDocument()
   })
 
+  // Owner dogfeed 2026-09-01: the menu header "just says lens silt, weinig vast
+  // silt". The literal "Lens · " prefix is dropped — the body label + the
+  // crossed-formation list stand alone.
+  it('BCM11 — the header drops the literal "Lens · " prefix', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody({
+            geo_formations: [
+              { id: 'g1', name: 'Holoceen' },
+              { id: 'g2', name: 'Pleistoceen' },
+            ],
+          })}
+          displayLabel="SILT · SF #0"
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.getByText(/^SILT · SF #0 · Holoceen \+ Pleistoceen$/)).toBeInTheDocument()
+    expect(screen.queryByText(/Lens ·/)).not.toBeInTheDocument()
+  })
+
   it('BCM8 — no statistics handler, no item (the no-affordance rule)', () => {
     render(
       <svg>
