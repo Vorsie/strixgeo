@@ -146,7 +146,7 @@ beforeEach(async () => {
     showProjectSaveDialog: vi.fn(),
     // Present by default: the missing-file branch is opted into per test.
     projectFileExists: vi.fn().mockResolvedValue(true),
-    readProjectFile: vi.fn().mockImplementation(async () => diskContent),
+    readProjectFile: vi.fn().mockImplementation(async () => ({ ok: true, json: diskContent })),
     writeProjectFile: vi.fn().mockImplementation(async (_path: string, content: string) => {
       diskContent = content
     }),
@@ -279,6 +279,38 @@ describe('openProjectFile — the DB row is gone', () => {
     // the mirror evidence — dropped here, the reopened project re-splits every
     // body the engineer joined. (Guards the ``restorePayloadFrom`` line.)
     expect(payload.body_unions).toEqual(ghost.body_unions)
+  })
+})
+
+describe('openProjectFile — the file is unreadable (damaged / truncated / newer)', () => {
+  // The main-process codec flattens a decode failure into { ok: false, reason }
+  // instead of throwing across IPC, so the open flow can show the SPECIFIC,
+  // honest message — the RAM-corruption-mid-save case must read LOUD, not fall
+  // into the generic "corrupt or API unreachable" banner.
+  it('returns the specific decode reason verbatim and does NOT hit the DB restore path', async () => {
+    const { api } = await import('../api/client')
+    const reason = {
+      code: 'strix-corrupt',
+      message:
+        'This StrixGeo project file is damaged and could not be read — re-save it ' +
+        'from a build that still has the project open.',
+    }
+    asMock(window.electron.readProjectFile).mockResolvedValue({ ok: false, reason })
+
+    const { result } = renderHook(() => useProject())
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.openProjectFile('C:/path/damaged.strix')
+    })
+
+    // Surfaced verbatim as the discriminated unreadable failure — not folded
+    // into a bare null the way a generic parse failure is.
+    expect(returned).toEqual({ outcome: 'unreadable', reason })
+    // A damaged file must never trigger the DB-lost restore (that path rebuilds
+    // the project FROM the file, which we just proved we cannot read).
+    expect(api.project.get).not.toHaveBeenCalled()
+    expect(api.project.restore).not.toHaveBeenCalled()
+    expect(result.current.project).toBeNull()
   })
 })
 
