@@ -448,13 +448,13 @@ def resolve_litho_instances(
         User-approved correlation edges (layer-id endpoints). Endpoints not
         present in ``layers`` are ignored (dangling-edge guard).
     separations : Sequence[LayerSeparation], optional
-        User "Separate" rulings — cannot-link constraints (debt #278, R5).
-        Each forbids its two anchors from ever landing in one body, even when a
-        chain of edges would otherwise connect them. A separation whose anchor is
-        absent from ``layers`` this run is INERT (the dangling-anchor mirror of
-        the dangling-edge guard). Default empty: the litho/geotech resolve is
-        byte-identical to plain connectivity when the engineer has separated
-        nothing.
+        DORMANT since the owner removed the Separate / Rejoin verbs
+        (2026-09-01). Formerly a cannot-link constraint (debt #278, R5); the arg
+        is still ACCEPTED so every caller — including bundle restore of legacy
+        rows — is unchanged, but it has NO effect: the resolve is byte-identical
+        whether or not separations are supplied (``live_separations`` is forced
+        empty in the body, so a ``body_union`` always unions and no union is ever
+        suppressed). Restore the live filter when the Separate verb returns.
     unions : Sequence[LayerUnion], optional
         User "Join with…" rulings — must-link constraints (debt #278). Each
         REQUIRES its two anchors to share a body even when no edge connects them.
@@ -531,15 +531,17 @@ def resolve_litho_instances(
     surviving_unions.sort(key=_canonical)
     all_pairs = surviving_unions + surviving_edges
 
-    # A separation whose anchor left the model this run is INERT — the
-    # dangling-anchor mirror of the dangling-edge guard above. A deleted or
-    # rebuilt layer neutralises the constraint (the re-anchor pass restores it on
-    # the next rebuild), so a stale separation can never fragment the wrong body.
-    live_separations: list[tuple[UUID, UUID]] = [
-        (s.layer_a_id, s.layer_b_id)
-        for s in separations
-        if s.layer_a_id in node_ids and s.layer_b_id in node_ids
-    ]
+    # Owner 2026-09-01: the Separate / Rejoin verbs were removed and
+    # ``body_separation`` is DORMANT — the ORM, table, router and bundle restore
+    # survive so leftover rows stay readable, but a standing separation must no
+    # longer affect a resolve (a leftover row was refusing the owner's Join). We
+    # keep accepting the ``separations`` arg (signature + every caller unchanged)
+    # but ignore it: with no cannot-link constraints the constrained union-find
+    # never skips a must-link, so a ``body_union`` always unions and the post-hoc
+    # ``suppressed_unions`` below is always empty. When Separate returns this
+    # becomes the live filter again.
+    live_separations: list[tuple[UUID, UUID]] = []
+    _ = separations  # accepted for signature / caller compatibility; dormant
 
     components = _constrained_components(node_ids, all_pairs, live_separations)
 
