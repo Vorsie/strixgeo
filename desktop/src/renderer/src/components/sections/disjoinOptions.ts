@@ -49,7 +49,16 @@ export function buildDisjoinOptions(
     const other = involvesA ? union.anchor_b : union.anchor_a
     const label =
       other.body_name?.trim() || formationLabel(other.formation_id) || 'the other body'
-    out.push({ unionId: union.id, label })
+    // The OTHER anchor's layer id is the DISAMBIGUATOR (D2): after a standing union
+    // both anchors resolve to the SAME merged body, so ``otherBodyId`` collides
+    // between two options on one body, but each ``otherLayerId`` still names a
+    // distinct position — what the hover-highlight points at.
+    out.push({
+      unionId: union.id,
+      label,
+      otherBodyId: other.body_id,
+      otherLayerId: other.layer_id,
+    })
   }
   return out
 }
