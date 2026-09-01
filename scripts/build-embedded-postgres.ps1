@@ -28,13 +28,23 @@
 param(
     # Where the two upstream zips are cached between runs. Downloads are
     # skipped when a file with the expected SHA256 is already present.
-    [string]$DownloadDir = (Join-Path $PSScriptRoot '..\desktop\embedded\.cache'),
+    # Default is computed in the body: $PSScriptRoot is NOT bound during
+    # param-default evaluation under `powershell.exe -File` (the npm
+    # `embedded:postgres` path) — only in the script body.
+    [string]$DownloadDir = '',
     # Rebuild even when desktop/embedded/pgsql already looks complete.
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# $PSScriptRoot is empty inside the param() default above when launched via
+# `powershell.exe -File`; it is populated here in the body. Resolve the cache
+# dir now so both `-File` and dot/&-invocation work identically.
+if (-not $DownloadDir) {
+    $DownloadDir = Join-Path $PSScriptRoot '..\desktop\embedded\.cache'
+}
 
 # --- Upstream artefacts -----------------------------------------------------
 # Pinned by version AND digest: a silently-refreshed upstream zip would
