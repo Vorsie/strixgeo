@@ -265,13 +265,14 @@ export function useSectionWheelZoom({
 /** Inputs for {@link useSectionKeyboardShortcuts}. */
 interface SectionKeyboardShortcutsParams {
   /**
-   * Whether a "Separate" is armed (debt #278 R5). Esc peels it FIRST — an armed
-   * gesture is the most recently opened surface, so one Esc cancels the pick
-   * without losing the section context.
+   * Whether a body-identity "Join" pick is armed (debt #278). Esc peels it FIRST
+   * — an armed gesture is the most recently opened surface, so one Esc cancels the
+   * pick without losing the section context. (Renamed from ``separateArmed`` when
+   * the Separate verb was removed, owner 2026-09-01.)
    */
-  separateArmed?: boolean
-  /** Clear the Separate arm. Only called when ``separateArmed`` is true. */
-  clearSeparateArm?: () => void
+  pairArmed?: boolean
+  /** Clear the pick arm. Only called when ``pairArmed`` is true. */
+  clearPairArm?: () => void
   /** Whether the body-wedge context menu is open. */
   bodyMenuOpen: boolean
   /** Whether the column context menu is open. */
@@ -317,8 +318,8 @@ interface SectionKeyboardShortcutsParams {
  *     See {@link SectionKeyboardShortcutsParams}.
  */
 export function useSectionKeyboardShortcuts({
-  separateArmed,
-  clearSeparateArm,
+  pairArmed,
+  clearPairArm,
   bodyMenuOpen,
   columnMenuOpen,
   columnFocused,
@@ -344,10 +345,10 @@ export function useSectionKeyboardShortcuts({
       ) {
         return
       }
-      if (separateArmed && clearSeparateArm) {
-        // R5: an armed Separate is the outermost peel — Esc cancels the
+      if (pairArmed && clearPairArm) {
+        // #278: an armed Join is the outermost peel — Esc cancels the
         // pick-the-other-body gesture before any menu / focus / close.
-        clearSeparateArm()
+        clearPairArm()
       } else if (bodyMenuOpen) {
         dismissBodyCtxMenu()
       } else if (columnMenuOpen) {
@@ -370,8 +371,8 @@ export function useSectionKeyboardShortcuts({
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [
-    separateArmed,
-    clearSeparateArm,
+    pairArmed,
+    clearPairArm,
     bodyMenuOpen,
     columnMenuOpen,
     columnFocused,
