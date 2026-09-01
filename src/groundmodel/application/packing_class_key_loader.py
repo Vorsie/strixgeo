@@ -1,17 +1,25 @@
-"""Load a project's packing-class identity function for the body merge.
+"""Load a project's packing-class identity function for the 3-D voxel paint.
 
 Debt #278: the geotech model keeps one ``geological_formation`` ROW per (NAD
 packing class, litho parent, geological parent), so the same class exists under
-several row ids wherever a litho unit spans a geological boundary. The
-cross-section body merge must compare the CLASS, not the row, to keep a body
-whole across that boundary (owner 2026-08-21, "yes one mass one body").
+several row ids wherever a litho unit spans a geological boundary.
 
-Two application-layer callers need the same project → key wiring — the
-persisted body recompute (:class:`~groundmodel.application.recompute_bodies.RecomputeBodies`)
-and the 3-D voxel build
+The 3-D voxel PAINT build
 (:class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel`)
-— so the query + projection lives here once (CLAUDE.md "extract on the second
-copy"). It reads the ORM rows and hands the pure domain builder
+compares the CLASS, not the row, so two same-class masses paint as one voxel
+body — this is what prevents the invented-lithology pinch (owner 2026-08-21,
+"yes one mass one body").
+
+NOTE the persisted body IDENTITY recompute
+(:class:`~groundmodel.application.recompute_bodies.RecomputeBodies`) NO LONGER
+uses this: it went permanently granular (owner 2026-09-01, "start totally
+granular ... the user lumps them into groups"), keying on the raw formation row
+so disconnected same-class masses stay distinct bodies. The paint-vs-identity
+divergence is a decided ruling, not an oversight. This loader therefore has a
+single caller today; it stays a named helper so the ORM query + projection has
+one home should the identity path ever want a (different) key again.
+
+It reads the ORM rows and hands the pure domain builder
 (:func:`~groundmodel.domain.services.voxel_litho.packing_class_key.packing_class_key_of`)
 plain triples, so the domain layer never sees an ORM type.
 """
