@@ -131,6 +131,7 @@ import GeotechBandEditOverlay from './sections/GeotechBandEditOverlay'
 import GeotechBoreholePreviewGhosts from './sections/GeotechBoreholePreviewGhosts'
 import PartitionFillOverlay, { type GeotechLithoFrame } from './sections/PartitionFillOverlay'
 import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
+import { toSeparatedPairs } from '../utils/partitionFillV2/separationConstraint'
 import { useSectionScope } from './sections/SectionScopeContext'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
@@ -1116,6 +1117,15 @@ export default function SectionPanel({
       packingClassByFormationId: buildPackingClassOf(geotechModel.nadMeta),
     }
   }, [axisMode, geotechModel, fillSelection.showLithoFillInstead, lithoLayers, contactEdges])
+  // The engineer's "Separate" rulings for the ACTIVE axis, as canonical ``a|b`` pairs
+  // (SectionsCanvas already passes the litho-axis or geotech-axis list per axis). Threaded
+  // into the fill as a cannot-link so a same-class touching pair the engineer split does
+  // NOT weld — the paint seam appears (owner 2026-08-31, debt #278 R5). Memoised so the
+  // overlay's engine-cache key stays stable when the separations have not changed.
+  const separatedPairs = useMemo(
+    () => toSeparatedPairs(separations ?? []),
+    [separations],
+  )
   // The lens suggestion compares NAD classes only; flattened here so the overlay's
   // column memo sees a stable map identity instead of rebuilding per render.
   const geotechNadClassByFormationId = useMemo(() => {
@@ -3711,6 +3721,11 @@ export default function SectionPanel({
                   fillSelection.showLithoFillInstead,
                 )}
                 lithoFrame={geotechLithoFrame}
+                // The active axis's "Separate" rulings, as canonical pairs — the geotech
+                // hierarchical fill honours them as a cannot-link so a split shows its seam
+                // (debt #278 R5). Inert off the geotech axis (the litho paint path does not
+                // yet consume them — see PartitionFillOverlay).
+                separatedPairs={separatedPairs}
                 placedColumns={visibleColumns}
                 // The palette travels with the partition's model: NAD colours
                 // for the packing bands, lithology colours when "Show litho
