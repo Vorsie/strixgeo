@@ -38,6 +38,43 @@ function geoContextSuffix(entry: BodyRosterEntry | undefined): string {
   return label === '' ? '' : GEO_SEP + label
 }
 
+/**
+ * The crossed-formation suffix for a geotech body — its OWN list if it carries
+ * one, else its LITHO PARENT body's (owner dogfeed 2026-09-01).
+ *
+ * The backend derives a body's crossed-formation list against the model's parent
+ * model; for a geotech model that parent is the LITHO model, not the geological
+ * model, so a geotech body gets no list of its own. Without a fallback the
+ * right-click jump (which lands on the geotech body / its class row) shows no
+ * geological context, while the pane — reading the litho body — shows it. The
+ * geotech body sits inside its litho parent, so inheriting the parent's list
+ * makes the SAME body read the SAME context on both arrival paths.
+ *
+ * Parameters
+ * ----------
+ * bodyId
+ *     The geotech body id.
+ * lithoBodyId
+ *     Its litho parent body id, or ``null`` when the path could not resolve one.
+ * input
+ *     The tree input (both body rosters).
+ *
+ * Returns
+ * -------
+ * str
+ *     The ``· <formations>`` suffix, or ``''`` when neither carries a list.
+ */
+function geotechGeoContextSuffix(
+  bodyId: string,
+  lithoBodyId: string | null,
+  input: ParameterTreeInput,
+): string {
+  const own = geoContextSuffix(input.geotechBodies.get(bodyId))
+  if (own !== '') return own
+  if (lithoBodyId === null) return ''
+  return geoContextSuffix(input.lithoBodies.get(lithoBodyId))
+}
+
 /** The litho unit a litho body homes to (roster home, else a layer's formation). */
 function homeUnitOfLithoBody(bodyId: string, input: ParameterTreeInput): string | null {
   const home = input.lithoBodies.get(bodyId)?.formation_id ?? null
@@ -157,7 +194,14 @@ export function scopeHeaderLabel(
       const unit = lithoUnitName(scope.lithoUnitId, input)
       const bodyLabel = lithoBodyLabel(scope.lithoBodyId, unit, input.lithoBodies)
       const path = unit + PATH_SEP + bodyLabel + PATH_SEP + nadClassName(scope.nadClass)
-      return path + pooledSuffix(bandsForScope(scope, input), memberInvestigationIds)
+      // The crossed formations are the litho body's — the jump lands here when
+      // the body could not be resolved (dogfeed 2026-09-01), so it must still
+      // show the geological context the resolved body would.
+      return (
+        path +
+        geoContextSuffix(input.lithoBodies.get(scope.lithoBodyId)) +
+        pooledSuffix(bandsForScope(scope, input), memberInvestigationIds)
+      )
     }
     case 'geotech-body': {
       const path = geotechBodyPath(scope.bodyId, input)
@@ -165,9 +209,11 @@ export function scopeHeaderLabel(
         path?.nadClass != null
           ? geotechBodyLabel(scope.bodyId, path.nadClass, input.geotechBodies)
           : bodyLabelOf(scope.bodyId, input.geotechBodies)
-      // The geological context appends regardless of whether the litho path
-      // resolves — a geotech body has its own crossed-formation list.
-      const geoSuffix = geoContextSuffix(input.geotechBodies.get(scope.bodyId))
+      // The geological context: the geotech body's OWN crossed-formation list,
+      // else its litho parent's (the backend leaves a geotech body's own list
+      // empty — see ``geotechGeoContextSuffix``). Appends regardless of whether
+      // the full litho path resolves.
+      const geoSuffix = geotechGeoContextSuffix(scope.bodyId, path?.lithoBodyId ?? null, input)
       if (path === null || path.lithoUnitId === null || path.lithoBodyId === null)
         return bodyLabel + geoSuffix
       const unit = lithoUnitName(path.lithoUnitId, input)
