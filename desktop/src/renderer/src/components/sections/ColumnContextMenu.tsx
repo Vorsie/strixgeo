@@ -20,6 +20,7 @@
  */
 
 import ContextMenu, { type ContextMenuItem } from '../ui/ContextMenu'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   /** Container-local coordinates where the menu's top-left corner
@@ -62,17 +63,21 @@ export default function ColumnContextMenu({
   onClearSubdivision,
   onClose,
 }: Props): JSX.Element {
+  // Item labels + the aria-label read the i18n catalogue (owner dogfeed
+  // 2026-09-01: the menu stayed English in Dutch mode). English is the default
+  // without a provider, so the smoke tests still see the English copy.
+  const t = useT()
   const items: (ContextMenuItem | false | undefined)[] = [
-    { label: 'Focus this test', onClick: onFocus },
-    onOpenDetail && { label: 'Open detail', onClick: onOpenDetail, topBorder: true },
+    { label: t('sections.menu.focusTest'), onClick: onFocus },
+    onOpenDetail && { label: t('sections.menu.openDetail'), onClick: onOpenDetail, topBorder: true },
     onClearSubdivision && {
-      label: 'Clear subdivision',
+      label: t('sections.menu.clearSubdivision'),
       onClick: onClearSubdivision,
       danger: true,
       topBorder: true,
     },
     onRemoveFromSection && {
-      label: 'Remove from this section',
+      label: t('sections.menu.removeFromSection'),
       onClick: onRemoveFromSection,
       danger: true,
       topBorder: true,
@@ -84,7 +89,7 @@ export default function ColumnContextMenu({
       x={x}
       y={y}
       header={name}
-      ariaLabel={`Actions for ${name}`}
+      ariaLabel={t('sections.menu.actionsFor', { name })}
       items={items}
       onClose={onClose}
     />
