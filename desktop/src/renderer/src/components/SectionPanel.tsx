@@ -43,7 +43,6 @@ import type {
   BodyBoundaryNode,
   BodyBoundaryResponse,
   BodyListItem,
-  BodySeparationListItem,
   BodyUnionListItem,
   BodyRenderStyle,
   CptListItem,
@@ -133,6 +132,7 @@ import PartitionFillOverlay, { type GeotechLithoFrame } from './sections/Partiti
 import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
 import { toSeparatedPairs } from '../utils/partitionFillV2/separationConstraint'
 import { useSectionScope } from './sections/SectionScopeContext'
+import { useT } from '../i18n/translate'
 import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
 import { sliceSolidsAtPlaneRobust, sliceSolidsAlongZigzag } from '../utils/sectionFromSolids'
@@ -161,9 +161,7 @@ import {
   selectGeotechBody,
 } from '../utils/geotechBodySelectionStore'
 import BodyContextMenu from './sections/BodyContextMenu'
-import { firstLayerStampedToBody, type SeparatePick } from './sections/separatePick'
-import { buildRejoinOptions } from './sections/rejoinOptions'
-import { type JoinPick, type JoinNotice } from './sections/joinPick'
+import { firstLayerStampedToBody, type JoinPick, type JoinNotice } from './sections/joinPick'
 import { buildDisjoinOptions } from './sections/disjoinOptions'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
@@ -793,49 +791,16 @@ interface Props {
    */
   onDissolveBody?: (bodyId: string) => void
   /**
-   * Commit a "Separate" (debt #278 R5): the two anchors are stated to be NOT one
-   * body. Fired after the armed pick resolves a body. ``sameBody`` distinguishes
-   * the SPLIT case (the picked region is the SAME body — two anchors inside one
-   * component the backend cuts, the owner's primary use, 2026-09-01) from a
-   * DIFFERENT-body durable keep-apart, so the parent's toast is honest. Present ⇒
-   * the "Separate from…" item is offered and the arm is live.
-   */
-  onSeparateBodies?: (
-    anchorLayerId: string,
-    targetAnchorLayerId: string,
-    sameBody: boolean,
-  ) => void
-  /**
-   * Lift a standing separation (the Rejoin). Fired from a "Rejoin with <label>"
-   * item. Present ⇒ the Rejoin items are offered.
-   */
-  onRejoinBody?: (separationId: string) => void
-  /**
-   * The model's standing separations, each carrying both anchors' current-body
-   * display info (server-resolved). SectionPanel filters these to the clicked
-   * body to build its "Rejoin with <label>" items — it owns no resolution map.
-   */
-  separations?: readonly BodySeparationListItem[]
-  /**
-   * Advisory feedback while a Separate is armed: ``'unresolvable'`` when the
-   * clicked region resolves to no single body (fallback paint, several bodies,
-   * or none), or ``'self-anchor'`` when it resolves to the armed anchor's own
-   * layer (a one-region body clicked on its own patch — a commit would 422). The
-   * arm stays live; the parent toasts. A SAME-body click on a DIFFERENT part
-   * COMMITS the split (owner dogfeed 2026-09-01). Absent ⇒ no advisory (the arm
-   * still works).
-   */
-  onSeparateNotice?: (kind: 'unresolvable' | 'self-anchor') => void
-  /**
-   * Commit a "Join" (debt #278): the two anchors' bodies are stated to BE the
-   * same body. Fired after the armed pick resolves a distinct SAME-class target
-   * body. Present ⇒ the "Join with…" item is offered and the arm is live. Wired
-   * on the GEOTECH axis only (the owner would not use it on litho).
+   * Commit a "Join" (owner ruling 2026-09-01): the two anchors' bodies are stated
+   * to BE the same body — one group. Fired after the armed pick resolves a distinct
+   * SAME-class target body. Present ⇒ the "Voeg samen met…" item is offered and the
+   * arm is live. Wired on the GEOTECH axis only (the owner would not use it on
+   * litho). (The Separate / Rejoin verbs were removed in the same simplification.)
    */
   onJoinBodies?: (anchorLayerId: string, targetAnchorLayerId: string) => void
   /**
-   * Lift a standing union (the Disjoin). Fired from a "Disjoin <label>" item.
-   * Present ⇒ the Disjoin items are offered.
+   * Lift a standing group (the un-join / Ontkoppelen). Fired from an "Ontkoppelen"
+   * item. Present ⇒ the Ontkoppelen items are offered.
    */
   onDisjoinBody?: (unionId: string) => void
   /**
@@ -918,16 +883,15 @@ export default function SectionPanel({
   onDeleteLens,
   onNameBody,
   onDissolveBody,
-  onSeparateBodies,
-  onRejoinBody,
-  separations,
-  onSeparateNotice,
   onJoinBodies,
   onDisjoinBody,
   unions,
   onJoinNotice,
   bodiesLoaded = true,
 }: Props): JSX.Element {
+  // i18n — the canvas hint pill, the along-axis label and the Join-arm readout
+  // read the catalogue. Placed first so it sits above every early return / hook.
+  const t = useT()
   // Section-scoped data slices (debt #201 round 2 / #178): provided by
   // SectionsCanvas via SectionScopeContext instead of prop-threading.
   const {
@@ -1117,15 +1081,13 @@ export default function SectionPanel({
       packingClassByFormationId: buildPackingClassOf(geotechModel.nadMeta),
     }
   }, [axisMode, geotechModel, fillSelection.showLithoFillInstead, lithoLayers, contactEdges])
-  // The engineer's "Separate" rulings for the ACTIVE axis, as canonical ``a|b`` pairs
-  // (SectionsCanvas already passes the litho-axis or geotech-axis list per axis). Threaded
-  // into the fill as a cannot-link so a same-class touching pair the engineer split does
-  // NOT weld — the paint seam appears (owner 2026-08-31, debt #278 R5). Memoised so the
-  // overlay's engine-cache key stays stable when the separations have not changed.
-  const separatedPairs = useMemo(
-    () => toSeparatedPairs(separations ?? []),
-    [separations],
-  )
+  // Cannot-link pairs threaded into the fill (the paint-seam guard). DORMANT
+  // since the Separate verb was removed (owner ruling 2026-09-01 "way too
+  // complicated"): no UI creates a separation any more, so this is always empty
+  // — byte-identical to a model with no separations. The ``separationConstraint``
+  // threading stays inert (empty set) rather than being ripped out; the backend
+  // ``body_separation`` table is now dormant, a candidate for later removal.
+  const separatedPairs = useMemo(() => toSeparatedPairs([]), [])
   // The lens suggestion compares NAD classes only; flattened here so the overlay's
   // column memo sees a stable map identity instead of rebuilding per render.
   const geotechNadClassByFormationId = useMemo(() => {
@@ -2423,50 +2385,22 @@ export default function SectionPanel({
     armBodyIdByLayerId,
   })
 
-  // "Separate from…" ARMS the pick-the-other-body gesture rather than committing
-  // (mirrors the geotech band-edit "Split band…" arm). The anchor is the first
-  // clicked-region layer stamped to this body — deterministic, so the same body
-  // always separates through the same anchor.
-  const handleArmSeparate = useCallback(
-    (bodyId: string, layerIds: readonly string[] | undefined, label: string): void => {
-      const anchorLayerId = firstLayerStampedToBody(layerIds, bodyId, armBodyIdByLayerId)
-      if (anchorLayerId === null) {
-        // No anchor resolvable (fallback paint / unstamped) — nothing to separate
-        // FROM, so tell the engineer rather than arm a gesture that cannot commit.
-        onSeparateNotice?.('unresolvable')
-        return
-      }
-      setPairArm({ kind: 'separate', bodyId, anchorLayerId, label })
-    },
-    [armBodyIdByLayerId, onSeparateNotice, setPairArm],
-  )
-
-  // The armed left-click's outcome, resolved in PartitionFillOverlay: a distinct
-  // body commits (and disarms); the same body or an unresolvable region keeps
-  // the arm live and only advises (ruling: "click the OTHER body").
-  const handleSeparatePick = useCallback(
-    (pick: SeparatePick): void => {
-      if (pick.kind === 'commit') {
-        onSeparateBodies?.(pick.anchorLayerId, pick.targetAnchorLayerId, pick.sameBody)
-        setPairArm(null)
-        return
-      }
-      onSeparateNotice?.(pick.kind)
-    },
-    [onSeparateBodies, onSeparateNotice, setPairArm],
-  )
-
-  // "Join with…" ARMS the pick-the-other-body gesture (debt #278), the verb-
-  // parallel of handleArmSeparate. Same deterministic anchor rule; sets a Join
-  // arm, which supersedes any live Separate arm (one arm at a time).
+  // "Voeg samen met…" (Join) ARMS the pick-the-other-body gesture rather than
+  // committing (mirrors the geotech band-edit "Split band…" arm). The anchor is
+  // the first clicked-region layer stamped to this body — deterministic, so the
+  // same body always joins through the same anchor. (Owner ruling 2026-09-01: the
+  // body verbs are stripped to Join + Ontkoppelen; Separate / Rejoin are gone, so
+  // this is the only arm.)
   const handleArmJoin = useCallback(
     (bodyId: string, layerIds: readonly string[] | undefined, label: string): void => {
       const anchorLayerId = firstLayerStampedToBody(layerIds, bodyId, armBodyIdByLayerId)
       if (anchorLayerId === null) {
+        // No anchor resolvable (fallback paint / unstamped) — nothing to join
+        // FROM, so tell the engineer rather than arm a gesture that cannot commit.
         onJoinNotice?.({ kind: 'unresolvable' })
         return
       }
-      setPairArm({ kind: 'join', bodyId, anchorLayerId, label })
+      setPairArm({ bodyId, anchorLayerId, label })
     },
     [armBodyIdByLayerId, onJoinNotice, setPairArm],
   )
@@ -2529,11 +2463,10 @@ export default function SectionPanel({
   const selectedGeotechBodyId = useSelectedGeotechBodyId()
 
   useSectionKeyboardShortcuts({
-    // R5 / #278: an armed pick (Separate OR Join) peels first — Esc cancels the
-    // pick-the-other-body gesture, not the section. One arm at a time, so the
-    // single ``pairArm`` drives the outermost peel for both verbs.
-    separateArmed: pairArm !== null,
-    clearSeparateArm: clearPairArm,
+    // #278: an armed Join pick peels first — Esc cancels the pick-the-other-body
+    // gesture, not the section. One arm at a time, so ``pairArm`` drives the peel.
+    pairArmed: pairArm !== null,
+    clearPairArm,
     bodyMenuOpen: bodyCtxMenu !== null,
     columnMenuOpen: contextMenu !== null,
     columnFocused: focusedColumn !== null,
@@ -3768,26 +3701,17 @@ export default function SectionPanel({
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
-                  onNameBody ?? onDissolveBody ?? onSeparateBodies ?? onJoinBodies
+                  onNameBody ?? onDissolveBody ?? onJoinBodies
                     ? handleBodyContextMenu
                     : undefined
                 }
-                // R5 (debt #278): the armed Separate makes the fill regions
-                // left-clickable so the engineer picks the other body; the
-                // overlay resolves the target and reports the outcome up. Both
-                // together are what arms it (see the overlay's separateArmActive).
-                separateArm={
-                  pairArm?.kind === 'separate'
-                    ? { bodyId: pairArm.bodyId, anchorLayerId: pairArm.anchorLayerId }
-                    : null
-                }
-                onSeparatePick={onSeparateBodies ? handleSeparatePick : undefined}
-                // Join arm (debt #278): the verb-parallel of the Separate arm.
-                // At most one of the two is set (the single pairArm split by kind),
-                // and the overlay's armed block routes the click to the join
-                // resolver, which reads ``classByLayerId`` for the cross-class guard.
+                // Join arm (debt #278): the armed Join makes the fill regions
+                // left-clickable so the engineer picks the other body; the overlay
+                // resolves the target (reading ``classByLayerId`` for the
+                // cross-class guard) and reports the outcome up. (The Separate arm
+                // was removed in the body-verb simplification, owner 2026-09-01.)
                 joinArm={
-                  pairArm?.kind === 'join'
+                  pairArm !== null
                     ? { bodyId: pairArm.bodyId, anchorLayerId: pairArm.anchorLayerId }
                     : null
                 }
@@ -3844,6 +3768,34 @@ export default function SectionPanel({
                 smallLensThicknessM={geotechSmallLensThicknessM}
                 suspended={Boolean(contactGestureState?.contactCorrelateMode)}
                 onShowUnitStatistics={onShowGeotechUnitStatistics}
+                // Body Join / Ontkoppelen ON A COLUMN (owner "Both", 2026-09-01):
+                // the armed Join's second click may land on a band, and the band
+                // menu can START a Join or un-join a group. Same handlers as the
+                // fill-region path — a column click is the exact equivalent.
+                joinArm={
+                  pairArm !== null
+                    ? { bodyId: pairArm.bodyId, anchorLayerId: pairArm.anchorLayerId }
+                    : null
+                }
+                onJoinPick={onJoinBodies ? handleJoinPick : undefined}
+                bodyIdByLayerId={armBodyIdByLayerId}
+                classByLayerId={classByLayerId}
+                onArmJoinBody={
+                  onJoinBodies
+                    ? (bodyId, anchorLayerId, formationId) =>
+                        handleArmJoin(
+                          bodyId,
+                          [anchorLayerId],
+                          formationLabelById.get(formationId) || 'this body',
+                        )
+                    : undefined
+                }
+                unjoinOptionsForBody={bodyId =>
+                  buildDisjoinOptions(bodyId, unions, fid =>
+                    fid ? formationLabelById.get(fid) : undefined,
+                  )
+                }
+                onUnjoinBody={onDisjoinBody}
               />
             )}
 
@@ -4075,7 +4027,7 @@ export default function SectionPanel({
               fill="var(--section-axis-title)"
               textAnchor="middle"
             >
-              Distance along section (m)
+              {t('sections.axisLabel.alongM')}
             </text>
             <text
               x={14}
@@ -4141,39 +4093,10 @@ export default function SectionPanel({
                       }
                     : undefined
                 }
-                // R5 (debt #278): "Separate from…" ARMS the pick-the-other-body
-                // gesture (it does not commit here); the Rejoin items lift a
-                // standing separation. Both offered only when wired.
-                onSeparateBody={
-                  onSeparateBodies
-                    ? bodyId => {
-                        handleArmSeparate(
-                          bodyId,
-                          bodyCtxMenu.layerIds,
-                          bodyCtxMenu.body.name?.trim() ||
-                            formationLabelById.get(bodyCtxMenu.body.formation_id) ||
-                            'this body',
-                        )
-                        dismissBodyCtxMenu()
-                      }
-                    : undefined
-                }
-                separations={buildRejoinOptions(
-                  bodyCtxMenu.body.id,
-                  separations,
-                  fid => (fid ? formationLabelById.get(fid) : undefined),
-                )}
-                onRejoinBody={
-                  onRejoinBody
-                    ? separationId => {
-                        onRejoinBody(separationId)
-                        dismissBodyCtxMenu()
-                      }
-                    : undefined
-                }
-                // Join with… (debt #278) ARMS the pick-the-other-body gesture; the
-                // Disjoin items lift a standing union. Both offered only when
-                // wired (the no-affordance rule keeps Join geotech-only).
+                // Voeg samen met… (Join, debt #278) ARMS the pick-the-other-body
+                // gesture; the Ontkoppelen items lift a standing group. Both
+                // offered only when wired (the no-affordance rule keeps Join
+                // geotech-only). Separate / Rejoin were removed (owner 2026-09-01).
                 onJoinBody={
                   onJoinBodies
                     ? bodyId => {
@@ -4249,19 +4172,17 @@ export default function SectionPanel({
             }}
           />
         )}
-        {/* Pair-arm hint (debt #278): while a Separate OR Join is armed the fill
-            regions become clickable, so a top-centre pill names the gesture and
-            its Esc escape — mirrors the geotech band-edit "click to place, Esc to
-            cancel" readout. pointer-events-none so it never eats the pick. One arm
-            at a time, so the copy + testid follow the armed verb's kind. */}
+        {/* Join-arm hint (debt #278): while a Join is armed the fill regions
+            become clickable, so a top-centre pill names the gesture and its Esc
+            escape — mirrors the geotech band-edit "click to place, Esc to cancel"
+            readout. pointer-events-none so it never eats the pick. (Separate was
+            removed, owner 2026-09-01 — Join is the only arm.) */}
         {pairArm !== null && (
           <div
-            data-testid={pairArm.kind === 'join' ? 'join-arm-hint' : 'separate-arm-hint'}
+            data-testid="join-arm-hint"
             className="absolute top-2 left-1/2 -translate-x-1/2 rounded bg-slate-800/95 px-3 py-1 text-xs font-medium text-slate-100 shadow-lg ring-1 ring-sky-400/50 pointer-events-none select-none"
           >
-            {pairArm.kind === 'join' ? 'Joining' : 'Separating'}{' '}
-            <span className="font-semibold">{pairArm.label}</span> — click the other body · Esc
-            cancels
+            {t('sections.join.armHint', { label: pairArm.label })}
           </div>
         )}
         {/* Cursor elevation readout (dogfeed 2026-06-19): the mTAW height under
