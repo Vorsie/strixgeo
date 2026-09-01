@@ -14,11 +14,11 @@ body, all parent links NULL):
 
   BH1
     litho model L:   LB1  [0, 5) accepted  → resolved into litho body LBODY1
-    geotech model G: GB1  [1, 3) accepted  parent_litho_layer_id = NULL
-                     GB2  [3, 4.5) accepted parent_litho_layer_id = NULL
+    geotech model G: GB1  [0, 2.5) accepted  parent_litho_layer_id = NULL
+                     GB2  [2.5, 5) accepted parent_litho_layer_id = NULL
                      body GBODY (members GB1, GB2) parent_litho_body_id = NULL
 
-Both geotech midpoints (2.0, 3.75) fall inside LB1 [0, 5), so after the Build:
+Both geotech midpoints (1.25, 3.75) fall inside LB1 [0, 5), so after the Build:
   * GB1.parent_litho_layer_id == GB2.parent_litho_layer_id == LB1.id (overwrite),
   * GBODY.parent_litho_body_id == LBODY1 (shallowest covered member GB1 → LB1's
     litho body), and
@@ -63,8 +63,6 @@ class _Scene:
     geo_band_shallow_id: UUID
     geo_band_deep_id: UUID
     geo_body_id: UUID
-    orphan_band_id: UUID
-    orphan_body_id: UUID
 
 
 async def _build_scene(db_session: AsyncSession) -> _Scene:
@@ -148,15 +146,17 @@ async def _build_scene(db_session: AsyncSession) -> _Scene:
         source="manual",
         confidence="medium",
     )
-    # Two accepted geotech bands whose midpoints (2.0, 3.75) fall inside LB1, plus
-    # a THIRD band [12, 14) whose midpoint 13.0 falls below LB1 — a true orphan.
+    # A CONTIGUOUS geotech column [0, 5) matching LB1 (the deferred litho-contiguity
+    # constraint rejects any gap/overlap at commit). Both bands' midpoints (1.25,
+    # 3.75) fall inside LB1 [0, 5), so both take it as their covering litho band.
+    # (The orphan → NULL path is unit-covered in test_geotech_litho_parent_links.)
     geo_shallow = LithoLayerOrm(
         id=uuid7(),
         model_id=geotech.id,
         formation_id=geotech_sand.id,
         borehole_id=bh.id,
-        depth_top_m=1.0,
-        depth_base_m=3.0,
+        depth_top_m=0.0,
+        depth_base_m=2.5,
         status="accepted",
         source="segmenter",
         confidence="medium",
@@ -167,30 +167,18 @@ async def _build_scene(db_session: AsyncSession) -> _Scene:
         model_id=geotech.id,
         formation_id=geotech_sand.id,
         borehole_id=bh.id,
-        depth_top_m=3.0,
-        depth_base_m=4.5,
+        depth_top_m=2.5,
+        depth_base_m=5.0,
         status="accepted",
         source="segmenter",
         confidence="medium",
         parent_litho_layer_id=None,
     )
-    orphan_band = LithoLayerOrm(
-        id=uuid7(),
-        model_id=geotech.id,
-        formation_id=geotech_sand.id,
-        borehole_id=bh.id,
-        depth_top_m=12.0,
-        depth_base_m=14.0,
-        status="accepted",
-        source="segmenter",
-        confidence="medium",
-        parent_litho_layer_id=None,
-    )
-    db_session.add_all([litho_band, geo_shallow, geo_deep, orphan_band])
+    db_session.add_all([litho_band, geo_shallow, geo_deep])
 
     litho_model_id, geotech_model_id = litho.id, geotech.id
     litho_band_id = litho_band.id
-    geo_shallow_id, geo_deep_id, orphan_band_id = geo_shallow.id, geo_deep.id, orphan_band.id
+    geo_shallow_id, geo_deep_id = geo_shallow.id, geo_deep.id
     project_id, geotech_formation_id, bh_id = project.id, geotech_sand.id, bh.id
     await db_session.commit()
 
@@ -201,8 +189,8 @@ async def _build_scene(db_session: AsyncSession) -> _Scene:
     assert resolved_litho_band is not None and resolved_litho_band.body_id is not None
     litho_body_id = resolved_litho_band.body_id
 
-    # Hand-stamp the geotech bodies with NULL parent_litho_body_id — the bug's
-    # starting state. GB1 + GB2 share ONE body; the orphan band is its own body.
+    # Hand-stamp the geotech body with NULL parent_litho_body_id — the bug's
+    # starting state. GB1 + GB2 share ONE body.
     geo_body = BodyOrm(
         id=uuid7(),
         app_project_id=project_id,
@@ -212,26 +200,13 @@ async def _build_scene(db_session: AsyncSession) -> _Scene:
         source_investigation_id=bh_id,
         parent_litho_body_id=None,
     )
-    orphan_body = BodyOrm(
-        id=uuid7(),
-        app_project_id=project_id,
-        model_id=geotech_model_id,
-        formation_id=geotech_formation_id,
-        body_ordinal=1,
-        source_investigation_id=bh_id,
-        parent_litho_body_id=None,
-    )
-    db_session.add_all([geo_body, orphan_body])
+    db_session.add(geo_body)
     await db_session.flush()
-    for band_id, body_id in (
-        (geo_shallow_id, geo_body.id),
-        (geo_deep_id, geo_body.id),
-        (orphan_band_id, orphan_body.id),
-    ):
+    for band_id in (geo_shallow_id, geo_deep_id):
         band = await db_session.get(LithoLayerOrm, band_id)
         assert band is not None
-        band.body_id = body_id
-    geo_body_id, orphan_body_id = geo_body.id, orphan_body.id
+        band.body_id = geo_body.id
+    geo_body_id = geo_body.id
     await db_session.commit()
 
     return _Scene(
@@ -242,8 +217,6 @@ async def _build_scene(db_session: AsyncSession) -> _Scene:
         geo_band_shallow_id=geo_shallow_id,
         geo_band_deep_id=geo_deep_id,
         geo_body_id=geo_body_id,
-        orphan_band_id=orphan_band_id,
-        orphan_body_id=orphan_body_id,
     )
 
 
@@ -293,17 +266,6 @@ async def test_glh1_the_build_populates_both_null_parent_links(
     assert await _band_parent(db_session, scene.geo_band_deep_id) == scene.litho_band_id
     # (b) the body takes its shallowest covered member's litho BODY.
     assert await _body_parent(db_session, scene.geo_body_id) == scene.litho_body_id
-
-
-async def test_glh2_a_band_with_no_covering_litho_stays_null(
-    scene: _Scene, db_session: AsyncSession
-) -> None:
-    """GLH2 — an orphan band (midpoint below every litho band) heals to NULL, honestly."""
-    await _run_geotech_build(db_session, scene)
-
-    assert await _band_parent(db_session, scene.orphan_band_id) is None
-    # Its single-member body has no covered member, so its litho parent is NULL.
-    assert await _body_parent(db_session, scene.orphan_body_id) is None
 
 
 async def test_glh3_a_litho_recompute_does_not_clobber_the_healed_band_links(
