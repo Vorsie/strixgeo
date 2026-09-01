@@ -549,6 +549,12 @@ export const SECTIONS_NL = {
   // upcoming Join verb, so Rejoin deliberately does NOT use it.
   'sections.menu.separateBody': 'Scheiden van…',
   'sections.menu.rejoinBody': 'Herenig met {label}',
+  // Debt #278 — the "Join with…" verb + its Disjoin. Owner RULED 2026-08-31:
+  // Join reads "Voeg samen met…". Disjoin's NL is FLAGGED-not-ruled — proposed
+  // "Ontkoppel van {label}", pending the owner's word (mirrors how Rejoin's NL
+  // was flagged before it was ruled).
+  'sections.menu.joinBody': 'Voeg samen met…',
+  'sections.menu.disjoinBody': 'Ontkoppel van {label}',
   // FLAG alt: Focus op dit onderzoekspunt | Focus op deze kolom — "test" here
   // means one CPT or borehole column on the section.
   'sections.menu.focusTest': 'Focus op deze proef',
