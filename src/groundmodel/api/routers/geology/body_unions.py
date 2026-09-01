@@ -274,8 +274,13 @@ async def create_body_union(
         union_id = union.id
         was_created = True
         # The resolver reads the just-flushed union and re-partitions the bodies,
-        # committing this request's transaction (insert + re-resolve).
-        result = await ResolveLithoInstances(session).execute(model_id=model_id, commit=True)
+        # committing this request's transaction (insert + re-resolve). A Join changes
+        # body IDENTITY (grouping), NOT the voxel geometry or any voxel's packing
+        # class, so the cached 3-D solids stay valid — ``stale_solids=False`` keeps
+        # the join from falsely staling the 3-D model (owner 2026-09-01, D3).
+        result = await ResolveLithoInstances(session).execute(
+            model_id=model_id, commit=True, stale_solids=False
+        )
         bodies_changed = len(result.updated)
         renamed = result.renamed
         # Surface the resolver's ground truth for THIS pair: the write-time
@@ -481,7 +486,12 @@ async def delete_body_union(
 
     await session.delete(union)
     await session.flush()
-    result = await ResolveLithoInstances(session).execute(model_id=model_id, commit=True)
+    # Un-join re-splits body IDENTITY, not geometry — the voxel model is unchanged,
+    # so the cached 3-D solids stay valid (``stale_solids=False``, owner 2026-09-01,
+    # D3). The split shows in the 2-D fill + fence, which re-group from live layers.
+    result = await ResolveLithoInstances(session).execute(
+        model_id=model_id, commit=True, stale_solids=False
+    )
     logger.info(
         f"delete_body_union: project={project_id} model={model_id} union={union_id} "
         f"disjoined — bodies_changed={len(result.updated)} "
