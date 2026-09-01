@@ -20,6 +20,12 @@
  * @module utils/geotechHierarchicalFill/constructive/mergeFaces
  */
 
+import {
+  absorbSeparationIncidence,
+  seedSeparationIncidence,
+  unionCompletesSeparation,
+} from '../../partitionFillV2/separationConstraint'
+
 /** A point of a face ring, in one gap's fraction space. */
 export interface FacePoint {
   fraction: number
@@ -33,6 +39,19 @@ export interface LabelledFace<T> {
   /** The payload carried onto the emitted region (class, body, layer ids). */
   label: T
   ring: FacePoint[]
+}
+
+/**
+ * The "Separate" cannot-link, threaded into the merge (owner 2026-08-31, debt #278 R5).
+ * When present, two loops whose combined layer ids would carry BOTH sides of a standing
+ * separation are kept in DIFFERENT components — the shared seam survives, so the paint
+ * shows the split the engineer drew. Absent / empty leaves the merge byte-identical.
+ */
+export interface MergeFacesOptions<T> {
+  /** The layer ids a loop's label carries — its side membership is read from these. */
+  layerIdsOf?: (label: T) => readonly string[] | undefined
+  /** Canonical ``a|b`` layer-id pairs the engineer separated. */
+  separatedPairs?: ReadonlySet<string>
 }
 
 /** Quantised vertex key — the arrangement's own snapped vertices land exactly. */
@@ -75,6 +94,7 @@ function normalise(ring: readonly FacePoint[]): FacePoint[] {
  */
 export function mergeFaces<T>(
   faces: readonly LabelledFace<T>[],
+  opts?: MergeFacesOptions<T>,
 ): { label: T; members: T[]; ring: FacePoint[]; welded: boolean }[] {
   const prepared = faces
     .map((face) => ({ ...face, ring: normalise(face.ring) }))
@@ -89,6 +109,16 @@ export function mergeFaces<T>(
 
   const out: { label: T; members: T[]; ring: FacePoint[]; welded: boolean }[] = []
   for (const group of byKey.values()) {
+    // The "Separate" cannot-link over THIS group's loops (empty when the caller passes
+    // no separations — the union below is then byte-identical to the plain merge). Seeded
+    // per group on group-local indices, exactly the indices the union-find below uses.
+    const layerIdsOf = opts?.layerIdsOf
+    const { incidence, pairCount } = seedSeparationIncidence(
+      group.length,
+      (i) => layerIdsOf?.(group[i].label),
+      () => true,
+      opts?.separatedPairs,
+    )
     // Components: loops of this group that share an edge.
     const parent = group.map((_, i) => i)
     const find = (i: number): number => {
@@ -108,7 +138,12 @@ export function mergeFaces<T>(
         else {
           const ra = find(i)
           const rb = find(other)
-          if (ra !== rb) parent[ra] = rb
+          if (ra === rb) continue
+          // Honour a standing separation: two loops whose combined layers hold BOTH sides
+          // of a pair stay separate components, so their shared seam is not cancelled.
+          if (pairCount > 0 && unionCompletesSeparation(incidence, ra, rb)) continue
+          parent[ra] = rb
+          if (pairCount > 0) absorbSeparationIncidence(incidence, rb, ra)
         }
       }
     })
