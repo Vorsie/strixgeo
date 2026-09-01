@@ -294,6 +294,32 @@ before any token-gated call ships.
 **Re-scope 2026-06-25 (with #3).** Targets the subscription-activation
 check, not perpetual license keys — see #3's re-scope note.
 
+**Owner ruling 2026-08-31 (SUPERSEDES the "readable source is acceptable"
+posture for the engine + parsers).** *"the underlying codebase should also be
+protected and not leak at all times ... otherwise someone else could just
+duplicate."* Native compilation of the Python engine + parsers is now a **gate
+before ANY binary leaves this machine** — beta testers and the coworker handoff
+included (rulings 5-7; this re-sequences `memory/project_coworker_distribution.md`,
+which had assumed an internal handoff *before* hardening). **Implemented** (this
+slice, working tree): `scripts/compile-backend-natives.ps1` +
+`scripts/native_compile_manifest.py` compile 66 modules (voxel-litho builder,
+NAD classifier, representative statistic, all GEF/DOV parsers) to native `.pyd`
+in the staged tree, driven from `build-embedded-python.ps1`; two gates (smoke +
+`verify-staged-natives.ps1`) EXECUTE the artifacts before the dist build
+proceeds. Carve-outs: `greedy_mesh.py` (Numba), every `__init__.py`;
+`geotech_band_reclassification.py` deferred pending decision C3. Full design:
+[docs/distribution-build.md](distribution-build.md) "The compiled subset".
+
+**Residual — the TypeScript engine is NOT protected (open owner decision).** A
+large share of the interpretation engine lives in the renderer as TypeScript
+(partition/fill, body resolver, section geometry under
+`desktop/src/renderer/`), and Electron ships it as JavaScript in `app.asar`,
+which `npx asar extract` unpacks trivially. The Python-side native compilation
+does nothing for that surface, so the "cannot duplicate" goal is only
+half-met. Options (bytenode/V8-snapshot, JS obfuscation, or accept-and-rely-on
+activation) are an **owner call — not yet ruled**; do not pick one unprompted.
+When it is ruled, it pairs with the activation work (#3) the same way this did.
+
 **What's still open.** The malformed-input audit pass landed: every
 DOV XML parser uses ``defusedxml`` (billion-laughs + external DTD
 guards); ``project:read-file`` and ``fs:read-file`` apply size caps
