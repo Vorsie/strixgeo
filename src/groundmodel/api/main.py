@@ -35,6 +35,7 @@ from groundmodel.application.resolve_litho_instances_use_case import (
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.session import AsyncSessionFactory, engine
+from groundmodel.shared.config import settings
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -257,15 +258,6 @@ class BodySizeLimitMiddleware:
             await PlainTextResponse("Request body too large", status_code=413)(scope, receive, send)
 
 
-app = FastAPI(title="Ground Model Platform", version="0.1.0", lifespan=lifespan)
-app.add_middleware(BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
-
-# Installed BEFORE CORSMiddleware, which means it runs INSIDE it: preflight
-# ``OPTIONS`` requests are answered by CORS and never reach the token check
-# (blocking a preflight would stop the real request from being sent without
-# protecting anything). See the class docstring for the threat model.
-app.add_middleware(LocalClientTokenMiddleware)
-
 # The API binds to 127.0.0.1 only; the threat model that matters is NOT
 # network exposure (we have none) but cross-origin reads from other browser
 # tabs the user opens while Strix runs. With ``allow_origins=["*"]`` and no
@@ -279,59 +271,141 @@ app.add_middleware(LocalClientTokenMiddleware)
 # A wildcard regex covers any random port vite picks if 5173 is taken.
 #
 # ``"null"`` is NOT exclusive to our window — a sandboxed iframe or a ``data:``
-# document on any site sends it too. LocalClientTokenMiddleware (above) is what
-# makes the allowance safe: a null-origin request must carry the token the
-# Electron main process minted for this launch.
+# document on any site sends it too. LocalClientTokenMiddleware makes the
+# allowance safe: a null-origin request must carry the token the Electron main
+# process minted for this launch.
 _ALLOWED_ORIGINS = ["null"]
 _ALLOWED_ORIGIN_REGEX = r"^http://localhost(?::\d+)?$"
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_ALLOWED_ORIGINS,
-    allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# DNS-rebinding defence: binding to 127.0.0.1 doesn't help when a malicious
-# DNS record (set up by a page the user visits) resolves
-# ``some-host.example`` to 127.0.0.1. The browser would then send
-# ``Host: some-host.example`` to our API, and CORSMiddleware's
-# same-origin-by-Host trick wouldn't catch it. TrustedHostMiddleware
-# rejects everything except documented loopback names.
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["127.0.0.1", "localhost"],
-)
+def _docs_enabled_for(environment: str) -> bool:
+    """Return whether the interactive API docs should be served.
 
-# Replaces FastAPI's default 422 handler, which cannot render an echo that
-# contains NaN/inf — see ``validation_error_handler`` for why that turned a
-# correctly-rejected body into a 500.
-app.add_exception_handler(RequestValidationError, validation_error_handler)
+    The interactive Swagger UI (``/docs``) and ReDoc (``/redoc``) are a
+    developer convenience with no place in a shipped installer, so they are
+    served ONLY in local development. Any non-development environment
+    (``"production"`` — injected as ``ENVIRONMENT=production`` by the Electron
+    main process for a packaged build — ``"staging"``, a packaged coworker
+    binary) turns them off. ``/openapi.json`` is unaffected: it stays at its
+    FastAPI default so the desktop client's ``waitForApi`` poll keeps working
+    in every environment.
 
-# Starlette's ServerErrorMiddleware sits OUTSIDE CORSMiddleware, so an escaped
-# exception answers 500 with no CORS headers and the renderer console reports
-# it as a CORS failure rather than as the server error it is (owner dogfeed
-# 2026-08-15). Registering our own ``Exception`` handler lets that 500 carry
-# the same pinned origins the middleware would have allowed. The exception is
-# still logged with its traceback and the status is still 500 — only the
-# reporting changes.
-app.add_exception_handler(
-    Exception,
-    make_unhandled_error_handler(
-        allowed_origins=_ALLOWED_ORIGINS,
-        allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
-    ),
-)
+    This mirrors the ``environment == "development"`` dev/non-dev split the
+    SECRET_KEY validator uses (see ``groundmodel.shared.config.Settings``).
 
-app.include_router(cpt.router)
-app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
-app.include_router(project.router)
-app.include_router(geology.router)
-app.include_router(cross_section.router)
-app.include_router(investigation_review.router)
-app.include_router(stratigraphy_lumping.router)
-app.include_router(dem.router)
-app.include_router(codelists.router)
-app.include_router(virtuele_boring.catalog_router)
-app.include_router(virtuele_boring.project_router)
+    Parameters
+    ----------
+    environment : str
+        A deployment-environment token, e.g. ``settings.environment``.
+
+    Returns
+    -------
+    bool
+        True only when ``environment`` is exactly ``"development"``.
+    """
+    return environment == "development"
+
+
+def create_app(environment: str | None = None) -> FastAPI:
+    """Build the FastAPI application, gating the interactive docs on environment.
+
+    Constructed via a factory (rather than a bare module-level ``FastAPI(...)``)
+    so the docs-off behaviour is testable in both environments in-process — a
+    module-level singleton is fixed to whatever ``settings.environment`` held at
+    import time and cannot exercise the other branch.
+
+    Parameters
+    ----------
+    environment : str | None, optional
+        The deployment environment used to decide whether the interactive docs
+        are served. Defaults to ``settings.environment`` (the real runtime
+        value); injectable so tests can exercise the production and development
+        branches without re-importing the module.
+
+    Returns
+    -------
+    FastAPI
+        A fully wired app: body-size + local-client-token + CORS + trusted-host
+        middleware, the validation/unhandled-error handlers, and every router.
+        ``/docs`` and ``/redoc`` are present only in development; ``/openapi.json``
+        is always present.
+    """
+    env = settings.environment if environment is None else environment
+    docs_enabled = _docs_enabled_for(env)
+
+    app = FastAPI(
+        title="Ground Model Platform",
+        version="0.1.0",
+        lifespan=lifespan,
+        # openapi_url is left at its FastAPI default ("/openapi.json") so the
+        # Electron client's readiness poll keeps working in production; only
+        # the interactive UIs are gated.
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+    )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
+
+    # Installed BEFORE CORSMiddleware, which means it runs INSIDE it: preflight
+    # ``OPTIONS`` requests are answered by CORS and never reach the token check
+    # (blocking a preflight would stop the real request from being sent without
+    # protecting anything). See the class docstring for the threat model.
+    app.add_middleware(LocalClientTokenMiddleware)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_ALLOWED_ORIGINS,
+        allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # DNS-rebinding defence: binding to 127.0.0.1 doesn't help when a malicious
+    # DNS record (set up by a page the user visits) resolves
+    # ``some-host.example`` to 127.0.0.1. The browser would then send
+    # ``Host: some-host.example`` to our API, and CORSMiddleware's
+    # same-origin-by-Host trick wouldn't catch it. TrustedHostMiddleware
+    # rejects everything except documented loopback names.
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["127.0.0.1", "localhost"],
+    )
+
+    # Replaces FastAPI's default 422 handler, which cannot render an echo that
+    # contains NaN/inf — see ``validation_error_handler`` for why that turned a
+    # correctly-rejected body into a 500.
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+
+    # Starlette's ServerErrorMiddleware sits OUTSIDE CORSMiddleware, so an
+    # escaped exception answers 500 with no CORS headers and the renderer
+    # console reports it as a CORS failure rather than as the server error it is
+    # (owner dogfeed 2026-08-15). Registering our own ``Exception`` handler lets
+    # that 500 carry the same pinned origins the middleware would have allowed.
+    # The exception is still logged with its traceback and the status is still
+    # 500 — only the reporting changes.
+    app.add_exception_handler(
+        Exception,
+        make_unhandled_error_handler(
+            allowed_origins=_ALLOWED_ORIGINS,
+            allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
+        ),
+    )
+
+    app.include_router(cpt.router)
+    app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
+    app.include_router(project.router)
+    app.include_router(geology.router)
+    app.include_router(cross_section.router)
+    app.include_router(investigation_review.router)
+    app.include_router(stratigraphy_lumping.router)
+    app.include_router(dem.router)
+    app.include_router(codelists.router)
+    app.include_router(virtuele_boring.catalog_router)
+    app.include_router(virtuele_boring.project_router)
+
+    return app
+
+
+# Module-level app served by ``groundmodel.api.main:app`` (uvicorn import
+# string, the e2e harness, and every unit test). Uses the real runtime
+# ``settings.environment``.
+app = create_app()
