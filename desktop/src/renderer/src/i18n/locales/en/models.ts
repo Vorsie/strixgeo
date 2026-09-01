@@ -363,6 +363,11 @@ export const MODELS = {
   'geotech.unitsWithBands': '{count} with bands',
   'geotech.collapseSoil': 'Collapse this soil',
   'geotech.expandSoil': 'Expand this soil',
+  // The class-row expander reveals the unit instances OR the selectable body
+  // children (owner dogfeed 2026-09-01) — the tooltip names whichever it opens.
+  'geotech.collapseClassChildren': 'Collapse this class',
+  'geotech.expandClassUnits': 'Show the {count} units carrying this class',
+  'geotech.expandClassBodies': 'Show the bodies in this class',
   'geotech.bandLabel': '{count} band',
   'geotech.bandsLabel': '{count} bands',
   'geotech.soilClasses': '{soil} classes',
