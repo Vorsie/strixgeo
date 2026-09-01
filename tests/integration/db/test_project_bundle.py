@@ -1595,6 +1595,160 @@ async def test_bundle_roundtrip_includes_contact_correlation_edges(
 
 
 # ---------------------------------------------------------------------------
+# Body "Join with…" rulings round-trip (debt #278 — body_union)
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_roundtrip_includes_body_unions(db_session: AsyncSession) -> None:
+    """body_union rows survive build → wipe → restore.
+
+    A project with one litho model and two accepted litho layers (one on the CPT,
+    one on the borehole) plus one ``body_union`` joining them is bundled, wiped,
+    and restored onto a clean DB. The union row must come back with the same id
+    and canonical anchor pair — a lost union would silently split bodies the
+    engineer joined (the ruling is "permanent"). A second restore is idempotent.
+    """
+    from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+
+    source = await _make_source_project(db_session)
+    cpt = (
+        await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == source.id))
+    ).scalar_one()
+    bh = (
+        await db_session.execute(select(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    ).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="ZAND unit",
+        color="#e8d44a",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    geo_parent = GeologicalModelOrm(
+        id=uuid7(), app_project_id=source.id, name="Geo parent", kind="geological"
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho model",
+        kind="lithostratigraphic",
+        is_active=True,
+        excluded_borehole_ids=[],
+        parent_model_id=geo_parent.id,
+    )
+    db_session.add_all([formation, geo_parent, model])
+    await db_session.flush()
+
+    cpt_layer = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        cpt_id=cpt.id,
+        depth_top_m=0.0,
+        depth_base_m=8.0,
+        status="accepted",
+        source="segmenter",
+        confidence="high",
+    )
+    bh_layer = LithoLayerOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=0.0,
+        depth_base_m=8.0,
+        status="accepted",
+        source="observation_layer",
+        confidence="high",
+    )
+    db_session.add_all([cpt_layer, bh_layer])
+    await db_session.flush()
+
+    a_id, b_id = sorted([cpt_layer.id, bh_layer.id])
+    union = BodyUnionOrm(id=uuid7(), model_id=model.id, layer_a_id=a_id, layer_b_id=b_id)
+    db_session.add(union)
+    await db_session.commit()
+    original_union_id = union.id
+
+    # ---- Build: the union is in the bundle -------------------------------
+    bundle = await build_project_bundle(db_session, source)
+    assert "body_unions" in bundle, "bundle must carry the body_unions key"
+    assert len(bundle["body_unions"]) == 1
+    bundled = bundle["body_unions"][0]
+    assert bundled["layer_a_id"] == str(a_id)
+    assert bundled["layer_b_id"] == str(b_id)
+
+    # ---- Wipe (simulate a fresh DB on a new device) ----------------------
+    await db_session.execute(delete(BodyUnionOrm).where(BodyUnionOrm.model_id == model.id))
+    await db_session.execute(delete(LithoLayerOrm).where(LithoLayerOrm.model_id == model.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore: the union comes back on its restored anchors -----------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        body_unions_payload=bundle["body_unions"],
+    )
+    await db_session.commit()
+
+    unions_after = list(
+        (await db_session.execute(select(BodyUnionOrm).where(BodyUnionOrm.model_id == model.id)))
+        .scalars()
+        .all()
+    )
+    assert len(unions_after) == 1
+    assert unions_after[0].id == original_union_id
+    assert unions_after[0].layer_a_id == a_id
+    assert unions_after[0].layer_b_id == b_id
+
+    # ---- Second restore is idempotent ------------------------------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        body_unions_payload=bundle["body_unions"],
+    )
+    await db_session.commit()
+    count_twice = len(
+        list(
+            (
+                await db_session.execute(
+                    select(BodyUnionOrm).where(BodyUnionOrm.model_id == model.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    )
+    assert count_twice == 1, "second restore must not duplicate the body union"
+
+
+# ---------------------------------------------------------------------------
 # Section-scoped correlation edges round-trip (Task 7 — section_id column)
 # ---------------------------------------------------------------------------
 
