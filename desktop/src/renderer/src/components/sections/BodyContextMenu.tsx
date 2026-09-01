@@ -45,54 +45,33 @@ export interface BodyContextMenuProps {
    */
   onShowUnitStatistics?: (formationId: string, bodyId?: string | null) => void
   /**
-   * Fired when the user picks "Separate from…" (debt #278 R5). Reports the
-   * clicked body's id so SectionPanel can ARM the pick-the-other-body gesture —
-   * the verb does not commit here. Absent → the item is not offered (the
-   * no-affordance rule). NON-danger: it is reversible via Rejoin, unlike
-   * Dissolve.
-   */
-  onSeparateBody?: (bodyId: string) => void
-  /**
-   * The existing separations that involve THIS body, each offered back as a
-   * "Rejoin with <label>" item. The label is composed by the caller from the
-   * backend's server-resolved display info (the OTHER anchor's current body),
-   * so this menu owns no body-resolution map. Absent / empty → no Rejoin items.
-   */
-  separations?: readonly BodyRejoinOption[]
-  /** Fired when the user picks a "Rejoin with <label>" item — the separation to lift. */
-  onRejoinBody?: (separationId: string) => void
-  /**
-   * Fired when the user picks "Join with…" (debt #278). Reports the clicked
+   * Fired when the user picks "Voeg samen met…" (Join). Reports the clicked
    * body's id so SectionPanel can ARM the pick-the-other-body gesture — the verb
    * does not commit here. Absent → the item is not offered (the no-affordance
    * rule keeps Join geotech-only, where the owner said he would use it).
-   * NON-danger: it is reversible via Disjoin, unlike Dissolve.
+   * NON-danger: it is reversible via Ontkoppelen, unlike Dissolve.
+   *
+   * (Owner ruling 2026-09-01 "way too complicated": the body verbs are stripped
+   * to Join + Ontkoppelen — Separate / Rejoin were removed entirely.)
    */
   onJoinBody?: (bodyId: string) => void
   /**
-   * The existing unions that involve THIS body, each offered back as a "Disjoin
-   * <label>" item — the counterpart to the Rejoin items for the Join verb. The
-   * label is composed by the caller from the backend's server-resolved display
-   * info, so this menu owns no body-resolution map. Absent / empty → no Disjoin items.
+   * The existing groups (unions) that involve THIS body, each offered back as an
+   * "Ontkoppelen" item — the un-join undo path for the Join verb. The label is
+   * composed by the caller from the backend's server-resolved display info (the
+   * OTHER body), so this menu owns no body-resolution map. Absent / empty → no
+   * Ontkoppelen items.
    */
   unions?: readonly BodyDisjoinOption[]
-  /** Fired when the user picks a "Disjoin <label>" item — the union to lift. */
+  /** Fired when the user picks an "Ontkoppelen" item — the group (union) to lift. */
   onDisjoinBody?: (unionId: string) => void
   /** Close callback — the menu is dismissed. */
   onClose: () => void
 }
 
-/** One "Rejoin with <label>" option — a standing separation the user can lift. */
-export interface BodyRejoinOption {
-  /** The ``body_separation`` row id to DELETE on Rejoin. */
-  separationId: string
-  /** Display label of the other body (caller-composed from the server info). */
-  label: string
-}
-
-/** One "Disjoin <label>" option — a standing union the user can lift (debt #278). */
+/** One "Ontkoppelen" option — a standing group (union) the user can un-join (debt #278). */
 export interface BodyDisjoinOption {
-  /** The ``body_union`` row id to DELETE on Disjoin. */
+  /** The ``body_union`` row id to DELETE on un-join. */
   unionId: string
   /** Display label of the other body (caller-composed from the server info). */
   label: string
@@ -103,14 +82,10 @@ export const TESTIDS = {
   nameBody: 'body-ctx-name-body',
   dissolveBody: 'body-ctx-dissolve-body',
   unitStatistics: 'body-ctx-unit-statistics',
-  separateBody: 'body-ctx-separate-body',
-  // Each Rejoin item's testid is ``${rejoinBody}-${separationId}`` so multiple
-  // standing separations on one body render as distinct, queryable rows.
-  rejoinBody: 'body-ctx-rejoin-body',
   joinBody: 'body-ctx-join-body',
-  // Each Disjoin item's testid is ``${disjoinBody}-${unionId}`` so multiple
-  // standing unions on one body render as distinct, queryable rows.
-  disjoinBody: 'body-ctx-disjoin-body',
+  // Each Ontkoppelen item's testid is ``${unjoinBody}-${unionId}`` so multiple
+  // standing groups on one body render as distinct, queryable rows.
+  unjoinBody: 'body-ctx-unjoin-body',
 }
 
 /**
@@ -147,9 +122,6 @@ export default function BodyContextMenu({
   onNameBody,
   onDissolveBody,
   onShowUnitStatistics,
-  onSeparateBody,
-  separations,
-  onRejoinBody,
   onJoinBody,
   unions,
   onDisjoinBody,
@@ -186,22 +158,11 @@ export default function BodyContextMenu({
         onShowUnitStatistics(body.formation_id, body.id)
       },
     },
-    // Separate — the reversible body-identity verb (debt #278 R5). Sits ABOVE
-    // the Dissolve divider and is NON-danger: it is undone by Rejoin, so it is
-    // not the irreversible red action Dissolve is. Arms rather than commits —
-    // SectionPanel owns the pick-the-other-body gesture.
-    onSeparateBody !== undefined && {
-      label: t('sections.menu.separateBody'),
-      testid: TESTIDS.separateBody,
-      key: 'separate-body',
-      onClick: () => {
-        onSeparateBody(body.id)
-      },
-    },
-    // Join with… — the reversible ADDITIVE body-identity verb (debt #278).
-    // "These two ARE the same body". NON-danger like Separate; arms rather than
-    // commits (SectionPanel owns the pick-the-other-body gesture). Offered only
-    // where wired, which keeps it geotech-only (the owner would not use it on litho).
+    // Voeg samen met… (Join) — the reversible ADDITIVE body-identity verb
+    // (owner ruling 2026-09-01). "These two ARE the same body". NON-danger; arms
+    // rather than commits (SectionPanel owns the pick-the-other-body gesture).
+    // Offered only where wired, which keeps it geotech-only (the owner would not
+    // use it on litho).
     onJoinBody !== undefined && {
       label: t('sections.menu.joinBody'),
       testid: TESTIDS.joinBody,
@@ -210,28 +171,16 @@ export default function BodyContextMenu({
         onJoinBody(body.id)
       },
     },
-    // Rejoin — one per standing separation that involves this body. Lifting a
-    // separation lets the two anchors re-union (the undo path for Separate).
-    // The label is composed by the caller from the backend's server-resolved
-    // display info, so this menu owns no body-resolution map.
-    ...(onRejoinBody !== undefined
-      ? (separations ?? []).map(sep => ({
-          label: t('sections.menu.rejoinBody', { label: sep.label }),
-          testid: `${TESTIDS.rejoinBody}-${sep.separationId}`,
-          key: `rejoin-${sep.separationId}`,
-          onClick: () => {
-            onRejoinBody(sep.separationId)
-          },
-        }))
-      : []),
-    // Disjoin — one per standing union that involves this body (the undo path
-    // for Join). Lifting a union lets the two anchors fall back to whatever ties /
-    // geometry connect them; where none do, they split.
+    // Ontkoppelen (un-join) — one per standing group that involves this body (the
+    // undo path for Join). Lifting a group lets the two anchors fall back to
+    // whatever ties / geometry connect them; where none do, they split. The label
+    // is composed by the caller from the backend's server-resolved display info,
+    // so this menu owns no body-resolution map.
     ...(onDisjoinBody !== undefined
       ? (unions ?? []).map(union => ({
-          label: t('sections.menu.disjoinBody', { label: union.label }),
-          testid: `${TESTIDS.disjoinBody}-${union.unionId}`,
-          key: `disjoin-${union.unionId}`,
+          label: t('sections.menu.unjoinBody', { label: union.label }),
+          testid: `${TESTIDS.unjoinBody}-${union.unionId}`,
+          key: `unjoin-${union.unionId}`,
           onClick: () => {
             onDisjoinBody(union.unionId)
           },
