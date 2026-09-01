@@ -605,21 +605,22 @@ export const SECTIONS_NL = {
 
   // Samenvoegen / Ontkoppelen van lichamen (eigenaarsbeslissing 2026-09-01) —
   // de aanwijzing tijdens het richten, de toasts en de adviezen. ``{label}`` is
-  // het gerichte lichaam; ``{classA}``/``{classB}`` de twee pakkingsklassen bij
-  // een weigering over klassen heen. FLAG: bewoording niet door de eigenaar
-  // geformuleerd, behalve "Ontkoppelen".
+  // het gerichte lichaam.
   'sections.join.armHint':
     'Bezig met samenvoegen van {label} — klik het andere lichaam · Esc annuleert',
   'sections.join.success':
     'Lichamen samengevoegd — rechtsklik het lichaam → Ontkoppelen om ongedaan te maken.',
   'sections.join.blockedSeparation':
     'Samenvoegen geblokkeerd door een bestaande scheiding — verwijder die scheiding eerst.',
-  'sections.join.crossClass':
-    'Deze lichamen hebben verschillende pakkingsklassen en kunnen niet worden samengevoegd.',
+  // Twee boodschappen, gekozen op basis van of de GRONDSOORTEN verschillen
+  // (eigenaarsbeslissing 2026-09-01, zijn woorden): zelfde grondsoort + andere
+  // pakkingsklasse → crossPacking; andere grondsoort → crossLitho. De oude
+  // crossClass / noticeCrossClass sleutels en de "{classA} en {classB}"-staart
+  // zijn hier ingetrokken.
+  'sections.join.crossPacking': 'Je kan twee verschillende pakkingsklassen niet samenvoegen.',
+  'sections.join.crossLitho': 'Je kan twee verschillende lithologieën niet samenvoegen.',
   'sections.join.failed': 'Samenvoegen van lichamen mislukt.',
   'sections.join.noticeSame': 'Dat is hetzelfde lichaam — klik een ander om samen te voegen.',
-  'sections.join.noticeCrossClass':
-    "Kan niet samenvoegen over pakkingsklassen — {classA} en {classB} zijn verschillende massa's.",
   'sections.join.noticeUnresolvable': 'Kon dat lichaam niet herkennen — klik een gevuld lichaam.',
   'sections.unjoin.success': 'Ontkoppeld — de lichamen kunnen weer opsplitsen.',
   'sections.unjoin.failed': 'Ontkoppelen van lichamen mislukt.',
