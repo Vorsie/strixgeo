@@ -390,6 +390,12 @@ export const MODELS_NL = {
   'geotech.unitsWithBands': '{count} met banden',
   'geotech.collapseSoil': 'Deze grondsoort inklappen',
   'geotech.expandSoil': 'Deze grondsoort uitklappen',
+  // FLAG: niet door de eigenaar bekrachtigd — de klasse-rij klapt de deeleenheden
+  // OF de selecteerbare lichamen open (dogfeed 2026-09-01); de tooltip benoemt
+  // wat hij toont.
+  'geotech.collapseClassChildren': 'Deze klasse inklappen',
+  'geotech.expandClassUnits': 'Toon de {count} eenheden met deze klasse',
+  'geotech.expandClassBodies': 'Toon de lichamen in deze klasse',
   'geotech.bandLabel': '{count} band',
   'geotech.bandsLabel': '{count} banden',
   'geotech.soilClasses': '{soil}-klassen',
