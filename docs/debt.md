@@ -9082,14 +9082,12 @@ litho-axis arm gesture + Rejoin); fence one-panel-per-connected-body-per-section
 `useRosterLoadedGate.ts`).
 
 **Still open on this entry:**
-* **R3 twins migration — BUILT, OWNER-GATED, on branch
-  `pending-278-twins-migration`** (migration + 5 red-first integration pins +
-  `scripts/dry_run_twins_migration.sql`). Dev-DB dry-run: 22 twin groups,
-  56 losers, formations 111→55, 0 ordinal collisions. Merge + run ONLY after
-  the owner's explicit go (pg_dump first); `sync_dev_db.ps1` now refuses while
-  the revision is present unconfirmed. Reviewer follow-ups queued on the
-  branch: fix the FC→LL trigger-gating comment; add a 3-member twin-group
-  fixture (loser-vs-loser dedup + oldest-of-many adoption untested).
+* ~~R3 twins migration~~ — **EXECUTED against the dev DB 2026-09-01 with the
+  owner at the keyboard** (dry-run previewed, pg_dump taken to
+  `.backups/groundmodel-pre-twins-2026-09-01.dump`, branch merged, `alembic
+  upgrade head` run). Verified after: 0 twin groups remain, 56 losers deleted,
+  604+604 layers/contacts + 164 solids re-pointed, 170 bodies renumbered
+  dense, 234/234 unique body keys hold. The sync-script guard is removed.
 * **Geotech-axis body menu** (Separate on the geotech axis) — needs an owner
   ruling: the axis is view-only by several rulings; menu-body resolution +
   stats routing are undesigned. The arm plumbing is already axis-agnostic.
