@@ -329,7 +329,8 @@ export const MODELS_NL = {
   // -------------------------------------------------------------------------
   'geotech.units': 'Geotechnische eenheden',
   'geotech.unitsFull': 'Geotechnische eenheden',
-  'geotech.nadUnits': 'Geotechnische NAD-eenheden',
+  // De L1-lijst bevat nu grondgroepen, geen NAD-klasserijen (2026-08-31).
+  'geotech.soilGroups': 'Geotechnische grondgroepen',
   'geotech.noUnits': 'Nog geen geotechnische eenheden',
   'geotech.noBodyModel': 'Nog geen geotechnisch lichaamsmodel',
   'geotech.noLithoModel': 'Nog geen lithostratigrafisch model',
@@ -386,24 +387,29 @@ export const MODELS_NL = {
   'geotech.reSubdivideAltEm': 'zonder',
   'geotech.reSubdivideAltPost':
     'je eigen kwijt te raken, annuleer en gebruik Pakking correleren → Automatisch correleren.',
-  // Geotech-eenheden-lijst (rechterpaneel).
+  // Geotech-eenheden-lijst (rechterpaneel) — grondsoort ▸ lithologisch lichaam ▸
+  // pakkingslichaam (eigenaarsbeslissing 2026-08-31, wandelinterview).
   'geotech.unitsWithBands': '{count} met banden',
   'geotech.collapseSoil': 'Deze grondsoort inklappen',
   'geotech.expandSoil': 'Deze grondsoort uitklappen',
-  // FLAG: niet door de eigenaar bekrachtigd — de klasse-rij klapt de deeleenheden
-  // OF de selecteerbare lichamen open (dogfeed 2026-09-01); de tooltip benoemt
-  // wat hij toont.
-  'geotech.collapseClassChildren': 'Deze klasse inklappen',
-  'geotech.expandClassUnits': 'Toon de {count} eenheden met deze klasse',
-  'geotech.expandClassBodies': 'Toon de lichamen in deze klasse',
+  'geotech.collapseLithoBody': 'Dit lithologisch lichaam inklappen',
+  'geotech.expandLithoBody': 'Dit lithologisch lichaam uitklappen',
+  // Een pakkingslichaam waarvan het lithologische ouderlichaam nog niet
+  // gestempeld is, valt in deze bak in plaats van te verdwijnen. Benoemd naar de
+  // OORZAAK (nog geen litho-ouder, verdwijnt bij de volgende herberekening) —
+  // NIET "Niet gegroepeerd", wat zou botsen met de handmatige "(groep N)"-taal
+  // op dezelfde bladeren (ux-reviewer 2026-09-01).
+  'geotech.noLithoBody': 'Zonder litho-lichaam',
+  // De handmatige-groep-tag op een pakkingslichaam dat in een groep is
+  // samengevoegd (debt #278 D4). FLAG: door de eigenaar te bevestigen.
+  'geotech.groupTag': '(groep {count})',
+  'geotech.soilBodies': '{soil}-lichamen',
+  'geotech.packingBodiesIn': 'Pakkingslichamen in {label}',
   'geotech.bandLabel': '{count} band',
   'geotech.bandsLabel': '{count} banden',
-  'geotech.soilClasses': '{soil}-klassen',
   'geotech.contactLabel': '{count} contact in dit model',
   'geotech.contactsLabel': '{count} contacten in dit model',
   'geotech.chooseColor': '{color} — klik om een kleur voor deze eenheid te kiezen',
   'geotech.colorForUnit': 'Kleur voor {label}',
-  'geotech.unitsCarryClass': '{count} aparte eenheden dragen deze klasse',
-  'geotech.unitsClassed': 'Eenheden ingedeeld als {label}',
   'geotech.sampleSource': 'Bron van monster:',
 } as const
