@@ -494,6 +494,10 @@ export const SECTIONS = {
   'sections.header.geotechnicalCodingShort': 'Geo',
 
   'sections.hints.f1': 'Press F1 for the full gesture reference',
+  // The canvas-wide pan/zoom/column gesture line (was hardcoded in CanvasHints
+  // until the 2026-09-01 i18n pass).
+  'sections.hints.panZoom':
+    'Drag to pan · scroll to zoom · right-click a column to focus · double-click a column to open',
   'sections.hints.lithoLayer':
     'Litho layer: double-click to accept · Alt+drag to copy composition · Shift+drag past neighbour midpoint to absorb · right-click for more',
   'sections.hints.acceptFirst':
@@ -505,14 +509,12 @@ export const SECTIONS = {
   'sections.menu.body': 'Body extent actions',
   'sections.menu.dissolveBody': 'Dissolve body',
   'sections.menu.nameBody': 'Name body…',
-  // Debt #278 R5 — the "Separate" verb + its Rejoin undo. ``{label}`` is the
-  // other body's display label. (Wording flagged for the ux/owner pass.)
-  'sections.menu.separateBody': 'Separate from…',
-  'sections.menu.rejoinBody': 'Rejoin with {label}',
-  // Debt #278 — the "Join with…" verb + its Disjoin undo (geotech axis only).
-  // ``{label}`` is the other body's display label.
+  // Body-verb simplification (owner ruling 2026-09-01 "way too complicated"):
+  // the geotech body verbs are Join + Ontkoppelen only. Separate / Rejoin were
+  // removed entirely. ``{label}`` is the other body's display label. The Dutch
+  // "Ontkoppelen" is the owner's approved word; the EN "Un-join" mirrors it.
   'sections.menu.joinBody': 'Join with…',
-  'sections.menu.disjoinBody': 'Disjoin {label}',
+  'sections.menu.unjoinBody': 'Un-join from {label}',
   'sections.menu.focusTest': 'Focus this test',
   'sections.menu.openDetail': 'Open detail',
   'sections.menu.removeFromSection': 'Remove from this section',
@@ -542,6 +544,30 @@ export const SECTIONS = {
   'sections.menu.mergeBands': 'Merge bands',
   'sections.menu.mergeIntoSurrounding': 'Merge into surrounding band',
   'sections.menu.splitBand': 'Split band…',
+  // Geotech band edit menu — the two "Remove band" directions (were hardcoded in
+  // GeotechBandEditOverlay until the 2026-09-01 i18n pass).
+  'sections.bandMenu.removeUp': 'Remove band (merge into band above)',
+  'sections.bandMenu.removeDown': 'Remove band (merge into band below)',
+
+  // Along-section axis title (was hardcoded in SectionPanel).
+  'sections.axisLabel.alongM': 'Distance along section (m)',
+
+  // Body Join / Ontkoppelen flow (owner ruling 2026-09-01) — the armed hint,
+  // toasts and advisories. ``{label}`` is the armed body; ``{classA}``/``{classB}``
+  // the two packing classes in a cross-class refusal.
+  'sections.join.armHint': 'Joining {label} — click the other body · Esc cancels',
+  'sections.join.success': 'Bodies joined — right-click the body → Un-join to undo.',
+  'sections.join.blockedSeparation':
+    'Join blocked by a standing separation — remove that separation first.',
+  'sections.join.crossClass':
+    'These bodies are different packing classes and cannot be joined.',
+  'sections.join.failed': 'Failed to join bodies.',
+  'sections.join.noticeSame': 'That is the same body — click a different one to join.',
+  'sections.join.noticeCrossClass':
+    'Cannot join across packing classes — {classA} and {classB} are different masses.',
+  'sections.join.noticeUnresolvable': 'Could not identify that body — click a filled body.',
+  'sections.unjoin.success': 'Un-joined — the bodies may split.',
+  'sections.unjoin.failed': 'Failed to un-join bodies.',
 
   'sections.contacts.insertHint': 'Click to insert new layer here · right-click to remove',
   'sections.contacts.lithoContactHint':
