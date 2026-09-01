@@ -55,7 +55,11 @@ import {
   projectIdFromFile,
   serialiseProjectFile,
 } from '../utils/projectFile'
-import type { ProjectFile, StratigraphyLumping } from '../utils/projectFile'
+import type {
+  ProjectFile,
+  StratigraphyLumping,
+  StrixReadFailureReason,
+} from '../utils/projectFile'
 import {
   lumpingsEqual,
   nextLumpingRevision,
@@ -149,20 +153,47 @@ interface UseProjectState {
  * file write. */
 export type ManifestKind = 'cpt' | 'borehole' | 'formation' | 'section'
 
+/**
+ * The file decoded-failed: the ``.strix`` container is damaged, truncated, or
+ * from a newer build. Distinct from a bare ``null`` (a generic parse / DB
+ * failure) so the open flow can show the specific, user-honest ``reason.message``
+ * — the RAM-corruption-mid-save case this machine has seen needs a LOUD,
+ * specific banner, not the generic "may be corrupt, or the API isn't reachable".
+ */
+export interface ProjectOpenUnreadable {
+  outcome: 'unreadable'
+  reason: StrixReadFailureReason
+}
+
+/** Narrow an ``openProjectFile`` result to the unreadable-file failure. */
+export function isProjectOpenUnreadable(
+  result: ProjectResponse | 'file-missing' | ProjectOpenUnreadable | null,
+): result is ProjectOpenUnreadable {
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    (result as { outcome?: unknown }).outcome === 'unreadable'
+  )
+}
+
 /** Tri-state outcome for picker-driven opens — lets the caller show
  * an error banner only when the failure is real (not just a cancelled
- * file dialog). */
+ * file dialog). ``message`` carries the specific decode reason when the failure
+ * was an unreadable file; absent for a generic failure (caller shows its
+ * default banner). */
 export type PickAndOpenResult =
   | { outcome: 'opened'; project: ProjectResponse; path: string }
   | { outcome: 'cancelled' }
-  | { outcome: 'failed'; path: string }
+  | { outcome: 'failed'; path: string; message?: string }
 
 interface UseProjectActions {
   newProject: (metadata: ProjectCreatePayload) => Promise<ProjectResponse | null>
   // 'file-missing' = the .strix is no longer at its saved location (moved or
   // renamed) — callers surface "did you move it?" instead of the corrupt/API
   // catch-all (owner, 2026-08-17).
-  openProjectFile: (filePath: string) => Promise<ProjectResponse | 'file-missing' | null>
+  openProjectFile: (
+    filePath: string,
+  ) => Promise<ProjectResponse | 'file-missing' | ProjectOpenUnreadable | null>
   pickAndOpenProject: () => Promise<PickAndOpenResult>
   /** Append IDs to the manifest. Called by the import handlers after
    * a successful CPT/borehole import so the new rows become visible
@@ -626,7 +657,9 @@ export function useProject(): UseProject {
   )
 
   const openProjectFile = useCallback(
-    async (path: string): Promise<ProjectResponse | 'file-missing' | null> => {
+    async (
+      path: string,
+    ): Promise<ProjectResponse | 'file-missing' | ProjectOpenUnreadable | null> => {
       let parsed: ReturnType<typeof parseProjectFile> = null
       let parsedId: string | null = null
       try {
@@ -641,7 +674,23 @@ export function useProject(): UseProject {
           log.warn('project', `openProjectFile(${path}): file not found — moved or renamed?`)
           return 'file-missing'
         }
-        const raw = await window.electron.readProjectFile(path)
+        // Discriminated read result: the main-process codec flattens a damaged
+        // / truncated / newer container into ``{ ok: false, reason }`` rather
+        // than throwing across IPC, so we can surface the SPECIFIC, honest
+        // message (this machine's RAM corruption once scrambled a .strix
+        // mid-save — that case must read LOUD, not fall into the generic
+        // "corrupt or API unreachable" banner). Legacy plain-JSON files and
+        // successfully-decoded binaries both arrive as ``{ ok: true, json }``.
+        const readResult = await window.electron.readProjectFile(path)
+        if (!readResult.ok) {
+          log.error(
+            'project',
+            `openProjectFile(${path}): unreadable — ${readResult.reason.code}: ` +
+              readResult.reason.message,
+          )
+          return { outcome: 'unreadable', reason: readResult.reason }
+        }
+        const raw = readResult.json
         parsed = parseProjectFile(raw)
         if (parsed === null) {
           log.error('project', `unrecognisable .gmproj at ${path}`)
@@ -761,6 +810,12 @@ export function useProject(): UseProject {
     const path = await window.electron.showProjectOpenDialog()
     if (path === null) return { outcome: 'cancelled' }
     const project = await openProjectFile(path)
+    // An unreadable file carries a specific decode reason — forward its message
+    // so the welcome banner names corruption plainly instead of the generic
+    // "corrupt or API unreachable".
+    if (isProjectOpenUnreadable(project)) {
+      return { outcome: 'failed', path, message: project.reason.message }
+    }
     // 'file-missing' is unreachable from the OS picker (it only returns files
     // that exist), so it folds into the ordinary failure outcome.
     if (project === null || project === 'file-missing') return { outcome: 'failed', path }
@@ -1183,8 +1238,21 @@ export function useProject(): UseProject {
   const revertToLastSaved = useCallback(async (): Promise<RevertToLastSavedResult> => {
     if (project === null || filePath === null) return 'no-snapshot'
     try {
-      const raw = await window.electron.readProjectFile(filePath)
-      const parsed = parseProjectFile(raw)
+      const readResult = await window.electron.readProjectFile(filePath)
+      if (!readResult.ok) {
+        // A damaged / truncated / newer container. Log the SPECIFIC codec
+        // reason (a corrupt restore file is exactly the RAM-corruption case),
+        // but keep the graceful 'failed' outcome — the caller must change
+        // nothing (the session's creates may be in this file) and, above all,
+        // a failed read here must never brick Close.
+        log.error(
+          'project',
+          `revertToLastSaved: unreadable .strix at ${filePath} — ` +
+            `${readResult.reason.code}: ${readResult.reason.message}`,
+        )
+        return 'failed'
+      }
+      const parsed = parseProjectFile(readResult.json)
       if (parsed === null) {
         // A file exists and cannot be read back. That is a FAILURE, not an
         // absent snapshot: the session's creates may well be in it, so
