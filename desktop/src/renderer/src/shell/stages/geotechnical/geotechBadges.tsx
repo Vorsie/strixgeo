@@ -1,10 +1,10 @@
-// The two badges the geotech roster puts on a row: where the packing class
-// came from, and how much the model trusts it.
+// The two badges the geotech roster puts on a packing-body leaf: where the
+// packing class came from, and how much the model trusts it.
 //
-// Shared by the NAD class row and by the unit instances under it, which is the
-// whole reason they live here: the class row shows the WORST value among its
-// instances, so the two levels must render the same vocabulary or the roll-up
-// stops being comparable to what it rolls up.
+// Own module because the tree builder (geotechUnitTree.ts) supplies the
+// per-body provenance / confidence, and the leaf renderer (geotechRosterRows.tsx)
+// draws them — keeping the vocabulary in one place so the value the builder
+// computes and the badge the leaf shows can never drift apart.
 
 import type { LithoLayerConfidence } from '../../../api/client'
 import type { ClassProvenance } from './geotechUnitTree'
