@@ -3,7 +3,7 @@
  *
  * Acceptance criterion (debt #128 / #129b, migrated to the batch endpoint
  * 2026-07-13 — audit BE-API-07):
- * - Suggest all 6 fixture CPTs (each call returns ≥1 layer).
+ * - Suggest all 9 series-bearing fixture CPTs (each call returns ≥1 layer).
  * - Accept every CPT through the PRODUCTION bulk protocol:
  *   ``POST .../layers/batch-accept-litho-suggestions`` with
  *   ``run_inference: true`` — one call per anchor so a fixture CPT whose
@@ -13,8 +13,8 @@
  *   to the touched formations (#155) — the old defer_inference +
  *   standalone recompute-all-absences finaliser is retired.
  * - The entire flow completes in < 15 s (the O(N×formations×sections)
- *   regression would take ~70–140 s for 6 CPTs with 3 formations).
- * - DB has contacts for all 6 CPTs after the flow.
+ *   regression would take ~70–140 s for 9 CPTs with 3 formations).
+ * - DB has contacts for all 9 CPTs after the flow.
  *
  * Regression anchor: reverting commit ``2d4d7913`` (the dead-wired
  * ``ground_level_m`` ORM attr that caused a 500 in the materialiser) must
@@ -40,7 +40,7 @@ const API_BASE = 'http://127.0.0.1:8765'
 
 // 15 s budget for the entire flow — the acceptance criterion from debt #128.
 // The O(N×formations×sections) regression (pre-#155 full-model inference per
-// accept) would take >>15 s even for 6 CPTs with 3 formations.
+// accept) would take >>15 s even for 9 CPTs with 3 formations.
 const BULK_ACCEPT_BUDGET_MS = 15_000
 
 test.describe('flow_bulk_accept', () => {
@@ -75,13 +75,17 @@ test.describe('flow_bulk_accept', () => {
       expect(lithoModel).toBeTruthy()
       const lithoModelId: string = lithoModel.id
 
-      // Only the series-bearing CPTs are segmentable; the two dedicated
-      // crossing CPTs are series-less (suggest-litho 404s) and are excluded.
+      // Only the series-bearing CPTs are segmentable; the crossing (2),
+      // per-instance (3), and facies (3) dedicated scenario CPTs are
+      // series-less (suggest-litho 404s) and are excluded. Section F's 3
+      // same-class-pair CPTs (14/15/16, added for the Join-verb scenario —
+      // see build_synthetic_fixture.py _SAME_CLASS_PAIR_CPT_INDICES) DO
+      // carry a series, so they count: 9 series-bearing CPTs total.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cptIds: string[] = (cptsJson as any[])
         .filter((c: any) => (c.n_rows ?? 0) > 0)
         .map((c: any) => c.id)
-      expect(cptIds.length).toBe(6)
+      expect(cptIds.length).toBe(9)
 
       // 2. Suggest all CPTs.
       const allSuggestions: Array<{ cptId: string; layers: unknown[] }> = []
@@ -160,7 +164,7 @@ test.describe('flow_bulk_accept', () => {
         }
       }
       // At least one CPT must accept cleanly (series-bearing CPTs 0/1/2 have no
-      // pre-seeded contacts — if ALL 6 returned 409, the idempotency model is broken).
+      // pre-seeded contacts — if ALL 9 returned 409, the idempotency model is broken).
       expect(successCount, 'at least one CPT must accept with 200').toBeGreaterThanOrEqual(1)
 
       const elapsed = Date.now() - t0
