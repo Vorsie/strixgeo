@@ -16,8 +16,10 @@
 //   * ``bodyHomeUnitId`` — the jump authority: a resolved body reports its
 //     HOME formation, never the clicked region's label.
 
+import type { BodyGeoFormationFields } from '../../../utils/crossedFormationLabel'
+
 /** The roster fields a body label reads — a reduced ``BodyListItem``. */
-export interface BodyRosterEntry {
+export interface BodyRosterEntry extends BodyGeoFormationFields {
   /** The engineer's name for the body, or ``null``. */
   name: string | null
   /** The body's ordinal within its formation's naming group (0-based). */
@@ -28,6 +30,10 @@ export interface BodyRosterEntry {
    * a roster entry without it degrades to per-layer attribution.
    */
   formation_id?: string
+  // ``geo_formations`` / ``geo_formation_name`` (R2, debt #278) come from
+  // ``BodyGeoFormationFields`` — the crossed geological formations a body spans.
+  // The roster maps are fed full ``BodyListItem`` rows, which already carry
+  // them, so the scope header reads them without a second fetch.
 }
 
 /**
