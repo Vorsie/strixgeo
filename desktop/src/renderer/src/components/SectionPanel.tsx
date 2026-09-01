@@ -1033,6 +1033,32 @@ export default function SectionPanel({
     return m
   }, [lithoLayers, geotechModel, formationLabelById])
 
+  // ``litho_layer id → soil code``, the sibling of ``classByLayerId`` for the Join
+  // cross-class ADVISORY (owner ruling 2026-09-01): a refusal where the two soils
+  // MATCH is a packing-class difference ("different packing classes"); where they
+  // differ it is a lithology difference ("different lithologies"). Resolved per
+  // layer through the layer's formation soil — geotech via ``nadMeta.soilCode``,
+  // litho via ``lithoSoilByFormationId``. Join is geotech-only, so the geotech
+  // anchors are what matter; a missing soil is silence to ``resolveJoinPick``,
+  // which then falls to the broader lithology copy.
+  const soilByLayerId = useMemo(() => {
+    const m = new Map<string, string>()
+    const soilByFormation = new Map<string, string | null>()
+    for (const [fid, meta] of geotechModel?.nadMeta ?? []) soilByFormation.set(fid, meta.soilCode)
+    for (const [fid, soil] of geotechModel?.lithoSoilByFormationId ?? []) {
+      if (!soilByFormation.has(fid)) soilByFormation.set(fid, soil)
+    }
+    const add = (layers: readonly { id: string; formation_id: string }[] | undefined): void => {
+      for (const l of layers ?? []) {
+        const soil = soilByFormation.get(l.formation_id)
+        if (soil != null && soil.length > 0) m.set(l.id, soil)
+      }
+    }
+    add(lithoLayers)
+    add(geotechModel?.geotechLayers)
+    return m
+  }, [lithoLayers, geotechModel])
+
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
   // Bodies dropdown. It never auto-draws — default off — so a half-finished
@@ -2358,11 +2384,22 @@ export default function SectionPanel({
     // context (older callers), which simply cannot arm a Separate.
     layerIds?: readonly string[]
   } | null>(null)
-  const dismissBodyCtxMenu = useCallback(() => setBodyCtxMenu(null), [])
+  // D2 (owner 2026-09-01): while the body menu is open, hovering an "Ontkoppelen"
+  // item highlights the OTHER body it refers to — the layer position that tells two
+  // same-labelled un-join options apart. Cleared on leave and on dismiss.
+  const [hoverUnjoinLayerId, setHoverUnjoinLayerId] = useState<string | null>(null)
+  const dismissBodyCtxMenu = useCallback(() => {
+    setBodyCtxMenu(null)
+    setHoverUnjoinLayerId(null)
+  }, [])
 
   const handleBodyContextMenu = useCallback(
     (body: BodyListItem, svgX: number, svgY: number, layerIds?: readonly string[]): void => {
       setBodyCtxMenu({ body, svgX, svgY, layerIds })
+      // Defensively clear any leftover un-join spotlight so a freshly-opened menu
+      // never inherits a stale highlight — correctness must not depend on the
+      // context-menu backdrop's stacking order (ux-reviewer).
+      setHoverUnjoinLayerId(null)
     },
     [],
   )
@@ -3717,6 +3754,7 @@ export default function SectionPanel({
                 }
                 onJoinPick={onJoinBodies ? handleJoinPick : undefined}
                 classByLayerId={classByLayerId}
+                soilByLayerId={soilByLayerId}
                 bodiesLoaded={bodiesLoaded}
                 // In correlate mode, drop the partition fill's interactive
                 // handles so clicks reach the correlate gesture targets beneath
@@ -3726,6 +3764,10 @@ export default function SectionPanel({
                 // S1: fade non-matching bodies when a sample dot is selected.
                 // Only meaningful on the geotech axis; harmless (null) on litho.
                 selectedBodyId={axisMode === 'geotechnical' ? selectedGeotechBodyId : null}
+                // D2: spotlight the region carrying the hovered "Ontkoppelen"
+                // item's OTHER anchor, so two same-labelled un-join options are
+                // told apart. Geotech-only (where Join / un-join live); null off it.
+                highlightLayerId={axisMode === 'geotechnical' ? hoverUnjoinLayerId : null}
                 // R2 (2026-08-27): right-click a geotech fill region between
                 // columns → "Unit statistics…". The overlay gates on its own
                 // viewOnly flag; passing unconditionally here would also arm
@@ -3780,6 +3822,7 @@ export default function SectionPanel({
                 onJoinPick={onJoinBodies ? handleJoinPick : undefined}
                 bodyIdByLayerId={armBodyIdByLayerId}
                 classByLayerId={classByLayerId}
+                soilByLayerId={soilByLayerId}
                 onArmJoinBody={
                   onJoinBodies
                     ? (bodyId, anchorLayerId, formationId) =>
@@ -3796,6 +3839,10 @@ export default function SectionPanel({
                   )
                 }
                 onUnjoinBody={onDisjoinBody}
+                // D2: same hover spotlight the body-wedge menu got, so the band
+                // menu's "Ontkoppelen" items are disambiguated too (the reported bug
+                // reaches this surface via the same unions list).
+                onUnjoinHover={opt => setHoverUnjoinLayerId(opt?.otherLayerId ?? null)}
               />
             )}
 
@@ -4124,6 +4171,9 @@ export default function SectionPanel({
                       }
                     : undefined
                 }
+                // D2: highlight the other body of the hovered un-join option — its
+                // layer position is what disambiguates two same-labelled items.
+                onUnjoinHover={opt => setHoverUnjoinLayerId(opt?.otherLayerId ?? null)}
                 onClose={dismissBodyCtxMenu}
               />
             )}
