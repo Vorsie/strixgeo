@@ -35,11 +35,42 @@
 // The bundle's per-row shape mirrors the backend's
 // ``GET /projects/{id}/bundle`` response 1:1; the renderer never
 // inspects individual columns, just round-trips the dicts.
+//
+// ON-DISK ENCODING (2026-09-01). This module still produces / consumes PLAIN
+// JSON — ``serialiseProjectFile`` returns a JSON string, ``parseProjectFile``
+// takes one. The BINARY container is a separate concern living entirely in the
+// main process: ``project:write-file`` wraps this JSON in the ``STRIXB1``
+// container (gzip + seeded keystream) and ``project:read-file`` unwraps it back
+// to JSON before the renderer ever sees it (desktop/src/main/strixCodec.ts).
+// ``format_version`` here (3) describes the JSON payload INSIDE the container
+// and is independent of the container's own codec version — the container is
+// opacity around the bundle, not a change to it. Legacy plain-JSON files still
+// open: the decoder sniffs a leading ``{`` and returns them verbatim.
 
 import type { ProjectBundleResponse, ProjectResponse } from '../api/client'
 
 // Bump this when the file shape changes in a backwards-incompatible way.
 export const PROJECT_FILE_FORMAT_VERSION = 3
+
+/**
+ * Why a project file could not be decoded, as surfaced by the main-process
+ * ``project:read-file`` IPC.
+ *
+ * The renderer-side mirror of ``StrixReadFailure`` in
+ * ``desktop/src/main/strixCodec.ts`` (duplicated across the main/renderer
+ * boundary by convention — neither side imports the other). ``code`` is the
+ * stable discriminator (``'strix-corrupt'`` / ``'strix-truncated'`` /
+ * ``'strix-unknown-format'``); ``message`` is the user-honest text to show.
+ */
+export interface StrixReadFailureReason {
+  code: string
+  message: string
+}
+
+/** The discriminated result of reading a project file across the IPC boundary. */
+export type ProjectFileReadResult =
+  | { ok: true; json: string }
+  | { ok: false; reason: StrixReadFailureReason }
 
 /**
  * Manual lumping snapshot stored in the bundle.
