@@ -47,6 +47,7 @@ import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilt
 import { hashHexColor } from '../../../utils/hashColor'
 import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
 import { useT, type Translator } from '../../../i18n/translate'
+import { sectionDisplayName } from '../../../utils/sectionDisplayName'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
 const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -739,7 +740,7 @@ function SectionRow({
         >
           <div className="flex items-center gap-1.5">
             <Slash size={11} className="flex-shrink-0 opacity-70" />
-            <span className="text-xs font-medium truncate">{section.name}</span>
+            <span className="text-xs font-medium truncate">{sectionDisplayName(section, t)}</span>
             {unsaved && <DirtyAsterisk title={t('sections.inspector.dirtyCreated')} />}
           </div>
           <div className="flex items-center gap-1.5 pl-4 text-[10px] text-text-muted">
@@ -782,7 +783,7 @@ function SectionRow({
             {t('sections.deleteConfirm')}
           </h2>
           <p className="text-xs text-text-muted mb-4">
-            <span className="font-medium text-text-secondary">{section.name}</span>{' '}
+            <span className="font-medium text-text-secondary">{sectionDisplayName(section, t)}</span>{' '}
             {t('sections.dialog.deleteBody')}
           </p>
           <div className="flex justify-end gap-2">
@@ -953,7 +954,7 @@ function SectionProperties({
             className="group flex items-center gap-1 w-full text-left"
           >
             <span className="text-xs font-medium text-text-primary truncate">
-              {section.name}
+              {sectionDisplayName(section, t)}
             </span>
             <Pencil
               size={10}
