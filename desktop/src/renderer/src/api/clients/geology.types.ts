@@ -962,6 +962,16 @@ export interface BodyListItem {
    * — consumers fall back to the singular field.
    */
   geo_formations?: { id: string; name: string }[]
+  /**
+   * The litho-model body this body descends from (debt #278 D1). On a GEOTECH
+   * model body it is the parent litho body id — the geometrically-disconnected
+   * litho mass a packing body was carved out of, which the geotech units pane
+   * uses as its middle grouping level (soil ▸ litho body ▸ packing body). On a
+   * LITHO model body it is null (a litho body has no litho parent). Optional +
+   * nullable: additive, and absent on an old cached response, so consumers read
+   * it as ``?? null``.
+   */
+  parent_litho_body_id?: string | null
   created_at: string
   updated_at: string
   /** Stable identity hash of the body's 3 defining contact ids. */
