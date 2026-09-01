@@ -106,6 +106,13 @@ export interface ProjectBundleResponse {
    * engineer deleted on the next derivation. Absent in older bundles.
    */
   geotech_tie_tombstones?: Record<string, unknown>[]
+  /**
+   * Body separations (debt #278 R5): the "these two are NOT the same body"
+   * cannot-link constraints the resolver honours. Evidence, not cache: dropping
+   * them re-merges every body the engineer split, on the next resolve. Absent
+   * in older bundles.
+   */
+  body_separations?: Record<string, unknown>[]
 }
 
 /** Request body for ``POST /projects/``. */
