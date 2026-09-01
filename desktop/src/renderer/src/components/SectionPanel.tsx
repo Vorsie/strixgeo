@@ -43,6 +43,7 @@ import type {
   BodyBoundaryNode,
   BodyBoundaryResponse,
   BodyListItem,
+  BodySeparationListItem,
   BodyRenderStyle,
   CptListItem,
   BoreholeDetailResponse,
@@ -157,6 +158,8 @@ import {
   selectGeotechBody,
 } from '../utils/geotechBodySelectionStore'
 import BodyContextMenu from './sections/BodyContextMenu'
+import { firstLayerStampedToBody, type SeparatePick } from './sections/separatePick'
+import { buildRejoinOptions } from './sections/rejoinOptions'
 import ConfirmDialog from './ui/ConfirmDialog'
 import { lithologyAbbrev } from '../utils/lensLabel'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
@@ -783,6 +786,36 @@ interface Props {
    * when the user picks "Dissolve body".
    */
   onDissolveBody?: (bodyId: string) => void
+  /**
+   * Commit a "Separate" (debt #278 R5): the two anchors' bodies are stated to be
+   * NOT the same body. Fired after the armed pick resolves a distinct target
+   * body. Present ⇒ the "Separate from…" item is offered and the arm is live.
+   */
+  onSeparateBodies?: (anchorLayerId: string, targetAnchorLayerId: string) => void
+  /**
+   * Lift a standing separation (the Rejoin). Fired from a "Rejoin with <label>"
+   * item. Present ⇒ the Rejoin items are offered.
+   */
+  onRejoinBody?: (separationId: string) => void
+  /**
+   * The model's standing separations, each carrying both anchors' current-body
+   * display info (server-resolved). SectionPanel filters these to the clicked
+   * body to build its "Rejoin with <label>" items — it owns no resolution map.
+   */
+  separations?: readonly BodySeparationListItem[]
+  /**
+   * Advisory feedback while a Separate is armed: ``'same'`` when the engineer
+   * clicked the armed body itself, ``'unresolvable'`` when the clicked region
+   * resolves to no single body. The arm stays live either way; the parent
+   * toasts. Absent ⇒ no advisory (the arm still works).
+   */
+  onSeparateNotice?: (kind: 'same' | 'unresolvable') => void
+  /**
+   * Whether the body list has landed (#279 item-1). Threaded to the partition
+   * fill so the body-menu right-click (which arms Separate) waits for it.
+   * Defaults to ``true`` where unwired.
+   */
+  bodiesLoaded?: boolean
 }
 
 export default function SectionPanel({
@@ -844,6 +877,11 @@ export default function SectionPanel({
   onDeleteLens,
   onNameBody,
   onDissolveBody,
+  onSeparateBodies,
+  onRejoinBody,
+  separations,
+  onSeparateNotice,
+  bodiesLoaded = true,
 }: Props): JSX.Element {
   // Section-scoped data slices (debt #201 round 2 / #178): provided by
   // SectionsCanvas via SectionScopeContext instead of prop-threading.
@@ -950,6 +988,18 @@ export default function SectionPanel({
     for (const l of lithoLayers ?? []) m.set(l.id, l.body_id ?? null)
     return m
   }, [lithoLayers])
+
+  // ``litho_layer id → body_id`` over BOTH the litho and geotech rows, for the
+  // Separate arm's anchor lookup (debt #278 R5). The clicked region's layers
+  // are litho ids on the litho axis and geotech ids on the geotech axis; the ids
+  // are distinct UUIDs, so one merged map is anchor-correct on either axis and
+  // matches the map ``PartitionFillOverlay`` resolves the target against.
+  const armBodyIdByLayerId = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const l of lithoLayers ?? []) m.set(l.id, l.body_id ?? null)
+    for (const l of geotechModel?.geotechLayers ?? []) m.set(l.id, l.body_id ?? null)
+    return m
+  }, [lithoLayers, geotechModel])
 
   // Body band fill is an explicit, on-demand verb (owner directive 2026-06-03):
   // the user finishes correlating + pinch-outs, THEN clicks "Fill bands" in the
@@ -2264,14 +2314,61 @@ export default function SectionPanel({
     body: BodyListItem
     svgX: number
     svgY: number
+    // The clicked region's own layers (debt #278 R5) — the source of the
+    // Separate arm's anchor. Absent on a right-click that carried no region
+    // context (older callers), which simply cannot arm a Separate.
+    layerIds?: readonly string[]
   } | null>(null)
   const dismissBodyCtxMenu = useCallback(() => setBodyCtxMenu(null), [])
 
   const handleBodyContextMenu = useCallback(
-    (body: BodyListItem, svgX: number, svgY: number): void => {
-      setBodyCtxMenu({ body, svgX, svgY })
+    (body: BodyListItem, svgX: number, svgY: number, layerIds?: readonly string[]): void => {
+      setBodyCtxMenu({ body, svgX, svgY, layerIds })
     },
     [],
+  )
+
+  // The live "Separate" arm (debt #278 R5): the body the engineer picked to
+  // separate FROM, one of its anchor layers, and its label for the hint chip.
+  // Null when no Separate is in flight.
+  const [separateArm, setSeparateArm] = useState<{
+    bodyId: string
+    anchorLayerId: string
+    label: string
+  } | null>(null)
+  const clearSeparateArm = useCallback(() => setSeparateArm(null), [])
+
+  // "Separate from…" ARMS the pick-the-other-body gesture rather than committing
+  // (mirrors the geotech band-edit "Split band…" arm). The anchor is the first
+  // clicked-region layer stamped to this body — deterministic, so the same body
+  // always separates through the same anchor.
+  const handleArmSeparate = useCallback(
+    (bodyId: string, layerIds: readonly string[] | undefined, label: string): void => {
+      const anchorLayerId = firstLayerStampedToBody(layerIds, bodyId, armBodyIdByLayerId)
+      if (anchorLayerId === null) {
+        // No anchor resolvable (fallback paint / unstamped) — nothing to separate
+        // FROM, so tell the engineer rather than arm a gesture that cannot commit.
+        onSeparateNotice?.('unresolvable')
+        return
+      }
+      setSeparateArm({ bodyId, anchorLayerId, label })
+    },
+    [armBodyIdByLayerId, onSeparateNotice],
+  )
+
+  // The armed left-click's outcome, resolved in PartitionFillOverlay: a distinct
+  // body commits (and disarms); the same body or an unresolvable region keeps
+  // the arm live and only advises (ruling: "click the OTHER body").
+  const handleSeparatePick = useCallback(
+    (pick: SeparatePick): void => {
+      if (pick.kind === 'commit') {
+        onSeparateBodies?.(pick.anchorLayerId, pick.targetAnchorLayerId)
+        setSeparateArm(null)
+        return
+      }
+      onSeparateNotice?.(pick.kind)
+    },
+    [onSeparateBodies, onSeparateNotice],
   )
 
   // Remove-from-section handler — appends the column's id to the
@@ -2316,6 +2413,9 @@ export default function SectionPanel({
   const selectedGeotechBodyId = useSelectedGeotechBodyId()
 
   useSectionKeyboardShortcuts({
+    // R5: an armed Separate peels first — Esc cancels the pick, not the section.
+    separateArmed: separateArm !== null,
+    clearSeparateArm,
     bodyMenuOpen: bodyCtxMenu !== null,
     columnMenuOpen: contextMenu !== null,
     columnFocused: focusedColumn !== null,
@@ -2341,6 +2441,24 @@ export default function SectionPanel({
       selectGeotechBody(null)
     }
   }, [axisMode])
+
+  // R5 (debt #278): the Separate arm is a litho-axis gesture that must YIELD the
+  // canvas to correlate mode (mutual exclusion — the Esc cascade peels only one
+  // direction). Drop it when the axis leaves litho or when correlate mode takes
+  // over. Mirrors the S5 geotech-selection clear above.
+  useEffect(() => {
+    if (axisMode !== 'lithostratigraphic' || contactGestureState?.contactCorrelateMode) {
+      setSeparateArm(null)
+    }
+  }, [axisMode, contactGestureState?.contactCorrelateMode])
+
+  // R5: drop a Separate arm whose anchor layer no longer exists — the litho
+  // model or section changed under it, so the armed body/anchor are stale. The
+  // functional update leaves a live arm untouched (its anchor still resolves),
+  // so this never clears mid-gesture during an ordinary refetch.
+  useEffect(() => {
+    setSeparateArm(prev => (prev && !armBodyIdByLayerId.has(prev.anchorLayerId) ? null : prev))
+  }, [armBodyIdByLayerId])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -3542,10 +3660,21 @@ export default function SectionPanel({
                 openExtentLengthM={openExtentLengthM}
                 bodies={lenses}
                 onBodyContextMenu={
-                  onNameBody ?? onDissolveBody
+                  onNameBody ?? onDissolveBody ?? onSeparateBodies
                     ? handleBodyContextMenu
                     : undefined
                 }
+                // R5 (debt #278): the armed Separate makes the fill regions
+                // left-clickable so the engineer picks the other body; the
+                // overlay resolves the target and reports the outcome up. Both
+                // together are what arms it (see the overlay's separateArmActive).
+                separateArm={
+                  separateArm !== null
+                    ? { bodyId: separateArm.bodyId, anchorLayerId: separateArm.anchorLayerId }
+                    : null
+                }
+                onSeparatePick={onSeparateBodies ? handleSeparatePick : undefined}
+                bodiesLoaded={bodiesLoaded}
                 // In correlate mode, drop the partition fill's interactive
                 // handles so clicks reach the correlate gesture targets beneath
                 // (esp. the bottom-of-test handles at the floor) — dogfeed
@@ -3857,16 +3986,52 @@ export default function SectionPanel({
                   onNameBody?.(bodyId)
                   dismissBodyCtxMenu()
                 }}
-                onDissolveBody={bodyId => {
-                  onDissolveBody?.(bodyId)
-                  dismissBodyCtxMenu()
-                }}
+                // Dissolve is withheld (no item) where its handler is absent —
+                // the geotech axis (Dissolve stays litho-only, R5).
+                onDissolveBody={
+                  onDissolveBody
+                    ? bodyId => {
+                        onDissolveBody(bodyId)
+                        dismissBodyCtxMenu()
+                      }
+                    : undefined
+                }
                 // R1 (2026-08-27): the between-columns litho jump — the
                 // region carries the body, the body names the formation.
                 onShowUnitStatistics={
                   onShowLithoUnitStatistics
                     ? (formationId, bodyId) => {
                         onShowLithoUnitStatistics(formationId, bodyId)
+                        dismissBodyCtxMenu()
+                      }
+                    : undefined
+                }
+                // R5 (debt #278): "Separate from…" ARMS the pick-the-other-body
+                // gesture (it does not commit here); the Rejoin items lift a
+                // standing separation. Both offered only when wired.
+                onSeparateBody={
+                  onSeparateBodies
+                    ? bodyId => {
+                        handleArmSeparate(
+                          bodyId,
+                          bodyCtxMenu.layerIds,
+                          bodyCtxMenu.body.name?.trim() ||
+                            formationLabelById.get(bodyCtxMenu.body.formation_id) ||
+                            'this body',
+                        )
+                        dismissBodyCtxMenu()
+                      }
+                    : undefined
+                }
+                separations={buildRejoinOptions(
+                  bodyCtxMenu.body.id,
+                  separations,
+                  fid => (fid ? formationLabelById.get(fid) : undefined),
+                )}
+                onRejoinBody={
+                  onRejoinBody
+                    ? separationId => {
+                        onRejoinBody(separationId)
                         dismissBodyCtxMenu()
                       }
                     : undefined
@@ -3918,6 +4083,19 @@ export default function SectionPanel({
               setFindFlashId(null)
             }}
           />
+        )}
+        {/* Separate-arm hint (debt #278 R5): while a Separate is armed the fill
+            regions become clickable, so a top-centre pill names the gesture and
+            its Esc escape — mirrors the geotech band-edit "click to place, Esc to
+            cancel" readout. pointer-events-none so it never eats the pick. */}
+        {separateArm !== null && (
+          <div
+            data-testid="separate-arm-hint"
+            className="absolute top-2 left-1/2 -translate-x-1/2 rounded bg-slate-800/95 px-3 py-1 text-xs font-medium text-slate-100 shadow-lg ring-1 ring-sky-400/50 pointer-events-none select-none"
+          >
+            Separating <span className="font-semibold">{separateArm.label}</span> — click the
+            other body · Esc cancels
+          </div>
         )}
         {/* Cursor elevation readout (dogfeed 2026-06-19): the mTAW height under
             the pointer, bottom-right, so the user can call out exact elevations.
