@@ -222,6 +222,9 @@ export interface Props {
   bodyIdByLayerId?: ReadonlyMap<string, string | null>
   /** ``litho_layer id → packing-class label`` for the Join cross-class guard. */
   classByLayerId?: ReadonlyMap<string, string>
+  /** ``litho_layer id → soil code`` — splits a cross-class Join refusal into a
+   *  packing-vs-lithology advisory (owner ruling 2026-09-01). */
+  soilByLayerId?: ReadonlyMap<string, string>
   /**
    * ARM a Join FROM the right-clicked band's body (the "Voeg samen met…" band-menu
    * item). Reports the band's body, the band's own layer (a valid anchor, since it
@@ -236,6 +239,14 @@ export interface Props {
   unjoinOptionsForBody?: (bodyId: string) => readonly BodyDisjoinOption[]
   /** Lift a standing group (the "Ontkoppelen" band-menu item). */
   onUnjoinBody?: (unionId: string) => void
+  /**
+   * Hover preview for the band menu's "Ontkoppelen" items (D2): fired with the
+   * hovered option as the pointer/focus enters a row, ``null`` as it leaves or the
+   * menu closes. Lets the canvas spotlight WHICH body an un-join refers to — same
+   * disambiguation the body-wedge menu got, since this menu draws from the same
+   * ``unjoinOptionsForBody`` list. Absent → no highlight (the items still work).
+   */
+  onUnjoinHover?: (option: BodyDisjoinOption | null) => void
 }
 
 /** One column's geometry plus the band / body stacks drawn on it. */
@@ -419,9 +430,11 @@ export default function GeotechBandEditOverlay({
   onJoinPick,
   bodyIdByLayerId,
   classByLayerId,
+  soilByLayerId,
   onArmJoinBody,
   unjoinOptionsForBody,
   onUnjoinBody,
+  onUnjoinHover,
 }: Props): JSX.Element | null {
   const t = useT()
   // The armed-Join left-click is live only when the arm + its resolution inputs
@@ -435,10 +448,16 @@ export default function GeotechBandEditOverlay({
     (bandLayerId: string): void => {
       if (joinArm == null || onJoinPick === undefined || bodyIdByLayerId === undefined) return
       onJoinPick(
-        resolveJoinPick(joinArm, [bandLayerId], bodyIdByLayerId, classByLayerId ?? new Map()),
+        resolveJoinPick(
+          joinArm,
+          [bandLayerId],
+          bodyIdByLayerId,
+          classByLayerId ?? new Map(),
+          soilByLayerId,
+        ),
       )
     },
-    [joinArm, onJoinPick, bodyIdByLayerId, classByLayerId],
+    [joinArm, onJoinPick, bodyIdByLayerId, classByLayerId, soilByLayerId],
   )
 
   // The body verbs shared by both band menus (split + setClass): "Voeg samen
@@ -476,9 +495,16 @@ export default function GeotechBandEditOverlay({
             type="button"
             data-testid={`geotech-band-menu-unjoin-${opt.unionId}`}
             onClick={() => {
+              onUnjoinHover?.(null)
               onUnjoinBody?.(opt.unionId)
               setMenu(null)
             }}
+            // D2: same hover spotlight as the body-wedge menu, so two same-labelled
+            // "Ontkoppelen" items are told apart here too (keyboard parity via focus).
+            onMouseEnter={() => onUnjoinHover?.(opt)}
+            onMouseLeave={() => onUnjoinHover?.(null)}
+            onFocus={() => onUnjoinHover?.(opt)}
+            onBlur={() => onUnjoinHover?.(null)}
             style={MENU_ITEM_STYLE}
           >
             {t('sections.menu.unjoinBody', { label: opt.label })}
@@ -668,7 +694,13 @@ export default function GeotechBandEditOverlay({
   // baseline every CAD tool trains.
   useEffect(() => {
     if (menu === null) return
-    const dismiss = (): void => setMenu(null)
+    // Also clear any un-join spotlight: Esc / wheel closes the menu while the
+    // pointer may still sit on an "Ontkoppelen" row (no mouseleave fires), so the
+    // highlight would otherwise stick after the menu is gone (D2, ux-reviewer).
+    const dismiss = (): void => {
+      onUnjoinHover?.(null)
+      setMenu(null)
+    }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') dismiss()
     }
@@ -678,7 +710,7 @@ export default function GeotechBandEditOverlay({
       document.removeEventListener('wheel', dismiss, { capture: true })
       document.removeEventListener('keydown', onKey)
     }
-  }, [menu])
+  }, [menu, onUnjoinHover])
 
   // Escape abandons a placement, matching every other armed mode in the section
   // editor — and so does the WHEEL, for the same reason the menu dismisses on it
@@ -1254,9 +1286,13 @@ export default function GeotechBandEditOverlay({
           <>
             <div
               style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
-              onClick={() => setMenu(null)}
+              onClick={() => {
+                onUnjoinHover?.(null)
+                setMenu(null)
+              }}
               onContextMenu={e => {
                 e.preventDefault()
+                onUnjoinHover?.(null)
                 setMenu(null)
               }}
             />
