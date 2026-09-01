@@ -551,3 +551,99 @@ async def test_list_bodies_lists_every_geo_formation_a_body_crosses(
     # The additive singular fields still carry the thickness-majority winner.
     assert item["geo_formation_id"] == str(pleistocene.id)
     assert item["geo_formation_name"] == "Pleistoceen"
+
+
+@pytest.mark.asyncio
+async def test_list_bodies_labels_geotech_bodies_via_geological_grandparent(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    bodies_api_fixture: tuple,
+) -> None:
+    """A GEOTECH model's bodies get a geological label — walking TWO parents up.
+
+    Regression for the ``GetBodyGeoLabels`` bug: the parent chain is
+    geological <- lithostratigraphic <- geotechnical, so a geotech model's
+    parent is the LITHO model, not the geological one. Deriving contacts against
+    the geotech model's own ``parent_model_id`` (the litho model, which owns no
+    chrono contacts) always returned an empty geological label for geotech
+    bodies. With the two-hop walk, ``GET /models/{geotech}/bodies`` labels a
+    geotech body from the geological GRANDPARENT's contacts — exactly as a litho
+    body is labelled.
+    """
+    project, litho, _litho_formation, bh, _nbr = bodies_api_fixture
+    geo_model_id = litho.parent_model_id
+
+    # A geotechnical model refining the litho model (chain: geo <- litho <- geotech).
+    geotech = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Geotech-API",
+        kind="geotechnical",
+        parent_model_id=litho.id,
+    )
+    db_session.add(geotech)
+    await db_session.flush()
+
+    # Geological contacts live on the GEOLOGICAL model (the grandparent).
+    pleistocene = GeologicalFormationOrm(
+        id=uuid7(), app_project_id=project.id, name="Pleistoceen", color="#cc8800", display_order=1
+    )
+    db_session.add(pleistocene)
+    await db_session.flush()
+    db_session.add(
+        FormationContactOrm(
+            id=uuid7(),
+            model_id=geo_model_id,
+            formation_id=pleistocene.id,
+            borehole_id=bh.id,
+            depth_top_m=0.0,
+            source="manual_pick",
+            confidence="high",
+        )
+    )
+
+    sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND",
+        color="#fbbf24",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    db_session.add(sand)
+    await db_session.flush()
+    # A geotech body (its members are geotech-model litho_layer rows).
+    geo_body = BodyOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        model_id=geotech.id,
+        formation_id=sand.id,
+        body_ordinal=0,
+        source_investigation_id=bh.id,
+    )
+    db_session.add(geo_body)
+    await db_session.flush()
+    db_session.add(
+        LithoLayerOrm(
+            id=uuid7(),
+            model_id=geotech.id,
+            formation_id=sand.id,
+            borehole_id=bh.id,
+            depth_top_m=0.0,
+            depth_base_m=20.0,
+            status="accepted",
+            source="segmenter",
+            body_id=geo_body.id,
+        )
+    )
+    await db_session.commit()
+
+    resp = await async_client.get(f"/projects/{project.id}/geology/models/{geotech.id}/bodies")
+    assert resp.status_code == 200, resp.text
+    items = resp.json()
+    assert len(items) == 1
+    item = items[0]
+    # Populated, not empty — the two-hop walk reached the geological grandparent.
+    assert item["geo_formation_id"] == str(pleistocene.id)
+    assert item["geo_formation_name"] == "Pleistoceen"
+    assert [g["name"] for g in item["geo_formations"]] == ["Pleistoceen"]
