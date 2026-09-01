@@ -361,6 +361,15 @@ export interface Props {
    */
   lithoFrame?: GeotechLithoFrame
   /**
+   * The active axis's "Separate" rulings, as canonical ``a|b`` layer-id pairs (owner
+   * 2026-08-31, debt #278 R5). Threaded into the GEOTECH hierarchical fill as a
+   * cannot-link so two same-class masses the engineer split do not weld and the paint
+   * seam shows. Consumed only on the geotech axis today (the litho paint path does not
+   * yet thread it — the litho separations still split IDENTITY via the backend resolver;
+   * the 2-D litho-paint seam is a follow-up). Absent / empty leaves the fill unchanged.
+   */
+  separatedPairs?: ReadonlySet<string>
+  /**
    * Current section axis. The REVIEW-FLAG markers (uncorrelated same-litho neighbours the
    * safe-default repair re-emitted) render on the LITHO axis only — hidden on geology / geotech.
    */
@@ -555,6 +564,7 @@ export default function PartitionFillOverlay({
   correlateMode = false,
   selectedBodyId,
   lithoFrame,
+  separatedPairs,
   axisMode,
   dismissedReviewFlags,
   onDismissReviewFlag,
@@ -1481,6 +1491,9 @@ export default function PartitionFillOverlay({
     // families and its cover), so the frame's own topology joins the key —
     // without it, editing a litho contact would leave the geotech axis showing
     // the fill of the previous frame.
+    // The separations join the key too: lifting or drawing a "Separate" changes which
+    // masses weld, so a stale cache would keep showing the pre-split (or pre-rejoin) paint.
+    const separationKey = separatedPairs === undefined ? '' : [...separatedPairs].sort().join(',')
     const engineKey = `${topologyKey(orderedColumns, edges, alongM)}|${[
       ...apexOverrides.entries(),
     ]
@@ -1494,7 +1507,7 @@ export default function PartitionFillOverlay({
             lithoFramePartition.lithoAlongM,
           )
         : ''
-    }`
+    }|sep:${separationKey}`
     const cachedEngine = engineResultRef.current
     /**
      * Partition each run and put its output back on the FRAME's gap axis. A
@@ -1558,6 +1571,10 @@ export default function PartitionFillOverlay({
                 // change re-points the layer to another formation row, which
                 // changes the columns.
                 packingClassOf: lithoFrame?.packingClassByFormationId,
+                // The engineer's "Separate" rulings as a cannot-link on the weld: a
+                // same-class touching pair he split stays two bodies, so the paint
+                // seam shows (debt #278 R5). Empty leaves the fill byte-identical.
+                separatedPairs,
               })
               // Live-fill probe (owner ask 2026-08-21): stash the EXACT inputs
               // and outputs of this compute so `__GEOFILL_SAVE()` in DevTools
@@ -1759,6 +1776,10 @@ export default function PartitionFillOverlay({
     lensDrag,
     // Live contact-bend preview: re-partition while dragging a matched contact.
     boundaryDrag,
+    // A "Separate" / "Rejoin" changes which masses weld — recompute the fill so the
+    // seam appears / heals (debt #278 R5). Also folded into ``engineKey`` so the
+    // ref-cache misses on the same change.
+    separatedPairs,
   ])
 
   // Crossing-tie conflicts (owner §8 Q4): approved correlation ties that
