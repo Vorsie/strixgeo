@@ -994,6 +994,84 @@ export interface ClearBoundariesResponse {
   shapes_deleted: number
 }
 
+// ---------------------------------------------------------------------------
+// Body-separation ("Separate" verb) types — debt #278 R5
+// ---------------------------------------------------------------------------
+
+/**
+ * Response from ``POST .../models/{mid}/body-separations`` — the "Separate" verb.
+ *
+ * A separation is a cannot-link constraint in LAYER-id space: the resolver reads
+ * it and drops any union (however indirect) that would merge the two anchors, so
+ * the two bodies stay separate until an explicit Rejoin (DELETE). The verb is
+ * reversible, so a duplicate is a ``200`` with the existing row (``was_created``
+ * ``false``), never a ``409``.
+ */
+export interface BodySeparationResponse {
+  /** Primary key of the canonical separation row (new or pre-existing). */
+  separation_id: string
+  model_id: string
+  /** Canonical lesser anchor (the backend orders the pair). */
+  layer_a_id: string
+  /** Canonical greater anchor. */
+  layer_b_id: string
+  /** ``true`` when a new separation was inserted; ``false`` on an idempotent re-call. */
+  was_created: boolean
+  /** Bodies created or removed when the resolver re-ran in the same request. */
+  bodies_changed: number
+  /** Unit names displaced by the re-resolve's lineage adoption — toast material. */
+  renamed: string[]
+}
+
+/**
+ * Server-resolved display info for one anchor of a separation.
+ *
+ * The FE renders "Rejoin with <label>" without owning a resolution map: the
+ * server reports each anchor's CURRENT body (its ``litho_layer.body_id`` at
+ * request time), so the label always reflects the live partition.
+ */
+export interface BodySeparationAnchorInfo {
+  layer_id: string
+  /** The body the anchor currently belongs to; ``null`` when unstamped. */
+  body_id: string | null
+  /** The body's user name; ``null`` when unnamed (FE derives an ordinal label). */
+  body_name: string | null
+  /** The body's ordinal within its naming group; ``null`` when unstamped. */
+  body_ordinal: number | null
+  /** The body's formation row — lets the FE compose a soil-coded label. */
+  formation_id: string | null
+}
+
+/**
+ * One separation returned by ``GET .../models/{mid}/body-separations``.
+ *
+ * Carries both anchors' current-body display info so the FE can label the
+ * "Rejoin with <label>" item without resolving bodies itself.
+ */
+export interface BodySeparationListItem {
+  /** Primary key of the ``body_separation`` row. */
+  id: string
+  model_id: string
+  layer_a_id: string
+  layer_b_id: string
+  anchor_a: BodySeparationAnchorInfo
+  anchor_b: BodySeparationAnchorInfo
+  created_at: string
+}
+
+/**
+ * Response from ``DELETE .../models/{mid}/body-separations/{sep_id}`` (Rejoin).
+ *
+ * Lifting the cannot-link constraint lets the two anchors re-union if the ties /
+ * geometry still connect them; the resolver re-runs in the same request.
+ */
+export interface BodySeparationRejoinResponse {
+  /** Bodies created or removed when the resolver re-ran after the lift. */
+  bodies_changed: number
+  /** Unit names displaced by the re-resolve's lineage adoption. */
+  renamed: string[]
+}
+
 
 // ---------------------------------------------------------------------------
 // Geotech subdivision types
