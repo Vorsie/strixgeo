@@ -509,6 +509,10 @@ export const SECTIONS = {
   // other body's display label. (Wording flagged for the ux/owner pass.)
   'sections.menu.separateBody': 'Separate from…',
   'sections.menu.rejoinBody': 'Rejoin with {label}',
+  // Debt #278 — the "Join with…" verb + its Disjoin undo (geotech axis only).
+  // ``{label}`` is the other body's display label.
+  'sections.menu.joinBody': 'Join with…',
+  'sections.menu.disjoinBody': 'Disjoin {label}',
   'sections.menu.focusTest': 'Focus this test',
   'sections.menu.openDetail': 'Open detail',
   'sections.menu.removeFromSection': 'Remove from this section',
