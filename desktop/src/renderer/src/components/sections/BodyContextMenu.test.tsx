@@ -231,9 +231,10 @@ describe('BodyContextMenu', () => {
     )
     expect(screen.getByTestId(TESTIDS.separateBody).textContent).toBe('Scheiden van…')
     expect(screen.getByTestId(TESTIDS.dissolveBody).textContent).toBe('Lichaam ontbinden')
-    // The {label} placeholder interpolates in NL too.
+    // The {label} placeholder interpolates in NL too. Owner ruled 2026-09-01:
+    // Rejoin reads "Herenig met …" ("Voeg samen met…" is reserved for Join).
     expect(screen.getByTestId(`${TESTIDS.rejoinBody}-sep-1`).textContent).toBe(
-      'Samenvoegen met ZAND #2',
+      'Herenig met ZAND #2',
     )
   })
 
