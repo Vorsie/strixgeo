@@ -42,13 +42,16 @@ function geoContextSuffix(entry: BodyRosterEntry | undefined): string {
  * The crossed-formation suffix for a geotech body — its OWN list if it carries
  * one, else its LITHO PARENT body's (owner dogfeed 2026-09-01).
  *
- * The backend derives a body's crossed-formation list against the model's parent
- * model; for a geotech model that parent is the LITHO model, not the geological
- * model, so a geotech body gets no list of its own. Without a fallback the
- * right-click jump (which lands on the geotech body / its class row) shows no
- * geological context, while the pane — reading the litho body — shows it. The
- * geotech body sits inside its litho parent, so inheriting the parent's list
- * makes the SAME body read the SAME context on both arrival paths.
+ * The backend now derives a geotech body's own crossed-formation list correctly
+ * (``GetBodyGeoLabels`` walks the parent chain geological <- litho <- geotech,
+ * so a geotech model reaches its geological GRANDPARENT's contacts, not the
+ * litho model's empty set — the earlier bug that always left the list empty).
+ * So the OWN list is normally populated and wins here. The litho-parent fallback
+ * is the DEGRADED path: it covers a geotech body whose own list is genuinely
+ * empty (e.g. no geological model defined at its investigations) while the litho
+ * parent — a wider mass — still resolves one. The geotech body sits inside its
+ * litho parent, so inheriting the parent's list makes the SAME body read the
+ * SAME context on both arrival paths.
  *
  * Parameters
  * ----------
@@ -209,10 +212,10 @@ export function scopeHeaderLabel(
         path?.nadClass != null
           ? geotechBodyLabel(scope.bodyId, path.nadClass, input.geotechBodies)
           : bodyLabelOf(scope.bodyId, input.geotechBodies)
-      // The geological context: the geotech body's OWN crossed-formation list,
-      // else its litho parent's (the backend leaves a geotech body's own list
-      // empty — see ``geotechGeoContextSuffix``). Appends regardless of whether
-      // the full litho path resolves.
+      // The geological context: the geotech body's OWN crossed-formation list
+      // (now resolved by the backend), else its litho parent's as a degraded
+      // fallback — see ``geotechGeoContextSuffix``. Appends regardless of
+      // whether the full litho path resolves.
       const geoSuffix = geotechGeoContextSuffix(scope.bodyId, path?.lithoBodyId ?? null, input)
       if (path === null || path.lithoUnitId === null || path.lithoBodyId === null)
         return bodyLabel + geoSuffix
