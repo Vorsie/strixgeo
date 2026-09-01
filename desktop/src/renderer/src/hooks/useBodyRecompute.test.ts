@@ -160,6 +160,33 @@ describe('useBodyRecompute — debounce + cap + single-flight', () => {
     )
   })
 
+  it('a manual press with zero changes still toasts "no changes"', async () => {
+    // Owner ruling 2026-08-31: "yes always toast, when i click something, this
+    // is annoying." A manual toolbar press is a click and must confirm it ran,
+    // even when nothing moved — the click had no visible effect otherwise.
+    const opts = makeOpts()
+    // OK_RESULT carries zero merged / split / renamed — a genuine no-op recompute.
+    const { result } = renderHook(() => useBodyRecompute(opts))
+    await act(async () => {
+      await result.current.recomputeNow('m1')
+    })
+    expect(opts.toast).toHaveBeenCalledTimes(1)
+    expect(opts.toast).toHaveBeenCalledWith('success', 'Bodies recomputed: no changes')
+  })
+
+  it('a background recompute with zero changes stays silent', async () => {
+    // The debounced background path keeps the alarm-fatigue rule: a recompute
+    // that changed nothing raises no toast (only a click deserves confirmation).
+    const opts = makeOpts()
+    const { result } = renderHook(() => useBodyRecompute(opts))
+    act(() => result.current.scheduleRecompute('m1'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(recomputeBodies).toHaveBeenCalledTimes(1)
+    expect(opts.toast).not.toHaveBeenCalled()
+  })
+
   it('a null assembly never POSTs', async () => {
     const opts = makeOpts({ buildPayload: vi.fn().mockResolvedValue(null) })
     const { result } = renderHook(() => useBodyRecompute(opts))
