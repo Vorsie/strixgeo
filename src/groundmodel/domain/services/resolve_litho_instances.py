@@ -152,6 +152,52 @@ class LayerSeparation:
 
 
 @dataclass(frozen=True)
+class LayerUnion:
+    """One user "Join with…" ruling — a must-link constraint between two layers.
+
+    Owner ruling 2026-08-31 (debt #278): the "Join with…" verb is the POSITIVE
+    half of the body-identity rule, the counterpart to Separate. Where a
+    ``LayerSeparation`` FORBIDS its two anchors from sharing a body, a union
+    REQUIRES it — the engineer states *"this body IS the same as that body"* and
+    the resolver merges the two masses even when NO edge (tie or geometry fact)
+    connects them. It is the additive twin of the machine's edges, and only the
+    user writes one.
+
+    Precedence and guards (the resolver applies these, never this dataclass):
+
+    * **Cannot-link wins.** A union whose two anchors are also under a standing
+      ``LayerSeparation`` is SUPPRESSED — the separation holds, the union does
+      nothing, and it is reported so the caller can WARN. (The constrained
+      union-find already skips any union that would complete a separation; the
+      suppression is detected post-hoc.)
+    * **Never a mixed body.** A union across two soils, or two known-and-differing
+      packing classes, is INERT — it fails the same ``same_mass`` predicate an
+      edge does — and is reported so the caller can WARN "classes re-derived
+      apart".
+    * **Dangling anchor.** A union whose anchor is absent from this run's layers
+      is inert and dropped SILENTLY, mirroring a dangling separation (the
+      re-anchor pass restores it after a rebuild).
+    * **User beats machine.** Surviving unions are processed BEFORE the machine
+      edges, so a machine edge can never complete a separation by riding a union.
+
+    The constraint is expressed in LAYER-id space, never body-id space — body ids
+    re-mint on every resolve, so a body-anchored must-link would bind the wrong
+    mass after the next renumbering. Anchoring on the layer rows survives that.
+
+    Attributes
+    ----------
+    layer_a_id : UUID
+        One anchor (litho_layer id). Order is irrelevant to the constraint — the
+        two anchors simply must share a body.
+    layer_b_id : UUID
+        The other anchor (litho_layer id).
+    """
+
+    layer_a_id: UUID
+    layer_b_id: UUID
+
+
+@dataclass(frozen=True)
 class InstanceAssignment:
     """One resolved instance (connected component of layers).
 
@@ -192,11 +238,24 @@ class ResolveResult:
         layer_id -> its instance's representative formation_id (the body's
         formation; may differ from the layer's own formation_id when a
         component spans admixtures).
+    inert_unions : tuple[LayerUnion, ...]
+        User "Join with…" unions that could NOT take effect because they would
+        make a mixed body — a cross-soil pair, or two known-and-differing packing
+        classes (they failed ``same_mass``). Reported, not silent, so the use
+        case can WARN "classes re-derived apart — join inert". A DANGLING union
+        (anchor absent this run) is dropped silently and does NOT appear here.
+    suppressed_unions : tuple[LayerUnion, ...]
+        User unions that filter-survived (both anchors present, same mass) yet
+        whose anchors ended in DIFFERENT components — a standing separation
+        overruled them (cannot-link wins). Reported so the use case can WARN the
+        engineer their join was blocked by their own separation.
     """
 
     instances: list[InstanceAssignment]
     layer_to_ordinal: dict[UUID, int]
     layer_to_formation: dict[UUID, UUID]
+    inert_unions: tuple[LayerUnion, ...] = ()
+    suppressed_unions: tuple[LayerUnion, ...] = ()
 
 
 def _bfs_reachable(seed: UUID, adjacency: dict[UUID, set[UUID]]) -> list[UUID]:
@@ -318,10 +377,66 @@ def _constrained_components(
     return list(groups.values())
 
 
+def same_mass(a: LayerNode, b: LayerNode) -> bool:
+    """Whether two layers describe ONE mass — the shared merge predicate.
+
+    A body is a single lithology, and a geotechnical body is a single lithology
+    AND a single packing density. Both a machine edge and a user "Join with…"
+    union may only merge two layers this returns ``True`` for; the edge loop
+    drops a tie that fails it, and a union that fails it is inert (never a mixed
+    body). Extracted so edges and unions apply the identical rule (owner
+    2026-06-03 one-lithology invariant + 2026-08-19 / 2026-08-21 one-packing
+    invariant).
+
+    Rules, in order:
+
+    * **Soil.** Different ``litho_main_soil_code`` → not one mass (a
+      mis-correlation, or auto-correlate crossing a facies change — the clay-in-a-
+      silt-body dogfeed of 2026-06-03). Admixture variants of the SAME soil merge,
+      because the comparison keys on the base soil, not the formation row.
+    * **Packing (geotech only).** Where BOTH ends carry a packing class:
+      - both NAD classes known → they must be equal (the CLASS is the mass
+        identity, owner 2026-08-21: *"yes one mass one body"* — one class lives
+        under several row ids across geological parents, so comparing rows would
+        split a body tied across a geological boundary);
+      - otherwise (a skeleton band with no class) → the packing formation ROW
+        must be equal (two unknowns are not known to be the same density).
+      A litho layer carries no packing class, so this branch is inert there and
+      the soil rule stands alone.
+
+    Parameters
+    ----------
+    a, b : LayerNode
+        The two candidate layers.
+
+    Returns
+    -------
+    bool
+        ``True`` when the two layers may share a body, ``False`` otherwise.
+    """
+    if a.litho_main_soil_code != b.litho_main_soil_code:
+        return False
+    if a.packing_formation_id is not None and b.packing_formation_id is not None:
+        if a.packing_nad_class is not None and b.packing_nad_class is not None:
+            if a.packing_nad_class != b.packing_nad_class:
+                return False
+        elif a.packing_formation_id != b.packing_formation_id:
+            return False
+    return True
+
+
+# Back-compat alias — the predicate was private until it became a cross-layer
+# contract the body-union write guard consumes (the router builds two LayerNodes
+# and calls it), so the public name is ``same_mass``. Kept for any importer of
+# the old private name.
+_same_mass = same_mass
+
+
 def resolve_litho_instances(
     layers: list[LayerNode],
     edges: list[LayerEdge],
     separations: Sequence[LayerSeparation] = (),
+    unions: Sequence[LayerUnion] = (),
 ) -> ResolveResult:
     """Resolve instances (connected components) and assign group ordinals.
 
@@ -340,11 +455,29 @@ def resolve_litho_instances(
         the dangling-edge guard). Default empty: the litho/geotech resolve is
         byte-identical to plain connectivity when the engineer has separated
         nothing.
+    unions : Sequence[LayerUnion], optional
+        User "Join with…" rulings — must-link constraints (debt #278). Each
+        REQUIRES its two anchors to share a body even when no edge connects them.
+        A union rides the same guards as an edge:
+
+        * a dangling anchor (absent this run) drops it silently, like a dangling
+          separation;
+        * a union that would make a mixed body (fails ``same_mass``) is INERT
+          and reported in ``inert_unions``;
+        * a surviving union whose anchors a standing separation keeps apart is
+          reported in ``suppressed_unions`` (cannot-link wins).
+
+        Surviving unions are sorted canonically and PREPENDED to the sorted
+        edges, so the user's ruling is applied before the machine's edges — a
+        machine edge can never complete a separation by riding a union. Default
+        empty: the resolve is byte-identical when the engineer has joined
+        nothing.
 
     Returns
     -------
     ResolveResult
-        Instances + the layer->ordinal / layer->formation lookups.
+        Instances + the layer->ordinal / layer->formation lookups, plus the
+        inert / suppressed unions the caller warns about.
 
     Notes
     -----
@@ -359,51 +492,44 @@ def resolve_litho_instances(
         b = node_map.get(e.layer_b_id)
         if a is None or b is None:
             continue  # dangling-edge guard (endpoint not in this model)
-        # One-lithology invariant: a body is a single lithology. Drop an edge
-        # that joins two DIFFERENT lithologies — a mis-correlation, or auto-
-        # correlate crossing a facies change — so the two never merge into one
-        # mixed body (dogfeed 2026-06-03: a clay layer grouped into a silt body
-        # was painted green). Admixture variants of the SAME soil still merge,
-        # because the comparison keys on ``litho_main_soil_code``, not formation.
-        if a.litho_main_soil_code != b.litho_main_soil_code:
+        # A body is a single mass — one lithology, and one packing density on a
+        # geotech model. ``same_mass`` is the shared predicate a union applies
+        # too (owner 2026-06-03 one-lithology + 2026-08-19/-21 one-packing). A2
+        # (2026-06-04): the geological parent no longer filters edges, so a
+        # same-lithology body MAY span a geological boundary.
+        if not same_mass(a, b):
             continue
-        # SAME LITHO **AND PACKING** for a geotechnical model (owner, 2026-08-19).
-        # A band carries its packing class; a litho layer carries none, so this
-        # is inert on the litho model and the soil filter above stands alone
-        # there. Where both ends carry one and they differ, the tie states a
-        # CONTACT between two masses, not one mass — the same reading the fill
-        # uses when it emits an onlap instead of nothing.
-        #
-        # "Packing" is the CLASS, never the formation ROW (owner 2026-08-21:
-        # *"yes one mass one body"*): the model keeps one packing formation row
-        # per (class, litho parent, GEOLOGICAL parent), so the same NAD class
-        # exists under several row ids and comparing rows silently split every
-        # body tied across a geological boundary — the exact case the A2 note
-        # below says MUST stay one body. Where either end's class is unknown
-        # (a skeleton band), the row comparison stands: two unknowns are not
-        # known to be the same density.
-        if a.packing_formation_id is not None and b.packing_formation_id is not None:
-            if a.packing_nad_class is not None and b.packing_nad_class is not None:
-                if a.packing_nad_class != b.packing_nad_class:
-                    continue
-            elif a.packing_formation_id != b.packing_formation_id:
-                continue
-        # A2 (owner directive 2026-06-04): the one-geological-formation invariant
-        # is REVERSED. A same-lithology body MAY span a geological boundary — a
-        # continuous sand correlated across the Holocene/Pleistocene line is ONE
-        # body. The geological name is a derived, majority-overlap label on the
-        # body (computed by the use-case / API), not an identity constraint, so
-        # the parent_formation_id no longer drops edges. Lithology is the only
-        # surviving filter. The Boom-Klei-on-clay case stays two bodies because
-        # the engineer does not correlate across that contact (merging is
-        # edge-driven, never lithology-alone).
         surviving_edges.append((e.layer_a_id, e.layer_b_id))
 
+    # User "Join with…" unions (debt #278) — must-link constraints that merge two
+    # anchors even with no edge between them. Same dangling guard as an edge, and
+    # the SAME ``same_mass`` predicate: a union that would make a mixed body is
+    # INERT and reported (never a mixed body), a dangling union drops silently.
+    surviving_unions: list[tuple[UUID, UUID]] = []
+    survivors_to_check: list[LayerUnion] = []
+    inert_unions: list[LayerUnion] = []
+    for u in unions:
+        a = node_map.get(u.layer_a_id)
+        b = node_map.get(u.layer_b_id)
+        if a is None or b is None:
+            continue  # dangling-anchor guard — silent, mirroring separations
+        if not same_mass(a, b):
+            inert_unions.append(u)  # would make a mixed body — reported, not applied
+            continue
+        surviving_unions.append((u.layer_a_id, u.layer_b_id))
+        survivors_to_check.append(u)
+
+    def _canonical(uv: tuple[UUID, UUID]) -> tuple[str, str]:
+        return (min(str(uv[0]), str(uv[1])), max(str(uv[0]), str(uv[1])))
+
     # Determinism: with the cannot-link constraints below, the partition depends
-    # on the order edges are unioned. Sorting the surviving edges canonically
-    # (by their two endpoints as strings) fixes that order, so the resolved
-    # bodies are the same whatever order the edges arrived from the DB.
-    surviving_edges.sort(key=lambda uv: (min(str(uv[0]), str(uv[1])), max(str(uv[0]), str(uv[1]))))
+    # on the order pairs are unioned. Sort edges AND unions canonically, then
+    # PREPEND the unions — the user's ruling is applied before the machine's
+    # edges, so a machine edge can never complete a separation by riding a union
+    # (R-JOIN-4: user beats machine). ``_constrained_components`` needs no change.
+    surviving_edges.sort(key=_canonical)
+    surviving_unions.sort(key=_canonical)
+    all_pairs = surviving_unions + surviving_edges
 
     # A separation whose anchor left the model this run is INERT — the
     # dangling-anchor mirror of the dangling-edge guard above. A deleted or
@@ -415,7 +541,19 @@ def resolve_litho_instances(
         if s.layer_a_id in node_ids and s.layer_b_id in node_ids
     ]
 
-    components = _constrained_components(node_ids, surviving_edges, live_separations)
+    components = _constrained_components(node_ids, all_pairs, live_separations)
+
+    # Suppressed unions (cannot-link wins): a filter-surviving union whose two
+    # anchors ended in DIFFERENT components was skipped by the constrained
+    # union-find because completing it would complete a separation. Detected
+    # post-hoc against the resolved partition, reported so the use case can WARN.
+    comp_of: dict[UUID, int] = {}
+    for idx, comp in enumerate(components):
+        for n in comp:
+            comp_of[n] = idx
+    suppressed_unions: list[LayerUnion] = [
+        u for u in survivors_to_check if comp_of.get(u.layer_a_id) != comp_of.get(u.layer_b_id)
+    ]
 
     # Sort key for the shallowest member of a component: by depth, then layer
     # UUID for determinism.
@@ -460,6 +598,8 @@ def resolve_litho_instances(
         instances=instances,
         layer_to_ordinal=layer_to_ordinal,
         layer_to_formation=layer_to_formation,
+        inert_unions=tuple(inert_unions),
+        suppressed_unions=tuple(suppressed_unions),
     )
 
 
