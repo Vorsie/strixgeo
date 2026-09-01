@@ -262,10 +262,11 @@ async def _make_project_with_every_collection(db_session: AsyncSession) -> Proje
     # resolver: Save-As (``ProjectRepository.duplicate``) serialises rows and
     # bulk-inserts them, and the ``a<b`` CHECK is all that gates a pair row here —
     # nothing re-derives body identity, so the contradiction is never evaluated.
-    # Where the resolver DOES run — a restore/reconcile, or the create endpoint —
-    # cannot-link wins: the separation stands and the join is suppressed (see the
-    # API test's UNI7 restore-time contradiction). This is not Save-As skipping a
-    # check the product needs; it is Save-As having no body-identity check TO run.
+    # Separations are now DORMANT (owner 2026-09-01 removed the Separate/Rejoin
+    # verbs): the resolver ignores them, so a body_union always merges and a
+    # body_separation row has no effect. The row is kept here only to prove Save-As
+    # copies the (now-inert) row; the subsystem is a candidate for a later
+    # full-removal slice.
     db_session.add(
         BodySeparationOrm(
             id=uuid7(),
