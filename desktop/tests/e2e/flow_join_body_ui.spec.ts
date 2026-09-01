@@ -100,6 +100,34 @@ async function openGeotechSection(page: Page): Promise<void> {
   const axisGeotech = page.getByTestId('axis-geotech')
   await expect(axisGeotech).toBeEnabled({ timeout: 10_000 })
   await axisGeotech.click()
+  await enableGeotechFill(page)
+}
+
+/**
+ * Turn the geotech "Show fill" toggle ON so ``PartitionFillOverlay`` renders the
+ * NAD partition as ``partition-region-*`` — the geotech-axis peer of the litho
+ * ``enableFillBands``. ``geotechFillStore`` defaults OFF (owner 2026-08-15: the
+ * fill is an explicit press, never auto-on) and resets on reload, so without this
+ * the geotech axis paints no body regions and the pair-finder has nothing to find.
+ * The toggle lives in the Display dropdown (``geotech-display-menu`` ->
+ * ``geotech-toggle-fill``); its label reads "Show fill" when OFF, "Hide fill" ON.
+ */
+async function enableGeotechFill(page: Page): Promise<void> {
+  const displayMenu = page.getByTestId('geotech-display-menu')
+  await expect(displayMenu).toBeEnabled({ timeout: 30_000 })
+  const toggleFill = page.getByTestId('geotech-toggle-fill')
+  await expect(async () => {
+    await displayMenu.click()
+    await expect(toggleFill).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+  const currentLabel = await toggleFill.textContent().catch(() => '')
+  if (currentLabel?.includes('Show fill')) {
+    await toggleFill.click()
+  } else {
+    // Already ON — close by re-clicking the trigger, never Escape (SectionPanel's
+    // document Escape handler would deselect the section).
+    await displayMenu.click()
+  }
 }
 
 /** The body-region hit paths, as ``{ testid, fill }`` — filters strokes + fallback paint. */
