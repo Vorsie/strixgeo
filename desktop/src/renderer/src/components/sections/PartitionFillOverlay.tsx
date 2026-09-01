@@ -69,6 +69,7 @@ import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 import { resolveRegionBodyId } from './regionBodyId'
+import { resolveSeparatePick, type SeparatePick } from './separatePick'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActive,
@@ -280,8 +281,38 @@ export interface Props {
   openExtentLengthM?: number
   /** Bodies on the model — used to resolve a right-clicked pinch to its body. */
   bodies?: readonly BodyListItem[]
-  /** Right-click a pinch (lens) → open the body context menu (Dissolve / Name). */
-  onBodyContextMenu?: (body: BodyListItem, svgX: number, svgY: number) => void
+  /**
+   * Right-click a pinch (lens) → open the body context menu (Dissolve / Name /
+   * Separate). ``regionLayerIds`` are the clicked region's own layers, so
+   * SectionPanel can derive the Separate arm's anchor (debt #278 R5) without
+   * owning a body-resolution map.
+   */
+  onBodyContextMenu?: (
+    body: BodyListItem,
+    svgX: number,
+    svgY: number,
+    regionLayerIds?: readonly string[],
+  ) => void
+  /**
+   * The active Separate arm (debt #278 R5), or null. When set, the fill regions
+   * become LEFT-clickable: a click resolves the clicked region's body through
+   * its layers and fires {@link onSeparatePick}. Byte-identical when null.
+   */
+  separateArm?: { bodyId: string; anchorLayerId: string } | null
+  /**
+   * Fired on an armed region left-click with the classified outcome — a distinct
+   * body ``commit``, or ``same`` / ``unresolvable`` (both keep the arm live).
+   * SectionPanel owns the toast + the commit call.
+   */
+  onSeparatePick?: (pick: SeparatePick) => void
+  /**
+   * Whether the body list has landed (#279 item-1). The body-menu right-click —
+   * which ARMS Separate — is withheld until it has, so a right-click during the
+   * post-recompute in-flight window falls through to the deliberate stats menu
+   * instead of racing an empty body roster. Defaults to ``true`` (unchanged for
+   * every existing caller / fixture).
+   */
+  bodiesLoaded?: boolean
   /**
    * When correlate mode is active, ALL of this overlay's interactive elements
    * (body context menu, boundary add-strips + drag handles) drop to
@@ -488,6 +519,9 @@ export default function PartitionFillOverlay({
   openExtentLengthM,
   bodies,
   onBodyContextMenu,
+  separateArm,
+  onSeparatePick,
+  bodiesLoaded = true,
   correlateMode = false,
   selectedBodyId,
   lithoFrame,
@@ -3282,7 +3316,22 @@ export default function PartitionFillOverlay({
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
         const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
-        const interactive = Boolean(onBodyContextMenu && body) && !viewOnly
+        // #279 item-1: the body menu waits for the body list to land — before
+        // that the stats menu (statsInteractive below) is the deliberate answer.
+        const interactive = Boolean(onBodyContextMenu && body) && !viewOnly && bodiesLoaded
+        // Debt #278 R5: while a Separate is armed, EVERY region is left-clickable
+        // so the engineer can pick the other body — the resolution through the
+        // region's own layers decides commit / same / unresolvable.
+        //
+        // Gated on ``!correlateMode``: correlate mode owns the canvas and drops
+        // every other interactive surface to ``pointer-events:none`` (see
+        // ``interactivePtr``), so an armed Separate must yield too — otherwise its
+        // left-click would steal the correlate gesture and POST a separation the
+        // engineer never asked for. (``viewOnly`` needs no gate here: the arm is
+        // litho-only by wiring — ``onSeparatePick`` is passed only on the litho
+        // axis — so ``separateArm`` is null on the view-only geotech axis anyway.)
+        const separateArmActive =
+          separateArm != null && onSeparatePick !== undefined && !correlateMode
         // R2 / S7b (2026-08-27): a fill region answers right-click with
         // "Unit statistics…" for its unit — on the geotech axis for every
         // region (the axis stays view-only for every edit; this navigates),
@@ -3323,9 +3372,29 @@ export default function PartitionFillOverlay({
               fill={color}
               fillOpacity={0}
               style={
-                interactive || statsInteractive
-                  ? { pointerEvents: interactivePtr, cursor: 'context-menu' }
-                  : { pointerEvents: 'none' }
+                separateArmActive
+                  ? // ``interactivePtr`` (not a literal 'auto') so the region still
+                    // yields to correlate mode; ``separateArmActive`` is already
+                    // false under correlateMode, this is defence in depth.
+                    { pointerEvents: interactivePtr, cursor: 'crosshair' }
+                  : interactive || statsInteractive
+                    ? { pointerEvents: interactivePtr, cursor: 'context-menu' }
+                    : { pointerEvents: 'none' }
+              }
+              // Armed Separate wins the left-click: resolve the clicked region's
+              // body through its layers and report the outcome up. SectionPanel
+              // owns the toast (same / unresolvable) and the commit.
+              onClick={
+                separateArmActive
+                  ? (e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (separateArm == null) return
+                      onSeparatePick?.(
+                        resolveSeparatePick(separateArm, sr.region.layerIds, bodyIdByLayerId),
+                      )
+                    }
+                  : undefined
               }
               onContextMenu={
                 interactive
@@ -3337,6 +3406,7 @@ export default function PartitionFillOverlay({
                         body as BodyListItem,
                         e.clientX - (rect?.left ?? 0),
                         e.clientY - (rect?.top ?? 0),
+                        sr.region.layerIds,
                       )
                     }
                   : statsInteractive
