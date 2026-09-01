@@ -222,36 +222,34 @@ def test_skeleton_bands_join_only_within_one_packing_row() -> None:
     assert not merged.inert_unions
 
 
-def test_a_union_contradicting_a_separation_is_suppressed() -> None:
-    """U7 — cannot-link wins: a union of a separated pair is suppressed.
+def test_a_union_of_a_separated_pair_still_merges_now_separations_are_dormant() -> None:
+    """U7 — a leftover separation NO LONGER suppresses a union of the same pair.
 
-    The engineer separated A and B ("these are NOT the same body"), then a union
-    (arriving via a restore/clone, say) names the same pair. Precedence is
-    absolute: the separation holds, the union does NOTHING, and it is reported in
-    ``suppressed_unions`` so the use case can WARN — never a silent override of
-    the standing separation.
+    Owner 2026-09-01: the Separate verb was removed and ``body_separation`` is
+    dormant, so a leftover separation row must never refuse the owner's Join. A
+    union of a pair that a standing (dormant) separation names now MERGES them
+    into one body and is NOT reported as suppressed — the hard blocker this slice
+    removes, stated in the resolver's own terms. (Before the removal this pair
+    resolved to two bodies and the union was suppressed.)
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
     seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     unions = [LayerUnion(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     result = resolve_litho_instances(layers=[a, b], edges=[], separations=seps, unions=unions)
-    assert len(result.instances) == 2, "the separation must win over the union"
-    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
-    assert len(result.suppressed_unions) == 1
-    assert {result.suppressed_unions[0].layer_a_id, result.suppressed_unions[0].layer_b_id} == {
-        a.layer_id,
-        b.layer_id,
-    }
+    assert len(result.instances) == 1, "the dormant separation must not block the union"
+    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
+    assert result.layer_to_ordinal[a.layer_id] == result.layer_to_ordinal[b.layer_id]
+    assert not result.suppressed_unions, "a dormant separation can never suppress a union"
     assert not result.inert_unions
 
 
 def test_a_disjoint_union_and_separation_coexist() -> None:
-    """U8 — a union on one pair and a separation on another are both honoured.
+    """U8 — a union on one pair merges; an unrelated (dormant) separation is inert.
 
-    Separating A from B does not touch a union of an unrelated pair C-D: C and D
-    merge into one body while A and B stay apart. Neither constraint reaches the
-    other's roots.
+    C and D merge into one body via their union, while A and B stay apart —
+    because nothing joins them (no edge), the dormant separation on A-B changing
+    nothing. Neither constraint reaches the other's roots.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
@@ -288,18 +286,13 @@ def test_a_union_of_already_connected_anchors_is_a_no_op() -> None:
     assert not result.suppressed_unions
 
 
-def test_a_machine_edge_cannot_complete_a_separation_through_a_union() -> None:
-    """U10 — the user union is applied first, so a machine edge never rides it.
+def test_a_dormant_separation_lets_a_union_and_edge_join_the_whole_chain() -> None:
+    """U10 — with the separation dormant, union A-X and edge X-B make one body.
 
-    Separation A≠B. The user joins A and X (a union), and a MACHINE edge connects
-    X and B. Because the user's union is processed before the machine edge, A-X
-    merges first and it is the machine edge X-B that gets cut to honour the
-    separation — never the user's union. B is walled off; A and X are one body.
-
-    Were the machine edge processed first, it would union X into B's incidence
-    and the LATER union A-X would be the edge dropped — the user's ruling
-    silently overruled by housekeeping. Prepending the unions guarantees the
-    opposite.
+    A leftover separation A≠B no longer cuts anything. The user union joins A-X
+    and a MACHINE edge joins X-B, so all three land in ONE body — the separation
+    that used to wall B off is inert. (Before the verb was removed this pair
+    resolved to {A,X} and {B}.)
     """
     a = _layer(L_A, 3.0, INV_A)
     x = _layer(L_X, 3.1, INV_X)
@@ -308,10 +301,7 @@ def test_a_machine_edge_cannot_complete_a_separation_through_a_union() -> None:
     unions = [LayerUnion(layer_a_id=a.layer_id, layer_b_id=x.layer_id)]
     edges = [LayerEdge(layer_a_id=x.layer_id, layer_b_id=b.layer_id)]
     result = resolve_litho_instances(layers=[a, x, b], edges=edges, separations=seps, unions=unions)
-    assert _partition(result) == {
-        frozenset({a.layer_id, x.layer_id}),
-        frozenset({b.layer_id}),
-    }
+    assert _partition(result) == {frozenset({a.layer_id, x.layer_id, b.layer_id})}
     # The user's union took effect (A and X together); it is not suppressed.
     assert not result.suppressed_unions
     assert not result.inert_unions
