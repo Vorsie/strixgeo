@@ -197,6 +197,40 @@ describe('parseProjectFile — happy path', () => {
     expect(parsed?.body_separations).toEqual(seps)
   })
 
+  it('body unions survive the bundle → file → parse round-trip', () => {
+    // Debt #278 (the "Join with…" verb, owner ruling 2026-08-31): the must-link
+    // "these two ARE the same body" unions are EVIDENCE, exactly like the geometry
+    // facts + separations above — a save/open loop that drops them re-splits every
+    // body the engineer joined, silently, on the next resolve. The desktop writer
+    // is a whitelist, so the key has to be named at every surface or it is lost.
+    // Asserted against the BUNDLE's value, not the writer's own output.
+    const unions = [
+      { id: 'union-a', model_id: 'gm-1', layer_a_id: 'layer-1', layer_b_id: 'layer-2' },
+      { id: 'union-b', model_id: 'gm-1', layer_a_id: 'layer-3', layer_b_id: 'layer-4' },
+    ]
+    const bundle = {
+      project: { id: 'proj-uuid-unions', name: 'Unions survive' },
+      cpts: [],
+      boreholes: [],
+      geological_formations: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+      litho_contact_correlation_edges: [],
+      bodies: [],
+      formation_absences: [],
+      body_boundary_shapes: [],
+      body_boundary_nodes: [],
+      body_geometry_facts: [],
+      body_unions: unions,
+    } as unknown as ProjectBundleResponse
+
+    const built = buildProjectFile(bundle, null)
+    expect(built.body_unions).toEqual(unions)
+    const parsed = parseProjectFile(serialiseProjectFile(built))
+    expect(parsed?.body_unions).toEqual(unions)
+  })
+
   it('round-trips through serialise → parse without losing a field', () => {
     // What buildProjectFile writes must be exactly what parseProjectFile
     // reads back — the save/open loop the user's anchor depends on.
@@ -371,6 +405,10 @@ describe('parseProjectFile — additive keys tolerate absence, reject wrong type
     // Additive — a file written before the verb shipped simply has none, and
     // must open with the split forgotten rather than be rejected.
     'body_separations',
+    // Body unions (debt #278): "these two ARE the same body" (the Join verb).
+    // Additive — a file written before the verb shipped simply has none, and
+    // must open with the join forgotten rather than be rejected.
+    'body_unions',
   ] as const
 
   it('backfills each absent additive array to [] so downstream array consumers never see undefined', () => {
