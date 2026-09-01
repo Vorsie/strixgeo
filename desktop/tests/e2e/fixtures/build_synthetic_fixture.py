@@ -11,7 +11,9 @@ The fixture provides:
   bodies with CPT-5 — the shape the borehole packing preview needs
 * 1 geological model with 3 formations + depth contacts at each CPT
 * 1 lithostratigraphic model (empty — the spec flows call suggest/accept)
-* 3 cross-sections; A (empty, build specs), B (body), C (crossing)
+* 6 cross-sections; A (empty, build specs), B (body), C (crossing),
+  D (per-instance), E (facies competition), F (two disjoint same-class
+  KLEI bodies for the Join verb)
 * 1 GEOTECHNICAL model (kind='geotechnical', parent = the litho model)
   seeded through the REAL pipeline verbs — ``subdivide-all-bodies``
   (packing bands + proposed ties) followed by the model-wide accept verb
@@ -126,6 +128,16 @@ _CPT_OFFSETS: list[tuple[float, float]] = [
     (0.0, 1200.0),
     (150.0, 1260.0),
     (300.0, 1200.0),
+    # Section F — the same-class Join target (CPTs 14, 15, 16 at y+1500). Two
+    # geometrically DISJOINT KLEI bodies (shallow + deep) both classified to ONE
+    # NAD class, so ``flow_join_body_ui`` has two same-colour regions of DIFFERENT
+    # bodies to join. Unlike the per-instance CPTs (8/9/10) these carry a qc series
+    # (uniform clay, see ``_make_uniform_clay_series``) so ``subdivide-all-bodies``
+    # classifies both bodies — Section D stays deliberately series-less. 300 m from
+    # Section E (buffer 200 m), so nothing cross-projects.
+    (0.0, 1500.0),
+    (150.0, 1500.0),
+    (300.0, 1500.0),
 ]
 
 # Realistic CPT qc profile: stiff sand below silt below soft clay.
@@ -173,6 +185,25 @@ _PER_INSTANCE_CPT_INDICES = {8, 9, 10}
 # layers for a series-less CPT, so every all-CPT seeder skips them and the
 # pre-seeded facies scenario stays pristine.
 _FACIES_CPT_INDICES = {11, 12, 13}
+
+# The same-class-pair CPTs (Section F) carry a UNIFORM CLAY qc series, NOT the
+# three-layer profile: two geometrically disjoint KLEI bodies (shallow @2/3 m,
+# deep @7/8 m) are action-seeded across CPTs 14/15/16, and ``subdivide-all-bodies``
+# reads this series to classify BOTH bodies. A uniform qc means both depth ranges
+# land in the SAME NAD class — the join spec (flow_join_body_ui) needs two
+# same-colour regions of DIFFERENT bodies, and same-class is same-colour. The qc
+# value is chosen from the KLEI-clean band of ``NAD_QC_BANDS``
+# (``nad_classification_constants.py``): ``[(1.0, 21), (2.0, 22), (4.0, 23),
+# (None, 24)]`` — 1.0 <= qc < 2.0 is class 22 (KLEI, matig vast). ``_CLAY_QC_MPA``
+# = 1.5 sits mid-band, safely clear of both 1.0 and 2.0 boundaries, so every band
+# of both bodies classifies to 22 by construction. Because the series is uniform
+# (no qc contrast), ``suggest-litho`` cannot manufacture a competing ZAND/silt
+# layer, so even under an all-CPT suggest+accept run every body formed here stays
+# KLEI class 22 — there are always >= 2 same-class disjoint bodies to join.
+_SAME_CLASS_PAIR_CPT_INDICES = {14, 15, 16}
+
+# Uniform-clay qc for the Section F CPTs — mid-band of KLEI class 22 (see above).
+_CLAY_QC_MPA = 1.5
 
 # CPTs that carry NO qc series (dedicated pre-seeded scenarios — see above).
 _SERIESLESS_CPT_INDICES = _CROSSING_CPT_INDICES | _PER_INSTANCE_CPT_INDICES | _FACIES_CPT_INDICES
@@ -319,6 +350,40 @@ def _empty_series() -> dict[str, Any]:
     }
 
 
+def _make_uniform_clay_series() -> dict[str, Any]:
+    """Return a 200-row CPTU series of UNIFORM clay-firm qc (Section F).
+
+    Every row carries ``_CLAY_QC_MPA`` (1.5 MPa), which sits mid-band of the
+    KLEI-clean NAD class 22 (``NAD_QC_BANDS``, see ``_SAME_CLASS_PAIR_CPT_INDICES``).
+    Because the value is the same at every depth, the two KLEI bodies seeded on
+    Section F (shallow ~2-3 m, deep ~7-8 m) BOTH classify to class 22 when
+    ``subdivide-all-bodies`` reads their median qc — the two same-colour regions
+    ``flow_join_body_ui`` joins. The series has full valid-qc coverage, so no band
+    ever trips the "needs review" thin-coverage guard.
+
+    Returns
+    -------
+    dict[str, Any]
+        The series dict matching CptSeriesOrm column names (without cpt_id).
+    """
+    depths = [round((i + 1) * _DEPTH_STEP, 4) for i in range(_N_ROWS)]
+    qc = [_CLAY_QC_MPA] * _N_ROWS
+    # fs from a clay-typical friction ratio (~5 %), matching the soft-clay branch
+    # of ``_make_series``; u2 hydrostatic below a 1 m water table.
+    fs = [round(max(0.010, _CLAY_QC_MPA * 0.05), 4)] * _N_ROWS
+    u2 = [round(max(0.0, (d - 1.0) * 0.01), 4) for d in depths]
+    rf = [round(f / max(q, 1e-6) * 100.0, 4) for q, f in zip(qc, fs)]
+    return {
+        "depths_m": depths,
+        "qc_mpa": qc,
+        "fs_mpa": fs,
+        "u2_mpa": u2,
+        "rf_pct": rf,
+        "rf_source": "computed",
+        "q_total_mpa": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Bundle builder
 # ---------------------------------------------------------------------------
@@ -363,9 +428,17 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
         x = _SITE_X + dx
         y = _SITE_Y + dy
         # Dedicated pre-seeded scenario CPTs carry no series (crossing +
-        # per-instance — see _SERIESLESS_CPT_INDICES).
+        # per-instance + facies — see _SERIESLESS_CPT_INDICES). Section F's CPTs
+        # carry a UNIFORM CLAY series so subdivide classifies its two disjoint
+        # KLEI bodies to one NAD class (_SAME_CLASS_PAIR_CPT_INDICES); every other
+        # column gets the realistic three-layer profile.
         is_seriesless = i in _SERIESLESS_CPT_INDICES
-        series = _empty_series() if is_seriesless else _make_series(i)
+        if is_seriesless:
+            series = _empty_series()
+        elif i in _SAME_CLASS_PAIR_CPT_INDICES:
+            series = _make_uniform_clay_series()
+        else:
+            series = _make_series(i)
         n_rows = 0 if is_seriesless else _N_ROWS
         # Every CPT is pushed the same depth. A series-less CPT has no ROWS, but it
         # was still pushed — the two are different facts, and conflating them wrote
@@ -651,6 +724,29 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
             "view_state": {},
             "seeded_formation_contact_ids": [],
         },
+        {
+            "id": _uid("section-f"),
+            "app_project_id": project_id,
+            "name": "Section F (E2E)",
+            "description": (
+                "Sixth transect — two disjoint same-class KLEI bodies (shallow +"
+                " deep) for the Join verb (flow_join_body_ui)"
+            ),
+            "start_x": _SITE_X - 100.0,
+            "start_y": _SITE_Y + 1500.0,
+            "end_x": _SITE_X + 400.0,
+            "end_y": _SITE_Y + 1500.0,
+            "epsg": _EPSG,
+            "projection_buffer_m": 200.0,
+            "vertical_exaggeration": 5.0,
+            "excluded_borehole_ids": [],
+            "excluded_cpt_ids": [],
+            "min_depth_m": None,
+            "max_depth_m": None,
+            "display_order": 5,
+            "view_state": {},
+            "seeded_formation_contact_ids": [],
+        },
     ]
 
     # --- Assemble bundle -------------------------------------------------------
@@ -803,10 +899,12 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
     sec_c = UUID(_uid("section-c"))
     sec_d = UUID(_uid("section-d"))
     sec_e = UUID(_uid("section-e"))
+    sec_f = UUID(_uid("section-f"))
     cpt3, cpt4, cpt5 = UUID(_uid("cpt-3")), UUID(_uid("cpt-4")), UUID(_uid("cpt-5"))
     cpt6, cpt7 = UUID(_uid("cpt-6")), UUID(_uid("cpt-7"))
     cpt8, cpt9, cpt10 = UUID(_uid("cpt-8")), UUID(_uid("cpt-9")), UUID(_uid("cpt-10"))
     cpt11, cpt12, cpt13 = UUID(_uid("cpt-11")), UUID(_uid("cpt-12")), UUID(_uid("cpt-13"))
+    cpt14, cpt15, cpt16 = UUID(_uid("cpt-14")), UUID(_uid("cpt-15")), UUID(_uid("cpt-16"))
     bh0 = UUID(_uid("borehole-0"))
 
     async with AsyncSessionFactory() as s:
@@ -1009,6 +1107,44 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         ]
         await s.flush()
 
+        # --- Same-class Join scenario (Section F) — two disjoint KLEI bodies ----
+        # The Join spec (flow_join_body_ui) needs TWO geometrically DISJOINT bodies
+        # of the SAME NAD class on one section (two same-colour regions of
+        # different bodies). This mirrors the per-instance topology (Section D):
+        # two KLEI levels (shallow + deep) correlated SAME-litho across CPTs
+        # 14/15/16, with NO shallow<->deep edge, so the resolver keeps them two
+        # distinct bodies. The difference from Section D: these CPTs carry a
+        # UNIFORM CLAY qc series (_make_uniform_clay_series), so subdivide-all-bodies
+        # classifies BOTH bodies to KLEI class 22 (qc 1.5 in NAD_QC_BANDS band
+        # [1.0, 2.0)) — same class, same fill colour, a legal Join. CPT-14 (source)
+        # carries the levels shallower than the neighbours so each body's
+        # source_investigation_id resolves to CPT-14.
+        jf_klei_shallow = form("KLEI join shallow (same-class)", "KLEI", 70, "#c2a0d8")
+        jf_klei_deep = form("KLEI join deep (same-class)", "KLEI", 72, "#c2a0d8")
+        await s.flush()
+        f_shallow_c = contact(jf_klei_shallow, cpt14, 2.0)
+        f_deep_c = contact(jf_klei_deep, cpt14, 7.0)
+        f_shallow_l = contact(jf_klei_shallow, cpt15, 3.0)
+        f_deep_l = contact(jf_klei_deep, cpt15, 8.0)
+        f_shallow_r = contact(jf_klei_shallow, cpt16, 3.0)
+        f_deep_r = contact(jf_klei_deep, cpt16, 8.0)
+        await s.flush()
+        # Same-litho correlation of each KLEI level across the three columns; no
+        # edge links the shallow level to the deep one, so they stay two bodies.
+        edge(f_shallow_c, f_shallow_l, section_id=sec_f)
+        edge(f_shallow_c, f_shallow_r, section_id=sec_f)
+        edge(f_deep_c, f_deep_l, section_id=sec_f)
+        edge(f_deep_c, f_deep_r, section_id=sec_f)
+        same_class_contact_ids = [
+            f_shallow_c.id,
+            f_deep_c.id,
+            f_shallow_l.id,
+            f_deep_l.id,
+            f_shallow_r.id,
+            f_deep_r.id,
+        ]
+        await s.flush()
+
         # Make the contacts visible on their sections (explicit-content invariant).
         sb = (
             await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_b))
@@ -1034,6 +1170,12 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         se.seeded_formation_contact_ids = list(
             set(se.seeded_formation_contact_ids or []) | set(facies_contact_ids)
         )
+        sf = (
+            await s.execute(select(CrossSectionOrm).where(CrossSectionOrm.id == sec_f))
+        ).scalar_one()
+        sf.seeded_formation_contact_ids = list(
+            set(sf.seeded_formation_contact_ids or []) | set(same_class_contact_ids)
+        )
         await s.commit()
 
         # Resolve instance ordinals + connected-component bodies. The partition
@@ -1044,8 +1186,8 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         print(
             "[fixture] action scenarios seeded — resolver bodies on Section B "
             "(KLEI across CPT-3/4/5 + BH-E2E-01) + Section D (per-instance QC1/QC2) + "
-            "Section E (KLEI with ZAND+VEEN facies competitors); "
-            "crossing on Section C",
+            "Section E (KLEI with ZAND+VEEN facies competitors) + Section F "
+            "(two disjoint same-class KLEI bodies for Join); crossing on Section C",
             file=sys.stderr,
         )
 
