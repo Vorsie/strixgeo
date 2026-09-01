@@ -301,4 +301,38 @@ describe('BodyContextMenu', () => {
     expect(screen.getByTestId(TESTIDS.joinBody)).toBeInTheDocument()
     expect(screen.getByTestId(`${TESTIDS.unjoinBody}-union-1`)).toBeInTheDocument()
   })
+
+  // D2 (owner 2026-09-01): hovering an "Ontkoppelen" item previews WHICH body it
+  // refers to. Two options can share a label, so the hover reports the whole option
+  // (its ``otherLayerId`` is the disambiguator) on enter, and null on leave.
+  it('BCM22 — hovering an Ontkoppelen item reports its option; leaving clears it', () => {
+    const onUnjoinHover = vi.fn()
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onDisjoinBody={vi.fn()}
+          unions={[
+            { unionId: 'union-1', label: 'SILT vrij vast', otherBodyId: 'body-Y', otherLayerId: 'lay-Y' },
+            { unionId: 'union-2', label: 'SILT vrij vast', otherBodyId: 'body-Z', otherLayerId: 'lay-Z' },
+          ]}
+          onUnjoinHover={onUnjoinHover}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    const first = screen.getByTestId(`${TESTIDS.unjoinBody}-union-1`)
+    fireEvent.mouseEnter(first)
+    // The two items are indistinguishable by label, so the reported option must
+    // carry the disambiguating other-anchor layer.
+    expect(onUnjoinHover).toHaveBeenLastCalledWith(
+      expect.objectContaining({ unionId: 'union-1', otherLayerId: 'lay-Y' }),
+    )
+    fireEvent.mouseLeave(first)
+    expect(onUnjoinHover).toHaveBeenLastCalledWith(null)
+  })
 })
