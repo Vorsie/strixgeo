@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from contextlib import ExitStack
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
@@ -42,6 +43,10 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionColumnInput,
     SectionPartitionInput,
+)
+from groundmodel.shared.constants.model_kind import (
+    MODEL_KIND_GEOTECHNICAL,
+    MODEL_KIND_LITHOSTRATIGRAPHIC,
 )
 
 _MODEL = "build_voxel_litho_model"
@@ -88,11 +93,17 @@ def _make_use_case() -> BuildVoxelLithoModel:
     ``session.get(GeologicalModelOrm, id)`` returns a model carrying a project id,
     which is all ``_read_honor_radius_m`` needs.  The parent-geological-model read
     is gone — the builder no longer looks the parent up at all.
+
+    ``kind`` is LITHOSTRATIGRAPHIC so the geotech parent-link heal at the top of
+    ``execute`` is correctly skipped — these tests pin the litho labeller wiring,
+    not the geotech heal (that has its own wiring tests below).
     """
     session = AsyncMock()
     session.commit = AsyncMock()
     session.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
-    session.get = AsyncMock(return_value=SimpleNamespace(app_project_id=uuid4()))
+    session.get = AsyncMock(
+        return_value=SimpleNamespace(app_project_id=uuid4(), kind=MODEL_KIND_LITHOSTRATIGRAPHIC)
+    )
     return BuildVoxelLithoModel(cast(Any, session))
 
 
@@ -994,3 +1005,97 @@ async def test_a_second_build_waits_instead_of_labelling_alongside_the_first() -
         )
 
     assert peak_in_flight == 1
+
+
+# ---------------------------------------------------------------------------
+# Geotech parent-link heal (owner 2026-09-01): the Build is the last whole-model
+# operation, so it re-derives a band's covering litho band + a body's litho
+# parent itself — recompute/subdivide run before the final edits, and the Build
+# deliberately does NOT run the resolver. Geotech-only.
+# ---------------------------------------------------------------------------
+
+
+def _heal_patches(repo: Any) -> Any:
+    """The standard heavy-collaborator patch set with ``repo`` as the repository."""
+    return (
+        patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
+        patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.build_domain_from_sections",
+            return_value=SimpleNamespace(
+                polygon=((0.0, 0.0), (10.0, 0.0), (5.0, 10.0)), uncovered_test_ids=()
+            ),
+        ),
+        patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
+        patch(f"{_PATH}.extract_body_solids", return_value=[]),
+        patch(f"{_PATH}.reconcile_sections", return_value=()),
+        patch.object(BuildVoxelLithoModel, "_load_existing", new=AsyncMock(return_value={})),
+        patch.object(BuildVoxelLithoModel, "_delete_orphans", new=AsyncMock(return_value=0)),
+        patch.object(
+            BuildVoxelLithoModel, "_packing_class_key", new=AsyncMock(return_value=lambda f: f)
+        ),
+    )
+
+
+def _healing_repo() -> Any:
+    """A repository mock whose picks are empty and whose heal methods are recorded."""
+    repo = AsyncMock()
+    repo.load_body_picks = AsyncMock(return_value=[])
+    repo.rederive_geotech_parent_litho_layers = AsyncMock(return_value=0)
+    repo.restamp_geotech_parent_litho_bodies = AsyncMock(return_value=0)
+    return repo
+
+
+def _use_case_for_kind(kind: str) -> BuildVoxelLithoModel:
+    """A use case whose ``session.get`` returns a model of ``kind``."""
+    session = AsyncMock()
+    session.commit = AsyncMock()
+    session.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+    session.get = AsyncMock(
+        return_value=SimpleNamespace(app_project_id=uuid4(), kind=kind, parent_model_id=uuid4())
+    )
+    return BuildVoxelLithoModel(cast(Any, session))
+
+
+@pytest.mark.asyncio
+async def test_a_geotech_build_heals_both_parent_links_before_the_mesh_build() -> None:
+    """A geotech Build re-derives the band covering-litho and body litho-parent links.
+
+    Owner ruling 2026-09-01: *"we need the litho parents after the model build"* —
+    subdivide/recompute stamp them earlier, before the final edits, and never
+    re-derive, so an edited model reads them stale/NULL. The Build is the last
+    whole-model operation and does NOT run the resolver, so it must heal BOTH
+    links itself: re-derive every accepted band's ``parent_litho_layer_id`` then
+    re-stamp every body's ``parent_litho_body_id`` from it.
+    """
+    model_id = uuid4()
+    repo = _healing_repo()
+    use_case = _use_case_for_kind(MODEL_KIND_GEOTECHNICAL)
+
+    with ExitStack() as stack:
+        for p in _heal_patches(repo):
+            stack.enter_context(p)
+        await use_case.execute(model_id, [_section()], grid_spacing_m=1.0, force=True)
+
+    repo.rederive_geotech_parent_litho_layers.assert_awaited_once_with(model_id)
+    repo.restamp_geotech_parent_litho_bodies.assert_awaited_once_with(model_id)
+
+
+@pytest.mark.asyncio
+async def test_a_litho_build_does_not_heal_the_geotech_parent_links() -> None:
+    """A litho Build must never touch the geotech parent links — the heal is geotech-only.
+
+    A litho model has no covering-band / litho-parent links to derive, so running
+    the heal there would be meaningless work (and, on the body side, would clobber
+    litho bodies). The kind gate at the top of ``execute`` keeps it out.
+    """
+    repo = _healing_repo()
+    use_case = _use_case_for_kind(MODEL_KIND_LITHOSTRATIGRAPHIC)
+
+    with ExitStack() as stack:
+        for p in _heal_patches(repo):
+            stack.enter_context(p)
+        await use_case.execute(uuid4(), [_section()], grid_spacing_m=1.0, force=True)
+
+    repo.rederive_geotech_parent_litho_layers.assert_not_awaited()
+    repo.restamp_geotech_parent_litho_bodies.assert_not_awaited()
