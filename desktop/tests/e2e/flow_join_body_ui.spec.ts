@@ -1,10 +1,11 @@
 /**
- * Flow — the "Join with…" verb + its Disjoin (debt #278, owner ruling 2026-08-31).
+ * Flow — the "Voeg samen met…" (Join) verb + its Ontkoppelen / un-join
+ * (debt #278; simplified to Join + Ontkoppelen only, owner ruling 2026-09-01).
  *
  * Drives the whole gesture on the GEOTECH axis (Join is geotech-only — the owner
  * would not use it on litho): right-click body A → "Join with…" (ARMS) → the hint
  * chip appears → left-click body B's region → success toast → the two bodies
- * become ONE after the debounced recompute → re-open the menu → "Disjoin …" is now
+ * become ONE after the debounced recompute → re-open the menu → "Un-join …" is now
  * offered → click it → the union is lifted and the bodies may split again.
  *
  * WHY SAME-SOIL SAME-CLASS, the OPPOSITE of the Separate spec's cross-soil choice:
@@ -201,7 +202,7 @@ test.describe('flow_join_body_ui', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run build_synthetic_fixture.py first',
   )
 
-  test('Join two same-class bodies, then Disjoin them', async () => {
+  test('Join two same-class bodies, then un-join them', async () => {
     test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
@@ -237,29 +238,29 @@ test.describe('flow_join_body_ui', () => {
       // The arm clears on commit.
       await expect(page.getByTestId('join-arm-hint')).toBeHidden({ timeout: 10_000 })
 
-      // The union is durable: a body's menu now offers to Disjoin. Retried because
+      // The union is durable: a body's menu now offers to Un-join. Retried because
       // the post-commit recompute re-shuffles the region ids (and merged the two
       // bodies into one — the ONE-body outcome).
       await expect(async () => {
         const regions = await bodyRegions(page)
         expect(regions.length, 'the section must still render body regions').toBeGreaterThan(0)
         await openBodyMenuOn(page, page.locator(`[data-testid="${regions[0].testid}"]`).first())
-        await expect(page.locator('[data-testid^="body-ctx-disjoin-body-"]').first()).toBeVisible({
+        await expect(page.locator('[data-testid^="body-ctx-unjoin-body-"]').first()).toBeVisible({
           timeout: 1_500,
         })
       }).toPass({ timeout: 60_000 })
 
-      // DISJOIN: lift the union, then confirm the Disjoin option is gone (the two
+      // UN-JOIN: lift the union, then confirm the Un-join option is gone (the two
       // bodies may split apart again).
-      await page.locator('[data-testid^="body-ctx-disjoin-body-"]').first().dispatchEvent('click')
-      await expect(page.getByText('Join lifted', { exact: false })).toBeVisible({
+      await page.locator('[data-testid^="body-ctx-unjoin-body-"]').first().dispatchEvent('click')
+      await expect(page.getByText('Un-joined', { exact: false })).toBeVisible({
         timeout: 5_000,
       })
       await expect(async () => {
         const regions = await bodyRegions(page)
         expect(regions.length).toBeGreaterThan(0)
         await openBodyMenuOn(page, page.locator(`[data-testid="${regions[0].testid}"]`).first())
-        await expect(page.locator('[data-testid^="body-ctx-disjoin-body-"]')).toHaveCount(0, {
+        await expect(page.locator('[data-testid^="body-ctx-unjoin-body-"]')).toHaveCount(0, {
           timeout: 1_500,
         })
       }).toPass({ timeout: 60_000 })
