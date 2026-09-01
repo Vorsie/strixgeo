@@ -22,7 +22,7 @@
  * ----------
  * A. Stage is reachable from the spine and does not crash.
  * B. ``GeotechnicalInspector`` mounts with the "Geotech units" heading — and
- *    shows either the empty-state prompt or NAD unit rows depending on whether
+ *    shows either the empty-state prompt or soil groups depending on whether
  *    a prior run has already subdivided.  The heading is the stable invariant;
  *    the empty/populated branch is run-order-dependent (the companion spec
  *    ``flow_geotech_subdivide_all_bodies`` creates units that survive into
@@ -70,8 +70,10 @@ test.describe('flow_geotechnical_stage_ui', () => {
       // is valid.  Confirm at least one is present so the inspector isn't just
       // a blank panel.
       const emptyState = page.getByText('No geotech units yet')
-      const unitRow = page.locator('[data-testid^="geotech-unit-row-"]').first()
-      await expect(emptyState.or(unitRow)).toBeVisible({ timeout: 10_000 })
+      // The roster is soil ▸ litho body ▸ packing body (owner ruling 2026-08-31);
+      // a populated pane shows at least one soil group header.
+      const soilGroup = page.locator('[data-testid^="geotech-soil-header-"]').first()
+      await expect(emptyState.or(soilGroup)).toBeVisible({ timeout: 10_000 })
 
       // C — The stage body renders (not a white screen): the workflow-stage
       // navigation is still mounted.  Which canvas branch shows (3-D viewer vs
