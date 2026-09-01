@@ -187,7 +187,7 @@ describe('useProject', () => {
 
   it('openProjectFile: reads file, fetches DB row, adopts result', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: {
@@ -210,7 +210,7 @@ describe('useProject', () => {
         cross_sections: [],
         investigation_reviews: [],
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       ...created,
       // The DB has the live name; the file's snapshot might be stale.
@@ -232,9 +232,9 @@ describe('useProject', () => {
   })
 
   it('openProjectFile: returns null when the file is unrecognisable', async () => {
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       'not json at all',
-    )
+    })
 
     const { result } = renderHook(() => useProject())
     let returned: unknown
@@ -267,9 +267,9 @@ describe('useProject', () => {
       cross_sections: [],
       investigation_reviews: [{ id: 'rv-1', target_kind: 'cpt', target_id: 'cpt-1' }],
     }
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify(ghostFile),
-    )
+    })
     // The real rejection: FastAPI answers a missing project with
     // ``detail: "Project not found"``, and the client's message is that
     // detail — the ``→ 404`` fallback never appears.
@@ -308,9 +308,9 @@ describe('useProject', () => {
   it('openProjectFile: returns null for pre-v3 files (legacy formats no longer accepted)', async () => {
     // Pre-shipping, we explicitly dropped v1/v2 readers — anyone
     // holding an old dev .gmproj has to re-save from a current build.
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({ format_version: 2, project: { id: 'x' }, cpts: [], boreholes: [] }),
-    )
+    })
 
     const { result } = renderHook(() => useProject())
     let returned: unknown
@@ -324,7 +324,7 @@ describe('useProject', () => {
 
   it('openProjectFile: returns null when restore itself fails (network down)', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-MISSING', name: 'Ghost', status: 'active', tags: [] },
@@ -335,7 +335,7 @@ describe('useProject', () => {
         cross_sections: [],
         investigation_reviews: [],
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
       new ApiError('Project not found', 404, { detail: 'Project not found' }),
     )
@@ -355,7 +355,7 @@ describe('useProject', () => {
 
   it('openProjectFile: returns null on non-404 GET failures, no restore attempted', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NET', name: 'Net Down', status: 'active', tags: [] },
@@ -366,7 +366,7 @@ describe('useProject', () => {
         cross_sections: [],
         investigation_reviews: [],
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('network unreachable'),
     )
@@ -515,7 +515,7 @@ describe('useProject', () => {
 
   it('openProjectFile seeds the manifest from the file bundle', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: {
@@ -531,7 +531,7 @@ describe('useProject', () => {
         cross_sections: [],
         investigation_reviews: [],
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
 
     const { result } = renderHook(() => useProject())
@@ -583,7 +583,7 @@ describe('useProject', () => {
 
   it('closeProject clears the manifest', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'A', status: 'active', tags: [] },
@@ -594,7 +594,7 @@ describe('useProject', () => {
         cross_sections: [],
         investigation_reviews: [],
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
 
     const { result } = renderHook(() => useProject())
@@ -617,7 +617,7 @@ describe('useProject', () => {
     // the manifest IDs — extras are not written even though the
     // API bundle returns them all.
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -628,7 +628,7 @@ describe('useProject', () => {
         cross_sections: [],
         investigation_reviews: [],
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue({
       format_version: 3,
@@ -682,7 +682,7 @@ describe('useProject', () => {
   // S5-a: stageLumping flips dirty and does NOT write to disk.
   it('S5-a: stageLumping flips dirty=true and does not write the file', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -694,7 +694,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: null,
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
@@ -729,7 +729,7 @@ describe('useProject', () => {
   // S5-b: File→Save persists the staged lumping and clears dirty.
   it('S5-b: saveProject writes stratigraphy_lumping and dirty becomes false', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -741,7 +741,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: null,
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
@@ -794,9 +794,9 @@ describe('useProject', () => {
       investigation_reviews: [],
       stratigraphy_lumping: null,
     })
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       fileWithNoLumping,
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
@@ -839,7 +839,7 @@ describe('useProject', () => {
   // which save path fires.
   it('S5-d: saveProject and saveAsProject both include staged lumping in the written file', async () => {
     const { api } = await import('../api/client')
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -851,7 +851,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: null,
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
@@ -890,7 +890,7 @@ describe('useProject', () => {
       map: { 'holoceen veen': 'Holoceen' },
     }
 
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -902,7 +902,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: existingLumping,
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
@@ -950,7 +950,7 @@ describe('useProject', () => {
 
     // Open a project whose file already has stratigraphy_lumping — this seeds
     // currentLumping so saveAsProject can carry it into the duplicate file.
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -962,7 +962,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: existingLumping,
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
 
     // The duplicate DB row returned by POST /projects/{id}/duplicate.
@@ -1019,7 +1019,7 @@ describe('useProject', () => {
     }
 
     // Open a project that has lumping in the file.
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-OLD', name: 'Old Project', status: 'active', tags: [] },
@@ -1031,7 +1031,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: priorLumping,
       }),
-    )
+    })
     const oldProject = { ...created, id: '01k-OLD', name: 'Old Project' }
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(oldProject)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(oldProject))
@@ -1070,7 +1070,7 @@ describe('useProject', () => {
   it('S5-f: saveAsProject leaves dirty=false when lumping was staged before Save As', async () => {
     const { api } = await import('../api/client')
     // Open a project with no lumping.
-    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, json:
       JSON.stringify({
         format_version: 3,
         project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
@@ -1082,7 +1082,7 @@ describe('useProject', () => {
         investigation_reviews: [],
         stratigraphy_lumping: null,
       }),
-    )
+    })
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
