@@ -561,6 +561,9 @@ export const SECTIONS_NL = {
   'sections.menu.openDetail': 'Details openen',
   'sections.menu.removeFromSection': 'Uit dit profiel weghalen',
   'sections.menu.clearSubdivision': 'Onderverdeling wissen',
+  // FLAG: not owner-ruled — the column context menu's aria-label. ``{name}`` is
+  // the column display name.
+  'sections.menu.actionsFor': 'Acties voor {name}',
   'sections.menu.deleteContact': 'Laaggrens verwijderen',
   'sections.menu.linkToGeology': 'Koppelen aan de geologie',
   'sections.menu.unlinkFromGeology': 'Loskoppelen van de geologie',
