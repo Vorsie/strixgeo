@@ -95,6 +95,9 @@ import type {
   BodyRenderStyle,
   BodyBoundaryResponse,
   ClearBoundariesResponse,
+  BodySeparationResponse,
+  BodySeparationListItem,
+  BodySeparationRejoinResponse,
   SubdivideAllBodiesResponse,
   DivideBoreholePreviewResponse,
   DivideBoreholeResponse,
@@ -831,6 +834,61 @@ export const geologyClient = {
     modelId: string,
   ): Promise<ClearBoundariesResponse> =>
     delReturning(`/projects/${projectId}/geology/models/${modelId}/boundaries`),
+
+  // --- Body separations ("Separate" verb, debt #278 R5) ----------------
+
+  /**
+   * POST .../body-separations — record that two bodies are NOT the same body.
+   *
+   * The subtractive counterpart to Dissolve (owner ruling 2026-08-31): the
+   * resolver reads the separation and drops any union (however indirect) that
+   * would merge the two anchors, so the pair stays separate until an explicit
+   * Rejoin (``deleteBodySeparation``). The verb is reversible, so a duplicate
+   * pair answers ``200`` with the existing row (``was_created: false``), never a
+   * ``409``. The backend canonicalises the pair, so anchor order is irrelevant.
+   *
+   * ``layerAId`` / ``layerBId`` are one ACCEPTED ``litho_layer`` from each body
+   * — the label-independent identity currency the recompute already uses.
+   */
+  createBodySeparation: (
+    projectId: string,
+    modelId: string,
+    layerAId: string,
+    layerBId: string,
+  ): Promise<BodySeparationResponse> =>
+    post(`/projects/${projectId}/geology/models/${modelId}/body-separations`, {
+      layer_a_id: layerAId,
+      layer_b_id: layerBId,
+    }),
+
+  /**
+   * GET .../body-separations — the model's separations with per-anchor display info.
+   *
+   * Each item carries both anchors' CURRENT body (name / ordinal / formation),
+   * resolved server-side, so the FE renders "Rejoin with <label>" without owning
+   * a body-resolution map.
+   */
+  listBodySeparations: (
+    projectId: string,
+    modelId: string,
+  ): Promise<BodySeparationListItem[]> =>
+    get(`/projects/${projectId}/geology/models/${modelId}/body-separations`),
+
+  /**
+   * DELETE .../body-separations/{sepId} — the Rejoin: lift one separation.
+   *
+   * Removing the cannot-link constraint lets the two anchors re-union if the
+   * ties / geometry still connect them; the resolver re-runs in the same
+   * request. Returns the re-resolve diff for the toast.
+   */
+  deleteBodySeparation: (
+    projectId: string,
+    modelId: string,
+    separationId: string,
+  ): Promise<BodySeparationRejoinResponse> =>
+    delReturning(
+      `/projects/${projectId}/geology/models/${modelId}/body-separations/${separationId}`,
+    ),
 
   listFormationAbsences: (
     projectId: string,
