@@ -98,6 +98,9 @@ import type {
   BodySeparationResponse,
   BodySeparationListItem,
   BodySeparationRejoinResponse,
+  BodyUnionResponse,
+  BodyUnionListItem,
+  BodyUnionDisjoinResponse,
   SubdivideAllBodiesResponse,
   DivideBoreholePreviewResponse,
   DivideBoreholeResponse,
@@ -889,6 +892,66 @@ export const geologyClient = {
     delReturning(
       `/projects/${projectId}/geology/models/${modelId}/body-separations/${separationId}`,
     ),
+
+  // --- Body unions ("Join with…" verb, debt #278) -----------------------
+
+  /**
+   * POST .../body-unions — record that two bodies ARE the same body, then re-resolve.
+   *
+   * The additive counterpart to Separate (owner ruling 2026-08-31): the resolver
+   * reads the union and merges the two anchors even when no edge connects them, so
+   * the engineer can state "this body IS the same as that body". The verb is
+   * reversible, so a duplicate pair answers ``200`` with the existing row
+   * (``was_created: false``), never a ``409``. The backend canonicalises the pair,
+   * so anchor order is irrelevant.
+   *
+   * A cross-class pair (never one mass) is refused ``422`` with
+   * ``body_union_cross_class`` carrying both soils + NAD classes; a pair a standing
+   * separation keeps apart is refused ``422`` with
+   * ``body_union_contradicts_separation`` naming that separation. Both structured
+   * details reach the caller through ``ApiError.detail`` (``apiErrorDetail``) — the
+   * everyday flow shared by every bare-object detail in this client.
+   *
+   * ``layerAId`` / ``layerBId`` are one ACCEPTED ``litho_layer`` from each body —
+   * the label-independent identity currency the recompute already uses.
+   */
+  createBodyUnion: (
+    projectId: string,
+    modelId: string,
+    layerAId: string,
+    layerBId: string,
+  ): Promise<BodyUnionResponse> =>
+    post(`/projects/${projectId}/geology/models/${modelId}/body-unions`, {
+      layer_a_id: layerAId,
+      layer_b_id: layerBId,
+    }),
+
+  /**
+   * GET .../body-unions — the model's unions with per-anchor display info.
+   *
+   * Each item carries both anchors' CURRENT body (name / ordinal / formation),
+   * resolved server-side, so the FE renders "Disjoin {label}" without owning a
+   * body-resolution map.
+   */
+  listBodyUnions: (
+    projectId: string,
+    modelId: string,
+  ): Promise<BodyUnionListItem[]> =>
+    get(`/projects/${projectId}/geology/models/${modelId}/body-unions`),
+
+  /**
+   * DELETE .../body-unions/{unionId} — the Disjoin: lift one union.
+   *
+   * Removing the must-link lets the two anchors fall back to whatever ties /
+   * geometry connect them; where none do, they split. The resolver re-runs in the
+   * same request. Returns the re-resolve diff for the toast.
+   */
+  deleteBodyUnion: (
+    projectId: string,
+    modelId: string,
+    unionId: string,
+  ): Promise<BodyUnionDisjoinResponse> =>
+    delReturning(`/projects/${projectId}/geology/models/${modelId}/body-unions/${unionId}`),
 
   listFormationAbsences: (
     projectId: string,
