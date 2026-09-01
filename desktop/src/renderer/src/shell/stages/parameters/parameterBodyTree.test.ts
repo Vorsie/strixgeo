@@ -267,10 +267,13 @@ describe('parameterBodyTree — the owner-ruled body tree (spec §7)', () => {
     expect(classHeader).toContain('SILT, slightly firm')
     expect(classHeader).toContain('pooled across 2 bodies')
 
-    // A leaf geotech body reads the full path, ending in its own label.
+    // A leaf geotech body reads the full path, ending in its own label — the
+    // UNIFIED geotech-body vocabulary "SILT · SF #0" (soil + packing + ordinal),
+    // never the packing-only "SF #0" that read like the litho body (owner
+    // dogfeed 2026-09-01).
     const bodyHeader = scopeHeaderLabel({ kind: 'geotech-body', unitId: 'silt-sf-A', bodyId: 'gbA' }, scene)
     expect(bodyHeader).toContain('SILT · #0')
-    expect(bodyHeader).toContain('SF #0')
+    expect(bodyHeader).toContain('SILT · SF #0')
 
     // A litho unit says it spans the whole unit (R1 wording).
     expect(scopeHeaderLabel({ kind: 'litho-unit', unitId: 'silt-unit' }, scene)).toContain(
