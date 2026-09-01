@@ -9327,3 +9327,44 @@ contact bend only v1 performed (v2's contact free-draw is single-node by
 design); owner call if multi-node contact freedraw is ever wanted. The
 ``overlay_tier`` wire field is now written by nothing (v1's vocabulary) —
 drop it from the payload/backend at the next voxel-contract touch.
+
+## 281. Faulting + overturned folds (post-MVP geological modelling) (L)
+
+Owner asked 2026-09-01 to record the scope of adding structural discontinuities.
+They are TWO problems of very different difficulty, and the target geology sets
+different triggers for each.
+
+**Faults — bounded, reuses the existing surface machinery.**
+
+* **What.** A fault is a discontinuity that OFFSETS the formation surfaces across
+  it. Model it as a fault SURFACE (not a single strike/dip — a fault curves in
+  map view and its dip varies): pick its trace on the cross-sections where a
+  contact jumps, correlate the picks into a fault surface, project the trace to
+  the map, let dip vary along it. The voxel builder treats it as a hard break
+  between fault blocks, each block carrying its own surfaces. It lives at the
+  GEOLOGICAL level (faults offset formations; litho/geotech inherit the bands).
+* **Why deferred.** Not a v1.0 gate item (v1.0 is the litho→geotech→export
+  pipeline). At site scale a fault crossing the footprint is uncommon, and the
+  current per-formation-domain model can often approximate it.
+* **When to revisit.** When a customer hits a faulted footprint, OR as a
+  deliberate Phase-5 differentiator. Real market anchor: the published
+  known-faults map of Flanders. Effort: weeks (bounded — every piece reuses
+  surfaces / cross-sections / map that already exist).
+
+**Overturned folds — a different engine; do NOT build for Flanders.**
+
+* **What.** An overturned fold makes a surface MULTI-VALUED — a vertical
+  borehole pierces the same contact twice. That breaks the single foundational
+  assumption of the whole current stack: `z = f(x,y)` single-valued top surfaces
+  (TIN), voxel-COLUMN labelling (one stack per x,y), and the borehole
+  depth-series model (a log would repeat a formation top-to-bottom). Supporting
+  it needs a true implicit 3-D engine (signed-distance / radial-basis, the
+  Leapfrog approach) — a re-architecture of the surface + build layers.
+* **Why deferred.** Flanders has no overturning folds (owner, a geotechnical
+  engineer, confirms), so zero target-market need for the current market.
+* **When to revisit.** ⚠ NOT "never." **The concrete trigger is expansion to
+  southern Belgium / the Ardennes** — Variscan-folded Paleozoic terrain where
+  overturned folds are real. Owner (2026-09-01) calls the Ardennes a "logical
+  expansion" and expects to "need the overturned folding sooner than later" once
+  that expansion happens. Effort: months + a new implicit modelling engine —
+  scope it the moment the Ardennes market is on the roadmap, not after.
