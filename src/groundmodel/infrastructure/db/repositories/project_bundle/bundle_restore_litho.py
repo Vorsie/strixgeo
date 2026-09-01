@@ -40,6 +40,7 @@ from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBou
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
+from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -926,6 +927,150 @@ async def _restore_contact_edges(
     return new_edges, skipped, dropped
 
 
+async def _restore_layer_pair_rows(
+    session: AsyncSession,
+    project_id: UUID,
+    payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    geological_models_payload: list[dict[str, Any]],
+    *,
+    orm_cls: type[Any],
+    label: str,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert a bundle's canonical layer-pair rows (facts / separations / unions).
+
+    Three collections share one shape — a ``(model_id, layer_a_id, layer_b_id)``
+    row with the ``a < b`` CHECK, scoped through ``geological_model``, both anchors
+    the resolver reads: body geometry FACTS (machine union evidence), user
+    SEPARATIONS (cannot-link) and user UNIONS (must-link). This is the third
+    caller, so the restore is extracted here rather than copied a third time.
+
+    Restored after the litho layers so both FK anchors resolve, and BEFORE
+    ``reconcile_bodies_after_restore`` runs, so the restored resolver pass already
+    honours them. Guards: dedupe by id, model-scope guard, both anchor layers must
+    belong to the row's OWN model (DB rows or rows queued in this transaction —
+    a project-wide set would let a malformed row for model A anchor on model B's
+    layer), and endpoints re-canonicalised (``a < b``) so a clone whose id remap
+    flipped the order cannot trip the CHECK.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    payload : list[dict[str, Any]]
+        Raw row dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts — includes litho layers queued in this transaction.
+    orm_cls : type[Any]
+        The ORM class the rows insert into (``BodyGeometryFactOrm`` /
+        ``BodySeparationOrm`` / ``BodyUnionOrm``).
+    label : str
+        The human noun for logs (e.g. ``"geometry fact"``, ``"body separation"``,
+        ``"body union"``).
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_rows, skipped_rows, dropped_rows)``.
+    """
+    # layer id → OWNING MODEL, not a flat project-wide set: a row's endpoints
+    layer_model: dict[UUID, UUID] = {
+        row.id: row.model_id
+        for row in (
+            await session.execute(
+                select(LithoLayerOrm.id, LithoLayerOrm.model_id)
+                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        ).all()
+    }
+    for m_payload in geological_models_payload:
+        mid = _uuid(m_payload.get("id"))
+        if mid is None:
+            continue
+        for ly in m_payload.get("litho_layers") or []:
+            lid = _uuid(ly.get("id"))
+            if lid is not None:
+                layer_model[lid] = mid
+
+    existing = set(
+        (
+            await session.execute(
+                select(orm_cls.id)
+                .join(GeologicalModelOrm, orm_cls.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_rows = 0
+    skipped = 0
+    dropped = 0
+    pending_rows: list[dict[str, UUID]] = []
+    total = len(payload)
+    if total:
+        logger.info(f"restore_project_bundle({project_id}): restoring {total} {label}(s)")
+    for i, row_payload in enumerate(payload, start=1):
+        row_id = _uuid(row_payload.get("id"))
+        if row_id is None or row_id in existing:
+            skipped += 1
+            continue
+        row_model_id = _require_fk(
+            row_payload,
+            "model_id",
+            valid_model_ids,
+            label=f"{label} {row_id}",
+            note="bundle-injection guard",
+            i=i,
+            total=total,
+            logger=logger,
+        )
+        if row_model_id is None:
+            dropped += 1
+            continue
+        a_id = _uuid(row_payload.get("layer_a_id"))
+        b_id = _uuid(row_payload.get("layer_b_id"))
+        if a_id is None or b_id is None or a_id == b_id:
+            logger.warning(f"[{i}/{total}] {label} {row_id} has no valid pair — dropped")
+            dropped += 1
+            continue
+        if layer_model.get(a_id) != row_model_id or layer_model.get(b_id) != row_model_id:
+            logger.warning(
+                f"[{i}/{total}] {label} {row_id}: layer anchor(s) not in the "
+                f"{label}'s own model — dropped (dangling FK)"
+            )
+            dropped += 1
+            continue
+        if str(a_id) > str(b_id):
+            a_id, b_id = b_id, a_id
+        pending_rows.append(
+            {"id": row_id, "model_id": row_model_id, "layer_a_id": a_id, "layer_b_id": b_id}
+        )
+        new_rows += 1
+    if pending_rows:
+        # ONE bulk insert instead of N ORM adds; values are fully validated above,
+        # so nothing is lost by skipping the ORM (the owner's real model carries
+        # ~10k geometry facts — the per-row path cost seconds on Discard).
+        await session.execute(insert(orm_cls), pending_rows)
+        logger.debug(
+            f"restore_project_bundle({project_id}): bulk-inserted {len(pending_rows)} {label}(s)"
+        )
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped} {label}(s) "
+            f"(model or layer not in project)"
+        )
+    return new_rows, skipped, dropped
+
+
 async def _restore_geometry_facts(
     session: AsyncSession,
     project_id: UUID,
@@ -938,15 +1083,8 @@ async def _restore_geometry_facts(
     """Insert geometric body-connectivity facts from the bundle.
 
     Facts (owner ruling 2026-08-12) are layer-pair union evidence the resolver
-    consumes alongside correlation edges. Restored after the litho layers so
-    both FK endpoints resolve, and BEFORE ``reconcile_bodies_after_restore``
-    runs, so the restored resolver pass already unions them — a reopened
-    project keeps its merged bodies without waiting for the first recompute.
-
-    Guards mirror ``_restore_contact_edges``: dedupe by id, model-scope guard,
-    endpoint layers must belong to this project (DB rows or rows queued in
-    this transaction). Endpoints are also re-canonicalised (``a < b``) so a
-    clone whose id remap flipped the order cannot trip the CHECK constraint.
+    consumes alongside correlation edges. Thin delegation to
+    ``_restore_layer_pair_rows`` — the shared canonical layer-pair restore.
 
     Parameters
     ----------
@@ -968,102 +1106,16 @@ async def _restore_geometry_facts(
     tuple[int, int, int]
         ``(new_facts, skipped_facts, dropped_facts)``.
     """
-    # layer id → OWNING MODEL, not a flat project-wide set: a fact's endpoints
-    # must belong to the fact's own model (audit P2-7 — a project-wide set let
-    # a malformed fact for model A point at model B's layer, and the
-    # incoherent bundle round-tripped).
-    layer_model: dict[UUID, UUID] = {
-        row.id: row.model_id
-        for row in (
-            await session.execute(
-                select(LithoLayerOrm.id, LithoLayerOrm.model_id)
-                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        ).all()
-    }
-    for m_payload in geological_models_payload:
-        mid = _uuid(m_payload.get("id"))
-        if mid is None:
-            continue
-        for ly in m_payload.get("litho_layers") or []:
-            lid = _uuid(ly.get("id"))
-            if lid is not None:
-                layer_model[lid] = mid
-
-    existing = set(
-        (
-            await session.execute(
-                select(BodyGeometryFactOrm.id)
-                .join(GeologicalModelOrm, BodyGeometryFactOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
+    return await _restore_layer_pair_rows(
+        session,
+        project_id,
+        body_geometry_facts_payload,
+        valid_model_ids,
+        geological_models_payload,
+        orm_cls=BodyGeometryFactOrm,
+        label="geometry fact",
+        logger=logger,
     )
-    new_facts = 0
-    skipped = 0
-    dropped = 0
-    pending_rows: list[dict[str, UUID]] = []
-    total = len(body_geometry_facts_payload)
-    if total:
-        logger.info(
-            f"restore_project_bundle({project_id}): restoring {total} body geometry fact(s)"
-        )
-    for i, fact_payload in enumerate(body_geometry_facts_payload, start=1):
-        fact_id = _uuid(fact_payload.get("id"))
-        if fact_id is None or fact_id in existing:
-            skipped += 1
-            continue
-        fact_model_id = _require_fk(
-            fact_payload,
-            "model_id",
-            valid_model_ids,
-            label=f"geometry fact {fact_id}",
-            note="bundle-injection guard",
-            i=i,
-            total=total,
-            logger=logger,
-        )
-        if fact_model_id is None:
-            dropped += 1
-            continue
-        a_id = _uuid(fact_payload.get("layer_a_id"))
-        b_id = _uuid(fact_payload.get("layer_b_id"))
-        if a_id is None or b_id is None or a_id == b_id:
-            logger.warning(f"[{i}/{total}] geometry fact {fact_id} has no valid pair — dropped")
-            dropped += 1
-            continue
-        if layer_model.get(a_id) != fact_model_id or layer_model.get(b_id) != fact_model_id:
-            logger.warning(
-                f"[{i}/{total}] geometry fact {fact_id}: layer endpoint(s) not in the "
-                f"fact's own model — dropped (dangling FK)"
-            )
-            dropped += 1
-            continue
-        if str(a_id) > str(b_id):
-            a_id, b_id = b_id, a_id
-        pending_rows.append(
-            {"id": fact_id, "model_id": fact_model_id, "layer_a_id": a_id, "layer_b_id": b_id}
-        )
-        new_facts += 1
-    if pending_rows:
-        # ONE bulk insert instead of 10k ORM adds. The owner's real model
-        # carries 10,721 facts and the per-row path cost the Discard press
-        # ~3.5 s of its "hogs the app" time (measured 2026-08-18); values are
-        # fully validated above, so nothing is lost by skipping the ORM.
-        await session.execute(insert(BodyGeometryFactOrm), pending_rows)
-        logger.debug(
-            f"restore_project_bundle({project_id}): bulk-inserted {len(pending_rows)} "
-            f"geometry fact(s)"
-        )
-    if dropped:
-        logger.warning(
-            f"restore_project_bundle({project_id}): dropped {dropped} geometry fact(s) "
-            f"(model or layer not in project)"
-        )
-    return new_facts, skipped, dropped
 
 
 async def _restore_body_separations(
@@ -1085,13 +1137,11 @@ async def _restore_body_separations(
     split exactly as the engineer left them, never silently rejoined (the
     ruling's word was "permanent").
 
-    Guards mirror ``_restore_geometry_facts`` exactly (same layer-pair shape,
-    same ``a < b`` CHECK): dedupe by id, model-scope guard, both anchor layers
-    must belong to the separation's own model (DB rows or rows queued in this
-    transaction), and the endpoints are re-canonicalised so a clone whose id
-    remap flipped the order cannot trip the CHECK. An anchor whose layer is
-    absent in the restored project drops that row (counted + logged), never
-    fails the restore.
+    Thin delegation to ``_restore_layer_pair_rows`` — the shared canonical
+    layer-pair restore (same guards: dedupe by id, model-scope, both anchors in
+    the row's own model, endpoints re-canonicalised). An anchor whose layer is
+    absent in the restored project drops that row (counted + logged), never fails
+    the restore.
 
     Parameters
     ----------
@@ -1113,95 +1163,70 @@ async def _restore_body_separations(
     tuple[int, int, int]
         ``(new_separations, skipped_separations, dropped_separations)``.
     """
-    # layer id → OWNING MODEL: a separation's anchors must belong to its own
-    # model, mirroring the geometry-fact guard (a project-wide set would let a
-    # malformed separation for model A anchor on model B's layer).
-    layer_model: dict[UUID, UUID] = {
-        row.id: row.model_id
-        for row in (
-            await session.execute(
-                select(LithoLayerOrm.id, LithoLayerOrm.model_id)
-                .join(GeologicalModelOrm, LithoLayerOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        ).all()
-    }
-    for m_payload in geological_models_payload:
-        mid = _uuid(m_payload.get("id"))
-        if mid is None:
-            continue
-        for ly in m_payload.get("litho_layers") or []:
-            lid = _uuid(ly.get("id"))
-            if lid is not None:
-                layer_model[lid] = mid
-
-    existing = set(
-        (
-            await session.execute(
-                select(BodySeparationOrm.id)
-                .join(GeologicalModelOrm, BodySeparationOrm.model_id == GeologicalModelOrm.id)
-                .where(GeologicalModelOrm.app_project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
+    return await _restore_layer_pair_rows(
+        session,
+        project_id,
+        body_separations_payload,
+        valid_model_ids,
+        geological_models_payload,
+        orm_cls=BodySeparationOrm,
+        label="body separation",
+        logger=logger,
     )
-    new_separations = 0
-    skipped = 0
-    dropped = 0
-    pending_rows: list[dict[str, UUID]] = []
-    total = len(body_separations_payload)
-    if total:
-        logger.info(f"restore_project_bundle({project_id}): restoring {total} body separation(s)")
-    for i, sep_payload in enumerate(body_separations_payload, start=1):
-        sep_id = _uuid(sep_payload.get("id"))
-        if sep_id is None or sep_id in existing:
-            skipped += 1
-            continue
-        sep_model_id = _require_fk(
-            sep_payload,
-            "model_id",
-            valid_model_ids,
-            label=f"body separation {sep_id}",
-            note="bundle-injection guard",
-            i=i,
-            total=total,
-            logger=logger,
-        )
-        if sep_model_id is None:
-            dropped += 1
-            continue
-        a_id = _uuid(sep_payload.get("layer_a_id"))
-        b_id = _uuid(sep_payload.get("layer_b_id"))
-        if a_id is None or b_id is None or a_id == b_id:
-            logger.warning(f"[{i}/{total}] body separation {sep_id} has no valid pair — dropped")
-            dropped += 1
-            continue
-        if layer_model.get(a_id) != sep_model_id or layer_model.get(b_id) != sep_model_id:
-            logger.warning(
-                f"[{i}/{total}] body separation {sep_id}: layer anchor(s) not in the "
-                f"separation's own model — dropped (dangling FK)"
-            )
-            dropped += 1
-            continue
-        if str(a_id) > str(b_id):
-            a_id, b_id = b_id, a_id
-        pending_rows.append(
-            {"id": sep_id, "model_id": sep_model_id, "layer_a_id": a_id, "layer_b_id": b_id}
-        )
-        new_separations += 1
-    if pending_rows:
-        await session.execute(insert(BodySeparationOrm), pending_rows)
-        logger.debug(
-            f"restore_project_bundle({project_id}): bulk-inserted {len(pending_rows)} "
-            f"body separation(s)"
-        )
-    if dropped:
-        logger.warning(
-            f"restore_project_bundle({project_id}): dropped {dropped} body separation(s) "
-            f"(model or layer not in project)"
-        )
-    return new_separations, skipped, dropped
+
+
+async def _restore_body_unions(
+    session: AsyncSession,
+    project_id: UUID,
+    body_unions_payload: list[dict[str, Any]],
+    valid_model_ids: set[UUID],
+    geological_models_payload: list[dict[str, Any]],
+    *,
+    logger: GroundModelLogger,
+) -> tuple[int, int, int]:
+    """Insert user "Join with…" rulings from the bundle.
+
+    Unions (owner 2026-08-31, debt #278) are must-link constraints the resolver
+    reads: "the body containing layer_a IS the body containing layer_b". Restored
+    after the litho layers so both FK anchors resolve, and BEFORE
+    ``reconcile_bodies_after_restore`` runs, so the restored resolver pass already
+    honours them — a reopened project keeps its joined bodies merged, never
+    silently split (the ruling's word was "permanent"). A union that contradicts a
+    restored separation is suppressed by the resolver, not by this restore.
+
+    Thin delegation to ``_restore_layer_pair_rows`` — the shared canonical
+    layer-pair restore.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    body_unions_payload : list[dict[str, Any]]
+        Raw union dicts from the bundle.
+    valid_model_ids : set[UUID]
+        Model ids that belong to this project (bundle-injection guard).
+    geological_models_payload : list[dict[str, Any]]
+        Raw model dicts — includes litho layers queued in this transaction.
+    logger : GroundModelLogger
+        Caller's logger.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        ``(new_unions, skipped_unions, dropped_unions)``.
+    """
+    return await _restore_layer_pair_rows(
+        session,
+        project_id,
+        body_unions_payload,
+        valid_model_ids,
+        geological_models_payload,
+        orm_cls=BodyUnionOrm,
+        label="body union",
+        logger=logger,
+    )
 
 
 async def _restore_litho_solids(
