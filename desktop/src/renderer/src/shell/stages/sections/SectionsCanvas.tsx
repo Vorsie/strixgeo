@@ -1498,11 +1498,11 @@ export default function SectionsCanvas(): JSX.Element {
   // then re-renders the 2-D partition, 3-D build and fence from the new grouping
   // (Dissolve above does NOT request one — a known wart, owner-noted).
   const handleSeparateBodies = useCallback(
-    async (anchorLayerId: string, targetAnchorLayerId: string): Promise<void> => {
+    async (anchorLayerId: string, targetAnchorLayerId: string, sameBody: boolean): Promise<void> => {
       if (!bodyMenuModel) return
       log.info(
         'section',
-        `separate-bodies: anchorA=${anchorLayerId} anchorB=${targetAnchorLayerId}`,
+        `separate-bodies: anchorA=${anchorLayerId} anchorB=${targetAnchorLayerId} sameBody=${sameBody}`,
       )
       try {
         await api.geology.createBodySeparation(
@@ -1513,8 +1513,16 @@ export default function SectionsCanvas(): JSX.Element {
         )
         void refetchBodyMenuData()
         requestBodyRecompute(bodyMenuRecomputeAxis)
-        // Reversible action → name the undo path (docs/ux.md).
-        toast('success', 'Bodies separated — right-click either body → Rejoin to undo.')
+        // Reversible action → name the undo path (docs/ux.md). Both keep the
+        // literal "Bodies separated" prefix (owner dogfeed 2026-09-01; the e2e
+        // spec greps it) but tell the two cases apart honestly: a SAME-body pick
+        // CUT one mass in two; a DIFFERENT-body pick recorded a durable keep-apart.
+        toast(
+          'success',
+          sameBody
+            ? 'Bodies separated — the body was split in two; right-click either part → Rejoin to undo.'
+            : 'Bodies separated — they were not connected and will stay apart; right-click either → Rejoin to undo.',
+        )
       } catch (err) {
         toast('error', 'Failed to separate bodies.')
         log.warn('section', 'handleSeparateBodies: failed', err)
@@ -1543,16 +1551,18 @@ export default function SectionsCanvas(): JSX.Element {
     [bodyMenuModel, project.id, refetchBodyMenuData, requestBodyRecompute, bodyMenuRecomputeAxis, toast],
   )
 
-  // Advisory while a Separate is armed: the engineer clicked the armed body
-  // itself, or a region that resolves to no single body. The arm stays live; a
-  // warning (self-dismissing, replace-keyed so repeats don't stack) tells them
-  // to pick the OTHER body.
+  // Advisory while a Separate is armed. Two honest cases (owner dogfeed
+  // 2026-09-01): the region resolves to the armed anchor's own layer, so a commit
+  // would 422 (``self-anchor``) — tell them to click a different part; or it
+  // resolves to no single body (``unresolvable``) — tell them to click a filled
+  // body. The arm stays live either way; a replace-keyed warning so repeats don't
+  // stack. (A SAME-body pick on a DIFFERENT part now COMMITS the split.)
   const handleSeparateNotice = useCallback(
-    (kind: 'same' | 'unresolvable'): void => {
+    (kind: 'unresolvable' | 'self-anchor'): void => {
       toast(
         'warning',
-        kind === 'same'
-          ? 'That is the same body — click a different one to separate.'
+        kind === 'self-anchor'
+          ? 'That is the same part of the body — click a different part to separate it.'
           : 'Could not identify that body — click a filled body.',
         'separate-arm-notice',
       )
@@ -2860,7 +2870,9 @@ export default function SectionsCanvas(): JSX.Element {
           // Separate / Rejoin (debt #278 R5) — both axes now; the arm plumbing is
           // axis-agnostic (``armBodyIdByLayerId`` merges both layer→body maps).
           onSeparateBodies={
-            isLitho || isGeotech ? (a, b) => void handleSeparateBodies(a, b) : undefined
+            isLitho || isGeotech
+              ? (a, b, sameBody) => void handleSeparateBodies(a, b, sameBody)
+              : undefined
           }
           onRejoinBody={isLitho || isGeotech ? sid => void handleRejoinBody(sid) : undefined}
           separations={isLitho ? separationsList : isGeotech ? geotechSeparationsList : undefined}
