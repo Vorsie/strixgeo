@@ -1,39 +1,32 @@
 // The body-identity "pair arm" state machine (debt #278) — one armed
-// pick-the-other-body gesture at a time, shared by the "Separate" and "Join with…"
-// verbs. Extracted from SectionPanel so its lifecycle rules are unit-testable and
-// off the god-component (debt #201).
+// pick-the-other-body gesture at a time, driving the "Join with…" verb.
+// Extracted from SectionPanel so its lifecycle rules are unit-testable and off
+// the god-component (debt #201).
 //
-// A pair arm is the verb (``kind``), the body the engineer picked to act FROM,
-// one of its anchor layers, and its label for the hint chip. It is AXIS-SCOPED
-// and stale-prone, so three rules retire it automatically:
+// After the body-verb simplification (owner ruling 2026-09-01, "way too
+// complicated") only ONE verb remains — Join — so the arm no longer carries a
+// ``kind``: it is always a join arm. A pair arm is the body the engineer picked
+// to act FROM, one of its anchor layers, and its label for the hint chip. It is
+// AXIS-SCOPED and stale-prone, so three rules retire it automatically:
 //
 //   1. ANY axis change — the anchor layer belongs to the arming axis's model, and
-//      the pick is now wired on more than one axis, so an arm that outlived a
-//      switch would commit a cross-axis pick against the wrong model (backend 422
-//      → a phantom "Failed to …"). Clears on ANY axis change, including
-//      geotech → litho.
+//      an arm that outlived a switch would commit a cross-axis pick against the
+//      wrong model (backend 422 → a phantom "Failed to …"). Clears on ANY axis
+//      change, including geotech → litho.
 //   2. Correlate mode taking over — mutual exclusion, the arm yields the canvas
 //      (the Esc cascade only peels one direction).
 //   3. Its anchor layer vanishing — a refetch / model change left the arm stale.
 //      The functional update leaves a LIVE arm untouched, so an ordinary refetch
 //      that still carries the anchor never clears mid-gesture.
-//
-// Only ONE arm exists at a time: arming a Join replaces a live Separate arm and
-// vice versa, so verb mutual-exclusion is free — no cross-verb bookkeeping.
 
 import { useCallback, useEffect, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
-/** Which body-identity verb the arm is driving. */
-export type PairArmKind = 'separate' | 'join'
-
-/** The body the engineer armed to act FROM, plus the verb, anchor + hint label. */
+/** The body the engineer armed a Join FROM, plus its anchor + hint label. */
 export interface PairArm {
-  /** The verb this arm is driving — routes the armed left-click to its resolver. */
-  kind: PairArmKind
   /** The armed body's id. */
   bodyId: string
-  /** The deterministic anchor layer the separation / union POSTs through. */
+  /** The deterministic anchor layer the union POSTs through. */
   anchorLayerId: string
   /** The body's display label for the hint chip. */
   label: string
@@ -53,7 +46,7 @@ export interface UsePairArmOptions {
 export interface UsePairArmResult {
   /** The live arm, or ``null`` when none is in flight. */
   pairArm: PairArm | null
-  /** Set / replace the arm (the "Separate from…" / "Join with…" handlers call this). */
+  /** Set / replace the arm (the "Join with…" handler calls this). */
   setPairArm: Dispatch<SetStateAction<PairArm | null>>
   /** Clear the arm (Esc, and a committed / cancelled pick). */
   clearPairArm: () => void
