@@ -1,23 +1,19 @@
-// Behavioral net for the Geotech-units tree builder.
+// Behavioural net for the Geotech-units tree builder.
 //
-// The owner pasted his "Geotech units" pane on 2026-08-26: ~94 flat rows, most
-// of them repeating the same soil, several reading "SILT, slightly firm  0",
-// and two that were literally just "0". His words on the proposed shape were
-// "those ideas look like an improvement". The shape he approved
-// (blend_viewer/geotech_ui_tidy_ideas.html, panel 2):
+// Owner ruling 2026-08-31 (walk interview), verbatim on the pane shape: "main
+// litho is first level, one down is all litho bodies that are geometrically
+// disconnected, one down is all disconnected packing bodies. Then if you group
+// they get like a group 1 in parentheses behind." So the axis is three levels:
 //
-//   • soil header ▸ one row per NAD class underneath it
-//   • the class row is labelled by FIRMNESS/DENSITY, never the soil again
-//   • bands SUMMED per class across the unit instances that carry it
-//   • provenance collapsed to the WORST badge in the group — "partial · low
-//     bubbles up, that is the one you need to see"
-//   • instances only when a class has more than one
-//   • zero-content rows are not listed at all — the "show empty (N)" lever that
-//     shipped with the tree was overturned the same day: "if a bin is empty
-//     that means there is nothing in it and nothing exists"
+//   L1  main litho (soil)                       — SILT
+//   L2  geometrically-disconnected litho bodies — SILT · #0, SILT · #1
+//   L3  disconnected packing bodies             — SILT · SF #0, SILT · FF #1
 //
-// These pins are on the pure builder. What the component does with the tree is
-// pinned in GeotechnicalInspector.test.tsx.
+// A packing (geotech) body homes under its PARENT litho body
+// (``parent_litho_body_id``); one whose parent is not yet stamped falls into an
+// "ungrouped" bucket under its soil rather than being dropped. The group number
+// (D4) rides the packing-body leaf. Pins are on the pure builder; what the
+// component renders around the tree is pinned in GeotechnicalUnitRoster.test.tsx.
 
 import { describe, expect, it } from 'vitest'
 
@@ -28,8 +24,6 @@ import type { GeotechUnitTreeInput } from './geotechUnitTree'
 // ---------------------------------------------------------------------------
 // Scene builders
 // ---------------------------------------------------------------------------
-
-let _seq = 0
 
 /** One geotech unit (a formation row) for the scene. */
 function unit(
@@ -53,577 +47,489 @@ function unit(
   }
 }
 
-/** ``n`` accepted bands for a unit — what the roster counts. */
+/** ``n`` accepted contacts for a unit — the header counter. */
 function bands(formationId: string, n: number): GeotechUnitTreeInput['contacts'] {
   return Array.from({ length: n }, () => ({ formation_id: formationId }))
 }
 
-/** ``n`` layers of one confidence for a unit — what the provenance badge reads. */
-function layers(
-  formationId: string,
-  confidence: 'low' | 'medium' | 'high',
-  n = 1,
-): GeotechUnitTreeInput['layers'] {
-  return Array.from({ length: n }, () => {
-    _seq += 1
-    return { formation_id: formationId, confidence }
-  })
-}
-
-/** Build a tree from a scene, defaulting the parts a test does not care about. */
-function tree(input: Partial<GeotechUnitTreeInput> & Pick<GeotechUnitTreeInput, 'units'>) {
-  return buildGeotechUnitTree({
-    contacts: [],
-    layers: [],
-    ...input,
-  })
-}
-
-// ---------------------------------------------------------------------------
-// T1 — grouping
-// ---------------------------------------------------------------------------
-
-describe('the pane groups by soil, not one flat row per unit (T1)', () => {
-  it('T1a — four sand units of different classes sit under ONE sand header', () => {
-    const t = tree({
-      units: [unit('a', 5), unit('b', 6), unit('c', 7), unit('d', 8)],
-      contacts: [...bands('a', 1), ...bands('b', 1), ...bands('c', 1), ...bands('d', 1)],
-    })
-
-    expect(t.groups.map(g => g.soil)).toEqual(['SAND'])
-    expect(t.groups[0].classes).toHaveLength(4)
-  })
-
-  it('T1b — different soils are different headers', () => {
-    const t = tree({
-      units: [
-        unit('s', 6),
-        unit('k', 21, { litho_main_soil_code: 'KLEI' }),
-        unit('v', 29, { litho_main_soil_code: 'VEEN' }),
-      ],
-      contacts: [...bands('s', 1), ...bands('k', 1), ...bands('v', 1)],
-    })
-
-    expect(t.groups.map(g => g.soil).sort()).toEqual(['CLAY', 'PEAT', 'SAND'])
-  })
-
-  it('T1c — an unclassified unit groups under the soil it inherited, beside its classified siblings', () => {
-    // The skeleton is the same ground as the classified sand next to it; a
-    // separate "unknown" bucket would hide that.
-    const t = tree({
-      units: [unit('classified', 6), unit('skeleton', null)],
-      contacts: [...bands('classified', 1), ...bands('skeleton', 1)],
-    })
-
-    expect(t.groups).toHaveLength(1)
-    expect(t.groups[0].soil).toBe('SAND')
-    expect(t.groups[0].classes.map(c => c.nadClass)).toEqual([6, null])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T2 — summed counts
-// ---------------------------------------------------------------------------
-
-describe('bands are summed per class, and per soil (T2)', () => {
-  it('T2a — three units that are all "SAND, medium dense" report one row with their bands added up', () => {
-    const t = tree({
-      units: [unit('i1', 6), unit('i2', 6), unit('i3', 6)],
-      contacts: [...bands('i1', 20), ...bands('i2', 5), ...bands('i3', 6)],
-    })
-
-    const classRows = t.groups[0].classes
-    expect(classRows).toHaveLength(1)
-    expect(classRows[0].bandCount).toBe(31)
-  })
-
-  it('T2b — the soil header carries the total across its classes', () => {
-    const t = tree({
-      units: [unit('a', 13, { litho_main_soil_code: 'SILT' }), unit('b', 14, { litho_main_soil_code: 'SILT' })],
-      contacts: [...bands('a', 56), ...bands('b', 31)],
-    })
-
-    expect(t.groups[0].bandCount).toBe(87)
-  })
-
-  it('T2c — a band belonging to no unit on the roster is not counted anywhere', () => {
-    const t = tree({
-      units: [unit('a', 6)],
-      contacts: [...bands('a', 3), ...bands('ghost-unit', 99)],
-    })
-
-    expect(t.groups[0].bandCount).toBe(3)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T3 — worst badge bubbles up
-// ---------------------------------------------------------------------------
-
-describe('the class row shows the WORST badge in its group (T3)', () => {
-  it('T3a — one partial instance among clean CPT ones makes the class row read partial', () => {
-    // Owner: "partial/low bubbles up — that is the one you need to see."
-    const t = tree({
-      units: [unit('clean', 6), unit('mixed', 6)],
-      contacts: [...bands('clean', 10), ...bands('mixed', 10)],
-      layers: [...layers('clean', 'high', 3), ...layers('mixed', 'high'), ...layers('mixed', 'low')],
-    })
-
-    expect(t.groups[0].classes[0].provenance).toBe('partial')
-  })
-
-  it('T3b — an instance with no cone at all outranks a merely partial one', () => {
-    const t = tree({
-      units: [unit('partial', 6), unit('nocone', 6)],
-      contacts: [...bands('partial', 5), ...bands('nocone', 5)],
-      layers: [
-        ...layers('partial', 'high'),
-        ...layers('partial', 'low'),
-        ...layers('nocone', 'low', 2),
-      ],
-    })
-
-    expect(t.groups[0].classes[0].provenance).toBe('none')
-  })
-
-  it('T3c — all instances clean keeps the class row clean', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('b', 6)],
-      contacts: [...bands('a', 5), ...bands('b', 5)],
-      layers: [...layers('a', 'high', 2), ...layers('b', 'medium', 2)],
-    })
-
-    expect(t.groups[0].classes[0].provenance).toBe('cpt')
-  })
-
-  it('T3d — confidence bubbles the same way: one low instance makes the class row low', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('b', 6)],
-      contacts: [...bands('a', 5), ...bands('b', 5)],
-      layers: [...layers('a', 'high', 2), ...layers('b', 'low')],
-    })
-
-    expect(t.groups[0].classes[0].confidence).toBe('low')
-  })
-
-  it('T3e — medium beats high, and an instance with no layers does not drag the row down', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('none', 6)],
-      contacts: [...bands('a', 5), ...bands('none', 5)],
-      layers: [...layers('a', 'medium')],
-    })
-
-    expect(t.groups[0].classes[0].confidence).toBe('medium')
-  })
-
-  it('T3f — a class where no instance has any layer reports no confidence at all', () => {
-    const t = tree({ units: [unit('a', 6)], contacts: bands('a', 5), layers: [] })
-    expect(t.groups[0].classes[0].confidence).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T4 — instances only when the class has more than one
-// ---------------------------------------------------------------------------
-
-describe('instances stay collapsed until a class actually has several (T4)', () => {
-  it('T4a — a class carried by one unit reports a single instance (nothing to expand into)', () => {
-    const t = tree({ units: [unit('only', 6)], contacts: bands('only', 4) })
-
-    const row = t.groups[0].classes[0]
-    expect(row.instances).toHaveLength(1)
-    expect(row.instances[0].formationId).toBe('only')
-  })
-
-  it('T4b — a class carried by three units reports all three, each with its own band count', () => {
-    const t = tree({
-      units: [unit('i1', 6), unit('i2', 6), unit('i3', 6)],
-      contacts: [...bands('i1', 20), ...bands('i2', 5), ...bands('i3', 6)],
-    })
-
-    const row = t.groups[0].classes[0]
-    expect(row.instances.map(i => i.bandCount)).toEqual([20, 5, 6])
-  })
-
-  it('T4c — each instance keeps its OWN badge, so expanding shows which one is weak', () => {
-    const t = tree({
-      units: [unit('clean', 6), unit('weak', 6)],
-      contacts: [...bands('clean', 5), ...bands('weak', 5)],
-      layers: [...layers('clean', 'high', 2), ...layers('weak', 'low', 2)],
-    })
-
-    const row = t.groups[0].classes[0]
-    expect(row.instances.map(i => i.provenance)).toEqual(['cpt', 'none'])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T5 — a bin with nothing in it is not a row
-//
-// Owner ruling, dogfeed 2026-08-26: "The show empty is weird though, if a bin
-// is empty that means there is nothing in it and nothing exists". RETIRES T5b
-// ("turning the toggle on brings it back") and the second half of T5c ("comes
-// back with the toggle") — both pinned a lever that no longer exists — and
-// drops the ``emptyCount`` assertions from T5a/T5d/T5e/T5f, which existed only
-// to feed that lever's label. What each test claims about the FILTER is kept
-// verbatim: the filter is unchanged, only the escape hatch is gone.
-// ---------------------------------------------------------------------------
-
-describe('a unit that describes nothing is not on the roster at all (T5)', () => {
-  it('T5a — a unit with no bands is not in the tree', () => {
-    const t = tree({
-      units: [unit('live', 6), unit('empty', 7)],
-      contacts: bands('live', 12),
-    })
-
-    expect(t.groups[0].classes.map(c => c.nadClass)).toEqual([6])
-  })
-
-  it('T5c — a soil whose every unit is empty loses its header too', () => {
-    const t = tree({
-      units: [unit('s', 6), unit('k', 21, { litho_main_soil_code: 'KLEI' })],
-      contacts: bands('s', 3),
-    })
-
-    expect(t.groups.map(g => g.soil)).toEqual(['SAND'])
-  })
-
-  it('T5d — an UNCLASSIFIED unit that HAS bands stays in the tree', () => {
-    // It is real ground the model has not classified — exactly the row the
-    // engineer needs in front of him. Only "no content" drops a row; "no
-    // class" is what the row is FOR.
-    const t = tree({
-      units: [unit('skeleton', null)],
-      contacts: bands('skeleton', 9),
-    })
-
-    expect(t.unitCount).toBe(1)
-    expect(t.groups[0].classes[0].nadClass).toBeNull()
-    expect(t.groups[0].classes[0].bandCount).toBe(9)
-  })
-
-  it('T5f — a unit with layers but no ACCEPTED band is not empty either', () => {
-    // "Empty" has to mean the same thing here as it does to the backend sweep
-    // (no layer, no contact, no body). A unit whose bands are still pending
-    // describes something; dropping it would hide a live unit the next verb
-    // correctly leaves alone.
-    const t = tree({
-      units: [unit('pending', 6)],
-      contacts: [],
-      layers: layers('pending', 'high', 2),
-    })
-
-    expect(t.unitCount).toBe(1)
-    expect(t.groups[0].classes[0].bandCount).toBe(0)
-  })
-
-  it('T5e — the header counts describe exactly the rows the pane shows', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('b', 7), unit('c', 8), unit('d', 5)],
-      contacts: [...bands('a', 2), ...bands('b', 3)],
-    })
-
-    expect(t.unitCount).toBe(2)
-    expect(t.bandCount).toBe(5)
-    expect(t.groups.flatMap(g => g.classes).map(c => c.nadClass)).toEqual([6, 7])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T9 — the colour the engineer picked
-//
-// Owner ruling, dogfeed 2026-08-26: "Colours on the right hand pane need to be
-// choosable if user wants." The swatch on this pane is on a CLASS row, which
-// can stand for several units, so the row has to answer two questions: what
-// colour to draw, and whether a pick is in force (that is what the row's
-// reset-to-automatic affordance appears for).
-// ---------------------------------------------------------------------------
-
-describe('a picked colour wins over the automatic NAD colour (T9)', () => {
-  it('T9a — the row draws the colour its unit was given', () => {
-    const t = tree({
-      units: [unit('a', 6, { color_override: '#ff00ff' })],
-      contacts: bands('a', 3),
-    })
-
-    expect(t.groups[0].classes[0].color).toBe('#ff00ff')
-    expect(t.groups[0].classes[0].colorOverride).toBe('#ff00ff')
-  })
-
-  it('T9b — with nobody having picked, the row draws its NAD colour and offers no reset', () => {
-    const t = tree({ units: [unit('a', 6)], contacts: bands('a', 3) })
-
-    expect(t.groups[0].classes[0].color).toBe(nadClassColor(6))
-    expect(t.groups[0].classes[0].colorOverride).toBeNull()
-  })
-
-  it('T9c — a row standing for several units that agree draws the agreed colour', () => {
-    const t = tree({
-      units: [
-        unit('a', 6, { color_override: '#ff00ff' }),
-        unit('b', 6, { color_override: '#ff00ff', display_order: 1 }),
-      ],
-      contacts: [...bands('a', 1), ...bands('b', 1)],
-    })
-
-    expect(t.groups[0].classes[0].color).toBe('#ff00ff')
-    expect(t.groups[0].classes[0].colorOverride).toBe('#ff00ff')
-  })
-
-  it('T9d — a row whose units DISAGREE falls back to the automatic colour', () => {
-    // One row cannot honestly show two colours. Editing the row always writes
-    // every unit under it, so disagreement only arises from outside — and the
-    // automatic colour is the answer that misrepresents neither unit.
-    const t = tree({
-      units: [
-        unit('a', 6, { color_override: '#ff00ff' }),
-        unit('b', 6, { color_override: '#00ff00', display_order: 1 }),
-      ],
-      contacts: [...bands('a', 1), ...bands('b', 1)],
-    })
-
-    expect(t.groups[0].classes[0].color).toBe(nadClassColor(6))
-    expect(t.groups[0].classes[0].colorOverride).toBeNull()
-  })
-
-  it('T9e — the row names every unit an edit has to write to', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('b', 6, { display_order: 1 })],
-      contacts: [...bands('a', 1), ...bands('b', 1)],
-    })
-
-    expect(t.groups[0].classes[0].instances.map(i => i.formationId)).toEqual(['a', 'b'])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T6 — labels
-// ---------------------------------------------------------------------------
-
-describe('every row says what it is (T6)', () => {
-  it('T6a — the class row is the firmness word, never the soil repeated', () => {
-    const t = tree({ units: [unit('a', 6)], contacts: bands('a', 1) })
-    expect(t.groups[0].classes[0].label).toBe('medium dense')
-  })
-
-  it('T6b — the unclassified class row says so instead of rendering blank', () => {
-    // The bare "0" rows in the owner paste.
-    const t = tree({ units: [unit('a', null)], contacts: bands('a', 1) })
-    expect(t.groups[0].classes[0].label).toBe('not yet classified')
-    expect(t.groups[0].classes[0].label).not.toBe('')
-  })
-
-  it('T6c — two same-soil unclassified units are told apart by their source litho unit', () => {
-    const t = tree({
-      units: [
-        unit('k1', null, { litho_main_soil_code: 'KLEI' }),
-        unit('k2', null, { litho_main_soil_code: 'KLEI' }),
-      ],
-      contacts: [...bands('k1', 2), ...bands('k2', 2)],
-      sourceLithoNameById: new Map([
-        ['src-k1', 'CLAY | sandy'],
-        ['src-k2', 'CLAY | organic'],
-      ]),
-    })
-
-    const instances = t.groups[0].classes[0].instances
-    expect(instances.map(i => i.label)).toEqual([
-      'CLAY — not yet classified (CLAY | sandy)',
-      'CLAY — not yet classified (CLAY | organic)',
-    ])
-  })
-
-  it('T6d — a LONE unclassified unit gets no parenthetical (nothing to tell it apart from)', () => {
-    const t = tree({
-      units: [unit('k1', null, { litho_main_soil_code: 'KLEI' })],
-      contacts: bands('k1', 2),
-      sourceLithoNameById: new Map([['src-k1', 'CLAY | sandy']]),
-    })
-
-    expect(t.groups[0].classes[0].instances[0].label).toBe('CLAY — not yet classified')
-  })
-
-  it('T6e — the class row carries the NAD swatch colour, grey when there is no class', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('b', null)],
-      contacts: [...bands('a', 1), ...bands('b', 1)],
-    })
-
-    const [classed, unclassed] = t.groups[0].classes
-    expect(classed.color).toBe('#d4b84a')
-    expect(unclassed.color).toBe('#9ca3af')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T7 — ordering
-// ---------------------------------------------------------------------------
-
-describe('order (T7)', () => {
-  it('T7a — classes within a soil run in packing order, loosest first', () => {
-    const t = tree({
-      units: [unit('c', 8), unit('a', 5), unit('b', 7)],
-      contacts: [...bands('a', 1), ...bands('b', 1), ...bands('c', 1)],
-    })
-
-    expect(t.groups[0].classes.map(c => c.nadClass)).toEqual([5, 7, 8])
-  })
-
-  it('T7b — the unclassified row sits at the BOTTOM of its soil, after the packing sequence', () => {
-    const t = tree({
-      units: [unit('none', null), unit('a', 5), unit('b', 7)],
-      contacts: [...bands('none', 1), ...bands('a', 1), ...bands('b', 1)],
-    })
-
-    expect(t.groups[0].classes.map(c => c.nadClass)).toEqual([5, 7, null])
-  })
-
-  it('T7c — soil groups follow stratigraphic order (lowest display_order first)', () => {
-    const t = tree({
-      units: [
-        unit('k', 21, { litho_main_soil_code: 'KLEI', display_order: 5 }),
-        unit('s', 6, { display_order: 2 }),
-      ],
-      contacts: [...bands('k', 1), ...bands('s', 1)],
-    })
-
-    expect(t.groups.map(g => g.soil)).toEqual(['SAND', 'CLAY'])
-  })
-
-  it('T7d — instances inside a class follow the same stratigraphic order', () => {
-    const t = tree({
-      units: [unit('late', 6, { display_order: 9 }), unit('early', 6, { display_order: 1 })],
-      contacts: [...bands('late', 1), ...bands('early', 1)],
-    })
-
-    expect(t.groups[0].classes[0].instances.map(i => i.formationId)).toEqual(['early', 'late'])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T8 — the empty scene
-// ---------------------------------------------------------------------------
-
-describe('the empty scene (T8)', () => {
-  it('T8a — no units at all is an empty tree, not a crash', () => {
-    const t = tree({ units: [] })
-    expect(t.groups).toEqual([])
-    expect(t.unitCount).toBe(0)
-    expect(t.bandCount).toBe(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T10 — the crossed geological formations, listed as a class-row subtitle
-//
-// Owner ruling 2026-08-31 (R2): a body crossing two geological formations LISTS
-// them both, shallowest first — not a majority stamp. The units pane surfaces
-// that list as a subtitle on the class row; a class row standing for several
-// units unions their lists.
-// ---------------------------------------------------------------------------
-
-describe('a class row lists every geological formation its units cross (T10)', () => {
-  it('T10a — a class row standing for two units unions their crossed formations', () => {
-    const t = tree({
-      units: [unit('a', 6), unit('b', 6, { display_order: 1 })],
-      contacts: [...bands('a', 1), ...bands('b', 1)],
-      geoFormationNamesById: new Map([
-        ['a', ['Holoceen']],
-        ['b', ['Holoceen', 'Pleistoceen']],
-      ]),
-    })
-
-    // Union, deduped, shallowest-first order preserved (a's list, then b's new).
-    expect(t.groups[0].classes[0].geoFormations).toEqual(['Holoceen', 'Pleistoceen'])
-  })
-
-  it('T10b — a single-unit class row carries just that unit list', () => {
-    const t = tree({
-      units: [unit('a', 6)],
-      contacts: bands('a', 1),
-      geoFormationNamesById: new Map([['a', ['Pleistoceen']]]),
-    })
-
-    expect(t.groups[0].classes[0].geoFormations).toEqual(['Pleistoceen'])
-  })
-
-  it('T10c — with no crossed-formation map the subtitle is empty, never undefined', () => {
-    const t = tree({ units: [unit('a', 6)], contacts: bands('a', 1) })
-    expect(t.groups[0].classes[0].geoFormations).toEqual([])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// T11 — selectable BODY children (owner dogfeed 2026-09-01: "i can only see
-// packing but can't select the subbodies there"). The twin collapse emptied the
-// instance level; a class row now carries one child per GEOTECH BODY of that
-// class, so the engineer can select a specific mass.
-// ---------------------------------------------------------------------------
-
-/** ``n`` accepted layers stamped to a body, for its band count. */
+/** ``n`` accepted layers stamped to a geotech body — its leaf band count + badge. */
 function bodyLayers(
   formationId: string,
   bodyId: string,
   n: number,
+  confidence: 'low' | 'medium' | 'high' = 'high',
 ): GeotechUnitTreeInput['layers'] {
   return Array.from({ length: n }, () => ({
     formation_id: formationId,
-    confidence: 'high' as const,
+    confidence,
     body_id: bodyId,
     status: 'accepted' as const,
   }))
 }
 
-describe('a class row carries selectable body children (T11)', () => {
-  it('T11a — one child per body of the class, unified label + band count, ordinal order', () => {
+/** One geotech (packing) body. */
+function gbody(
+  id: string,
+  formationId: string,
+  ordinal: number,
+  overrides: Partial<{
+    parentLithoBodyId: string | null
+    name: string | null
+    geoFormations: readonly string[]
+  }> = {},
+): NonNullable<GeotechUnitTreeInput['bodies']>[number] {
+  return { id, formation_id: formationId, body_ordinal: ordinal, ...overrides }
+}
+
+/** One litho body roster entry (parent of a packing body). */
+function lbody(
+  formationId: string,
+  ordinal: number,
+  name: string | null = null,
+): { name: string | null; body_ordinal: number; formation_id: string } {
+  return { name, body_ordinal: ordinal, formation_id: formationId }
+}
+
+/** Build a tree from a scene, defaulting the parts a test does not care about. */
+function tree(input: Partial<GeotechUnitTreeInput> & Pick<GeotechUnitTreeInput, 'units'>) {
+  return buildGeotechUnitTree({ contacts: [], layers: [], ...input })
+}
+
+// ---------------------------------------------------------------------------
+// N1 — the three levels (the shape the owner named)
+// ---------------------------------------------------------------------------
+
+describe('the pane is soil ▸ litho body ▸ packing body (N1)', () => {
+  it('N1a — a soil with two disconnected litho bodies, each with a packing body', () => {
     const t = tree({
-      units: [unit('u', 6)], // SAND·MD (litho_main_soil_code defaults to ZAND → SAND)
-      contacts: bands('u', 3),
-      layers: [...bodyLayers('u', 'gbB', 1), ...bodyLayers('u', 'gbA', 2)],
-      bodies: [
-        { id: 'gbB', formation_id: 'u', body_ordinal: 1 },
-        { id: 'gbA', formation_id: 'u', body_ordinal: 0 },
+      units: [unit('u', 6)],
+      layers: [
+        ...bodyLayers('u', 'g0', 2),
+        ...bodyLayers('u', 'g1', 1),
       ],
-    })
-
-    const row = t.groups[0].classes[0]
-    // Ordered by ordinal, so gbA (#0) before gbB (#1).
-    expect(row.bodies.map(b => b.bodyId)).toEqual(['gbA', 'gbB'])
-    // The UNIFIED geotech-body vocabulary — soil + packing + ordinal.
-    expect(row.bodies.map(b => b.label)).toEqual(['SAND · MD #0', 'SAND · MD #1'])
-    // Band count = accepted layers stamped to each body.
-    expect(row.bodies.map(b => b.bandCount)).toEqual([2, 1])
-  })
-
-  it('T11b — a named body shows its name, not the auto label', () => {
-    const t = tree({
-      units: [unit('u', 6)],
-      contacts: bands('u', 1),
-      layers: bodyLayers('u', 'gbA', 1),
-      bodies: [{ id: 'gbA', formation_id: 'u', body_ordinal: 0, name: 'Channel sand' }],
-    })
-    expect(t.groups[0].classes[0].bodies[0].label).toBe('Channel sand')
-  })
-
-  it('T11c — the crossed-formations subtitle rides the body row', () => {
-    const t = tree({
-      units: [unit('u', 6)],
-      contacts: bands('u', 1),
-      layers: bodyLayers('u', 'gbA', 1),
       bodies: [
-        {
-          id: 'gbA',
-          formation_id: 'u',
-          body_ordinal: 0,
+        gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' }),
+        gbody('g1', 'u', 1, { parentLithoBodyId: 'lb1' }),
+      ],
+      lithoBodies: new Map([
+        ['lb0', lbody('lu', 0)],
+        ['lb1', lbody('lu', 1)],
+      ]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+
+    expect(t.groups.map(g => g.soil)).toEqual(['SAND'])
+    const l2 = t.groups[0].lithoBodies
+    expect(l2.map(n => n.lithoBodyId)).toEqual(['lb0', 'lb1'])
+    expect(l2[0].packingBodies.map(p => p.bodyId)).toEqual(['g0'])
+    expect(l2[1].packingBodies.map(p => p.bodyId)).toEqual(['g1'])
+  })
+
+  it('N1b — one litho body with two packing bodies of different classes', () => {
+    const t = tree({
+      units: [unit('sf', 13, { litho_main_soil_code: 'SILT' }), unit('ff', 15, { litho_main_soil_code: 'SILT', display_order: 1 })],
+      layers: [...bodyLayers('sf', 'g0', 1), ...bodyLayers('ff', 'g1', 1)],
+      bodies: [
+        gbody('g0', 'sf', 0, { parentLithoBodyId: 'lb0' }),
+        gbody('g1', 'ff', 1, { parentLithoBodyId: 'lb0' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SILT']]),
+    })
+
+    expect(t.groups[0].soil).toBe('SILT')
+    expect(t.groups[0].lithoBodies).toHaveLength(1)
+    expect(t.groups[0].lithoBodies[0].packingBodies.map(p => p.bodyId)).toEqual(['g0', 'g1'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N2 — the null-parent fallback bucket
+// ---------------------------------------------------------------------------
+
+describe('a packing body with no stamped litho parent is not dropped (N2)', () => {
+  it('N2a — a null parent_litho_body_id lands in an ungrouped bucket under its soil', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: null })],
+    })
+
+    expect(t.groups[0].soil).toBe('SAND')
+    const l2 = t.groups[0].lithoBodies
+    expect(l2).toHaveLength(1)
+    expect(l2[0].lithoBodyId).toBeNull()
+    expect(l2[0].packingBodies.map(p => p.bodyId)).toEqual(['g0'])
+  })
+
+  it('N2b — the ungrouped bucket sorts AFTER the stamped litho bodies', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [...bodyLayers('u', 'gstamped', 1), ...bodyLayers('u', 'gnull', 1)],
+      bodies: [
+        gbody('gnull', 'u', 0, { parentLithoBodyId: null }),
+        gbody('gstamped', 'u', 1, { parentLithoBodyId: 'lb0' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+
+    // Stamped litho body first, the null bucket last.
+    expect(t.groups[0].lithoBodies.map(n => n.lithoBodyId)).toEqual(['lb0', null])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N3 — packing-body leaf labels + band counts
+// ---------------------------------------------------------------------------
+
+describe('every packing body says what it is (N3)', () => {
+  it('N3a — auto label is soil + packing + ordinal, band count = accepted layers', () => {
+    const t = tree({
+      units: [unit('u', 6)], // ZAND + NAD 6 → SAND · MD
+      layers: [...bodyLayers('u', 'gA', 2), ...bodyLayers('u', 'gB', 1)],
+      bodies: [
+        gbody('gB', 'u', 1, { parentLithoBodyId: 'lb0' }),
+        gbody('gA', 'u', 0, { parentLithoBodyId: 'lb0' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+
+    const packing = t.groups[0].lithoBodies[0].packingBodies
+    // Ordinal order: gA (#0) then gB (#1).
+    expect(packing.map(p => p.label)).toEqual(['SAND · MD #0', 'SAND · MD #1'])
+    expect(packing.map(p => p.bandCount)).toEqual([2, 1])
+  })
+
+  it('N3b — a named packing body shows its name, not the auto label', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'gA', 1),
+      bodies: [gbody('gA', 'u', 0, { parentLithoBodyId: 'lb0', name: 'Channel sand' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.groups[0].lithoBodies[0].packingBodies[0].label).toBe('Channel sand')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N4 — litho-body (L2) labels, matching the CS jump breadcrumb (D5)
+// ---------------------------------------------------------------------------
+
+describe('the litho body reads the way it does everywhere else (N4)', () => {
+  it('N4a — an unnamed litho body reads "<unit> · #<ordinal>"', () => {
+    const t = tree({
+      units: [unit('u', 13, { litho_main_soil_code: 'SILT' })],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 3)]]),
+      lithoUnitNameById: new Map([['lu', 'SILT']]),
+    })
+    expect(t.groups[0].lithoBodies[0].label).toBe('SILT · #3')
+  })
+
+  it('N4b — a named litho body shows its name', () => {
+    const t = tree({
+      units: [unit('u', 13, { litho_main_soil_code: 'SILT' })],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0, 'Upper silt')]]),
+      lithoUnitNameById: new Map([['lu', 'SILT']]),
+    })
+    expect(t.groups[0].lithoBodies[0].label).toBe('Upper silt')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N5 — ordering
+// ---------------------------------------------------------------------------
+
+describe('order (N5)', () => {
+  it('N5a — packing bodies within a litho body run in ordinal order', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [...bodyLayers('u', 'late', 1), ...bodyLayers('u', 'early', 1)],
+      bodies: [
+        gbody('late', 'u', 9, { parentLithoBodyId: 'lb0' }),
+        gbody('early', 'u', 1, { parentLithoBodyId: 'lb0' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.groups[0].lithoBodies[0].packingBodies.map(p => p.bodyId)).toEqual(['early', 'late'])
+  })
+
+  it('N5b — litho bodies run in litho ordinal order', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [...bodyLayers('u', 'g0', 1), ...bodyLayers('u', 'g1', 1)],
+      bodies: [
+        gbody('g0', 'u', 0, { parentLithoBodyId: 'lbLate' }),
+        gbody('g1', 'u', 1, { parentLithoBodyId: 'lbEarly' }),
+      ],
+      lithoBodies: new Map([
+        ['lbLate', lbody('lu', 7)],
+        ['lbEarly', lbody('lu', 2)],
+      ]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.groups[0].lithoBodies.map(n => n.lithoBodyId)).toEqual(['lbEarly', 'lbLate'])
+  })
+
+  it('N5c — soil groups follow stratigraphic order (lowest display_order first)', () => {
+    const t = tree({
+      units: [
+        unit('k', 21, { litho_main_soil_code: 'KLEI', display_order: 5 }),
+        unit('s', 6, { display_order: 2 }),
+      ],
+      layers: [...bodyLayers('k', 'gk', 1), ...bodyLayers('s', 'gs', 1)],
+      bodies: [
+        gbody('gk', 'k', 0, { parentLithoBodyId: 'lbk' }),
+        gbody('gs', 's', 0, { parentLithoBodyId: 'lbs' }),
+      ],
+      lithoBodies: new Map([
+        ['lbk', lbody('luk', 0)],
+        ['lbs', lbody('lus', 0)],
+      ]),
+      lithoUnitNameById: new Map([['luk', 'CLAY'], ['lus', 'SAND']]),
+    })
+    expect(t.groups.map(g => g.soil)).toEqual(['SAND', 'CLAY'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N6 — badges ride the packing-body leaf (per-body precision)
+// ---------------------------------------------------------------------------
+
+describe('badges are per packing body (N6)', () => {
+  it('N6a — a body with a low fallback layer reads partial / low', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [...bodyLayers('u', 'g0', 2, 'high'), ...bodyLayers('u', 'g0', 1, 'low')],
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    const leaf = t.groups[0].lithoBodies[0].packingBodies[0]
+    expect(leaf.provenance).toBe('partial')
+    expect(leaf.confidence).toBe('low')
+  })
+
+  it('N6b — an all-cone body reads cpt / high', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'g0', 3, 'high'),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    const leaf = t.groups[0].lithoBodies[0].packingBodies[0]
+    expect(leaf.provenance).toBe('cpt')
+    expect(leaf.confidence).toBe('high')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N6R — the litho body rolls up its packing bodies for the collapsed view
+// (ux-reviewer 2026-09-01: collapsing must not hide the "No CPT" signal)
+// ---------------------------------------------------------------------------
+
+describe('the litho body rolls up worst provenance / confidence (N6R)', () => {
+  it('N6R-a — worst provenance + confidence + a representative class on the node', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [...bodyLayers('u', 'g0', 2, 'high'), ...bodyLayers('u', 'g1', 1, 'low')],
+      bodies: [
+        gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' }),
+        gbody('g1', 'u', 1, { parentLithoBodyId: 'lb0' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    const node = t.groups[0].lithoBodies[0]
+    // g0 is cpt/high, g1 is none/low (a lone low layer never saw a cone).
+    expect(node.provenance).toBe('none')
+    expect(node.confidence).toBe('low')
+    expect(node.nadClass).toBe(6)
+  })
+
+  it('N6R-b — a packing body carries a unit-level label (soil + packing, no ordinal)', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.groups[0].lithoBodies[0].packingBodies[0].unitLabel).toBe('SAND · MD')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N7 — the crossed geological formations ride the leaf (R2)
+// ---------------------------------------------------------------------------
+
+describe('the crossed-formations list rides the packing body (N7)', () => {
+  it('N7a — a body carries its own geoFormations, shallowest first', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [
+        gbody('g0', 'u', 0, {
+          parentLithoBodyId: 'lb0',
           geoFormations: ['Quartair', 'Pleistoceen'],
-        },
+        }),
       ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
     })
-    expect(t.groups[0].classes[0].bodies[0].geoFormations).toEqual(['Quartair', 'Pleistoceen'])
+    expect(t.groups[0].lithoBodies[0].packingBodies[0].geoFormations).toEqual([
+      'Quartair',
+      'Pleistoceen',
+    ])
   })
 
-  it('T11d — no bodies supplied → an empty child list, never undefined', () => {
-    const t = tree({ units: [unit('u', 6)], contacts: bands('u', 1) })
-    expect(t.groups[0].classes[0].bodies).toEqual([])
+  it('N7b — a body with no crossed formations reports an empty list, never undefined', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.groups[0].lithoBodies[0].packingBodies[0].geoFormations).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N8 — the manual-group number rides the leaf (D4)
+// ---------------------------------------------------------------------------
+
+describe('a grouped packing body carries its group number (N8)', () => {
+  it('N8a — a body in a multi-member group gets the number; a singleton gets null', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [...bodyLayers('u', 'g0', 1), ...bodyLayers('u', 'g1', 1)],
+      bodies: [
+        gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' }),
+        gbody('g1', 'u', 1, { parentLithoBodyId: 'lb1' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)], ['lb1', lbody('lu', 1)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+      groupByBodyId: new Map([['g0', 1]]),
+    })
+    expect(t.groups[0].lithoBodies[0].packingBodies[0].groupNumber).toBe(1)
+    expect(t.groups[0].lithoBodies[1].packingBodies[0].groupNumber).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N9 — the picked colour rides the leaf (owner ruling 2026-08-26)
+// ---------------------------------------------------------------------------
+
+describe('the packing body draws its picked colour, else the NAD colour (N9)', () => {
+  it('N9a — a body whose unit was given a colour draws it and reports the override', () => {
+    const t = tree({
+      units: [unit('u', 6, { color_override: '#ff00ff' })],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    const leaf = t.groups[0].lithoBodies[0].packingBodies[0]
+    expect(leaf.color).toBe('#ff00ff')
+    expect(leaf.colorOverride).toBe('#ff00ff')
+    // The leaf names the home unit an edit must write to.
+    expect(leaf.unitId).toBe('u')
+  })
+
+  it('N9b — with nobody having picked, the leaf draws its NAD colour and offers no reset', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('u', 'g0', 1),
+      bodies: [gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    const leaf = t.groups[0].lithoBodies[0].packingBodies[0]
+    expect(leaf.color).toBe(nadClassColor(6))
+    expect(leaf.colorOverride).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N10 — band-count roll-up
+// ---------------------------------------------------------------------------
+
+describe('band counts roll up leaf → litho body → soil (N10)', () => {
+  it('N10a — a litho body sums its packing bodies; the soil sums its litho bodies', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: [
+        ...bodyLayers('u', 'g0', 4),
+        ...bodyLayers('u', 'g1', 3),
+        ...bodyLayers('u', 'g2', 2),
+      ],
+      bodies: [
+        gbody('g0', 'u', 0, { parentLithoBodyId: 'lb0' }),
+        gbody('g1', 'u', 1, { parentLithoBodyId: 'lb0' }),
+        gbody('g2', 'u', 2, { parentLithoBodyId: 'lb1' }),
+      ],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)], ['lb1', lbody('lu', 1)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.groups[0].lithoBodies[0].bandCount).toBe(7)
+    expect(t.groups[0].lithoBodies[1].bandCount).toBe(2)
+    expect(t.groups[0].bandCount).toBe(9)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N11 — the header counters describe the geotech units (unchanged)
+// ---------------------------------------------------------------------------
+
+describe('the header counts the units with content (N11)', () => {
+  it('N11a — a unit with no bands and no layers is not counted', () => {
+    const t = tree({
+      units: [unit('a', 6), unit('empty', 7)],
+      contacts: bands('a', 12),
+      layers: bodyLayers('a', 'g0', 3),
+      bodies: [gbody('g0', 'a', 0, { parentLithoBodyId: 'lb0' })],
+      lithoBodies: new Map([['lb0', lbody('lu', 0)]]),
+      lithoUnitNameById: new Map([['lu', 'SAND']]),
+    })
+    expect(t.unitCount).toBe(1)
+    expect(t.bandCount).toBe(12)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// N12 — the empty scene
+// ---------------------------------------------------------------------------
+
+describe('the empty scene (N12)', () => {
+  it('N12a — no units at all is an empty tree, not a crash', () => {
+    const t = tree({ units: [] })
+    expect(t.groups).toEqual([])
+    expect(t.unitCount).toBe(0)
+    expect(t.bandCount).toBe(0)
+  })
+
+  it('N12b — units but no bodies yet yields no soil groups (body-driven tree)', () => {
+    const t = tree({ units: [unit('u', 6)], contacts: bands('u', 3) })
+    expect(t.groups).toEqual([])
+    // The header still reports the unit as having content.
+    expect(t.unitCount).toBe(1)
+  })
+
+  it('N12c — a body whose home unit is absent is skipped, not crashed on', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      layers: bodyLayers('ghost', 'g0', 1),
+      bodies: [gbody('g0', 'ghost', 0, { parentLithoBodyId: 'lb0' })],
+    })
+    expect(t.groups).toEqual([])
   })
 })
