@@ -12,13 +12,16 @@ engineer can state "this body IS the same as that body" and have the resolver
 honour it. A union is a must-link constraint in LAYER-id space; the resolver reads
 it and merges the two anchors even when no edge connects them.
 
-Two guards are enforced at WRITE time so a bad union never reaches the table:
+One guard is enforced at WRITE time so a bad union never reaches the table:
 
 * **Never a mixed body** (``body_union_cross_class``, 422): the two anchors must
   describe one mass — the SAME ``same_mass`` predicate the resolver applies to
   an edge, reused here so the write guard cannot diverge from the resolve.
-* **Cannot-link wins** (``body_union_contradicts_separation``, 422): a union of a
-  pair a standing separation keeps apart is refused, naming that separation.
+
+Owner 2026-09-01: the Separate / Rejoin verbs were removed and ``body_separation``
+is DORMANT, so the former cannot-link pre-check (``body_union_contradicts_separation``,
+422) was deleted — a leftover separation row must never refuse a Join. The
+resolver ignores ``separations`` too, so a union always unions.
 
 Both write endpoints run the body resolver in the SAME request, under the model's
 body-partition lock, so the merge (or split) is durable even if the frontend dies
@@ -54,7 +57,6 @@ from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.resolve_litho_instances import LayerNode, same_mass
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
-from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
 from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
@@ -224,51 +226,11 @@ async def create_body_union(
             },
         )
 
-    # Cannot-link wins: refuse a union of a pair a standing separation keeps
-    # apart. A separation contradicts THIS join when its two sides currently
-    # stamp exactly onto the two DISTINCT bodies being joined.
-    body_x, body_y = row_a.body_id, row_b.body_id
-    if body_x is not None and body_y is not None and body_x != body_y:
-        separations = list(
-            (
-                await session.execute(
-                    select(BodySeparationOrm).where(BodySeparationOrm.model_id == model_id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        if separations:
-            sep_side_ids = {s.layer_a_id for s in separations} | {s.layer_b_id for s in separations}
-            side_body = {
-                r.id: r.body_id
-                for r in (
-                    await session.execute(
-                        select(LithoLayerOrm.id, LithoLayerOrm.body_id).where(
-                            LithoLayerOrm.id.in_(sep_side_ids)
-                        )
-                    )
-                ).all()
-            }
-            target_bodies = {body_x, body_y}
-            for sep in separations:
-                sa = side_body.get(sep.layer_a_id)
-                sb = side_body.get(sep.layer_b_id)
-                if sa is not None and sb is not None and {sa, sb} == target_bodies:
-                    labels = await _body_labels(session, {body_x, body_y})
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail={
-                            "code": "body_union_contradicts_separation",
-                            "message": (
-                                "These two bodies are held apart by a standing separation — "
-                                "rejoin them by removing that separation first."
-                            ),
-                            "separation_id": str(sep.id),
-                            "body_a_label": labels.get(body_x),
-                            "body_b_label": labels.get(body_y),
-                        },
-                    )
+    # Owner 2026-09-01: the former cannot-link pre-check
+    # (``body_union_contradicts_separation``, 422) was removed here. The Separate
+    # verb is gone and ``body_separation`` is dormant — a leftover separation row
+    # must never refuse a Join — so this endpoint no longer reads separations, and
+    # the resolver ignores them too (a union always unions).
 
     # Take the partition lock now (after validation) so the find-or-create below
     # is serialised against a concurrent create of the same pair — two would
@@ -316,11 +278,13 @@ async def create_body_union(
         result = await ResolveLithoInstances(session).execute(model_id=model_id, commit=True)
         bodies_changed = len(result.updated)
         renamed = result.renamed
-        # Surface the resolver's ground truth for THIS pair: the write-time guards
-        # normally refuse a contradicting (suppressed) or cross-class (inert) join
-        # 422, so these are the backstop for the cases they cannot see (e.g. an
-        # anchor whose body_id was not stamped when the guard ran). Without them a
-        # join that did nothing reads as ``was_created: true, bodies_changed: 0``.
+        # Surface the resolver's ground truth for THIS pair: the write-time
+        # cross-class guard refuses an inert join with a 422, so ``inert`` is the
+        # backstop for the case it cannot see (an anchor whose body_id was not
+        # stamped when the guard ran). Without it a join that did nothing reads as
+        # ``was_created: true, bodies_changed: 0``. ``suppressed`` is now always
+        # False — separations are dormant (owner 2026-09-01), so the resolver never
+        # suppresses a union — but the field is kept as a defensive backstop.
         pair = (layer_a_id, layer_b_id)
         suppressed = pair in result.suppressed_unions
         inert = pair in result.inert_unions
@@ -530,32 +494,3 @@ async def delete_body_union(
         suppressed_unions=len(result.suppressed_unions),
         inert_unions=len(result.inert_unions),
     )
-
-
-async def _body_labels(session: AsyncSession, body_ids: set[UUID]) -> dict[UUID, str]:
-    """Map body ids to a human label (the user name, else a "#ordinal" fallback).
-
-    Used only to name the two bodies in a ``body_union_contradicts_separation``
-    422 detail, so the engineer can see WHICH two bodies the standing separation
-    keeps apart.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active session.
-    body_ids : set[UUID]
-        The bodies to label.
-
-    Returns
-    -------
-    dict[UUID, str]
-        body id -> display label.
-    """
-    if not body_ids:
-        return {}
-    rows = (
-        await session.execute(
-            select(BodyOrm.id, BodyOrm.name, BodyOrm.body_ordinal).where(BodyOrm.id.in_(body_ids))
-        )
-    ).all()
-    return {r.id: (r.name if r.name else f"#{r.body_ordinal}") for r in rows}
