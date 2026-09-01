@@ -11,12 +11,26 @@ import { resolveRegionBodyId } from './regionBodyId'
 
 /** One clicked-region outcome while a Separate is armed. */
 export type SeparatePick =
-  /** The region belongs to the SAME body — a self-separation, refused; stay armed. */
-  | { kind: 'same' }
   /** No single body could be resolved (fallback paint, several bodies, or none); stay armed. */
   | { kind: 'unresolvable' }
-  /** A distinct body resolved — commit the separation between these two anchors. */
-  | { kind: 'commit'; anchorLayerId: string; targetAnchorLayerId: string }
+  /**
+   * The clicked region resolves to the SAME single layer as the armed anchor — a
+   * one-region body armed then clicked on its own patch. Both separation anchors
+   * would be that one layer (anchor == target), which the backend 422s, so this
+   * is a no-op: advise the engineer to click a different part and stay armed.
+   */
+  | { kind: 'self-anchor' }
+  /**
+   * A body resolved — commit the separation between these two anchors. ``sameBody``
+   * distinguishes the two commit cases so the toast can be honest:
+   *
+   * * ``true`` — the picked region is the SAME body as the arm: two anchors inside
+   *   one component, which the backend cuts into two bodies (the split case, the
+   *   PRIMARY use after the identity merges leave visually-distinct masses sharing
+   *   one row — owner dogfeed 2026-09-01);
+   * * ``false`` — a DIFFERENT body: a durable cannot-link so the two never re-union.
+   */
+  | { kind: 'commit'; anchorLayerId: string; targetAnchorLayerId: string; sameBody: boolean }
 
 /**
  * The first of ``layerIds`` whose ``body_id`` stamp equals ``bodyId``, or ``null``.
@@ -52,10 +66,14 @@ export function firstLayerStampedToBody(
 /**
  * Classify a clicked region against the armed body.
  *
- * Rules (ruling's own words: "click the other body → the two are never one body
- * again"): a DIFFERENT resolved body commits; the SAME body, or a region that
- * resolves to no single body, stays armed rather than commit a nonsense
- * separation.
+ * Rules (owner dogfeed 2026-09-01): a resolved body — SAME or DIFFERENT —
+ * COMMITS; only a region that resolves to no single body stays armed. A
+ * SAME-body pick is the SPLIT case (two anchors inside one component, cut by the
+ * backend); a DIFFERENT-body pick is a durable keep-apart. The ``sameBody`` flag
+ * on the commit carries which, for the toast copy — the backend accepts both
+ * (same-body anchors are the split it performs). The one commit it must NOT make
+ * is anchor == target (a one-region body clicked on its own patch) — that 422s,
+ * so it returns ``self-anchor`` and stays armed.
  *
  * Parameters
  * ----------
@@ -69,8 +87,9 @@ export function firstLayerStampedToBody(
  * Returns
  * -------
  * SeparatePick
- *     ``commit`` with both anchors when a distinct body resolves; ``same`` /
- *     ``unresolvable`` otherwise (both keep the arm live).
+ *     ``commit`` (with ``sameBody``) when a distinct anchor resolves;
+ *     ``self-anchor`` when the region resolves to the armed anchor itself;
+ *     ``unresolvable`` when no single body resolves (both keep the arm live).
  */
 export function resolveSeparatePick(
   arm: { bodyId: string; anchorLayerId: string },
@@ -79,10 +98,17 @@ export function resolveSeparatePick(
 ): SeparatePick {
   const targetBodyId = resolveRegionBodyId(regionLayerIds, bodyIdByLayerId)
   if (targetBodyId === null) return { kind: 'unresolvable' }
-  if (targetBodyId === arm.bodyId) return { kind: 'same' }
   const targetAnchorLayerId = firstLayerStampedToBody(regionLayerIds, targetBodyId, bodyIdByLayerId)
   // resolveRegionBodyId already proved one layer carries this body, so the
   // anchor lookup cannot miss — the guard keeps the type honest, not the logic.
   if (targetAnchorLayerId === null) return { kind: 'unresolvable' }
-  return { kind: 'commit', anchorLayerId: arm.anchorLayerId, targetAnchorLayerId }
+  // Same single layer at both ends (a one-region body armed then clicked on its
+  // own patch): the backend 422s on anchor == target. A no-op — advise, stay armed.
+  if (targetAnchorLayerId === arm.anchorLayerId) return { kind: 'self-anchor' }
+  return {
+    kind: 'commit',
+    anchorLayerId: arm.anchorLayerId,
+    targetAnchorLayerId,
+    sameBody: targetBodyId === arm.bodyId,
+  }
 }
