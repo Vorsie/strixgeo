@@ -95,6 +95,13 @@ export interface GapFillInput {
    * as an onlap does, and the bar must say so).
    */
   closureBars: ReadonlyMap<string, readonly number[]>
+  /**
+   * The engineer's "Separate" rulings on the GEOTECH axis, as canonical ``a|b``
+   * band-layer-id pairs (owner 2026-08-31, debt #278 R5). Threaded into the merge so two
+   * same-class band faces the engineer split do NOT weld — the seam appears. Absent /
+   * empty leaves the fill byte-identical to the unconstrained merge.
+   */
+  separatedPairs?: ReadonlySet<string>
 }
 
 /** What one gap produced. */
@@ -849,7 +856,12 @@ export function fillGap(input: GapFillInput): GapFillResult {
   }
 
   // ---------------------------------------------------------------- MERGE --
-  const covered = mergeFaces(labelled).map(({ label, members, ring }) => {
+  const covered = mergeFaces(labelled, {
+    // A band face carries its own single drilled layer id; the separation names two
+    // such ids, so two same-class faces the engineer split stay two regions here.
+    layerIdsOf: (band) => [band.layerId],
+    separatedPairs: input.separatedPairs,
+  }).map(({ label, members, ring }) => {
     // WHOSE PAINT IS THIS? Every band of the same mass whose own ground the
     // region covers at that band's own test. One mass welded across a gap is one
     // region — *"it becomes one body"* — and both tests' bands are that body, so
