@@ -1497,7 +1497,12 @@ export default function SectionsCanvas(): JSX.Element {
           // rows. Kept honest rather than falsely claiming success.
           toast('warning', t('sections.join.blockedSeparation'), 'join-arm-notice')
         } else if (result.inert) {
-          toast('warning', t('sections.join.crossClass'), 'join-arm-notice')
+          // Defensive backstop: the write-time cross-class guard already 422s a
+          // mixed join, so a CREATED-but-inert union means the resolver merged
+          // nothing (an anchor whose body_id was not stamped when the guard ran),
+          // NOT a class mismatch — the guard proved same-mass before the insert.
+          // So this is "the join had no effect", never the cross-class copy.
+          toast('warning', t('sections.join.failed'), 'join-arm-notice')
         } else {
           // Reversible action → name the undo path (docs/ux.md).
           toast('success', t('sections.join.success'))
@@ -1550,11 +1555,17 @@ export default function SectionsCanvas(): JSX.Element {
   // advisory pre-empts the round-trip that the backend would 422 anyway.
   const handleJoinNotice = useCallback(
     (notice: JoinNotice): void => {
+      // The cross-class advisory splits by WHAT differs (owner ruling 2026-09-01),
+      // sharing the two commit-toast strings: a packing difference vs a lithology
+      // difference. Same copy, whether the refusal is pre-empted here (arm advisory)
+      // or comes back as a 422 (joinErrorToastKey).
       const message =
         notice.kind === 'same'
           ? t('sections.join.noticeSame')
           : notice.kind === 'cross-class'
-            ? t('sections.join.noticeCrossClass', { classA: notice.classA, classB: notice.classB })
+            ? notice.differ === 'packing'
+              ? t('sections.join.crossPacking')
+              : t('sections.join.crossLitho')
             : t('sections.join.noticeUnresolvable')
       toast('warning', message, 'join-arm-notice')
     },
