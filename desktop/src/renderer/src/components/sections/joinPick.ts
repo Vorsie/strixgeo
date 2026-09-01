@@ -51,10 +51,13 @@ export type JoinPick =
   /** No single body could be resolved (fallback paint, several bodies, or none); stay armed. */
   | { kind: 'unresolvable' }
   /**
-   * A distinct body resolved but it is a DIFFERENT packing class — never one mass,
-   * so the join is refused. Carries both class labels for the advisory toast.
+   * A distinct body resolved but it is a DIFFERENT mass — never one body, so the
+   * join is refused. ``differ`` names WHAT differs so the advisory picks the right
+   * copy (owner ruling 2026-09-01): ``'packing'`` when the two share a soil but
+   * carry different NAD packing classes, ``'litho'`` when the soils themselves
+   * differ (or a soil is unknown — the broader statement wins).
    */
-  | { kind: 'cross-class'; classA: string; classB: string }
+  | { kind: 'cross-class'; differ: 'packing' | 'litho' }
   /** A distinct SAME-class body resolved — commit the join between these two anchors. */
   | { kind: 'commit'; anchorLayerId: string; targetAnchorLayerId: string }
 
@@ -83,6 +86,11 @@ export type JoinNotice = Exclude<JoinPick, { kind: 'commit' }>
  * classByLayerId
  *     ``litho_layer id → packing-class label`` over the axis's own layer list,
  *     for the cross-class guard. A missing entry is silence, not a mismatch.
+ * soilByLayerId
+ *     ``litho_layer id → soil code`` over the axis's own layer list, for splitting
+ *     a cross-class refusal into a packing-vs-lithology advisory (owner ruling
+ *     2026-09-01). Optional: when absent / a soil is unknown, a cross-class refusal
+ *     reports ``differ: 'litho'`` (the broader statement).
  *
  * Returns
  * -------
@@ -95,6 +103,7 @@ export function resolveJoinPick(
   regionLayerIds: readonly string[] | undefined,
   bodyIdByLayerId: ReadonlyMap<string, string | null>,
   classByLayerId: ReadonlyMap<string, string>,
+  soilByLayerId?: ReadonlyMap<string, string>,
 ): JoinPick {
   const targetBodyId = resolveRegionBodyId(regionLayerIds, bodyIdByLayerId)
   if (targetBodyId === null) return { kind: 'unresolvable' }
@@ -106,7 +115,13 @@ export function resolveJoinPick(
   const classA = classByLayerId.get(arm.anchorLayerId)
   const classB = classByLayerId.get(targetAnchorLayerId)
   if (classA !== undefined && classB !== undefined && classA !== classB) {
-    return { kind: 'cross-class', classA, classB }
+    // The classes differ, so this is not one mass — refuse. WHAT differs decides
+    // the advisory copy: a shared soil means only the packing class differs; a
+    // different (or unknown) soil is a lithology difference.
+    const soilA = soilByLayerId?.get(arm.anchorLayerId)
+    const soilB = soilByLayerId?.get(targetAnchorLayerId)
+    const differ = soilA !== undefined && soilA === soilB ? 'packing' : 'litho'
+    return { kind: 'cross-class', differ }
   }
   return { kind: 'commit', anchorLayerId: arm.anchorLayerId, targetAnchorLayerId }
 }
