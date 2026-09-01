@@ -113,6 +113,7 @@ from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
     LithoBuildGenerationOrm,
 )
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
+from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
 from groundmodel.shared.timing import phase_timer
 
 _BUILD_CPU_LOCK = asyncio.Lock()
@@ -514,6 +515,28 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             f"gapless_2d_clauses={len(gapless_2d) if gapless_2d else 0}"
         )
         t_total = time.perf_counter()
+
+        # --- Heal the geotech parent links from the FINAL litho geometry -------
+        # Owner 2026-09-01: the parent links (a band's covering litho band, a
+        # body's litho parent) must be derived at the LAST whole-model operation,
+        # not at Divide/subdivide (which precede the final edits) or the recompute
+        # (which runs before the litho/geotech builds). The geotech Build is that
+        # operation — and because it deliberately does NOT run the resolver (the
+        # payload's body_id already reflects the resolved state), it must heal
+        # both links itself:
+        #   1. re-derive every accepted band's parent_litho_layer_id (midpoint
+        #      rule, overwrite, idempotent), then
+        #   2. re-stamp every body's parent_litho_body_id from the just-re-derived
+        #      band FKs (shallowest covered member), mirroring the resolver's
+        #      step-5b/6 rule without running it.
+        # Both are geotech-only no-ops on a litho model. Done at the TOP, before
+        # any early return, so a heal is never lost on the "nothing to build" or
+        # checksum-skip paths — every geotech Build press leaves the links current.
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is not None and model.kind == MODEL_KIND_GEOTECHNICAL:
+            heal_repo = LithoLayerRepository(self._session)
+            await heal_repo.rederive_geotech_parent_litho_layers(model_id)
+            await heal_repo.restamp_geotech_parent_litho_bodies(model_id)
 
         if not sections:
             self.warning(f"BuildVoxelLithoModel: model={model_id} — no sections; clearing cache")
