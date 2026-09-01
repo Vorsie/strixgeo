@@ -306,7 +306,8 @@ export const MODELS = {
   // -------------------------------------------------------------------------
   'geotech.units': 'Geotech units',
   'geotech.unitsFull': 'Geotechnical units',
-  'geotech.nadUnits': 'Geotechnical NAD units',
+  // The L1 list is soil groups now, not NAD-class rows (owner ruling 2026-08-31).
+  'geotech.soilGroups': 'Geotechnical soil groups',
   'geotech.noUnits': 'No geotech units yet',
   'geotech.noBodyModel': 'No geotech body model yet',
   'geotech.noLithoModel': 'No lithostratigraphic model yet',
@@ -359,23 +360,28 @@ export const MODELS = {
   'geotech.reSubdivideAltEm': 'without',
   'geotech.reSubdivideAltPost':
     'losing your own, cancel and use Correlate packing → Auto-correlate instead.',
-  // Geotech units roster (right pane).
+  // Geotech units roster (right pane) — soil ▸ litho body ▸ packing body
+  // (owner ruling 2026-08-31 walk interview).
   'geotech.unitsWithBands': '{count} with bands',
   'geotech.collapseSoil': 'Collapse this soil',
   'geotech.expandSoil': 'Expand this soil',
-  // The class-row expander reveals the unit instances OR the selectable body
-  // children (owner dogfeed 2026-09-01) — the tooltip names whichever it opens.
-  'geotech.collapseClassChildren': 'Collapse this class',
-  'geotech.expandClassUnits': 'Show the {count} units carrying this class',
-  'geotech.expandClassBodies': 'Show the bodies in this class',
+  'geotech.collapseLithoBody': 'Collapse this litho body',
+  'geotech.expandLithoBody': 'Expand this litho body',
+  // A packing body whose parent litho body is not yet stamped falls in this
+  // bucket rather than being dropped. Named for the CAUSE (no litho parent yet,
+  // clears on the next recompute) — NOT "Ungrouped", which would collide with the
+  // manual "(group N)" Join vocabulary on the same leaves (ux-reviewer 2026-09-01).
+  'geotech.noLithoBody': 'No litho body',
+  // The manual-group tag on a packing body joined into a group (debt #278 D4).
+  // FLAG: owner-confirmable — "(group N)" vs "(group 1)" placement.
+  'geotech.groupTag': '(group {count})',
+  'geotech.soilBodies': '{soil} litho bodies',
+  'geotech.packingBodiesIn': 'Packing bodies in {label}',
   'geotech.bandLabel': '{count} band',
   'geotech.bandsLabel': '{count} bands',
-  'geotech.soilClasses': '{soil} classes',
   'geotech.contactLabel': '{count} contact in this model',
   'geotech.contactsLabel': '{count} contacts in this model',
   'geotech.chooseColor': '{color} — click to choose a colour for this unit',
   'geotech.colorForUnit': 'Colour for {label}',
-  'geotech.unitsCarryClass': '{count} separate units carry this class',
-  'geotech.unitsClassed': 'Units classed {label}',
   'geotech.sampleSource': 'Sample source:',
 } as const
