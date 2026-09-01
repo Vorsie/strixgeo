@@ -12,7 +12,10 @@ import { FlaskConical } from 'lucide-react'
 import { api } from '../../../api/client'
 import { log } from '../../../utils/log'
 import { nadClassName } from '../../../utils/nadClasses'
-import { useGeotechBodySelection } from '../../../utils/geotechBodySelectionStore'
+import {
+  toggleGeotechBodySelection,
+  useGeotechBodySelection,
+} from '../../../utils/geotechBodySelectionStore'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
@@ -145,6 +148,11 @@ export default function GeotechnicalInspector(): JSX.Element {
           geotechBodies={geotechBodies}
           onPickColor={handlePickUnitColor}
           selectedFormationId={selectedFormation?.id ?? null}
+          // Selecting a body child mirrors the sample-dot gesture — the same
+          // geotech-body selection the section fade + this inspector's readout
+          // read (owner dogfeed 2026-09-01). Toggle, so a second click clears it.
+          selectedBodyId={bodySelection?.bodyId ?? null}
+          onSelectBody={bodyId => toggleGeotechBodySelection(bodyId, null)}
         />
       )}
 
