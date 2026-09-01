@@ -4,12 +4,18 @@ Since R1 (owner 2026-08-31, debt #278) the geotech model stores one
 geological_formation ROW per (NAD packing class, litho parent) — the GEOLOGICAL
 parent is a live-derived LABEL, not identity, so a litho unit spanning a
 geological boundary keeps ONE row. Owner ruling 2026-08-21 (*"yes one mass one
-body"*): two regions of the same class tied together are ONE mass and one body.
-This module writes down the row → class translation once (still robust to legacy
-pre-R1 geo-label twins — two rows of one class collapse to one key), so the
-cross-section body merge
-(:func:`~groundmodel.domain.services.voxel_litho.merge_bodies_across_sections.plan_body_aliases`
-and :func:`...plan_layer_groups`) compares the same identity the 2-D fill does.
+body"*): in the 3-D voxel PAINT, two regions of the same class are ONE mass and
+one body. This module writes down the row → class translation once (still robust
+to legacy pre-R1 geo-label twins — two rows of one class collapse to one key),
+so the cross-section body merge for the voxel paint
+(:func:`~groundmodel.domain.services.voxel_litho.merge_bodies_across_sections.plan_body_aliases`)
+compares the same identity the 2-D fill does.
+
+NOTE this collapse feeds the 3-D voxel PAINT path ONLY. The persisted body
+IDENTITY engine (``plan_layer_groups`` / the recompute) went permanently
+granular (owner 2026-09-01) and takes NO key — it keys on the raw formation
+row, so same-class masses under different rows stay distinct bodies. The
+divergence is deliberate.
 
 This is the domain twin of the frontend
 ``desktop/src/renderer/src/utils/geotechHierarchicalFill/packingClassOf.ts``
