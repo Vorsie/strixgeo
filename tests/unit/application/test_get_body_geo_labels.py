@@ -18,6 +18,8 @@ from groundmodel.application.get_body_geo_labels import BodyGeoLabel, GetBodyGeo
 
 MODEL_ID: UUID = uuid4()
 GEO_MODEL_ID: UUID = uuid4()
+LITHO_MODEL_ID: UUID = uuid4()
+GEOTECH_MODEL_ID: UUID = uuid4()
 BODY_ID: UUID = uuid4()
 INV_ID: UUID = uuid4()
 GEO_FID: UUID = uuid4()
@@ -103,6 +105,46 @@ async def test_unresolvable_body_maps_to_none_none() -> None:
 
     assert labels == {BODY_ID: BodyGeoLabel(None, None, [])}
     assert session.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_geotech_model_walks_two_hops_to_the_geological_model() -> None:
+    """A GEOTECH model resolves its labels against the geological GRANDPARENT.
+
+    The parent chain is geological <- lithostratigraphic <- geotechnical, so a
+    geotech model's parent is the LITHO model, not the geological model. Reading
+    the geotech model's OWN ``parent_model_id`` as the geological model (the bug)
+    queried contacts against the litho model — which owns none — so every geotech
+    body's crossed-formation list came back empty. The use case must take the
+    SECOND hop (litho parent -> geological grandparent) before loading contacts.
+    """
+    geotech_model = MagicMock()
+    geotech_model.kind = "geotechnical"
+    geotech_model.parent_model_id = LITHO_MODEL_ID
+    litho_parent = MagicMock()
+    litho_parent.kind = "lithostratigraphic"
+    litho_parent.parent_model_id = GEO_MODEL_ID
+    session = AsyncMock()
+    # First get -> the geotech model; second get -> its litho parent.
+    session.get.side_effect = [geotech_model, litho_parent]
+    session.execute.side_effect = [
+        _result_with_rows([(BODY_ID, INV_ID, 0.0, 5.0)]),
+        _result_with_rows([(INV_ID, 0.0, GEO_FID)]),
+        _result_with_rows([(GEO_FID, "Formatie van Gent")]),
+    ]
+
+    labels = await GetBodyGeoLabels(session).execute(
+        litho_model_id=GEOTECH_MODEL_ID, body_ids=[BODY_ID]
+    )
+
+    # The use case took the SECOND hop: it fetched the litho parent to reach the
+    # geological grandparent (stopping one hop up would have queried the litho
+    # model, which has no chrono contacts).
+    assert session.get.await_count == 2
+    assert session.get.await_args_list[0].args[1] == GEOTECH_MODEL_ID
+    assert session.get.await_args_list[1].args[1] == LITHO_MODEL_ID
+    # With the correct geological model, the geotech body's crossed list resolves.
+    assert labels[BODY_ID].formations == [(GEO_FID, "Formatie van Gent")]
 
 
 @pytest.mark.asyncio
