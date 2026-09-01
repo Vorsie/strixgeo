@@ -126,7 +126,10 @@ async function openWith(
   fileLumping: StratigraphyLumping | null = null,
 ): Promise<ReturnType<typeof renderHook<ReturnType<typeof useProject>, unknown>>> {
   const { api } = await import('../api/client')
-  ;(window.electron.readProjectFile as Mock).mockResolvedValue(projectFileJson(fileLumping))
+  ;(window.electron.readProjectFile as Mock).mockResolvedValue({
+    ok: true,
+    json: projectFileJson(fileLumping),
+  })
   ;(api.project.get as Mock).mockResolvedValue({ ...baseProject, ...columns })
   const rendered = renderHook(() => useProject())
   await act(async () => {
