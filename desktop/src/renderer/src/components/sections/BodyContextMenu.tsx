@@ -61,6 +61,23 @@ export interface BodyContextMenuProps {
   separations?: readonly BodyRejoinOption[]
   /** Fired when the user picks a "Rejoin with <label>" item — the separation to lift. */
   onRejoinBody?: (separationId: string) => void
+  /**
+   * Fired when the user picks "Join with…" (debt #278). Reports the clicked
+   * body's id so SectionPanel can ARM the pick-the-other-body gesture — the verb
+   * does not commit here. Absent → the item is not offered (the no-affordance
+   * rule keeps Join geotech-only, where the owner said he would use it).
+   * NON-danger: it is reversible via Disjoin, unlike Dissolve.
+   */
+  onJoinBody?: (bodyId: string) => void
+  /**
+   * The existing unions that involve THIS body, each offered back as a "Disjoin
+   * <label>" item — the counterpart to the Rejoin items for the Join verb. The
+   * label is composed by the caller from the backend's server-resolved display
+   * info, so this menu owns no body-resolution map. Absent / empty → no Disjoin items.
+   */
+  unions?: readonly BodyDisjoinOption[]
+  /** Fired when the user picks a "Disjoin <label>" item — the union to lift. */
+  onDisjoinBody?: (unionId: string) => void
   /** Close callback — the menu is dismissed. */
   onClose: () => void
 }
@@ -69,6 +86,14 @@ export interface BodyContextMenuProps {
 export interface BodyRejoinOption {
   /** The ``body_separation`` row id to DELETE on Rejoin. */
   separationId: string
+  /** Display label of the other body (caller-composed from the server info). */
+  label: string
+}
+
+/** One "Disjoin <label>" option — a standing union the user can lift (debt #278). */
+export interface BodyDisjoinOption {
+  /** The ``body_union`` row id to DELETE on Disjoin. */
+  unionId: string
   /** Display label of the other body (caller-composed from the server info). */
   label: string
 }
@@ -82,6 +107,10 @@ export const TESTIDS = {
   // Each Rejoin item's testid is ``${rejoinBody}-${separationId}`` so multiple
   // standing separations on one body render as distinct, queryable rows.
   rejoinBody: 'body-ctx-rejoin-body',
+  joinBody: 'body-ctx-join-body',
+  // Each Disjoin item's testid is ``${disjoinBody}-${unionId}`` so multiple
+  // standing unions on one body render as distinct, queryable rows.
+  disjoinBody: 'body-ctx-disjoin-body',
 }
 
 /**
@@ -121,6 +150,9 @@ export default function BodyContextMenu({
   onSeparateBody,
   separations,
   onRejoinBody,
+  onJoinBody,
+  unions,
+  onDisjoinBody,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
   // Item labels read the catalogue (the keys already existed; nothing read them
@@ -166,6 +198,18 @@ export default function BodyContextMenu({
         onSeparateBody(body.id)
       },
     },
+    // Join with… — the reversible ADDITIVE body-identity verb (debt #278).
+    // "These two ARE the same body". NON-danger like Separate; arms rather than
+    // commits (SectionPanel owns the pick-the-other-body gesture). Offered only
+    // where wired, which keeps it geotech-only (the owner would not use it on litho).
+    onJoinBody !== undefined && {
+      label: t('sections.menu.joinBody'),
+      testid: TESTIDS.joinBody,
+      key: 'join-body',
+      onClick: () => {
+        onJoinBody(body.id)
+      },
+    },
     // Rejoin — one per standing separation that involves this body. Lifting a
     // separation lets the two anchors re-union (the undo path for Separate).
     // The label is composed by the caller from the backend's server-resolved
@@ -177,6 +221,19 @@ export default function BodyContextMenu({
           key: `rejoin-${sep.separationId}`,
           onClick: () => {
             onRejoinBody(sep.separationId)
+          },
+        }))
+      : []),
+    // Disjoin — one per standing union that involves this body (the undo path
+    // for Join). Lifting a union lets the two anchors fall back to whatever ties /
+    // geometry connect them; where none do, they split.
+    ...(onDisjoinBody !== undefined
+      ? (unions ?? []).map(union => ({
+          label: t('sections.menu.disjoinBody', { label: union.label }),
+          testid: `${TESTIDS.disjoinBody}-${union.unionId}`,
+          key: `disjoin-${union.unionId}`,
+          onClick: () => {
+            onDisjoinBody(union.unionId)
           },
         }))
       : []),
