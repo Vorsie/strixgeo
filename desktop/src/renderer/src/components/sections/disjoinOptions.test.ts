@@ -35,12 +35,16 @@ const label = (fid: string | null): string | undefined =>
 describe('buildDisjoinOptions', () => {
   it('DJ1 — a union with THIS body on side A offers the OTHER (side B) label', () => {
     const unions = [union('u1', 'body-X', 'body-Y')]
-    expect(buildDisjoinOptions('body-X', unions, label)).toEqual([{ unionId: 'u1', label: 'Za5' }])
+    expect(buildDisjoinOptions('body-X', unions, label)).toEqual([
+      { unionId: 'u1', label: 'Za5', otherBodyId: 'body-Y', otherLayerId: 'u1-b' },
+    ])
   })
 
   it('DJ2 — this body on side B offers side A', () => {
     const unions = [union('u1', 'body-Y', 'body-X')]
-    expect(buildDisjoinOptions('body-X', unions, label)).toEqual([{ unionId: 'u1', label: 'Za2' }])
+    expect(buildDisjoinOptions('body-X', unions, label)).toEqual([
+      { unionId: 'u1', label: 'Za2', otherBodyId: 'body-Y', otherLayerId: 'u1-a' },
+    ])
   })
 
   it("DJ3 — the other anchor's body NAME wins over its formation label", () => {
@@ -50,7 +54,7 @@ describe('buildDisjoinOptions', () => {
       }),
     ]
     expect(buildDisjoinOptions('body-X', unions, label)).toEqual([
-      { unionId: 'u1', label: 'North lens' },
+      { unionId: 'u1', label: 'North lens', otherBodyId: 'body-Y', otherLayerId: 'u1-b' },
     ])
   })
 
@@ -61,5 +65,18 @@ describe('buildDisjoinOptions', () => {
 
   it('DJ5 — undefined unions → no options', () => {
     expect(buildDisjoinOptions('body-X', undefined, label)).toEqual([])
+  })
+
+  it('DJ6 — each option carries the OTHER anchor as a highlightable ref (layer + body)', () => {
+    // D2 (owner 2026-09-01: "I have 2 times ontkoppel silt vrij vast and don't
+    // know which one"). When a body sits in >1 group the labels collide, so each
+    // option must carry the OTHER anchor's LAYER id — the distinguishing position
+    // on the section — to highlight on hover. (After a standing union both anchors
+    // resolve to the SAME merged body, so the body id alone cannot tell them apart;
+    // the layer id is the disambiguator.)
+    const unions = [union('u1', 'body-X', 'body-Y')]
+    expect(buildDisjoinOptions('body-X', unions, label)).toEqual([
+      { unionId: 'u1', label: 'Za5', otherBodyId: 'body-Y', otherLayerId: 'u1-b' },
+    ])
   })
 })
