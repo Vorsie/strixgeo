@@ -45,9 +45,10 @@ vi.mock('../../../api/client', async () => {
         deleteContactCorrelation: vi.fn().mockResolvedValue(undefined),
         listContactCorrelations: vi.fn().mockResolvedValue([]),
         listGeotechPackingCorrelations: vi.fn().mockResolvedValue([]),
-        // The geotech body roster + separations the piece-B fetch reads.
+        // The geotech body roster + separations + unions the piece-B / Join fetch reads.
         listLenses: vi.fn().mockResolvedValue([]),
         listBodySeparations: vi.fn().mockResolvedValue([]),
+        listBodyUnions: vi.fn().mockResolvedValue([]),
       },
       virtueleBoring: { getModels: vi.fn().mockResolvedValue([]) },
       section: { list: vi.fn().mockResolvedValue([]), get: vi.fn() },
@@ -99,5 +100,26 @@ describe('SectionsCanvas — the body menu comes to the geotech axis (piece B)',
     expect(capturedPanelProps.onDissolveBody).toBeDefined()
     expect(capturedPanelProps.onSeparateBodies).toBeDefined()
     expect(capturedPanelProps.onRejoinBody).toBeDefined()
+  })
+
+  // Debt #278 — the "Join with…" verb is handed over on the GEOTECH axis ONLY
+  // (owner: he would not use it on litho). The no-affordance rule + this gating
+  // are what keep Join off the litho axis.
+  it('JBW1 — the geotech axis is handed the Join handlers + unions', () => {
+    renderOn('geotechnical')
+
+    expect(capturedPanelProps.onJoinBodies).toBeDefined()
+    expect(capturedPanelProps.onDisjoinBody).toBeDefined()
+    expect(capturedPanelProps.unions).toBeDefined()
+    expect(capturedPanelProps.onJoinNotice).toBeDefined()
+  })
+
+  it('JBW2 — the litho axis is NOT handed the Join props (geotech-only verb)', () => {
+    renderOn('lithostratigraphic')
+
+    expect(capturedPanelProps.onJoinBodies).toBeUndefined()
+    expect(capturedPanelProps.onDisjoinBody).toBeUndefined()
+    expect(capturedPanelProps.unions).toBeUndefined()
+    expect(capturedPanelProps.onJoinNotice).toBeUndefined()
   })
 })
