@@ -9,22 +9,6 @@
 # .env. Forward-only (`upgrade head`). Prints the revision before and after.
 
 $ErrorActionPreference = "Stop"
-
-# ⚠ OWNER-GATED MIGRATION GUARD (debt #278 R3, 2026-09-01). Revision
-# a4b5c6d7e8f9 (merge_geo_label_twin_formations) is a ONE-TIME DESTRUCTIVE
-# data repair that lives on branch `pending-278-twins-migration` and must only
-# run against the dev DB after the owner's explicit go (pg_dump backup + the
-# scripts/dry_run_twins_migration.sql preview first). If that revision is
-# present in versions/ (the branch was merged), STOP and confirm with the
-# owner before syncing. Remove this guard once the migration has been run.
-$twinsMigration = Get-ChildItem "$PSScriptRoot\..\..\..\src\groundmodel\infrastructure\db\migrations\versions" -Filter "a4b5c6d7e8f9_*.py" -ErrorAction SilentlyContinue
-if ($twinsMigration) {
-    Write-Host "ABORT: the owner-gated twins-merge migration (a4b5c6d7e8f9) is in versions/." -ForegroundColor Red
-    Write-Host "Run scripts/dry_run_twins_migration.sql, take a pg_dump backup, and get the owner's" -ForegroundColor Red
-    Write-Host "explicit go before syncing the dev DB. See docs/debt.md #278 R3." -ForegroundColor Red
-    exit 1
-}
-
 Write-Host "Dev DB revision BEFORE:" -ForegroundColor Cyan
 uv run alembic current
 Write-Host "`nUpgrading dev DB to head..." -ForegroundColor Cyan
