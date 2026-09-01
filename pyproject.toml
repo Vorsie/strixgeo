@@ -99,6 +99,18 @@ dev = [
     # Not a runtime dep; the JSON is consumed at runtime.
     "openpyxl>=3.1",
 ]
+# compile — the native-compilation toolchain for the packaged tree ONLY.
+# Nuitka translates the engine + parsers to C and builds one .pyd per module so
+# the distributed backend does not ship those modules as readable .py (owner
+# ruling 2026-08-31 — the codebase must not leak from a shipped binary). This is
+# a BUILD-TIME group, never a runtime dependency: it is wired into the dev .venv
+# with `uv sync --group compile` and driven by scripts/compile-backend-natives.ps1.
+# It is deliberately NOT a default group, so `uv export --no-dev` (which
+# build-embedded-python.ps1 uses to pin the shipped site-packages) excludes it —
+# Nuitka never lands in the installer. Pinned to the spike-proven 4.2 line;
+# capped below 5 so a `uv lock --upgrade` cannot pull a breaking major that
+# changes the module-mode CLI the driver depends on.
+compile = ["nuitka>=4.2,<5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
