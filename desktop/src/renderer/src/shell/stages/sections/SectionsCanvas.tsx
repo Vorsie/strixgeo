@@ -25,12 +25,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
+import { useT } from '../../../i18n/translate'
 import type {
   AdmixtureItem,
   BodyBoundaryNode,
   BodyBoundaryResponse,
   BodyRenderStyle,
-  BodySeparationListItem,
   BodyUnionListItem,
   LithoContactCorrelationEdge,
   BodyListItem,
@@ -105,6 +105,10 @@ import type {
  *     The sections canvas element.
  */
 export default function SectionsCanvas(): JSX.Element {
+  // i18n — the body Join / Ontkoppelen toasts read the catalogue (owner
+  // 2026-09-01: "toasts aren't translated either"). First so it sits above every
+  // hook / early return.
+  const t = useT()
   const {
     project,
     visibleCpts,
@@ -889,10 +893,6 @@ export default function SectionsCanvas(): JSX.Element {
   const [lensBoundaries, setLensBoundaries] = useState<
     ReadonlyMap<string, BodyBoundaryResponse>
   >(new Map())
-  // Debt #278 R5: the model's standing body separations. Fetched beside the
-  // body list on the same nonce, because a separation's per-anchor body labels
-  // move whenever the resolver re-runs (which is what bumps the nonce).
-  const [separationsList, setSeparationsList] = useState<BodySeparationListItem[]>([])
   // #279 (owner "fix it now"): the body menu arms ONLY while the roster is
   // current for the active litho model. The gate resets synchronously on every
   // body-recompute nonce bump — a recompute rewrites body_id stamps, so the
@@ -907,7 +907,6 @@ export default function SectionsCanvas(): JSX.Element {
     if (lithoModelId === null) {
       setLensList([])
       setLensBoundaries(new Map())
-      setSeparationsList([])
       return
     }
     try {
@@ -922,23 +921,11 @@ export default function SectionsCanvas(): JSX.Element {
         ),
       )
       setLensBoundaries(new Map(entries))
-      // The ROSTER is now current for this model — the body menu may arm
-      // (#279). Marked BEFORE the separations fetch, and in its own scope, so a
-      // separations failure (e.g. the table not yet migrated) never withholds
-      // the entire body menu — the menu's Rejoin items just go empty.
+      // The ROSTER is now current for this model — the body menu may arm (#279).
       markRosterLoaded(lithoModelId)
     } catch (err) {
       log.warn('section', 'refetchLensData: listLenses/getBodyBoundary failed', err)
       return
-    }
-    // Standing separations — decoupled from the roster gate above. A failure
-    // here is degraded-but-continuing: no Rejoin items, and a warn that names
-    // the call so "menu has no Rejoin" is diagnosable.
-    try {
-      setSeparationsList(await api.geology.listBodySeparations(project.id, lithoModelId))
-    } catch (err) {
-      setSeparationsList([])
-      log.warn('section', 'refetchLensData: listBodySeparations failed', err)
     }
   }, [lithoModelId, project.id, markRosterLoaded])
 
@@ -946,7 +933,6 @@ export default function SectionsCanvas(): JSX.Element {
     if (!isLitho) {
       setLensList([])
       setLensBoundaries(new Map())
-      setSeparationsList([])
       return
     }
     void refetchLensData()
@@ -964,19 +950,18 @@ export default function SectionsCanvas(): JSX.Element {
   ])
 
   // Piece B (owner ruling 2026-08-31, "shouldn't we be able to do this in the
-  // geotech stage" — RULED yes): the GEOTECH body roster + standing separations,
-  // so the body menu (name / statistics / separate / dissolve) works on the
-  // geotech axis too. Parallel to the litho block above, with its OWN #279
+  // geotech stage" — RULED yes): the GEOTECH body roster + standing groups, so the
+  // body menu (name / statistics / Voeg samen met… / Ontkoppelen / dissolve) works
+  // on the geotech axis. Parallel to the litho block above, with its OWN #279
   // arming gate on the GEOTECH recompute nonce — a geotech recompute rewrites
   // geotech ``body_id`` stamps independently, so the two gates cannot share one.
   // No boundary fetch: freedraw shaping is litho-only, so the geotech axis needs
-  // only the roster (for ``bodyById``) + separations (for Rejoin).
+  // only the roster (for ``bodyById``) + unions (for Ontkoppelen). Separations are
+  // gone (Separate verb removed, owner 2026-09-01).
   const [geotechBodyList, setGeotechBodyList] = useState<BodyListItem[]>([])
-  const [geotechSeparationsList, setGeotechSeparationsList] = useState<BodySeparationListItem[]>([])
-  // Debt #278: the model's standing body UNIONS (the "Join with…" verb, geotech
-  // axis only). Fetched beside the geotech separations on the same nonce, same
-  // degraded-but-continuing shape — a failure (e.g. the table not yet migrated)
-  // leaves an empty list + a warn naming the call, NEVER gate-disabling the menu.
+  // Debt #278: the model's standing body UNIONS (the Join verb, geotech axis
+  // only). A failure (e.g. the table not yet migrated) leaves an empty list + a
+  // warn naming the call, NEVER gate-disabling the menu.
   const [geotechUnionsList, setGeotechUnionsList] = useState<BodyUnionListItem[]>([])
   const { bodiesLoaded: geotechRosterLoaded, markLoaded: markGeotechRosterLoaded } =
     useRosterLoadedGate(isGeotech ? geotechPackingModelId : null, bodyRecomputeGeotechNonce)
@@ -984,30 +969,20 @@ export default function SectionsCanvas(): JSX.Element {
   const refetchGeotechBodyData = useCallback(async () => {
     if (geotechPackingModelId === null) {
       setGeotechBodyList([])
-      setGeotechSeparationsList([])
       setGeotechUnionsList([])
       return
     }
     try {
       setGeotechBodyList(await api.geology.listLenses(project.id, geotechPackingModelId))
       // Roster current for this model — the body menu may arm (#279). Marked
-      // before the separations fetch so a separations failure never withholds it.
+      // before the unions fetch so a unions failure never withholds it.
       markGeotechRosterLoaded(geotechPackingModelId)
     } catch (err) {
       log.warn('section', 'refetchGeotechBodyData: listLenses failed', err)
       return
     }
-    try {
-      setGeotechSeparationsList(
-        await api.geology.listBodySeparations(project.id, geotechPackingModelId),
-      )
-    } catch (err) {
-      setGeotechSeparationsList([])
-      log.warn('section', 'refetchGeotechBodyData: listBodySeparations failed', err)
-    }
-    // Standing unions — decoupled from the separations fetch above, so one
-    // failing never withholds the other. A failure here is degraded-but-
-    // continuing: no Disjoin items, and a warn that names the call.
+    // Standing unions (groups) — a failure is degraded-but-continuing: no
+    // Ontkoppelen items, and a warn that names the call.
     try {
       setGeotechUnionsList(await api.geology.listBodyUnions(project.id, geotechPackingModelId))
     } catch (err) {
@@ -1019,7 +994,6 @@ export default function SectionsCanvas(): JSX.Element {
   useEffect(() => {
     if (!isGeotech) {
       setGeotechBodyList([])
-      setGeotechSeparationsList([])
       setGeotechUnionsList([])
       return
     }
@@ -1038,13 +1012,13 @@ export default function SectionsCanvas(): JSX.Element {
   ])
 
   // The body menu acts on the ACTIVE axis's model (piece B): geotech on the
-  // geotech axis, litho otherwise. The five handlers below read these so one
-  // handler each serves both axes (name / dissolve / separate / rejoin all
-  // POST against ``bodyMenuModel.id`` and refresh through ``refetchBodyMenuData``).
+  // geotech axis, litho otherwise. The name / dissolve handlers read these so one
+  // handler each serves both axes (POST against ``bodyMenuModel.id`` and refresh
+  // through ``refetchBodyMenuData``). Join / Ontkoppelen are geotech-only and read
+  // ``activeGeotechModel`` directly.
   const bodyMenuModel = isGeotech ? activeGeotechModel : activeLithoModel
   const bodyMenuRoster = isGeotech ? geotechBodyList : lensList
   const refetchBodyMenuData = isGeotech ? refetchGeotechBodyData : refetchLensData
-  const bodyMenuRecomputeAxis: 'litho' | 'geotech' = isGeotech ? 'geotech' : 'litho'
 
   // (Fill-bands sand-merge removed 2026-06-05.) It correlated host halves on
   // every Fill-bands OFFâ†’ON to fuse a lens-split lithology into one body â€” but
@@ -1492,92 +1466,16 @@ export default function SectionsCanvas(): JSX.Element {
     [bodyMenuModel, project.id, refetchBodyMenuData, toast],
   )
 
-  // Separate two bodies (debt #278 R5) — record the cannot-link constraint, then
-  // re-render. The endpoint re-resolves body identity server-side in the same
-  // request, so the split is durable before this returns; the recompute request
-  // then re-renders the 2-D partition, 3-D build and fence from the new grouping
-  // (Dissolve above does NOT request one — a known wart, owner-noted).
-  const handleSeparateBodies = useCallback(
-    async (anchorLayerId: string, targetAnchorLayerId: string, sameBody: boolean): Promise<void> => {
-      if (!bodyMenuModel) return
-      log.info(
-        'section',
-        `separate-bodies: anchorA=${anchorLayerId} anchorB=${targetAnchorLayerId} sameBody=${sameBody}`,
-      )
-      try {
-        await api.geology.createBodySeparation(
-          project.id,
-          bodyMenuModel.id,
-          anchorLayerId,
-          targetAnchorLayerId,
-        )
-        void refetchBodyMenuData()
-        requestBodyRecompute(bodyMenuRecomputeAxis)
-        // Reversible action → name the undo path (docs/ux.md). Both keep the
-        // literal "Bodies separated" prefix (owner dogfeed 2026-09-01; the e2e
-        // spec greps it) but tell the two cases apart honestly: a SAME-body pick
-        // CUT one mass in two; a DIFFERENT-body pick recorded a durable keep-apart.
-        toast(
-          'success',
-          sameBody
-            ? 'Bodies separated — the body was split in two; right-click either part → Rejoin to undo.'
-            : 'Bodies separated — they were not connected and will stay apart; right-click either → Rejoin to undo.',
-        )
-      } catch (err) {
-        toast('error', 'Failed to separate bodies.')
-        log.warn('section', 'handleSeparateBodies: failed', err)
-      }
-    },
-    [bodyMenuModel, project.id, refetchBodyMenuData, requestBodyRecompute, bodyMenuRecomputeAxis, toast],
-  )
-
-  // Rejoin — lift a standing separation (the reversible verb's undo path). The
-  // DELETE re-resolves server-side, so the two anchors re-union if their ties /
-  // geometry still connect them; the recompute request re-renders the result.
-  const handleRejoinBody = useCallback(
-    async (separationId: string): Promise<void> => {
-      if (!bodyMenuModel) return
-      log.info('section', `rejoin-body: separation=${separationId}`)
-      try {
-        await api.geology.deleteBodySeparation(project.id, bodyMenuModel.id, separationId)
-        void refetchBodyMenuData()
-        requestBodyRecompute(bodyMenuRecomputeAxis)
-        toast('success', 'Separation lifted — the bodies may rejoin.')
-      } catch (err) {
-        toast('error', 'Failed to rejoin bodies.')
-        log.warn('section', 'handleRejoinBody: failed', err)
-      }
-    },
-    [bodyMenuModel, project.id, refetchBodyMenuData, requestBodyRecompute, bodyMenuRecomputeAxis, toast],
-  )
-
-  // Advisory while a Separate is armed. Two honest cases (owner dogfeed
-  // 2026-09-01): the region resolves to the armed anchor's own layer, so a commit
-  // would 422 (``self-anchor``) — tell them to click a different part; or it
-  // resolves to no single body (``unresolvable``) — tell them to click a filled
-  // body. The arm stays live either way; a replace-keyed warning so repeats don't
-  // stack. (A SAME-body pick on a DIFFERENT part now COMMITS the split.)
-  const handleSeparateNotice = useCallback(
-    (kind: 'unresolvable' | 'self-anchor'): void => {
-      toast(
-        'warning',
-        kind === 'self-anchor'
-          ? 'That is the same part of the body — click a different part to separate it.'
-          : 'Could not identify that body — click a filled body.',
-        'separate-arm-notice',
-      )
-    },
-    [toast],
-  )
-
-  // Join two bodies (debt #278, geotech axis only) — record the must-link, then
-  // re-render. The endpoint re-resolves body identity server-side in the same
-  // request, so the merge is durable before this returns; the recompute request
-  // re-renders the 2-D partition, 3-D build and fence from the new grouping.
-  // A standing separation can OVERRULE the join (cannot-link wins) — the response
-  // then reports ``suppressed``, so the toast tells the engineer the join was
-  // blocked instead of falsely claiming success. A class mismatch reports
-  // ``inert`` (normally refused 422 at write time, this is the resolver backstop).
+  // Join two bodies into ONE group (owner ruling 2026-09-01, geotech axis only) —
+  // record the must-link, then re-render. The endpoint re-resolves body identity
+  // server-side in the same request, so the merge is durable before this returns.
+  //
+  // The refresh mirrors every other geotech write path (settleContactMove, the
+  // band-edit verbs): ``requestGeotechLayersRefetch`` re-fetches the bands with
+  // their NEW ``body_id`` stamps, which is what re-groups the 2-D fill identity
+  // AND re-scopes the Parameters-stage unit statistics; ``requestBodyRecompute``
+  // schedules the durable identity recompute + re-renders the 3-D build and fence.
+  // A class mismatch reports ``inert`` (the resolver backstop; the write also 422s).
   const handleJoinBodies = useCallback(
     async (anchorLayerId: string, targetAnchorLayerId: string): Promise<void> => {
       if (!activeGeotechModel) return
@@ -1590,52 +1488,56 @@ export default function SectionsCanvas(): JSX.Element {
           targetAnchorLayerId,
         )
         void refetchGeotechBodyData()
+        requestGeotechLayersRefetch()
         requestBodyRecompute('geotech')
         if (result.suppressed) {
-          toast(
-            'warning',
-            'Join blocked by a standing separation — remove that separation first.',
-            'join-arm-notice',
-          )
+          // Dormant path: no UI creates separations any more (Separate removed,
+          // owner 2026-09-01), so a standing separation only comes from legacy
+          // rows. Kept honest rather than falsely claiming success.
+          toast('warning', t('sections.join.blockedSeparation'), 'join-arm-notice')
         } else if (result.inert) {
-          toast(
-            'warning',
-            'These bodies are different packing classes and cannot be joined.',
-            'join-arm-notice',
-          )
+          toast('warning', t('sections.join.crossClass'), 'join-arm-notice')
         } else {
           // Reversible action → name the undo path (docs/ux.md).
-          toast('success', 'Bodies joined — right-click the body → Disjoin to undo.')
+          toast('success', t('sections.join.success'))
         }
       } catch (err) {
-        // A 422 carries the structured guard message (cross-class / contradicts a
-        // separation) as ``ApiError.message`` — surface it as the authority
-        // instead of a generic failure line.
-        toast('error', err instanceof Error && err.message ? err.message : 'Failed to join bodies.')
+        // A 422 carries the structured guard message (cross-class) as
+        // ``ApiError.message`` — surface it as the authority instead of a generic
+        // failure line.
+        toast('error', err instanceof Error && err.message ? err.message : t('sections.join.failed'))
         log.warn('section', 'handleJoinBodies: failed', err)
       }
     },
-    [activeGeotechModel, project.id, refetchGeotechBodyData, requestBodyRecompute, toast],
+    [activeGeotechModel, project.id, refetchGeotechBodyData, requestGeotechLayersRefetch, requestBodyRecompute, toast, t],
   )
 
-  // Disjoin — lift a standing union (the Join verb's undo path). The DELETE
-  // re-resolves server-side, so the two anchors fall back to whatever ties /
+  // Ontkoppelen — lift a standing group / union (the Join verb's undo path). The
+  // DELETE re-resolves server-side, so the two anchors fall back to whatever ties /
   // geometry still connect them; where none do, they split.
-  const handleDisjoinBody = useCallback(
+  //
+  // FIX (owner bug 2026-09-01: "I clicked disjoin ... unit statistics still plots
+  // as one big layer"): the DELETE re-splits the ``body_id`` stamps server-side,
+  // but nothing re-fetched the geotech bands, so the fill + Parameters stats stayed
+  // grouped. ``requestGeotechLayersRefetch`` — the canonical geotech-write refresh —
+  // re-fetches the bands with the re-split stamps, so the 2-D fill re-splits and a
+  // subsequent Unit statistics scopes to the two bodies separately.
+  const handleUnjoinBody = useCallback(
     async (unionId: string): Promise<void> => {
       if (!activeGeotechModel) return
-      log.info('section', `disjoin-body: union=${unionId}`)
+      log.info('section', `un-join-body: union=${unionId}`)
       try {
         await api.geology.deleteBodyUnion(project.id, activeGeotechModel.id, unionId)
         void refetchGeotechBodyData()
+        requestGeotechLayersRefetch()
         requestBodyRecompute('geotech')
-        toast('success', 'Join lifted — the bodies may split.')
+        toast('success', t('sections.unjoin.success'))
       } catch (err) {
-        toast('error', 'Failed to disjoin bodies.')
-        log.warn('section', 'handleDisjoinBody: failed', err)
+        toast('error', t('sections.unjoin.failed'))
+        log.warn('section', 'handleUnjoinBody: failed', err)
       }
     },
-    [activeGeotechModel, project.id, refetchGeotechBodyData, requestBodyRecompute, toast],
+    [activeGeotechModel, project.id, refetchGeotechBodyData, requestGeotechLayersRefetch, requestBodyRecompute, toast, t],
   )
 
   // Advisory while a Join is armed: the engineer clicked the armed body itself,
@@ -1647,13 +1549,13 @@ export default function SectionsCanvas(): JSX.Element {
     (notice: JoinNotice): void => {
       const message =
         notice.kind === 'same'
-          ? 'That is the same body — click a different one to join.'
+          ? t('sections.join.noticeSame')
           : notice.kind === 'cross-class'
-            ? `Cannot join across packing classes — ${notice.classA} and ${notice.classB} are different masses.`
-            : 'Could not identify that body — click a filled body.'
+            ? t('sections.join.noticeCrossClass', { classA: notice.classA, classB: notice.classB })
+            : t('sections.join.noticeUnresolvable')
       toast('warning', message, 'join-arm-notice')
     },
-    [toast],
+    [toast, t],
   )
 
 
@@ -2867,21 +2769,12 @@ export default function SectionsCanvas(): JSX.Element {
           // model. Contact editing stays view-only there — only the menu crosses.
           onNameBody={isLitho || isGeotech ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho || isGeotech ? bid => void handleDissolveBody(bid) : undefined}
-          // Separate / Rejoin (debt #278 R5) — both axes now; the arm plumbing is
-          // axis-agnostic (``armBodyIdByLayerId`` merges both layer→body maps).
-          onSeparateBodies={
-            isLitho || isGeotech
-              ? (a, b, sameBody) => void handleSeparateBodies(a, b, sameBody)
-              : undefined
-          }
-          onRejoinBody={isLitho || isGeotech ? sid => void handleRejoinBody(sid) : undefined}
-          separations={isLitho ? separationsList : isGeotech ? geotechSeparationsList : undefined}
-          onSeparateNotice={isLitho || isGeotech ? handleSeparateNotice : undefined}
-          // Join / Disjoin (debt #278) — GEOTECH axis ONLY. Owner ruled he would
-          // not use Join on litho, and the no-affordance rule (no handler → no
-          // "Join with…" item) is what keeps it geotech-only.
+          // Join / Ontkoppelen (debt #278) — GEOTECH axis ONLY. Owner ruled
+          // 2026-09-01 the body verbs are stripped to these two (Separate / Rejoin
+          // removed); he would not use Join on litho, and the no-affordance rule
+          // (no handler → no "Voeg samen met…" item) keeps it geotech-only.
           onJoinBodies={isGeotech ? (a, b) => void handleJoinBodies(a, b) : undefined}
-          onDisjoinBody={isGeotech ? uid => void handleDisjoinBody(uid) : undefined}
+          onDisjoinBody={isGeotech ? uid => void handleUnjoinBody(uid) : undefined}
           unions={isGeotech ? geotechUnionsList : undefined}
           onJoinNotice={isGeotech ? handleJoinNotice : undefined}
           // #279: the body menu arms only while the roster is current for the
