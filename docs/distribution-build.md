@@ -33,7 +33,7 @@ by electron-builder `extraResources`, landing at `<install>/resources/`.
 |---|---|---|---|
 | `pgsql/` | `scripts/build-embedded-postgres.ps1` | 309 MB | `resources/pgsql` |
 | `python/` | `scripts/build-embedded-python.ps1` | 639 MB | `resources/python` |
-| `backend/` | `scripts/build-embedded-python.ps1` | 5 MB | `resources/backend` |
+| `backend/` | `scripts/build-embedded-python.ps1` | ~28 MB | `resources/backend` — mostly source; the engine + parsers are native `.pyd` (see below) |
 
 ### PostgreSQL + PostGIS
 
@@ -61,8 +61,9 @@ lower-accuracy datum shift, and the app must work with no network on site.
 **A relocated interpreter, not PyInstaller.** python-build-standalone (what uv
 already downloads for this project) is built to be relocatable, so the script
 copies it and installs the `uv export --no-dev` locked set into its own
-`site-packages`. The backend itself ships as **source** with `PYTHONPATH`
-pointed at it.
+`site-packages`. The backend itself ships **mostly as source** with `PYTHONPATH`
+pointed at it — the exception is the engine + parsers, which ship as native
+`.pyd` (see "The compiled subset" below).
 
 Freezing was rejected on four concrete counts, each of which is a failure that
 appears in a tester's hands rather than at build time:
@@ -75,9 +76,62 @@ appears in a tester's hands rather than at build time:
   package data — a wheel build drops all 11.
 * `@njit(cache=True)` writes next to the source it compiles.
 
-The trade is size for correctness: what ships is byte-identical to what the
-test suite runs against. The source is readable; so is a decompiled wheel.
-Tamper hardening is debt #5 and is deliberately not attempted here.
+The trade is size for correctness: the source that ships is byte-identical to
+what the test suite runs against.
+
+### The compiled subset
+
+Readable source is a leak — owner ruling 2026-08-31: *"the underlying codebase
+should also be protected and not leak at all times ... otherwise someone else
+could just duplicate"*. So the two areas the owner named (rulings 5-6) do **not**
+ship as source: the **engine** (voxel-litho builder, NAD classifier,
+representative statistic) and the **parsers** (all GEF + DOV parsing). Right
+after the backend is copied, `scripts/compile-backend-natives.ps1` translates
+each module listed in `scripts/native_compile_manifest.py` to C with Nuitka,
+drops a `<name>.cp311-win_amd64.pyd` beside its package `__init__.py`, and
+deletes the `.py` **in the staged tree only** (the repo `src/` is never touched;
+dev keeps running all-source). 66 modules today, ~23 MB of `.pyd`. The API,
+repositories and application layer stay source, so alembic + the codelist data
+files keep resolving `__file__`-relative exactly as under pytest.
+
+Two carve-outs stay source, recorded in the manifest's `SOURCE_CARVEOUTS`:
+
+| Carve-out | Why it cannot compile |
+|---|---|
+| `voxel_litho/greedy_mesh.py` | its greedy-mesh kernel is a Numba `@njit(cache=True)` function — Numba needs the `__code__` object + an on-disk `.py` to cache beside; a `.pyd` has neither. Pinned by `test_greedy_mesh.py:58-77` (drops to object-mode otherwise). |
+| every `__init__.py` | compiling a package marker breaks the package's importability and hides no logic. |
+
+`domain/services/geotech_band_reclassification.py` is engine code but is left
+**source pending owner decision C3** (band-reclassification behaviour is still
+under active dogfeed rulings); add it to the manifest when C3 lands.
+
+**Nuitka rewrites `__file__` and `__spec__.origin` back to the original `.py`
+path** so tracebacks point at source — so a "`__file__` ends with `.pyd`" check
+is a FALSE witness. The gates verify compilation via the `__compiled__` marker +
+the `nuitka_module_loader` loader name + `__compiled__.extension_filename`
+instead.
+
+**Two gates, both EXECUTE the artifacts — hashes prove nothing on this box.**
+It has shipped two `.pyd` files with a poisoned image section while their bytes
+still hashed correct (CLAUDE.local.md "Machine health"). So:
+
+1. a **smoke gate** in `build-embedded-python.ps1` imports every manifest module
+   in the staged interpreter and asserts each is `__compiled__` with no surviving
+   `.py`, and that `greedy_mesh` imports as source;
+2. a **behavioural gate** (`scripts/verify-staged-natives.ps1`) runs the real
+   unit suites — the voxel byte-identity SHA-256 pin, the `@njit` tripwire, the
+   NAD classifier, and the GEF/DOV parsers (incl. the process-pool parse worker)
+   — against the compiled `.pyd` under the staged interpreter, with a pre-suite
+   marker test re-asserting the `__compiled__` markers inside the pytest process.
+
+Either gate failing kills the dist build. The toolchain lives in the `compile`
+dependency group (`uv sync --group compile`); because it is a non-default group,
+`uv export --no-dev` excludes it and Nuitka never lands in the installer.
+
+Broader tamper hardening (anti-debug, the `--remote-debugging-port` flag surface)
+stays debt #5 and is deliberately not attempted here — a decompiled `.pyd` is
+harder than a decompiled wheel, but this is obfuscation-grade protection, not
+DRM.
 
 ---
 
