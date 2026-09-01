@@ -187,19 +187,25 @@ _PER_INSTANCE_CPT_INDICES = {8, 9, 10}
 _FACIES_CPT_INDICES = {11, 12, 13}
 
 # The same-class-pair CPTs (Section F) carry a UNIFORM CLAY qc series, NOT the
-# three-layer profile: two geometrically disjoint KLEI bodies (shallow @2/3 m,
-# deep @7/8 m) are action-seeded across CPTs 14/15/16, and ``subdivide-all-bodies``
-# reads this series to classify BOTH bodies. A uniform qc means both depth ranges
-# land in the SAME NAD class — the join spec (flow_join_body_ui) needs two
-# same-colour regions of DIFFERENT bodies, and same-class is same-colour. The qc
-# value is chosen from the KLEI-clean band of ``NAD_QC_BANDS``
-# (``nad_classification_constants.py``): ``[(1.0, 21), (2.0, 22), (4.0, 23),
-# (None, 24)]`` — 1.0 <= qc < 2.0 is class 22 (KLEI, matig vast). ``_CLAY_QC_MPA``
-# = 1.5 sits mid-band, safely clear of both 1.0 and 2.0 boundaries, so every band
-# of both bodies classifies to 22 by construction. Because the series is uniform
-# (no qc contrast), ``suggest-litho`` cannot manufacture a competing ZAND/silt
-# layer, so even under an all-CPT suggest+accept run every body formed here stays
-# KLEI class 22 — there are always >= 2 same-class disjoint bodies to join.
+# three-layer profile: two geometrically DISJOINT KLEI bodies (shallow @2/3 m,
+# deep @7/8 m) separated by a ZAND band are action-seeded across CPTs 14/15/16,
+# and ``subdivide-all-bodies`` reads this series to classify all three bands. A
+# uniform qc means both KLEI depth ranges land in the SAME NAD class — the join
+# spec (flow_join_body_ui) needs two same-colour regions of DIFFERENT bodies, and
+# same-class is same-colour. The qc value is chosen from the KLEI-clean band of
+# ``NAD_QC_BANDS`` (``nad_classification_constants.py``): ``[(1.0, 21), (2.0, 22),
+# (4.0, 23), (None, 24)]`` — 1.0 <= qc < 2.0 is class 22 (KLEI, matig vast).
+# ``_CLAY_QC_MPA`` = 1.5 sits mid-band, safely clear of both 1.0 and 2.0
+# boundaries, so both KLEI bands classify to 22 by construction; the same qc on
+# the ZAND separator lands in the ZAND ``[2.0, 4.0)`` band -> class 5, a distinct
+# class the resolver never unions with the KLEI (different soil). The ZAND band is
+# what keeps the two KLEI bands from touching: without it the gap-free litho column
+# would butt the shallow KLEI's base against the deep KLEI's top and the resolver
+# would MERGE them into one body (owner 2026-08-19), leaving nothing to join. See
+# ``_seed_action_scenarios_async`` (Section F block) for the full rationale.
+# Because the series is uniform (no qc contrast), ``suggest-litho`` cannot
+# manufacture a competing layer, so even under an all-CPT suggest+accept run the
+# two KLEI bodies stay class 22 and disjoint — always a same-class pair to join.
 _SAME_CLASS_PAIR_CPT_INDICES = {14, 15, 16}
 
 # Uniform-clay qc for the Section F CPTs — mid-band of KLEI class 22 (see above).
@@ -1110,37 +1116,68 @@ async def _seed_action_scenarios_async(project_id: str) -> None:
         # --- Same-class Join scenario (Section F) — two disjoint KLEI bodies ----
         # The Join spec (flow_join_body_ui) needs TWO geometrically DISJOINT bodies
         # of the SAME NAD class on one section (two same-colour regions of
-        # different bodies). This mirrors the per-instance topology (Section D):
-        # two KLEI levels (shallow + deep) correlated SAME-litho across CPTs
-        # 14/15/16, with NO shallow<->deep edge, so the resolver keeps them two
-        # distinct bodies. The difference from Section D: these CPTs carry a
-        # UNIFORM CLAY qc series (_make_uniform_clay_series), so subdivide-all-bodies
-        # classifies BOTH bodies to KLEI class 22 (qc 1.5 in NAD_QC_BANDS band
-        # [1.0, 2.0)) — same class, same fill colour, a legal Join. CPT-14 (source)
-        # carries the levels shallower than the neighbours so each body's
-        # source_investigation_id resolves to CPT-14.
+        # DIFFERENT bodies). Two KLEI levels (shallow + deep) correlated SAME-litho
+        # across CPTs 14/15/16, with NO shallow<->deep edge, and — the load-bearing
+        # difference from the per-instance topology (Section D) — a ZAND separator
+        # band WEDGED BETWEEN them so the two KLEI bands are geometrically
+        # NON-ADJACENT.
+        #
+        # WHY the separator is mandatory, not cosmetic: litho is gap-free (the
+        # FC->LL contiguity trigger derives each layer's base as the NEXT contact's
+        # top), so WITHOUT a band between them the shallow KLEI's base would land
+        # exactly on the deep KLEI's top — the two bands would TOUCH. The geotech
+        # body resolver unions same-litho + same-packing bands that are
+        # geometrically adjacent (``BodyGeometryFactOrm`` written by RecomputeBodies;
+        # owner 2026-08-19: "if a lens is touching a body with same litho and packing
+        # ... it becomes one body"). Touching KLEI-22 over KLEI-22 therefore MERGE
+        # into a single body on the debounced recompute — leaving nothing to join
+        # (the failure this fixture was red on: one body, no same-class pair). The
+        # ZAND band (different soil -> the one-lithology guard drops any union) keeps
+        # them two distinct bodies that the engineer's "these ARE the same body" can
+        # legally join.
+        #
+        # These CPTs carry a UNIFORM CLAY qc series (_make_uniform_clay_series), so
+        # both KLEI bands classify to KLEI class 22 (qc 1.5 in NAD_QC_BANDS band
+        # [1.0, 2.0)) — same class, same fill colour, a legal Join — while the ZAND
+        # separator classifies to ZAND class 5 (qc 1.5 in the ZAND [2.0, 4.0) band),
+        # a different class + colour that both separates and reads as a distinct
+        # region. CPT-14 (source) carries the levels shallower than the neighbours
+        # so each body's source_investigation_id resolves to CPT-14.
         jf_klei_shallow = form("KLEI join shallow (same-class)", "KLEI", 70, "#c2a0d8")
+        jf_zand_sep = form("ZAND join separator (same-class)", "ZAND", 71, "#f5c842")
         jf_klei_deep = form("KLEI join deep (same-class)", "KLEI", 72, "#c2a0d8")
         await s.flush()
+        # shallow KLEI [2,4] / ZAND [4,7] / deep KLEI [7,10] on CPT-14; the
+        # neighbours run one metre deeper (shallow [3,5] / ZAND [5,8] / deep
+        # [8,10]) so CPT-14 stays the shallowest source column.
         f_shallow_c = contact(jf_klei_shallow, cpt14, 2.0)
+        f_sep_c = contact(jf_zand_sep, cpt14, 4.0)
         f_deep_c = contact(jf_klei_deep, cpt14, 7.0)
         f_shallow_l = contact(jf_klei_shallow, cpt15, 3.0)
+        f_sep_l = contact(jf_zand_sep, cpt15, 5.0)
         f_deep_l = contact(jf_klei_deep, cpt15, 8.0)
         f_shallow_r = contact(jf_klei_shallow, cpt16, 3.0)
+        f_sep_r = contact(jf_zand_sep, cpt16, 5.0)
         f_deep_r = contact(jf_klei_deep, cpt16, 8.0)
         await s.flush()
-        # Same-litho correlation of each KLEI level across the three columns; no
-        # edge links the shallow level to the deep one, so they stay two bodies.
+        # Same-litho correlation of each level across the three columns; NO edge
+        # links the shallow level to the deep one, and the ZAND band between them
+        # keeps the two KLEI bands from ever touching, so they stay two bodies.
         edge(f_shallow_c, f_shallow_l, section_id=sec_f)
         edge(f_shallow_c, f_shallow_r, section_id=sec_f)
+        edge(f_sep_c, f_sep_l, section_id=sec_f)
+        edge(f_sep_c, f_sep_r, section_id=sec_f)
         edge(f_deep_c, f_deep_l, section_id=sec_f)
         edge(f_deep_c, f_deep_r, section_id=sec_f)
         same_class_contact_ids = [
             f_shallow_c.id,
+            f_sep_c.id,
             f_deep_c.id,
             f_shallow_l.id,
+            f_sep_l.id,
             f_deep_l.id,
             f_shallow_r.id,
+            f_sep_r.id,
             f_deep_r.id,
         ]
         await s.flush()
