@@ -219,7 +219,7 @@ function installElectronStub(): void {
     showProjectOpenDialog: vi.fn().mockResolvedValue(null),
     showProjectSaveDialog: vi.fn().mockResolvedValue(null),
     projectFileExists: vi.fn().mockResolvedValue(true),
-    readProjectFile: vi.fn().mockResolvedValue('{}'),
+    readProjectFile: vi.fn().mockResolvedValue({ ok: true, json: '{}' }),
     writeProjectFile: vi.fn().mockResolvedValue(undefined),
     showExportSaveDialog: vi.fn().mockResolvedValue(null),
     writeExportFile: vi.fn().mockResolvedValue(undefined),
