@@ -113,6 +113,13 @@ export interface ProjectBundleResponse {
    * in older bundles.
    */
   body_separations?: Record<string, unknown>[]
+  /**
+   * Body unions (debt #278, the "Join with…" verb): the "these two ARE the same
+   * body" must-link constraints the resolver honours. Evidence, not cache:
+   * dropping them re-splits every body the engineer joined, on the next resolve.
+   * Absent in older bundles.
+   */
+  body_unions?: Record<string, unknown>[]
 }
 
 /** Request body for ``POST /projects/``. */
