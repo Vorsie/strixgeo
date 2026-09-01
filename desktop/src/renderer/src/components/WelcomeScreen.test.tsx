@@ -104,7 +104,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('invokes onOpenProject when Open from file is clicked', async () => {
-    const onOpen = vi.fn().mockResolvedValue('opened' as const)
+    const onOpen = vi.fn().mockResolvedValue({ outcome: 'opened' as const })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -117,7 +117,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('shows a banner when onOpenProject returns "failed"', async () => {
-    const onOpen = vi.fn().mockResolvedValue('failed' as const)
+    const onOpen = vi.fn().mockResolvedValue({ outcome: 'failed' as const })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -132,7 +132,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('does not show a banner when the user cancels the dialog', async () => {
-    const onOpen = vi.fn().mockResolvedValue('cancelled' as const)
+    const onOpen = vi.fn().mockResolvedValue({ outcome: 'cancelled' as const })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -178,7 +178,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('invokes onOpenRecent with the entry path when a row is clicked', async () => {
-    const onOpenRecent = vi.fn().mockResolvedValue('opened')
+    const onOpenRecent = vi.fn().mockResolvedValue({ outcome: 'opened' })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -194,7 +194,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('shows a banner + refreshes recent when onOpenRecent reports failure', async () => {
-    const onOpenRecent = vi.fn().mockResolvedValue('failed')
+    const onOpenRecent = vi.fn().mockResolvedValue({ outcome: 'failed' })
     // First load returns both entries; the refresh that fires after a
     // failed open returns only the remaining one (Site A removed in main).
     const getRecent = vi
@@ -226,7 +226,7 @@ describe('WelcomeScreen', () => {
     // did you change it's location". The old catch-all blamed corruption or
     // the API for a file that had simply been moved — the wrong diagnosis,
     // pointing the user at the wrong fix.
-    const onOpenRecent = vi.fn().mockResolvedValue('missing')
+    const onOpenRecent = vi.fn().mockResolvedValue({ outcome: 'missing' })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -345,7 +345,7 @@ describe('WelcomeScreen', () => {
     // Opening the project is what makes the restore prompt appear — the
     // welcome screen never restores anything itself.
     installRecovery([RECOVERY_DESCRIPTOR])
-    const onOpenRecent = vi.fn().mockResolvedValue(true)
+    const onOpenRecent = vi.fn().mockResolvedValue({ outcome: 'opened' })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -426,7 +426,7 @@ describe('WelcomeScreen', () => {
 
   // Regression anchors for debt #115 sub-item 4 — focus rings.
   it('FR1 — dismiss button on the error banner has focus-visible ring classes (debt #115)', async () => {
-    const onOpen = vi.fn().mockResolvedValue('failed' as const)
+    const onOpen = vi.fn().mockResolvedValue({ outcome: 'failed' as const })
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
