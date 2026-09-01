@@ -23,8 +23,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from groundmodel.domain.services.investigation_kind_constants import (
     KIND_BOREHOLE,
@@ -35,11 +36,14 @@ from groundmodel.domain.services.litho_column_digest import (
     LithoColumnInterval,
     litho_column_digest,
 )
+from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -633,3 +637,185 @@ class LithoLayerRepository(GroundModelLogger):
         """
         stmt = select(LithoBodySolidOrm).where(LithoBodySolidOrm.model_id == model_id)
         return list((await self._session.execute(stmt)).scalars().all())
+
+    # -----------------------------------------------------------------
+    # Geotech parent-link heal (run by the geotech Build — the last
+    # whole-model operation; owner 2026-09-01)
+    # -----------------------------------------------------------------
+
+    async def rederive_geotech_parent_litho_layers(self, model_id: UUID) -> int:
+        """Re-derive every accepted geotech band's covering litho band (midpoint rule).
+
+        For a GEOTECHNICAL model, overwrite ``parent_litho_layer_id`` on every
+        accepted band with the accepted litho band — in the parent litho model
+        (``parent_model_id``) — on the SAME investigation whose half-open
+        ``[depth_top_m, depth_base_m)`` interval contains the band's vertical
+        MIDPOINT. This is the rule the ``c9d0e1f2a3b4`` migration backfilled and
+        the pure
+        :func:`~groundmodel.domain.services.geotech_litho_parent_links.covering_litho_band_id`
+        states; the SQL here is its set-based form.
+
+        The write is an OVERWRITE, not fill-if-null: a band edited after the
+        earlier subdivide/recompute may now sit under a DIFFERENT litho layer, so
+        re-deriving must replace a stale value, and a band that lost its cover
+        becomes ``None`` (a true orphan). Idempotent — re-running on unchanged
+        geometry produces the same links. GEOTECH-ONLY: a litho model (or a
+        geotech model with no litho parent) is a logged no-op, so a litho Build
+        never touches these links.
+
+        Runs before the mesh build so the resolver-independent Build reflects the
+        FINAL litho geometry (owner 2026-09-01: the parent links must be derived
+        at the last whole-model operation, not at Divide/subdivide which precede
+        the final edits).
+
+        Parameters
+        ----------
+        model_id : UUID
+            The GEOTECHNICAL model whose accepted bands are re-derived.
+
+        Returns
+        -------
+        int
+            Number of accepted bands re-derived (0 for a non-geotech model or a
+            geotech model with no litho parent).
+        """
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is None or model.kind != MODEL_KIND_GEOTECHNICAL:
+            self.debug(
+                f"rederive_geotech_parent_litho_layers: model={model_id} is not geotechnical "
+                "— no-op (a litho model has no covering-band links to derive)"
+            )
+            return 0
+        parent_model_id = model.parent_model_id
+        if parent_model_id is None:
+            self.warning(
+                f"rederive_geotech_parent_litho_layers: geotech model={model_id} has no parent "
+                "litho model — cannot derive covering bands; leaving links untouched"
+            )
+            return 0
+
+        # Correlated scalar subquery: the accepted litho band (aliased ``litho``)
+        # on the same investigation whose [top, base) covers the outer geotech
+        # band's midpoint. ``limit(1)`` keeps it a scalar even in the (contiguity-
+        # forbidden) event of two matches; ``order_by`` makes that tie-break
+        # deterministic. Half-open ``>= top AND < base`` matches the migration and
+        # the pure function, so a band exactly on a litho contact resolves down.
+        litho = aliased(LithoLayerOrm)
+        midpoint = (LithoLayerOrm.depth_top_m + LithoLayerOrm.depth_base_m) / 2.0
+        covering = (
+            select(litho.id)
+            .where(
+                litho.model_id == parent_model_id,
+                litho.status == "accepted",
+                or_(
+                    and_(LithoLayerOrm.cpt_id.is_not(None), litho.cpt_id == LithoLayerOrm.cpt_id),
+                    and_(
+                        LithoLayerOrm.borehole_id.is_not(None),
+                        litho.borehole_id == LithoLayerOrm.borehole_id,
+                    ),
+                ),
+                litho.depth_top_m <= midpoint,
+                midpoint < litho.depth_base_m,
+            )
+            .order_by(litho.depth_top_m)
+            .limit(1)
+            .correlate(LithoLayerOrm)
+            .scalar_subquery()
+        )
+        result = await self._session.execute(
+            update(LithoLayerOrm)
+            .where(
+                LithoLayerOrm.model_id == model_id,
+                LithoLayerOrm.status == "accepted",
+            )
+            .values(parent_litho_layer_id=covering)
+            .returning(LithoLayerOrm.parent_litho_layer_id)
+            .execution_options(synchronize_session=False)
+        )
+        parents = [row[0] for row in result.all()]
+        total = len(parents)
+        with_parent = sum(1 for p in parents if p is not None)
+        self.info(
+            f"rederive_geotech_parent_litho_layers: model={model_id} — re-derived {total} "
+            f"accepted band(s): {with_parent} with a covering litho band, "
+            f"{total - with_parent} orphan(s) (no covering accepted litho band)"
+        )
+        return total
+
+    async def restamp_geotech_parent_litho_bodies(self, model_id: UUID) -> int:
+        """Re-stamp every geotech body's litho parent BODY (shallowest covered member).
+
+        For a GEOTECHNICAL model, overwrite ``body.parent_litho_body_id`` on
+        every body with the litho BODY of its SHALLOWEST member band that has a
+        covering litho band (``parent_litho_layer_id`` set): min ``depth_top_m``,
+        tie-broken by band id, then that covering litho band's own ``body_id``
+        (which may itself be ``None``). ``None`` when no member has a covering
+        litho band. This mirrors ``ResolveLithoInstances`` step 5b/6 and the pure
+        :func:`~groundmodel.domain.services.geotech_litho_parent_links.geotech_body_litho_parent_id`
+        — but WITHOUT running the resolver: at Build time the bodies already
+        exist (the payload reflects a prior resolve), so the Build only needs to
+        re-stamp the link from the just-re-derived band FKs.
+
+        Call AFTER :meth:`rederive_geotech_parent_litho_layers` — it reads the
+        ``parent_litho_layer_id`` that method writes. The write is an OVERWRITE
+        (a body whose members lost their cover goes ``None``) and idempotent.
+        GEOTECH-ONLY: a litho model is a logged no-op.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The GEOTECHNICAL model whose bodies are re-stamped.
+
+        Returns
+        -------
+        int
+            Number of bodies re-stamped (0 for a non-geotech model).
+        """
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is None or model.kind != MODEL_KIND_GEOTECHNICAL:
+            self.debug(
+                f"restamp_geotech_parent_litho_bodies: model={model_id} is not geotechnical "
+                "— no-op (litho bodies have no litho-parent body)"
+            )
+            return 0
+
+        # Correlated scalar subquery per body: join each accepted member band
+        # (``geo_band``) to its covering litho band (``litho_band``) via
+        # parent_litho_layer_id, keep members WITH a covering band, order by
+        # (depth_top, band id) and take the FIRST — the shallowest covered
+        # member — returning that covering litho band's ``body_id`` (possibly
+        # NULL). No covered member → the subquery returns nothing → NULL. Same
+        # shallowest-member selection as the resolver's step-6 DISTINCT ON.
+        geo_band = aliased(LithoLayerOrm)
+        litho_band = aliased(LithoLayerOrm)
+        shallowest_litho_body = (
+            select(litho_band.body_id)
+            .select_from(geo_band)
+            .join(litho_band, litho_band.id == geo_band.parent_litho_layer_id)
+            .where(
+                geo_band.model_id == model_id,
+                geo_band.status == "accepted",
+                geo_band.body_id == BodyOrm.id,
+                geo_band.parent_litho_layer_id.is_not(None),
+            )
+            .order_by(geo_band.depth_top_m.asc(), geo_band.id.asc())
+            .limit(1)
+            .correlate(BodyOrm)
+            .scalar_subquery()
+        )
+        result = await self._session.execute(
+            update(BodyOrm)
+            .where(BodyOrm.model_id == model_id)
+            .values(parent_litho_body_id=shallowest_litho_body)
+            .returning(BodyOrm.parent_litho_body_id)
+            .execution_options(synchronize_session=False)
+        )
+        parents = [row[0] for row in result.all()]
+        total = len(parents)
+        with_parent = sum(1 for p in parents if p is not None)
+        self.info(
+            f"restamp_geotech_parent_litho_bodies: model={model_id} — stamped {total} "
+            f"body/bodies: {with_parent} with a litho parent body, "
+            f"{total - with_parent} without (no covered member band)"
+        )
+        return total
