@@ -65,6 +65,14 @@ export interface BodyContextMenuProps {
   unions?: readonly BodyDisjoinOption[]
   /** Fired when the user picks an "Ontkoppelen" item — the group (union) to lift. */
   onDisjoinBody?: (unionId: string) => void
+  /**
+   * Hover preview for the "Ontkoppelen" items (D2, owner 2026-09-01): fired with the
+   * hovered option as the pointer enters a row, and with ``null`` as it leaves or the
+   * menu closes. Lets the canvas highlight WHICH body an un-join refers to — the
+   * decisive cue when a body sits in >1 group and the labels collide. Absent → no
+   * highlight (the items still work).
+   */
+  onUnjoinHover?: (option: BodyDisjoinOption | null) => void
   /** Close callback — the menu is dismissed. */
   onClose: () => void
 }
@@ -75,6 +83,19 @@ export interface BodyDisjoinOption {
   unionId: string
   /** Display label of the other body (caller-composed from the server info). */
   label: string
+  /**
+   * The other anchor's current body id (``null`` when unstamped). After a standing
+   * union both anchors resolve to the SAME merged body, so this collides between two
+   * options on one body — kept for completeness, but ``otherLayerId`` is the
+   * disambiguator (D2, owner 2026-09-01).
+   */
+  otherBodyId?: string | null
+  /**
+   * The other anchor's LAYER id — a distinct section position per option, so hovering
+   * an "Ontkoppelen" item can highlight WHICH body the option refers to even when two
+   * options share a label (D2).
+   */
+  otherLayerId?: string
 }
 
 /** data-testid values for menu items (referenced in BodyContextMenu.test.tsx). */
@@ -125,6 +146,7 @@ export default function BodyContextMenu({
   onJoinBody,
   unions,
   onDisjoinBody,
+  onUnjoinHover,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
   // Item labels read the catalogue (the keys already existed; nothing read them
@@ -184,6 +206,10 @@ export default function BodyContextMenu({
           onClick: () => {
             onDisjoinBody(union.unionId)
           },
+          // Hover preview (D2): highlight the body THIS option refers to, so two
+          // same-labelled "Ontkoppelen" items are told apart on the canvas.
+          onMouseEnter: () => onUnjoinHover?.(union),
+          onMouseLeave: () => onUnjoinHover?.(null),
         }))
       : []),
     // Dissolve — irreversible, so it is danger-styled and divided off. Offered
@@ -221,7 +247,12 @@ export default function BodyContextMenu({
       ariaLabel={t('sections.menu.body')}
       testid="body-context-menu"
       items={items}
-      onClose={onClose}
+      onClose={() => {
+        // Clear any un-join hover preview on dismiss so a highlight can't outlive
+        // the menu (leave fires on most closes, but Esc / outside-click may not).
+        onUnjoinHover?.(null)
+        onClose()
+      }}
     />
   )
 }
