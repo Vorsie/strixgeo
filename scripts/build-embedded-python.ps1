@@ -58,6 +58,28 @@ $BackendTarget = Join-Path $StageRoot 'backend'
 # suspected of anything.
 $StdlibDropDirs = @('test', 'idlelib', 'lib2to3', 'turtledemo')
 
+# Files under infrastructure/codelists/data/ pruned from the STAGED backend
+# (owner exposure-cuts ruling 2026-09-01). The runtime reads ONLY the .json
+# catalogs (g3dv3_catalog.py -> g3dv3_units.json + g3dv3_aliases.json;
+# dov_formal_stratigraphy_catalog.py -> dov_formal_stratigraphy.json). These
+# four are build-time sources or an internal doc the shipped app never opens,
+# so a customer installer has no reason to carry them:
+#   * README.md                 - internal working-group provenance + rebuild
+#                                 recipes + translation doctrine.
+#   * g3dv3_modeleenheden.xlsx   - build source for g3dv3_units.json, read only
+#                                 by scripts/build_g3dv3_catalog.py (never ships).
+#   * g3dv3_kleurcode_rgb.xlsx   - build source for g3dv3_units.json, same reader.
+#   * grondsoort GEO-BGGG.xlsx   - working-group reference document, read by
+#                                 nothing at all.
+# The REPO copies are untouched (they rebuild the .json via scripts/build_*.py);
+# only the freshly-staged tree is pruned.
+$CodelistDataDropFiles = @(
+    'README.md',
+    'g3dv3_modeleenheden.xlsx',
+    'g3dv3_kleurcode_rgb.xlsx',
+    'grondsoort GEO-BGGG.xlsx'
+)
+
 function Write-Step($message) {
     Write-Host "[embedded-python] $message"
 }
@@ -148,6 +170,24 @@ Write-Step 'staging the backend source'
 if (Test-Path $BackendTarget) { Remove-Item -Recurse -Force $BackendTarget }
 New-Item -ItemType Directory -Force -Path (Join-Path $BackendTarget 'src') | Out-Null
 Copy-Item (Join-Path $RepoRoot 'src\groundmodel') (Join-Path $BackendTarget 'src\groundmodel') -Recurse
+
+# Prune build-time-only + internal codelist data from the STAGED backend so a
+# shipped installer carries neither the internal README nor the source
+# spreadsheets (see $CodelistDataDropFiles). Runs on the FRESH copy above, which
+# is re-made every build, so every listed file is expected present; an absent
+# one means the repo renamed/removed it and the list needs updating, so warn
+# loudly rather than skip silently. Mirrors the __pycache__ sweep below.
+Write-Step 'pruning build-only codelist data from the staged backend'
+$StagedCodelistData = Join-Path $BackendTarget 'src\groundmodel\infrastructure\codelists\data'
+foreach ($file in $CodelistDataDropFiles) {
+    $path = Join-Path $StagedCodelistData $file
+    if (Test-Path $path) {
+        Remove-Item -Force $path
+        Write-Step "  dropped codelists\data\$file"
+    } else {
+        Write-Warning "[embedded-python] expected codelists\data\$file to prune, but it was absent"
+    }
+}
 
 # Compile the engine + parsers to native .pyd in the staged copy (owner ruling
 # 2026-08-31: the codebase must not leak from a shipped binary). This replaces
