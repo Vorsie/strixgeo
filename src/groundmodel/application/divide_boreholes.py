@@ -102,6 +102,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.body_separation_reanchor import BodySeparationReanchor
+from groundmodel.application.body_union_reanchor import BodyUnionReanchor
 from groundmodel.application.geotech_band_edit_constants import MANUAL_BAND_SOURCE
 from groundmodel.application.geotech_band_edit_helpers import _parse_admixtures
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
@@ -3316,17 +3317,28 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         captured_separations = await sep_reanchor.capture(
             geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
         )
+        # And the engineer's "Join with…" rulings, the same way (debt #278).
+        union_reanchor = BodyUnionReanchor(self._session)
+        captured_unions = await union_reanchor.capture(
+            geotech_model_id, restrict_to_anchor_kind=ANCHOR_BOREHOLE
+        )
         if borehole_ids is not None:
             subset_keys = {str(b) for b in borehole_ids}
             captured_ties = _filter_by_borehole_scope(captured_ties, subset_keys, require_in=True)
             captured_separations = _filter_by_borehole_scope(
                 captured_separations, subset_keys, require_in=True
             )
+            captured_unions = _filter_by_borehole_scope(
+                captured_unions, subset_keys, require_in=True
+            )
         if skipped_bh:
             skipped_keys = {str(b) for b in skipped_bh}
             captured_ties = _filter_by_borehole_scope(captured_ties, skipped_keys, require_in=False)
             captured_separations = _filter_by_borehole_scope(
                 captured_separations, skipped_keys, require_in=False
+            )
+            captured_unions = _filter_by_borehole_scope(
+                captured_unions, skipped_keys, require_in=False
             )
 
         # Phase 7 — delete existing borehole geotech layers (subset-scoped when
@@ -3406,6 +3418,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         await sep_reanchor.reanchor(
             model_id=geotech_model_id,
             captured=captured_separations,
+            rebuilt_bands=divide_rebuilt_bands,
+        )
+        # And the "Join with…" rulings against the same bands (debt #278).
+        await union_reanchor.reanchor(
+            model_id=geotech_model_id,
+            captured=captured_unions,
             rebuilt_bands=divide_rebuilt_bands,
         )
 
