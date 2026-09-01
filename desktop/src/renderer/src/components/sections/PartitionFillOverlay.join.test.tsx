@@ -183,10 +183,12 @@ describe('PartitionFillOverlay — Join arm', () => {
     )
     fireEvent.click(screen.getByTestId('partition-region-body-lo'))
     expect(onJoinPick).toHaveBeenCalledTimes(1)
+    // No soilByLayerId supplied here, so the advisory falls to the lithology copy
+    // (the broader statement) — the packing-vs-litho split is pinned in
+    // joinPick.test.ts JP6a/JP6b, which drive soil equality directly.
     expect(onJoinPick.mock.calls[0][0]).toEqual({
       kind: 'cross-class',
-      classA: 'ZAND, dicht',
-      classB: 'KLEI, stevig',
+      differ: 'litho',
     })
   })
 
