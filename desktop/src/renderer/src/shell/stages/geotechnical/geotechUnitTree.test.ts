@@ -552,3 +552,78 @@ describe('a class row lists every geological formation its units cross (T10)', (
     expect(t.groups[0].classes[0].geoFormations).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// T11 — selectable BODY children (owner dogfeed 2026-09-01: "i can only see
+// packing but can't select the subbodies there"). The twin collapse emptied the
+// instance level; a class row now carries one child per GEOTECH BODY of that
+// class, so the engineer can select a specific mass.
+// ---------------------------------------------------------------------------
+
+/** ``n`` accepted layers stamped to a body, for its band count. */
+function bodyLayers(
+  formationId: string,
+  bodyId: string,
+  n: number,
+): GeotechUnitTreeInput['layers'] {
+  return Array.from({ length: n }, () => ({
+    formation_id: formationId,
+    confidence: 'high' as const,
+    body_id: bodyId,
+    status: 'accepted' as const,
+  }))
+}
+
+describe('a class row carries selectable body children (T11)', () => {
+  it('T11a — one child per body of the class, unified label + band count, ordinal order', () => {
+    const t = tree({
+      units: [unit('u', 6)], // SAND·MD (litho_main_soil_code defaults to ZAND → SAND)
+      contacts: bands('u', 3),
+      layers: [...bodyLayers('u', 'gbB', 1), ...bodyLayers('u', 'gbA', 2)],
+      bodies: [
+        { id: 'gbB', formation_id: 'u', body_ordinal: 1 },
+        { id: 'gbA', formation_id: 'u', body_ordinal: 0 },
+      ],
+    })
+
+    const row = t.groups[0].classes[0]
+    // Ordered by ordinal, so gbA (#0) before gbB (#1).
+    expect(row.bodies.map(b => b.bodyId)).toEqual(['gbA', 'gbB'])
+    // The UNIFIED geotech-body vocabulary — soil + packing + ordinal.
+    expect(row.bodies.map(b => b.label)).toEqual(['SAND · MD #0', 'SAND · MD #1'])
+    // Band count = accepted layers stamped to each body.
+    expect(row.bodies.map(b => b.bandCount)).toEqual([2, 1])
+  })
+
+  it('T11b — a named body shows its name, not the auto label', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      contacts: bands('u', 1),
+      layers: bodyLayers('u', 'gbA', 1),
+      bodies: [{ id: 'gbA', formation_id: 'u', body_ordinal: 0, name: 'Channel sand' }],
+    })
+    expect(t.groups[0].classes[0].bodies[0].label).toBe('Channel sand')
+  })
+
+  it('T11c — the crossed-formations subtitle rides the body row', () => {
+    const t = tree({
+      units: [unit('u', 6)],
+      contacts: bands('u', 1),
+      layers: bodyLayers('u', 'gbA', 1),
+      bodies: [
+        {
+          id: 'gbA',
+          formation_id: 'u',
+          body_ordinal: 0,
+          geoFormations: ['Quartair', 'Pleistoceen'],
+        },
+      ],
+    })
+    expect(t.groups[0].classes[0].bodies[0].geoFormations).toEqual(['Quartair', 'Pleistoceen'])
+  })
+
+  it('T11d — no bodies supplied → an empty child list, never undefined', () => {
+    const t = tree({ units: [unit('u', 6)], contacts: bands('u', 1) })
+    expect(t.groups[0].classes[0].bodies).toEqual([])
+  })
+})
