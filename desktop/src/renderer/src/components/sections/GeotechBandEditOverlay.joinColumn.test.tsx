@@ -162,4 +162,29 @@ describe('GeotechBandEditOverlay — Join / Ontkoppelen on a column', () => {
     fireEvent.click(item)
     expect(onUnjoinBody).toHaveBeenCalledWith('u1')
   })
+
+  it('JCOL6 — hovering a band-menu "Ontkoppelen" reports its option; leaving clears it', () => {
+    // D2 (ux-reviewer blocker): the band menu draws un-join items from the SAME
+    // unions list as the body-wedge menu, so it must give the SAME hover spotlight —
+    // otherwise the "2× same-label, don't know which" bug survives on this surface.
+    const onUnjoinHover = vi.fn()
+    renderOverlay({
+      onUnjoinBody: vi.fn(),
+      onUnjoinHover,
+      unjoinOptionsForBody: bodyId =>
+        bodyId === 'body-B'
+          ? [{ unionId: 'u1', label: 'SILT vrij vast', otherBodyId: 'body-Z', otherLayerId: 'lay-Z' }]
+          : [],
+    })
+    fireEvent.contextMenu(screen.getByTestId('geotech-band-hit-band-2'), {
+      clientY: yAtDepth(6),
+    })
+    const item = screen.getByTestId('geotech-band-menu-unjoin-u1')
+    fireEvent.mouseEnter(item)
+    expect(onUnjoinHover).toHaveBeenLastCalledWith(
+      expect.objectContaining({ unionId: 'u1', otherLayerId: 'lay-Z' }),
+    )
+    fireEvent.mouseLeave(item)
+    expect(onUnjoinHover).toHaveBeenLastCalledWith(null)
+  })
 })
