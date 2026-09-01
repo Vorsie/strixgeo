@@ -314,6 +314,13 @@ export interface Props {
    */
   classByLayerId?: ReadonlyMap<string, string>
   /**
+   * ``litho_layer id → soil code`` over the axis's own layer list — lets a
+   * cross-class Join refusal split into a packing-vs-lithology advisory (owner
+   * ruling 2026-09-01). Only consulted while a Join is armed; absent → the
+   * advisory falls to the lithology copy.
+   */
+  soilByLayerId?: ReadonlyMap<string, string>
+  /**
    * Whether the body list has landed (#279 item-1). The body-menu right-click —
    * which ARMS Separate — is withheld until it has, so a right-click during the
    * post-recompute in-flight window falls through to the deliberate stats menu
@@ -339,6 +346,14 @@ export interface Props {
    * Absent or null → no fade (normal render).
    */
   selectedBodyId?: string | null
+  /**
+   * D2 (owner 2026-09-01): a hover SPOTLIGHT. When set, every fill fades to 0.25
+   * EXCEPT the region(s) whose ``layerIds`` include this layer — the position of a
+   * hovered "Ontkoppelen" item's other anchor, so two same-labelled un-join options
+   * are told apart. Takes precedence over ``selectedBodyId`` while set (a transient
+   * hover). Absent or null → no spotlight (the S1 selection fade applies as before).
+   */
+  highlightLayerId?: string | null
   /**
    * The LITHO frame over the geotech axis's own partition (owner ruling
    * 2026-08-13). Present ⇒ the geotech axis: litho envelopes draw as dark
@@ -545,9 +560,11 @@ export default function PartitionFillOverlay({
   joinArm,
   onJoinPick,
   classByLayerId,
+  soilByLayerId,
   bodiesLoaded = true,
   correlateMode = false,
   selectedBodyId,
+  highlightLayerId,
   lithoFrame,
   separatedPairs,
   axisMode,
@@ -2177,6 +2194,23 @@ export default function PartitionFillOverlay({
     const selFormId = selectedBodyId
       ? (screenRegions.find((sr) => sr.region.bodyId === selectedBodyId)?.region.formationId ?? null)
       : null
+    // D2 spotlight: while an "Ontkoppelen" item is hovered, dim EVERY fill and let
+    // only the region(s) carrying that item's other-anchor layer stand at natural
+    // opacity — the layer position is what tells two same-labelled options apart.
+    // Strips + under-column fills carry no layerIds, so they can only dim; the
+    // anchor lives in a between-column region, whose layerIds name it. Takes
+    // precedence over the S1 selection fade while set.
+    //
+    // ONLY spotlight when a region actually carries the layer: if the other anchor
+    // surfaces only as a column-edge band (never in a between-column region), a
+    // dim-everything pass would darken the whole canvas and highlight NOTHING —
+    // which reads as a broken response, worse than no feedback (ux-reviewer). So
+    // fall back to the normal render there; the item label still names the option.
+    const hlRaw = highlightLayerId ?? null
+    const hl =
+      hlRaw !== null && screenRegions.some((sr) => sr.region.layerIds?.includes(hlRaw))
+        ? hlRaw
+        : null
     const elements: FillGroupElement[] = []
     // Card-covering strips first — same opacity, same dissolve identity, so a
     // band continues across its column at exactly the gap fill's tone.
@@ -2185,8 +2219,11 @@ export default function PartitionFillOverlay({
         s.source === 'primary'
           ? (formationColorById.get(s.formationId) ?? FALLBACK_COLOR)
           : (lithoFrame?.lithoFormationColorById.get(s.formationId) ?? FALLBACK_COLOR)
-      const opacity =
-        selectedBodyId && selFormId !== null && s.formationId !== selFormId ? 0.25 : FILL_OPACITY
+      const opacity = hl
+        ? 0.25
+        : selectedBodyId && selFormId !== null && s.formationId !== selFormId
+          ? 0.25
+          : FILL_OPACITY
       elements.push({
         points: s.pts,
         formationId: identityOf(s.formationId),
@@ -2196,8 +2233,11 @@ export default function PartitionFillOverlay({
       })
     }
     for (const f of underColumnFills) {
-      const opacity =
-        selectedBodyId && selFormId !== null && f.formationId !== selFormId ? 0.25 : FILL_OPACITY
+      const opacity = hl
+        ? 0.25
+        : selectedBodyId && selFormId !== null && f.formationId !== selFormId
+          ? 0.25
+          : FILL_OPACITY
       elements.push({
         points: f.pts,
         formationId: identityOf(f.formationId),
@@ -2208,8 +2248,13 @@ export default function PartitionFillOverlay({
     }
     for (const sr of screenRegions) {
       const naturalOpacity = sr.region.kind === 'lens' ? LENS_OPACITY : FILL_OPACITY
-      const opacity =
-        selectedBodyId && sr.region.bodyId !== selectedBodyId ? 0.25 : naturalOpacity
+      const opacity = hl
+        ? sr.region.layerIds?.includes(hl)
+          ? naturalOpacity
+          : 0.25
+        : selectedBodyId && sr.region.bodyId !== selectedBodyId
+          ? 0.25
+          : naturalOpacity
       elements.push({
         points: sr.points,
         formationId: identityOf(sr.region.formationId),
@@ -2219,7 +2264,7 @@ export default function PartitionFillOverlay({
       })
     }
     return buildFillGroups(elements)
-  }, [underColumnFills, screenRegions, columnStrips, selectedBodyId, formationColorById, lithoFrame, identityOf])
+  }, [underColumnFills, screenRegions, columnStrips, selectedBodyId, highlightLayerId, formationColorById, lithoFrame, identityOf])
 
   // ---- LITHO FRAME over the geotech partition (owner ruling 2026-08-13). ----
   //
@@ -3457,6 +3502,7 @@ export default function PartitionFillOverlay({
                           sr.region.layerIds,
                           bodyIdByLayerId,
                           classByLayerId ?? EMPTY_CLASS_BY_LAYER,
+                          soilByLayerId,
                         ),
                       )
                     }
