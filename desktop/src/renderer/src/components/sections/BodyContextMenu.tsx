@@ -259,10 +259,14 @@ export default function BodyContextMenu({
       width={300}
       height={200}
       header={
-        `Lens · ${displayLabel ?? body.name ?? body.id.slice(0, 8)}` +
+        // Owner dogfeed 2026-09-01: the literal "Lens · " prefix is gone — the
+        // body label stands alone (it is not always a lens, and the word only
+        // added noise). The label is the caller's unified body label
+        // ("SILT · SF #0"), else the name, else an id prefix.
+        (displayLabel ?? body.name ?? body.id.slice(0, 8)) +
         // R2: the geological formation(s) this body falls in, shown as context
-        // next to the lithology name. One formation reads "Sa · Pleistoceen";
-        // a body crossing two reads "Sa · Holoceen + Pleistoceen".
+        // next to the body label. One formation reads "… · Pleistoceen"; a body
+        // crossing two reads "… · Holoceen + Pleistoceen".
         (geoContext ? ` · ${geoContext}` : '')
       }
       ariaLabel={t('sections.menu.body')}
