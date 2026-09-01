@@ -78,11 +78,16 @@ function splitAtSharedVertices(rings: readonly Pt[][]): Pt[][] {
  *
  * @param regions The classed faces of the whole section, any gap order.
  * @param classKeyOf Formation row → canonical class key (row id fallback).
+ * @param separatedPairs Canonical ``a|b`` layer-id pairs the engineer separated — a
+ *   cross-family weld whose combined layers would hold BOTH sides is skipped, so the
+ *   paint seam survives (owner 2026-08-31, debt #278 R5). Absent leaves the sweep
+ *   byte-identical.
  * @returns The swept regions and the number of welded components.
  */
 export function weldAcrossFamilies(
   regions: readonly SectionRegion[],
   classKeyOf: (formationId: string) => string,
+  separatedPairs?: ReadonlySet<string>,
 ): { regions: SectionRegion[]; welds: number } {
   const byGap = new Map<number, SectionRegion[]>()
   for (const region of regions) {
@@ -115,6 +120,7 @@ export function weldAcrossFamilies(
         label: region,
         ring: rings[i],
       })),
+      { layerIdsOf: (region) => region.layerIds, separatedPairs },
     )
     for (const entry of merged) {
       if (entry.members.length === 1) {
