@@ -19,13 +19,22 @@
 #   * a generated pre-suite marker test that re-asserts every manifest module is
 #     Nuitka-compiled INSIDE the pytest process (same interpreter + sys.path the
 #     suites use);
-#   * tests/unit/domain/services/voxel_litho  (SHA-256 byte-identity pin +
-#     greedy-mesh @njit nopython tripwire);
-#   * tests/unit/domain/test_nad_classifier.py;
+#   * tests/unit/domain  (the WHOLE domain unit tree) -- this executes every
+#     compiled engine module's suite against its .pyd: the voxel_litho
+#     byte-identity pin + greedy-mesh @njit nopython tripwire, the NAD
+#     classifier, the CPT segmenter / Robertson chain, the full geotech
+#     subdivision family, and the TIN/DEM/lens/correlation geometry. (It also
+#     runs the source-only domain model / value-object suites -- harmless extra
+#     coverage; all are pure unit tests, no DB / no I/O.)
 #   * tests/unit/infrastructure/parsers  (incl. the DOV parse-worker, which
 #     round-trips a compiled parser).
 # pytest itself is installed pure-Python into a throwaway target OUTSIDE the
-# staged tree, so no test-only dependency leaks into what ships.
+# staged tree, so no test-only dependency leaks into what ships. The domain tree
+# has exactly one cross-layer import (a deferred
+# `groundmodel.application.geotech_edge_derivation` inside one test) -- it
+# resolves because the application layer ships as source and its runtime deps are
+# installed in the staged interpreter, and it exercises the compiled
+# geotech_edge_bridging through the application wrapper.
 #
 # Any failure throws -> the dist build dies. That is the point: a semantic
 # deviation introduced by compilation must stop the installer, not surface in a
@@ -169,8 +178,7 @@ $env:SECRET_KEY = 'native-gate-import-check-only'
 
 $targets = @(
     $markerTest,
-    (Join-Path $RepoRoot 'tests\unit\domain\services\voxel_litho'),
-    (Join-Path $RepoRoot 'tests\unit\domain\test_nad_classifier.py'),
+    (Join-Path $RepoRoot 'tests\unit\domain'),
     (Join-Path $RepoRoot 'tests\unit\infrastructure\parsers')
 )
 
