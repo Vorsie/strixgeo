@@ -123,7 +123,6 @@ _ENGINE_DOMAIN_SERVICES = [
     # geotech_band_reclassification lands here now C3 is settled.
     "groundmodel.domain.services.geotech_band_reclassification",
     "groundmodel.domain.services.geotech_body_aggregation",
-    "groundmodel.domain.services.geotech_column_sampler",
     "groundmodel.domain.services.geotech_crossing_repair",
     "groundmodel.domain.services.geotech_edge_bridging",
     "groundmodel.domain.services.geotech_edge_crossing_guard",
@@ -229,6 +228,15 @@ COMPILED_MODULES: list[str] = [*_VOXEL_LITHO, *_ENGINE_DOMAIN_SERVICES, *_PARSER
 #: describing the package-marker rule. Consumed by the gates for their assertions
 #: and by docs/distribution-build.md for the carve-out table.
 SOURCE_CARVEOUTS: dict[str, str] = {
+    "groundmodel.domain.services.geotech_column_sampler": (
+        "Nuitka SEMANTIC DEVIATION — compiled, its even-odd/geometry "
+        "sample_regions_at_fraction drops enclosed lens bands, so cs2/cs3 in "
+        "tests/unit/domain/services/test_geotech_column_sampler.py fail against "
+        "the .pyd (returns ['NAD6'] not ['NAD6','SILT','NAD6']). Verified "
+        "2026-09-01 by a targeted compile. Ships SOURCE; the behavioural gate is "
+        "exactly what caught this. Do NOT re-add without re-proving the suite "
+        "passes against the .pyd."
+    ),
     "groundmodel.domain.services.voxel_litho.greedy_mesh": (
         "Numba @njit(cache=True) kernel — needs __code__ + an on-disk .py to "
         "cache beside; compiling it away drops the hotspot to object-mode. "
