@@ -9064,6 +9064,44 @@ the acceptance instrument for B or C.
 
 ## 278. Body identity is decided by the machine, from the wrong picture (L)
 
+**STATUS 2026-09-01 — LARGELY LANDED (overnight slice, ~115 commits on
+develop).** Built and gated green: R6 (geotech recompute identity from the
+litho-framed hierarchical fill — `framedGeotechFill.ts`, frame plumbing in
+`buildBodyRecomputePayload`/`makeBodyRecomputeBuilder`/`useProjectBodyRecompute`);
+R7 (`_spans_at_fraction` true-interval reach, degenerate-safe); R1 (find-or-create
+keys drop the geo term; backend cross-section planners class-keyed via
+`packing_class_key.py` — this was ALSO the 3-D `_blend_stacks` invented-lithology
+mechanism); D1 `body.parent_litho_body_id` stored self-FK, resolver-maintained
+(geotech resolve stamps shallowest-member; litho resolve re-stamps siblings under
+BOTH partition locks); R2 (bodies list every crossed geo formation — additive
+API, menu header, units-pane subtitle, optional export Geo column); R5 Separate
+verb (constrained union-find with cannot-link `body_separation` rows —
+layer-id space, re-anchored across re-subdivide, bundled + .strix-whitelisted;
+litho-axis arm gesture + Rejoin); fence one-panel-per-connected-body-per-section
+(`mergeFencePanels.ts`); #279 item 1 (nonce-stamped body-menu arming gate,
+`useRosterLoadedGate.ts`).
+
+**Still open on this entry:**
+* **R3 twins migration — BUILT, OWNER-GATED, on branch
+  `pending-278-twins-migration`** (migration + 5 red-first integration pins +
+  `scripts/dry_run_twins_migration.sql`). Dev-DB dry-run: 22 twin groups,
+  56 losers, formations 111→55, 0 ordinal collisions. Merge + run ONLY after
+  the owner's explicit go (pg_dump first); `sync_dev_db.ps1` now refuses while
+  the revision is present unconfirmed. Reviewer follow-ups queued on the
+  branch: fix the FC→LL trigger-gating comment; add a 3-member twin-group
+  fixture (loser-vs-loser dedup + oldest-of-many adoption untested).
+* **Geotech-axis body menu** (Separate on the geotech axis) — needs an owner
+  ruling: the axis is view-only by several rulings; menu-body resolution +
+  stats routing are undesigned. The arm plumbing is already axis-agnostic.
+* **Visual mark for a standing separation** (ux flag, owner dogfeed call) and
+  a Rejoin-list overflow bound (menu height) — deferred to dogfeed.
+* **crossFamilyWeld × merged-panel formationId**: a cross-family-welded body's
+  fence panel now carries ONE member's formationId across the whole wall —
+  cutout filter / legend "walled" mark / DXF layer credit only that formation.
+  Enriches the standing EYEBALL-ONLY item; change nothing until seen on screen.
+
+Original rulings (2026-08-31) kept below for the record.
+
 **What.** Seven rulings taken 2026-08-31 that only make sense together, because
 each one is about the same question: what IS one body?
 
@@ -9171,9 +9209,14 @@ rewrites), but it is NOT what caused this.
 
 **What is still open.**
 
-1. **The shared cursor is a genuine UX wart.** A user cannot predict which menu a
-   right-click gives, and during load they get the wrong one with no explanation.
-   Worth a distinct affordance, or arming the body menu only once the list is in.
+1. **The shared cursor is a genuine UX wart.** ~~A user cannot predict which menu a
+   right-click gives, and during load they get the wrong one with no explanation.~~
+   **ADDRESSED 2026-09-01 with #278:** `useRosterLoadedGate.ts` stamps the
+   recompute nonce the roster loaded at, so the body menu arms only once the
+   list is in — covering BOTH the cold-start race and the post-recompute window
+   (the gate goes false synchronously on a nonce bump; the stats menu is the
+   deliberate answer in that window). The owner's original in-flight repro is
+   still wanted as confirmation on real data.
 2. **The menu's items fail Playwright's actionability check** — the item is
    visible (the whole menu is in the failure screenshot) but a real `.click()`
    times out; the spec now dispatches instead. Most likely an SVG-portal
