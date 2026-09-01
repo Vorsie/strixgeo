@@ -9,9 +9,36 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { resolveJoinPick } from './joinPick'
+import { firstLayerStampedToBody, resolveJoinPick } from './joinPick'
 
 const arm = { bodyId: 'body-A', anchorLayerId: 'a1' }
+
+// firstLayerStampedToBody moved here when the Separate verb was retired
+// (body-verb simplification, 2026-09-01); its pins move with it.
+describe('firstLayerStampedToBody', () => {
+  const map = new Map<string, string | null>([
+    ['a1', 'body-A'],
+    ['b1', 'body-B'],
+    ['b2', 'body-B'],
+    ['x1', null],
+  ])
+
+  it('FLS1 — returns the first layer stamped to the body, in order', () => {
+    expect(firstLayerStampedToBody(['b1', 'b2'], 'body-B', map)).toBe('b1')
+  })
+
+  it('FLS2 — skips layers stamped to other bodies', () => {
+    expect(firstLayerStampedToBody(['a1', 'b2'], 'body-B', map)).toBe('b2')
+  })
+
+  it('FLS3 — returns null when no layer belongs to the body', () => {
+    expect(firstLayerStampedToBody(['a1', 'x1'], 'body-B', map)).toBeNull()
+  })
+
+  it('FLS4 — returns null for absent layerIds', () => {
+    expect(firstLayerStampedToBody(undefined, 'body-A', map)).toBeNull()
+  })
+})
 
 // Every layer here is ZAND·dicht except the KLEI anchor in JP6 — the class map
 // is what tells same-class (join) from cross-class (refuse).
