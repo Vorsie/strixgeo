@@ -5,8 +5,8 @@
 // commits; clicking the armed body itself stays armed. When nothing is armed the
 // regions behave exactly as before (no onSeparatePick, no left-click capture).
 //
-//   SEP-OV1  armed + click a DIFFERENT body's region → commit(arm anchor, target anchor)
-//   SEP-OV2  armed + click the ARMED body's own region → stays armed ({kind:'same'})
+//   SEP-OV1  armed + click a DIFFERENT body's region → commit keep-apart (sameBody false)
+//   SEP-OV2  armed + click the ARMED body's own region → commit SPLIT (sameBody true)
 //   SEP-OV3  NOT armed → a region left-click fires nothing (byte-identical gating)
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -131,10 +131,15 @@ describe('PartitionFillOverlay — Separate arm', () => {
     expect(onSeparatePick.mock.calls[0][0]).toMatchObject({
       kind: 'commit',
       anchorLayerId: 'a1',
+      sameBody: false,
     })
   })
 
-  it('SEP-OV2 — armed, clicking the ARMED body region stays armed ({kind:"same"})', () => {
+  it('SEP-OV2 — armed on the region’s own anchor, clicking it is a self-anchor no-op', () => {
+    // The sand region resolves its target anchor to ``a1``; arming on the SAME
+    // ``a1`` and clicking the region would POST anchor == target (a 422). The
+    // overlay must report self-anchor so the arm stays live rather than firing a
+    // commit that cannot succeed (coordinator should-fix 2026-09-01).
     const onSeparatePick = vi.fn()
     render(
       <svg>
@@ -147,7 +152,26 @@ describe('PartitionFillOverlay — Separate arm', () => {
     )
     fireEvent.click(screen.getByTestId('partition-region-body-sand'))
     expect(onSeparatePick).toHaveBeenCalledTimes(1)
-    expect(onSeparatePick.mock.calls[0][0]).toEqual({ kind: 'same' })
+    expect(onSeparatePick.mock.calls[0][0]).toEqual({ kind: 'self-anchor' })
+  })
+
+  it('SEP-OV8 — armed on a DIFFERENT part of the same body, clicking it commits a SPLIT', () => {
+    // Arm on ``b1`` (the other column's sand layer); the sand region's target
+    // anchor is ``a1`` != ``b1``, so the two anchors are distinct — a legitimate
+    // split of one body into two (sameBody true).
+    const onSeparatePick = vi.fn()
+    render(
+      <svg>
+        <PartitionFillOverlay
+          {...baseProps()}
+          separateArm={{ bodyId: 'body-sand', anchorLayerId: 'b1' }}
+          onSeparatePick={onSeparatePick}
+        />
+      </svg>,
+    )
+    fireEvent.click(screen.getByTestId('partition-region-body-sand'))
+    expect(onSeparatePick).toHaveBeenCalledTimes(1)
+    expect(onSeparatePick.mock.calls[0][0]).toMatchObject({ kind: 'commit', sameBody: true })
   })
 
   it('SEP-OV3 — not armed, a region left-click fires no separate pick', () => {
