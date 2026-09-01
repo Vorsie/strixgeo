@@ -70,6 +70,7 @@ import { buildColumnStripFills } from './columnStripFills'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 import { resolveRegionBodyId } from './regionBodyId'
 import { resolveSeparatePick, type SeparatePick } from './separatePick'
+import { resolveJoinPick, type JoinPick } from './joinPick'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
   computeSectionFillActive,
@@ -306,6 +307,26 @@ export interface Props {
    */
   onSeparatePick?: (pick: SeparatePick) => void
   /**
+   * The active Join arm (debt #278), or null. The verb-parallel of
+   * {@link separateArm}: SectionPanel sets at most ONE of the two (the single
+   * pair-arm split by kind), and the same armed block routes the click to the
+   * matching resolver. Join adds a cross-class outcome, so it needs
+   * {@link classByLayerId}. Byte-identical when null.
+   */
+  joinArm?: { bodyId: string; anchorLayerId: string } | null
+  /**
+   * Fired on an armed Join region left-click with the classified outcome — a
+   * distinct same-class body ``commit``, ``cross-class`` (a class mismatch, the
+   * join refused), or ``same`` / ``unresolvable`` (all keep the arm live).
+   */
+  onJoinPick?: (pick: JoinPick) => void
+  /**
+   * ``litho_layer id → packing-class label`` over the axis's own layer list —
+   * the authority the Join arm's cross-class guard reads. Only consulted while a
+   * Join is armed; unused (and unset) for Separate.
+   */
+  classByLayerId?: ReadonlyMap<string, string>
+  /**
    * Whether the body list has landed (#279 item-1). The body-menu right-click —
    * which ARMS Separate — is withheld until it has, so a right-click during the
    * post-recompute in-flight window falls through to the deliberate stats menu
@@ -479,6 +500,12 @@ const ADDSTRIP_HIT_W = 14
 // content-key memoisation). Never mutated.
 const EMPTY_REGIONS: readonly SectionRegion[] = Object.freeze([])
 
+// Stable empty class-lookup for the Join arm's cross-class guard, so an unset
+// ``classByLayerId`` prop (Separate arm, or an older caller) never mints a fresh
+// Map per render. A missing class is silence to ``resolveJoinPick`` (it commits
+// and lets the write guard decide), so an empty map is the correct no-op default.
+const EMPTY_CLASS_BY_LAYER: ReadonlyMap<string, string> = new Map()
+
 // Minimum VISIBLE apex reach (fraction of the gap) a lens override may request
 // (S72). The engine only clamps the apex fraction to its geometric-legality bound
 // [0.02, 0.98] — a 2% reach is a hairline sliver that reads as "the lens
@@ -521,6 +548,9 @@ export default function PartitionFillOverlay({
   onBodyContextMenu,
   separateArm,
   onSeparatePick,
+  joinArm,
+  onJoinPick,
+  classByLayerId,
   bodiesLoaded = true,
   correlateMode = false,
   selectedBodyId,
@@ -3358,6 +3388,12 @@ export default function PartitionFillOverlay({
         // Separate is a body gesture, not contact editing.)
         const separateArmActive =
           separateArm != null && onSeparatePick !== undefined && !correlateMode
+        // The Join arm is the verb-parallel of the Separate arm (debt #278):
+        // SectionPanel sets at most ONE of the two (the single pair-arm split by
+        // kind), so ``armActive`` is verb-agnostic and the armed block below
+        // ROUTES the click to the matching resolver rather than duplicating it.
+        const joinArmActive = joinArm != null && onJoinPick !== undefined && !correlateMode
+        const armActive = separateArmActive || joinArmActive
         // R2 / S7b (2026-08-27): a fill region answers right-click with
         // "Unit statistics…" for its unit — on BOTH the litho and geotech axes
         // (piece B), and on each it is the FALLBACK the body menu leaves behind:
@@ -3399,27 +3435,37 @@ export default function PartitionFillOverlay({
               fill={color}
               fillOpacity={0}
               style={
-                separateArmActive
+                armActive
                   ? // ``interactivePtr`` (not a literal 'auto') so the region still
-                    // yields to correlate mode; ``separateArmActive`` is already
-                    // false under correlateMode, this is defence in depth.
+                    // yields to correlate mode; ``armActive`` is already false
+                    // under correlateMode, this is defence in depth.
                     { pointerEvents: interactivePtr, cursor: 'crosshair' }
                   : interactive || statsInteractive
                     ? { pointerEvents: interactivePtr, cursor: 'context-menu' }
                     : { pointerEvents: 'none' }
               }
-              // Armed Separate wins the left-click: resolve the clicked region's
-              // body through its layers and report the outcome up. SectionPanel
-              // owns the toast (same / unresolvable) and the commit.
+              // The armed pick wins the left-click: resolve the clicked region's
+              // body through its layers and report the outcome up, routing to the
+              // resolver for the armed verb. SectionPanel owns the toast + commit.
               onClick={
-                separateArmActive
+                armActive
                   ? (e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      if (separateArm == null) return
-                      onSeparatePick?.(
-                        resolveSeparatePick(separateArm, sr.region.layerIds, bodyIdByLayerId),
-                      )
+                      if (joinArmActive && joinArm != null) {
+                        onJoinPick?.(
+                          resolveJoinPick(
+                            joinArm,
+                            sr.region.layerIds,
+                            bodyIdByLayerId,
+                            classByLayerId ?? EMPTY_CLASS_BY_LAYER,
+                          ),
+                        )
+                      } else if (separateArm != null) {
+                        onSeparatePick?.(
+                          resolveSeparatePick(separateArm, sr.region.layerIds, bodyIdByLayerId),
+                        )
+                      }
                     }
                   : undefined
               }
