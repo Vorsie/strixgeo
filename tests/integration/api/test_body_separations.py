@@ -49,6 +49,16 @@ from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 from .geotech_scene_helpers import accept_cpt_litho, two_layer_qc
 
+# body_separation is DORMANT since the owner removed the Separate/Rejoin verbs
+# (2026-09-01): the resolver ignores separations and the join endpoint no longer
+# consults them, so every SEP-* pin here asserts removed cannot-link behaviour.
+# Quarantined until the full body_separation-removal slice deletes the subsystem
+# (ORM, table, router, reanchor, bundle) and these tests with it.
+pytestmark = pytest.mark.skip(
+    reason="body_separation dormant since Separate/Rejoin removed (owner 2026-09-01); "
+    "pending the full body_separation-removal slice"
+)
+
 
 @pytest_asyncio.fixture
 async def sep_project(db_session: AsyncSession) -> ProjectOrm:
