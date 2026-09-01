@@ -530,6 +530,8 @@ export const SECTIONS_NL = {
   // aanwijzingen op het canvas
   // ---------------------------------------------------------------------------
   'sections.hints.f1': 'Druk op F1 voor het volledige overzicht van de gebaren',
+  'sections.hints.panZoom':
+    'Sleep om te pannen · scroll om te zoomen · rechtsklik een kolom om te focussen · dubbelklik een kolom om te openen',
   'sections.hints.lithoLayer':
     'Litholaag: dubbelklik om te aanvaarden · Alt+slepen om de samenstelling te kopiëren · Shift+slepen voorbij het midden van de buur om ze op te nemen · rechtsklik voor meer',
   'sections.hints.acceptFirst':
@@ -544,17 +546,13 @@ export const SECTIONS_NL = {
   // NOTE: ruled 2026-08-27 — owner chose "Lichaam ontbinden".
   'sections.menu.dissolveBody': 'Lichaam ontbinden',
   'sections.menu.nameBody': 'Lichaam benoemen…',
-  // Debt #278 R5 — the "Separate" verb + its Rejoin. Owner ruled 2026-09-01:
-  // Rejoin reads "Herenig met {label}". "Voeg samen met…" is RESERVED for the
-  // upcoming Join verb, so Rejoin deliberately does NOT use it.
-  'sections.menu.separateBody': 'Scheiden van…',
-  'sections.menu.rejoinBody': 'Herenig met {label}',
-  // Debt #278 — the "Join with…" verb + its Disjoin. Owner RULED 2026-08-31:
-  // Join reads "Voeg samen met…". Disjoin's NL is FLAGGED-not-ruled — proposed
-  // "Ontkoppel van {label}", pending the owner's word (mirrors how Rejoin's NL
-  // was flagged before it was ruled).
+  // Body-verb simplification (owner ruling 2026-09-01 "way too complicated"):
+  // Join + Ontkoppelen only. Separate / Rejoin removed. Owner RULED: Join reads
+  // "Voeg samen met…"; the un-join reads "Ontkoppelen" (his approved word). The
+  // "van {label}" suffix names which group is lifted when a body sits in several
+  // (FLAG: the suffix wording is mine, not owner-ruled verbatim).
   'sections.menu.joinBody': 'Voeg samen met…',
-  'sections.menu.disjoinBody': 'Ontkoppel van {label}',
+  'sections.menu.unjoinBody': 'Ontkoppelen van {label}',
   // FLAG alt: Focus op dit onderzoekspunt | Focus op deze kolom — "test" here
   // means one CPT or borehole column on the section.
   'sections.menu.focusTest': 'Focus op deze proef',
@@ -590,6 +588,34 @@ export const SECTIONS_NL = {
   'sections.menu.mergeBands': 'Banden samenvoegen',
   'sections.menu.mergeIntoSurrounding': 'Opnemen in de omliggende band',
   'sections.menu.splitBand': 'Band splitsen…',
+  // Geotech band-bewerkmenu — de twee "Band verwijderen"-richtingen. FLAG: niet
+  // door de eigenaar geformuleerd; natuurlijke NL keuze.
+  'sections.bandMenu.removeUp': 'Band verwijderen (samenvoegen met band erboven)',
+  'sections.bandMenu.removeDown': 'Band verwijderen (samenvoegen met band eronder)',
+
+  // As-titel langs het profiel. FLAG: niet door de eigenaar geformuleerd.
+  'sections.axisLabel.alongM': 'Afstand langs profiel (m)',
+
+  // Samenvoegen / Ontkoppelen van lichamen (eigenaarsbeslissing 2026-09-01) —
+  // de aanwijzing tijdens het richten, de toasts en de adviezen. ``{label}`` is
+  // het gerichte lichaam; ``{classA}``/``{classB}`` de twee pakkingsklassen bij
+  // een weigering over klassen heen. FLAG: bewoording niet door de eigenaar
+  // geformuleerd, behalve "Ontkoppelen".
+  'sections.join.armHint':
+    'Bezig met samenvoegen van {label} — klik het andere lichaam · Esc annuleert',
+  'sections.join.success':
+    'Lichamen samengevoegd — rechtsklik het lichaam → Ontkoppelen om ongedaan te maken.',
+  'sections.join.blockedSeparation':
+    'Samenvoegen geblokkeerd door een bestaande scheiding — verwijder die scheiding eerst.',
+  'sections.join.crossClass':
+    'Deze lichamen hebben verschillende pakkingsklassen en kunnen niet worden samengevoegd.',
+  'sections.join.failed': 'Samenvoegen van lichamen mislukt.',
+  'sections.join.noticeSame': 'Dat is hetzelfde lichaam — klik een ander om samen te voegen.',
+  'sections.join.noticeCrossClass':
+    "Kan niet samenvoegen over pakkingsklassen — {classA} en {classB} zijn verschillende massa's.",
+  'sections.join.noticeUnresolvable': 'Kon dat lichaam niet herkennen — klik een gevuld lichaam.',
+  'sections.unjoin.success': 'Ontkoppeld — de lichamen kunnen weer opsplitsen.',
+  'sections.unjoin.failed': 'Ontkoppelen van lichamen mislukt.',
 
   // ---------------------------------------------------------------------------
   // laaggrenzen
