@@ -961,6 +961,73 @@ export default function SectionsCanvas(): JSX.Element {
     bodyRecomputeLithoNonce,
   ])
 
+  // Piece B (owner ruling 2026-08-31, "shouldn't we be able to do this in the
+  // geotech stage" — RULED yes): the GEOTECH body roster + standing separations,
+  // so the body menu (name / statistics / separate / dissolve) works on the
+  // geotech axis too. Parallel to the litho block above, with its OWN #279
+  // arming gate on the GEOTECH recompute nonce — a geotech recompute rewrites
+  // geotech ``body_id`` stamps independently, so the two gates cannot share one.
+  // No boundary fetch: freedraw shaping is litho-only, so the geotech axis needs
+  // only the roster (for ``bodyById``) + separations (for Rejoin).
+  const [geotechBodyList, setGeotechBodyList] = useState<BodyListItem[]>([])
+  const [geotechSeparationsList, setGeotechSeparationsList] = useState<BodySeparationListItem[]>([])
+  const { bodiesLoaded: geotechRosterLoaded, markLoaded: markGeotechRosterLoaded } =
+    useRosterLoadedGate(isGeotech ? geotechPackingModelId : null, bodyRecomputeGeotechNonce)
+
+  const refetchGeotechBodyData = useCallback(async () => {
+    if (geotechPackingModelId === null) {
+      setGeotechBodyList([])
+      setGeotechSeparationsList([])
+      return
+    }
+    try {
+      setGeotechBodyList(await api.geology.listLenses(project.id, geotechPackingModelId))
+      // Roster current for this model — the body menu may arm (#279). Marked
+      // before the separations fetch so a separations failure never withholds it.
+      markGeotechRosterLoaded(geotechPackingModelId)
+    } catch (err) {
+      log.warn('section', 'refetchGeotechBodyData: listLenses failed', err)
+      return
+    }
+    try {
+      setGeotechSeparationsList(
+        await api.geology.listBodySeparations(project.id, geotechPackingModelId),
+      )
+    } catch (err) {
+      setGeotechSeparationsList([])
+      log.warn('section', 'refetchGeotechBodyData: listBodySeparations failed', err)
+    }
+  }, [geotechPackingModelId, project.id, markGeotechRosterLoaded])
+
+  useEffect(() => {
+    if (!isGeotech) {
+      setGeotechBodyList([])
+      setGeotechSeparationsList([])
+      return
+    }
+    void refetchGeotechBodyData()
+    // reason: the geotech roster follows the geotech recompute nonce (#279 per
+    // axis), the active geotech model + section switch; refetchGeotechBodyData
+    // captures project.id + geotechPackingModelId in its closure. The nonce is
+    // here so the roster refetches + re-arms the menu after every recompute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isGeotech,
+    geotechPackingModelId,
+    selectedSectionId,
+    correlationEdgesRefetchNonce,
+    bodyRecomputeGeotechNonce,
+  ])
+
+  // The body menu acts on the ACTIVE axis's model (piece B): geotech on the
+  // geotech axis, litho otherwise. The five handlers below read these so one
+  // handler each serves both axes (name / dissolve / separate / rejoin all
+  // POST against ``bodyMenuModel.id`` and refresh through ``refetchBodyMenuData``).
+  const bodyMenuModel = isGeotech ? activeGeotechModel : activeLithoModel
+  const bodyMenuRoster = isGeotech ? geotechBodyList : lensList
+  const refetchBodyMenuData = isGeotech ? refetchGeotechBodyData : refetchLensData
+  const bodyMenuRecomputeAxis: 'litho' | 'geotech' = isGeotech ? 'geotech' : 'litho'
+
   // (Fill-bands sand-merge removed 2026-06-05.) It correlated host halves on
   // every Fill-bands OFFâ†’ON to fuse a lens-split lithology into one body â€” but
   // the partition fill now extracts enclosed lenses in pure geometry, so the
@@ -1346,15 +1413,15 @@ export default function SectionsCanvas(): JSX.Element {
   // Electron, so naming goes through a Modal.)
   const handleNameBody = useCallback(
     (bodyId: string): void => {
-      if (!activeLithoModel) return
-      const body = lensList.find(b => b.id === bodyId)
+      if (!bodyMenuModel) return
+      const body = bodyMenuRoster.find(b => b.id === bodyId)
       if (!body) {
-        log.warn('section', `name-body: body ${bodyId} not found in lensList`)
+        log.warn('section', `name-body: body ${bodyId} not found in body roster`)
         return
       }
       setNamingBody({ id: bodyId, currentName: body.name ?? '' })
     },
-    [activeLithoModel, lensList],
+    [bodyMenuModel, bodyMenuRoster],
   )
 
   // Commit the name entered in NameBodyDialog. A named body is preserved by
@@ -1362,29 +1429,29 @@ export default function SectionsCanvas(): JSX.Element {
   // the user keeps ("accepts") a detected lens.
   const submitBodyName = useCallback(
     async (name: string): Promise<void> => {
-      if (!activeLithoModel || namingBody === null) return
-      const body = lensList.find(b => b.id === namingBody.id)
+      if (!bodyMenuModel || namingBody === null) return
+      const body = bodyMenuRoster.find(b => b.id === namingBody.id)
       if (!body) {
         setNamingBody(null)
         return
       }
       log.info('section', `name-body: body=${namingBody.id} name="${name}"`)
       try {
-        await api.geology.nameBody(project.id, activeLithoModel.id, namingBody.id, {
+        await api.geology.nameBody(project.id, bodyMenuModel.id, namingBody.id, {
           formation_id: body.formation_id,
           body_ordinal: body.body_ordinal,
           name,
         })
-        void refetchLensData()
-        toast('success', `Lens named: ${name}`)
+        void refetchBodyMenuData()
+        toast('success', `Body named: ${name}`)
       } catch (err) {
-        toast('error', 'Failed to name lens.')
+        toast('error', 'Failed to name body.')
         log.warn('section', 'submitBodyName: failed', err)
       } finally {
         setNamingBody(null)
       }
     },
-    [activeLithoModel, namingBody, project.id, lensList, refetchLensData, toast],
+    [bodyMenuModel, namingBody, project.id, bodyMenuRoster, refetchBodyMenuData, toast],
   )
 
   // Dissolve a body — deletes the body row only. (The correlation edges are NOT
@@ -1392,19 +1459,19 @@ export default function SectionsCanvas(): JSX.Element {
   // the tie graph is the user's, kept by the resolver.)
   const handleDissolveBody = useCallback(
     async (bodyId: string): Promise<void> => {
-      if (!activeLithoModel) return
+      if (!bodyMenuModel) return
       if (!window.confirm('Dissolve this body? This removes the body and its extent data.')) return
       log.info('section', `dissolve-body: body=${bodyId}`)
       try {
-        await api.geology.deleteBody(project.id, activeLithoModel.id, bodyId)
-        void refetchLensData()
+        await api.geology.deleteBody(project.id, bodyMenuModel.id, bodyId)
+        void refetchBodyMenuData()
         toast('success', 'Body dissolved.')
       } catch (err) {
         toast('error', 'Failed to dissolve body.')
         log.warn('section', 'handleDissolveBody: failed', err)
       }
     },
-    [activeLithoModel, project.id, refetchLensData, toast],
+    [bodyMenuModel, project.id, refetchBodyMenuData, toast],
   )
 
   // Separate two bodies (debt #278 R5) — record the cannot-link constraint, then
@@ -1414,7 +1481,7 @@ export default function SectionsCanvas(): JSX.Element {
   // (Dissolve above does NOT request one — a known wart, owner-noted).
   const handleSeparateBodies = useCallback(
     async (anchorLayerId: string, targetAnchorLayerId: string): Promise<void> => {
-      if (!activeLithoModel) return
+      if (!bodyMenuModel) return
       log.info(
         'section',
         `separate-bodies: anchorA=${anchorLayerId} anchorB=${targetAnchorLayerId}`,
@@ -1422,12 +1489,12 @@ export default function SectionsCanvas(): JSX.Element {
       try {
         await api.geology.createBodySeparation(
           project.id,
-          activeLithoModel.id,
+          bodyMenuModel.id,
           anchorLayerId,
           targetAnchorLayerId,
         )
-        void refetchLensData()
-        requestBodyRecompute('litho')
+        void refetchBodyMenuData()
+        requestBodyRecompute(bodyMenuRecomputeAxis)
         // Reversible action → name the undo path (docs/ux.md).
         toast('success', 'Bodies separated — right-click either body → Rejoin to undo.')
       } catch (err) {
@@ -1435,7 +1502,7 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'handleSeparateBodies: failed', err)
       }
     },
-    [activeLithoModel, project.id, refetchLensData, requestBodyRecompute, toast],
+    [bodyMenuModel, project.id, refetchBodyMenuData, requestBodyRecompute, bodyMenuRecomputeAxis, toast],
   )
 
   // Rejoin — lift a standing separation (the reversible verb's undo path). The
@@ -1443,19 +1510,19 @@ export default function SectionsCanvas(): JSX.Element {
   // geometry still connect them; the recompute request re-renders the result.
   const handleRejoinBody = useCallback(
     async (separationId: string): Promise<void> => {
-      if (!activeLithoModel) return
+      if (!bodyMenuModel) return
       log.info('section', `rejoin-body: separation=${separationId}`)
       try {
-        await api.geology.deleteBodySeparation(project.id, activeLithoModel.id, separationId)
-        void refetchLensData()
-        requestBodyRecompute('litho')
+        await api.geology.deleteBodySeparation(project.id, bodyMenuModel.id, separationId)
+        void refetchBodyMenuData()
+        requestBodyRecompute(bodyMenuRecomputeAxis)
         toast('success', 'Separation lifted — the bodies may rejoin.')
       } catch (err) {
         toast('error', 'Failed to rejoin bodies.')
         log.warn('section', 'handleRejoinBody: failed', err)
       }
     },
-    [activeLithoModel, project.id, refetchLensData, requestBodyRecompute, toast],
+    [bodyMenuModel, project.id, refetchBodyMenuData, requestBodyRecompute, bodyMenuRecomputeAxis, toast],
   )
 
   // Advisory while a Separate is armed: the engineer clicked the armed body
@@ -2440,11 +2507,15 @@ export default function SectionsCanvas(): JSX.Element {
             // Auto-lens (2026-06-02): pinch-out candidates from the last
             // auto-correlate run, amber diamonds on the litho axis.
             crossingPinchOuts: isLitho ? lithoCrossingPinchOuts : undefined,
-            // #163f Slice 2 - lens wedges + shaping (litho axis only).
+            // #163f Slice 2 - lens wedges + shaping (litho axis only). On the
+            // geotech axis this carries the GEOTECH body roster (piece B): the
+            // overlay's ``bodyById`` reads it to resolve the right-clicked
+            // region's body for the body menu — the lens WEDGES/handles stay
+            // litho-only (viewOnly gates them), only the roster crosses over.
             lenses: isLitho
               ? lensList
               : isGeotech
-                ? [] // geotech axis: bodies resolved via correlations; no lens entities yet
+                ? geotechBodyList
                 : undefined,
             // The LITHO model's layers on both axes. On the geotech axis they no
             // longer frame the partition (SectionPanel swaps in the geotech
@@ -2676,20 +2747,25 @@ export default function SectionsCanvas(): JSX.Element {
           // contact-correlate path. Litho axis only. Stable ``handleCorrelateBoundary`` (S3).
           onCorrelateBoundary={isLitho ? handleCorrelateBoundary : undefined}
           onDeleteLens={isLitho ? handleDeleteLens : undefined}
-          onNameBody={isLitho ? bid => void handleNameBody(bid) : undefined}
-          onDissolveBody={isLitho ? bid => void handleDissolveBody(bid) : undefined}
-          // Separate / Rejoin (debt #278 R5) — litho axis only for now (the
-          // geotech axis is view-only; its body list is not wired here yet).
+          // Body menu on BOTH the litho and geotech axes (piece B, owner
+          // 2026-08-31). The handlers are axis-aware (they POST against
+          // ``bodyMenuModel.id``); on the geotech axis they act on the geotech
+          // model. Contact editing stays view-only there — only the menu crosses.
+          onNameBody={isLitho || isGeotech ? bid => void handleNameBody(bid) : undefined}
+          onDissolveBody={isLitho || isGeotech ? bid => void handleDissolveBody(bid) : undefined}
+          // Separate / Rejoin (debt #278 R5) — both axes now; the arm plumbing is
+          // axis-agnostic (``armBodyIdByLayerId`` merges both layer→body maps).
           onSeparateBodies={
-            isLitho ? (a, b) => void handleSeparateBodies(a, b) : undefined
+            isLitho || isGeotech ? (a, b) => void handleSeparateBodies(a, b) : undefined
           }
-          onRejoinBody={isLitho ? sid => void handleRejoinBody(sid) : undefined}
-          separations={isLitho ? separationsList : undefined}
-          onSeparateNotice={isLitho ? handleSeparateNotice : undefined}
+          onRejoinBody={isLitho || isGeotech ? sid => void handleRejoinBody(sid) : undefined}
+          separations={isLitho ? separationsList : isGeotech ? geotechSeparationsList : undefined}
+          onSeparateNotice={isLitho || isGeotech ? handleSeparateNotice : undefined}
           // #279: the body menu arms only while the roster is current for the
           // active model, and goes stale (stats menu is the deliberate answer)
-          // across every recompute window — see useRosterLoadedGate.
-          bodiesLoaded={rosterLoaded}
+          // across every recompute window — see useRosterLoadedGate. Per-axis
+          // gate: the geotech gate follows the geotech recompute nonce.
+          bodiesLoaded={isGeotech ? geotechRosterLoaded : rosterLoaded}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
           // geological axis (no correlation bodies exist there).
