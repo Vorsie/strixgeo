@@ -33,6 +33,8 @@ from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoun
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
+from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
+from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -247,6 +249,33 @@ async def _make_project_with_every_collection(db_session: AsyncSession) -> Proje
     # actually checks the collection's copy path.
     db_session.add(
         BodyGeometryFactOrm(
+            id=uuid7(),
+            model_id=litho_model.id,
+            layer_a_id=min(cpt_layer.id, bh_layer.id),
+            layer_b_id=max(cpt_layer.id, bh_layer.id),
+        )
+    )
+    # One "Separate" ruling (owner 2026-08-31, debt #278 R5) and one "Join with…"
+    # ruling (debt #278) so the registry guard checks BOTH pair-ruling copy paths.
+    # The fixture has only two litho layers, so the two rulings share the pair.
+    # That coexistence is fine SPECIFICALLY because this test never runs the
+    # resolver: Save-As (``ProjectRepository.duplicate``) serialises rows and
+    # bulk-inserts them, and the ``a<b`` CHECK is all that gates a pair row here —
+    # nothing re-derives body identity, so the contradiction is never evaluated.
+    # Where the resolver DOES run — a restore/reconcile, or the create endpoint —
+    # cannot-link wins: the separation stands and the join is suppressed (see the
+    # API test's UNI7 restore-time contradiction). This is not Save-As skipping a
+    # check the product needs; it is Save-As having no body-identity check TO run.
+    db_session.add(
+        BodySeparationOrm(
+            id=uuid7(),
+            model_id=litho_model.id,
+            layer_a_id=min(cpt_layer.id, bh_layer.id),
+            layer_b_id=max(cpt_layer.id, bh_layer.id),
+        )
+    )
+    db_session.add(
+        BodyUnionOrm(
             id=uuid7(),
             model_id=litho_model.id,
             layer_a_id=min(cpt_layer.id, bh_layer.id),
