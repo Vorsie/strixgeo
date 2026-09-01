@@ -337,6 +337,11 @@ async def test_uni5_cross_class_join_is_refused_naming_both_classes(
     assert detail["code"] == "body_union_cross_class"
 
 
+@pytest.mark.skip(
+    reason="separations dormant (owner 2026-09-01) — a join of a separated pair now "
+    "MERGES; pins removed cannot-link behaviour. Live merge covered by UNI1-5. "
+    "Delete in the body_separation-removal slice."
+)
 @pytest.mark.asyncio
 async def test_uni6_join_contradicting_a_separation_is_refused(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
@@ -379,6 +384,11 @@ async def test_uni6_join_contradicting_a_separation_is_refused(
     assert count == 0, "a refused contradiction must not persist a union"
 
 
+@pytest.mark.skip(
+    reason="separations dormant (owner 2026-09-01) — a restored union no longer "
+    "suppresses; pins removed cannot-link behaviour. Delete in the "
+    "body_separation-removal slice."
+)
 @pytest.mark.asyncio
 async def test_uni7_a_contradicting_union_via_restore_is_suppressed(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
@@ -582,6 +592,11 @@ async def test_uni10_endpoints_are_scoped_to_the_project_and_model(
     assert wrong_model_delete.status_code == 404, wrong_model_delete.text
 
 
+@pytest.mark.skip(
+    reason="separations dormant (owner 2026-09-01) — the resolver no longer "
+    "suppresses a union, so `suppressed` is permanently False. Delete in the "
+    "body_separation-removal slice."
+)
 @pytest.mark.asyncio
 async def test_uni11_a_suppressed_join_says_so_in_the_response(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
