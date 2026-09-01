@@ -69,6 +69,9 @@ import {
 } from '../../utils/nadClasses'
 import { MENU_ITEM_STYLE, UnitStatisticsItem } from './unitStatisticsMenuItem'
 import type { PlacedColumn } from './utils'
+import { useT } from '../../i18n/translate'
+import { resolveJoinPick, type JoinPick } from './joinPick'
+import type { BodyDisjoinOption } from './BodyContextMenu'
 
 /** Height in px of the strip that sits on a shared band boundary (drag + right-click). */
 const MERGE_HANDLE_PX = 10
@@ -203,6 +206,36 @@ export interface Props {
    * units are reached from the per-unit table on the Parameters stage instead.
    */
   onShowUnitStatistics?: (unitId: string, bodyId?: string | null) => void
+  // --- Body Join / Ontkoppelen on a COLUMN (owner ruling 2026-09-01 "Both") ----
+  // The owner wanted to start AND complete a Join from a borehole/CPT column, not
+  // only in the between-column fill. These mirror the fill overlay's join wiring.
+  /**
+   * The active Join arm, or null. When set, a LEFT-click on a band resolves the
+   * band's body through its layer and fires {@link onJoinPick} — so the second
+   * click of a Join lands on a column just as it does on the fill. Byte-identical
+   * when null / unwired.
+   */
+  joinArm?: { bodyId: string; anchorLayerId: string } | null
+  /** Fired on an armed band left-click with the classified Join outcome. */
+  onJoinPick?: (pick: JoinPick) => void
+  /** ``litho_layer id → body_id`` for the armed pick's body resolution. */
+  bodyIdByLayerId?: ReadonlyMap<string, string | null>
+  /** ``litho_layer id → packing-class label`` for the Join cross-class guard. */
+  classByLayerId?: ReadonlyMap<string, string>
+  /**
+   * ARM a Join FROM the right-clicked band's body (the "Voeg samen met…" band-menu
+   * item). Reports the band's body, the band's own layer (a valid anchor, since it
+   * is stamped to that body) and the band's formation (for the hint label). Absent
+   * → the item is not offered.
+   */
+  onArmJoinBody?: (bodyId: string, anchorLayerId: string, formationId: string) => void
+  /**
+   * The standing groups (unions) touching a body, for the band menu's "Ontkoppelen"
+   * items. Absent → no un-join items. Built by the caller (buildDisjoinOptions).
+   */
+  unjoinOptionsForBody?: (bodyId: string) => readonly BodyDisjoinOption[]
+  /** Lift a standing group (the "Ontkoppelen" band-menu item). */
+  onUnjoinBody?: (unionId: string) => void
 }
 
 /** One column's geometry plus the band / body stacks drawn on it. */
@@ -287,6 +320,8 @@ type MenuState =
       unitId: string
       /** The clicked band's resolver body (owner ruling 2026-08-27); null when unstamped. */
       unitBodyId: string | null
+      /** The clicked band's own layer id — the Join anchor when arming from a column. */
+      bandLayerId: string
     }
   | { kind: 'merge'; clientX: number; clientY: number; upperBandId: string; lowerBandId: string; boundaryDepthM: number }
   | {
@@ -380,7 +415,78 @@ export default function GeotechBandEditOverlay({
   smallLensThicknessM,
   suspended = false,
   onShowUnitStatistics,
+  joinArm,
+  onJoinPick,
+  bodyIdByLayerId,
+  classByLayerId,
+  onArmJoinBody,
+  unjoinOptionsForBody,
+  onUnjoinBody,
 }: Props): JSX.Element | null {
+  const t = useT()
+  // The armed-Join left-click is live only when the arm + its resolution inputs
+  // are all present, and never while another gesture owns the canvas.
+  const joinArmActive =
+    joinArm != null && onJoinPick !== undefined && bodyIdByLayerId !== undefined && !suspended
+  // Resolve the clicked band's body through its own layer and report the Join
+  // outcome up — the same resolution the fill overlay runs, so a column click is
+  // the exact equivalent of a between-column click (owner: "Both").
+  const fireJoinPickForBand = useCallback(
+    (bandLayerId: string): void => {
+      if (joinArm == null || onJoinPick === undefined || bodyIdByLayerId === undefined) return
+      onJoinPick(
+        resolveJoinPick(joinArm, [bandLayerId], bodyIdByLayerId, classByLayerId ?? new Map()),
+      )
+    },
+    [joinArm, onJoinPick, bodyIdByLayerId, classByLayerId],
+  )
+
+  // The body verbs shared by both band menus (split + setClass): "Voeg samen
+  // met…" (ARM a Join from this band's body) + one "Ontkoppelen" per standing
+  // group. Offered only when the body is resolvable AND the handler is wired
+  // (the GS7 no-affordance rule the rest of these menus follow). ``anchorLayerId``
+  // is the clicked band's own layer — a valid Join anchor since it is stamped to
+  // ``bodyId``. Returns null (no rows) when nothing is offerable.
+  const renderBodyVerbs = (
+    bodyId: string | null,
+    anchorLayerId: string,
+    formationId: string,
+  ): JSX.Element | null => {
+    if (bodyId === null) return null
+    const unjoinOptions = onUnjoinBody !== undefined ? (unjoinOptionsForBody?.(bodyId) ?? []) : []
+    if (onArmJoinBody === undefined && unjoinOptions.length === 0) return null
+    return (
+      <>
+        {onArmJoinBody !== undefined && (
+          <button
+            type="button"
+            data-testid="geotech-band-menu-join"
+            onClick={() => {
+              onArmJoinBody(bodyId, anchorLayerId, formationId)
+              setMenu(null)
+            }}
+            style={{ ...MENU_ITEM_STYLE, borderTop: '1px solid var(--color-border-default, #334155)' }}
+          >
+            {t('sections.menu.joinBody')}
+          </button>
+        )}
+        {unjoinOptions.map(opt => (
+          <button
+            key={`gbe-unjoin-${opt.unionId}`}
+            type="button"
+            data-testid={`geotech-band-menu-unjoin-${opt.unionId}`}
+            onClick={() => {
+              onUnjoinBody?.(opt.unionId)
+              setMenu(null)
+            }}
+            style={MENU_ITEM_STYLE}
+          >
+            {t('sections.menu.unjoinBody', { label: opt.label })}
+          </button>
+        ))}
+      </>
+    )
+  }
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [placing, setPlacing] = useState<SplitPlacement | null>(null)
   const [drag, setDrag] = useState<BoundaryDrag | null>(null)
@@ -731,7 +837,18 @@ export default function GeotechBandEditOverlay({
                 height={bottom - top}
                 fill="transparent"
                 pointerEvents="all"
-                style={{ cursor: 'context-menu' }}
+                style={{ cursor: joinArmActive ? 'crosshair' : 'context-menu' }}
+                // Armed Join: a left-click on this band completes the join at the
+                // column (owner "Both"). Off-arm the band has no left-click.
+                onClick={
+                  joinArmActive
+                    ? e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        fireJoinPickForBand(band.layerId)
+                      }
+                    : undefined
+                }
                 onContextMenu={e => {
                   e.preventDefault()
                   e.stopPropagation()
@@ -789,6 +906,18 @@ export default function GeotechBandEditOverlay({
                   height={bottom - top}
                   fill="transparent"
                   pointerEvents="all"
+                  style={joinArmActive ? { cursor: 'crosshair' } : undefined}
+                  // Armed Join: a left-click on this band completes the join at
+                  // the column (owner "Both"). Off-arm the band has no left-click.
+                  onClick={
+                    joinArmActive
+                      ? e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          fireJoinPickForBand(band.layerId)
+                        }
+                      : undefined
+                  }
                   onContextMenu={e => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -855,6 +984,7 @@ export default function GeotechBandEditOverlay({
                       absorbLens,
                       unitId: band.formationId,
                       unitBodyId: band.bodyId ?? null,
+                      bandLayerId: band.layerId,
                     })
                   }}
                 >
@@ -1158,7 +1288,7 @@ export default function GeotechBandEditOverlay({
                     }}
                     style={MENU_ITEM_STYLE}
                   >
-                    Split band…
+                    {t('sections.menu.splitBand')}
                   </button>
                   {menu.removeUp !== null && (
                     <button
@@ -1171,7 +1301,7 @@ export default function GeotechBandEditOverlay({
                       }}
                       style={MENU_ITEM_STYLE}
                     >
-                      Remove band (merge into band above)
+                      {t('sections.bandMenu.removeUp')}
                     </button>
                   )}
                   {menu.removeDown !== null && (
@@ -1185,7 +1315,7 @@ export default function GeotechBandEditOverlay({
                       }}
                       style={MENU_ITEM_STYLE}
                     >
-                      Remove band (merge into band below)
+                      {t('sections.bandMenu.removeDown')}
                     </button>
                   )}
                   {menu.absorbLens !== null && (
@@ -1205,7 +1335,7 @@ export default function GeotechBandEditOverlay({
                       }}
                       style={MENU_ITEM_STYLE}
                     >
-                      Merge into surrounding band
+                      {t('sections.menu.mergeIntoSurrounding')}
                     </button>
                   )}
                   {/* Last, under a rule: everything above EDITS this band,
@@ -1217,6 +1347,9 @@ export default function GeotechBandEditOverlay({
                     onClose={() => setMenu(null)}
                     topBorder
                   />
+                  {/* Body verbs — start a Join from this column, or un-join a group
+                      it is already in (owner "Both", 2026-09-01). */}
+                  {renderBodyVerbs(menu.unitBodyId, menu.bandLayerId, menu.unitId)}
                 </>
               ) : menu.kind === 'setClass' ? (
                 <>
@@ -1268,6 +1401,9 @@ export default function GeotechBandEditOverlay({
                     onClose={() => setMenu(null)}
                     topBorder
                   />
+                  {/* Body verbs — start a Join from this borehole column, or
+                      un-join a group it is in. The band's own layer is the anchor. */}
+                  {renderBodyVerbs(menu.unitBodyId, menu.bandId, menu.unitId)}
                 </>
               ) : (
                 <button
@@ -1279,7 +1415,7 @@ export default function GeotechBandEditOverlay({
                   }}
                   style={MENU_ITEM_STYLE}
                 >
-                  Merge bands
+                  {t('sections.menu.mergeBands')}
                 </button>
               )}
             </div>
