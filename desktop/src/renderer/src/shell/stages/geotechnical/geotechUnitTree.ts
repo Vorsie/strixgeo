@@ -1,39 +1,40 @@
 /**
- * Pure builder for the Geotech-units pane tree: soil ▸ NAD class ▸ instances.
+ * Pure builder for the Geotech-units pane tree: soil ▸ litho body ▸ packing body.
  *
- * Why a tree at all
- * -----------------
- * The pane was a flat roster — one row per geotech formation. On the owner's
- * project that is ~94 rows in which the same soil repeats dozens of times, the
- * same packing class appears once per unit instance, and rows with no bands sit
- * between rows with 647 bands between them. The shape the owner approved
- * (2026-08-26, ``blend_viewer/geotech_ui_tidy_ideas.html`` panel 2) collapses it
- * to a soil header per ground, one row per NAD class beneath it with the bands
- * SUMMED across the unit instances carrying that class, and the instances
- * themselves only when a class actually has more than one.
+ * The shape the owner named
+ * -------------------------
+ * Owner ruling 2026-08-31 (walk interview), verbatim: "main litho is first
+ * level, one down is all litho bodies that are geometrically disconnected, one
+ * down is all disconnected packing bodies. Then if you group they get like a
+ * group 1 in parentheses behind." So the axis is three levels:
  *
- * All the arithmetic lives here rather than in the component so the grouping,
- * the sums, the badge roll-up and the empty-row filter are testable without a
- * DOM.
+ *   L1  main litho (soil)                       — SILT
+ *   L2  geometrically-disconnected litho bodies — SILT · #0, SILT · #1
+ *   L3  disconnected packing bodies             — SILT · SF #0, SILT · FF #1
  *
- * What "band" counts
- * ------------------
- * A band is an ACCEPTED contact in the active geotech model — the same quantity
- * the flat roster showed per row (``geotechContacts`` is
- * ``lithoLayersToContacts(geotechLayers)``, accepted-only). Grouping changes how
- * the number is presented, never what it counts, so the tree's totals still
- * reconcile with what the engineer read yesterday.
+ * A packing (geotech) body homes under its PARENT litho body
+ * (``parent_litho_body_id``, debt #278 D1): the geometrically-disconnected litho
+ * mass it was carved out of. A body whose parent is not yet stamped is NOT
+ * dropped — it falls into an "ungrouped" L2 bucket (``lithoBodyId: null``) under
+ * its soil, so nothing the model holds goes invisible.
+ *
+ * Why the tree is BODY-driven
+ * ---------------------------
+ * The previous pane grouped by (soil, NAD class); the owner replaced the middle
+ * level with the litho body. Identity now reads from the resolver bodies the
+ * engineer looks at on the section, not from the formation rows — so the pane,
+ * the fence, the 3-D build and the CS body-menu all name the same masses.
+ *
+ * All the arithmetic (grouping, band-count roll-up, per-body badges, ordering,
+ * the group tag) lives here rather than in the component so it is testable
+ * without a DOM.
  */
 
 import type { LithoLayerConfidence } from '../../../api/client'
-import { geotechBodyAutoLabel } from '../../../utils/geotechBodyLabel'
-import { geotechRowColorOverride } from '../../../utils/geotechRowColorOverride'
-import {
-  geotechUnitLabel,
-  geotechUnitSoil,
-  nadClassColor,
-  nadClassQualifier,
-} from '../../../utils/nadClasses'
+import { geotechBodyAutoLabel, nadSoilPackingLabel } from '../../../utils/geotechBodyLabel'
+import { geotechUnitSoil, nadClassColor } from '../../../utils/nadClasses'
+import { lithoBodyLabel } from '../parameters/parameterScopeLabels'
+import type { BodyRosterEntry } from '../parameters/parameterUnitBodies'
 
 // ---------------------------------------------------------------------------
 // Badge severity — the ONE place the "worst wins" order is stated
@@ -43,24 +44,11 @@ import {
 export type ClassProvenance = 'cpt' | 'partial' | 'none'
 
 /**
- * Severity rank of each badge value — HIGHER IS WORSE, and the worst value in a
- * group is what the group row shows.
- *
- * Owner's rule for the collapsed row: "provenance collapses to the worst badge
- * in the group (partial/low bubbles up — that is the one you need to see)". A
- * class row that averaged its instances, or showed the best of them, would let
- * one uncontrolled instance hide inside a row that reads healthy.
- *
- * Both ladders are declared here, together, because they are the same rule
- * applied to two badges; splitting them across the two aggregation functions is
- * how they drift apart.
+ * Severity rank of each provenance value — HIGHER IS WORSE.
  *
  * * ``cpt`` — every band came from a real qc window.
  * * ``partial`` — some did; at least one took the weakest class seen in its body.
  * * ``none`` — no cone behind the class at all (or no bands).
- *
- * * ``high`` / ``medium`` — the packing class was read off a qc window.
- * * ``low`` — the borehole fill wrote it from ``body_min`` / ``absolute_min``.
  */
 const PROVENANCE_SEVERITY: Readonly<Record<ClassProvenance, number>> = {
   cpt: 0,
@@ -75,7 +63,7 @@ const CONFIDENCE_SEVERITY: Readonly<Record<LithoLayerConfidence, number>> = {
   low: 2,
 }
 
-/** Pick the worse of two provenance values. */
+/** Pick the worse of two provenance values (for the L2 collapsed roll-up). */
 function worseProvenance(a: ClassProvenance, b: ClassProvenance): ClassProvenance {
   return PROVENANCE_SEVERITY[b] > PROVENANCE_SEVERITY[a] ? b : a
 }
@@ -83,8 +71,8 @@ function worseProvenance(a: ClassProvenance, b: ClassProvenance): ClassProvenanc
 /**
  * Pick the worse of two confidence values, treating ``null`` as "says nothing".
  *
- * An instance with no layers must not drag a class row down — it has no opinion
- * about the packing class, which is different from having a weak one.
+ * A layer set with no opinion (empty) must not drag a body down — it has no
+ * opinion about the packing class, which is different from having a weak one.
  */
 function worseConfidence(
   a: LithoLayerConfidence | null,
@@ -111,12 +99,12 @@ export interface GeotechUnitRef {
   color_override?: string | null
 }
 
-/** The field of an accepted geotech contact the tree reads. */
+/** The field of an accepted geotech contact the tree reads (the header count). */
 export interface GeotechContactRef {
   formation_id: string
 }
 
-/** The fields of a geotech layer the tree reads for the badges + body counts. */
+/** The fields of a geotech layer the tree reads for the leaf band counts + badges. */
 export interface GeotechLayerRef {
   formation_id: string
   confidence: LithoLayerConfidence
@@ -126,16 +114,21 @@ export interface GeotechLayerRef {
   status?: string
 }
 
-/** The fields of a geotech body the tree reads to build its selectable child rows. */
+/** The fields of a geotech (packing) body the tree reads for its leaf rows. */
 export interface GeotechBodyRef {
   /** The resolver body id — the selection currency. */
   id: string
-  /** The geotech formation (unit) the body homes to — how it lands under a class. */
+  /** The geotech formation (unit) the body homes to — its class + soil + colour. */
   formation_id: string
   /** The body's ordinal within its formation's naming group (0-based). */
   body_ordinal: number
   /** The engineer's name for the body, or null. */
   name?: string | null
+  /**
+   * The LITHO body this packing body was carved out of (debt #278 D1) — its L2
+   * home. ``null`` (or absent) → the ungrouped bucket.
+   */
+  parentLithoBodyId?: string | null
   /** The geological formations this body crosses, shallowest first (R2). */
   geoFormations?: readonly string[]
 }
@@ -144,97 +137,97 @@ export interface GeotechBodyRef {
 export interface GeotechUnitTreeInput {
   /** Geotech formations to display (pre-filtered to ``isGeotechUnit``). */
   units: readonly GeotechUnitRef[]
-  /** Accepted contacts in the active geotech model — the band count. */
+  /** Accepted contacts in the active geotech model — the header count. */
   contacts: readonly GeotechContactRef[]
-  /** All geotech layers in the active model — the badge source. */
+  /** All geotech layers in the active model — the leaf band counts + badges. */
   layers: readonly GeotechLayerRef[]
   /**
-   * ``source_litho_formation_id`` → the source litho unit's display name.
-   * Used to tell same-class instances apart when a class carries several.
-   */
-  sourceLithoNameById?: ReadonlyMap<string, string>
-  /**
-   * Geotech unit id → the geological formations that unit's bodies cross,
-   * shallowest first (debt #278, R2). Surfaced as a class-row subtitle. A class
-   * row standing for several units unions their lists. Absent → no subtitle.
-   */
-  geoFormationNamesById?: ReadonlyMap<string, readonly string[]>
-  /**
-   * The active geotech model's bodies, for the selectable BODY children under
-   * each class row (owner dogfeed 2026-09-01). A body lands under the class of
-   * its home unit's ``nad_class``. Absent → class rows carry no body children.
+   * The geotech model's bodies — the leaves of the tree. Absent/empty → no soil
+   * groups (the tree is body-driven; before the resolver stamps bodies there is
+   * nothing to show).
    */
   bodies?: readonly GeotechBodyRef[]
+  /**
+   * The LITHO model's bodies keyed by id — the L2 nodes. Reused ``BodyRosterEntry``
+   * so the L2 label goes through the SAME ``lithoBodyLabel`` the CS jump uses.
+   */
+  lithoBodies?: ReadonlyMap<string, BodyRosterEntry>
+  /** Litho unit id → display name, for composing the L2 litho-body label. */
+  lithoUnitNameById?: ReadonlyMap<string, string>
+  /**
+   * Geotech body id → manual-group number (debt #278 D4). A body in a
+   * multi-member "Join with…" group carries "(group N)"; absent → no tag.
+   */
+  groupByBodyId?: ReadonlyMap<string, number>
 }
 
-/** One unit instance under a NAD-class row. */
-export interface GeotechUnitInstance {
-  formationId: string
-  /** Full display name, disambiguated when its class carries several. */
-  label: string
-  bandCount: number
-  provenance: ClassProvenance
-  confidence: LithoLayerConfidence | null
-}
-
-/** One selectable geotech BODY under a NAD-class row (owner dogfeed 2026-09-01). */
-export interface GeotechBodyChild {
+/** One selectable packing (geotech) body — the L3 leaf. */
+export interface GeotechPackingBody {
   /** The resolver body id — what a click on this row selects. */
   bodyId: string
   /** Unified label — the engineer's name, else "SILT · SF #0" (soil+packing+ordinal). */
   label: string
+  /** The NAD class the body's ground carries; drives the provenance badge. */
+  nadClass: number | null
   /** Accepted bands stamped to this body. */
   bandCount: number
-  /** The geological formations this body crosses, shallowest first (R2); may be empty. */
+  /** Where this body's class came from — the worst of its layers. */
+  provenance: ClassProvenance
+  /** Confidence of this body's assignment; null when it has no layers. */
+  confidence: LithoLayerConfidence | null
+  /** The geological formations this body crosses, shallowest first; may be empty. */
   geoFormations: readonly string[]
-}
-
-/** One NAD-class row under a soil header. */
-export interface GeotechClassRow {
-  /** Stable identity for React keys + expand state: ``"{SOIL}|{class}"``. */
-  key: string
-  soil: string
-  nadClass: number | null
-  /** Firmness / density word only — the soil sits in the header above. */
-  label: string
+  /** The home geotech unit — the row a colour edit writes to. */
+  unitId: string
+  /**
+   * The CLASS-level label of the home unit — soil + packing, NO ordinal ("SILT ·
+   * SF"). The colour swatch edits the whole unit, so its accessible name must
+   * name the unit, not this one body ("SILT · SF #0") — that would imply a
+   * per-body edit the write does not make (ux-reviewer 2026-09-01).
+   */
+  unitLabel: string
   /** What to draw the swatch in: the picked colour, else the NAD colour. */
   color: string
-  /**
-   * The picked colour when one is in force across the whole row, else null.
-   *
-   * Separate from ``color`` because the row needs to know WHETHER a pick is in
-   * force, not just what to draw — that is what its reset-to-automatic control
-   * appears for, and a pick that happens to equal the NAD colour is still a
-   * pick (see ``geotechUnitColor``).
-   */
+  /** The picked colour when one is in force, else null (drives the reset control). */
   colorOverride: string | null
-  /** Bands summed across every instance carrying this class. */
-  bandCount: number
-  /** Worst provenance among the instances. */
-  provenance: ClassProvenance
-  /** Worst confidence among the instances; null when none has layers. */
-  confidence: LithoLayerConfidence | null
-  /**
-   * The geological formations this row's units cross, shallowest first, unioned
-   * across the units and deduped (debt #278, R2). Rendered as a subtitle;
-   * empty when nothing crosses a formation or no map was supplied.
-   */
-  geoFormations: string[]
-  /** Every instance, ordered. Render them only when there is more than one. */
-  instances: GeotechUnitInstance[]
-  /**
-   * Selectable geotech bodies of this class, ordered by ordinal (owner dogfeed
-   * 2026-09-01). Empty when no body roster was supplied. Rendered collapsed.
-   */
-  bodies: GeotechBodyChild[]
+  /** The manual-group number (D4), or null when in no multi-member group. */
+  groupNumber: number | null
 }
 
-/** One soil header with its class rows. */
+/** One geometrically-disconnected litho body — the L2 node. */
+export interface GeotechLithoBodyNode {
+  /** The litho body id, or ``null`` for the ungrouped bucket. */
+  lithoBodyId: string | null
+  /** Stable identity for React keys + expand state: ``"{SOIL}|{lithoBodyId|ungrouped}"``. */
+  key: string
+  /** "SILT · #0" (the way a litho body reads everywhere), or '' for the ungrouped bucket. */
+  label: string
+  /** Bands summed across this litho body's packing bodies. */
+  bandCount: number
+  /**
+   * Worst provenance across this node's packing bodies — the collapsed roll-up,
+   * so the "No CPT" exception badge stays visible when the node is collapsed
+   * (ux-reviewer 2026-09-01: collapsing must not hide the data-correctness signal).
+   */
+  provenance: ClassProvenance
+  /** Worst confidence across this node's packing bodies; null when none classed. */
+  confidence: LithoLayerConfidence | null
+  /**
+   * A representative non-null NAD class among the node's bodies, or null when
+   * none is classed — drives whether the roll-up provenance badge shows (the
+   * badge is suppressed for an unclassified row).
+   */
+  nadClass: number | null
+  /** The packing bodies under this litho body, in ordinal order. */
+  packingBodies: GeotechPackingBody[]
+}
+
+/** One soil header with its litho bodies — the L1 group. */
 export interface GeotechSoilGroup {
   soil: string
-  /** Bands summed across every class in this soil. */
+  /** Bands summed across every litho body in this soil. */
   bandCount: number
-  classes: GeotechClassRow[]
+  lithoBodies: GeotechLithoBodyNode[]
 }
 
 /** The whole tree plus the header counters. */
@@ -242,36 +235,31 @@ export interface GeotechUnitTree {
   groups: GeotechSoilGroup[]
   /** Units that describe something in this model — the "N with bands" figure. */
   unitCount: number
-  /** Total bands across the units on the roster. */
+  /** Total accepted contacts across the units on the roster. */
   bandCount: number
 }
 
 // ---------------------------------------------------------------------------
-// Per-unit aggregation
+// Per-body aggregation
 // ---------------------------------------------------------------------------
 
 /**
- * Classify where one unit's NAD class came from, from its layers' confidences.
+ * Classify where one packing body's NAD class came from, from its layers.
  *
- * The confidence a band persists IS its provenance: ``subdivide_all_bodies`` and
- * the ``cpt_interpolated`` borehole fill write 'medium' / 'high' from a real qc
- * window, while the borehole fallbacks (``body_min``, ``absolute_min`` — see
- * ``divide_boreholes._BOREHOLE_CONFIDENCE_MAP``) write 'low'.
- *
- * Deliberately NOT worst-wins at the unit level: a unit with 141 cone bands and
- * one fallback has emphatically had a cone in it, and labelling it "No CPT" is
- * as untrue as stamping "CPT est." on a pure fallback. The mixture gets its own
- * answer. Worst-wins applies one level UP, across the instances of a class row.
+ * The confidence a band persists IS its provenance: the cone fill writes
+ * 'medium' / 'high' from a real qc window, the borehole fallbacks write 'low'.
+ * A body with cone bands AND a fallback is 'partial' — labelling it "No CPT"
+ * would be as untrue as stamping "CPT est." on a pure fallback.
  */
-function unitProvenance(confidences: readonly LithoLayerConfidence[]): ClassProvenance {
+function bodyProvenance(confidences: readonly LithoLayerConfidence[]): ClassProvenance {
   if (confidences.length === 0) return 'none'
   const fromCone = confidences.some(c => c === 'high' || c === 'medium')
   if (!fromCone) return 'none'
   return confidences.some(c => c === 'low') ? 'partial' : 'cpt'
 }
 
-/** Worst confidence across one unit's layers; null when it has none. */
-function unitConfidence(
+/** Worst confidence across one body's layers; null when it has none. */
+function bodyConfidence(
   confidences: readonly LithoLayerConfidence[],
 ): LithoLayerConfidence | null {
   return confidences.reduce<LithoLayerConfidence | null>(
@@ -280,222 +268,205 @@ function unitConfidence(
   )
 }
 
+/** Total string compare — a stable, locale-independent id tiebreak. */
+function compareId(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
 // ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
 
-/** Sentinel class key for the unclassified row — sorts after every real class. */
-const UNCLASSIFIED_SORT_KEY = Number.MAX_SAFE_INTEGER
+/** L2 key for the ungrouped (no litho parent) bucket — sorts after every real body. */
+const UNGROUPED_KEY = ' ungrouped'
+/** Litho ordinal sentinel for the ungrouped bucket — sorts it last within its soil. */
+const UNGROUPED_SORT_ORDINAL = Number.MAX_SAFE_INTEGER
 
 /**
- * Build the soil ▸ NAD class ▸ instances tree for the Geotech-units pane.
+ * Build the soil ▸ litho body ▸ packing body tree for the Geotech-units pane.
  *
  * Order
  * -----
- * * Soil groups by the lowest ``display_order`` among their units — the
- *   stratigraphic order the flat roster used, lifted to the group.
- * * Class rows by NAD class ascending (loosest first, the packing sequence),
- *   with the unclassified row LAST: it has no position in a density ramp, and
- *   putting it at the bottom keeps the classified reading uninterrupted.
- * * Instances by ``display_order``, then id, so the order is total.
+ * * Soil groups by the lowest ``display_order`` among the units whose bodies
+ *   land there — the stratigraphic order lifted to the group.
+ * * Litho bodies by their litho ``body_ordinal``, the ungrouped bucket LAST.
+ * * Packing bodies by their own ``body_ordinal`` (the way the 3-D legend
+ *   numbers them), ties broken by id.
  *
- * Empty rows are DROPPED, unconditionally
- * ---------------------------------------
- * "Empty" means the unit describes NOTHING in this model — no accepted bands
- * and no layers of any status. Such a unit is not listed and there is no lever
- * to list it. Owner ruling, dogfeed 2026-08-26: "The show empty is weird
- * though, if a bin is empty that means there is nothing in it and nothing
- * exists". The pane is a description of the ground the model holds; a row for
- * ground that is not there is nothing the engineer can act on, and the backend
- * orphan sweep deletes those units shortly in any case.
- *
- * "Empty" deliberately does NOT mean "no class": a unit with no packing class
- * but real bands is unclassified GROUND, the row the engineer most needs in
- * front of him, and it stays in the tree.
- *
- * The definition is the frontend twin of the backend's orphan predicate
- * (``OrphanFormationSweep``: no layer, no contact, no body). Keeping the two
- * aligned means the row the pane drops is the row the next verb sweeps away —
- * if the pane hid on band count alone it would drop a unit the backend still
- * considers live.
+ * The tree is BODY-driven: only geotech bodies produce nodes. The header
+ * counters still describe the geotech UNITS (a unit with no bands and no layers
+ * is not counted), so "N with bands" reads the same as before.
  *
  * Parameters
  * ----------
  * input
- *     Units, accepted contacts, layers, and the optional source-name map.
+ *     Units, contacts, layers, the two body rosters, and the group map.
  *
  * Returns
  * -------
  * GeotechUnitTree
- *     Groups plus the two header counters. Never throws; an empty ``units``
- *     yields an empty tree.
+ *     Groups plus the two header counters. Never throws; an empty ``units`` or
+ *     ``bodies`` yields an empty tree.
  */
 export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTree {
-  const { units, contacts, layers, sourceLithoNameById, geoFormationNamesById, bodies } = input
+  const { units, contacts, layers, bodies, lithoBodies, lithoUnitNameById, groupByBodyId } = input
 
-  // One pass each over the two big arrays — the flat roster re-filtered both
-  // per row, which is O(units x rows) on a project with ~650 bands.
+  // --- Header counters (describe the geotech UNITS, unchanged semantics) ---
   const bandCountByUnit = new Map<string, number>()
   for (const c of contacts) {
     bandCountByUnit.set(c.formation_id, (bandCountByUnit.get(c.formation_id) ?? 0) + 1)
   }
-  const confidencesByUnit = new Map<string, LithoLayerConfidence[]>()
+  const layerCountByUnit = new Map<string, number>()
   for (const l of layers) {
-    const arr = confidencesByUnit.get(l.formation_id)
-    if (arr === undefined) confidencesByUnit.set(l.formation_id, [l.confidence])
-    else arr.push(l.confidence)
+    layerCountByUnit.set(l.formation_id, (layerCountByUnit.get(l.formation_id) ?? 0) + 1)
   }
+  // "Empty" is the frontend twin of the backend orphan predicate (no layer, no
+  // contact) — a unit that describes nothing is not counted.
+  const describesNothing = (u: GeotechUnitRef): boolean =>
+    (bandCountByUnit.get(u.id) ?? 0) === 0 && (layerCountByUnit.get(u.id) ?? 0) === 0
+  const visibleUnits = units.filter(u => !describesNothing(u))
+  let bandCount = 0
+  for (const u of visibleUnits) bandCount += bandCountByUnit.get(u.id) ?? 0
+  const unitCount = visibleUnits.length
 
-  // Accepted-band count per body, for the selectable body children (owner
-  // dogfeed 2026-09-01). A layer with no status is treated as accepted (legacy /
-  // fixture) so the count matches the class row's contact-based band count.
-  const bandCountByBody = new Map<string, number>()
+  // --- Per-body aggregates: accepted band count + all confidences (for badges) ---
+  const acceptedBandByBody = new Map<string, number>()
+  const confidencesByBody = new Map<string, LithoLayerConfidence[]>()
   for (const l of layers) {
     const bid = l.body_id ?? null
-    if (bid === null || (l.status ?? 'accepted') !== 'accepted') continue
-    bandCountByBody.set(bid, (bandCountByBody.get(bid) ?? 0) + 1)
-  }
-  // Bodies grouped by their home unit's formation id, so a (soil, class) bucket
-  // can list exactly its own bodies without rescanning the roster per bucket.
-  const bodiesByUnit = new Map<string, GeotechBodyRef[]>()
-  for (const b of bodies ?? []) {
-    const arr = bodiesByUnit.get(b.formation_id)
-    if (arr === undefined) bodiesByUnit.set(b.formation_id, [b])
-    else arr.push(b)
+    if (bid === null) continue
+    const arr = confidencesByBody.get(bid)
+    if (arr === undefined) confidencesByBody.set(bid, [l.confidence])
+    else arr.push(l.confidence)
+    if ((l.status ?? 'accepted') === 'accepted') {
+      acceptedBandByBody.set(bid, (acceptedBandByBody.get(bid) ?? 0) + 1)
+    }
   }
 
-  /** True when the unit describes nothing in this model — see the module note. */
-  const describesNothing = (u: GeotechUnitRef): boolean =>
-    (bandCountByUnit.get(u.id) ?? 0) === 0 && (confidencesByUnit.get(u.id)?.length ?? 0) === 0
+  const unitById = new Map(units.map(u => [u.id, u]))
 
-  // The counters describe what the pane SHOWS, so they count the same rows the
-  // filter keeps — an empty unit contributes to neither.
-  const visible = units.filter(u => !describesNothing(u))
-  let bandCount = 0
-  for (const u of visible) bandCount += bandCountByUnit.get(u.id) ?? 0
-  const unitCount = visible.length
-
-  // Bucket by (soil, class). Insertion order is irrelevant — every level is
-  // sorted explicitly below.
-  interface Bucket {
+  // --- Bucket raw bodies: soil → litho-body key → bodies ---
+  interface L2Bucket {
+    lithoBodyId: string | null
+    bodies: GeotechBodyRef[]
+  }
+  interface L1Bucket {
     soil: string
-    nadClass: number | null
-    units: GeotechUnitRef[]
+    l2: Map<string, L2Bucket>
   }
-  const buckets = new Map<string, Bucket>()
-  const groupMinOrder = new Map<string, number>()
-  for (const u of visible) {
-    const soil = geotechUnitSoil(u)
-    const key = `${soil}|${u.nad_class ?? ''}`
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, { soil, nadClass: u.nad_class, units: [u] })
-    else bucket.units.push(u)
-    const prev = groupMinOrder.get(soil)
-    if (prev === undefined || u.display_order < prev) groupMinOrder.set(soil, u.display_order)
+  const soilBuckets = new Map<string, L1Bucket>()
+  const soilMinOrder = new Map<string, number>()
+
+  for (const b of bodies ?? []) {
+    const home = unitById.get(b.formation_id)
+    if (home === undefined) continue // orphan body — its home unit is not on the roster
+    const soil = geotechUnitSoil(home)
+    const lithoBodyId = b.parentLithoBodyId ?? null
+
+    let l1 = soilBuckets.get(soil)
+    if (l1 === undefined) {
+      l1 = { soil, l2: new Map() }
+      soilBuckets.set(soil, l1)
+    }
+    const l2key = lithoBodyId ?? UNGROUPED_KEY
+    let l2 = l1.l2.get(l2key)
+    if (l2 === undefined) {
+      l2 = { lithoBodyId, bodies: [] }
+      l1.l2.set(l2key, l2)
+    }
+    l2.bodies.push(b)
+
+    const prev = soilMinOrder.get(soil)
+    if (prev === undefined || home.display_order < prev) soilMinOrder.set(soil, home.display_order)
   }
 
-  const classRowsBySoil = new Map<string, GeotechClassRow[]>()
-  for (const bucket of buckets.values()) {
-    const ordered = [...bucket.units].sort(
-      (a, b) => a.display_order - b.display_order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    )
-    // A single instance has nothing to be told apart from, so it keeps the
-    // plain label; several share one class row and need their source unit.
-    const disambiguate = ordered.length > 1
-
-    const instances: GeotechUnitInstance[] = ordered.map(u => {
-      const confidences = confidencesByUnit.get(u.id) ?? []
-      const sourceName =
-        disambiguate && u.source_litho_formation_id != null
-          ? (sourceLithoNameById?.get(u.source_litho_formation_id) ?? null)
-          : null
-      return {
-        formationId: u.id,
-        label: geotechUnitLabel(u, sourceName),
-        bandCount: bandCountByUnit.get(u.id) ?? 0,
-        provenance: unitProvenance(confidences),
-        confidence: unitConfidence(confidences),
-      }
-    })
-
-    // Shared with the 3-D legend so the two panes cannot disagree about the
-    // same class — see ``geotechRowColorOverride`` for the rule.
-    const colorOverride = geotechRowColorOverride(ordered)
-
-    // R2: list every geological formation the row's units cross, unioned in the
-    // units' own order (already sorted above) and deduped, so a class row that
-    // stands for several units shows the whole crossing rather than one unit's.
-    const geoFormations: string[] = []
-    for (const u of ordered) {
-      for (const name of geoFormationNamesById?.get(u.id) ?? []) {
-        if (!geoFormations.includes(name)) geoFormations.push(name)
-      }
-    }
-
-    // Selectable body children: every body homing to one of this bucket's units,
-    // ordered by ordinal (the way the 3-D legend numbers them). The label is the
-    // ONE unified geotech-body vocabulary — the engineer's name, else soil +
-    // packing + ordinal ("SAND · MD #0"), so the pane row reads identically to
-    // the section body-menu header and the Parameters scope header.
-    const bucketBodies: GeotechBodyRef[] = []
-    for (const u of ordered) {
-      for (const b of bodiesByUnit.get(u.id) ?? []) bucketBodies.push(b)
-    }
-    bucketBodies.sort(
-      (a, b) => a.body_ordinal - b.body_ordinal || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    )
-    const bodyChildren: GeotechBodyChild[] = bucketBodies.map(b => ({
+  /** Map one raw geotech body to its L3 leaf. */
+  const toPacking = (b: GeotechBodyRef, home: GeotechUnitRef): GeotechPackingBody => {
+    const nadClass = home.nad_class
+    const confidences = confidencesByBody.get(b.id) ?? []
+    const name = b.name?.trim()
+    const override = home.color_override ?? null
+    return {
       bodyId: b.id,
-      label: b.name?.trim()
-        ? b.name.trim()
-        : bucket.nadClass !== null
-          ? geotechBodyAutoLabel(bucket.nadClass, b.body_ordinal)
+      label: name
+        ? name
+        : nadClass !== null
+          ? geotechBodyAutoLabel(nadClass, b.body_ordinal)
           : `#${b.body_ordinal}`,
-      bandCount: bandCountByBody.get(b.id) ?? 0,
+      nadClass,
+      bandCount: acceptedBandByBody.get(b.id) ?? 0,
+      provenance: bodyProvenance(confidences),
+      confidence: bodyConfidence(confidences),
       geoFormations: b.geoFormations ?? [],
-    }))
-
-    const row: GeotechClassRow = {
-      key: `${bucket.soil}|${bucket.nadClass ?? ''}`,
-      soil: bucket.soil,
-      nadClass: bucket.nadClass,
-      label: nadClassQualifier(bucket.nadClass),
-      color: colorOverride ?? nadClassColor(bucket.nadClass),
-      colorOverride,
-      bandCount: instances.reduce((sum, i) => sum + i.bandCount, 0),
-      provenance: instances.reduce<ClassProvenance>(
-        (acc, i) => worseProvenance(acc, i.provenance),
-        'cpt',
-      ),
-      confidence: instances.reduce<LithoLayerConfidence | null>(
-        (acc, i) => worseConfidence(acc, i.confidence),
-        null,
-      ),
-      geoFormations,
-      instances,
-      bodies: bodyChildren,
+      unitId: home.id,
+      unitLabel: nadClass !== null ? nadSoilPackingLabel(nadClass) : geotechUnitSoil(home),
+      color: override ?? nadClassColor(nadClass),
+      colorOverride: override,
+      groupNumber: groupByBodyId?.get(b.id) ?? null,
     }
-    const rows = classRowsBySoil.get(bucket.soil)
-    if (rows === undefined) classRowsBySoil.set(bucket.soil, [row])
-    else rows.push(row)
   }
 
-  const groups: GeotechSoilGroup[] = [...classRowsBySoil.entries()]
-    .map(([soil, rows]) => {
-      rows.sort(
-        (a, b) => (a.nadClass ?? UNCLASSIFIED_SORT_KEY) - (b.nadClass ?? UNCLASSIFIED_SORT_KEY),
+  // --- Materialise the sorted tree ---
+  const groups: GeotechSoilGroup[] = [...soilBuckets.values()].map(l1 => {
+    const lithoNodes: GeotechLithoBodyNode[] = [...l1.l2.values()].map(l2 => {
+      // The leaf label hides the ordinal, so sort the raw bodies by their
+      // geotech ``body_ordinal`` (ties broken by id) BEFORE mapping to leaves.
+      const packingBodies = [...l2.bodies]
+        .sort((a, b) => a.body_ordinal - b.body_ordinal || compareId(a.id, b.id))
+        .map(b => toPacking(b, unitById.get(b.formation_id) as GeotechUnitRef))
+
+      const bandCountL2 = packingBodies.reduce((sum, p) => sum + p.bandCount, 0)
+      // Worst-wins roll-up so a collapsed node still shows the "No CPT" exception
+      // (ux-reviewer 2026-09-01). The representative class lets the badge decide
+      // whether to draw (it is suppressed for an unclassified row).
+      const provenance = packingBodies.reduce<ClassProvenance>(
+        (acc, p) => worseProvenance(acc, p.provenance),
+        'cpt',
       )
+      const confidence = packingBodies.reduce<LithoLayerConfidence | null>(
+        (acc, p) => worseConfidence(acc, p.confidence),
+        null,
+      )
+      const nadClass = packingBodies.find(p => p.nadClass !== null)?.nadClass ?? null
+      const lithoEntry = l2.lithoBodyId === null ? undefined : lithoBodies?.get(l2.lithoBodyId)
+      const unitName =
+        lithoEntry?.formation_id != null
+          ? (lithoUnitNameById?.get(lithoEntry.formation_id) ?? l1.soil)
+          : l1.soil
       return {
-        soil,
-        bandCount: rows.reduce((sum, r) => sum + r.bandCount, 0),
-        classes: rows,
+        lithoBodyId: l2.lithoBodyId,
+        key: `${l1.soil}|${l2.lithoBodyId ?? 'ungrouped'}`,
+        label:
+          l2.lithoBodyId === null
+            ? ''
+            : lithoBodyLabel(l2.lithoBodyId, unitName, lithoBodies ?? new Map()),
+        bandCount: bandCountL2,
+        provenance,
+        confidence,
+        nadClass,
+        packingBodies,
       }
     })
-    .sort(
-      (a, b) =>
-        (groupMinOrder.get(a.soil) ?? 0) - (groupMinOrder.get(b.soil) ?? 0) ||
-        (a.soil < b.soil ? -1 : a.soil > b.soil ? 1 : 0),
-    )
+
+    // Litho bodies by their litho ordinal, the ungrouped bucket last.
+    lithoNodes.sort((a, b) => {
+      const oa = a.lithoBodyId === null ? UNGROUPED_SORT_ORDINAL : (lithoBodies?.get(a.lithoBodyId)?.body_ordinal ?? UNGROUPED_SORT_ORDINAL)
+      const ob = b.lithoBodyId === null ? UNGROUPED_SORT_ORDINAL : (lithoBodies?.get(b.lithoBodyId)?.body_ordinal ?? UNGROUPED_SORT_ORDINAL)
+      return oa - ob || compareId(a.key, b.key)
+    })
+
+    return {
+      soil: l1.soil,
+      bandCount: lithoNodes.reduce((sum, n) => sum + n.bandCount, 0),
+      lithoBodies: lithoNodes,
+    }
+  })
+
+  groups.sort(
+    (a, b) =>
+      (soilMinOrder.get(a.soil) ?? 0) - (soilMinOrder.get(b.soil) ?? 0) ||
+      compareId(a.soil, b.soil),
+  )
 
   return { groups, unitCount, bandCount }
 }
