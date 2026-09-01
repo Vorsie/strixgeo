@@ -134,6 +134,10 @@ async def clone_project_children(
     remapped["body_separations"] = [
         _canonicalise_fact_endpoints(sep) for sep in remapped["body_separations"]
     ]
+    # body_union has the SAME canonical-pair CHECK — re-canonicalise it too.
+    remapped["body_unions"] = [
+        _canonicalise_fact_endpoints(union) for union in remapped["body_unions"]
+    ]
 
     await _restore_project_bundle_impl(
         session,
