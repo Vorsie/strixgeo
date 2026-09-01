@@ -280,18 +280,25 @@ test.describe('flow_section_context_menus_ui', () => {
       await fillBands.click()
 
       // The pre-seeded body renders as a filled partition region —
-      // right-click opens its body context menu.
+      // right-click opens its body context menu. RETRY the right-click until a
+      // body-menu ITEM is visible (flow_body_actions_ui pattern): the #279
+      // arming gate deliberately serves the stats menu until the body roster
+      // lands (and re-withholds it while a debounced recompute is in flight),
+      // so a single click can legitimately meet the interim menu. Assert on an
+      // ITEM testid, never the `body-context-menu` container (duplicated by
+      // the chip menu).
       const partitionRegion = page.locator('[data-testid^="partition-region-"]').first()
       await expect(partitionRegion).toBeVisible({ timeout: 20_000 })
-      // dispatchEvent bypasses SVG z-order (overlays cover the region centre).
-      await partitionRegion.dispatchEvent('contextmenu', {
-        button: 2,
-        clientX: 340,
-        clientY: 340,
-        bubbles: true,
-      })
-
-      await expect(page.getByTestId('body-context-menu')).toBeVisible()
+      await expect(async () => {
+        // dispatchEvent bypasses SVG z-order (overlays cover the region centre).
+        await partitionRegion.dispatchEvent('contextmenu', {
+          button: 2,
+          clientX: 340,
+          clientY: 340,
+          bubbles: true,
+        })
+        await expect(page.getByTestId('body-ctx-name-body')).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 30_000 })
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
