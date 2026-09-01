@@ -163,6 +163,40 @@ describe('parseProjectFile — happy path', () => {
     expect(parsed?.geotech_tie_tombstones).toEqual(stones)
   })
 
+  it('body separations survive the bundle → file → parse round-trip', () => {
+    // Debt #278 R5: the "Separate" rulings ("these two are NOT the same body")
+    // are EVIDENCE, exactly like the geometry facts + tombstones above — a
+    // save/open loop that drops them re-merges every body the engineer split,
+    // silently, on the next resolve. The desktop writer is a whitelist, so the
+    // key has to be named at every surface or it is lost. Asserted against the
+    // BUNDLE's value, not the writer's own output.
+    const seps = [
+      { id: 'sep-a', model_id: 'gm-1', layer_a_id: 'layer-1', layer_b_id: 'layer-2' },
+      { id: 'sep-b', model_id: 'gm-1', layer_a_id: 'layer-3', layer_b_id: 'layer-4' },
+    ]
+    const bundle = {
+      project: { id: 'proj-uuid-seps', name: 'Separations survive' },
+      cpts: [],
+      boreholes: [],
+      geological_formations: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+      litho_contact_correlation_edges: [],
+      bodies: [],
+      formation_absences: [],
+      body_boundary_shapes: [],
+      body_boundary_nodes: [],
+      body_geometry_facts: [],
+      body_separations: seps,
+    } as unknown as ProjectBundleResponse
+
+    const built = buildProjectFile(bundle, null)
+    expect(built.body_separations).toEqual(seps)
+    const parsed = parseProjectFile(serialiseProjectFile(built))
+    expect(parsed?.body_separations).toEqual(seps)
+  })
+
   it('round-trips through serialise → parse without losing a field', () => {
     // What buildProjectFile writes must be exactly what parseProjectFile
     // reads back — the save/open loop the user's anchor depends on.
@@ -333,6 +367,10 @@ describe('parseProjectFile — additive keys tolerate absence, reject wrong type
     // reopens with every deletion forgotten, and the next derivation
     // resurrects the deleted ties.
     'geotech_tie_tombstones',
+    // Body separations (debt #278 R5): "these two are NOT the same body".
+    // Additive — a file written before the verb shipped simply has none, and
+    // must open with the split forgotten rather than be rejected.
+    'body_separations',
   ] as const
 
   it('backfills each absent additive array to [] so downstream array consumers never see undefined', () => {
