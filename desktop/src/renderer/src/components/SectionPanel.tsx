@@ -203,6 +203,7 @@ import SectionHeader from './sections/SectionHeader'
 import SectionScrubBar from './sections/SectionScrubBar'
 // MarkAsLensDialog removed in #101 R5 (Approach-C → Position 4)
 import { useSectionData } from './sections/useSectionData'
+import { useSeparateArm } from './sections/useSeparateArm'
 import {
   COLUMN_EDGE_GAP_PX,
   CORRELATED_PAIR_EDGE_GAP_PX,
@@ -2328,15 +2329,23 @@ export default function SectionPanel({
     [],
   )
 
-  // The live "Separate" arm (debt #278 R5): the body the engineer picked to
-  // separate FROM, one of its anchor layers, and its label for the hint chip.
-  // Null when no Separate is in flight.
-  const [separateArm, setSeparateArm] = useState<{
-    bodyId: string
-    anchorLayerId: string
-    label: string
-  } | null>(null)
-  const clearSeparateArm = useCallback(() => setSeparateArm(null), [])
+  // The body menu's "Unit statistics…" jump routes to the ACTIVE axis's stats
+  // handler — the GEOTECH one on the geotech axis (piece B, owner 2026-08-31),
+  // the litho one otherwise. Mirrors the overlay's ``unitStatsHandlerForAxis``:
+  // a geotech body reports a geotech unit, never the litho jump.
+  const bodyMenuUnitStats =
+    axisMode === 'geotechnical' ? onShowGeotechUnitStatistics : onShowLithoUnitStatistics
+
+  // The live "Separate" arm (debt #278 R5) + its automatic-retire lifecycle
+  // (axis change / correlate mode / vanished anchor) — extracted to
+  // ``useSeparateArm`` so those rules are unit-testable off this god-component.
+  // The arm/pick GESTURE handlers stay here (they need the body-resolution map
+  // and the notice/commit callbacks).
+  const { separateArm, setSeparateArm, clearSeparateArm } = useSeparateArm({
+    axisMode,
+    correlateMode: Boolean(contactGestureState?.contactCorrelateMode),
+    armBodyIdByLayerId,
+  })
 
   // "Separate from…" ARMS the pick-the-other-body gesture rather than committing
   // (mirrors the geotech band-edit "Split band…" arm). The anchor is the first
@@ -2442,23 +2451,8 @@ export default function SectionPanel({
     }
   }, [axisMode])
 
-  // R5 (debt #278): the Separate arm is a litho-axis gesture that must YIELD the
-  // canvas to correlate mode (mutual exclusion — the Esc cascade peels only one
-  // direction). Drop it when the axis leaves litho or when correlate mode takes
-  // over. Mirrors the S5 geotech-selection clear above.
-  useEffect(() => {
-    if (axisMode !== 'lithostratigraphic' || contactGestureState?.contactCorrelateMode) {
-      setSeparateArm(null)
-    }
-  }, [axisMode, contactGestureState?.contactCorrelateMode])
-
-  // R5: drop a Separate arm whose anchor layer no longer exists — the litho
-  // model or section changed under it, so the armed body/anchor are stale. The
-  // functional update leaves a live arm untouched (its anchor still resolves),
-  // so this never clears mid-gesture during an ordinary refetch.
-  useEffect(() => {
-    setSeparateArm(prev => (prev && !armBodyIdByLayerId.has(prev.anchorLayerId) ? null : prev))
-  }, [armBodyIdByLayerId])
+  // (The Separate arm's axis / correlate / stale-anchor retire rules moved to
+  // ``useSeparateArm`` above.)
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -3996,12 +3990,13 @@ export default function SectionPanel({
                       }
                     : undefined
                 }
-                // R1 (2026-08-27): the between-columns litho jump — the
-                // region carries the body, the body names the formation.
+                // R1 (2026-08-27): the between-columns jump — the region carries
+                // the body, the body names the formation. Routed to the ACTIVE
+                // axis's stats handler (piece B): geotech on the geotech axis.
                 onShowUnitStatistics={
-                  onShowLithoUnitStatistics
+                  bodyMenuUnitStats
                     ? (formationId, bodyId) => {
-                        onShowLithoUnitStatistics(formationId, bodyId)
+                        bodyMenuUnitStats(formationId, bodyId)
                         dismissBodyCtxMenu()
                       }
                     : undefined
