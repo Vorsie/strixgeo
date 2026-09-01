@@ -47,6 +47,11 @@ export interface ContextMenuItem {
   testid?: string
   /** Stable React key; falls back to ``label``. */
   key?: string
+  /** Fired when the pointer enters the row (hover preview, e.g. highlight the body
+   *  an "Ontkoppelen" item refers to). Does NOT fire the action or close the menu. */
+  onMouseEnter?: () => void
+  /** Fired when the pointer leaves the row — the caller clears any hover preview. */
+  onMouseLeave?: () => void
   /** Nested submenu. When present (and non-empty), this row expands a child
    *  panel on hover / click instead of firing an action — the item's own
    *  ``onClick`` is ignored and a ``▸`` affordance is drawn. One level of
@@ -203,6 +208,13 @@ export default function ContextMenu(props: Props): JSX.Element {
                   it.onClick()
                   onClose()
                 }}
+                // Keyboard parity for the hover preview: focusing the row fires the
+                // same enter/leave callbacks so a keyboard user gets the same "which
+                // body" cue before committing an Ontkoppelen (ux-reviewer).
+                onMouseEnter={it.onMouseEnter}
+                onMouseLeave={it.onMouseLeave}
+                onFocus={it.onMouseEnter}
+                onBlur={it.onMouseLeave}
               >
                 {it.label}
               </button>
@@ -315,6 +327,10 @@ export default function ContextMenu(props: Props): JSX.Element {
             aria-disabled={item.disabled}
             title={item.reason}
             className={`${itemBase} ${stateClass}${borderClass}`}
+            onMouseEnter={item.onMouseEnter}
+            onMouseLeave={item.onMouseLeave}
+            onFocus={item.onMouseEnter}
+            onBlur={item.onMouseLeave}
             onClick={e => {
               // stopImmediatePropagation: a React synthetic stopPropagation does
               // NOT stop the document-level native ``click`` listener that
