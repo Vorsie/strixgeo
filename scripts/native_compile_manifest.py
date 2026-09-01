@@ -128,6 +128,7 @@ _ENGINE_DOMAIN_SERVICES = [
     "groundmodel.domain.services.geotech_edge_crossing_guard",
     "groundmodel.domain.services.geotech_edge_dedup",
     "groundmodel.domain.services.geotech_jump_tie_supersession",
+    "groundmodel.domain.services.geotech_litho_parent_links",
     "groundmodel.domain.services.geotech_packing_edges",
     "groundmodel.domain.services.geotech_span_splitting",
     "groundmodel.domain.services.geotech_subdivision",
