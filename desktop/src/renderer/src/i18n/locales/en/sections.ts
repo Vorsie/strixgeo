@@ -559,18 +559,21 @@ export const SECTIONS = {
   'sections.axisLabel.alongM': 'Distance along section (m)',
 
   // Body Join / Ontkoppelen flow (owner ruling 2026-09-01) — the armed hint,
-  // toasts and advisories. ``{label}`` is the armed body; ``{classA}``/``{classB}``
-  // the two packing classes in a cross-class refusal.
+  // toasts and advisories. ``{label}`` is the armed body.
   'sections.join.armHint': 'Joining {label} — click the other body · Esc cancels',
   'sections.join.success': 'Bodies joined — right-click the body → Un-join to undo.',
   'sections.join.blockedSeparation':
     'Join blocked by a standing separation — remove that separation first.',
-  'sections.join.crossClass':
-    'These bodies are different packing classes and cannot be joined.',
+  // A body is one soil + one packing class, so a Join across two masses is
+  // refused. TWO messages, picked by whether the SOILS differ (owner ruling
+  // 2026-09-01): same soil + different packing class → crossPacking; different
+  // soil → crossLitho. Shared verbatim by the commit toast (joinErrorToastKey)
+  // and the arm-time advisory (resolveJoinPick). The old single crossClass /
+  // noticeCrossClass keys + the "{classA} and {classB}" tail were retired here.
+  'sections.join.crossPacking': 'You cannot merge two different packing classes.',
+  'sections.join.crossLitho': 'You cannot merge two different lithologies.',
   'sections.join.failed': 'Failed to join bodies.',
   'sections.join.noticeSame': 'That is the same body — click a different one to join.',
-  'sections.join.noticeCrossClass':
-    'Cannot join across packing classes — {classA} and {classB} are different masses.',
   'sections.join.noticeUnresolvable': 'Could not identify that body — click a filled body.',
   'sections.unjoin.success': 'Un-joined — the bodies may split.',
   'sections.unjoin.failed': 'Failed to un-join bodies.',
