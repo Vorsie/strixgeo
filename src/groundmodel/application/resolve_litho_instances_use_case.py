@@ -38,12 +38,14 @@ from groundmodel.domain.services.resolve_litho_instances import (
     LayerEdge,
     LayerNode,
     LayerSeparation,
+    LayerUnion,
     resolve_litho_instances,
 )
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
+from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -126,15 +128,29 @@ class ResolveResult:
         Names displaced by lineage adoption (a merge where the oldest name
         won, or a shift where the survivor's own name gave way). Surfaced so
         the recompute toast can say what happened to the engineer's labels.
+    inert_unions : tuple[tuple[UUID, UUID], ...]
+        Canonical layer pairs of every user "Join with…" union this resolve found
+        INERT (a class mismatch — never a mixed body). Surfaced so a caller can
+        tell the engineer their join did nothing instead of a silent WARNING.
+    suppressed_unions : tuple[tuple[UUID, UUID], ...]
+        Canonical layer pairs of every user union this resolve found SUPPRESSED
+        (a standing separation overruled it — cannot-link wins). Same rationale.
     """
 
     updated: list[OrdinalUpdate]
     renamed: tuple[str, ...] = ()
+    inert_unions: tuple[tuple[UUID, UUID], ...] = ()
+    suppressed_unions: tuple[tuple[UUID, UUID], ...] = ()
 
 
 async def _run_resolver(
     session: AsyncSession, model_id: UUID
-) -> tuple[list[_BodyChange], tuple[str, ...]]:
+) -> tuple[
+    list[_BodyChange],
+    tuple[str, ...],
+    tuple[tuple[UUID, UUID], ...],
+    tuple[tuple[UUID, UUID], ...],
+]:
     """Resolve instances over layers, reconcile bodies, stamp body_id.
 
     Loads accepted litho layers + user-approved correlation edges (layer-id
@@ -159,10 +175,14 @@ async def _run_resolver(
 
     Returns
     -------
-    tuple[list[_BodyChange], tuple[str, ...]]
-        One ``{"formation_id": str, "new_ordinal": int}`` per body whose
-        ordinal changed (drives the section's stale-surface cue), plus the
-        names displaced by lineage adoption.
+    tuple[list[_BodyChange], tuple[str, ...], tuple[tuple[UUID, UUID], ...], \
+tuple[tuple[UUID, UUID], ...]]
+        One ``{"formation_id": str, "new_ordinal": int}`` per body whose ordinal
+        changed (drives the section's stale-surface cue); the names displaced by
+        lineage adoption; the canonical layer pairs of every user "Join with…"
+        union the resolve found INERT (class re-derived apart); and of every one
+        it found SUPPRESSED (a standing separation overruled it). The last two let
+        a caller surface a join that did nothing beyond a server-side WARNING.
     """
     repo = GeologyRepository(session)
     logger = _RunResolverLogger()
@@ -178,7 +198,7 @@ async def _run_resolver(
     model = await session.get(GeologicalModelOrm, model_id)
     if model is None:
         logger.warning(f"_run_resolver: model {model_id} gone — skipping")
-        return [], ()
+        return [], (), (), ()
 
     # 1. Accepted layers joined to their formation for (parent, soil).
     layer_rows = (
@@ -316,12 +336,48 @@ async def _run_resolver(
     ).all()
     separations = [LayerSeparation(layer_a_id=a, layer_b_id=b) for a, b in separation_rows]
 
+    # 2d. User "Join with…" rulings (debt #278) — must-link constraints that MERGE
+    #     two anchors even with no tie or fact between them. ONLY the user writes
+    #     these (the tombstone rule), the mirror of the separations above. The
+    #     resolver rides the same guards: a dangling anchor drops silently, a union
+    #     that would make a mixed body is inert, and a union contradicting a
+    #     standing separation is suppressed (cannot-link wins). The last two come
+    #     back on the result so they can be warned about below.
+    union_rows = (
+        await session.execute(
+            select(
+                BodyUnionOrm.layer_a_id,
+                BodyUnionOrm.layer_b_id,
+            ).where(BodyUnionOrm.model_id == model_id)
+        )
+    ).all()
+    unions = [LayerUnion(layer_a_id=a, layer_b_id=b) for a, b in union_rows]
+
     logger.debug(
         f"_run_resolver: {len(nodes)} layer(s), {len(edge_rows)} edge(s), "
-        f"{len(fact_rows)} geometry fact(s), {len(separation_rows)} separation(s)"
+        f"{len(fact_rows)} geometry fact(s), {len(separation_rows)} separation(s), "
+        f"{len(union_rows)} union(s)"
     )
 
-    result = resolve_litho_instances(layers=nodes, edges=edges, separations=separations)
+    result = resolve_litho_instances(
+        layers=nodes, edges=edges, separations=separations, unions=unions
+    )
+
+    # A user union that could not take effect is never silent — the engineer
+    # asked for it. A cross-class union would make a mixed body (inert); a union
+    # of a pair a standing separation keeps apart is overruled by that separation
+    # (suppressed, cannot-link wins). Both name BOTH anchors so a dogfeed can
+    # find the layers on screen.
+    for u in result.inert_unions:
+        logger.warning(
+            f"_run_resolver: model {model_id} — user join ({u.layer_a_id}, {u.layer_b_id}) "
+            f"is INERT: classes re-derived apart, never a mixed body"
+        )
+    for u in result.suppressed_unions:
+        logger.warning(
+            f"_run_resolver: model {model_id} — user join ({u.layer_a_id}, {u.layer_b_id}) "
+            f"is SUPPRESSED by a standing separation (cannot-link wins)"
+        )
 
     # 3. Reconcile bodies. Existing bodies keyed (formation_id, ordinal).
     existing_bodies = (
@@ -591,7 +647,9 @@ async def _run_resolver(
                 .values(parent_litho_body_id=parent_subq.c.litho_body_id)
             )
 
-    return changed, tuple(renamed)
+    inert_pairs = tuple((u.layer_a_id, u.layer_b_id) for u in result.inert_unions)
+    suppressed_pairs = tuple((u.layer_a_id, u.layer_b_id) for u in result.suppressed_unions)
+    return changed, tuple(renamed), inert_pairs, suppressed_pairs
 
 
 class _RunResolverLogger(GroundModelLogger):
@@ -656,7 +714,9 @@ class ResolveLithoInstances(GroundModelLogger):
         """
         self.info(f"ResolveLithoInstances: resolving model {model_id}")
 
-        raw_updates, renamed = await _run_resolver(self._session, model_id)
+        raw_updates, renamed, inert_unions, suppressed_unions = await _run_resolver(
+            self._session, model_id
+        )
 
         # Commit or flush depending on whether the caller owns the transaction.
         if commit:
@@ -694,4 +754,9 @@ class ResolveLithoInstances(GroundModelLogger):
                 f"ResolveLithoInstances: no ordinal changes for model {model_id} (idempotent no-op)"
             )
 
-        return ResolveResult(updated=updated, renamed=renamed)
+        return ResolveResult(
+            updated=updated,
+            renamed=renamed,
+            inert_unions=inert_unions,
+            suppressed_unions=suppressed_unions,
+        )
