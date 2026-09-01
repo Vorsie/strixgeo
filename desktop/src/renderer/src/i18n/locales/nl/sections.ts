@@ -14,6 +14,13 @@ export const SECTIONS_NL = {
   'sections.deleteConfirm': 'Dwarsprofiel verwijderen?',
   'sections.rename': 'Klik om dit dwarsprofiel te hernoemen',
   'sections.name': 'Profielnaam',
+  // Presentatiegrens-vertaling van de Engelse canonieke standaardnamen
+  // ("Cross-section N" / "Tie-section N", opgeslagen bij aanmaken). Alleen de
+  // onaangeroerde standaardnamen worden vertaald; een hernoemd profiel toont zijn
+  // eigen naam ongewijzigd. ``{n}`` is het volgnummer (owner: Dwarsprofiel /
+  // Koppelprofiel, ruling 2026-08-31).
+  'sections.kindLabel.cross': 'Dwarsprofiel {n}',
+  'sections.kindLabel.tie': 'Koppelprofiel {n}',
   'sections.properties': 'Eigenschappen van het profiel',
   'sections.modelActions': 'Modelacties',
   'sections.moreActions': 'Meer profielacties',
