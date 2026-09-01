@@ -12,7 +12,12 @@ import { api } from '../api/client'
 import type { ProjectResponse } from '../api/client'
 import { log } from '../utils/log'
 import { noteCloseFlow } from '../utils/closeFlowNote'
-import type { PickAndOpenResult, RevertToLastSavedResult } from './useProject'
+import { isProjectOpenUnreadable } from './useProject'
+import type {
+  PickAndOpenResult,
+  ProjectOpenUnreadable,
+  RevertToLastSavedResult,
+} from './useProject'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { buildUnsavedWorkSummary } from '../utils/unsavedWorkSummary'
 import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
@@ -234,7 +239,11 @@ export function useProjectLifecycle({
   pickAndOpenProject: () => Promise<PickAndOpenResult>
   // 'file-missing' = the .strix is no longer at its saved location; the
   // menu path toasts it (a moved file must not fail into silence).
-  openProjectFile: (path: string) => Promise<ProjectResponse | 'file-missing' | null>
+  // ``ProjectOpenUnreadable`` = a damaged / truncated / newer container, whose
+  // specific reason the menu path also toasts.
+  openProjectFile: (
+    path: string,
+  ) => Promise<ProjectResponse | 'file-missing' | ProjectOpenUnreadable | null>
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null
   stageLumping: (lumping: StratigraphyLumping) => void
@@ -689,6 +698,11 @@ export function useProjectLifecycle({
       // file not found, did you change it's location".
       if (outcome === 'file-missing') {
         toast('error', `Couldn't find the project file at ${path}. Did you move or rename it?`)
+      } else if (isProjectOpenUnreadable(outcome)) {
+        // A damaged / truncated / newer container — toast the codec's own
+        // specific, honest message so the menu path names corruption plainly
+        // (never bricks anything; the app stays on the current project).
+        toast('error', outcome.reason.message)
       }
     },
     [openProjectFile, toast],
