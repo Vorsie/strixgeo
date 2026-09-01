@@ -155,6 +155,12 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
             `Bodies recomputed: ${result.bodies_merged} merged, ${result.bodies_split} split` +
               (result.renamed.length > 0 ? `, names displaced: ${result.renamed.length}` : ''),
           )
+        } else if (manual) {
+          // A MANUAL toolbar press is a click and must confirm it ran, even on a
+          // no-op (owner ruling 2026-08-31: "yes always toast, when i click
+          // something"). The BACKGROUND debounce stays change-gated above — a
+          // silent recompute that changed nothing is the alarm-fatigue rule.
+          optsRef.current.toast('success', 'Bodies recomputed: no changes')
         }
       } catch (err) {
         const detail = apiErrorDetail(err)
