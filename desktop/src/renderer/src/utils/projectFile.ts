@@ -117,6 +117,13 @@ export interface ProjectFileV3 {
    */
   body_separations: Record<string, unknown>[]
   /**
+   * Body unions (debt #278, the "Join with…" verb): the "these two ARE the same
+   * body" must-link constraints. EVIDENCE like the separations above: a file
+   * without them reopens with every joined body re-split on the next resolve.
+   * Absent in files saved before this field shipped — normalised to [] on parse.
+   */
+  body_unions: Record<string, unknown>[]
+  /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
    * file was saved by an older build that pre-dates this field.
@@ -152,6 +159,7 @@ export function buildProjectFile(
     body_geometry_facts: bundle.body_geometry_facts ?? [],
     geotech_tie_tombstones: bundle.geotech_tie_tombstones ?? [],
     body_separations: bundle.body_separations ?? [],
+    body_unions: bundle.body_unions ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -208,6 +216,9 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.body_separations === undefined) {
     candidate.body_separations = []
   }
+  if (candidate.body_unions === undefined) {
+    candidate.body_unions = []
+  }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
   // suspended pre-ship; additive always fine).  Absence means "no lumping
@@ -245,6 +256,7 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     (v.body_geometry_facts === undefined || Array.isArray(v.body_geometry_facts)) &&
     (v.geotech_tie_tombstones === undefined || Array.isArray(v.geotech_tie_tombstones)) &&
     (v.body_separations === undefined || Array.isArray(v.body_separations)) &&
+    (v.body_unions === undefined || Array.isArray(v.body_unions)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.
