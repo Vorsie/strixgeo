@@ -30,13 +30,14 @@
  *   * the SVG-portalled menu fails Playwright's actionability check — DISPATCH
  *     the click/contextmenu events rather than ``.click()``.
  *
- * FIXTURE DEPENDENCY (flagged for the session main): this spec needs TWO disjoint
- * geotech bodies of the SAME NAD class on one section after ``subdivide-all-bodies``
- * — two same-fill regions with distinct ``partition-region-<bodyId>`` testids.
- * Section D carries two distinct same-soil (KLEI) litho bodies
- * (flow_per_instance_body); after subdivision they are the likeliest same-class
- * pair. If the seeded classification splits them into different classes, the
- * fixture needs a same-class disjoint pair added — the gesture code is unchanged.
+ * FIXTURE: this spec needs TWO disjoint geotech bodies of the SAME NAD class on one
+ * section after ``subdivide-all-bodies`` — two same-fill regions with distinct
+ * ``partition-region-<bodyId>`` testids. Section F is seeded exactly for this: two
+ * disjoint KLEI bodies (shallow + deep, like the per-instance topology) on CPTs
+ * 14/15/16, whose UNIFORM CLAY qc series classifies both to KLEI NAD class 22 —
+ * same class, same fill colour, a legal Join. (Section D's KLEI bodies stay
+ * series-less for flow_per_instance_body, so they never get a class and cannot be
+ * the pair.) See ``build_synthetic_fixture.py`` → ``_SAME_CLASS_PAIR_CPT_INDICES``.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
@@ -87,12 +88,12 @@ async function subdivideAllBodies(page: Page): Promise<void> {
   ).toBe(200)
 }
 
-/** Open Section D (two distinct same-soil bodies), switch to the GEOTECH axis. */
+/** Open Section F (two disjoint same-class KLEI bodies), switch to the GEOTECH axis. */
 async function openGeotechSection(page: Page): Promise<void> {
   await goToStage(page, 'Sections')
   const sectionRow = page
     .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
-    .filter({ hasText: 'Section D' })
+    .filter({ hasText: 'Section F' })
     .first()
   await expect(sectionRow).toBeVisible({ timeout: 10_000 })
   await sectionRow.click()
