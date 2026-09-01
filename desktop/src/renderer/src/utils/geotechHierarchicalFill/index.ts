@@ -80,6 +80,16 @@ export interface HierarchicalGeotechFillInput {
    * class) keeps row identity: two unknowns are not known to be the same.
    */
   packingClassOf?: ReadonlyMap<string, string>
+  /**
+   * The engineer's "Separate" rulings on this section's GEOTECH axis, as canonical
+   * ``a|b`` band-layer-id pairs, ``a < b`` lexicographic (owner 2026-08-31, debt #278
+   * R5). Threaded into BOTH welds — the per-gap merge (``fillGap`` → ``mergeFaces``) and
+   * the cross-family sweep (``weldAcrossFamilies``) — as a cannot-link: two same-class
+   * masses the engineer split never weld, so the paint seam survives and the split he
+   * drew is visible. Absent / empty leaves the whole fill BYTE-IDENTICAL to the
+   * unconstrained construction (the HIER_COV / GEOTECH_210 invariant).
+   */
+  separatedPairs?: ReadonlySet<string>
 }
 
 /** What the construction had to work around, for the gates and the console. */
@@ -488,7 +498,7 @@ export function computeHierarchicalGeotechFill(
     residualAreaM2.noBands += planned.residualNoBandsM2
   }
   const closureBars = closureBarsFor(allPlans, stacks, massOf)
-  const filled = fillPlans(allPlans, closureBars, input.alongM)
+  const filled = fillPlans(allPlans, closureBars, input.alongM, input.separatedPairs)
   const regions: SectionRegion[] = filled.regions
   const preMergeRegions: (SectionRegion & { role: 'construct' | 'fill' })[] = filled.preMerge
   lithoFallback.push(...filled.fallback)
@@ -501,6 +511,7 @@ export function computeHierarchicalGeotechFill(
   const swept = weldAcrossFamilies(
     regions,
     (formationId) => input.packingClassOf?.get(formationId) ?? formationId,
+    input.separatedPairs,
   )
   const crossFamilyWelds = swept.welds
   // The build, the rendered cover, and clause 1 share this exact geometry.
