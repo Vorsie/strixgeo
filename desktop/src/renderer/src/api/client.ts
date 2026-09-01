@@ -165,6 +165,11 @@ export type {
   BodySeparationListItem,
   BodySeparationAnchorInfo,
   BodySeparationRejoinResponse,
+  // Body unions ("Join with…" verb, debt #278).
+  BodyUnionResponse,
+  BodyUnionListItem,
+  BodyUnionAnchorInfo,
+  BodyUnionDisjoinResponse,
   LithoBodySolidResponse,
   RebuildLithoSolidsResponse,
   UpdateBodyColorResponse,
