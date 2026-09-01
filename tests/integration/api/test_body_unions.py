@@ -28,6 +28,8 @@ UNI7  A contradicting union arriving via restore is suppressed — the separatio
 UNI8  A join survives a full re-subdivide, re-anchored onto the rebuilt bands.
 UNI9  A join survives a bundle save/restore round trip.
 UNI10 The endpoints are scoped to the project + model (IDOR shape).
+UNI12 A Join does NOT stale the 3-D solids (identity, not geometry) — but the
+      SAME body re-stamp run through the DEFAULT resolve path still stales (D3).
 
 ⚠ NOT RUN by the author — the integration suite must go through the wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_body_unions.py
@@ -47,6 +49,7 @@ from groundmodel.application.subdivide_all_bodies import SubdivideAllBodies
 from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
@@ -654,3 +657,103 @@ async def test_uni11_a_suppressed_join_says_so_in_the_response(
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
     assert left[0].body_id is not None and right[0].body_id is not None
     assert left[0].body_id != right[0].body_id, "cannot-link won — the join did nothing"
+
+
+async def _seed_solid(session: AsyncSession, model_id: str, formation_id) -> object:
+    """Insert a fresh, NON-stale cached solid for a model and return its id.
+
+    ``body_id`` is deliberately a synthesized uuid (the column is NOT an FK — the
+    voxel build stores geology-split bodies under ids with no ``body`` row), so a
+    solid can be seeded without a matching body. Everything else is a minimal valid
+    cache row: empty geometry, zero pick count, empty checksum, ``is_stale=False``.
+    """
+    solid_id = uuid7()
+    session.add(
+        LithoBodySolidOrm(
+            id=solid_id,
+            model_id=model_id,
+            body_id=uuid7(),
+            formation_id=formation_id,
+            vertices=[],
+            triangles=[],
+            source_pick_count=0,
+            source_pick_checksum=b"",
+            is_stale=False,
+        )
+    )
+    await session.commit()
+    return solid_id
+
+
+async def _solid_is_stale(session: AsyncSession, solid_id) -> bool:
+    """Read one cached solid's ``is_stale`` with a fresh column select.
+
+    A COLUMN select (not a cached ORM instance) so the value reflects whatever the
+    app's separate session committed, under READ COMMITTED.
+    """
+    return (
+        await session.execute(
+            select(LithoBodySolidOrm.is_stale).where(LithoBodySolidOrm.id == solid_id)
+        )
+    ).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_uni12_a_join_does_not_stale_the_solids_but_the_default_resolve_does(
+    db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
+) -> None:
+    """UNI12 — a Join leaves the 3-D solids CURRENT; the default resolve still stales.
+
+    D3 (owner 2026-09-01: *"the geotech model is stale but it doesn't have to be
+    stale ... we only grouped two units together"*). A Join changes body IDENTITY,
+    not the voxel geometry or any voxel's packing class, so the cached solids stay
+    valid and forcing a rebuild is wrong. The endpoint therefore resolves with
+    ``stale_solids=False``.
+
+    The pin holds the OPERATION constant — a body-membership re-stamp — and varies
+    only the flag: the Join (endpoint, ``stale_solids=False``) does NOT stale, while
+    the SAME re-stamp through the default resolve path (what a subdivide / litho
+    edit runs) DOES. That proves the flag is what suppresses the stale, not that
+    staling has been removed.
+    """
+    pid = str(uni_scene["project"].id)
+    lm = uni_scene["litho_model_id"]
+    left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
+    right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
+    formation_id = (
+        await db_session.execute(
+            select(LithoLayerOrm.formation_id).where(LithoLayerOrm.id == left[0].id)
+        )
+    ).scalar_one()
+
+    # A current cached solid for this model — the state the owner sees before a Join.
+    solid_id = await _seed_solid(db_session, lm, formation_id)
+    assert await _solid_is_stale(db_session, solid_id) is False
+
+    # The Join re-stamps body_id (a real membership change → n_stamped > 0), but the
+    # endpoint resolves with stale_solids=False, so the solid stays CURRENT.
+    resp = await async_client.post(
+        f"/projects/{pid}/geology/models/{lm}/body-unions",
+        json={"layer_a_id": str(left[0].id), "layer_b_id": str(right[0].id)},
+    )
+    assert resp.status_code == 201, resp.text
+    left2 = await _bands(db_session, lm, uni_scene["cpt_a_id"])
+    right2 = await _bands(db_session, lm, uni_scene["cpt_b_id"])
+    assert left2[0].body_id == right2[0].body_id, "the join must merge (a real re-stamp)"
+    assert await _solid_is_stale(db_session, solid_id) is False, (
+        "a Join is identity-only — it must NOT stale the 3-D solids"
+    )
+
+    # Now the SAME kind of re-stamp through the DEFAULT resolve path: delete the
+    # union and re-resolve with stale_solids left at its True default (what a
+    # subdivide / litho edit runs). The re-split re-stamps body_id again — and this
+    # time the solid MUST stale.
+    union = (
+        await db_session.execute(select(BodyUnionOrm).where(BodyUnionOrm.model_id == lm))
+    ).scalar_one()
+    await db_session.delete(union)
+    await db_session.flush()
+    await ResolveLithoInstances(db_session).execute(model_id=lm, commit=True)
+    assert await _solid_is_stale(db_session, solid_id) is True, (
+        "the default resolve path (subdivide / litho edit) must still stale the solids"
+    )
