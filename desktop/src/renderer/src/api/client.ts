@@ -160,6 +160,11 @@ export type {
   BodyBoundaryNode,
   BodyRenderStyle,
   BodyBoundaryResponse,
+  // Body separations ("Separate" verb, debt #278 R5).
+  BodySeparationResponse,
+  BodySeparationListItem,
+  BodySeparationAnchorInfo,
+  BodySeparationRejoinResponse,
   LithoBodySolidResponse,
   RebuildLithoSolidsResponse,
   UpdateBodyColorResponse,
