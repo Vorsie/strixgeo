@@ -242,6 +242,7 @@ describe('openProjectFile — the DB row is gone', () => {
       body_boundary_nodes: [{ id: 'node-1' }],
       body_geometry_facts: [{ id: 'fact-1' }],
       body_separations: [{ id: 'sep-1' }],
+      body_unions: [{ id: 'union-1' }],
     })
     diskContent = JSON.stringify(ghost)
     asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
@@ -274,6 +275,10 @@ describe('openProjectFile — the DB row is gone', () => {
     // same evidence class — dropped here, the reopened project re-merges every
     // body the engineer split. (Guards the ``restorePayloadFrom`` line.)
     expect(payload.body_separations).toEqual(ghost.body_separations)
+    // Debt #278 (the Join verb): the "these two ARE the same body" unions are
+    // the mirror evidence — dropped here, the reopened project re-splits every
+    // body the engineer joined. (Guards the ``restorePayloadFrom`` line.)
+    expect(payload.body_unions).toEqual(ghost.body_unions)
   })
 })
 
