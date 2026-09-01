@@ -254,4 +254,115 @@ describe('BodyContextMenu', () => {
     )
     expect(screen.queryByTestId(`${TESTIDS.rejoinBody}-sep-1`)).toBeNull()
   })
+
+  // Debt #278 (owner ruling 2026-08-31): a "Join with…" verb — "these two ARE
+  // the same body" — the additive counterpart to Separate. Offered only when
+  // wired (the no-affordance rule keeps it geotech-only, where the owner said he
+  // would use it), and NON-danger (it is reversible via Disjoin). Fires the
+  // clicked body's id so SectionPanel can arm the pick-the-other-body gesture.
+  it('BCM16 — "Join with…" fires onJoinBody with the clicked body id', () => {
+    const onJoinBody = vi.fn()
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onJoinBody={onJoinBody}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    fireEvent.click(screen.getByTestId(TESTIDS.joinBody))
+    expect(onJoinBody).toHaveBeenCalledOnce()
+    expect(onJoinBody).toHaveBeenCalledWith('B1')
+  })
+
+  it('BCM17 — no join handler, no "Join with…" item (no-affordance rule)', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId(TESTIDS.joinBody)).toBeNull()
+  })
+
+  // Each existing union involving this body is offered back as a "Disjoin
+  // <label>" item, labelled from the backend's server-resolved display info;
+  // clicking it fires onDisjoinBody with the union id to lift.
+  it('BCM18 — a "Disjoin <label>" item fires onDisjoinBody with the union id', () => {
+    const onDisjoinBody = vi.fn()
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onDisjoinBody={onDisjoinBody}
+          unions={[{ unionId: 'union-1', label: 'ZAND #5' }]}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    const item = screen.getByTestId(`${TESTIDS.disjoinBody}-union-1`)
+    expect(item.textContent).toContain('ZAND #5')
+    fireEvent.click(item)
+    expect(onDisjoinBody).toHaveBeenCalledOnce()
+    expect(onDisjoinBody).toHaveBeenCalledWith('union-1')
+  })
+
+  it('BCM19 — no unions, no Disjoin items', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onDisjoinBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId(`${TESTIDS.disjoinBody}-union-1`)).toBeNull()
+  })
+
+  // The Join/Disjoin labels follow the language flip. Owner ruled 2026-08-31:
+  // Join reads "Voeg samen met…" in NL. Disjoin's NL is FLAGGED-not-ruled
+  // (proposed "Ontkoppel van {label}"), so this pins the FLIP + interpolation,
+  // not the phrasing being final.
+  it('BCM20 — labels follow the language flip (Join/Disjoin render in NL)', () => {
+    setLanguage('nl')
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onJoinBody={vi.fn()}
+          onDisjoinBody={vi.fn()}
+          unions={[{ unionId: 'union-1', label: 'ZAND #5' }]}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.getByTestId(TESTIDS.joinBody).textContent).toBe('Voeg samen met…')
+    expect(screen.getByTestId(`${TESTIDS.disjoinBody}-union-1`).textContent).toBe(
+      'Ontkoppel van ZAND #5',
+    )
+  })
 })
