@@ -547,14 +547,23 @@ def test_both_planners_survive_a_degenerate_region() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Class-keyed planners (debt #278 body identity)
+# Class-keyed PAINT vs granular IDENTITY — the two planners diverge on purpose
+# (owner 2026-09-01).
 #
-# The geotech model stores one formation ROW per (NAD class, litho parent,
-# GEOLOGICAL parent), so the same packing class exists under several row ids
-# wherever a litho unit spans a geological boundary. An ``identity_key_of``
-# callable collapses row ids to a shared class key so two twin-row regions that
-# touch are read as one mass. Without the callable the planners key on the raw
-# formation id — byte-identical to before (the rest of this file is the proof).
+# The geotech model can hold one packing class under several formation ROWS
+# (one per geological parent). The two sibling planners treat that differently:
+#
+# * ``plan_body_aliases`` — the 3-D voxel PAINT path — still accepts an
+#   ``identity_key_of`` callable that collapses the twin rows to a shared class
+#   key, so two same-class masses paint as ONE voxel body (this avoids the
+#   invented-lithology pinch). The ``..._aliases`` tests pin merge-WITH-key and
+#   apart-WITHOUT-key.
+# * ``plan_layer_groups`` — the persisted body IDENTITY engine — is PERMANENTLY
+#   GRANULAR: it takes NO key and keys on the raw formation ROW, so two
+#   same-class masses under DIFFERENT rows stay separate bodies for the user to
+#   lump ("start totally granular ... the user lumps them into groups"). The
+#   ``granular_identity`` tests pin that, and that a single row's touching
+#   masses still group (connectivity is preserved, nothing fragments).
 # ---------------------------------------------------------------------------
 
 
@@ -602,21 +611,50 @@ def test_identity_key_aliases_twin_formations_at_a_fence_crossing() -> None:
     assert aliases["ew"] == aliases["ns"]
 
 
-def test_identity_key_groups_twin_formation_layers_at_a_shared_column() -> None:
-    """plan_layer_groups: twin-row layers touching a column group into one set."""
+def test_granular_identity_keeps_different_formation_rows_apart_at_a_shared_column() -> None:
+    """plan_layer_groups: two same-class DIFFERENT-row masses touching a column
+    stay SEPARATE groups (case a).
+
+    ``F1`` and ``F2`` are the twin rows one packing class carries under two
+    geological parents. They touch at the shared column ``S`` with overlapping
+    elevation — geometrically connected — yet the granular identity engine keys
+    on the raw row, so they are NOT one body: disconnected same-class masses
+    under different rows remain distinct bodies for the user to lump (owner
+    2026-09-01).
+    """
     groups = plan_layer_groups(
         [
             _section(["L", "S"], [_band_with_layers("F1", "b1", 0.0, -5.0, ("La",))]),
             _section(["S", "R"], [_band_with_layers("F2", "b2", -1.0, -4.0, ("Lb",))]),
-        ],
-        identity_key_of=_same_packing_class,
+        ]
+    )
+
+    assert all(not {"La", "Lb"}.issubset(group) for group in groups)
+
+
+def test_granular_identity_still_groups_one_formation_rows_touching_masses() -> None:
+    """plan_layer_groups: a SINGLE formation row's masses that genuinely touch
+    at a shared column still group into one body (case b).
+
+    Dropping the class key must NOT fragment a connected mass. Both masses carry
+    the SAME formation row ``F1`` and touch at the shared column ``S`` with
+    overlapping elevation, so connectivity is preserved and their layers land in
+    one group.
+    """
+    groups = plan_layer_groups(
+        [
+            _section(["L", "S"], [_band_with_layers("F1", "b1", 0.0, -5.0, ("La",))]),
+            _section(["S", "R"], [_band_with_layers("F1", "b2", -1.0, -4.0, ("Lb",))]),
+        ]
     )
 
     assert any({"La", "Lb"}.issubset(group) for group in groups)
 
 
-def test_identity_key_groups_twin_formation_layers_at_a_fence_crossing() -> None:
-    """plan_layer_groups: the crossing gate compares CLASS keys, not row ids."""
+def test_granular_identity_keeps_different_formation_rows_apart_at_a_fence_crossing() -> None:
+    """plan_layer_groups: different formation rows do not bridge even where two
+    fences CROSS mid-gap — the granular gate applies to the crossing arm too.
+    """
     groups = plan_layer_groups(
         [
             _section_at(
@@ -627,19 +665,6 @@ def test_identity_key_groups_twin_formation_layers_at_a_fence_crossing() -> None
                 [("C", 50.0, -50.0), ("D", 50.0, 50.0)],
                 [_band_with_layers("F2", "ns", 3.2, -4.5, ("Lb",))],
             ),
-        ],
-        identity_key_of=_same_packing_class,
-    )
-
-    assert any({"La", "Lb"}.issubset(group) for group in groups)
-
-
-def test_without_a_key_twin_formation_layers_stay_separate_groups() -> None:
-    """No callable → twin-row layers keep raw identity → no shared group."""
-    groups = plan_layer_groups(
-        [
-            _section(["L", "S"], [_band_with_layers("F1", "b1", 0.0, -5.0, ("La",))]),
-            _section(["S", "R"], [_band_with_layers("F2", "b2", -1.0, -4.0, ("Lb",))]),
         ]
     )
 
