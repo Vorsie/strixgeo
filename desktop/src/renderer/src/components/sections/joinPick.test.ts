@@ -94,9 +94,31 @@ describe('resolveJoinPick', () => {
     expect(resolveJoinPick(arm, undefined, map, SAME_CLASS)).toEqual({ kind: 'unresolvable' })
   })
 
-  it('JP6 — a DIFFERENT-class body is cross-class, carrying both class labels', () => {
-    // A body cannot be a mixed mass; the backend refuses such a join 422. The
-    // client pre-empts the round-trip with an advisory naming both classes.
+  it('JP6a — cross-class with the SAME soil but different packing → differ:"packing"', () => {
+    // Owner ruling 2026-09-01: same soil (ZAND), different NAD packing class is a
+    // PACKING difference, so the advisory reads "different packing classes". The
+    // class labels differ (so the join is refused), but the SOILS decide the copy.
+    const map = new Map<string, string | null>([
+      ['a1', 'body-A'],
+      ['k1', 'body-K'],
+    ])
+    const classes = new Map<string, string>([
+      ['a1', 'ZAND, dicht'],
+      ['k1', 'ZAND, los'],
+    ])
+    const soils = new Map<string, string>([
+      ['a1', 'ZAND'],
+      ['k1', 'ZAND'],
+    ])
+    expect(resolveJoinPick(arm, ['k1'], map, classes, soils)).toEqual({
+      kind: 'cross-class',
+      differ: 'packing',
+    })
+  })
+
+  it('JP6b — cross-class with DIFFERENT soils → differ:"litho"', () => {
+    // Owner ruling 2026-09-01: SILT vs ZAND is a LITHOLOGY difference, so the
+    // advisory reads "different lithologies".
     const map = new Map<string, string | null>([
       ['a1', 'body-A'],
       ['k1', 'body-K'],
@@ -105,10 +127,31 @@ describe('resolveJoinPick', () => {
       ['a1', 'ZAND, dicht'],
       ['k1', 'KLEI, stevig'],
     ])
+    const soils = new Map<string, string>([
+      ['a1', 'ZAND'],
+      ['k1', 'KLEI'],
+    ])
+    expect(resolveJoinPick(arm, ['k1'], map, classes, soils)).toEqual({
+      kind: 'cross-class',
+      differ: 'litho',
+    })
+  })
+
+  it('JP6c — cross-class with an UNKNOWN soil defaults to differ:"litho" (the broader copy)', () => {
+    // A missing soil cannot prove same-soil, so it falls to the lithology message
+    // rather than falsely claiming a mere packing difference.
+    const map = new Map<string, string | null>([
+      ['a1', 'body-A'],
+      ['k1', 'body-K'],
+    ])
+    const classes = new Map<string, string>([
+      ['a1', 'ZAND, dicht'],
+      ['k1', 'ZAND, los'],
+    ])
+    // soilByLayerId omitted → both unknown.
     expect(resolveJoinPick(arm, ['k1'], map, classes)).toEqual({
       kind: 'cross-class',
-      classA: 'ZAND, dicht',
-      classB: 'KLEI, stevig',
+      differ: 'litho',
     })
   })
 
