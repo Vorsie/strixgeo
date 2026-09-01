@@ -31,12 +31,14 @@ import type {
   BodyBoundaryResponse,
   BodyRenderStyle,
   BodySeparationListItem,
+  BodyUnionListItem,
   LithoContactCorrelationEdge,
   BodyListItem,
 } from '../../../api/client'
 import type {
   ContactGestureState,
 } from '../../../components/sections/CorrelationEdgesOverlay'
+import type { JoinNotice } from '../../../components/sections/joinPick'
 import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
 import FlaggedTiesPromptDialog from '../../../components/sections/FlaggedTiesPromptDialog'
 import MoveRestatedContactDialog from '../../../components/MoveRestatedContactDialog'
@@ -971,6 +973,11 @@ export default function SectionsCanvas(): JSX.Element {
   // only the roster (for ``bodyById``) + separations (for Rejoin).
   const [geotechBodyList, setGeotechBodyList] = useState<BodyListItem[]>([])
   const [geotechSeparationsList, setGeotechSeparationsList] = useState<BodySeparationListItem[]>([])
+  // Debt #278: the model's standing body UNIONS (the "Join with…" verb, geotech
+  // axis only). Fetched beside the geotech separations on the same nonce, same
+  // degraded-but-continuing shape — a failure (e.g. the table not yet migrated)
+  // leaves an empty list + a warn naming the call, NEVER gate-disabling the menu.
+  const [geotechUnionsList, setGeotechUnionsList] = useState<BodyUnionListItem[]>([])
   const { bodiesLoaded: geotechRosterLoaded, markLoaded: markGeotechRosterLoaded } =
     useRosterLoadedGate(isGeotech ? geotechPackingModelId : null, bodyRecomputeGeotechNonce)
 
@@ -978,6 +985,7 @@ export default function SectionsCanvas(): JSX.Element {
     if (geotechPackingModelId === null) {
       setGeotechBodyList([])
       setGeotechSeparationsList([])
+      setGeotechUnionsList([])
       return
     }
     try {
@@ -997,12 +1005,22 @@ export default function SectionsCanvas(): JSX.Element {
       setGeotechSeparationsList([])
       log.warn('section', 'refetchGeotechBodyData: listBodySeparations failed', err)
     }
+    // Standing unions — decoupled from the separations fetch above, so one
+    // failing never withholds the other. A failure here is degraded-but-
+    // continuing: no Disjoin items, and a warn that names the call.
+    try {
+      setGeotechUnionsList(await api.geology.listBodyUnions(project.id, geotechPackingModelId))
+    } catch (err) {
+      setGeotechUnionsList([])
+      log.warn('section', 'refetchGeotechBodyData: listBodyUnions failed', err)
+    }
   }, [geotechPackingModelId, project.id, markGeotechRosterLoaded])
 
   useEffect(() => {
     if (!isGeotech) {
       setGeotechBodyList([])
       setGeotechSeparationsList([])
+      setGeotechUnionsList([])
       return
     }
     void refetchGeotechBodyData()
@@ -1538,6 +1556,92 @@ export default function SectionsCanvas(): JSX.Element {
           : 'Could not identify that body — click a filled body.',
         'separate-arm-notice',
       )
+    },
+    [toast],
+  )
+
+  // Join two bodies (debt #278, geotech axis only) — record the must-link, then
+  // re-render. The endpoint re-resolves body identity server-side in the same
+  // request, so the merge is durable before this returns; the recompute request
+  // re-renders the 2-D partition, 3-D build and fence from the new grouping.
+  // A standing separation can OVERRULE the join (cannot-link wins) — the response
+  // then reports ``suppressed``, so the toast tells the engineer the join was
+  // blocked instead of falsely claiming success. A class mismatch reports
+  // ``inert`` (normally refused 422 at write time, this is the resolver backstop).
+  const handleJoinBodies = useCallback(
+    async (anchorLayerId: string, targetAnchorLayerId: string): Promise<void> => {
+      if (!activeGeotechModel) return
+      log.info('section', `join-bodies: anchorA=${anchorLayerId} anchorB=${targetAnchorLayerId}`)
+      try {
+        const result = await api.geology.createBodyUnion(
+          project.id,
+          activeGeotechModel.id,
+          anchorLayerId,
+          targetAnchorLayerId,
+        )
+        void refetchGeotechBodyData()
+        requestBodyRecompute('geotech')
+        if (result.suppressed) {
+          toast(
+            'warning',
+            'Join blocked by a standing separation — remove that separation first.',
+            'join-arm-notice',
+          )
+        } else if (result.inert) {
+          toast(
+            'warning',
+            'These bodies are different packing classes and cannot be joined.',
+            'join-arm-notice',
+          )
+        } else {
+          // Reversible action → name the undo path (docs/ux.md).
+          toast('success', 'Bodies joined — right-click the body → Disjoin to undo.')
+        }
+      } catch (err) {
+        // A 422 carries the structured guard message (cross-class / contradicts a
+        // separation) as ``ApiError.message`` — surface it as the authority
+        // instead of a generic failure line.
+        toast('error', err instanceof Error && err.message ? err.message : 'Failed to join bodies.')
+        log.warn('section', 'handleJoinBodies: failed', err)
+      }
+    },
+    [activeGeotechModel, project.id, refetchGeotechBodyData, requestBodyRecompute, toast],
+  )
+
+  // Disjoin — lift a standing union (the Join verb's undo path). The DELETE
+  // re-resolves server-side, so the two anchors fall back to whatever ties /
+  // geometry still connect them; where none do, they split.
+  const handleDisjoinBody = useCallback(
+    async (unionId: string): Promise<void> => {
+      if (!activeGeotechModel) return
+      log.info('section', `disjoin-body: union=${unionId}`)
+      try {
+        await api.geology.deleteBodyUnion(project.id, activeGeotechModel.id, unionId)
+        void refetchGeotechBodyData()
+        requestBodyRecompute('geotech')
+        toast('success', 'Join lifted — the bodies may split.')
+      } catch (err) {
+        toast('error', 'Failed to disjoin bodies.')
+        log.warn('section', 'handleDisjoinBody: failed', err)
+      }
+    },
+    [activeGeotechModel, project.id, refetchGeotechBodyData, requestBodyRecompute, toast],
+  )
+
+  // Advisory while a Join is armed: the engineer clicked the armed body itself,
+  // a region that resolves to no single body, or a DIFFERENT-class body (a body
+  // can only be one mass). The arm stays live; a warning (self-dismissing,
+  // replace-keyed so repeats don't stack) tells them what to do. The cross-class
+  // advisory pre-empts the round-trip that the backend would 422 anyway.
+  const handleJoinNotice = useCallback(
+    (notice: JoinNotice): void => {
+      const message =
+        notice.kind === 'same'
+          ? 'That is the same body — click a different one to join.'
+          : notice.kind === 'cross-class'
+            ? `Cannot join across packing classes — ${notice.classA} and ${notice.classB} are different masses.`
+            : 'Could not identify that body — click a filled body.'
+      toast('warning', message, 'join-arm-notice')
     },
     [toast],
   )
@@ -2761,6 +2865,13 @@ export default function SectionsCanvas(): JSX.Element {
           onRejoinBody={isLitho || isGeotech ? sid => void handleRejoinBody(sid) : undefined}
           separations={isLitho ? separationsList : isGeotech ? geotechSeparationsList : undefined}
           onSeparateNotice={isLitho || isGeotech ? handleSeparateNotice : undefined}
+          // Join / Disjoin (debt #278) — GEOTECH axis ONLY. Owner ruled he would
+          // not use Join on litho, and the no-affordance rule (no handler → no
+          // "Join with…" item) is what keeps it geotech-only.
+          onJoinBodies={isGeotech ? (a, b) => void handleJoinBodies(a, b) : undefined}
+          onDisjoinBody={isGeotech ? uid => void handleDisjoinBody(uid) : undefined}
+          unions={isGeotech ? geotechUnionsList : undefined}
+          onJoinNotice={isGeotech ? handleJoinNotice : undefined}
           // #279: the body menu arms only while the roster is current for the
           // active model, and goes stale (stats menu is the deliberate answer)
           // across every recompute window — see useRosterLoadedGate. Per-axis
