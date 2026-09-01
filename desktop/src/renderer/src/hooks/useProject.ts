@@ -378,6 +378,7 @@ function restorePayloadFrom(file: ProjectFile): ProjectBundleResponse {
     body_boundary_nodes: file.body_boundary_nodes,
     body_geometry_facts: file.body_geometry_facts,
     geotech_tie_tombstones: file.geotech_tie_tombstones,
+    body_separations: file.body_separations,
   }
 }
 
@@ -737,7 +738,9 @@ export function useProject(): UseProject {
                 `+${parsed.litho_contact_correlation_edges.length} correlation edges, ` +
                 `+${parsed.formation_absences.length} absences, ` +
                 `+${parsed.body_boundary_shapes.length} boundary shapes, ` +
-                `+${parsed.body_geometry_facts.length} body geometry facts)`,
+                `+${parsed.body_geometry_facts.length} body geometry facts, ` +
+                `+${parsed.geotech_tie_tombstones.length} tie tombstones, ` +
+                `+${parsed.body_separations.length} body separations)`,
             )
             return restored
           } catch (restoreErr) {
