@@ -517,6 +517,8 @@ export const SECTIONS = {
   'sections.menu.openDetail': 'Open detail',
   'sections.menu.removeFromSection': 'Remove from this section',
   'sections.menu.clearSubdivision': 'Clear subdivision',
+  // The column context menu's aria-label; ``{name}`` is the column display name.
+  'sections.menu.actionsFor': 'Actions for {name}',
   'sections.menu.deleteContact': 'Delete contact',
   'sections.menu.linkToGeology': 'Link to geology',
   'sections.menu.unlinkFromGeology': 'Unlink from geology',
