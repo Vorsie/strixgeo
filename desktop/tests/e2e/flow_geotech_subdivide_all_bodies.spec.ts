@@ -31,8 +31,9 @@
  *   4. Re-open the project so the shell picks up the newly created geotech
  *      model and NAD formations (React state only refreshes on project open).
  *   5. Navigate to the Geotech spine stage.
- *   6. Assert ≥1 NAD unit row (``geotech-unit-row-*``) in the
- *      ``GeotechnicalInspector`` — and NO "CPT est." badge on it.
+ *   6. Assert ≥1 soil group (``geotech-soil-header-*``) in the
+ *      ``GeotechnicalInspector`` roster (soil ▸ litho body ▸ packing body,
+ *      owner ruling 2026-08-31) — and NO "CPT est." badge on it.
  *
  * Fixture reuse
  * -------------
@@ -146,11 +147,12 @@ test.describe('flow_geotech_subdivide_all_bodies', () => {
         // Step 5: Navigate to the Geotech spine stage.
         await goToStage(page, 'Geotech')
 
-        // Step 6: At least one NAD unit row must be visible in the inspector.
-        // The subdivider created NAD formations (geotechFormations filters on
-        // isGeotechUnit); the geotechLayers useEffect loads them via listLayers.
+        // Step 6: At least one soil group must be visible in the inspector.
+        // The subdivider's resolver created BodyOrm rows (subdivide_all_bodies
+        // Phase 10); the body-driven roster groups them soil ▸ litho body ▸
+        // packing body, so a soil header is present once bodies exist.
         await expect(
-          page.locator('[data-testid^="geotech-unit-row-"]').first(),
+          page.locator('[data-testid^="geotech-soil-header-"]').first(),
         ).toBeVisible({ timeout: 30_000 })
 
         // ...and it carries NO "CPT est." badge. Owner ruling 2026-08-27,
