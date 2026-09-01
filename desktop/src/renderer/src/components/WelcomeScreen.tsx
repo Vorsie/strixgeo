@@ -48,15 +48,24 @@ interface Props {
   // File-picker driven open. Returns a tri-state outcome so the
   // welcome screen can show its "couldn't open" banner only when the
   // open actually failed (not when the user simply cancelled the
-  // dialog).
-  onOpenProject: () => Promise<'opened' | 'cancelled' | 'failed'>
+  // dialog). ``message`` is the SPECIFIC decode reason when a file failed to
+  // open (damaged / truncated / newer container); absent → show the default
+  // banner.
+  onOpenProject: () => Promise<{
+    outcome: 'opened' | 'cancelled' | 'failed'
+    message?: string
+  }>
   // Click handler for a recent-projects entry. Receives the file path
   // and answers what happened, because the two failures need different
   // banners: 'missing' = the .strix is no longer at its saved location
   // (moved/renamed — owner 2026-08-17: "did you change it's location"),
   // 'failed' = the file is there but could not be opened. The entry is
   // kept in the list either way — the user may put the file back.
-  onOpenRecent: (path: string) => Promise<'opened' | 'missing' | 'failed'>
+  // ``message`` carries the specific decode reason on a 'failed' outcome.
+  onOpenRecent: (path: string) => Promise<{
+    outcome: 'opened' | 'missing' | 'failed'
+    message?: string
+  }>
 }
 
 export default function WelcomeScreen({
@@ -146,10 +155,14 @@ export default function WelcomeScreen({
     setBusy(true)
     setOpenError(null)
     try {
-      const outcome = await onOpenProject()
+      const { outcome, message } = await onOpenProject()
       if (outcome === 'failed') {
+        // A specific decode reason (corruption / truncation / newer version)
+        // wins over the generic banner — the RAM-corruption-mid-save case must
+        // read LOUD and name the problem, not blame the API.
         setOpenError(
-          "Couldn't open the selected project file. The file may be corrupt, or the API isn't reachable.",
+          message ??
+            "Couldn't open the selected project file. The file may be corrupt, or the API isn't reachable.",
         )
         refreshRecent()
       }
@@ -163,7 +176,7 @@ export default function WelcomeScreen({
     setBusy(true)
     setOpenError(null)
     try {
-      const outcome = await onOpenRecent(path)
+      const { outcome, message } = await onOpenRecent(path)
       if (outcome !== 'opened') {
         const entry = recent.find(r => r.path === path)
         const name = entry ? `"${entry.name}"` : 'the project'
@@ -171,7 +184,9 @@ export default function WelcomeScreen({
           outcome === 'missing'
             ? `Couldn't find the file for ${name} at ${path}. Did you move or rename it? ` +
                 'Put it back, or open it from its new location with "Open project from file".'
-            : `Couldn't open ${name}. The file may be corrupt, or the API isn't reachable.`,
+            : // A specific decode reason wins over the generic corrupt/API banner.
+              (message ??
+                `Couldn't open ${name}. The file may be corrupt, or the API isn't reachable.`),
         )
         refreshRecent()
       }
