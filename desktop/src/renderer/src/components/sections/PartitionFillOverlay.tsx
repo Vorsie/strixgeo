@@ -546,6 +546,19 @@ export default function PartitionFillOverlay({
   // ``lithoFrame`` — the "Show litho fill" toggle withholds the frame while the
   // axis is still geotech, and a view-only axis must stay view-only either way.
   const viewOnly = axisMode === 'geotechnical'
+  // The body context menu is allowed wherever the axis HAS bodies — the litho
+  // axis and, since owner ruling 2026-08-31 (piece B), the view-only geotech
+  // axis. It is a body / navigation gesture, NOT contact editing, so it does
+  // NOT ride ``viewOnly`` (which still gates every contact-editing surface
+  // below — labels, boundary / lens handles, shared-boundary strips). Split out
+  // as its own flag rather than piggybacking ``!viewOnly`` so the geotech axis
+  // opens the menu without loosening any edit gate. The geological axis wires no
+  // ``onBodyContextMenu`` and has no bodies, so the ``onBodyContextMenu && body``
+  // gate keeps it off there regardless.
+  // Expressed as "not the geological axis" so it stays true for the litho axis
+  // (the prior ``!viewOnly`` behaviour), the new geotech axis, AND the
+  // undefined-axis default the test harness renders with.
+  const bodyMenuEnabled = axisMode !== 'geological'
   // In correlate mode every interactive partition element drops its pointer
   // events so the correlate gesture targets beneath receive the click. Use
   // this in place of the literal ``'auto'`` at every interactive site.
@@ -3315,10 +3328,21 @@ export default function PartitionFillOverlay({
       {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
-        const body = sr.region.bodyId ? bodyById.get(sr.region.bodyId) : undefined
+        // The body resolved from the region's OWN layers (regionBodyId.ts) — the
+        // label-independent authority the stats jump reports. Computed once and
+        // reused by the stats fallback below (no second call on right-click).
+        const layerResolvedBodyId = resolveRegionBodyId(sr.region.layerIds, bodyIdByLayerId)
+        // The litho axis keeps its region label as the body-menu authority; the
+        // geotech axis's ``region.bodyId`` is frame-minted, so there the body menu
+        // reads the layer resolution too. The resolved id names the body in
+        // ``bodyById``.
+        const resolvedBodyId = viewOnly ? layerResolvedBodyId : sr.region.bodyId
+        const body = resolvedBodyId ? bodyById.get(resolvedBodyId) : undefined
         // #279 item-1: the body menu waits for the body list to land — before
         // that the stats menu (statsInteractive below) is the deliberate answer.
-        const interactive = Boolean(onBodyContextMenu && body) && !viewOnly && bodiesLoaded
+        // Gated on ``bodyMenuEnabled`` (litho + geotech), NOT ``!viewOnly`` — the
+        // geotech axis opens the body menu without becoming edit-capable.
+        const interactive = Boolean(onBodyContextMenu && body) && bodyMenuEnabled && bodiesLoaded
         // Debt #278 R5: while a Separate is armed, EVERY region is left-clickable
         // so the engineer can pick the other body — the resolution through the
         // region's own layers decides commit / same / unresolvable.
@@ -3327,17 +3351,20 @@ export default function PartitionFillOverlay({
         // every other interactive surface to ``pointer-events:none`` (see
         // ``interactivePtr``), so an armed Separate must yield too — otherwise its
         // left-click would steal the correlate gesture and POST a separation the
-        // engineer never asked for. (``viewOnly`` needs no gate here: the arm is
-        // litho-only by wiring — ``onSeparatePick`` is passed only on the litho
-        // axis — so ``separateArm`` is null on the view-only geotech axis anyway.)
+        // engineer never asked for. (The arm is now wired on BOTH the litho and
+        // geotech axes — piece B — so this gate is what protects the litho axis's
+        // correlate gesture; the geotech axis has no correlate mode, so there the
+        // gate is simply always true. ``viewOnly`` is deliberately NOT gated here:
+        // Separate is a body gesture, not contact editing.)
         const separateArmActive =
           separateArm != null && onSeparatePick !== undefined && !correlateMode
         // R2 / S7b (2026-08-27): a fill region answers right-click with
-        // "Unit statistics…" for its unit — on the geotech axis for every
-        // region (the axis stays view-only for every edit; this navigates),
-        // on the litho axis only where the body menu does not already claim
-        // the region (a body's menu carries its own statistics item). Gated
-        // on the axis's handler so an unwired axis is byte-identical.
+        // "Unit statistics…" for its unit — on BOTH the litho and geotech axes
+        // (piece B), and on each it is the FALLBACK the body menu leaves behind:
+        // it answers only where ``interactive`` is false, i.e. where no single
+        // body resolves or the roster has not landed yet (a body's own menu
+        // carries its statistics item). Gated on the axis's handler so an unwired
+        // axis is byte-identical.
         const statsInteractive = unitStatsHandlerForAxis !== undefined && !interactive
         // S1: soft-coupling fade — demote non-matching bodies to 0.25 opacity
         // when a body is selected; the selected body renders at natural opacity
@@ -3417,7 +3444,7 @@ export default function PartitionFillOverlay({
                           clientX: e.clientX,
                           clientY: e.clientY,
                           formationId: sr.region.formationId,
-                          bodyId: resolveRegionBodyId(sr.region.layerIds, bodyIdByLayerId),
+                          bodyId: layerResolvedBodyId,
                           // The region's own layers let the GEOTECH jump ladder
                           // reach a class row when the body is unresolved (spec
                           // §2 step 2, weld-merged regions). Only the geotech
