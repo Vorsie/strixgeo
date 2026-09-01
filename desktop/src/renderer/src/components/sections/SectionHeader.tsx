@@ -18,6 +18,8 @@ import { useEffect, useState } from 'react'
 import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
+import { useT } from '../../i18n/translate'
+import { sectionDisplayName } from '../../utils/sectionDisplayName'
 import {
   COLUMN_SPACING_MAX,
   COLUMN_SPACING_MIN,
@@ -131,6 +133,7 @@ export default function SectionHeader({
   scaleV: number
   onReset: () => void
 }): JSX.Element {
+  const t = useT()
   const sliderValue = Math.round(
     ((Math.log10(vex) - Math.log10(VEX_MIN)) /
       (Math.log10(VEX_MAX) - Math.log10(VEX_MIN))) *
@@ -161,9 +164,9 @@ export default function SectionHeader({
       <div className="flex flex-col min-w-0">
         <span
           className="font-medium text-text-primary truncate"
-          title={section.name}
+          title={sectionDisplayName(section, t)}
         >
-          {section.name}
+          {sectionDisplayName(section, t)}
         </span>
         <span className="text-[10px] text-text-muted">
           {lengthM.toFixed(0)} m · buffer ±{section.projection_buffer_m.toFixed(0)} m
