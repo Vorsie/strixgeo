@@ -11,6 +11,12 @@ import {
 } from 'fs'
 
 import { writeFileAtomic } from './atomicWrite'
+import {
+  decodeStrix,
+  encodeStrix,
+  toStrixReadFailure,
+  type ProjectReadResult,
+} from './strixCodec'
 import { evaluateBetaExpiry, type BetaVerdict } from './betaExpiry'
 import { configureBetaExpiryStore, recordLaunch } from './betaExpiryStore'
 import { compiledBuildStamp, readBuildStamp } from './buildStamp'
@@ -1003,12 +1009,37 @@ ipcMain.handle('project:file-exists', (_event, filePath: string): boolean => {
   return existsSync(filePath)
 })
 
-ipcMain.handle('project:read-file', (_event, filePath: string): string => {
+ipcMain.handle('project:read-file', (_event, filePath: string): ProjectReadResult => {
   if (!pathIsAuthorised(filePath)) {
+    // A path-auth refusal is a renderer bug / XSS attempt, not a "this file is
+    // unreadable" answer the user needs worded — keep it an exceptional throw.
     throw new Error(`project:read-file refused — path not authorised: ${filePath}`)
   }
   assertFileSizeUnder(filePath, PROJECT_READ_CAP_BYTES, 'project:read-file')
-  return readFileSync(filePath, 'utf-8')
+  // Read raw bytes so the codec can SNIFF: a binary ``STRIXB1`` container is
+  // reversed + integrity-checked here; a legacy plain-JSON file (leading ``{``)
+  // is returned verbatim. Either way the renderer receives the plaintext JSON
+  // and feeds it straight into ``parseProjectFile`` — the codec is a container
+  // the renderer never sees.
+  //
+  // A damaged / truncated / newer file throws a TYPED StrixDecodeError which we
+  // FLATTEN into a discriminated ``{ ok: false, reason }`` rather than let it
+  // cross IPC as a wrapped, class-and-code-stripped Error. That lets the
+  // renderer branch on ``reason.code`` (never on message text) and show the
+  // specific, honest message — corruption detection stays LOUD, and a failed
+  // read still degrades to "could not open", never bricking Close. The
+  // decompressed size is capped at the read ceiling so a hostile ``.strix``
+  // cannot bomb the process with a few KB that inflate to gigabytes.
+  try {
+    const json = decodeStrix(readFileSync(filePath), {
+      maxPlaintextBytes: PROJECT_READ_CAP_BYTES,
+    })
+    return { ok: true, json }
+  } catch (err) {
+    // ``toStrixReadFailure`` rethrows anything that is NOT a StrixDecodeError
+    // (an unexpected I/O bug), so genuine faults are not swallowed as "corrupt".
+    return { ok: false, reason: toStrixReadFailure(err) }
+  }
 })
 
 // ``writeFileAtomic`` lives in ./atomicWrite — shared with the recovery-file
@@ -1021,7 +1052,13 @@ ipcMain.handle(
     if (!pathIsAuthorised(filePath)) {
       throw new Error(`project:write-file refused — path not authorised: ${filePath}`)
     }
-    writeFileAtomic(filePath, contents)
+    // ``contents`` is the plaintext project JSON the renderer built
+    // (``serialiseProjectFile``); the codec wraps it in the binary ``STRIXB1``
+    // container (gzip + seeded keystream) so the interpreted data is not stored
+    // in plaintext on disk. The bundle ``format_version`` lives INSIDE that
+    // JSON and is untouched. Every save path (New / Save / Save As) funnels
+    // through here, so this one line makes them all binary.
+    writeFileAtomic(filePath, encodeStrix(contents))
   },
 )
 
