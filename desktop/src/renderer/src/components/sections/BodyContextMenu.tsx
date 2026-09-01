@@ -16,6 +16,7 @@
 import ContextMenu, { type ContextMenuItem } from '../ui/ContextMenu'
 import type { BodyListItem } from '../../api/client'
 import { useT } from '../../i18n/translate'
+import { crossedFormationLabel } from '../../utils/crossedFormationLabel'
 
 export interface BodyContextMenuProps {
   /** Screen X of the context-menu anchor (SVG coordinates). */
@@ -31,8 +32,9 @@ export interface BodyContextMenuProps {
   onNameBody: (bodyId: string) => void
   /**
    * Fired when the user picks "Dissolve body". Absent → the item is not offered
-   * (the no-affordance rule) — Dissolve stays litho-only, so the geotech axis
-   * withholds this handler (owner ruling 2026-08-31, debt #278 R5).
+   * (the no-affordance rule). Wired on BOTH the litho and geotech axes — the
+   * owner enumerated Dissolve as one of the geotech body verbs (ruling
+   * 2026-08-31, piece B / debt #278 R5).
    */
   onDissolveBody?: (bodyId: string) => void
   /**
@@ -128,11 +130,10 @@ export default function BodyContextMenu({
   // R2 (owner ruling 2026-08-31): a body may cross more than one geological
   // formation, so its geological context is the full LIST — every formation it
   // falls in, shallowest first, joined with "+". Falls back to the singular
-  // majority field for an old cached response that predates the list.
-  const geoContext =
-    body.geo_formations && body.geo_formations.length > 0
-      ? body.geo_formations.map(g => g.name).join(' + ')
-      : (body.geo_formation_name ?? '')
+  // majority field for an old cached response that predates the list. The
+  // Parameters scope header reads the same shape, so the join+fallback lives in
+  // one shared helper (extract-on-the-second-copy).
+  const geoContext = crossedFormationLabel(body)
 
   const items: (ContextMenuItem | false | null)[] = [
     {
@@ -179,8 +180,8 @@ export default function BodyContextMenu({
           },
         }))
       : []),
-    // Dissolve — irreversible, so it is danger-styled and divided off. Withheld
-    // on the geotech axis (Dissolve stays litho-only).
+    // Dissolve — irreversible, so it is danger-styled and divided off. Offered
+    // on both axes wherever ``onDissolveBody`` is wired (geotech included, piece B).
     onDissolveBody !== undefined && {
       label: t('sections.menu.dissolveBody'),
       testid: TESTIDS.dissolveBody,
