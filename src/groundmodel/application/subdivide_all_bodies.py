@@ -144,6 +144,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.body_separation_reanchor import BodySeparationReanchor
+from groundmodel.application.body_union_reanchor import BodyUnionReanchor
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
 from groundmodel.application.geotech_edge_derivation import (
     EdgeDerivationCounts,
@@ -711,6 +712,12 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         captured_separations = await sep_reanchor.capture(
             geotech_model.id, restrict_to_investigation_ids=scoped_members
         )
+        # And the engineer's "Join with…" rulings, the same way (debt #278): a
+        # union anchors two geotech bands and the wipe cascades it away too.
+        union_reanchor = BodyUnionReanchor(self._session)
+        captured_unions = await union_reanchor.capture(
+            geotech_model.id, restrict_to_investigation_ids=scoped_members
+        )
         self.info(
             f"SubdivideAllBodies: {len(picks)} pick(s) on section "
             f"(of {len(all_picks)} in the litho model)"
@@ -772,6 +779,14 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 # their anchor bands and there is nothing to re-anchor onto.
                 self.warning(
                     f"SubdivideAllBodies: {len(captured_separations)} user separation(s) "
+                    f"could not be carried — the litho model has no picks, so the "
+                    f"rebuild produced no bands to re-anchor them to "
+                    f"(model {geotech_model.id})"
+                )
+            if captured_unions:
+                # And the engineer's "Join with…" rulings, same story (debt #278).
+                self.warning(
+                    f"SubdivideAllBodies: {len(captured_unions)} user union(s) "
                     f"could not be carried — the litho model has no picks, so the "
                     f"rebuild produced no bands to re-anchor them to "
                     f"(model {geotech_model.id})"
@@ -1065,6 +1080,13 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         await sep_reanchor.reanchor(
             model_id=geotech_model.id,
             captured=captured_separations,
+            rebuilt_bands=all_rebuilt_bands,
+        )
+        # And the "Join with…" rulings against the same bands, same ordering, so
+        # the resolve below honours the restored unions too (debt #278).
+        await union_reanchor.reanchor(
+            model_id=geotech_model.id,
+            captured=captured_unions,
             rebuilt_bands=all_rebuilt_bands,
         )
 
