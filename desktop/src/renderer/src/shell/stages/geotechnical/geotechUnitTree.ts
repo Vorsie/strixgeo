@@ -26,6 +26,7 @@
  */
 
 import type { LithoLayerConfidence } from '../../../api/client'
+import { geotechBodyAutoLabel } from '../../../utils/geotechBodyLabel'
 import { geotechRowColorOverride } from '../../../utils/geotechRowColorOverride'
 import {
   geotechUnitLabel,
@@ -115,10 +116,28 @@ export interface GeotechContactRef {
   formation_id: string
 }
 
-/** The fields of a geotech layer the tree reads for the badges. */
+/** The fields of a geotech layer the tree reads for the badges + body counts. */
 export interface GeotechLayerRef {
   formation_id: string
   confidence: LithoLayerConfidence
+  /** The resolver body this layer belongs to — for the per-body band count. */
+  body_id?: string | null
+  /** Layer status; only ``'accepted'`` layers count toward a body's bands. */
+  status?: string
+}
+
+/** The fields of a geotech body the tree reads to build its selectable child rows. */
+export interface GeotechBodyRef {
+  /** The resolver body id — the selection currency. */
+  id: string
+  /** The geotech formation (unit) the body homes to — how it lands under a class. */
+  formation_id: string
+  /** The body's ordinal within its formation's naming group (0-based). */
+  body_ordinal: number
+  /** The engineer's name for the body, or null. */
+  name?: string | null
+  /** The geological formations this body crosses, shallowest first (R2). */
+  geoFormations?: readonly string[]
 }
 
 /** Everything the builder needs. */
@@ -140,6 +159,12 @@ export interface GeotechUnitTreeInput {
    * row standing for several units unions their lists. Absent → no subtitle.
    */
   geoFormationNamesById?: ReadonlyMap<string, readonly string[]>
+  /**
+   * The active geotech model's bodies, for the selectable BODY children under
+   * each class row (owner dogfeed 2026-09-01). A body lands under the class of
+   * its home unit's ``nad_class``. Absent → class rows carry no body children.
+   */
+  bodies?: readonly GeotechBodyRef[]
 }
 
 /** One unit instance under a NAD-class row. */
@@ -150,6 +175,18 @@ export interface GeotechUnitInstance {
   bandCount: number
   provenance: ClassProvenance
   confidence: LithoLayerConfidence | null
+}
+
+/** One selectable geotech BODY under a NAD-class row (owner dogfeed 2026-09-01). */
+export interface GeotechBodyChild {
+  /** The resolver body id — what a click on this row selects. */
+  bodyId: string
+  /** Unified label — the engineer's name, else "SILT · SF #0" (soil+packing+ordinal). */
+  label: string
+  /** Accepted bands stamped to this body. */
+  bandCount: number
+  /** The geological formations this body crosses, shallowest first (R2); may be empty. */
+  geoFormations: readonly string[]
 }
 
 /** One NAD-class row under a soil header. */
@@ -185,6 +222,11 @@ export interface GeotechClassRow {
   geoFormations: string[]
   /** Every instance, ordered. Render them only when there is more than one. */
   instances: GeotechUnitInstance[]
+  /**
+   * Selectable geotech bodies of this class, ordered by ordinal (owner dogfeed
+   * 2026-09-01). Empty when no body roster was supplied. Rendered collapsed.
+   */
+  bodies: GeotechBodyChild[]
 }
 
 /** One soil header with its class rows. */
@@ -289,7 +331,7 @@ const UNCLASSIFIED_SORT_KEY = Number.MAX_SAFE_INTEGER
  *     yields an empty tree.
  */
 export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTree {
-  const { units, contacts, layers, sourceLithoNameById, geoFormationNamesById } = input
+  const { units, contacts, layers, sourceLithoNameById, geoFormationNamesById, bodies } = input
 
   // One pass each over the two big arrays — the flat roster re-filtered both
   // per row, which is O(units x rows) on a project with ~650 bands.
@@ -302,6 +344,24 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
     const arr = confidencesByUnit.get(l.formation_id)
     if (arr === undefined) confidencesByUnit.set(l.formation_id, [l.confidence])
     else arr.push(l.confidence)
+  }
+
+  // Accepted-band count per body, for the selectable body children (owner
+  // dogfeed 2026-09-01). A layer with no status is treated as accepted (legacy /
+  // fixture) so the count matches the class row's contact-based band count.
+  const bandCountByBody = new Map<string, number>()
+  for (const l of layers) {
+    const bid = l.body_id ?? null
+    if (bid === null || (l.status ?? 'accepted') !== 'accepted') continue
+    bandCountByBody.set(bid, (bandCountByBody.get(bid) ?? 0) + 1)
+  }
+  // Bodies grouped by their home unit's formation id, so a (soil, class) bucket
+  // can list exactly its own bodies without rescanning the roster per bucket.
+  const bodiesByUnit = new Map<string, GeotechBodyRef[]>()
+  for (const b of bodies ?? []) {
+    const arr = bodiesByUnit.get(b.formation_id)
+    if (arr === undefined) bodiesByUnit.set(b.formation_id, [b])
+    else arr.push(b)
   }
 
   /** True when the unit describes nothing in this model — see the module note. */
@@ -372,6 +432,29 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
       }
     }
 
+    // Selectable body children: every body homing to one of this bucket's units,
+    // ordered by ordinal (the way the 3-D legend numbers them). The label is the
+    // ONE unified geotech-body vocabulary — the engineer's name, else soil +
+    // packing + ordinal ("SAND · MD #0"), so the pane row reads identically to
+    // the section body-menu header and the Parameters scope header.
+    const bucketBodies: GeotechBodyRef[] = []
+    for (const u of ordered) {
+      for (const b of bodiesByUnit.get(u.id) ?? []) bucketBodies.push(b)
+    }
+    bucketBodies.sort(
+      (a, b) => a.body_ordinal - b.body_ordinal || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
+    const bodyChildren: GeotechBodyChild[] = bucketBodies.map(b => ({
+      bodyId: b.id,
+      label: b.name?.trim()
+        ? b.name.trim()
+        : bucket.nadClass !== null
+          ? geotechBodyAutoLabel(bucket.nadClass, b.body_ordinal)
+          : `#${b.body_ordinal}`,
+      bandCount: bandCountByBody.get(b.id) ?? 0,
+      geoFormations: b.geoFormations ?? [],
+    }))
+
     const row: GeotechClassRow = {
       key: `${bucket.soil}|${bucket.nadClass ?? ''}`,
       soil: bucket.soil,
@@ -390,6 +473,7 @@ export function buildGeotechUnitTree(input: GeotechUnitTreeInput): GeotechUnitTr
       ),
       geoFormations,
       instances,
+      bodies: bodyChildren,
     }
     const rows = classRowsBySoil.get(bucket.soil)
     if (rows === undefined) classRowsBySoil.set(bucket.soil, [row])
