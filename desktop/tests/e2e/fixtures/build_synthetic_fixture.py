@@ -6,7 +6,9 @@ Builds a minimal but realistic project bundle and POSTs it to
 
 The fixture provides:
 * 1 project ("E2E Smoke Project")
-* 8 CPTs (CPTU, realistic qc/fs data across 10 m depth) in three rows
+* 17 CPTs (CPTU, realistic qc/fs data across 10 m depth) in six rows —
+  9 carry a qc series (segmentable), 8 are dedicated series-less scenario
+  columns (crossing, per-instance, facies)
 * 1 borehole (Section B, east end) sharing the seeded KLEI/ZAND litho
   bodies with CPT-5 — the shape the borehole packing preview needs
 * 1 geological model with 3 formations + depth contacts at each CPT
