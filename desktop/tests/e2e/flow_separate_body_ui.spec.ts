@@ -1,19 +1,23 @@
 /**
  * Flow — the "Separate" verb + its Rejoin (debt #278 R5, owner ruling 2026-08-31).
  *
- * Drives the whole gesture on Section B's two seeded bodies (a KLEI unit over a
- * ZAND unit, each correlated across CPT-3/4/5 → two distinct resolver bodies):
+ * Drives the whole gesture on Section B's CROSS-SOIL bodies (a KLEI unit over a
+ * ZAND unit): right-click body A → "Separate from…" (ARMS) → the hint chip
+ * appears → left-click body B's region → success toast → re-open the menu →
+ * "Rejoin with …" is now offered → click it → the separation is lifted.
  *
- *   right-click body A → "Separate from…" (ARMS) → the hint chip appears →
- *   left-click body B's region → success toast → re-open body A's menu →
- *   "Rejoin with …" is now offered → click it → the separation is lifted.
+ * WHY CROSS-SOIL, not "the first two distinct bodies": tonight's identity work
+ * (class-keyed + framed evidence) MERGES touching SAME-soil bodies on the
+ * debounced recompute — two same-soil regions welded into one, so a click on the
+ * "other" one correctly took the same-body advisory path and never POSTed. Two
+ * DIFFERENT-soil regions (different fill colours) never weld, so the Separate
+ * between them stays a legal, distinct pick across every recompute.
  *
- * WHY assert on the toast + the Rejoin item rather than on geometry: KLEI and
- * ZAND are different lithologies, so the resolver would never merge them anyway;
- * the durable, fixture-independent proof that the separation was recorded is
- * that the body menu now offers to Rejoin it, and that the item is gone after
- * the Rejoin. A future fixture with two masses the resolver WOULD merge can
- * tighten this to a geometry re-merge assertion.
+ * WHY the gesture is wrapped in ``toPass``: the project-open identity recompute
+ * is debounced and can land mid-gesture (it did, in the first run). The retry
+ * re-resolves fresh regions and re-drives each attempt, so whenever the
+ * recompute fires the next attempt runs against stable ids. Separate is
+ * idempotent server-side (a duplicate pair answers 200), so a retry is safe.
  *
  * Dead ends this spec deliberately avoids (memory + flow_body_actions_ui):
  *   * ``body-context-menu`` is DUPLICATED by the chip menu — select via the
@@ -65,29 +69,40 @@ async function enableFillBands(page: Page): Promise<void> {
   }
 }
 
+/** The body-region hit paths, as ``{ testid, fill }`` — filters strokes + fallback paint. */
+async function bodyRegions(page: Page): Promise<{ testid: string; fill: string }[]> {
+  return page.locator('[data-testid^="partition-region-"]').evaluateAll(els =>
+    els
+      .map(el => ({
+        testid: el.getAttribute('data-testid') ?? '',
+        fill: el.getAttribute('fill') ?? '',
+      }))
+      .filter(
+        r =>
+          r.testid.startsWith('partition-region-') &&
+          !r.testid.includes('-stroke-') &&
+          !r.testid.endsWith('-nobody'),
+      ),
+  )
+}
+
 /**
- * The two distinct body regions on the section, as locators.
- *
- * Reads every ``partition-region-<bodyId>`` testid, drops the fallback
- * ``-nobody`` paint, and returns the first two DIFFERENT body ids' regions —
- * Section B's KLEI and ZAND bodies. Retried via ``toPass`` because the roster
- * (and thus the region body ids) only settles once the body list has landed.
+ * Two body regions of DIFFERENT fill colour — i.e. different soils, which never
+ * weld. Retried until at least two colours are on screen (the roster settling).
+ * Returns them as locators keyed by their live testid.
  */
-async function twoDistinctBodyRegions(page: Page): Promise<{ a: Locator; b: Locator }> {
+async function twoCrossSoilRegions(page: Page): Promise<{ a: Locator; b: Locator }> {
   let idA = ''
   let idB = ''
   await expect(async () => {
-    const testids = await page
-      .locator('[data-testid^="partition-region-"]')
-      .evaluateAll(els =>
-        els
-          .map(el => el.getAttribute('data-testid') ?? '')
-          .filter(t => t.startsWith('partition-region-') && !t.endsWith('-nobody')),
-      )
-    const distinct = Array.from(new Set(testids))
-    expect(distinct.length).toBeGreaterThanOrEqual(2)
-    idA = distinct[0]
-    idB = distinct[1]
+    const regions = await bodyRegions(page)
+    // First region of each of the first two DISTINCT fill colours.
+    const byColour = new Map<string, string>()
+    for (const r of regions) if (!byColour.has(r.fill)) byColour.set(r.fill, r.testid)
+    const colours = [...byColour.values()]
+    expect(colours.length, 'need two different-soil regions on the section').toBeGreaterThanOrEqual(2)
+    idA = colours[0]
+    idB = colours[1]
   }).toPass({ timeout: 30_000 })
   return {
     a: page.locator(`[data-testid="${idA}"]`).first(),
@@ -96,9 +111,9 @@ async function twoDistinctBodyRegions(page: Page): Promise<{ a: Locator; b: Loca
 }
 
 /**
- * Right-click ``region`` and wait until the BODY menu's "Separate from…" item
- * is visible — the only signal that the body list has landed (the stats menu
- * offers no such item).
+ * Right-click ``region`` and wait until the BODY menu's "Separate from…" item is
+ * visible — the only signal that the body list has landed (the stats menu offers
+ * no such item, and ``bodiesLoaded`` withholds the body menu across a recompute).
  */
 async function openBodyMenuOn(page: Page, region: Locator): Promise<void> {
   await expect(region).toBeVisible({ timeout: 30_000 })
@@ -119,7 +134,7 @@ test.describe('flow_separate_body_ui', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run build_synthetic_fixture.py first',
   )
 
-  test('Separate two bodies, then Rejoin them', async () => {
+  test('Separate two cross-soil bodies, then Rejoin them', async () => {
     test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
@@ -128,41 +143,46 @@ test.describe('flow_separate_body_ui', () => {
       await openBodySection(page)
       await enableFillBands(page)
 
-      const { a: bodyA, b: bodyB } = await twoDistinctBodyRegions(page)
+      // ARM + COMMIT, retried so a debounced recompute landing mid-gesture is
+      // absorbed: each attempt re-resolves fresh cross-soil regions (ids can
+      // shift on a merge), arms body A, and clicks body B. Cross-soil means the
+      // pick is never the same body; the retry only covers the timing.
+      await expect(async () => {
+        const { a: bodyA, b: bodyB } = await twoCrossSoilRegions(page)
+        await openBodyMenuOn(page, bodyA)
+        await page.getByTestId('body-ctx-separate-body').dispatchEvent('click')
+        await expect(page.getByTestId('separate-arm-hint')).toBeVisible({ timeout: 3_000 })
+        await bodyB.dispatchEvent('click', { bubbles: true })
+        await expect(page.getByText('Bodies separated', { exact: false })).toBeVisible({
+          timeout: 3_000,
+        })
+      }).toPass({ timeout: 90_000 })
 
-      // ARM: right-click body A → "Separate from…" (dispatch — SVG-portalled menu).
-      await openBodyMenuOn(page, bodyA)
-      await page.getByTestId('body-ctx-separate-body').dispatchEvent('click')
-
-      // The hint chip confirms the arm is live and the regions are now clickable.
-      await expect(page.getByTestId('separate-arm-hint')).toBeVisible({ timeout: 5_000 })
-
-      // COMMIT: left-click body B's region → the pick resolves a distinct body.
-      await bodyB.dispatchEvent('click', { bubbles: true })
-
-      // Success toast fires, and the arm chip clears (commit disarms).
-      await expect(page.getByText('Bodies separated', { exact: false })).toBeVisible({
-        timeout: 5_000,
-      })
+      // The arm clears on commit.
       await expect(page.getByTestId('separate-arm-hint')).toBeHidden({ timeout: 10_000 })
 
-      // The separation is now durable: re-opening body A's menu offers to Rejoin.
-      await openBodyMenuOn(page, bodyA)
-      const rejoinItem = page.locator('[data-testid^="body-ctx-rejoin-body-"]').first()
-      await expect(rejoinItem).toBeVisible({ timeout: 10_000 })
+      // The separation is durable: a body's menu now offers to Rejoin. Retried
+      // because the post-commit recompute re-shuffles the region ids.
+      await expect(async () => {
+        const { a: bodyA } = await twoCrossSoilRegions(page)
+        await openBodyMenuOn(page, bodyA)
+        await expect(page.locator('[data-testid^="body-ctx-rejoin-body-"]').first()).toBeVisible({
+          timeout: 1_500,
+        })
+      }).toPass({ timeout: 60_000 })
 
-      // REJOIN: lift the separation.
-      await rejoinItem.dispatchEvent('click')
+      // REJOIN: lift the separation, then confirm the Rejoin option is gone.
+      await page.locator('[data-testid^="body-ctx-rejoin-body-"]').first().dispatchEvent('click')
       await expect(page.getByText('Separation lifted', { exact: false })).toBeVisible({
         timeout: 5_000,
       })
-
-      // And the Rejoin option is gone once the roster refetches — the bodies may
-      // rejoin again. Re-open the menu and assert no Rejoin item remains.
-      await openBodyMenuOn(page, bodyA)
-      await expect(page.locator('[data-testid^="body-ctx-rejoin-body-"]')).toHaveCount(0, {
-        timeout: 10_000,
-      })
+      await expect(async () => {
+        const { a: bodyA } = await twoCrossSoilRegions(page)
+        await openBodyMenuOn(page, bodyA)
+        await expect(page.locator('[data-testid^="body-ctx-rejoin-body-"]')).toHaveCount(0, {
+          timeout: 1_500,
+        })
+      }).toPass({ timeout: 60_000 })
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
