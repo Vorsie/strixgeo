@@ -544,11 +544,11 @@ export const SECTIONS_NL = {
   // NOTE: ruled 2026-08-27 — owner chose "Lichaam ontbinden".
   'sections.menu.dissolveBody': 'Lichaam ontbinden',
   'sections.menu.nameBody': 'Lichaam benoemen…',
-  // Debt #278 R5 — the "Separate" verb + its Rejoin. FLAG for the ux/owner pass:
-  // "Scheiden van…" / "Samenvoegen met {label}" per the brief's guidance; the
-  // owner has not yet ruled the exact NL wording.
+  // Debt #278 R5 — the "Separate" verb + its Rejoin. Owner ruled 2026-09-01:
+  // Rejoin reads "Herenig met {label}". "Voeg samen met…" is RESERVED for the
+  // upcoming Join verb, so Rejoin deliberately does NOT use it.
   'sections.menu.separateBody': 'Scheiden van…',
-  'sections.menu.rejoinBody': 'Samenvoegen met {label}',
+  'sections.menu.rejoinBody': 'Herenig met {label}',
   // FLAG alt: Focus op dit onderzoekspunt | Focus op deze kolom — "test" here
   // means one CPT or borehole column on the section.
   'sections.menu.focusTest': 'Focus op deze proef',
