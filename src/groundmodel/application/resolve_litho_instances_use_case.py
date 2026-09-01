@@ -144,7 +144,7 @@ class ResolveResult:
 
 
 async def _run_resolver(
-    session: AsyncSession, model_id: UUID
+    session: AsyncSession, model_id: UUID, *, stale_solids: bool = True
 ) -> tuple[
     list[_BodyChange],
     tuple[str, ...],
@@ -172,6 +172,13 @@ async def _run_resolver(
         The active ORM session. The caller owns the commit boundary.
     model_id : UUID
         The lithostratigraphic model whose layers + edges are resolved.
+    stale_solids : bool
+        Whether a body-membership change should also stale the cached 3-D solids.
+        ``True`` (default) for every geometry-changing caller. ``False`` ONLY for a
+        body-identity-only resolve — a Join / Un-join (``body_unions``): those change
+        which masses count as ONE BODY, not the voxel geometry or its packing class,
+        so the stored solids stay valid and forcing a rebuild is wrong (owner
+        2026-09-01, D3). Surfaces still stale on an ordinal change regardless.
 
     Returns
     -------
@@ -576,11 +583,17 @@ tuple[tuple[UUID, UUID], ...]]
         pairs = [(model_id, UUID(c["formation_id"])) for c in changed]
         if pairs:
             await repo.mark_surfaces_stale(pairs)
-        # Body membership changed → 3-D solid cache is stale.
-        await LithoLayerRepository(session).mark_litho_solids_stale(model_id)
+        # Body membership changed → 3-D solid cache is stale — EXCEPT on a
+        # body-identity-only resolve (a Join / Un-join). There the voxel geometry
+        # and every voxel's packing class are unchanged; only which masses count as
+        # ONE BODY moves, so the stored solids stay valid and forcing a rebuild is
+        # wrong (owner 2026-09-01, D3). ``stale_solids=False`` from those callers
+        # alone; every geometry-changing caller keeps the default True.
+        if stale_solids:
+            await LithoLayerRepository(session).mark_litho_solids_stale(model_id)
         logger.info(
             f"_run_resolver: {len(changed)} body change(s), {n_stamped} layer stamp(s) "
-            f"for model {model_id}"
+            f"for model {model_id} (stale_solids={stale_solids})"
         )
     else:
         logger.debug(f"_run_resolver: no changes for model {model_id}")
@@ -683,6 +696,7 @@ class ResolveLithoInstances(GroundModelLogger):
         *,
         model_id: UUID,
         commit: bool = True,
+        stale_solids: bool = True,
     ) -> ResolveResult:
         """Run the resolver and (optionally) commit ordinal updates for ``model_id``.
 
@@ -699,6 +713,12 @@ class ResolveLithoInstances(GroundModelLogger):
             boundary.  Pass ``False`` when calling from inside
             ``CorrelateLithoContacts`` or ``UncorrelateLithoContacts``
             so all mutations in a single request land in one transaction.
+        stale_solids : bool
+            Whether a body-membership change should also stale the cached 3-D
+            solids. ``True`` (default) for every geometry-changing caller;
+            ``False`` ONLY for a body-identity-only resolve (a Join / Un-join),
+            where the voxel geometry is unchanged and forcing a rebuild is wrong
+            (owner 2026-09-01, D3). Forwarded verbatim to ``_run_resolver``.
 
         Returns
         -------
@@ -715,7 +735,7 @@ class ResolveLithoInstances(GroundModelLogger):
         self.info(f"ResolveLithoInstances: resolving model {model_id}")
 
         raw_updates, renamed, inert_unions, suppressed_unions = await _run_resolver(
-            self._session, model_id
+            self._session, model_id, stale_solids=stale_solids
         )
 
         # Commit or flush depending on whether the caller owns the transaction.
