@@ -1072,6 +1072,104 @@ export interface BodySeparationRejoinResponse {
   renamed: string[]
 }
 
+// ---------------------------------------------------------------------------
+// Body-union ("Join with…" verb) types — debt #278 (owner ruling 2026-08-31)
+// ---------------------------------------------------------------------------
+
+/**
+ * Response from ``POST .../models/{mid}/body-unions`` — the "Join with…" verb.
+ *
+ * A union is a must-link constraint in LAYER-id space: the resolver reads it and
+ * merges the two anchors even when no edge connects them, so the engineer can
+ * state "this body IS the same as that body". The additive counterpart to
+ * Separate. The verb is reversible, so a duplicate pair answers ``200`` with the
+ * existing row (``was_created: false``), never a ``409``.
+ */
+export interface BodyUnionResponse {
+  /** Primary key of the canonical union row (new or pre-existing). */
+  union_id: string
+  model_id: string
+  /** Canonical lesser anchor (the backend orders the pair). */
+  layer_a_id: string
+  /** Canonical greater anchor. */
+  layer_b_id: string
+  /** ``true`` when a new union was inserted; ``false`` on an idempotent re-call. */
+  was_created: boolean
+  /** Bodies created or removed when the resolver re-ran in the same request. */
+  bodies_changed: number
+  /** Unit names displaced by the re-resolve's lineage adoption — toast material. */
+  renamed: string[]
+  /**
+   * ``true`` when the in-request resolve SUPPRESSED this join — a standing
+   * separation overruled it (cannot-link wins), so the two bodies stayed apart
+   * despite the row being written. Lets the toast say "join blocked by a
+   * separation" instead of a misleading ``was_created: true, bodies_changed: 0``.
+   * Additive: absent on an older backend → normalised to false by the consumer.
+   */
+  suppressed: boolean
+  /**
+   * ``true`` when the in-request resolve found this join INERT — the two anchors
+   * re-derived to different masses (class mismatch), so it can never make one
+   * body. Also normally refused 422 at write time.
+   */
+  inert: boolean
+}
+
+/**
+ * Server-resolved display info for one anchor of a union.
+ *
+ * Structurally identical to ``BodySeparationAnchorInfo`` — the FE renders
+ * "Disjoin {label}" without owning a resolution map: the server reports each
+ * anchor's CURRENT body (its ``litho_layer.body_id`` at request time), so the
+ * label always reflects the live partition.
+ */
+export interface BodyUnionAnchorInfo {
+  layer_id: string
+  /** The body the anchor currently belongs to; ``null`` when unstamped. */
+  body_id: string | null
+  /** The body's user name; ``null`` when unnamed (FE derives an ordinal label). */
+  body_name: string | null
+  /** The body's ordinal within its naming group; ``null`` when unstamped. */
+  body_ordinal: number | null
+  /** The body's formation row — lets the FE compose a soil-coded label. */
+  formation_id: string | null
+}
+
+/**
+ * One union returned by ``GET .../models/{mid}/body-unions``.
+ *
+ * Carries both anchors' current-body display info so the FE can label the
+ * "Disjoin {label}" item without resolving bodies itself.
+ */
+export interface BodyUnionListItem {
+  /** Primary key of the ``body_union`` row. */
+  id: string
+  model_id: string
+  layer_a_id: string
+  layer_b_id: string
+  anchor_a: BodyUnionAnchorInfo
+  anchor_b: BodyUnionAnchorInfo
+  created_at: string
+}
+
+/**
+ * Response from ``DELETE .../models/{mid}/body-unions/{union_id}`` (Disjoin).
+ *
+ * Lifting the must-link lets the two anchors fall back to whatever ties /
+ * geometry facts connect them; where none do, they split. The counts report how
+ * many OTHER unions the post-Disjoin resolve still finds suppressed / inert.
+ */
+export interface BodyUnionDisjoinResponse {
+  /** Bodies created or removed when the resolver re-ran after the union was lifted. */
+  bodies_changed: number
+  /** Unit names displaced by the re-resolve's lineage adoption. */
+  renamed: string[]
+  /** OTHER unions still suppressed by a standing separation after the Disjoin. */
+  suppressed_unions: number
+  /** OTHER unions found inert (class mismatch) after the Disjoin. */
+  inert_unions: number
+}
+
 
 // ---------------------------------------------------------------------------
 // Geotech subdivision types
