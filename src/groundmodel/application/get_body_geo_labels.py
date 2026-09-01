@@ -28,6 +28,7 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -72,6 +73,48 @@ class GetBodyGeoLabels(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
+    async def _resolve_geo_model_id(self, model: GeologicalModelOrm | None) -> UUID | None:
+        """Walk ``model`` up to the GEOLOGICAL model that owns the chrono contacts.
+
+        The parent chain is geological <- lithostratigraphic <- geotechnical, so
+        the number of hops to the geological model depends on the model's kind:
+
+        * a LITHOSTRATIGRAPHIC model's parent IS the geological model — one hop
+          (``parent_model_id``), the original behaviour, unchanged;
+        * a GEOTECHNICAL model's parent is the LITHO model, so its geological
+          ancestor is TWO hops up (litho parent -> geological grandparent). The
+          bug this fixes stopped at one hop and queried contacts against the
+          litho model — which owns none — so every geotech body's
+          crossed-formation list came back empty;
+        * a GEOLOGICAL model has no parent -> ``None`` (it carries no bodies).
+
+        The kind is checked rather than a fixed depth assumed, so a future
+        rehoming of the hierarchy stays honest.
+
+        Parameters
+        ----------
+        model : GeologicalModelOrm | None
+            The model whose bodies are being labelled (litho or geotech), or
+            ``None`` when the id resolved to no row.
+
+        Returns
+        -------
+        UUID | None
+            The geological model id, or ``None`` when the chain does not reach
+            one (no parent, or a dangling link).
+        """
+        if model is None:
+            return None
+        if model.kind == MODEL_KIND_GEOTECHNICAL:
+            litho_parent = (
+                await self._session.get(GeologicalModelOrm, model.parent_model_id)
+                if model.parent_model_id is not None
+                else None
+            )
+            return litho_parent.parent_model_id if litho_parent is not None else None
+        # Lithostratigraphic -> geological is a single hop; geological -> None.
+        return model.parent_model_id
+
     async def execute(
         self,
         *,
@@ -83,8 +126,12 @@ class GetBodyGeoLabels(GroundModelLogger):
         Parameters
         ----------
         litho_model_id : UUID
-            The lithostratigraphic model the bodies belong to; its
-            parent geological model supplies the chrono contacts.
+            The model the bodies belong to — a LITHOSTRATIGRAPHIC or a
+            GEOTECHNICAL model. The geological model that supplies the chrono
+            contacts is resolved by walking the parent chain (one hop from a
+            litho model, two from a geotech model — see
+            ``_resolve_geo_model_id``). The name is kept for signature
+            consistency with the sibling litho use cases.
         body_ids : list[UUID]
             The bodies to label.
 
@@ -100,8 +147,8 @@ class GetBodyGeoLabels(GroundModelLogger):
             self.debug(f"geo labels: model={litho_model_id} no bodies — empty map")
             return {}
 
-        litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
-        geo_model_id = litho_model.parent_model_id if litho_model else None
+        model = await self._session.get(GeologicalModelOrm, litho_model_id)
+        geo_model_id = await self._resolve_geo_model_id(model)
         if geo_model_id is None:
             self.debug(
                 f"geo labels: model={litho_model_id} has no parent geological model — empty map"
