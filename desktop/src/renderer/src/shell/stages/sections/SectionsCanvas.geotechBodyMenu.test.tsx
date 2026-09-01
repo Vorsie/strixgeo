@@ -1,16 +1,21 @@
 // The body menu comes to the geotech axis (owner ruling 2026-08-31, piece B):
-// "right click a body give me statistics, name unit, separate from, dissolve
-// body … shouldn't we be able to do this in the geotech stage" — RULED yes.
+// "right click a body give me statistics, name unit, … dissolve body …
+// shouldn't we be able to do this in the geotech stage" — RULED yes.
 //
-// SectionsCanvas must now hand SectionPanel the body-menu handlers on the
-// GEOTECH axis, not the litho axis alone — WITHOUT handing over any
-// contact-edit handler (the axis stays view-only for editing; only the body
-// MENU crosses over). The control is the litho axis, which keeps them.
+// SectionsCanvas hands SectionPanel the body-menu handlers on the GEOTECH axis,
+// not the litho axis alone — WITHOUT handing over any contact-edit handler (the
+// axis stays view-only for editing; only the body MENU crosses over). The control
+// is the litho axis, which keeps them.
 //
-// GBW1 — on the geotech axis, the body-menu handlers + separations are handed over.
+// Body-verb simplification (owner 2026-09-01 "way too complicated"): Separate /
+// Rejoin were removed entirely — no axis is handed onSeparateBodies / onRejoinBody
+// / separations any more. Only Name / Dissolve (both axes) + Join / Ontkoppelen
+// (geotech only) survive.
+//
+// GBW1 — on the geotech axis, Name / Dissolve are handed over; Separate / Rejoin
+//        are NOT (removed).
 // GBW2 — the contact-edit handlers stay withheld on the geotech axis (view-only).
-// GBW3 — the litho axis keeps the body-menu handlers (the gate is about the menu,
-//        not the axis losing the feature).
+// GBW3 — the litho axis keeps Name / Dissolve; Separate / Rejoin are gone there too.
 
 import { render, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -74,14 +79,15 @@ describe('SectionsCanvas — the body menu comes to the geotech axis (piece B)',
     cleanup()
   })
 
-  it('GBW1 — the geotech axis is handed the body-menu handlers + separations', () => {
+  it('GBW1 — the geotech axis gets Name / Dissolve; Separate / Rejoin are removed', () => {
     renderOn('geotechnical')
 
     expect(capturedPanelProps.onNameBody).toBeDefined()
     expect(capturedPanelProps.onDissolveBody).toBeDefined()
-    expect(capturedPanelProps.onSeparateBodies).toBeDefined()
-    expect(capturedPanelProps.onRejoinBody).toBeDefined()
-    expect(capturedPanelProps.separations).toBeDefined()
+    // The simplification pin (owner 2026-09-01): Separate / Rejoin are gone.
+    expect(capturedPanelProps.onSeparateBodies).toBeUndefined()
+    expect(capturedPanelProps.onRejoinBody).toBeUndefined()
+    expect(capturedPanelProps.separations).toBeUndefined()
   })
 
   it('GBW2 — the geotech axis still hands over NO contact-edit handler', () => {
@@ -93,13 +99,13 @@ describe('SectionsCanvas — the body menu comes to the geotech axis (piece B)',
     expect(capturedPanelProps.onBatchCreateContacts).toBeUndefined()
   })
 
-  it('GBW3 — the litho axis keeps the body-menu handlers (the control)', () => {
+  it('GBW3 — the litho axis keeps Name / Dissolve; Separate / Rejoin are gone', () => {
     renderOn('lithostratigraphic')
 
     expect(capturedPanelProps.onNameBody).toBeDefined()
     expect(capturedPanelProps.onDissolveBody).toBeDefined()
-    expect(capturedPanelProps.onSeparateBodies).toBeDefined()
-    expect(capturedPanelProps.onRejoinBody).toBeDefined()
+    expect(capturedPanelProps.onSeparateBodies).toBeUndefined()
+    expect(capturedPanelProps.onRejoinBody).toBeUndefined()
   })
 
   // Debt #278 — the "Join with…" verb is handed over on the GEOTECH axis ONLY
