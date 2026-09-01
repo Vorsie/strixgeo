@@ -5,10 +5,12 @@
 //   * Pressing Escape fires onClose (so SectionPanel's effect can
 //     dismiss the menu even when the user never clicks).
 
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
 
 import ColumnContextMenu from './ColumnContextMenu'
+import { setLanguage } from '../../i18n/languageSelect'
+import { DEFAULT_LANGUAGE } from '../../i18n/i18n_constants'
 
 describe('ColumnContextMenu', () => {
   it('renders the column name as the menu subtitle', () => {
@@ -164,5 +166,34 @@ describe('Clear subdivision (owner ask 2026-08-18)', () => {
   it('stays absent when not wired — litho axis and band-less columns', () => {
     render(<ColumnContextMenu x={10} y={10} name="GEO-1" onFocus={vi.fn()} onClose={vi.fn()} />)
     expect(screen.queryByText('Clear subdivision')).toBeNull()
+  })
+})
+
+// Owner dogfeed 2026-09-01: the per-column right-click menu stayed English in
+// Dutch mode. Every item routes through the i18n catalogue, so a language flip
+// renders the Dutch labels (the keys already exist — sections.menu.focusTest &c).
+describe('ColumnContextMenu — Dutch mode', () => {
+  afterEach(() => setLanguage(DEFAULT_LANGUAGE))
+
+  it('CCM-NL — every item reads its Dutch catalogue label under nl', () => {
+    setLanguage('nl')
+    render(
+      <ColumnContextMenu
+        x={10}
+        y={10}
+        name="CPT-42"
+        onFocus={vi.fn()}
+        onOpenDetail={vi.fn()}
+        onClearSubdivision={vi.fn()}
+        onRemoveFromSection={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Focus op deze proef')).toBeInTheDocument()
+    expect(screen.getByText('Details openen')).toBeInTheDocument()
+    expect(screen.getByText('Onderverdeling wissen')).toBeInTheDocument()
+    expect(screen.getByText('Uit dit profiel weghalen')).toBeInTheDocument()
+    // The English label must be gone — proof the flip took.
+    expect(screen.queryByText('Focus this test')).toBeNull()
   })
 })
