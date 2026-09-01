@@ -15,6 +15,7 @@
 
 import ContextMenu, { type ContextMenuItem } from '../ui/ContextMenu'
 import type { BodyListItem } from '../../api/client'
+import { useT } from '../../i18n/translate'
 
 export interface BodyContextMenuProps {
   /** Screen X of the context-menu anchor (SVG coordinates). */
@@ -28,8 +29,12 @@ export interface BodyContextMenuProps {
   displayLabel?: string
   /** Fired when the user picks "Name body". */
   onNameBody: (bodyId: string) => void
-  /** Fired when the user picks "Dissolve body". */
-  onDissolveBody: (bodyId: string) => void
+  /**
+   * Fired when the user picks "Dissolve body". Absent → the item is not offered
+   * (the no-affordance rule) — Dissolve stays litho-only, so the geotech axis
+   * withholds this handler (owner ruling 2026-08-31, debt #278 R5).
+   */
+  onDissolveBody?: (bodyId: string) => void
   /**
    * Fired when the user picks "Unit statistics…" — reports the body's
    * FORMATION id (the statistics are the unit's; owner ruling R1 2026-08-27)
@@ -37,8 +42,33 @@ export interface BodyContextMenuProps {
    * body directly, so the jump names it). Absent → the item is not offered.
    */
   onShowUnitStatistics?: (formationId: string, bodyId?: string | null) => void
+  /**
+   * Fired when the user picks "Separate from…" (debt #278 R5). Reports the
+   * clicked body's id so SectionPanel can ARM the pick-the-other-body gesture —
+   * the verb does not commit here. Absent → the item is not offered (the
+   * no-affordance rule). NON-danger: it is reversible via Rejoin, unlike
+   * Dissolve.
+   */
+  onSeparateBody?: (bodyId: string) => void
+  /**
+   * The existing separations that involve THIS body, each offered back as a
+   * "Rejoin with <label>" item. The label is composed by the caller from the
+   * backend's server-resolved display info (the OTHER anchor's current body),
+   * so this menu owns no body-resolution map. Absent / empty → no Rejoin items.
+   */
+  separations?: readonly BodyRejoinOption[]
+  /** Fired when the user picks a "Rejoin with <label>" item — the separation to lift. */
+  onRejoinBody?: (separationId: string) => void
   /** Close callback — the menu is dismissed. */
   onClose: () => void
+}
+
+/** One "Rejoin with <label>" option — a standing separation the user can lift. */
+export interface BodyRejoinOption {
+  /** The ``body_separation`` row id to DELETE on Rejoin. */
+  separationId: string
+  /** Display label of the other body (caller-composed from the server info). */
+  label: string
 }
 
 /** data-testid values for menu items (referenced in BodyContextMenu.test.tsx). */
@@ -46,6 +76,10 @@ export const TESTIDS = {
   nameBody: 'body-ctx-name-body',
   dissolveBody: 'body-ctx-dissolve-body',
   unitStatistics: 'body-ctx-unit-statistics',
+  separateBody: 'body-ctx-separate-body',
+  // Each Rejoin item's testid is ``${rejoinBody}-${separationId}`` so multiple
+  // standing separations on one body render as distinct, queryable rows.
+  rejoinBody: 'body-ctx-rejoin-body',
 }
 
 /**
@@ -82,8 +116,15 @@ export default function BodyContextMenu({
   onNameBody,
   onDissolveBody,
   onShowUnitStatistics,
+  onSeparateBody,
+  separations,
+  onRejoinBody,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
+  // Item labels read the catalogue (the keys already existed; nothing read them
+  // before — dead until now). English is the default without any provider, so
+  // unit tests that render this menu bare still see English copy.
+  const t = useT()
   // R2 (owner ruling 2026-08-31): a body may cross more than one geological
   // formation, so its geological context is the full LIST — every formation it
   // falls in, shallowest first, joined with "+". Falls back to the singular
@@ -95,7 +136,7 @@ export default function BodyContextMenu({
 
   const items: (ContextMenuItem | false | null)[] = [
     {
-      label: 'Name body…',
+      label: t('sections.menu.nameBody'),
       testid: TESTIDS.nameBody,
       key: 'name-body',
       onClick: () => {
@@ -105,15 +146,43 @@ export default function BodyContextMenu({
     // Navigates away (Parameters stage, scoped to the body's UNIT) — offered
     // only when wired, per the no-affordance rule.
     onShowUnitStatistics !== undefined && {
-      label: 'Unit statistics…',
+      label: t('sections.menu.unitStatistics'),
       testid: TESTIDS.unitStatistics,
       key: 'unit-statistics',
       onClick: () => {
         onShowUnitStatistics(body.formation_id, body.id)
       },
     },
-    {
-      label: 'Dissolve body',
+    // Separate — the reversible body-identity verb (debt #278 R5). Sits ABOVE
+    // the Dissolve divider and is NON-danger: it is undone by Rejoin, so it is
+    // not the irreversible red action Dissolve is. Arms rather than commits —
+    // SectionPanel owns the pick-the-other-body gesture.
+    onSeparateBody !== undefined && {
+      label: t('sections.menu.separateBody'),
+      testid: TESTIDS.separateBody,
+      key: 'separate-body',
+      onClick: () => {
+        onSeparateBody(body.id)
+      },
+    },
+    // Rejoin — one per standing separation that involves this body. Lifting a
+    // separation lets the two anchors re-union (the undo path for Separate).
+    // The label is composed by the caller from the backend's server-resolved
+    // display info, so this menu owns no body-resolution map.
+    ...(onRejoinBody !== undefined
+      ? (separations ?? []).map(sep => ({
+          label: t('sections.menu.rejoinBody', { label: sep.label }),
+          testid: `${TESTIDS.rejoinBody}-${sep.separationId}`,
+          key: `rejoin-${sep.separationId}`,
+          onClick: () => {
+            onRejoinBody(sep.separationId)
+          },
+        }))
+      : []),
+    // Dissolve — irreversible, so it is danger-styled and divided off. Withheld
+    // on the geotech axis (Dissolve stays litho-only).
+    onDissolveBody !== undefined && {
+      label: t('sections.menu.dissolveBody'),
       testid: TESTIDS.dissolveBody,
       key: 'dissolve-body',
       danger: true,
@@ -138,7 +207,7 @@ export default function BodyContextMenu({
         // a body crossing two reads "Sa · Holoceen + Pleistoceen".
         (geoContext ? ` · ${geoContext}` : '')
       }
-      ariaLabel="Body extent actions"
+      ariaLabel={t('sections.menu.body')}
       testid="body-context-menu"
       items={items}
       onClose={onClose}
