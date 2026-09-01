@@ -68,8 +68,9 @@ async def test_r1_delegates_to_run_resolver_and_commits() -> None:
         uc = _make_use_case(session)
         result = await uc.execute(model_id=_MODEL)
 
-    # _run_resolver was called with the session + correct model_id.
-    mock_run_resolver.assert_awaited_once_with(session, _MODEL)
+    # _run_resolver was called with the session + correct model_id, defaulting to
+    # stale_solids=True (the geometry-changing path stales the 3-D cache).
+    mock_run_resolver.assert_awaited_once_with(session, _MODEL, stale_solids=True)
 
     # Session was committed after the resolver ran.
     session.commit.assert_awaited_once()
@@ -108,6 +109,37 @@ async def test_r2_idempotent_noop_returns_empty_list() -> None:
 # ---------------------------------------------------------------------------
 # R3 — structural #57 guard: no section_id parameter
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_r5_forwards_stale_solids_flag_to_run_resolver() -> None:
+    """execute(stale_solids=...) forwards the flag to _run_resolver; default is True.
+
+    D3 (owner 2026-09-01): a body-identity-only resolve (a Join / Un-join) must NOT
+    stale the 3-D solids — the voxel geometry is unchanged, only body grouping — so
+    the union endpoints call ``execute(stale_solids=False)``. Every other caller
+    keeps the default ``True`` so a geometry-changing resolve still stales.
+    """
+    session = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.application.resolve_litho_instances_use_case._run_resolver",
+        new=AsyncMock(return_value=([], (), (), ())),
+    ) as mock_run_resolver:
+        uc = _make_use_case(session)
+        # Identity-only path: the flag threads straight through to _run_resolver.
+        await uc.execute(model_id=_MODEL, stale_solids=False)
+    mock_run_resolver.assert_awaited_once_with(session, _MODEL, stale_solids=False)
+
+    with patch(
+        "groundmodel.application.resolve_litho_instances_use_case._run_resolver",
+        new=AsyncMock(return_value=([], (), (), ())),
+    ) as mock_run_resolver:
+        uc = _make_use_case(session)
+        # Default: geometry-changing callers still stale the solids.
+        await uc.execute(model_id=_MODEL)
+    mock_run_resolver.assert_awaited_once_with(session, _MODEL, stale_solids=True)
 
 
 def test_r3_no_section_id_in_execute_signature() -> None:
