@@ -69,7 +69,6 @@ import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 import { resolveRegionBodyId } from './regionBodyId'
-import { resolveSeparatePick, type SeparatePick } from './separatePick'
 import { resolveJoinPick, type JoinPick } from './joinPick'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -295,23 +294,11 @@ export interface Props {
     regionLayerIds?: readonly string[],
   ) => void
   /**
-   * The active Separate arm (debt #278 R5), or null. When set, the fill regions
-   * become LEFT-clickable: a click resolves the clicked region's body through
-   * its layers and fires {@link onSeparatePick}. Byte-identical when null.
-   */
-  separateArm?: { bodyId: string; anchorLayerId: string } | null
-  /**
-   * Fired on an armed region left-click with the classified outcome — a distinct
-   * body ``commit``, or ``same`` / ``unresolvable`` (both keep the arm live).
-   * SectionPanel owns the toast + the commit call.
-   */
-  onSeparatePick?: (pick: SeparatePick) => void
-  /**
-   * The active Join arm (debt #278), or null. The verb-parallel of
-   * {@link separateArm}: SectionPanel sets at most ONE of the two (the single
-   * pair-arm split by kind), and the same armed block routes the click to the
-   * matching resolver. Join adds a cross-class outcome, so it needs
-   * {@link classByLayerId}. Byte-identical when null.
+   * The active Join arm (debt #278), or null. When set, the fill regions become
+   * LEFT-clickable: a click resolves the clicked region's body through its layers
+   * and fires {@link onJoinPick}. Join adds a cross-class outcome, so it needs
+   * {@link classByLayerId}. Byte-identical when null. (The Separate arm was
+   * removed in the body-verb simplification, owner 2026-09-01.)
    */
   joinArm?: { bodyId: string; anchorLayerId: string } | null
   /**
@@ -323,7 +310,7 @@ export interface Props {
   /**
    * ``litho_layer id → packing-class label`` over the axis's own layer list —
    * the authority the Join arm's cross-class guard reads. Only consulted while a
-   * Join is armed; unused (and unset) for Separate.
+   * Join is armed.
    */
   classByLayerId?: ReadonlyMap<string, string>
   /**
@@ -555,8 +542,6 @@ export default function PartitionFillOverlay({
   openExtentLengthM,
   bodies,
   onBodyContextMenu,
-  separateArm,
-  onSeparatePick,
   joinArm,
   onJoinPick,
   classByLayerId,
@@ -3394,27 +3379,20 @@ export default function PartitionFillOverlay({
         // Gated on ``bodyMenuEnabled`` (litho + geotech), NOT ``!viewOnly`` — the
         // geotech axis opens the body menu without becoming edit-capable.
         const interactive = Boolean(onBodyContextMenu && body) && bodyMenuEnabled && bodiesLoaded
-        // Debt #278 R5: while a Separate is armed, EVERY region is left-clickable
-        // so the engineer can pick the other body — the resolution through the
-        // region's own layers decides commit / same / unresolvable.
+        // Debt #278: while a Join is armed, EVERY region is left-clickable so the
+        // engineer can pick the other body — the resolution through the region's
+        // own layers decides commit / same / cross-class / unresolvable.
         //
         // Gated on ``!correlateMode``: correlate mode owns the canvas and drops
         // every other interactive surface to ``pointer-events:none`` (see
-        // ``interactivePtr``), so an armed Separate must yield too — otherwise its
-        // left-click would steal the correlate gesture and POST a separation the
-        // engineer never asked for. (The arm is now wired on BOTH the litho and
-        // geotech axes — piece B — so this gate is what protects the litho axis's
-        // correlate gesture; the geotech axis has no correlate mode, so there the
-        // gate is simply always true. ``viewOnly`` is deliberately NOT gated here:
-        // Separate is a body gesture, not contact editing.)
-        const separateArmActive =
-          separateArm != null && onSeparatePick !== undefined && !correlateMode
-        // The Join arm is the verb-parallel of the Separate arm (debt #278):
-        // SectionPanel sets at most ONE of the two (the single pair-arm split by
-        // kind), so ``armActive`` is verb-agnostic and the armed block below
-        // ROUTES the click to the matching resolver rather than duplicating it.
-        const joinArmActive = joinArm != null && onJoinPick !== undefined && !correlateMode
-        const armActive = separateArmActive || joinArmActive
+        // ``interactivePtr``), so an armed Join must yield too — otherwise its
+        // left-click would steal the correlate gesture and POST a union the
+        // engineer never asked for. Join is geotech-only (which has no correlate
+        // mode), so there the gate is simply always true; the gate still protects
+        // the general case. ``viewOnly`` is deliberately NOT gated here: Join is a
+        // body gesture, not contact editing. (The Separate arm was removed in the
+        // body-verb simplification, owner 2026-09-01.)
+        const armActive = joinArm != null && onJoinPick !== undefined && !correlateMode
         // R2 / S7b (2026-08-27): a fill region answers right-click with
         // "Unit statistics…" for its unit — on BOTH the litho and geotech axes
         // (piece B), and on each it is the FALLBACK the body menu leaves behind:
@@ -3465,28 +3443,22 @@ export default function PartitionFillOverlay({
                     ? { pointerEvents: interactivePtr, cursor: 'context-menu' }
                     : { pointerEvents: 'none' }
               }
-              // The armed pick wins the left-click: resolve the clicked region's
-              // body through its layers and report the outcome up, routing to the
-              // resolver for the armed verb. SectionPanel owns the toast + commit.
+              // The armed Join pick wins the left-click: resolve the clicked
+              // region's body through its layers and report the outcome up.
+              // SectionPanel owns the toast + commit.
               onClick={
-                armActive
+                armActive && joinArm != null
                   ? (e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      if (joinArmActive && joinArm != null) {
-                        onJoinPick?.(
-                          resolveJoinPick(
-                            joinArm,
-                            sr.region.layerIds,
-                            bodyIdByLayerId,
-                            classByLayerId ?? EMPTY_CLASS_BY_LAYER,
-                          ),
-                        )
-                      } else if (separateArm != null) {
-                        onSeparatePick?.(
-                          resolveSeparatePick(separateArm, sr.region.layerIds, bodyIdByLayerId),
-                        )
-                      }
+                      onJoinPick?.(
+                        resolveJoinPick(
+                          joinArm,
+                          sr.region.layerIds,
+                          bodyIdByLayerId,
+                          classByLayerId ?? EMPTY_CLASS_BY_LAYER,
+                        ),
+                      )
                     }
                   : undefined
               }
