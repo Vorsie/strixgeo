@@ -13,7 +13,7 @@ import { useRecoveryRestore } from './hooks/useRecoveryRestore'
 import { useMapState } from './hooks/useMapState'
 import { useShellContextValue } from './hooks/useShellContextValue'
 import { api } from './api/client'
-import { useProject } from './hooks/useProject'
+import { useProject, isProjectOpenUnreadable } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
@@ -98,7 +98,15 @@ declare global {
       showProjectOpenDialog: () => Promise<string | null>
       showProjectSaveDialog: (defaultName?: string) => Promise<string | null>
       projectFileExists: (filePath: string) => Promise<boolean>
-      readProjectFile: (filePath: string) => Promise<string>
+      // Discriminated read result: a damaged / truncated / newer file comes
+      // back as ``{ ok: false, reason }`` (mirrors ``ProjectReadResult`` in
+      // src/main/strixCodec.ts) so the open flow can show the specific message.
+      readProjectFile: (
+        filePath: string,
+      ) => Promise<
+        | { ok: true; json: string }
+        | { ok: false; reason: { code: string; message: string } }
+      >
       writeProjectFile: (filePath: string, contents: string) => Promise<void>
       // Generic export save-dialog + binary write (v1.0 MVP gate #5).
       showExportSaveDialog: (
@@ -1338,12 +1346,19 @@ export default function App() {
           }}
           onOpenProject={async () => {
             const result = await pickAndOpenProject()
-            return result.outcome
+            // Forward the specific decode message (present only when an
+            // unreadable file failed) so the banner can name corruption plainly.
+            return result.outcome === 'failed'
+              ? { outcome: 'failed', message: result.message }
+              : { outcome: result.outcome }
           }}
           onOpenRecent={async path => {
             const result = await openProjectFile(path)
-            if (result === 'file-missing') return 'missing'
-            return result !== null ? 'opened' : 'failed'
+            if (result === 'file-missing') return { outcome: 'missing' }
+            if (isProjectOpenUnreadable(result)) {
+              return { outcome: 'failed', message: result.reason.message }
+            }
+            return { outcome: result !== null ? 'opened' : 'failed' }
           }}
         />
         {/* The File-menu's New Project item also opens the dialog from
