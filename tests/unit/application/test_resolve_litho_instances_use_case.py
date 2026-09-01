@@ -60,9 +60,10 @@ async def test_r1_delegates_to_run_resolver_and_commits() -> None:
 
     with patch(
         "groundmodel.application.resolve_litho_instances_use_case._run_resolver",
-        # _run_resolver returns (changes, displaced_names) since lineage
-        # adoption (owner ruling 2026-08-12: oldest name wins).
-        new=AsyncMock(return_value=(raw_updates, ())),
+        # _run_resolver returns (changes, displaced_names, inert_union_pairs,
+        # suppressed_union_pairs): lineage adoption (owner 2026-08-12: oldest name
+        # wins) + the visible-union outcomes (debt #278).
+        new=AsyncMock(return_value=(raw_updates, (), (), ())),
     ) as mock_run_resolver:
         uc = _make_use_case(session)
         result = await uc.execute(model_id=_MODEL)
@@ -94,7 +95,7 @@ async def test_r2_idempotent_noop_returns_empty_list() -> None:
 
     with patch(
         "groundmodel.application.resolve_litho_instances_use_case._run_resolver",
-        new=AsyncMock(return_value=([], ())),
+        new=AsyncMock(return_value=([], (), (), ())),
     ):
         uc = _make_use_case(session)
         result = await uc.execute(model_id=_MODEL)
