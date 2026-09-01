@@ -1,17 +1,22 @@
-"""Unit tests for the constrained (cannot-link) side of the litho resolver.
+"""Unit tests for the DORMANT separation arg of the litho resolver.
 
-Owner ruling 2026-08-31 (debt #278, R5): a **"Separate"** verb — the counterpart
-to Dissolve — so the engineer can state *"these two are NOT the same body"* and
-have the resolver honour it PERMANENTLY. His standing rule: *"a body is only a
-body if it is geometrically connected, OR if the user says this body is the same
-as that body"* — the positive half (Dissolve / ties / geometry facts) already
-exists; a separation is the subtractive half.
+Owner ruling 2026-09-01: the geotech body verbs were simplified to **Join with…**
+(``body_union``) + **Disjoin** only. The **Separate** / **Rejoin** verbs were
+removed and ``body_separation`` is now DORMANT — the ORM, the table, the router
+and the bundle restore path survive so leftover rows stay readable, but a
+standing separation NO LONGER affects a resolve. A leftover separation row must
+never refuse the owner's Join (the hard blocker this slice removes).
 
-A separation is a **cannot-link** constraint in LAYER-id space: "the body
-containing ``layer_a`` is never the same body as the body containing
-``layer_b``". These tests speak the ruling's own words — *the user says these two
-are NOT the same body, and the resolver honours it* — and exercise the pure
-``resolve_litho_instances`` function only (no DB).
+Concretely the resolver still ACCEPTS the ``separations`` argument (the signature
+and every caller — including bundle restore — are unchanged), but ignores it:
+``live_separations`` is forced empty inside ``resolve_litho_instances``, so a
+``body_union`` always unions and no union is ever post-hoc suppressed.
+
+These tests speak that contract in its own words — *a standing separation no
+longer cuts a body* — and exercise the pure ``resolve_litho_instances`` function
+only (no DB). The historical cannot-link tests (a separation cut an edge, an
+indirect path, isolated an anchor) were REMOVED with the verb; git history holds
+them.
 """
 
 from __future__ import annotations
@@ -30,7 +35,6 @@ F_SAND = UUID("00000000-0000-0000-0000-0000000000f1")
 
 INV_A = UUID("00000000-0000-0000-0000-0000000000a1")
 INV_B = UUID("00000000-0000-0000-0000-0000000000b1")
-INV_X = UUID("00000000-0000-0000-0000-0000000000c1")
 
 L_A = UUID("00000000-0000-0000-0000-000000000001")
 L_B = UUID("00000000-0000-0000-0000-000000000002")
@@ -53,111 +57,50 @@ def _partition(result: object) -> set[frozenset[UUID]]:
     return {frozenset(inst.member_layer_ids) for inst in result.instances}  # type: ignore[attr-defined]
 
 
-def test_the_user_says_these_two_are_not_the_same_body_direct_edge_is_cut() -> None:
-    """A direct edge between the two anchors does NOT merge them once separated.
+def test_a_standing_separation_no_longer_cuts_an_edge_connected_body() -> None:
+    """A leftover separation no longer splits two edge-connected anchors.
 
-    The user says A and B are NOT the same body. A correlation edge (or geometry
-    fact) directly between them would otherwise union them into one body; the
-    separation overrules that union, so they stay two bodies.
+    Before the verb was removed a separation between A and B overruled the edge
+    that joined them and left two bodies. Now the separation is DORMANT: the edge
+    unions A and B into ONE body exactly as if the separation were not there. This
+    is the resolve half of unblocking Join from leftover separation rows.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
     edges = [LayerEdge(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     result = resolve_litho_instances(layers=[a, b], edges=edges, separations=seps)
-    assert len(result.instances) == 2
-    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
+    assert len(result.instances) == 1
+    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
+    assert result.layer_to_ordinal[a.layer_id] == result.layer_to_ordinal[b.layer_id]
 
 
-def test_an_indirect_path_a_x_b_is_cut_at_the_canonical_edge() -> None:
-    """An indirect path A-X-B is cut at the edge the canonical sort visits last.
+def test_a_separation_is_ignored_exactly_as_if_it_were_not_passed() -> None:
+    """The resolve is byte-identical whether or not a separation is supplied.
 
-    The two anchors are joined only through a middle layer X (A-X and X-B). The
-    separation forbids A and B sharing a body, so the resolver drops exactly one
-    edge — and WHICH one is fixed by the canonical edge sort, not left to chance.
-
-    Hand-verified sort (endpoints as strings): A-X keys on
-    ("...001", "...003"), X-B keys on ("...002", "...003"); "...001" < "...002",
-    so A-X is unioned FIRST and X-B is the edge that would complete the
-    separation — so X-B is the cut. X therefore joins A, and B stands alone.
-    Pinning the exact side guards against a flipped sort direction passing
-    silently.
+    The strongest statement of "dormant": the same layers and edges resolve to
+    the SAME partition with a standing separation and without it. An indirect
+    A-X-B chain that a separation used to cut now stays one body either way.
     """
     a = _layer(L_A, 3.0, INV_A)
-    x = _layer(L_X, 3.1, INV_X)
+    x = _layer(L_X, 3.1, INV_A)
     b = _layer(L_B, 3.2, INV_B)
     edges = [
         LayerEdge(layer_a_id=a.layer_id, layer_b_id=x.layer_id),
         LayerEdge(layer_a_id=x.layer_id, layer_b_id=b.layer_id),
     ]
     seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
-    result = resolve_litho_instances(layers=[a, x, b], edges=edges, separations=seps)
-    assert len(result.instances) == 2
-    # X joins A (the first-sorted edge survived); B is cut off on its own.
-    assert result.layer_to_ordinal[x.layer_id] == result.layer_to_ordinal[a.layer_id]
-    assert result.layer_to_ordinal[b.layer_id] != result.layer_to_ordinal[a.layer_id]
-    assert _partition(result) == {frozenset({a.layer_id, x.layer_id}), frozenset({b.layer_id})}
+    with_sep = _partition(resolve_litho_instances(layers=[a, x, b], edges=edges, separations=seps))
+    without_sep = _partition(resolve_litho_instances(layers=[a, x, b], edges=edges))
+    assert with_sep == without_sep
+    assert with_sep == {frozenset({a.layer_id, x.layer_id, b.layer_id})}
 
 
-def test_the_cut_is_identical_under_shuffled_edge_input() -> None:
-    """The resolved partition is the same whatever order the edges arrive in.
+def test_a_separation_between_disconnected_layers_is_still_a_no_op() -> None:
+    """Two layers with nothing joining them stay two bodies, separation or not.
 
-    With a cannot-link constraint the partition becomes order-dependent, so the
-    resolver sorts its edges canonically before unioning. That sort is the
-    determinism guarantee: several shuffles of the same edge list must produce
-    one identical partition.
-    """
-    a = _layer(L_A, 3.0, INV_A)
-    x = _layer(L_X, 3.1, INV_X)
-    b = _layer(L_B, 3.2, INV_B)
-    seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
-    edge_variants = [
-        [
-            LayerEdge(layer_a_id=a.layer_id, layer_b_id=x.layer_id),
-            LayerEdge(layer_a_id=x.layer_id, layer_b_id=b.layer_id),
-        ],
-        [
-            LayerEdge(layer_a_id=x.layer_id, layer_b_id=b.layer_id),
-            LayerEdge(layer_a_id=a.layer_id, layer_b_id=x.layer_id),
-        ],
-        [
-            LayerEdge(layer_a_id=b.layer_id, layer_b_id=x.layer_id),
-            LayerEdge(layer_a_id=x.layer_id, layer_b_id=a.layer_id),
-        ],
-    ]
-    partitions = [
-        _partition(resolve_litho_instances(layers=[a, x, b], edges=ev, separations=seps))
-        for ev in edge_variants
-    ]
-    assert all(p == partitions[0] for p in partitions)
-    # And it is not merely stable but the SAME cut every time: X with A, B alone.
-    assert partitions[0] == {frozenset({a.layer_id, x.layer_id}), frozenset({b.layer_id})}
-
-
-def test_a_dangling_separation_anchor_makes_the_separation_inert() -> None:
-    """A separation whose anchor is not in this model's layers is ignored.
-
-    A deleted or rebuilt layer neutralises a separation exactly like the
-    dangling-edge guard neutralises a stale edge: the anchor is absent from the
-    node map this run, so the constraint cannot bind and the edge unions as
-    normal.
-    """
-    a = _layer(L_A, 3.0, INV_A)
-    b = _layer(L_B, 3.2, INV_B)
-    edges = [LayerEdge(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
-    # The separation names L_X, which is NOT in the layer set this run.
-    seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=L_X)]
-    result = resolve_litho_instances(layers=[a, b], edges=edges, separations=seps)
-    # Inert separation → the edge still unions A and B into one body.
-    assert len(result.instances) == 1
-    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
-
-
-def test_a_separation_between_already_disconnected_layers_is_a_no_op() -> None:
-    """Separating two layers that were never joined changes nothing.
-
-    A and B have no edge between them, so they are already two bodies. Adding a
-    separation leaves the partition exactly as it was — two singletons.
+    A and B have no edge between them, so they are already two bodies. A dormant
+    separation cannot change that — the partition is two singletons regardless.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
@@ -166,59 +109,3 @@ def test_a_separation_between_already_disconnected_layers_is_a_no_op() -> None:
     without_sep = _partition(resolve_litho_instances(layers=[a, b], edges=[]))
     assert with_sep == without_sep
     assert len(with_sep) == 2
-
-
-def test_a_separation_never_affects_another_component() -> None:
-    """A separation on one pair leaves an unrelated component untouched.
-
-    Separating A from B must not disturb a second, independent component (C-D)
-    that is joined by its own edge. The constraint binds only the roots of its
-    two anchors.
-    """
-    a = _layer(L_A, 3.0, INV_A)
-    b = _layer(L_B, 3.2, INV_B)
-    c = _layer(UUID("00000000-0000-0000-0000-00000000000c"), 5.0, INV_A)
-    d = _layer(UUID("00000000-0000-0000-0000-00000000000d"), 5.2, INV_B)
-    edges = [
-        LayerEdge(layer_a_id=a.layer_id, layer_b_id=b.layer_id),
-        LayerEdge(layer_a_id=c.layer_id, layer_b_id=d.layer_id),
-    ]
-    seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
-    result = resolve_litho_instances(layers=[a, b, c, d], edges=edges, separations=seps)
-    # A|B split by the separation; C|D remain one body, unaffected.
-    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
-    assert result.layer_to_ordinal[c.layer_id] == result.layer_to_ordinal[d.layer_id]
-    cd = {frozenset({c.layer_id, d.layer_id})}
-    assert cd.issubset(_partition(result))
-
-
-def test_one_anchor_separated_from_two_partners_honours_both() -> None:
-    """A separated from BOTH B and C stays apart from each, while B and C merge.
-
-    All three are pairwise tied (A-B, A-C, B-C) — one body without any
-    separation. Two separations share anchor A (A≠B and A≠C), so BOTH the A-B
-    and A-C unions are cut, isolating A. B and C are not separated from each
-    other, so their tie still merges them. This exercises the per-root
-    incidence merge carrying two constraints at once.
-    """
-    a = _layer(L_A, 3.0, INV_A)
-    b = _layer(L_B, 3.1, INV_B)
-    c = _layer(UUID("00000000-0000-0000-0000-000000000004"), 3.2, INV_X)
-    edges = [
-        LayerEdge(layer_a_id=a.layer_id, layer_b_id=b.layer_id),
-        LayerEdge(layer_a_id=a.layer_id, layer_b_id=c.layer_id),
-        LayerEdge(layer_a_id=b.layer_id, layer_b_id=c.layer_id),
-    ]
-    seps = [
-        LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id),
-        LayerSeparation(layer_a_id=a.layer_id, layer_b_id=c.layer_id),
-    ]
-    result = resolve_litho_instances(layers=[a, b, c], edges=edges, separations=seps)
-    # A is walled off from both partners; B and C (un-separated) stay one body.
-    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
-    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[c.layer_id]
-    assert result.layer_to_ordinal[b.layer_id] == result.layer_to_ordinal[c.layer_id]
-    assert _partition(result) == {
-        frozenset({a.layer_id}),
-        frozenset({b.layer_id, c.layer_id}),
-    }
