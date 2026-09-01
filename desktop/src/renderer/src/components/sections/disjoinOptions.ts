@@ -1,13 +1,13 @@
-// Compose the "Disjoin <label>" options for a right-clicked body — pure, shared
-// by SectionPanel's body menu (debt #278, the Join verb).
+// Compose the "Ontkoppelen" (un-join) options for a right-clicked body — pure,
+// shared by SectionPanel's body menu + the geotech band menu (debt #278, the
+// Join verb).
 //
-// A union ties two anchors that (once resolved) live in one merged body. Right-
-// clicking that body offers to lift each union that touches it, labelled by the
-// OTHER body — its server-resolved name when set, else its formation label. The
-// FE owns no body-resolution map: the anchor's current body info comes from the
-// backend. Mirrors ``buildRejoinOptions`` for the Separate verb (the two list
-// shapes are structurally identical but carry distinct row-id field names, so
-// each verb keeps its own small builder rather than a forced generic).
+// A union ties two anchors that (once resolved) live in one merged body / group.
+// Right-clicking that body offers to lift each union that touches it, labelled by
+// the OTHER body — its server-resolved name when set, else its formation label.
+// The FE owns no body-resolution map: the anchor's current body info comes from
+// the backend. (The parallel Separate-verb builder was deleted with that verb in
+// the body-verb simplification, owner 2026-09-01.)
 
 import type { BodyUnionListItem } from '../../api/client'
 import type { BodyDisjoinOption } from './BodyContextMenu'
