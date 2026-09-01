@@ -65,8 +65,18 @@ contextBridge.exposeInMainWorld('electron', {
   projectFileExists: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke('project:file-exists', filePath),
 
-  readProjectFile: (filePath: string): Promise<string> =>
-    ipcRenderer.invoke('project:read-file', filePath),
+  // Returns a discriminated result, not a bare string: a damaged / truncated /
+  // newer file comes back as ``{ ok: false, reason }`` so the renderer can show
+  // the specific message instead of a wrapped IPC Error. Shape duplicated inline
+  // (like RecentProject above) so the preload bundle stays self-contained — it
+  // must not import from main or renderer. Mirrors ``ProjectReadResult`` in
+  // src/main/strixCodec.ts.
+  readProjectFile: (
+    filePath: string,
+  ): Promise<
+    | { ok: true; json: string }
+    | { ok: false; reason: { code: string; message: string } }
+  > => ipcRenderer.invoke('project:read-file', filePath),
 
   writeProjectFile: (filePath: string, contents: string): Promise<void> =>
     ipcRenderer.invoke('project:write-file', filePath, contents),
