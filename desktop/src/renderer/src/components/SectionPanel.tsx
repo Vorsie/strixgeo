@@ -136,6 +136,7 @@ import ModelFillOverlay from './sections/ModelFillOverlay'
 import { buildModelFillMeshes } from '../utils/buildSectionModelFill'
 import { sliceSolidsAtPlaneRobust, sliceSolidsAlongZigzag } from '../utils/sectionFromSolids'
 import { resolveModelFillPolys } from '../utils/resolveModelFillPolys'
+import { geotechBodyAutoLabel } from '../utils/geotechBodyLabel'
 import type { SectionPlaneLine, SectionPoly, SolidMesh, ZigzagTest } from '../utils/sectionFromSolids'
 import { useBandFillVisible } from '../utils/bandFillStore'
 import { useCorrelationOverlayVisible } from '../utils/correlationOverlayStore'
@@ -791,11 +792,18 @@ interface Props {
    */
   onDissolveBody?: (bodyId: string) => void
   /**
-   * Commit a "Separate" (debt #278 R5): the two anchors' bodies are stated to be
-   * NOT the same body. Fired after the armed pick resolves a distinct target
-   * body. Present ⇒ the "Separate from…" item is offered and the arm is live.
+   * Commit a "Separate" (debt #278 R5): the two anchors are stated to be NOT one
+   * body. Fired after the armed pick resolves a body. ``sameBody`` distinguishes
+   * the SPLIT case (the picked region is the SAME body — two anchors inside one
+   * component the backend cuts, the owner's primary use, 2026-09-01) from a
+   * DIFFERENT-body durable keep-apart, so the parent's toast is honest. Present ⇒
+   * the "Separate from…" item is offered and the arm is live.
    */
-  onSeparateBodies?: (anchorLayerId: string, targetAnchorLayerId: string) => void
+  onSeparateBodies?: (
+    anchorLayerId: string,
+    targetAnchorLayerId: string,
+    sameBody: boolean,
+  ) => void
   /**
    * Lift a standing separation (the Rejoin). Fired from a "Rejoin with <label>"
    * item. Present ⇒ the Rejoin items are offered.
@@ -808,12 +816,15 @@ interface Props {
    */
   separations?: readonly BodySeparationListItem[]
   /**
-   * Advisory feedback while a Separate is armed: ``'same'`` when the engineer
-   * clicked the armed body itself, ``'unresolvable'`` when the clicked region
-   * resolves to no single body. The arm stays live either way; the parent
-   * toasts. Absent ⇒ no advisory (the arm still works).
+   * Advisory feedback while a Separate is armed: ``'unresolvable'`` when the
+   * clicked region resolves to no single body (fallback paint, several bodies,
+   * or none), or ``'self-anchor'`` when it resolves to the armed anchor's own
+   * layer (a one-region body clicked on its own patch — a commit would 422). The
+   * arm stays live; the parent toasts. A SAME-body click on a DIFFERENT part
+   * COMMITS the split (owner dogfeed 2026-09-01). Absent ⇒ no advisory (the arm
+   * still works).
    */
-  onSeparateNotice?: (kind: 'same' | 'unresolvable') => void
+  onSeparateNotice?: (kind: 'unresolvable' | 'self-anchor') => void
   /**
    * Commit a "Join" (debt #278): the two anchors' bodies are stated to BE the
    * same body. Fired after the armed pick resolves a distinct SAME-class target
@@ -2426,7 +2437,7 @@ export default function SectionPanel({
   const handleSeparatePick = useCallback(
     (pick: SeparatePick): void => {
       if (pick.kind === 'commit') {
-        onSeparateBodies?.(pick.anchorLayerId, pick.targetAnchorLayerId)
+        onSeparateBodies?.(pick.anchorLayerId, pick.targetAnchorLayerId, pick.sameBody)
         setPairArm(null)
         return
       }
@@ -4070,8 +4081,23 @@ export default function SectionPanel({
                 x={bodyCtxMenu.svgX}
                 y={bodyCtxMenu.svgY}
                 body={bodyCtxMenu.body}
+                // The header reads the body's UNIFIED label (owner dogfeed
+                // 2026-09-01): on the geotech axis "SILT · SF #0" (soil + packing
+                // + ordinal — the same vocabulary the Parameters pane + scope
+                // header use, so one body reads identically everywhere), else the
+                // engineer's name; the litho axis keeps its formation-name label.
                 displayLabel={
                   bodyCtxMenu.body.name?.trim() ||
+                  (axisMode === 'geotechnical'
+                    ? (() => {
+                        const nadClass = geotechNadClassByFormationId?.get(
+                          bodyCtxMenu.body.formation_id,
+                        )
+                        return nadClass != null
+                          ? geotechBodyAutoLabel(nadClass, bodyCtxMenu.body.body_ordinal)
+                          : undefined
+                      })()
+                    : undefined) ||
                   formationLabelById.get(bodyCtxMenu.body.formation_id) ||
                   undefined
                 }
