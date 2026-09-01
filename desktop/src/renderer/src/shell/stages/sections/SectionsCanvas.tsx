@@ -70,6 +70,7 @@ import { apiFailureMessage } from '../../../utils/apiFailureMessage'
 import { buildRestatedContactUndoCommand } from './restatedContactUndo'
 import { useFlaggedTiePrompt } from './useFlaggedTiePrompt'
 import { useGeotechBandEdit } from './useGeotechBandEdit'
+import { joinErrorToastKey } from './joinErrorToastKey'
 import { useGeotechPendingTieReveal } from './useGeotechPendingTieReveal'
 import { useSectionColumnRevealBridge } from './useSectionColumnRevealBridge'
 import type { SectionColumnRevealFn } from '../../../components/sections/sectionColumnReveal'
@@ -1502,10 +1503,12 @@ export default function SectionsCanvas(): JSX.Element {
           toast('success', t('sections.join.success'))
         }
       } catch (err) {
-        // A 422 carries the structured guard message (cross-class) as
-        // ``ApiError.message`` — surface it as the authority instead of a generic
-        // failure line.
-        toast('error', err instanceof Error && err.message ? err.message : t('sections.join.failed'))
+        // A 422 carries a structured guard ``code`` — map it to a TRANSLATED
+        // toast (the owner dogfeeds in Dutch, so the backend's English
+        // ``detail.message`` must never show verbatim). cross-class is the only
+        // live guard after the Separate verb removal; blockedSeparation is a
+        // defensive fallback that no longer fires (D1).
+        toast('error', t(joinErrorToastKey(err)))
         log.warn('section', 'handleJoinBodies: failed', err)
       }
     },
