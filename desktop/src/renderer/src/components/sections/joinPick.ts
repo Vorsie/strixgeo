@@ -10,7 +10,39 @@
 // rather than committed (the backend would 422 it anyway).
 
 import { resolveRegionBodyId } from './regionBodyId'
-import { firstLayerStampedToBody } from './separatePick'
+
+/**
+ * The first of ``layerIds`` whose ``body_id`` stamp equals ``bodyId``, or ``null``.
+ *
+ * The deterministic anchor rule: an anchor is any ACCEPTED layer of the body,
+ * and picking the first one keeps the choice stable so the same body always joins
+ * through the same anchor. (Formerly in ``separatePick.ts``, moved here when the
+ * Separate verb was retired — the body-verb simplification, 2026-09-01.)
+ *
+ * Parameters
+ * ----------
+ * layerIds
+ *     The candidate layer ids, in order.
+ * bodyId
+ *     The body the anchor must be stamped to.
+ * bodyIdByLayerId
+ *     ``litho_layer id → body_id`` over the axis's own layer list.
+ *
+ * Returns
+ * -------
+ * str | null
+ *     The first stamped layer id, or ``null`` when none of them belong to ``bodyId``.
+ */
+export function firstLayerStampedToBody(
+  layerIds: readonly string[] | undefined,
+  bodyId: string,
+  bodyIdByLayerId: ReadonlyMap<string, string | null>,
+): string | null {
+  for (const layerId of layerIds ?? []) {
+    if ((bodyIdByLayerId.get(layerId) ?? null) === bodyId) return layerId
+  }
+  return null
+}
 
 /** One clicked-region outcome while a Join is armed. */
 export type JoinPick =
