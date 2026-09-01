@@ -241,6 +241,7 @@ describe('openProjectFile — the DB row is gone', () => {
       body_boundary_shapes: [{ id: 'shape-1' }],
       body_boundary_nodes: [{ id: 'node-1' }],
       body_geometry_facts: [{ id: 'fact-1' }],
+      body_separations: [{ id: 'sep-1' }],
     })
     diskContent = JSON.stringify(ghost)
     asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
@@ -269,6 +270,10 @@ describe('openProjectFile — the DB row is gone', () => {
     // the same body id". The facts ARE that connectedness; dropped here, the
     // reopened project comes back with every merged body split again.
     expect(payload.body_geometry_facts).toEqual(ghost.body_geometry_facts)
+    // Debt #278 R5: the "these two are NOT the same body" separations are the
+    // same evidence class — dropped here, the reopened project re-merges every
+    // body the engineer split. (Guards the ``restorePayloadFrom`` line.)
+    expect(payload.body_separations).toEqual(ghost.body_separations)
   })
 })
 
