@@ -7,6 +7,7 @@ from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBou
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
+from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -47,6 +48,7 @@ __all__ = [
     "BodyBoundaryShapeOrm",
     "BodyGeometryFactOrm",
     "BodySeparationOrm",
+    "BodyUnionOrm",
     "GeotechTieTombstoneOrm",
     "BodyOrm",
     "BoreholeOrm",
