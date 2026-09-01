@@ -8,6 +8,8 @@
 // ``GeotechBandEditOverlay`` when the litho menu became the second consumer
 // (CLAUDE.md "extract on the second copy").
 
+import { useT } from '../../i18n/translate'
+
 /** Shared inline style for hand-rolled section context-menu items. */
 export const MENU_ITEM_STYLE: React.CSSProperties = {
   display: 'block',
@@ -76,6 +78,8 @@ export function UnitStatisticsItem({
   topBorder?: boolean
   testid?: string
 }): JSX.Element | null {
+  // Called before the early return so the hook order is stable (react-hooks).
+  const t = useT()
   if (onShow === undefined) return null
   return (
     <button
@@ -97,7 +101,7 @@ export function UnitStatisticsItem({
           : MENU_ITEM_STYLE
       }
     >
-      Unit statistics…
+      {t('sections.menu.unitStatistics')}
     </button>
   )
 }
