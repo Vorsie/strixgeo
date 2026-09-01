@@ -6,10 +6,11 @@
 // the tree landed — the flat list fitted here, the tree does not, and debt #201
 // is about not letting a stage component absorb everything again.
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlaskConical } from 'lucide-react'
 
 import { api } from '../../../api/client'
+import type { BodyUnionListItem } from '../../../api/client'
 import { log } from '../../../utils/log'
 import { nadClassName } from '../../../utils/nadClasses'
 import {
@@ -64,10 +65,11 @@ export default function GeotechnicalInspector(): JSX.Element {
       geotechLayers,
       lithoFormations,
       activeGeotechModel,
+      activeLithoModel,
       refetchFormations,
       handleFormationUpdated,
     },
-    coordinator: { bodyRecomputeGeotechNonce },
+    coordinator: { bodyRecomputeGeotechNonce, bodyRecomputeLithoNonce },
   } = useShell()
   // Reactive: re-renders when the engineer clicks a sample dot.
   const bodySelection = useGeotechBodySelection()
@@ -84,6 +86,45 @@ export default function GeotechnicalInspector(): JSX.Element {
     bodyRecomputeGeotechNonce,
   )
   const geotechBodies = useMemo(() => [...geotechBodiesById.values()], [geotechBodiesById])
+
+  // D2: the LITHO model's bodies — the L2 nodes of the units pane (soil ▸ litho
+  // body ▸ packing body, owner ruling 2026-08-31). The geotech model's PARENT
+  // litho model owns them; a packing body homes under its ``parent_litho_body_id``.
+  // Reuses the same fetch hook; follows the LITHO body-recompute nonce.
+  const lithoBodiesById = useModelBodies(
+    projectId,
+    activeLithoModel?.id ?? null,
+    bodyRecomputeLithoNonce,
+  )
+
+  // D4: the geotech model's manual body unions ("Join with…" verb) — the source
+  // of the "(group N)" leaf tag. A missing/failed list degrades to no tags, so a
+  // warning names what was not found rather than a toast.
+  const [bodyUnions, setBodyUnions] = useState<BodyUnionListItem[]>([])
+  const geotechModelId = activeGeotechModel?.id ?? null
+  useEffect(() => {
+    if (projectId === null || geotechModelId === null) {
+      setBodyUnions([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const list = await api.geology.listBodyUnions(projectId, geotechModelId)
+        if (!cancelled) setBodyUnions(list)
+      } catch (err) {
+        if (!cancelled) {
+          log.warn('geology', `body unions: list failed for model ${geotechModelId}`, err)
+          setBodyUnions([])
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // ``bodyRecomputeGeotechNonce``: a recompute can re-resolve the anchors'
+    // bodies, so the group tags must follow it.
+  }, [projectId, geotechModelId, bodyRecomputeGeotechNonce])
 
   // The colour the engineer picks on a roster row (owner ruling 2026-08-26).
   //
@@ -146,8 +187,9 @@ export default function GeotechnicalInspector(): JSX.Element {
           geotechLayers={geotechLayers}
           lithoFormations={lithoFormations}
           geotechBodies={geotechBodies}
+          lithoBodies={lithoBodiesById}
+          bodyUnions={bodyUnions}
           onPickColor={handlePickUnitColor}
-          selectedFormationId={selectedFormation?.id ?? null}
           // Selecting a body child mirrors the sample-dot gesture — the same
           // geotech-body selection the section fade + this inspector's readout
           // read (owner dogfeed 2026-09-01). Toggle, so a second click clears it.
