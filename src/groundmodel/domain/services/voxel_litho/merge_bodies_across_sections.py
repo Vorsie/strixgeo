@@ -382,7 +382,6 @@ def plan_body_aliases(
 
 def plan_layer_groups(
     sections: list[SectionPartitionInput],
-    identity_key_of: Callable[[str], str] | None = None,
 ) -> list[set[str]]:
     """Group LAYER ids whose regions meet across sections — label-independent.
 
@@ -399,6 +398,17 @@ def plan_layer_groups(
     the same geometry always yields the same groups and the recompute is
     idempotent by construction.
 
+    This is the IDENTITY engine and it is PERMANENTLY GRANULAR (owner
+    2026-09-01: *"start totally granular — small disconnected bodies of litho
+    and packing; the user lumps them into groups"*). It keys on the RAW
+    ``formation_id``: two masses of the same soil+NAD-class under DIFFERENT
+    formation rows are never bridged, so each geometrically-connected mass is
+    its own body and the user joins them by hand. It deliberately takes NO
+    class-collapse key — unlike :func:`plan_body_aliases`, the 3-D voxel PAINT
+    path, which keeps the collapse to avoid the invented-lithology pinch. That
+    divergence is a decided owner ruling, not an oversight; do not "restore
+    symmetry" by re-adding a key here.
+
     Regions with no ``layer_ids`` still participate as connectivity NODES
     (they can bridge two layered regions) — they just contribute no layers.
 
@@ -407,13 +417,6 @@ def plan_layer_groups(
     sections : list of SectionPartitionInput
         The per-section 2-D partitions exactly as POSTed by the frontend
         (fallback regions already omitted — they never define identity).
-    identity_key_of : callable of (str) -> str, optional
-        Collapses a region's ``formation_id`` to the identity two regions must
-        share to connect — see :func:`plan_body_aliases`. On a geotech model it
-        fuses the twin formation rows one packing class carries across a
-        geological boundary (debt #278). ``None`` (the default) keys on the raw
-        ``formation_id``, byte-identical to before and correct for the litho
-        model.
 
     Returns
     -------
@@ -422,7 +425,6 @@ def plan_layer_groups(
         components contributing fewer than two layers are dropped (they state
         nothing the per-section groups do not already state).
     """
-    key_of = identity_key_of if identity_key_of is not None else (lambda formation: formation)
     parent: dict[tuple[int, int], tuple[int, int]] = {}
 
     def find(node: tuple[int, int]) -> tuple[int, int]:
@@ -442,9 +444,9 @@ def plan_layer_groups(
             parent[max(ra, rb)] = min(ra, rb)
 
     # Shared investigation columns: bucket every region's reach at its gap's two
-    # columns by (investigation, IDENTITY), then union overlapping pairs. The
-    # identity is the raw formation id, or the collapsed packing class when
-    # ``identity_key_of`` is supplied.
+    # columns by (investigation, raw formation ROW), then union overlapping
+    # pairs. Keying on the raw formation id is the granular identity — same
+    # soil+class under two different rows never bridges (owner 2026-09-01).
     buckets: dict[tuple[str, str], list[tuple[tuple[int, int], float, float]]] = defaultdict(list)
     for si, section in enumerate(sections):
         for ri, region in enumerate(section.regions):
@@ -459,7 +461,7 @@ def plan_layer_groups(
                     buckets[
                         (
                             section.columns[column_index].investigation_id,
-                            key_of(region.formation_id),
+                            region.formation_id,
                         )
                     ].append((key, low, high))
 
@@ -511,7 +513,7 @@ def plan_layer_groups(
                     ]
                     for key_a, form_a, (low_a, high_a) in spans_a:
                         for key_b, form_b, (low_b, high_b) in spans_b:
-                            if key_of(form_a) != key_of(form_b):
+                            if form_a != form_b:
                                 continue
                             if min(high_a, high_b) - max(low_a, low_b) > _ELEV_OVERLAP_M:
                                 union(key_a, key_b)
