@@ -6,18 +6,25 @@ parsers must not leak as readable source). The danger this test guards against
 is a NEW engine or parser module being added to the tree and silently shipping
 as readable ``.py`` because nobody remembered to list it.
 
-For the two areas that are compiled *wholesale* -- ``voxel_litho`` and
-``infrastructure/parsers`` -- every ``.py`` must be accounted for by exactly one
-of: ``COMPILED_MODULES``, the ``greedy_mesh`` source carve-out, or the
-``__init__`` package-marker rule. A new file in either subtree that is not
-classified breaks the equality below.
+Three areas are compiled *wholesale* and each ``.py`` in them must be accounted
+for by exactly one of ``COMPILED_MODULES``, a concrete ``SOURCE_CARVEOUTS`` key,
+or the ``__init__`` package-marker rule:
 
-The named domain-services slice (``nad_classifier`` +
-``nad_classification_constants`` + ``representative_statistic``) is hand-picked
-rather than a whole directory, so this test can only guard that the named set
-stays present and that ``geotech_band_reclassification`` remains the tracked
-C3 deferral; it CANNOT auto-detect a brand-new engine service added to
-``domain/services`` -- that stays a manual classification call.
+* ``voxel_litho`` (its own subtree) — every module minus the ``greedy_mesh``
+  numba carve-out;
+* ``infrastructure/parsers`` — every non-``__init__`` module;
+* ``domain/services`` **top level** (excluding the ``voxel_litho`` subtree, which
+  has its own check) — every engine-class module is compiled, minus five
+  recorded source carve-outs (data-shape/token declarations + two rollback
+  services outside the owner's engine scope).
+
+The domain/services top-level classification is what gives "a new domain-services
+engine module must be manually classified" its teeth: adding a ``.py`` directly
+under ``domain/services`` breaks :func:`test_domain_services_subtree_is_fully_classified`
+until it is listed in ``COMPILED_MODULES`` or given a ``SOURCE_CARVEOUTS`` reason.
+
+C3 (``geotech_band_reclassification``) has LANDED — it is now compiled with the
+rest of the geotech family, no longer a deferred source module.
 """
 
 from __future__ import annotations
@@ -32,18 +39,19 @@ _SRC = _REPO_ROOT / "src"
 
 _VOXEL_LITHO = "groundmodel/domain/services/voxel_litho"
 _PARSERS = "groundmodel/infrastructure/parsers"
+_DOMAIN_SERVICES = "groundmodel/domain/services"
 
-# The three engine domain-services deliberately in scope (see the manifest).
-_NAMED_SERVICES = {
-    "groundmodel.domain.services.nad_classifier",
-    "groundmodel.domain.services.nad_classification_constants",
-    "groundmodel.domain.services.representative_statistic",
+# The five top-level domain/services modules that ship as SOURCE (each recorded
+# in SOURCE_CARVEOUTS with a reason). Named here so promoting any to
+# COMPILED_MODULES -- or adding a sixth source module -- forces an edit to this
+# test in the same commit; it cannot silently drift either way.
+_SOURCE_DOMAIN_SERVICES = {
+    "groundmodel.domain.services.investigation_kind_constants",
+    "groundmodel.domain.services.litho_body_pick",
+    "groundmodel.domain.services.detect_body_extents",
+    "groundmodel.domain.services.elevation_rollback",
+    "groundmodel.domain.services.water_table_rollback",
 }
-
-# The one engine module deferred to SOURCE pending owner decision C3. Named
-# explicitly so that landing C3 (moving it into COMPILED_MODULES) forces an edit
-# to this test in the same commit -- it cannot silently drift either way.
-_C3_DEFERRED = "groundmodel.domain.services.geotech_band_reclassification"
 
 
 def _dotted(path: Path) -> str:
@@ -52,12 +60,21 @@ def _dotted(path: Path) -> str:
 
 
 def _py_modules(rel_dir: str) -> set[str]:
-    """Every ``.py`` under ``src/<rel_dir>`` as dotted names, ``__init__`` included."""
+    """Every ``.py`` under ``src/<rel_dir>`` (recursive) as dotted names."""
     return {_dotted(p) for p in (_SRC / Path(rel_dir)).rglob("*.py")}
 
 
+def _top_level_py_modules(rel_dir: str) -> set[str]:
+    """Every ``.py`` DIRECTLY in ``src/<rel_dir>`` (non-recursive), ``__init__`` included.
+
+    Non-recursive so ``domain/services`` does not swallow the ``voxel_litho``
+    subpackage, which is classified by its own test.
+    """
+    return {_dotted(p) for p in (_SRC / Path(rel_dir)).glob("*.py")}
+
+
 def _init_modules(rel_dir: str) -> set[str]:
-    """Every ``__init__.py`` under ``src/<rel_dir>`` as dotted names."""
+    """Every ``__init__.py`` under ``src/<rel_dir>`` (recursive) as dotted names."""
     return {_dotted(p) for p in (_SRC / Path(rel_dir)).rglob("__init__.py")}
 
 
@@ -92,18 +109,60 @@ def test_every_parser_module_is_compiled() -> None:
         assert module in compiled, f"parser module ships as SOURCE, not compiled: {module}"
 
 
-def test_named_services_and_c3_deferral() -> None:
-    """The named engine services are compiled; the C3 module is present but deferred."""
+def test_domain_services_subtree_is_fully_classified() -> None:
+    """Every top-level domain/services module is compiled or an explicit source carve-out.
+
+    This is the teeth behind "a new domain-services engine module must be
+    manually classified": a ``.py`` added directly under ``domain/services``
+    breaks this test until it is either listed in ``COMPILED_MODULES`` or given a
+    reason in ``SOURCE_CARVEOUTS``. The ``voxel_litho`` subtree is excluded (its
+    own test above); ``__init__`` markers ship as source by the package-marker rule.
+    """
     compiled = set(COMPILED_MODULES)
-    assert _NAMED_SERVICES <= compiled, (
-        f"named engine services missing from COMPILED_MODULES: {_NAMED_SERVICES - compiled}"
+    for module in _top_level_py_modules(_DOMAIN_SERVICES):
+        if module.endswith(".__init__"):
+            continue
+        classified = module in compiled or module in SOURCE_CARVEOUTS
+        assert classified, (
+            "unclassified domain/services module -- add it to COMPILED_MODULES or "
+            f"give it a SOURCE_CARVEOUTS reason: {module}"
+        )
+
+
+def test_source_domain_services_are_carved_out_not_compiled() -> None:
+    """The five source domain/services modules are recorded, present, and NOT compiled."""
+    compiled = set(COMPILED_MODULES)
+    for module in _SOURCE_DOMAIN_SERVICES:
+        assert module in SOURCE_CARVEOUTS, f"{module} missing a SOURCE_CARVEOUTS reason"
+        assert module not in compiled, f"{module} is both compiled and carved out"
+        assert (_SRC / (module.replace(".", "/") + ".py")).exists(), (
+            f"{module} no longer exists on disk -- update this test"
+        )
+
+
+def test_c3_geotech_band_reclassification_is_compiled() -> None:
+    """C3 landed: geotech_band_reclassification ships compiled, not deferred to source."""
+    module = "groundmodel.domain.services.geotech_band_reclassification"
+    assert module in set(COMPILED_MODULES), (
+        "geotech_band_reclassification must be in COMPILED_MODULES now C3 has landed"
     )
-    assert (_SRC / (_C3_DEFERRED.replace(".", "/") + ".py")).exists(), (
-        "the C3-deferred module no longer exists on disk -- update this test"
+    assert module not in SOURCE_CARVEOUTS, (
+        "geotech_band_reclassification must not be a source carve-out any more"
     )
-    assert _C3_DEFERRED not in compiled, (
-        "geotech_band_reclassification is in COMPILED_MODULES -- if C3 landed, update "
-        "_C3_DEFERRED in this test to reflect it"
+
+
+def test_engine_anchors_are_compiled() -> None:
+    """The named engine anchors (NAD classifier, geotech subdivision) stay compiled."""
+    compiled = set(COMPILED_MODULES)
+    anchors = {
+        "groundmodel.domain.services.nad_classifier",
+        "groundmodel.domain.services.representative_statistic",
+        "groundmodel.domain.services.geotech_subdivision",
+        "groundmodel.domain.services.litho_segmentation",
+        "groundmodel.domain.services.tin_surface",
+    }
+    assert anchors <= compiled, (
+        f"engine anchors missing from COMPILED_MODULES: {anchors - compiled}"
     )
 
 
@@ -118,19 +177,20 @@ def test_greedy_mesh_carveout_is_source_only() -> None:
 def test_manifest_union_equals_the_real_module_set() -> None:
     """The classified union equals the real source set across all three areas.
 
-    real  = every .py in voxel_litho + parsers, plus the named services + C3.
-    covered = COMPILED_MODULES + the concrete source carve-outs + C3 + the
-              __init__ markers of the two wholesale subtrees.
+    real  = every .py in voxel_litho + parsers + domain/services (top level).
+    covered = COMPILED_MODULES + the concrete source carve-outs + the __init__
+              markers of the three wholesale subtrees.
     Any divergence -- a new unclassified module, a removed/typo'd manifest line,
     or a dangling entry -- breaks this equality.
     """
-    real = _py_modules(_VOXEL_LITHO) | _py_modules(_PARSERS) | _NAMED_SERVICES | {_C3_DEFERRED}
+    real = (
+        _py_modules(_VOXEL_LITHO) | _py_modules(_PARSERS) | _top_level_py_modules(_DOMAIN_SERVICES)
+    )
     concrete_carveouts = {name for name in SOURCE_CARVEOUTS if name != "__init__"}
     covered = (
         set(COMPILED_MODULES)
         | concrete_carveouts
-        | {_C3_DEFERRED}
-        | _init_modules(_VOXEL_LITHO)
+        | _init_modules(_DOMAIN_SERVICES)  # domain/services + voxel_litho __init__
         | _init_modules(_PARSERS)
     )
     assert covered == real, (
