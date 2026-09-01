@@ -86,12 +86,22 @@ _OFFSET = 1_000_000
 
 
 # ---------------------------------------------------------------------------
-# Mirror-trigger toggles — DISABLED for the repair window.  The live
-# ``trg_mirror_litho_layer_to_contact`` (LL->FC) and
-# ``trg_mirror_litho_contact_to_layer`` (FC->LL) no longer gate on model kind,
-# so they fire for the geotech model too.  Disabling them is the same guard
-# ``r2l3m4n5o6p7`` used: without it, the FC dedup DELETE would wipe the paired
-# accepted LL, and the formation_id re-points would double-fire.
+# Mirror-trigger toggles — DISABLED for the repair window.
+#
+# The two mirror triggers differ in scope, verified against the live catalog:
+# * ``trg_mirror_litho_layer_to_contact`` (LL->FC) is UNCONDITIONAL — its
+#   function body has no model-kind gate, so a geotech-model accepted-layer
+#   write mirrors into ``formation_contact`` (this is why the geotech model
+#   carries FC rows at all).  Disabling it is load-bearing: without it, the
+#   ``repoint_ll`` UPDATE would fire its ``ON CONFLICT DO UPDATE`` and reconcile
+#   FC rows mid-repair, fighting the FC dedup.
+# * ``trg_mirror_litho_contact_to_layer`` (FC->LL) STILL gates on kind — its
+#   body (installed by o9i0j1k2l3m4, unchanged since p0j1k2l3m4n5) opens with
+#   ``IF model_kind IS DISTINCT FROM 'lithostratigraphic' THEN RETURN NULL``.
+#   For this migration's geotech-only scope it is therefore already a no-op (the
+#   FC dedup/re-point touch only geotech-model rows).  We disable it anyway as
+#   defense-in-depth — the same guard ``r2l3m4n5o6p7`` used — so the repair is
+#   correct even if a future migration widens that trigger's scope.
 # ---------------------------------------------------------------------------
 _DISABLE_LL_FC = "ALTER TABLE litho_layer DISABLE TRIGGER trg_mirror_litho_layer_to_contact"
 _DISABLE_FC_LL = "ALTER TABLE formation_contact DISABLE TRIGGER trg_mirror_litho_contact_to_layer"
@@ -391,21 +401,14 @@ def _repair_statements() -> list[tuple[str, str]]:
     ]
 
 
-def upgrade() -> None:
-    """Merge every geo-label twin group into its oldest survivor."""
-    bind = op.get_bind()
-
-    # Pre-state report (read-only), following the b3c4d5e6f7a8 print precedent.
-    losers = bind.exec_driver_sql(
-        _CTE_PREFIX + "\nSELECT count(*) FROM _twin_map WHERE loser_id <> survivor_id"
-    ).scalar()
-    groups = bind.exec_driver_sql(_CTE_PREFIX + "\nSELECT count(*) FROM _merged").scalar()
-    print(f"  [migration a4b5c6d7e8f9] {groups} twin group(s), {losers} loser row(s) to merge")
-
-    # Differing loser names — the survivor keeps its own name; surface the rest.
-    name_rows = bind.exec_driver_sql(
-        _CTE_PREFIX
-        + """
+# Pre-flight report queries (read-only), following the b3c4d5e6f7a8 print
+# precedent. Named so the migration test can execute the SAME SQL against a
+# seeded state — a typo surfaces in the test, not first during the real run.
+_COUNT_LOSERS_SQL = _CTE_PREFIX + "\nSELECT count(*) FROM _twin_map WHERE loser_id <> survivor_id"
+_COUNT_GROUPS_SQL = _CTE_PREFIX + "\nSELECT count(*) FROM _merged"
+_NAME_DIFF_SQL = (
+    _CTE_PREFIX
+    + """
 SELECT s.id, s.name AS survivor_name, l.name AS loser_name
 FROM _twin_map t
 JOIN geological_formation s ON s.id = t.survivor_id
@@ -413,7 +416,20 @@ JOIN geological_formation l ON l.id = t.loser_id
 WHERE t.loser_id <> t.survivor_id
   AND l.name IS DISTINCT FROM s.name
 """
-    ).fetchall()
+)
+
+
+def upgrade() -> None:
+    """Merge every geo-label twin group into its oldest survivor."""
+    bind = op.get_bind()
+
+    # Pre-state report (read-only).
+    losers = bind.exec_driver_sql(_COUNT_LOSERS_SQL).scalar()
+    groups = bind.exec_driver_sql(_COUNT_GROUPS_SQL).scalar()
+    print(f"  [migration a4b5c6d7e8f9] {groups} twin group(s), {losers} loser row(s) to merge")
+
+    # Differing loser names — the survivor keeps its own name; surface the rest.
+    name_rows = bind.exec_driver_sql(_NAME_DIFF_SQL).fetchall()
     for row in name_rows:
         print(
             f"  [migration a4b5c6d7e8f9] survivor {row[0]} keeps name "
