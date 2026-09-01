@@ -1,435 +1,33 @@
-// The geotech unit roster — soil header ▸ NAD class row ▸ unit instances.
+// The geotech unit roster — soil header ▸ litho body ▸ packing body.
+//
+// Owner ruling 2026-08-31 (walk interview), verbatim: "main litho is first
+// level, one down is all litho bodies that are geometrically disconnected, one
+// down is all disconnected packing bodies. Then if you group they get like a
+// group 1 in parentheses behind." So the axis is three levels: the main litho
+// (soil) header, one node per geometrically-disconnected LITHO body under it,
+// and the selectable PACKING (geotech) bodies under each litho body.
 //
 // Split out of GeotechnicalInspector so neither file carries the whole stage
-// (debt #201, god-component pressure). The inspector owns the panel chrome and
-// the selected-body readout; this file owns the tree and its expand state; the
-// badges live in geotechBadges.tsx because both levels of the tree render them.
-//
-// The owner approved the shape on 2026-08-26 after pasting the flat version —
-// ~94 rows in which the same soil repeated dozens of times, rows with no bands
-// sat between rows with hundreds, and two rendered as nothing but the
-// character "0". Mockup: blend_viewer/geotech_ui_tidy_ideas.html, panel 2.
-//
-// The arithmetic (grouping, summed band counts, worst-badge roll-up, the
-// empty-row filter) lives in geotechUnitTree.ts so it is testable without a
-// DOM. This file is the rendering.
-//
-// Row identity: a class row carried by exactly ONE unit IS that unit — same
-// bands, same badges, same count — so it takes that unit's test ids. A class
-// row carried by several takes the class key instead, and the per-unit ids move
-// to the instance rows underneath.
+// (debt #201). The inspector owns the panel chrome and the selected-body
+// readout; this file owns the tree and its expand state; the badges live in
+// geotechBadges.tsx. The arithmetic (grouping, band-count roll-up, ordering, the
+// group tag) lives in geotechUnitTree.ts so it is testable without a DOM.
 
 import { useMemo, useState } from 'react'
 import { useT } from '../../../i18n/translate'
 import { useLanguage } from '../../../i18n/languageSelect'
-import { ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import type {
   BodyListItem,
+  BodyUnionListItem,
   FormationContactResponse,
   GeologicalFormationResponse,
   LithoLayerResponse,
 } from '../../../api/client'
-import { buildGeoFormationNamesByUnit } from '../../../utils/geoFormationNames'
-import { buildSourceLithoNameMap } from '../../../utils/sourceLithoNames'
-import { ConfidenceBadge, ProvenanceBadge } from './geotechBadges'
+import { geotechGroupOrdinals } from './geotechGroupOrdinals'
+import { GeotechLithoBodyGroup } from './geotechRosterRows'
 import { buildGeotechUnitTree } from './geotechUnitTree'
-import type { GeotechBodyChild, GeotechClassRow, GeotechUnitInstance } from './geotechUnitTree'
-
-// ---------------------------------------------------------------------------
-// GeotechUnitInstanceRow — one unit under a shared class row
-// ---------------------------------------------------------------------------
-
-/**
- * One unit instance, shown when its class row is expanded.
- *
- * Lean by design: the class row above already carries the swatch and the
- * rolled-up badges, so the instance adds only what differs between siblings —
- * its own name (disambiguated by source litho unit), its own band count and its
- * own badges. That difference is the reason to expand at all: the roll-up shows
- * the worst value in the group, and this is where you see which one it was.
- *
- * Parameters
- * ----------
- * instance
- *     The unit instance to render.
- * nadClass
- *     The class row's NAD class — drives whether a provenance badge applies.
- * isSelected
- *     Whether this unit is the selected body's formation.
- *
- * Returns
- * -------
- * JSX.Element
- *     One list item.
- */
-function GeotechUnitInstanceRow({
-  instance,
-  nadClass,
-  isSelected,
-}: {
-  instance: GeotechUnitInstance
-  nadClass: number | null
-  isSelected: boolean
-}): JSX.Element {
-  const t = useT()
-  return (
-    <li
-      className={[
-        'flex items-center gap-2 px-1 py-0.5 pl-5 rounded text-[11px] text-text-secondary',
-        isSelected ? 'bg-blue-50 ring-1 ring-blue-400 dark:bg-blue-900/20 dark:ring-blue-500' : '',
-      ].join(' ')}
-      data-testid={`geotech-unit-row-${instance.formationId}`}
-    >
-      <span className="flex-1 truncate" title={instance.label}>
-        {instance.label}
-      </span>
-      <ProvenanceBadge
-        provenance={instance.provenance}
-        nadClass={nadClass}
-        idKey={instance.formationId}
-      />
-      <ConfidenceBadge confidence={instance.confidence} idKey={instance.formationId} />
-      <span
-        className="text-[10px] tabular-nums text-text-muted flex-shrink-0"
-        title={
-          instance.bandCount === 1
-            ? t('geotech.contactLabel', { count: instance.bandCount })
-            : t('geotech.contactsLabel', { count: instance.bandCount })
-        }
-        data-testid={`geotech-unit-contact-count-${instance.formationId}`}
-      >
-        {instance.bandCount}
-      </span>
-    </li>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// GeotechBodyChildRow — one selectable geotech body under a class row
-// ---------------------------------------------------------------------------
-
-/**
- * One selectable geotech body (owner dogfeed 2026-09-01: "i can only see packing
- * but can't select the subbodies there").
- *
- * A button, so it is keyboard-operable and reads as an action: clicking it
- * selects the body (the same geotech-body selection the section canvas and the
- * inspector's selected-body panel read). Carries the selection ring when it is
- * the selected body, and a crossed-formations subtitle when the body crosses a
- * geological boundary.
- *
- * Parameters
- * ----------
- * child
- *     The body child row from the tree builder.
- * isSelected
- *     Whether this body is the selected one.
- * onSelect
- *     Fired with the body id on click; absent → the row is inert.
- *
- * Returns
- * -------
- * JSX.Element
- *     One list item.
- */
-function GeotechBodyChildRow({
-  child,
-  isSelected,
-  onSelect,
-}: {
-  child: GeotechBodyChild
-  isSelected: boolean
-  onSelect?: (bodyId: string) => void
-}): JSX.Element {
-  const t = useT()
-  return (
-    <li className="flex flex-col">
-      <button
-        type="button"
-        onClick={() => onSelect?.(child.bodyId)}
-        aria-pressed={isSelected}
-        className={[
-          'flex w-full items-center gap-2 px-1 py-0.5 pl-5 rounded text-left text-[11px] text-text-secondary transition-colors',
-          isSelected
-            ? 'bg-blue-50 ring-1 ring-blue-400 dark:bg-blue-900/20 dark:ring-blue-500'
-            : 'hover:bg-surface-sunken/40',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        ].join(' ')}
-        data-testid={`geotech-body-row-${child.bodyId}`}
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate" title={child.label}>
-            {child.label}
-          </span>
-          {child.geoFormations.length > 0 && (
-            <span
-              className="block truncate text-[10px] font-normal text-text-muted"
-              title={child.geoFormations.join(' + ')}
-              data-testid={`geotech-body-geo-${child.bodyId}`}
-            >
-              {child.geoFormations.join(' + ')}
-            </span>
-          )}
-        </span>
-        <span
-          className="text-[10px] tabular-nums text-text-muted flex-shrink-0"
-          title={
-            child.bandCount === 1
-              ? t('geotech.contactLabel', { count: child.bandCount })
-              : t('geotech.contactsLabel', { count: child.bandCount })
-          }
-          data-testid={`geotech-body-contact-count-${child.bodyId}`}
-        >
-          {child.bandCount}
-        </span>
-      </button>
-    </li>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// GeotechClassRowItem — one NAD class under a soil header
-// ---------------------------------------------------------------------------
-
-/**
- * One NAD-class row, with its instances when expanded.
- *
- * The label is the firmness / density word alone — the soil is the header above
- * and repeating it was most of what made the flat roster unreadable. Badges are
- * the WORST value among the row's instances so one weak unit cannot hide inside
- * a group that reads healthy.
- *
- * Parameters
- * ----------
- * row
- *     The class row from the tree builder.
- * expanded
- *     Whether the instance list is open.
- * onToggle
- *     Called with the row key when the expander is activated.
- * onPickColor
- *     Called with every formation id the row stands for and the chosen colour,
- *     or null to drop the choice and go back to the automatic packing colour.
- * selectedFormationId
- *     Formation id of the selected body, or null.
- *
- * Returns
- * -------
- * JSX.Element
- *     The class row plus, when expanded, its instance list.
- */
-function GeotechClassRowItem({
-  row,
-  expanded,
-  onToggle,
-  onPickColor,
-  selectedFormationId,
-  selectedBodyId,
-  onSelectBody,
-}: {
-  row: GeotechClassRow
-  expanded: boolean
-  onToggle: (key: string) => void
-  onPickColor: (formationIds: readonly string[], color: string | null) => void
-  selectedFormationId: string | null
-  selectedBodyId: string | null
-  onSelectBody?: (bodyId: string) => void
-}): JSX.Element {
-  const t = useT()
-  // A class carried by one unit IS that unit, so the row answers to that unit's
-  // ids; several units share the class key instead.
-  const single = row.instances.length === 1 ? row.instances[0] : null
-  const idKey = single !== null ? single.formationId : row.key
-  // Expand to reveal the unit instances (when several carry the class) AND the
-  // selectable body children (owner dogfeed 2026-09-01). Either alone makes the
-  // row expandable; a single-unit class with no bodies stays a leaf as before.
-  const showInstances = row.instances.length > 1
-  const expandable = showInstances || row.bodies.length > 0
-
-  // Live colour while the wheel is open; the write happens on blur, so one
-  // decision is one PATCH rather than one per drag step. Same shape as the
-  // geological formation swatch in GeologyInspector.
-  const [pendingColor, setPendingColor] = useState<string | null>(null)
-  const shownColor = pendingColor ?? row.color
-
-  // The ring shows on the class row whenever ANY of its units is selected, so a
-  // selection inside a collapsed row is still visible without expanding. A
-  // selected body always has a layer, so its unit is never one of the empty
-  // ones the tree drops — the ring can always land somewhere.
-  const holdsSelection =
-    selectedFormationId !== null && row.instances.some(i => i.formationId === selectedFormationId)
-
-  return (
-    <li className="flex flex-col">
-      <div
-        className={[
-          'flex items-center gap-2 px-1 py-0.5 rounded text-xs text-text-primary',
-          holdsSelection
-            ? 'bg-blue-50 ring-1 ring-blue-400 dark:bg-blue-900/20 dark:ring-blue-500'
-            : '',
-        ].join(' ')}
-        data-testid={`geotech-unit-row-${idKey}`}
-      >
-        {expandable ? (
-          <button
-            type="button"
-            onClick={() => onToggle(row.key)}
-            aria-expanded={expanded}
-            className="flex-shrink-0 rounded text-text-muted hover:text-text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title={
-              // Honest to what the row actually reveals: the unit instances (with
-              // their count restored) when several carry the class, else the
-              // selectable bodies. A row can expand for instances with zero body
-              // children, so a blanket "bodies" tooltip would lie.
-              expanded
-                ? t('geotech.collapseClassChildren')
-                : showInstances
-                  ? t('geotech.expandClassUnits', { count: row.instances.length })
-                  : t('geotech.expandClassBodies')
-            }
-            data-testid={`geotech-class-expander-${row.key}`}
-          >
-            {expanded ? (
-              <ChevronDown size={11} aria-hidden="true" />
-            ) : (
-              <ChevronRight size={11} aria-hidden="true" />
-            )}
-          </button>
-        ) : (
-          // Keeps single-unit rows aligned with expandable siblings.
-          <span className="w-[11px] flex-shrink-0" aria-hidden="true" />
-        )}
-
-        {/* The swatch IS the colour control (owner ruling 2026-08-26 —
-            "Colours on the right hand pane need to be choosable if user
-            wants"). It draws ``row.color``: the colour the engineer picked
-            where he picked one, else the NAD density ramp — never the stored
-            ``f.color``, which on a geotech unit is the lithology colour the
-            materialiser copied. A label wrapping an sr-only native input, as
-            the geological formation swatch does, so the whole 12 px square is
-            the hit target. */}
-        <label
-          className="h-3 w-3 flex-shrink-0 cursor-pointer rounded-sm border border-border-subtle focus-within:ring-2 focus-within:ring-accent"
-          style={{ backgroundColor: shownColor }}
-          title={t('geotech.chooseColor', { color: shownColor })}
-          data-testid={`geotech-unit-swatch-${idKey}`}
-        >
-          <input
-            type="color"
-            className="sr-only"
-            value={shownColor}
-            aria-label={t('geotech.colorForUnit', { label: row.label })}
-            onChange={e => setPendingColor(e.currentTarget.value)}
-            onBlur={() => {
-              const picked = pendingColor
-              setPendingColor(null)
-              // Only a real change is a decision — re-opening the wheel and
-              // closing it again must not write.
-              if (picked !== null && picked !== row.color) {
-                onPickColor(
-                  row.instances.map(i => i.formationId),
-                  picked,
-                )
-              }
-            }}
-            data-testid={`geotech-unit-color-input-${idKey}`}
-          />
-        </label>
-
-        {/* Reversible, so it fires immediately with no confirm (docs/ux.md).
-            It CLEARS the pick rather than writing today's automatic colour —
-            writing it would freeze the unit at the colour its current class
-            happens to have. */}
-        {row.colorOverride !== null && (
-          <button
-            type="button"
-            className="flex-shrink-0 rounded text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title={t('geotech.resetAutoColour')}
-            onClick={() =>
-              onPickColor(
-                row.instances.map(i => i.formationId),
-                null,
-              )
-            }
-            data-testid={`geotech-unit-color-reset-${idKey}`}
-          >
-            <RotateCcw size={10} aria-hidden="true" />
-          </button>
-        )}
-
-        <span
-          className="flex-1 min-w-0"
-          title={row.nadClass === null ? undefined : `NAD ${row.nadClass}`}
-        >
-          <span className="block truncate">{row.label}</span>
-          {/* R2: the geological formation(s) this class row's units cross,
-              shallowest first, joined with "+". A body may span geological
-              boundaries, so a unit may list several. */}
-          {row.geoFormations.length > 0 && (
-            <span
-              className="block truncate text-[10px] font-normal text-text-muted"
-              title={row.geoFormations.join(' + ')}
-              data-testid={`geotech-class-geo-${idKey}`}
-            >
-              {row.geoFormations.join(' + ')}
-            </span>
-          )}
-        </span>
-
-        {showInstances && (
-          <span
-            className="text-[10px] text-text-muted flex-shrink-0"
-            title={t('geotech.unitsCarryClass', { count: row.instances.length })}
-          >
-            ×{row.instances.length}
-          </span>
-        )}
-
-        <ProvenanceBadge provenance={row.provenance} nadClass={row.nadClass} idKey={idKey} />
-        <ConfidenceBadge confidence={row.confidence} idKey={idKey} />
-
-        <span
-          className="text-[10px] tabular-nums text-text-muted flex-shrink-0"
-          title={
-            row.bandCount === 1
-              ? t('geotech.contactLabel', { count: row.bandCount })
-              : t('geotech.contactsLabel', { count: row.bandCount })
-          }
-          data-testid={`geotech-unit-contact-count-${idKey}`}
-        >
-          {row.bandCount}
-        </span>
-      </div>
-
-      {expandable && expanded && (
-        <ul className="flex flex-col gap-0.5" aria-label={t('geotech.unitsClassed', { label: row.label })}>
-          {/* The unit instances, only when several carry the class (the "which
-              one is the weak one" detail). */}
-          {showInstances &&
-            row.instances.map(instance => (
-              <GeotechUnitInstanceRow
-                key={instance.formationId}
-                instance={instance}
-                nadClass={row.nadClass}
-                isSelected={instance.formationId === selectedFormationId}
-              />
-            ))}
-          {/* The selectable geotech bodies of this class (owner dogfeed
-              2026-09-01). */}
-          {row.bodies.map(child => (
-            <GeotechBodyChildRow
-              key={child.bodyId}
-              child={child}
-              isSelected={child.bodyId === selectedBodyId}
-              onSelect={onSelectBody}
-            />
-          ))}
-        </ul>
-      )}
-    </li>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // GeotechnicalUnitRoster — the tree
@@ -438,66 +36,44 @@ function GeotechClassRowItem({
 interface GeotechnicalUnitRosterProps {
   /** Geotechnical formations to display (pre-filtered to isGeotechUnit). */
   geotechFormations: readonly GeologicalFormationResponse[]
-  /** Accepted contacts in the active geotech model — the band counts. */
+  /** Accepted contacts in the active geotech model — the header count. */
   geotechContacts: readonly FormationContactResponse[]
-  /** All geotech layers — the provenance + confidence source. */
+  /** All geotech layers — the leaf band counts + badges. */
   geotechLayers: readonly LithoLayerResponse[]
-  /** Litho units, for naming a geotech unit's source when several share a class. */
+  /** Litho units, for composing the L2 litho-body label. */
   lithoFormations: readonly GeologicalFormationResponse[]
-  /**
-   * The geotech model's bodies (``GET .../bodies``). Their ``geo_formations``
-   * lists are folded onto each unit for the crossed-formation subtitle (debt
-   * #278, R2). Optional — an absent/empty list simply drops the subtitle.
-   */
+  /** The geotech model's bodies (``GET .../bodies``) — the L3 leaves. */
   geotechBodies?: readonly BodyListItem[]
   /**
-   * Commit a colour choice for every unit a row stands for; ``null`` clears the
-   * choice and returns them to the automatic packing colour.
+   * The LITHO model's bodies keyed by id (``GET .../bodies`` on the parent litho
+   * model, debt #278 D2) — the L2 nodes. Absent → every stamped packing body
+   * still groups by its ``parent_litho_body_id``, but the L2 label degrades to
+   * an id prefix.
+   */
+  lithoBodies?: ReadonlyMap<string, BodyListItem>
+  /**
+   * The geotech model's manual body unions (``GET .../body-unions``, debt #278
+   * D4) — the source of the "(group N)" leaf tag. Absent → no tags.
+   */
+  bodyUnions?: readonly BodyUnionListItem[]
+  /**
+   * Commit a colour choice for every unit a swatch stands for; ``null`` clears
+   * the choice and returns them to the automatic packing colour.
    */
   onPickColor: (formationIds: readonly string[], color: string | null) => void
-  /**
-   * Formation id of the body currently selected via the sample dot (S2).
-   * The row holding it receives a blue selection tint + ring.
-   */
-  selectedFormationId?: string | null
-  /**
-   * The selected geotech body id (owner dogfeed 2026-09-01). The matching body
-   * CHILD row receives the selection ring, so a selection made here or on the
-   * section stays visible. Null when nothing is selected.
-   */
+  /** The selected geotech body id — the matching leaf receives the selection ring. */
   selectedBodyId?: string | null
-  /** Select a geotech body (a body child-row click). Absent → the rows are read-only. */
+  /** Select a geotech body (a leaf click). Absent → the leaves are read-only. */
   onSelectBody?: (bodyId: string) => void
 }
 
 /**
- * The geotech unit roster: soil ▸ NAD class ▸ instances.
+ * The geotech unit roster: soil ▸ litho body ▸ packing body.
  *
- * Soil groups start EXPANDED — the NAD class row is the level an engineer works
- * at, and starting collapsed would hide it behind a click every session. Class
- * rows start collapsed; their instances are a detail you open when the
- * rolled-up badge says one of them is worth looking at.
- *
- * Units with nothing in this model are not listed, and there is no control to
- * list them — owner ruling 2026-08-26: "if a bin is empty that means there is
- * nothing in it and nothing exists". A unit with no class but real bands is a
- * different thing entirely and stays: it is unclassified GROUND, not an empty
- * bin. See ``geotechUnitTree``'s module note for the exact predicate.
- *
- * Parameters
- * ----------
- * geotechFormations
- *     NAD units derived from the project formations list.
- * geotechContacts
- *     Accepted geotech contacts for the band counts.
- * geotechLayers
- *     Geotech layers for the provenance + confidence badges.
- * lithoFormations
- *     Litho units, used to name a unit's source when a class carries several.
- * onPickColor
- *     Commits a colour choice for every unit a row stands for; null resets.
- * selectedFormationId
- *     Selected body's formation id, or null.
+ * Soil groups and litho-body nodes both start EXPANDED — the owner's complaint
+ * was that he could not SEE the packing bodies to select them, so the leaves are
+ * visible by default; collapsing is collapsed-by-exception (a CLOSED set), so
+ * the tree never briefly renders collapsed while the rosters load.
  *
  * Returns
  * -------
@@ -510,8 +86,9 @@ export default function GeotechnicalUnitRoster({
   geotechLayers,
   lithoFormations,
   geotechBodies,
+  lithoBodies,
+  bodyUnions,
   onPickColor,
-  selectedFormationId = null,
   selectedBodyId = null,
   onSelectBody,
 }: GeotechnicalUnitRosterProps): JSX.Element {
@@ -519,33 +96,20 @@ export default function GeotechnicalUnitRoster({
   // Subscribe so the roster (and its language-aware unit-tree memo) re-render
   // when the interface language flips.
   const lang = useLanguage()
-  // Collapsed-by-exception, not expanded-by-effect: tracking the CLOSED set
-  // makes "everything open" the initial state with no effect to sync, so the
-  // tree cannot briefly render collapsed while the layers load.
   const [collapsedSoils, setCollapsedSoils] = useState<ReadonlySet<string>>(() => new Set<string>())
-  const [expandedClasses, setExpandedClasses] = useState<ReadonlySet<string>>(
+  const [collapsedBodies, setCollapsedBodies] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   )
 
-  // A geotech unit's stored name is the raw token ("KLEI (geotech)"); the roster
-  // names its SOURCE litho unit instead, in English (debt #96). Shared with the
-  // Parameters stage's per-unit table, which needs the identical map.
-  const sourceLithoNameById = useMemo(
-    () => buildSourceLithoNameMap(lithoFormations),
+  // Litho unit id → display name, so the L2 litho-body label reads "SILT · #0".
+  const lithoUnitNameById = useMemo(
+    () => new Map(lithoFormations.map(f => [f.id, f.name])),
     [lithoFormations],
   )
 
-  // R2: fold each body's crossed-formation list onto its geotech unit, so a
-  // class row can list every formation its units span. Keyed by unit id (=
-  // ``body.formation_id``); empty when no bodies are supplied.
-  const geoFormationNamesById = useMemo(
-    () => buildGeoFormationNamesByUnit(geotechBodies ?? []),
-    [geotechBodies],
-  )
-
-  // The selectable body children (owner dogfeed 2026-09-01): the roster's own
-  // reduced view of the body list — id, home unit, ordinal, name + crossed
-  // formations. The builder places each under the class of its home unit.
+  // The roster's reduced view of the geotech body list — id, home unit, ordinal,
+  // name, litho parent and crossed formations. The builder homes each under its
+  // parent litho body.
   const bodyRefs = useMemo(
     () =>
       (geotechBodies ?? []).map(b => ({
@@ -553,9 +117,22 @@ export default function GeotechnicalUnitRoster({
         formation_id: b.formation_id,
         body_ordinal: b.body_ordinal,
         name: b.name,
+        parentLithoBodyId: b.parent_litho_body_id ?? null,
         geoFormations: (b.geo_formations ?? []).map(g => g.name),
       })),
     [geotechBodies],
+  )
+
+  // D4: the manual-group numbers, derived from the union pairs' current bodies.
+  const groupByBodyId = useMemo(
+    () =>
+      geotechGroupOrdinals(
+        (bodyUnions ?? []).map(u => ({
+          a: { bodyId: u.anchor_a.body_id, bodyOrdinal: u.anchor_a.body_ordinal },
+          b: { bodyId: u.anchor_b.body_id, bodyOrdinal: u.anchor_b.body_ordinal },
+        })),
+      ),
+    [bodyUnions],
   )
 
   const tree = useMemo(
@@ -564,19 +141,21 @@ export default function GeotechnicalUnitRoster({
         units: geotechFormations,
         contacts: geotechContacts,
         layers: geotechLayers,
-        sourceLithoNameById,
-        geoFormationNamesById,
         bodies: bodyRefs,
+        lithoBodies,
+        lithoUnitNameById,
+        groupByBodyId,
       }),
     // ``lang``: the tree's labels come from language-aware helpers, so it must
-    // rebuild when the language flips (the builder reads the language itself).
+    // rebuild when the language flips.
     [
       geotechFormations,
       geotechContacts,
       geotechLayers,
-      sourceLithoNameById,
-      geoFormationNamesById,
       bodyRefs,
+      lithoBodies,
+      lithoUnitNameById,
+      groupByBodyId,
       lang,
     ],
   )
@@ -590,8 +169,8 @@ export default function GeotechnicalUnitRoster({
     })
   }
 
-  function toggleClass(key: string): void {
-    setExpandedClasses(prev => {
+  function toggleBody(key: string): void {
+    setCollapsedBodies(prev => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -611,7 +190,7 @@ export default function GeotechnicalUnitRoster({
         </span>
       </div>
 
-      <ul className="flex flex-col gap-0.5" aria-label={t('geotech.nadUnits')}>
+      <ul className="flex flex-col gap-0.5" aria-label={t('geotech.soilGroups')}>
         {tree.groups.map(group => {
           const expanded = !collapsedSoils.has(group.soil)
           return (
@@ -642,18 +221,17 @@ export default function GeotechnicalUnitRoster({
               {expanded && (
                 <ul
                   className="flex flex-col gap-0.5 pl-3"
-                  aria-label={t('geotech.soilClasses', { soil: group.soil })}
+                  aria-label={t('geotech.soilBodies', { soil: group.soil })}
                 >
-                  {group.classes.map(row => (
-                    <GeotechClassRowItem
-                      key={row.key}
-                      row={row}
-                      expanded={expandedClasses.has(row.key)}
-                      onToggle={toggleClass}
-                      onPickColor={onPickColor}
-                      selectedFormationId={selectedFormationId}
+                  {group.lithoBodies.map(node => (
+                    <GeotechLithoBodyGroup
+                      key={node.key}
+                      node={node}
+                      expanded={!collapsedBodies.has(node.key)}
+                      onToggle={toggleBody}
                       selectedBodyId={selectedBodyId}
                       onSelectBody={onSelectBody}
+                      onPickColor={onPickColor}
                     />
                   ))}
                 </ul>
