@@ -391,11 +391,15 @@ export function closureBarsFor(
  * @param plans EVERY family's plans, flattened together.
  * @param closureBars The run-wide bars from {@link closureBarsFor}.
  * @param alongM Along-section metres, 1:1 with the frame's columns.
+ * @param separatedPairs The engineer's geotech-axis "Separate" rulings, canonical
+ *   ``a|b`` band-layer-id pairs, injected into every gap's merge (owner 2026-08-31,
+ *   debt #278 R5). Absent leaves the fill byte-identical.
  */
 export function fillPlans(
   plans: readonly Omit<GapFillInput, 'closureBars'>[],
   closureBars: ReadonlyMap<string, readonly number[]>,
   alongM: readonly number[],
+  separatedPairs?: ReadonlySet<string>,
 ): FillPlansResult {
   const out: FillPlansResult = {
     regions: [],
@@ -407,7 +411,7 @@ export function fillPlans(
     totalityViolations: [],
   }
   for (const plan of plans) {
-    const filled = fillGap({ ...plan, closureBars })
+    const filled = fillGap({ ...plan, closureBars, separatedPairs })
     out.regions.push(...filled.covered)
     out.preMerge.push(...filled.preMerge)
     out.fallback.push(...filled.residual)
