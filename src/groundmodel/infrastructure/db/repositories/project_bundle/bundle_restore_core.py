@@ -58,6 +58,7 @@ from .bundle_restore_litho import (
     _attach_companion_body_links,
     _restore_bodies,
     _restore_body_separations,
+    _restore_body_unions,
     _restore_contact_edges,
     _restore_formation_absences,
     _restore_geological_models,
@@ -637,6 +638,7 @@ async def _restore_project_bundle_impl(
     # — a boundary shape restored as a "tombstone" and was dropped).
     geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
     body_separations_payload: list[dict[str, Any]] | None = None,
+    body_unions_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
     replace: bool = False,
@@ -698,6 +700,10 @@ async def _restore_project_bundle_impl(
         User "Separate" rulings (owner 2026-08-31, debt #278 R5) — cannot-link
         layer pairs restored after litho layers, honoured by the post-restore
         resolver; absent in bundles saved before 2026-08-31 → empty.
+    body_unions_payload : list[dict[str, Any]] | None
+        User "Join with…" rulings (owner 2026-08-31, debt #278) — must-link
+        layer pairs restored after litho layers, honoured by the post-restore
+        resolver; absent in bundles saved before 2026-08-31 → empty.
     body_boundary_shapes_payload : list[dict[str, Any]] | None
         Lens boundary shape rows.
     body_boundary_nodes_payload : list[dict[str, Any]] | None
@@ -736,6 +742,7 @@ async def _restore_project_bundle_impl(
     body_geometry_facts_payload = body_geometry_facts_payload or []
     geotech_tie_tombstones_payload = geotech_tie_tombstones_payload or []
     body_separations_payload = body_separations_payload or []
+    body_unions_payload = body_unions_payload or []
     body_boundary_shapes_payload = body_boundary_shapes_payload or []
     body_boundary_nodes_payload = body_boundary_nodes_payload or []
     # Legacy tolerance: a bundle saved before the litho_solids field existed
@@ -925,6 +932,21 @@ async def _restore_project_bundle_impl(
         session,
         project_id,
         body_separations_payload,
+        valid_model_ids,
+        geological_models_payload,
+        logger=logger,
+    )
+
+    # ---- Phase 10e: User "Join with…" rulings -----------------------------
+    # After the litho layers (both anchors FK litho_layer.id) and AFTER the
+    # separations (Phase 10d) but before the route's reconcile_bodies_after_restore,
+    # so the restored resolver run honours the must-link and the two bodies stay
+    # merged (owner 2026-08-31, debt #278). A union contradicting a restored
+    # separation is suppressed by that resolver, never by this restore.
+    new_unions, skipped_unions, dropped_unions = await _restore_body_unions(
+        session,
+        project_id,
+        body_unions_payload,
         valid_model_ids,
         geological_models_payload,
         logger=logger,
