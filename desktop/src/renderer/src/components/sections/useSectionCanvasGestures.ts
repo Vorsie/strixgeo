@@ -264,6 +264,14 @@ export function useSectionWheelZoom({
 
 /** Inputs for {@link useSectionKeyboardShortcuts}. */
 interface SectionKeyboardShortcutsParams {
+  /**
+   * Whether a "Separate" is armed (debt #278 R5). Esc peels it FIRST — an armed
+   * gesture is the most recently opened surface, so one Esc cancels the pick
+   * without losing the section context.
+   */
+  separateArmed?: boolean
+  /** Clear the Separate arm. Only called when ``separateArmed`` is true. */
+  clearSeparateArm?: () => void
   /** Whether the body-wedge context menu is open. */
   bodyMenuOpen: boolean
   /** Whether the column context menu is open. */
@@ -309,6 +317,8 @@ interface SectionKeyboardShortcutsParams {
  *     See {@link SectionKeyboardShortcutsParams}.
  */
 export function useSectionKeyboardShortcuts({
+  separateArmed,
+  clearSeparateArm,
   bodyMenuOpen,
   columnMenuOpen,
   columnFocused,
@@ -334,7 +344,11 @@ export function useSectionKeyboardShortcuts({
       ) {
         return
       }
-      if (bodyMenuOpen) {
+      if (separateArmed && clearSeparateArm) {
+        // R5: an armed Separate is the outermost peel — Esc cancels the
+        // pick-the-other-body gesture before any menu / focus / close.
+        clearSeparateArm()
+      } else if (bodyMenuOpen) {
         dismissBodyCtxMenu()
       } else if (columnMenuOpen) {
         dismissContextMenu()
@@ -356,6 +370,8 @@ export function useSectionKeyboardShortcuts({
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [
+    separateArmed,
+    clearSeparateArm,
     bodyMenuOpen,
     columnMenuOpen,
     columnFocused,
