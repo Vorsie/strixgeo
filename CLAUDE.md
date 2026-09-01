@@ -249,6 +249,7 @@ See [docs/subagents.md](docs/subagents.md) — The 9 project-scoped subagents (s
 | ORM | SQLAlchemy + Alembic | migrations |
 | Data | Polars | fast series processing; PostGIS for spatial |
 | Performance | Numba (`@njit`) | adopted Phase 4 for the voxel mesh hotspot; Cython / Rust+PyO3 still deferred |
+| Native compile | Nuitka (`--module`) | ADOPTED for the PACKAGED tree only — the engine + parsers ship as `.pyd` for source protection (`compile` dep group, `scripts/compile-backend-natives.ps1`, [docs/distribution-build.md](docs/distribution-build.md)). Dev stays all-source. |
 | D-Series export | `d-geolib` 2.9.1 | writes D-Stability `.stix` + D-Sheet Piling `.shi` in-process; no D-Series install needed. Quirk table in [docs/exports.md](docs/exports.md) |
 | Testing | pytest, pytest-asyncio, factory-boy | |
 | Frontend | Electron + React | desktop first, SaaS later |
