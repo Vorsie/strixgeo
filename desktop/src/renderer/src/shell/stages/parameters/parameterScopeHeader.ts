@@ -19,10 +19,24 @@ import {
   nadClassIndex,
   type ParameterTreeInput,
 } from './parameterBodyTree'
-import { bodyLabelOf } from './parameterUnitBodies'
+import { bodyLabelOf, type BodyRosterEntry } from './parameterUnitBodies'
 import { geotechBodyLabel, lithoBodyLabel } from './parameterScopeLabels'
+import { crossedFormationLabel } from '../../../utils/crossedFormationLabel'
 
 const PATH_SEP = ' › '
+/** The middot the header uses before a body's geological context, matching the
+ * ``BodyContextMenu`` header ("… · Holoceen + Pleistoceen"). */
+const GEO_SEP = ' · '
+
+/**
+ * The ``· <crossed formations>`` suffix a body path ends with (R2, debt #278) —
+ * every geological formation the body crosses, or ``''`` when the roster does
+ * not carry any (an old cached response, or a body the roster does not know).
+ */
+function geoContextSuffix(entry: BodyRosterEntry | undefined): string {
+  const label = crossedFormationLabel(entry)
+  return label === '' ? '' : GEO_SEP + label
+}
 
 /** The litho unit a litho body homes to (roster home, else a layer's formation). */
 function homeUnitOfLithoBody(bodyId: string, input: ParameterTreeInput): string | null {
@@ -136,7 +150,8 @@ export function scopeHeaderLabel(
     }
     case 'litho-body': {
       const unit = lithoUnitName(scope.unitId, input)
-      return unit + PATH_SEP + lithoBodyLabel(scope.bodyId, unit, input.lithoBodies)
+      const base = unit + PATH_SEP + lithoBodyLabel(scope.bodyId, unit, input.lithoBodies)
+      return base + geoContextSuffix(input.lithoBodies.get(scope.bodyId))
     }
     case 'geotech-class': {
       const unit = lithoUnitName(scope.lithoUnitId, input)
@@ -150,11 +165,15 @@ export function scopeHeaderLabel(
         path?.nadClass != null
           ? geotechBodyLabel(scope.bodyId, path.nadClass, input.geotechBodies)
           : bodyLabelOf(scope.bodyId, input.geotechBodies)
-      if (path === null || path.lithoUnitId === null || path.lithoBodyId === null) return bodyLabel
+      // The geological context appends regardless of whether the litho path
+      // resolves — a geotech body has its own crossed-formation list.
+      const geoSuffix = geoContextSuffix(input.geotechBodies.get(scope.bodyId))
+      if (path === null || path.lithoUnitId === null || path.lithoBodyId === null)
+        return bodyLabel + geoSuffix
       const unit = lithoUnitName(path.lithoUnitId, input)
       const lithoBody = lithoBodyLabel(path.lithoBodyId, unit, input.lithoBodies)
       const cls = path.nadClass != null ? nadClassName(path.nadClass) : ''
-      return [unit, lithoBody, cls, bodyLabel].filter(s => s !== '').join(PATH_SEP)
+      return [unit, lithoBody, cls, bodyLabel].filter(s => s !== '').join(PATH_SEP) + geoSuffix
     }
     case 'geotech-unit': {
       // The jump-only fallback — no litho path. Name the formation row and say
