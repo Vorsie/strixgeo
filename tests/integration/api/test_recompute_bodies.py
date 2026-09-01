@@ -523,13 +523,15 @@ async def test_rb9_the_post_merge_snapshot_holds_the_merge(
 
 
 # ---------------------------------------------------------------------------
-# RB11 (debt #278) — twin formation rows of ONE packing class merge across
-# sections.  The geotech model stores one geological_formation ROW per (NAD
-# class, litho parent, GEOLOGICAL parent), so the same class exists under
-# several row ids where a litho unit spans a geological boundary.  Two NAD-6
-# sands touching across a shared column are one mass and one body (owner
-# 2026-08-21, "yes one mass one body"), even though their formation rows
-# differ — the recompute must compare the CLASS, not the row.
+# RB11 — granular body identity (owner 2026-09-01: "start totally granular —
+# small disconnected bodies of litho and packing; the user lumps them into
+# groups").  This REVERSES the debt-#278 class-collapse for the IDENTITY path.
+# The geotech model can still hold two ZAND NAD-6 rows under different geological
+# parents; two such masses touching across a shared column are NO LONGER fused
+# on contact — distinct formation rows stay distinct bodies, and the user joins
+# them by hand.  The recompute now compares the raw formation ROW, not the class.
+# (The 3-D voxel PAINT path — plan_body_aliases in build_voxel_litho_model — is
+# deliberately NOT changed here and stays class-merged.)
 # ---------------------------------------------------------------------------
 
 
@@ -718,16 +720,17 @@ async def _build_twin_scene(db_session: AsyncSession) -> _TwinScene:
 
 
 @pytest.mark.asyncio
-async def test_rb11_twin_class_rows_merge_across_sections(
+async def test_rb11_twin_class_rows_stay_granular_across_sections(
     db_session: AsyncSession, async_client: AsyncClient
 ) -> None:
-    """RB11 — two NAD-6 ZAND rows touching a shared column resolve to ONE body.
+    """RB11 — two NAD-6 ZAND rows touching a shared column stay TWO bodies.
 
     The only connectivity is geometric: each section carries one region reaching
     the SHARED column with overlapping elevation, but the regions carry DIFFERENT
-    formation rows. Only when ``plan_layer_groups`` compares the packing CLASS
-    (not the raw row) do the two layers group, one fact lands, and the resolver
-    fuses them. Without the class key threaded through, they stay two bodies.
+    formation rows. Under the granular ruling (owner 2026-09-01) the identity
+    engine keys on the raw formation ROW, so the twin-class masses are NOT fused
+    on contact — they remain two disconnected bodies for the user to lump. This
+    is the reverse of the old debt-#278 class-collapse: no fact lands, no merge.
     """
     s = await _build_twin_scene(db_session)
     section_a = {
@@ -798,7 +801,7 @@ async def test_rb11_twin_class_rows_merge_across_sections(
     url = f"/projects/{s.project_id}/geology/models/{s.model_id}/bodies/recompute"
     resp = await async_client.post(url, json=payload)
     assert resp.status_code == 200, resp.text
-    assert resp.json()["bodies_merged"] == 1
+    assert resp.json()["bodies_merged"] == 0
     ids = (
         (
             await db_session.execute(
@@ -808,4 +811,4 @@ async def test_rb11_twin_class_rows_merge_across_sections(
         .scalars()
         .all()
     )
-    assert len(set(ids)) == 1, "the twin-class layers must share ONE body id"
+    assert len(set(ids)) == 2, "the twin-class layers stay TWO granular bodies"
