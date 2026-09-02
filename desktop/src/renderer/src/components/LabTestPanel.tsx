@@ -24,6 +24,7 @@ import {
   labelForParameter,
   labelForParameterGroup,
 } from '../utils/labTestLabels'
+import { useT } from '../i18n/translate'
 
 // PR 4d — slide-in lab-test detail panel.
 //
@@ -51,6 +52,7 @@ export default function LabTestPanel({
   onSelectSample,
   onClose,
 }: Props): React.ReactElement {
+  const t = useT()
   const hasGrain = sample.grain_sizes.length > 0
   const hasAtterberg = sample.atterberg_limits_tests.length > 0
   const hasCaCO3 = sample.caco3_content_tests.length > 0
@@ -100,7 +102,7 @@ export default function LabTestPanel({
       <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex-1 min-w-0">
           <div className="text-[10px] uppercase tracking-wide text-gray-400 flex items-center gap-1">
-            <span>Sample</span>
+            <span>{t('lab.sample')}</span>
             {allSamples.length > 1 && (
               <span className="text-gray-400 normal-case">
                 ({currentIndex + 1} / {allSamples.length})
@@ -108,7 +110,7 @@ export default function LabTestPanel({
             )}
           </div>
           <div className="text-sm font-semibold text-gray-800 truncate">
-            {sample.sample_number ?? '(unnumbered)'}
+            {sample.sample_number ?? t('lab.unnumbered')}
             <span className="text-gray-400 font-normal ml-2">
               {sample.depth_top_m === sample.depth_base_m
                 ? `${sample.depth_top_m.toFixed(2)} m`
@@ -126,7 +128,11 @@ export default function LabTestPanel({
           <button
             onClick={() => prevSample && onSelectSample(prevSample.id)}
             disabled={!prevSample}
-            title={prevSample ? `Previous: ${prevSample.sample_number ?? '(unnumbered)'}` : 'No previous sample'}
+            title={
+              prevSample
+                ? t('lab.previousSample', { name: prevSample.sample_number ?? t('lab.unnumbered') })
+                : t('lab.noPreviousSample')
+            }
             className="p-1 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-200 disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent"
           >
             <ChevronLeft size={16} />
@@ -134,14 +140,18 @@ export default function LabTestPanel({
           <button
             onClick={() => nextSample && onSelectSample(nextSample.id)}
             disabled={!nextSample}
-            title={nextSample ? `Next: ${nextSample.sample_number ?? '(unnumbered)'}` : 'No next sample'}
+            title={
+              nextSample
+                ? t('lab.nextSample', { name: nextSample.sample_number ?? t('lab.unnumbered') })
+                : t('lab.noNextSample')
+            }
             className="p-1 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-200 disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent"
           >
             <ChevronRight size={16} />
           </button>
           <button
             onClick={onClose}
-            title="Close"
+            title={t('common.close')}
             className="ml-1 text-gray-400 hover:text-gray-700 transition-colors p-1"
           >
             <X size={16} />
@@ -163,13 +173,13 @@ export default function LabTestPanel({
             className="text-xs text-gray-400 italic text-center py-8"
             data-testid="lab-test-empty-state"
           >
-            No lab tests recorded for this sample.
+            {t('lab.noTestsForSample')}
           </div>
         )}
         {hasGrain && <GrainSizeSection grainSizes={sample.grain_sizes} />}
         {(hasAtterberg || hasCaCO3 || hasOrganic || hasWater || hasScalar) && (
           <ScalarTestsSection
-            title="Identification tests"
+            title={t('lab.identificationTests')}
             tests={collectIdentificationTests(sample)}
           />
         )}
@@ -227,6 +237,7 @@ function GrainSizeSection({
 }: {
   grainSizes: GrainSizeResponse[]
 }): React.ReactElement {
+  const t = useT()
   // Combine all records into a single Recharts dataset where each row
   // carries one ``diameter`` x-value and N ``series_i`` y-values. NaN
   // is used for "no point" so Recharts skips the segment between
@@ -237,7 +248,7 @@ function GrainSizeSection({
   const series = grainSizes.map((gs, i) => ({
     record: gs,
     color: GRAIN_CURVE_COLORS[i % GRAIN_CURVE_COLORS.length],
-    label: gs.method ?? `Method ${i + 1}`,
+    label: gs.method ?? t('lab.methodN', { n: i + 1 }),
     key: `series_${i}` as const,
   }))
   const data = buildCombinedSeries(grainSizes)
@@ -246,17 +257,17 @@ function GrainSizeSection({
   // describes the chemistry pre-treatment regardless of method.
   const treatments = new Set<string>()
   for (const gs of grainSizes) {
-    if (gs.lime_removed) treatments.add('lime removed')
-    if (gs.organics_removed) treatments.add('organics removed')
+    if (gs.lime_removed) treatments.add(t('lab.limeRemoved'))
+    if (gs.organics_removed) treatments.add(t('lab.organicsRemoved'))
   }
 
   return (
     <section data-testid="lab-test-grain-size">
       <SectionTitle
-        title="Grain size"
+        title={t('lab.grainSize')}
         subtitle={
           grainSizes.length > 1
-            ? `${grainSizes.length} methods combined`
+            ? t('lab.methodsCombined', { n: grainSizes.length })
             : grainSizes[0]?.test_date || null
         }
       />
@@ -270,7 +281,7 @@ function GrainSizeSection({
         </div>
       )}
       {data.length === 0 ? (
-        <div className="text-[11px] text-gray-400 italic mt-2">Curve not recorded.</div>
+        <div className="text-[11px] text-gray-400 italic mt-2">{t('lab.curveNotRecorded')}</div>
       ) : (
         <>
           <div className="mt-2 h-52">
@@ -306,7 +317,7 @@ function GrainSizeSection({
                     v >= 1 ? v.toString() : v.toString().replace(/0+$/, '')
                   }
                   label={{
-                    value: 'Diameter (mm)',
+                    value: t('lab.diameterAxis'),
                     position: 'insideBottom',
                     offset: -10,
                     fontSize: 10,
@@ -317,7 +328,7 @@ function GrainSizeSection({
                   domain={[0, 100]}
                   tick={{ fontSize: 9, fill: '#6b7280' }}
                   label={{
-                    value: '% finer',
+                    value: t('lab.pctFiner'),
                     angle: -90,
                     position: 'insideLeft',
                     offset: 12,
@@ -329,7 +340,7 @@ function GrainSizeSection({
                   contentStyle={{ fontSize: 10, padding: '4px 8px' }}
                   formatter={(value: number, key: string) => {
                     const s = series.find(ser => ser.key === key)
-                    return [`${value.toFixed(1)} %`, s?.label ?? '% finer']
+                    return [`${value.toFixed(1)} %`, s?.label ?? t('lab.pctFiner')]
                   }}
                   labelFormatter={(v: number) => `${v.toFixed(3)} mm`}
                 />
