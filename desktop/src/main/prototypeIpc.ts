@@ -60,7 +60,20 @@ export function registerPrototypeIpc(service: ActivationService, options: Protot
 
   ipcMain.handle('activation:start-trial', (): Promise<ActivationActionResult> => service.startTrial())
 
-  ipcMain.handle('activation:deactivate', (): Promise<ActivationActionResult> => service.deactivate())
+  ipcMain.handle('activation:deactivate', async (): Promise<ActivationActionResult> => {
+    // Self-service deactivate / transfer (ruling 15). The service frees the seat
+    // on the server and clears the local licence on success (or a 404 = already
+    // released there); a 401 / network failure keeps the local licence. Log the
+    // outcome so a support report can see whether the seat was actually freed —
+    // never the licence key.
+    const result = await service.deactivate()
+    if (result.ok) {
+      console.info(`[main] activation deactivate -> ${result.status.verdict.state}`)
+    } else {
+      console.warn(`[main] activation deactivate refused (${result.code}) — local licence kept`)
+    }
+    return result
+  })
 
   // Prototype-only: force a state so the owner can see each screen. Registered
   // ONLY in a dev build — a packaged build never carries the demo control (senior
