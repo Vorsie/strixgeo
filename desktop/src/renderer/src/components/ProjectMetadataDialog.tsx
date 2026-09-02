@@ -470,6 +470,7 @@ export default function ProjectMetadataDialog({
             <Label htmlFor="pm-h-epsg">{t('project.defaultHorizontalCrs')}</Label>
             <select
               id="pm-h-epsg"
+              data-testid="project-crs-horizontal"
               value={state.default_horizontal_epsg ?? ''}
               onChange={e =>
                 update(
@@ -492,6 +493,7 @@ export default function ProjectMetadataDialog({
             <Label htmlFor="pm-v-epsg">{t('project.defaultVerticalCrs')}</Label>
             <select
               id="pm-v-epsg"
+              data-testid="project-crs-vertical"
               value={state.default_vertical_epsg ?? ''}
               onChange={e =>
                 update(
