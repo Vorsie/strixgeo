@@ -26,6 +26,7 @@ import type {
 } from '../../../api/client'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 
 /** Everything the two handlers consume from the SectionsCanvas scope. */
 export interface UseGeotechPackingCorrelationDeps {
@@ -180,7 +181,7 @@ export function useGeotechPackingCorrelation(
           log.warn('section', `packing-connect: frame mismatch — ${created.frame_warning}`)
           toast('warning', created.frame_warning)
         } else {
-          toast('success', 'Packing correlation added.')
+          toast('success', t('sections.packingCorr.added'))
         }
         log.success(
           'section',
@@ -335,7 +336,7 @@ export function useGeotechPackingCorrelation(
         // flickered out and back, and the only record was a log.warn nobody was
         // watching — the engineer kept clicking for minutes. Name the gesture
         // that did not take; error toasts are sticky, so this waits to be read.
-        toast('error', 'Could not disconnect the bands — the tie is still there. Try again.')
+        toast('error', t('sections.packingCorr.disconnectFailed'))
       }
     },
     [
@@ -388,7 +389,7 @@ export function useGeotechPackingCorrelation(
         )
       } catch (err) {
         log.warn('section', `handleAcceptGeotechPackingCorrelation: POST failed for edge ${edgeId}`, err)
-        toast('error', 'Could not accept the packing correlation. Try again or refresh.')
+        toast('error', t('sections.packingCorr.acceptFailed'))
       }
     },
     [
@@ -434,7 +435,7 @@ export function useGeotechPackingCorrelation(
           `handleConfirmGeotechPackingReview: POST failed for edge ${edgeId}`,
           err,
         )
-        toast('error', 'Could not confirm the tie. Try again or refresh.')
+        toast('error', t('sections.packingCorr.confirmFailed'))
       }
     },
     [activeGeotechModel, projectId, refetchGeotechPackingEdges, markMutated, toast],
