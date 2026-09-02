@@ -97,11 +97,28 @@ def test_trial_is_issued_once_per_device() -> None:
     assert second.json()["error"]["code"] == "trial_already_used"
 
 
-def test_diagnostics_counts_ndjson_lines() -> None:
-    """The diagnostics endpoint accepts a redacted NDJSON bundle and counts it."""
-    body = '{"kind":"main-uncaught"}\n{"kind":"api-error"}\n'
-    response = _client().post(
-        "/diagnostics", content=body, headers={"content-type": "application/x-ndjson"}
-    )
+def test_v1_diagnostics_accepts_a_bundle_and_acknowledges_it() -> None:
+    """The diagnostics endpoint accepts the JSON bundle and returns received + id."""
+    body = {
+        "bundleId": "b-1",
+        "createdAt": 1756814400000,
+        "appVersion": "1.0.0",
+        "platform": "win32",
+        "events": 2,
+        "truncated": False,
+        "ndjson": '{"kind":"main-uncaught"}\n{"kind":"api-error"}',
+    }
+    response = _client().post("/v1/diagnostics", json=body)
     assert response.status_code == 202
-    assert response.json()["received"] == 2
+    payload = response.json()
+    assert payload["received"] is True
+    assert isinstance(payload["id"], str) and payload["id"]
+
+
+def test_v1_diagnostics_refuses_a_non_json_body() -> None:
+    """A body that is not JSON is a 4xx (bad_request), which the client drops."""
+    response = _client().post(
+        "/v1/diagnostics", content=b"not json", headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "bad_request"
