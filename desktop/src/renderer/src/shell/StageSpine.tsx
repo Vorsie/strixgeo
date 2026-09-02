@@ -64,6 +64,10 @@ function SpineButton({ descriptor, active, onSelect }: SpineButtonProps): JSX.El
   return (
     <button
       type="button"
+      // Stable anchor for the guided tutorial (highlight "open the … tab") and
+      // for e2e. Ids match the descriptor id: stage-tab-data, -sections,
+      // -geology, -lithology, -geotechnical, -parameters, -export.
+      data-testid={`stage-tab-${descriptor.id}`}
       aria-label={label}
       aria-pressed={active}
       title={label}
