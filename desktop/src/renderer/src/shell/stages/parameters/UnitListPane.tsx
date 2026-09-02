@@ -22,6 +22,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
 
+import { useT } from '../../../i18n/translate'
+import { bodyUnionsToGroupPairs, geotechGroupOrdinals } from '../../../utils/geotechGroupOrdinals'
 import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import {
@@ -29,6 +31,7 @@ import {
   scopeKey,
   type ParameterTreeNode,
 } from './parameterBodyTree'
+import { useBodyUnions } from './useBodyUnions'
 import { useModelBodies } from './useModelBodies'
 
 /** One visible tree row after the expand state is applied. */
@@ -150,6 +153,19 @@ export default function UnitListPane(): JSX.Element {
     bodyRecomputeGeotechNonce,
   )
 
+  // D1: number the manual groups from the geotech model's body unions ("Join
+  // with…"), then hand the map to the tree so a grouped geotech-body leaf shows
+  // "(group N)". A missing/failed list degrades to no tags (``useBodyUnions``).
+  const bodyUnions = useBodyUnions(
+    project?.id ?? null,
+    activeGeotechModel?.id ?? null,
+    bodyRecomputeGeotechNonce,
+  )
+  const groupByBodyId = useMemo(
+    () => geotechGroupOrdinals(bodyUnionsToGroupPairs(bodyUnions)),
+    [bodyUnions],
+  )
+
   const tree = useMemo(
     () =>
       buildParameterTree({
@@ -159,8 +175,17 @@ export default function UnitListPane(): JSX.Element {
         geotechLayers,
         lithoBodies,
         geotechBodies,
+        groupByBodyId,
       }),
-    [lithoFormations, geotechFormations, lithoLayers, geotechLayers, lithoBodies, geotechBodies],
+    [
+      lithoFormations,
+      geotechFormations,
+      lithoLayers,
+      geotechLayers,
+      lithoBodies,
+      geotechBodies,
+      groupByBodyId,
+    ],
   )
 
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set())
@@ -287,6 +312,7 @@ function NodeRow({
   onSelect: () => void
   onToggleExpand: () => void
 }): JSX.Element {
+  const t = useT()
   const key = scopeKey(node.scope)
   return (
     <li
@@ -342,6 +368,17 @@ function NodeRow({
         <span className="truncate" data-testid={`parameters-node-label-${key}`}>
           {node.label}
         </span>
+        {/* D1: the manual-group tag — "(group N)" — a shrink-0 SIBLING of the
+            label (not nested in the truncate span) so a long label never clips
+            it (owner ruling 2026-09-02; ux-reviewer 2026-09-02). */}
+        {node.groupNumber != null && (
+          <span
+            className="ml-1 shrink-0 text-text-secondary"
+            data-testid={`parameters-node-group-${key}`}
+          >
+            {t('geotech.groupTag', { count: node.groupNumber })}
+          </span>
+        )}
         <span
           className="ml-auto shrink-0 text-[10px] text-text-secondary tabular-nums"
           data-testid={`parameters-node-count-${key}`}
