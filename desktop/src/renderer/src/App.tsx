@@ -588,8 +588,8 @@ export default function App() {
     toast(
       'error',
       outcome === 'refused-not-latest-save'
-        ? 'Could not revert: this file is not the project’s latest save. The backup was kept.'
-        : 'Could not revert the project to its last save — the backup was kept.',
+        ? tMsg('project.revertNotLatest')
+        : tMsg('project.revertFailed'),
     )
     return false
   }, [revertToLastSaved, toast])
@@ -940,12 +940,12 @@ export default function App() {
           'section',
           `exportDxf ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
         )
-        toast('success', 'DXF exported.')
+        toast('success', tMsg('app.dxfExported'))
       } catch (err) {
         log.error('section', 'exportDxf failed', err)
         toast(
           'error',
-          err instanceof Error ? err.message : 'Could not export the DXF.',
+          err instanceof Error ? err.message : tMsg('app.dxfExportFailed'),
         )
       }
     },
@@ -990,14 +990,14 @@ export default function App() {
           'section',
           `exportPlaxis2d ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
         )
-        toast('success', 'Plaxis 2D script exported.')
+        toast('success', tMsg('app.plaxis2dExported'))
       } catch (err) {
         log.error('section', 'exportPlaxis2d failed', err)
         toast(
           'error',
           err instanceof Error
             ? err.message
-            : 'Could not export the Plaxis 2D script.',
+            : tMsg('app.plaxis2dExportFailed'),
         )
       }
     },
