@@ -33,14 +33,16 @@ export type ParameterUnitScopeKind =
   | 'litho-body'
   | 'geotech-class'
   | 'geotech-body'
+  | 'geotech-group'
   | 'geotech-unit'
 
 /**
  * The unit the Parameters stage is scoped to — a node in the owner-ruled
  * body tree (spec §2, 2026-08-27, variant B).
  *
- * A five-kind discriminated union: four tree nodes plus one jump-only
- * fallback. The kind is load-bearing on two axes:
+ * A six-kind discriminated union: four tree nodes, one jump-only fallback, and
+ * one CANVAS-DERIVED aggregate (``geotech-group``). The kind is load-bearing on
+ * two axes:
  *
  * * WHICH MODEL to read (owner ruling R1): a ``litho-*`` scope pools the litho
  *   model — the whole litho unit / body, spanning every NAD subdivision — while
@@ -63,23 +65,20 @@ export type ParameterUnitScope =
   | { kind: 'litho-body'; unitId: string; bodyId: string }
   | { kind: 'geotech-class'; lithoUnitId: string; lithoBodyId: string; nadClass: number }
   | { kind: 'geotech-body'; unitId: string; bodyId: string }
+  // The manual-group aggregate (D2): NOT a tree node and never on the deep-link
+  // bus — the canvas DERIVES it when a selected ``geotech-body`` is in a
+  // multi-member "Join with…" group, then pools every member's bands.
+  | { kind: 'geotech-group'; unitId: string; groupNumber: number; memberBodyIds: readonly string[] }
   | { kind: 'geotech-unit'; unitId: string }
 
 /**
  * Which model axis a scope reads — the ONE branch consumers still need before
  * they reach ``bandsForScope`` (they pick the litho or geotech layer list /
- * active model from it).
+ * active model from it). ``'litho'`` for ``litho-unit`` / ``litho-body``;
+ * ``'geotech'`` for every geotech kind (class / body / group / unit).
  *
- * Parameters
- * ----------
- * scope
- *     Any scope in the five-kind union.
- *
- * Returns
- * -------
- * 'litho' | 'geotech'
- *     ``'litho'`` for ``litho-unit`` / ``litho-body``; ``'geotech'`` for the
- *     three geotech kinds.
+ * @param scope  Any scope in the union.
+ * @returns  ``'litho'`` or ``'geotech'``.
  */
 export function parameterScopeModel(scope: ParameterUnitScope): 'litho' | 'geotech' {
   return scope.kind === 'litho-unit' || scope.kind === 'litho-body' ? 'litho' : 'geotech'
