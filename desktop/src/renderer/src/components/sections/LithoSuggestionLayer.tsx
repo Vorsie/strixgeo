@@ -15,6 +15,7 @@ import {
   LITHOLOGY_COLORS,
   LITHOLOGY_FALLBACK_COLOR,
 } from '../../utils/lithoConstants'
+import { useT } from '../../i18n/translate'
 
 /** Ghost band opacity — pending (default) / accepted / rejected. */
 const GHOST_OPACITY_DEFAULT = 0.55
@@ -93,6 +94,7 @@ export function LithoSuggestionLayer({
    *  "still suggestion, awaiting your accept/reject" at a glance. */
   hatchPatternId: string
 }): JSX.Element | null {
+  const t = useT()
   // Convert depth-below-surface to mTAW using the investigation's elevation.
   const topMTaw = surfaceElevationM - layer.depth_top_m
   const baseMTaw = surfaceElevationM - layer.depth_base_m
@@ -333,7 +335,7 @@ export function LithoSuggestionLayer({
           >
             ×
           </text>
-          <title>Reject layer</title>
+          <title>{t('sections.menu.rejectLayer')}</title>
         </g>
       )}
 
