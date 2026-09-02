@@ -392,9 +392,14 @@ export async function resolveFenceTargetUnit(projectId: string): Promise<FenceTa
     if (cls !== null && cls !== undefined) classesInLithoBody.add(cls)
   }
 
-  // Leaf-absorb, bottom-up: a single LEAF child collapses into its parent.
+  // Leaf-absorb, bottom-up — the tree's CURRENT contract (owner ruling
+  // 2026-09-02, "don't collapse because the pakkingsdichtheid label
+  // disappears"): a class row over ≤1 geotech body is the leaf; a litho body
+  // ALWAYS keeps its class rows (default-open when there is one), so it is a
+  // leaf only when it has no class at all; a unit absorbs its only litho body
+  // only when that body is such a leaf.
   const classIsLeaf = home.geotechBodies.size <= 1
-  const lithoBodyIsLeaf = classesInLithoBody.size <= 1 && classIsLeaf
+  const lithoBodyIsLeaf = classesInLithoBody.size === 0
   const unitIsLeaf = lithoBodiesOfUnit.size <= 1 && lithoBodyIsLeaf
   const deepestKind = unitIsLeaf
     ? ('litho-unit' as const)
