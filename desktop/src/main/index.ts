@@ -9,6 +9,8 @@ import {
   mkdirSync,
   appendFileSync,
 } from 'fs'
+// Promise-based copy for the sample-install flow (fs.promises.copyFile).
+import { copyFile } from 'fs/promises'
 
 import { writeFileAtomic } from './atomicWrite'
 import {
@@ -59,6 +61,10 @@ import {
   rawBackendLogAffordanceEnabled,
 } from './security'
 import { applyPackagedProfile } from './packagedProfile'
+import {
+  SAMPLE_INSTALL_DEFAULT_FILE_NAME,
+  resolveSampleProjectPath,
+} from './sampleProject'
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
@@ -1162,6 +1168,57 @@ ipcMain.handle(
     writeFileAtomic(filePath, Buffer.from(contents))
   },
 )
+
+// Worked-example sample project (#93, owner ruling A8). The .strix ships as an
+// installer resource (build.extraResources maps resources/sample → resources/sample,
+// OUTSIDE the asar so copyFile can read it). "Load sample project" in the
+// onboarding overlay asks the renderer, which drives these two handlers.
+//
+// ``sample:available`` — is a bundled sample present? False until the owner
+// builds it, so the onboarding fallback (start empty) stays.
+ipcMain.handle('sample:available', (): boolean => {
+  const path = resolveSampleProjectPath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  })
+  writeMainLog(`[sample] available check → ${path !== null}`)
+  return path !== null
+})
+
+// ``sample:install`` — copy the bundled sample to a user-chosen location and
+// return its path (null when cancelled or when no sample is bundled). The
+// bundled resource is READ-ONLY-by-convention: a Save from the app rewrites the
+// .strix at its own path, so the resource must stay pristine — hence a copy the
+// user owns, never opening the resource in place.
+ipcMain.handle('sample:install', async (): Promise<string | null> => {
+  const source = resolveSampleProjectPath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  })
+  if (source === null) {
+    writeMainLog('[sample] install requested but no bundled sample is present')
+    return null
+  }
+  const result = await dialog.showSaveDialog({
+    defaultPath: join(app.getPath('documents'), SAMPLE_INSTALL_DEFAULT_FILE_NAME),
+    filters: [{ name: 'StrixGeo Project', extensions: [PROJECT_FILE_EXTENSION] }],
+  })
+  if (result.canceled || !result.filePath) {
+    writeMainLog('[sample] install cancelled by user')
+    return null
+  }
+  const destination = result.filePath
+  // fs.promises.copyFile — copy the pristine resource to the user's copy.
+  await copyFile(source, destination)
+  // The user just chose this path through the OS save dialog → authorise it so
+  // the subsequent openProjectFile (project:file-exists / project:read-file)
+  // is not refused by the path-authorisation guard.
+  authorisePath(destination)
+  writeMainLog(`[sample] installed worked example → ${destination}`)
+  return destination
+})
 
 // Cross-section PDF sheet: render sheet.html in a hidden window and print it
 // through Chromium (docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md).
