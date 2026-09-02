@@ -9346,6 +9346,23 @@ added to the machine path). Logs the flagged count (`frame_flagged` in the run
 (AT1 cross-soil restatement lands flagged, AT2 conforming run flags nothing);
 design note geotech-stage.md §4b-i.
 
+**2026-09-02 — D1's litho↔geotech re-stamp was ABBA-deadlocking (BP-3).** D1 has the
+litho resolve re-stamp its sibling geotech bodies' `parent_litho_body_id` under both
+partition locks — but the sibling geotech lock was taken at `_run_resolver` step 6,
+AFTER the litho body deletes. Deleting a litho body fires the `ON DELETE SET NULL` of
+the geotech rows' `parent_litho_body_id` FK — a hidden child write that row-locks the
+geotech `body` rows before the geotech advisory lock is requested; a concurrent geotech
+`bodies/recompute` holding that advisory lock and deleting those rows deadlocked (8
+victims in one e2e sweep, `DeadlockDetectedError` on `DELETE FROM body`). FIX:
+`_run_resolver` now takes each sibling geotech lock UP FRONT, right after the litho lock
+and before any write (step 6 reuses them, no re-take); `lock_body_partition` runs its
+SELECTs under `no_autoflush` (belt and braces). Pinned red-first by
+`tests/integration/api/test_body_partition_litho_geotech_lock_order.py` (BP-3) +
+`tests/unit/application/test_body_partition_lock_order.py`. RESIDUAL, same class, UNFIXED:
+`clear_litho_model` and `delete_body` delete litho bodies (the same SET NULL cascade onto
+geotech rows) without taking the geotech child's lock — lower-probability (user-initiated,
+not debounced), but the same up-front-lock fix would close it. Owner call.
+
 **Still open on this entry:**
 * ~~R3 twins migration~~ — **EXECUTED against the dev DB 2026-09-01 with the
   owner at the keyboard** (dry-run previewed, pg_dump taken to
