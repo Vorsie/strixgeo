@@ -25,6 +25,12 @@ export const LAUNCH = {
   'onboarding.back': 'Back',
   'onboarding.next': 'Next',
   'onboarding.done': 'Get started',
+  // Start-the-tutorial screen (replaces the old stage slideshow).
+  'onboarding.startTitle': 'Ready to build?',
+  'onboarding.startBody':
+    'A short, hands-on tutorial walks you through the whole workflow on your own project, one control at a time. Skip it any time and reopen it from Help.',
+  'onboarding.startTutorial': 'Start the tutorial',
+  'onboarding.startLater': 'Maybe later',
   'onboarding.sampleUnavailable':
     'The sample project is not bundled in this prototype yet — starting an empty project instead.',
   // The six spine stages, one sentence each.
