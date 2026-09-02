@@ -13,6 +13,7 @@
 import { Grid3x3, Loader2, Network } from 'lucide-react'
 
 import type { FencePanel } from '../../../utils/fencePanels'
+import { useT } from '../../../i18n/translate'
 
 /** Props for ``BodyViewModePills``. */
 export interface BodyViewModePillsProps {
@@ -53,6 +54,7 @@ export interface BodyViewModePillsProps {
  *     The pill cluster and (conditionally) the empty-fence hint.
  */
 export function BodyViewModePills(props: BodyViewModePillsProps): JSX.Element {
+  const t = useT()
   const {
     testIdPrefix,
     title,
@@ -75,7 +77,7 @@ export function BodyViewModePills(props: BodyViewModePillsProps): JSX.Element {
       >
         {/* Small "View" label so first-time users read this as a view-mode
             switch rather than an action button (Fix D). */}
-        <span className="text-[10px] text-text-secondary select-none leading-none">View</span>
+        <span className="text-[10px] text-text-secondary select-none leading-none">{t('export.viewLabel')}</span>
         <div className="flex rounded overflow-hidden border border-border-default shadow-sm">
           <button
             type="button"
@@ -90,7 +92,7 @@ export function BodyViewModePills(props: BodyViewModePillsProps): JSX.Element {
                 : 'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary hover:bg-surface-overlay',
             ].join(' ')}
           >
-            Solid
+            {t('export.viewSolid')}
           </button>
           <button
             type="button"
@@ -108,7 +110,7 @@ export function BodyViewModePills(props: BodyViewModePillsProps): JSX.Element {
             {/* Spinner sits beside the label so the button width stays stable
                 and the label stays readable. */}
             {fenceLoading && <Loader2 size={11} className="animate-spin" />}
-            Fence
+            {t('export.viewFence')}
           </button>
         </div>
 
@@ -121,7 +123,7 @@ export function BodyViewModePills(props: BodyViewModePillsProps): JSX.Element {
             type="button"
             data-testid={`${testIdPrefix}-view-wireframe`}
             aria-pressed={wireframe}
-            title="Show the body model as wireframe"
+            title={t('export.viewWireframeTitle')}
             onClick={() => setWireframe(w => !w)}
             className={[
               'px-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1 rounded border border-border-default shadow-sm',
@@ -131,7 +133,7 @@ export function BodyViewModePills(props: BodyViewModePillsProps): JSX.Element {
             ].join(' ')}
           >
             <Grid3x3 size={11} />
-            Wireframe
+            {t('export.viewWireframe')}
           </button>
         )}
       </div>
