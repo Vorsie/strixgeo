@@ -7,6 +7,8 @@
 // computes and the badge the leaf shows can never drift apart.
 
 import type { LithoLayerConfidence } from '../../../api/client'
+import { useT } from '../../../i18n/translate'
+import type { MessageKey } from '../../../i18n/locales/en'
 import type { ClassProvenance } from './geotechUnitTree'
 
 /**
@@ -22,11 +24,11 @@ const CONFIDENCE_BADGE_CLASS: Record<LithoLayerConfidence, string> = {
   low: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
 }
 
-/** Capitalised label for a confidence tier. */
-const CONFIDENCE_LABELS: Record<LithoLayerConfidence, string> = {
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
+/** Message-catalogue key for each confidence tier's capitalised label. */
+const CONFIDENCE_LABEL_KEYS: Record<LithoLayerConfidence, MessageKey> = {
+  high: 'geotech.confidenceHigh',
+  medium: 'geotech.confidenceMedium',
+  low: 'geotech.confidenceLow',
 }
 
 /**
@@ -53,20 +55,18 @@ const CONFIDENCE_LABELS: Record<LithoLayerConfidence, string> = {
  */
 const PROVENANCE_BADGES: Record<
   ClassProvenance,
-  { text: string; title: string; testIdStem: string; className: string } | null
+  { textKey: MessageKey; titleKey: MessageKey; testIdStem: string; className: string } | null
 > = {
   cpt: null,
   partial: {
-    text: 'No CPT (partial)',
-    title:
-      'Most bands derived from CPT qc series. At least one had no cone in its body, so it took the weakest class seen there instead. Check the low-confidence bands before use.',
+    textKey: 'geotech.badgeCptEstPartial',
+    titleKey: 'geotech.badgePartialHint',
     testIdStem: 'partial-cpt-badge',
     className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   },
   none: {
-    text: 'No CPT',
-    title:
-      'No CPT data behind this class. It took the weakest class seen in the body, or the lithology floor. Verify before use.',
+    textKey: 'geotech.badgeNoCpt',
+    titleKey: 'geotech.badgeNoCptHint',
     testIdStem: 'no-cpt-badge',
     className: 'bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
   },
@@ -103,16 +103,17 @@ export function ProvenanceBadge({
   nadClass: number | null
   idKey: string
 }): JSX.Element | null {
+  const t = useT()
   if (nadClass === null) return null
   const badge = PROVENANCE_BADGES[provenance]
   if (badge === null) return null
   return (
     <span
       className={`text-[10px] rounded px-1 py-0 flex-shrink-0 ${badge.className}`}
-      title={badge.title}
+      title={t(badge.titleKey)}
       data-testid={`${badge.testIdStem}-${idKey}`}
     >
-      {badge.text}
+      {t(badge.textKey)}
     </span>
   )
 }
@@ -139,14 +140,15 @@ export function ConfidenceBadge({
   confidence: LithoLayerConfidence | null
   idKey: string
 }): JSX.Element | null {
+  const t = useT()
   if (confidence === null) return null
   return (
     <span
       className={`text-[10px] rounded px-1 py-0 flex-shrink-0 ${CONFIDENCE_BADGE_CLASS[confidence]}`}
-      title="Aggregated confidence of the packing-class assignment across all CPT layers"
+      title={t('geotech.badgeConfidence')}
       data-testid={`confidence-badge-${idKey}`}
     >
-      {CONFIDENCE_LABELS[confidence]}
+      {t(CONFIDENCE_LABEL_KEYS[confidence])}
     </span>
   )
 }
