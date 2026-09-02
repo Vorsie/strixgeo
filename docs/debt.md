@@ -585,16 +585,30 @@ remains actionable — the hook points exist and are populated.
 **What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
 devtools console; user-side crashes are invisible to us.
 
-**Status 2026-08-27 — the CAPTURE half is SHIPPED.** Local NDJSON
-diagnostics store, field-whitelist + redaction, consent default-OFF,
-crash-bundle ``.zip`` a tester can send by hand, renderer capture on
-5xx/network failures — see [design/diagnostics-capture.md](design/diagnostics-capture.md).
-The TRANSMIT half deliberately sends nowhere: the endpoint decision is
-coupled to the activation-server choice (#3) — see
-[design/activation-decision-memo.md](design/activation-decision-memo.md) Q4.
+**Status 2026-09-02 — CAPTURE + the TRANSMIT client are SHIPPED.**
+Capture: local NDJSON store, field-whitelist + redaction, consent
+default-OFF, crash-bundle ``.zip`` a tester can send by hand, renderer
+capture on 5xx/network failures. Transmit: ``diagnosticsUploader.ts`` —
+a consent-gated, disk-queued uploader that POSTs the redacted log to the
+activation origin (``POST /v1/diagnostics``, owner ruling 2026-08-31
+"same server as activation"), oldest-first, 512 KiB cap,
+retry-with-backoff on 5xx/network, drop on 4xx. Inert unless consent is
+on AND an activation base URL is configured (the mock/dogfeed default
+sends nothing) — see
+[design/diagnostics-capture.md](design/diagnostics-capture.md) +
+[design/activation-api-contract.md](design/activation-api-contract.md).
 
-**When.** Endpoint + consent UI before any non-solo user; the owner's
-activation ruling decides where reports go.
+**Remaining.** (1) the consent Settings toggle UI — until it ships a
+user cannot opt in through the app, so the uploader stays inert in
+practice; (2) the strixgeo.com ``/v1/diagnostics`` endpoint (same MySQL
+host as activation, not built); (3) an owner ruling on whether the
+upload carries the licence/device id — the plumbing is built and gated
+OFF behind ``ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS`` because
+attaching it reverses the "no device id" capture invariant.
+
+**When.** The consent UI + endpoint before any non-solo user; the
+owner's activation ruling decides where reports go and whether identity
+travels.
 
 ## 17. Legacy `dov_permkey = NULL` rows — documented recovery, no backfill code (low)
 
