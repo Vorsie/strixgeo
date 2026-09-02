@@ -32,6 +32,7 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import SectionsCanvas from './SectionsCanvas'
 import type { FormationContactResponse, GeologicalModelResponse } from '../../../api/client'
+import { useSectionScope } from '../../../components/sections/SectionScopeContext'
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -65,7 +66,8 @@ let capturedOnManualLithoUnitCreate:
   | undefined = undefined
 // Capture axisMode so the geological-axis regression (S3) can assert the
 // litho picker is NOT wired on the geology axis.
-let capturedAxisMode: 'geological' | 'lithostratigraphic' | undefined = undefined
+let capturedAxisMode: 'geological' | 'lithostratigraphic' | 'geotechnical' | undefined =
+  undefined
 
 // Capture correlateGestureState so the S5 test can invoke onCorrelate
 // and assert the armed source is NOT cleared on a failed POST.
@@ -75,19 +77,20 @@ let capturedCorrelateGestureState:
 
 vi.mock('../../../components/SectionPanel', () => ({
   default: (props: {
-    contacts?: readonly FormationContactResponse[]
     onCreateContact?: typeof capturedOnCreateContact
     onBatchCreateContacts?: typeof capturedOnBatchCreateContacts
     onManualLithoUnitCreate?: typeof capturedOnManualLithoUnitCreate
-    axisMode?: 'geological' | 'lithostratigraphic'
     correlateGestureState?: { onCorrelate?: (a: string, b: string) => Promise<void> }
   }) => {
-    // Capture the props each time SectionPanel renders.
-    capturedContacts = props.contacts
+    // Capture the props each time SectionPanel renders. ``contacts`` and
+    // ``axisMode`` moved onto the SectionScope (debt #201 Phase B), so they
+    // arrive via context now — read them from the scope the panel itself reads.
+    const scope = useSectionScope()
+    capturedContacts = scope.contacts
     capturedOnCreateContact = props.onCreateContact
     capturedOnBatchCreateContacts = props.onBatchCreateContacts
     capturedOnManualLithoUnitCreate = props.onManualLithoUnitCreate
-    capturedAxisMode = props.axisMode
+    capturedAxisMode = scope.axisMode
     capturedCorrelateGestureState = props.correlateGestureState
     return null
   },
