@@ -30,6 +30,7 @@ import {
   lithoBaseLabel,
   lithoDisplayName,
 } from '../../utils/lithoLabels'
+import { useT } from '../../i18n/translate'
 
 // Vocabulary mirrors LithoCompositionPickerDialog. Base-lithology labels
 // share a single source of truth (utils/lithoConstants.LITHOLOGY_LABELS)
@@ -88,6 +89,7 @@ export default function LithoGhostCompositionEditor({
   onSave,
   onCancel,
 }: LithoGhostCompositionEditorProps): JSX.Element | null {
+  const t = useT()
   // Normalise the incoming main soil code — segmenter SHOULD send a
   // BaseLithology token but a defensive fallback keeps the dialog
   // openable even on stale / unknown values.
@@ -195,7 +197,9 @@ export default function LithoGhostCompositionEditor({
           id="ghost-composition-editor-title"
           className="text-sm font-semibold text-text-primary mb-3"
         >
-          {mainSoilLocked ? 'Edit admixtures for this body' : 'Edit suggestion composition'}
+          {mainSoilLocked
+            ? t('composition.editAdmixturesTitle')
+            : t('composition.editSuggestionTitle')}
         </h2>
 
         {/* Main soil code dropdown */}
@@ -204,9 +208,9 @@ export default function LithoGhostCompositionEditor({
             htmlFor="ghost-edit-main-code"
             className="block text-xs text-text-secondary mb-1"
           >
-            Main soil
+            {t('composition.mainSoil')}
             {mainSoilLocked && (
-              <span className="ml-1 text-text-muted">(fixed by correlation group)</span>
+              <span className="ml-1 text-text-muted">{t('composition.fixedByCorrelation')}</span>
             )}
           </label>
           <select
@@ -234,9 +238,9 @@ export default function LithoGhostCompositionEditor({
 
         {/* Admixture rows */}
         <div className="mb-3">
-          <p className="text-xs text-text-secondary mb-1">Admixtures</p>
+          <p className="text-xs text-text-secondary mb-1">{t('composition.admixtures')}</p>
           {rows.length === 0 && (
-            <p className="text-[11px] text-text-muted italic mb-1">No admixtures.</p>
+            <p className="text-[11px] text-text-muted italic mb-1">{t('composition.noAdmixtures')}</p>
           )}
           <div className="flex flex-col gap-1.5">
             {rows.map(row => {
@@ -272,7 +276,7 @@ export default function LithoGhostCompositionEditor({
                   value={row.soil_code}
                   onChange={e => updateRow(row.id, { soil_code: e.target.value })}
                   className="min-w-0 flex-1 text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
-                  aria-label="Admixture soil code"
+                  aria-label={t('composition.admixtureSoilCode')}
                 >
                   {soilOptions.map(opt => (
                     <option key={opt.code} value={opt.code}>
@@ -284,7 +288,7 @@ export default function LithoGhostCompositionEditor({
                   value={row.amount}
                   onChange={e => updateRow(row.id, { amount: e.target.value })}
                   className="min-w-0 flex-1 text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
-                  aria-label="Admixture amount"
+                  aria-label={t('composition.admixtureAmount')}
                 >
                   {amountOptions.map(opt => (
                     <option key={opt.code} value={opt.code}>
@@ -299,13 +303,13 @@ export default function LithoGhostCompositionEditor({
                     onChange={e => updateRow(row.id, { locally: e.target.checked })}
                     className="rounded"
                   />
-                  locally
+                  {t('composition.locally')}
                 </label>
                 <button
                   onClick={() => removeAdmixtureRow(row.id)}
                   className="shrink-0 text-text-muted hover:text-red-600"
-                  title="Remove admixture"
-                  aria-label="Remove admixture"
+                  title={t('composition.removeAdmixture')}
+                  aria-label={t('composition.removeAdmixture')}
                 >
                   <X size={12} />
                 </button>
@@ -318,14 +322,14 @@ export default function LithoGhostCompositionEditor({
             className="mt-1.5 flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
           >
             <Plus size={11} />
-            Add admixture
+            {t('composition.addAdmixture')}
           </button>
         </div>
 
         {/* Live preview */}
         <div className="rounded border border-border-subtle bg-surface-page px-3 py-2 mb-4">
           <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">
-            Preview
+            {t('composition.preview')}
           </p>
           <p
             className="text-sm font-medium text-text-primary"
@@ -337,10 +341,10 @@ export default function LithoGhostCompositionEditor({
 
         <div className="flex justify-end items-center gap-2 pt-3 border-t border-border-subtle">
           <Button variant="secondary" size="md" onClick={onCancel}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" size="md" onClick={handleSave}>
-            Save composition
+            {t('composition.save')}
           </Button>
         </div>
       </div>
