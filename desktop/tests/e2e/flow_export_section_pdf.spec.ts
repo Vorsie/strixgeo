@@ -20,14 +20,40 @@ import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/pro
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 
 /** Open the Sections stage, select the first seeded section, switch to litho. */
-async function openFirstSectionOnLitho(page: Page): Promise<void> {
+async function openFirstSectionWithFill(page: Page): Promise<void> {
+  // The seeded fixture draws a partition only on some sections/axes (Section A on
+  // the litho axis has column strips but no bands), so walk the rows and axes
+  // until the sheet dialog reports a paper size, which it does only with a fill.
+  // Returns with the preview dialog OPEN on that section/axis.
   await goToStage(page, 'Sections')
-  const sectionRow = page
-    .locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
-    .first()
-  await expect(sectionRow).toBeVisible({ timeout: 10_000 })
-  await sectionRow.click()
-  await page.getByRole('radio', { name: 'Litho' }).click()
+  const rows = page.locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+  await expect(rows.first()).toBeVisible({ timeout: 10_000 })
+  const n = await rows.count()
+  for (let i = 0; i < n; i += 1) {
+    await rows.nth(i).click()
+    for (const axis of ['Litho', 'Geotech'] as const) {
+      const radio = page.getByRole('radio', { name: axis })
+      if (!(await radio.isVisible())) continue
+      await radio.click()
+      // The geotech toolbar folds the export verbs under the overflow "More" menu.
+      const dropdown = page.getByTestId('sections-toolbar-export-dropdown')
+      if (await dropdown.isVisible()) await dropdown.click()
+      else {
+        await page.getByTestId('toolbar-overflow-more').click()
+        const nested = page.getByTestId('sections-toolbar-export-dropdown')
+        if (await nested.isVisible()) await nested.click()
+      }
+      await page.getByTestId('export-section-pdf').click()
+      await expect(page.getByTestId('sheet-preview-dialog')).toBeVisible()
+      const size = page.getByTestId('sheet-paper-size')
+      // Wait for THIS section's build to settle (the label carries data-busy while it runs).
+      await expect(size).toHaveAttribute('data-busy', 'false', { timeout: 30_000 })
+      if (((await size.textContent()) ?? '').includes('mm')) return
+      await page.getByTestId('sheet-close').click()
+      await expect(page.getByTestId('sheet-preview-dialog')).toBeHidden({ timeout: 5_000 })
+    }
+  }
+  throw new Error('no section/axis with a drawable fill in the fixture')
 }
 
 test.describe('flow_export_section_pdf', () => {
@@ -36,17 +62,14 @@ test.describe('flow_export_section_pdf', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run tests/e2e/fixtures/build_synthetic_fixture.py first',
   )
 
+  test.setTimeout(240_000)
   test('preview → slider → export → a PDF whose page matches the preview', async () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await openFirstSectionOnLitho(page)
-
-      // Export ▾ → Section PDF opens the live preview dialog.
-      await page.getByTestId('sections-toolbar-export-dropdown').click()
-      await page.getByTestId('export-section-pdf').click()
-      await expect(page.getByTestId('sheet-preview-dialog')).toBeVisible()
+      // Opens the preview on the first section/axis that has a fill.
+      await openFirstSectionWithFill(page)
 
       const size = page.getByTestId('sheet-paper-size')
       await expect(size).toContainText('mm', { timeout: 20_000 })
@@ -84,9 +107,13 @@ test.describe('flow_export_section_pdf', () => {
       const text = bytes.toString('latin1')
       const box = text.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/)
       expect(box).not.toBeNull()
+      // Chromium quantises the requested page size (inches at 1/100 pt), so
+      // allow 2 pt or 0.1 %, whichever is larger — well below one millimetre.
       const ptPerMm = 72 / 25.4
-      expect(Number(box![1])).toBeCloseTo(wMm * ptPerMm, 0)
-      expect(Number(box![2])).toBeCloseTo(hMm * ptPerMm, 0)
+      const near = (got: number, want: number): void =>
+        expect(Math.abs(got - want)).toBeLessThanOrEqual(Math.max(2, want * 0.001))
+      near(Number(box![1]), wMm * ptPerMm)
+      near(Number(box![2]), hMm * ptPerMm)
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
