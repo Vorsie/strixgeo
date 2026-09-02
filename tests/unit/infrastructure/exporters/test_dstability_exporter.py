@@ -32,6 +32,11 @@ from groundmodel.application.section_polygon_set import (
     SectionPolygonSet,
     SectionPolygonUnit,
 )
+from groundmodel.domain.services import nad_soil_parameters_constants as nad_params
+from groundmodel.domain.services.nad_soil_parameters_constants import (
+    SOURCE_LABEL,
+    NadSoilParameters,
+)
 from groundmodel.infrastructure.exporters.dstability_exporter import DStabilityExporter
 
 _PROJECT_ID = UUID("11111111-1111-1111-1111-111111111111")
@@ -352,3 +357,89 @@ def test_ds12_two_units_sharing_a_class_and_a_soil_get_distinct_soil_codes(
         "NAD-06_ZAND #2",
     ]
     assert len(model.datastructure.geometries[0].Layers) == 2
+
+
+# --- NAD soil parameters (empty-until-filled) --------------------------
+
+
+def _archive_soils(payload: bytes) -> dict[str, dict]:
+    """Read our own soils out of ``soils.json`` in the .stix archive, by code.
+
+    Read from the archive rather than ``model.parse`` because the soil
+    ``Notes`` we write carries the SOURCE_LABEL's em dash, and GEOLib's
+    reader decodes the archive as cp1252 — so the round-trip mojibakes it
+    (the documented writer-UTF-8 / reader-cp1252 quirk). The bytes IN the
+    file D-Stability opens are correct, so the assertions read them.
+    """
+    with zipfile.ZipFile(BytesIO(payload)) as archive:
+        soils = json.loads(archive.read("soils.json").decode("utf-8"))["Soils"]
+    return {s["Code"]: s for s in soils if (s.get("Code") or "").startswith("NAD-")}
+
+
+def test_ds16_a_populated_class_writes_its_parameters_and_the_source_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A class present in the NAD table exports its γ, φ′, c′ and the label.
+
+    The rule: when the owner has transcribed a class's characteristic
+    values, the D-Series export carries them — cohesion and friction angle
+    on the Mohr-Coulomb model D-Stability actually applies both above AND
+    below the phreatic level, both unit weights, and the NAD-table label on
+    the soil so a reviewer sees where the numbers came from.
+    """
+    monkeypatch.setattr(
+        nad_params,
+        "NAD_SOIL_PARAMETERS",
+        {
+            6: NadSoilParameters(
+                gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=32.5, c_kpa=0.0
+            ),
+            21: NadSoilParameters(
+                gamma_unsat_kn_m3=16.0, gamma_sat_kn_m3=17.5, phi_deg=22.0, c_kpa=5.0
+            ),
+        },
+    )
+
+    soils = _archive_soils(DStabilityExporter().export(_two_layer_set()))
+
+    sand = soils["NAD-06_ZAND"]
+    assert sand["MohrCoulombAdvancedShearStrengthModel"]["Cohesion"] == 0.0
+    assert sand["MohrCoulombAdvancedShearStrengthModel"]["FrictionAngle"] == 32.5
+    assert sand["VolumetricWeightAbovePhreaticLevel"] == 18.0
+    assert sand["VolumetricWeightBelowPhreaticLevel"] == 20.0
+    # The strength model is Mohr-Coulomb on BOTH sides, so cohesion + phi are
+    # applied below the water table too (not GEOLib's default Su-below).
+    assert sand["ShearStrengthModelTypeAbovePhreaticLevel"] == "MohrCoulombAdvanced"
+    assert sand["ShearStrengthModelTypeBelowPhreaticLevel"] == "MohrCoulombAdvanced"
+    assert SOURCE_LABEL in sand["Notes"]
+
+    clay = soils["NAD-21_KLEI"]
+    assert clay["MohrCoulombAdvancedShearStrengthModel"]["Cohesion"] == 5.0
+    assert clay["MohrCoulombAdvancedShearStrengthModel"]["FrictionAngle"] == 22.0
+    assert clay["VolumetricWeightAbovePhreaticLevel"] == 16.0
+    assert clay["VolumetricWeightBelowPhreaticLevel"] == 17.5
+    assert SOURCE_LABEL in clay["Notes"]
+
+
+def test_ds17_a_class_absent_from_the_table_writes_no_invented_numbers() -> None:
+    """A class the owner has not transcribed stays at GEOLib's blank defaults.
+
+    Pins the audited "absent" representation so the parameter path cannot
+    leak a default into an unfilled class: every strength/weight field is
+    the zero GEOLib initialises, the soil carries no NAD-table note, and the
+    below-phreatic model is GEOLib's own ``Su`` default (documented, not
+    chosen by Strix — see ``dstability_exporter_constants``).
+    """
+    # The shipped table is empty; assert against it without monkeypatching.
+    assert nad_params.NAD_SOIL_PARAMETERS == {}
+    soils = _archive_soils(DStabilityExporter().export(_two_layer_set()))
+
+    for soil in soils.values():
+        assert soil["MohrCoulombAdvancedShearStrengthModel"]["Cohesion"] == 0.0
+        assert soil["MohrCoulombAdvancedShearStrengthModel"]["FrictionAngle"] == 0.0
+        assert soil["MohrCoulombClassicShearStrengthModel"]["Cohesion"] == 0.0
+        assert soil["MohrCoulombClassicShearStrengthModel"]["FrictionAngle"] == 0.0
+        assert soil["VolumetricWeightAbovePhreaticLevel"] == 0.0
+        assert soil["VolumetricWeightBelowPhreaticLevel"] == 0.0
+        assert soil["Notes"] == ""
+        assert soil["ShearStrengthModelTypeBelowPhreaticLevel"] == "Su"
