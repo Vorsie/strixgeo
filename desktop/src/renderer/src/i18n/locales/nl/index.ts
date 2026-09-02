@@ -26,6 +26,7 @@
 import type { Messages } from '../en'
 import { CHROME_NL } from './chrome'
 import { DATA_NL } from './data'
+import { LAUNCH_NL } from './launch'
 import { MODELS_NL } from './models'
 import { OUTPUTS_NL } from './outputs'
 import { PANELS_NL } from './panels'
@@ -41,6 +42,7 @@ export const NL: Partial<Messages> = {
   ...SECTIONS_NL,
   ...OUTPUTS_NL,
   ...PANELS_NL,
+  ...LAUNCH_NL,
 }
 
 /** Per-surface modules, kept addressable so the parity test can report which
@@ -53,4 +55,5 @@ export const NL_MODULES = {
   sections: SECTIONS_NL,
   outputs: OUTPUTS_NL,
   panels: PANELS_NL,
+  launch: LAUNCH_NL,
 } as const
