@@ -9472,3 +9472,12 @@ different triggers for each.
   expansion" and expects to "need the overturned folding sooner than later" once
   that expansion happens. Effort: months + a new implicit modelling engine —
   scope it the moment the Ardennes market is on the roadmap, not after.
+
+**2026-09-02 — the electron-vite config was dormant.** `desktop/electron-vite.config.ts`
+(hyphen) was never loaded: electron-vite 3.x resolves `electron.vite.config.*` (dot).
+Every dev run, e2e build and installer so far ran on the defaults, and worked, because
+`src/renderer/src/main.tsx` sets `window.CESIUM_BASE_URL` and `scripts/copy-cesium.mjs`
+ships the assets. Replaced by a MINIMAL dot-named config carrying only the second
+renderer entry (`sheet.html`). The old file's Cesium define/intro, the React plugin and
+the Cesium dev-server plugin were never in effect; activating them would be a deliberate,
+verified change (git history has the file). Folded into #200.
