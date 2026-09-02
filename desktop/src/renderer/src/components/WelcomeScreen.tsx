@@ -4,6 +4,7 @@ import Button from './ui/Button'
 import { formatRecoveryAge } from '../utils/recoveryAge'
 import { parseRecoverySnapshot } from '../utils/recoverySnapshot'
 import { log } from '../utils/log'
+import { useT } from '../i18n/translate'
 
 interface RecentEntry {
   path: string
@@ -73,6 +74,7 @@ export default function WelcomeScreen({
   onOpenProject,
   onOpenRecent,
 }: Props) {
+  const t = useT()
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [recent, setRecent] = useState<RecentEntry[]>([])
@@ -160,10 +162,7 @@ export default function WelcomeScreen({
         // A specific decode reason (corruption / truncation / newer version)
         // wins over the generic banner — the RAM-corruption-mid-save case must
         // read LOUD and name the problem, not blame the API.
-        setOpenError(
-          message ??
-            "Couldn't open the selected project file. The file may be corrupt, or the API isn't reachable.",
-        )
+        setOpenError(message ?? t('welcome.openFailed'))
         refreshRecent()
       }
     } finally {
@@ -179,14 +178,12 @@ export default function WelcomeScreen({
       const { outcome, message } = await onOpenRecent(path)
       if (outcome !== 'opened') {
         const entry = recent.find(r => r.path === path)
-        const name = entry ? `"${entry.name}"` : 'the project'
+        const name = entry ? `"${entry.name}"` : t('welcome.theProject')
         setOpenError(
           outcome === 'missing'
-            ? `Couldn't find the file for ${name} at ${path}. Did you move or rename it? ` +
-                'Put it back, or open it from its new location with "Open project from file".'
+            ? `${t('welcome.fileNotFoundFor', { name, path })} ${t('welcome.fileMoved')}`
             : // A specific decode reason wins over the generic corrupt/API banner.
-              (message ??
-                `Couldn't open ${name}. The file may be corrupt, or the API isn't reachable.`),
+              (message ?? t('welcome.openFailedNamed', { name })),
         )
         refreshRecent()
       }
@@ -223,7 +220,7 @@ export default function WelcomeScreen({
             <button
               onClick={() => setOpenError(null)}
               className="text-amber-700 hover:text-amber-900 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-              aria-label="Dismiss"
+              aria-label={t('common.dismiss')}
             >
               ✕
             </button>
@@ -232,17 +229,16 @@ export default function WelcomeScreen({
         <div className="flex gap-6">
         {/* Create / Open column */}
         <div className="bg-surface-page border border-border-subtle rounded-lg shadow-sm p-8 w-96">
-          <h1 className="text-lg font-semibold text-text-primary mb-1">Ground Model</h1>
+          <h1 className="text-lg font-semibold text-text-primary mb-1">{t('welcome.heading')}</h1>
           <p className="text-sm text-text-secondary mb-6">
-            Open an existing project file or create a new one to start importing
-            and analysing data.
+            {t('welcome.taglineFull')}
           </p>
 
           <label
             htmlFor="welcome-project-name"
             className="block text-xs font-medium text-text-secondary mb-1"
           >
-            Project name
+            {t('project.name')}
           </label>
           <input
             autoFocus
@@ -251,7 +247,7 @@ export default function WelcomeScreen({
             value={name}
             onChange={e => setName(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="e.g. GEO-22/040 Brugge"
+            placeholder={t('project.namePlaceholderExample')}
             disabled={busy}
             data-testid="welcome-project-name-input"
             className="w-full border border-border-default rounded px-3 py-1.5 text-sm text-text-primary bg-surface-page placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent mb-4 disabled:bg-surface-card"
@@ -265,13 +261,13 @@ export default function WelcomeScreen({
             disabled={!name.trim() || busy}
             data-testid="welcome-new-project-button"
           >
-            Create project…
+            {t('welcome.createProject')}
           </Button>
 
           {/* Visual divider between the two entry points. */}
           <div className="flex items-center gap-2 my-3 text-[10px] text-text-muted">
             <span className="flex-1 border-t border-border-subtle" />
-            <span>or</span>
+            <span>{t('welcome.orDivider')}</span>
             <span className="flex-1 border-t border-border-subtle" />
           </div>
 
@@ -283,7 +279,7 @@ export default function WelcomeScreen({
             disabled={busy}
             data-testid="welcome-open-button"
           >
-            Open project from file…
+            {t('welcome.openProject')}
           </Button>
         </div>
 
@@ -303,11 +299,11 @@ export default function WelcomeScreen({
             <div className="flex items-center gap-1.5 mb-3">
               <RotateCcw size={13} className="text-text-muted" />
               <h2 className="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                Recovered work
+                {t('welcome.recoveredWork')}
               </h2>
             </div>
             <p className="text-[11px] text-text-muted mb-2">
-              These projects closed with unsaved work. Open one to restore it.
+              {t('welcome.recoveredWorkBody')}
             </p>
             <ul className="flex flex-col gap-1 -mx-2">
               {recovered.map(entry => (
@@ -320,19 +316,19 @@ export default function WelcomeScreen({
                     className="w-full text-left px-2 py-1.5 rounded hover:bg-surface-card disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
                   >
                     <div className="text-sm text-text-primary truncate">
-                      {entry.projectName || 'Untitled project'}
+                      {entry.projectName || t('welcome.untitledProject')}
                     </div>
                     <div className="text-[10px] text-text-muted truncate">
                       {entry.filePath === null
-                        ? 'Open the project file to restore'
-                        : `from ${formatRecoveryAge(entry.writtenAt)}`}
+                        ? t('welcome.openToRestore')
+                        : t('welcome.fromAge', { age: formatRecoveryAge(entry.writtenAt) })}
                     </div>
                     {/* A copy the user already passed on. Quiet and secondary
                         — it changes what the row MEANS (this is not a new
                         crash) without turning the row into a warning. */}
                     {entry.declined && (
                       <div className="text-[10px] text-text-muted truncate italic">
-                        You chose not to restore this earlier
+                        {t('welcome.recoveryDeclined')}
                       </div>
                     )}
                   </button>
@@ -350,7 +346,7 @@ export default function WelcomeScreen({
             <div className="flex items-center gap-1.5 mb-3">
               <Clock size={13} className="text-text-muted" />
               <h2 className="text-xs font-medium uppercase tracking-wide text-text-secondary">
-                Recent projects
+                {t('welcome.recentProjects')}
               </h2>
             </div>
             <ul className="flex flex-col gap-1 overflow-y-auto max-h-80 -mx-2">
