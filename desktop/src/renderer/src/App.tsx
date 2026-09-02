@@ -32,6 +32,19 @@ import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
 import CheatsheetDialog from './components/ui/CheatsheetDialog'
+// Launch prototypes (debt #93 / #3 / #6) — see
+// docs/design/onboarding-activation-updater-proto.md.
+import OnboardingOverlay from './components/onboarding/OnboardingOverlay'
+import LicensingDialog from './components/licensing/LicensingDialog'
+import UpdateNotification from './components/updater/UpdateNotification'
+import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
+import { activationGateDecision, type GateDecision } from './utils/activationGate'
+import { t as tMsg } from './i18n/translate'
+import type {
+  ActivationActionResultDto,
+  ActivationStatusDto,
+  UpdaterEventDto,
+} from './utils/launchPrototypeTypes'
 import {
   buildGeotechSubdivisionPatch,
   readGeotechSubdivisionPrefs,
@@ -190,6 +203,26 @@ declare global {
         daysRemaining: number | null
         expiresAtMs: number | null
       } | null>
+      // --- Launch prototypes (#93 / #3 / #6) ---------------------------------
+      // Synchronous boot flags (preload sendSync): e2e = STRIX_E2E harness run,
+      // packaged = app.isPackaged. Gate boot-time UI (onboarding auto-open, the
+      // packaged activation start screen) without an async round-trip.
+      launchFlags: { e2e: boolean; packaged: boolean }
+      // Menu signals — same one-way fire as onMenuOpenSettings.
+      onMenuOpenOnboarding: (cb: () => void) => () => void
+      onMenuOpenLicensing: (cb: () => void) => () => void
+      onMenuCheckUpdates: (cb: () => void) => () => void
+      // Activation (#3) — all behind the main-process ActivationService + mock.
+      getActivationStatus: () => Promise<ActivationStatusDto>
+      activateLicence: (key: string) => Promise<ActivationActionResultDto>
+      startTrial: () => Promise<ActivationActionResultDto>
+      deactivateLicence: () => Promise<ActivationActionResultDto>
+      previewActivationState: (state: string) => Promise<ActivationStatusDto>
+      // Updater (#6) — gated on app.isPackaged in main; inert in dev.
+      checkForUpdates: () => Promise<void>
+      downloadUpdate: () => Promise<void>
+      quitAndInstallUpdate: () => Promise<void>
+      onUpdaterEvent: (cb: (event: UpdaterEventDto) => void) => () => void
     }
   }
 }
@@ -324,6 +357,94 @@ export default function App() {
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false)
   useEffect(() => {
     const off = window.electron.onMenuOpenCheatsheet(() => setCheatsheetOpen(true))
+    return off
+  }, [])
+
+  // --- Launch prototypes (#93 / #3 / #6) ------------------------------------
+  // Onboarding (#93): auto-opens once on first launch (gated on the persisted
+  // "seen" flag) and is re-openable from Help → Getting started…. Reachable from
+  // both the welcome screen and a loaded project.
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  useEffect(() => {
+    const off = window.electron.onMenuOpenOnboarding(() => setOnboardingOpen(true))
+    return off
+  }, [])
+  // First-launch auto-open — read once on mount. Suppressed under the e2e flag
+  // so the harness (whose userData dir persists and never seeds the "seen" flag)
+  // does not raise the z-max onboarding modal over ~130 specs (senior BLOCKER).
+  useEffect(() => {
+    if (shouldAutoOpenOnboarding({ seen: hasSeenOnboarding(), e2e: window.electron.launchFlags.e2e })) {
+      setOnboardingOpen(true)
+    }
+  }, [])
+  // Dismissing onboarding (skip or finish) marks it seen so it never re-fires.
+  const handleCloseOnboarding = useCallback(() => {
+    markOnboardingSeen()
+    setOnboardingOpen(false)
+  }, [])
+  // "Load sample project" intent. STUB: the sample .strix is not bundled in the
+  // prototype. The wiring is real (button → here); the data is the TODO.
+  // TODO(strixgeo): import a bundled sample .strix so first launch shows a
+  // finished ground model (owner ruling 24).
+  const handleLoadSample = useCallback(() => {
+    log.info('onboarding', 'load-sample requested — sample project not bundled in prototype (TODO)')
+    toast('warning', tMsg('onboarding.sampleUnavailable'))
+  }, [toast])
+
+  // Licensing / activation (#3): Help → Licence & activation….
+  const [licensingOpen, setLicensingOpen] = useState(false)
+  useEffect(() => {
+    const off = window.electron.onMenuOpenLicensing(() => setLicensingOpen(true))
+    return off
+  }, [])
+
+  // Activation START-SCREEN gate (owner ruling A: "a startscreen with beta key
+  // input before the actual app opens"). In a PACKAGED build only, a blocked
+  // verdict (unactivated / expired / clock-rollback) stops at the licence screen
+  // instead of the workspace. Dev and the e2e harness NEVER block — the gate
+  // seeds to 'pass' for them and the status is never even fetched, so the owner's
+  // dogfeed and the smoke suite are untouched. Once activation succeeds the
+  // LicensingDialog reports the new status and the gate opens.
+  const [activationGate, setActivationGate] = useState<GateDecision | 'unknown'>(() =>
+    window.electron.launchFlags.packaged && !window.electron.launchFlags.e2e ? 'unknown' : 'pass',
+  )
+  useEffect(() => {
+    const flags = window.electron.launchFlags
+    if (!(flags.packaged && !flags.e2e)) return // dev / e2e never block
+    let cancelled = false
+    void window.electron
+      .getActivationStatus()
+      .then(status => {
+        if (cancelled) return
+        setActivationGate(
+          activationGateDecision({ blocked: status.verdict.blocked, packaged: flags.packaged, e2e: flags.e2e }),
+        )
+      })
+      .catch(err => {
+        // A status read that fails must not brick the app on the boot path —
+        // fall open rather than trapping the user behind an unreadable gate.
+        log.warn('activation', 'could not read status for the start-screen gate', err)
+        if (!cancelled) setActivationGate('pass')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  // Re-evaluate when the start screen reports a new status; unlock once the
+  // verdict is no longer blocked (a valid key, or the trial started).
+  const handleActivationStatusChange = useCallback((status: ActivationStatusDto) => {
+    const flags = window.electron.launchFlags
+    if (activationGateDecision({ blocked: status.verdict.blocked, packaged: flags.packaged, e2e: flags.e2e }) === 'pass') {
+      setActivationGate('pass')
+    }
+  }, [])
+
+  // Updater (#6): Help → Check for updates… fires a manual check; results
+  // surface through UpdateNotification's own event subscription.
+  useEffect(() => {
+    const off = window.electron.onMenuCheckUpdates(() => {
+      void window.electron.checkForUpdates()
+    })
     return off
   }, [])
 
@@ -1337,6 +1458,25 @@ export default function App() {
   if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}<AppBootError /></>
   if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}<AppLoading /></>
 
+  // Activation start-screen gate (owner ruling A) — a packaged build with a
+  // blocked verdict shows the licence screen INSTEAD of the workspace. Never
+  // reached in dev / e2e (the gate stays 'pass'). Reuses LicensingDialog as a
+  // full-window, non-dismissable start screen; entering a valid key or starting
+  // the trial reports through onStatusChange and opens the gate.
+  if (activationGate === 'block') {
+    return (
+      <>
+        {backendFailedModal}
+        <LicensingDialog
+          open
+          dismissable={false}
+          onClose={() => {}}
+          onStatusChange={handleActivationStatusChange}
+        />
+      </>
+    )
+  }
+
   if (!project) {
     return (
       <>
@@ -1392,6 +1532,14 @@ export default function App() {
         />
         {/* Help → Gesture cheatsheet — also reachable from the welcome screen. */}
         <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+        {/* Launch prototypes (#93 / #3 / #6) — reachable before a project exists. */}
+        <OnboardingOverlay
+          open={onboardingOpen}
+          onClose={handleCloseOnboarding}
+          onLoadSample={handleLoadSample}
+        />
+        <LicensingDialog open={licensingOpen} onClose={() => setLicensingOpen(false)} />
+        <UpdateNotification />
         {/* Backend-failed modal — portal to body, safe in every branch. */}
         {backendFailedModal}
         {backendUnreachableBanner}
@@ -1489,6 +1637,14 @@ export default function App() {
       />
       {/* Help → Gesture cheatsheet (F1). App-level overlay above the shell. */}
       <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+      {/* Launch prototypes (#93 / #3 / #6) — also reachable with a project open. */}
+      <OnboardingOverlay
+        open={onboardingOpen}
+        onClose={handleCloseOnboarding}
+        onLoadSample={handleLoadSample}
+      />
+      <LicensingDialog open={licensingOpen} onClose={() => setLicensingOpen(false)} />
+      <UpdateNotification />
       {/* Backend-failed modal — portal to body, safe in every branch. */}
       {backendFailedModal}
     </>
