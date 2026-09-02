@@ -3,10 +3,13 @@
 Current state. Load before touching anything under `desktop/src/main/diagnostics*`,
 `crashBundle.ts`, `zipArchive.ts` or `desktop/src/renderer/src/utils/diagnostics.ts`.
 
-**The shape: capture is local and always on; transmission is opt-in and has no
-endpoint.** A log file in the user's own app directory is not telemetry — it is
-what makes "it crashed on my machine" answerable. Sending it anywhere is a
-separate, deliberate act.
+**The shape: capture is local and always on; transmission is opt-in.** A log
+file in the user's own app directory is not telemetry — it is what makes "it
+crashed on my machine" answerable. Sending it anywhere is a separate, deliberate
+act, gated on a consent flag that defaults to NO. When the user has opted in AND
+an activation endpoint is configured, the redacted log is uploaded to the
+strixgeo.com origin (owner ruling 2026-08-31: "diagnostics go to the same server"
+as activation); otherwise nothing leaves the machine.
 
 ---
 
@@ -76,6 +79,8 @@ objects — one rule removes them.*
 <userData>/diagnostics/diagnostics.log     NDJSON, rotated at 1 MiB × 3 generations
 <userData>/diagnostics/diagnostics.log.1   (…2, .3)
 <userData>/diagnostics/consent.json        transmission opt-in, default absent = NO
+<userData>/diagnostics/outbox/*.json       queued upload bundles (≤ 20, oldest evicted)
+<userData>/diagnostics/outbox/highwater.json  newest event already queued (stops re-sends)
 ```
 
 Capture never throws: every call site is already an error path, and a
@@ -84,7 +89,7 @@ the file.
 
 ---
 
-## The crash bundle — the only route that exists today
+## The crash bundle — the user-driven route
 
 **Help → Save diagnostics bundle…** builds a real `.zip` (written by
 `zipArchive.ts`, Node `zlib` only — **no new dependency**) containing:
@@ -103,23 +108,59 @@ anything.
 
 ---
 
-## Transmission — a stub, on purpose
+## Transmission — the disk-queued uploader
 
-`diagnosticsTransport.ts` defines the seam and ships `NO_ENDPOINT_TRANSPORT`,
-which refuses everything. `transmitDiagnostics()` checks **consent first, outside
-the transport**, so no future transport implementation can be the thing that
-decides whether consent mattered.
+`diagnosticsUploader.ts` is the transmit half. It runs once at launch (after the
+activation setup, wired in `index.ts`) and then, only while its queue is
+non-empty, on a backing-off interval. Two gates, checked before anything else; a
+no-op unless BOTH open:
 
-Two gates, both currently closed:
+1. **Consent** — `consent.json`, default NO, every damaged-file case reads as NO.
+2. **An endpoint** — the activation base URL (`activationConfig.ts`, the SAME
+   origin as activation per the owner ruling). The mock/dogfeed default has none,
+   so the uploader is inert there — nothing is queued and nothing is sent.
 
-1. the user opted in (`consent.json`, default NO, every damaged-file case reads
-   as NO);
-2. an endpoint exists (none does).
+### What it does when both gates open
 
-**Open decisions, both for the owner:**
+* **Build + enqueue** (at launch). Reads the events captured since the last
+  upload — a `outbox/highwater.json` marker bounds re-sends — builds the
+  `POST /v1/diagnostics` payload (build facts + the redacted NDJSON tail + a
+  `truncated` flag), trims it to the 512 KiB cap by dropping the OLDEST records,
+  and writes it as one JSON file in `outbox/`.
+* **Queue on disk, bounded.** One file per bundle, oldest-first, at most 20; a
+  21st evicts the oldest. Durable across restarts.
+* **Drain oldest-first.** Each bundle is POSTed over the SAME fetch/timeout
+  transport the activation client uses (`httpPostJson.ts`, extracted from the
+  activation client so there is one copy). A 2xx removes the bundle; a 4xx (or an
+  unreadable file) drops it — a bundle the server refuses can never be accepted,
+  so keeping it would wedge the queue; a 5xx or a network failure keeps it and
+  stops the pass, to retry after an exponential backoff.
+* **Logs every attempt** at INFO with the status + byte size, and at WARNING what
+  was dropped and why.
 
-* **Where do reports go?** Own collector, hosted service, or mail-only. Cost,
-  privacy policy and DPA attach to the answer — see the activation memo.
-* **The Settings toggle.** The flag, its file format and the gate are shipped;
-  the UI is deliberately not, because a switch that controls nothing is worse
-  than none. It lands with the endpoint.
+The contract the server must implement is
+[activation-api-contract.md](activation-api-contract.md) §`POST /v1/diagnostics`.
+
+### Identity — an open owner decision
+
+The payload CAN carry the device's licence key + device id, but **the client
+omits them today.** The record whitelist above states, and its tests pin, that a
+diagnostics record carries no device id and no session id; attaching identity to
+the upload reverses that shipped invariant. It is gated behind one flag —
+`ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS`, default off in
+`diagnosticsUploaderConstants.ts`. Flip it in the same change that records the
+owner's ruling, and identity is attached only when an activation licence exists.
+
+### Still not built (owner)
+
+* **The Settings toggle.** The consent flag, its file format and the gate are
+  shipped; the UI to flip it is not. Until it exists a user cannot opt in through
+  the app, so the uploader stays inert in practice even where an endpoint is
+  configured — the toggle is the remaining client piece before transmission is
+  usable.
+* **The server.** `POST /v1/diagnostics` is specified; the strixgeo.com endpoint
+  that answers it is not built (same MySQL host as activation, owner ruling).
+* **Cross-session dedup is best-effort.** The high-water marker stops the same
+  events being queued twice; a bundle already queued but not yet uploaded, plus a
+  `bundleId` collision, are the server's to dedup — the client does not hash
+  contents.
