@@ -21,6 +21,7 @@
  * @module components/sections/StaleColumnMarkers
  */
 import type { PlacedColumn } from './utils'
+import { useT } from '../../i18n/translate'
 
 /** Vertical offset of the mark below the plot's top edge, in px. */
 const MARK_OFFSET_Y_PX = 10
@@ -50,6 +51,7 @@ export default function StaleColumnMarkers({
   staleColumnIds,
   plotTop,
 }: Props): JSX.Element | null {
+  const t = useT()
   const marked = columns.filter(c => staleColumnIds.has(c.proj.item.id))
   if (marked.length === 0) return null
 
@@ -61,10 +63,7 @@ export default function StaleColumnMarkers({
           data-testid={`geotech-stale-column-${column.proj.item.id}`}
           transform={`translate(${column.nudgedX}, ${plotTop + MARK_OFFSET_Y_PX})`}
         >
-          <title>
-            {`${column.proj.item.name}: the lithology here changed after these packing bands ` +
-              'were made. Re-run the subdivision on this column before exporting.'}
-          </title>
+          <title>{t('sections.staleColumn.title', { name: column.proj.item.name })}</title>
           {/* The ring is not decoration — the lens badge on this same axis
               records why: amber alone is ~2.1:1 on the light plot background,
               under the 3:1 floor WCAG 2.2 1.4.11 sets for a graphical object
