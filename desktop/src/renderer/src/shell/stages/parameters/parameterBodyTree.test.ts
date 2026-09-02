@@ -170,24 +170,32 @@ describe('parameterBodyTree — the owner-ruled body tree (spec §7)', () => {
     expect(class13.children.every(c => c.children.length === 0)).toBe(true)
   })
 
-  it('PT2 — single-child collapse at every level: a lone child renders no separate node', () => {
+  it('PT2 — single-child collapse drops the geotech-body ordinal and the empty-unit level, but NEVER the single packing-class label (owner ruling 2026-09-02)', () => {
     const tree = buildParameterTree(makeScene())
     const silt = tree[0]
 
-    // NAD 14 under lb1 has ONE geotech body → the class row is a leaf (no
-    // geotech-body child).
+    // NAD 14 under lb1 has ONE geotech body → the geotech-body ordinal row
+    // collapses; the class row itself (with its pakkingsdichtheid label) stays.
     const class14 = silt.children[0].children[1]
     expect(class14.scope).toMatchObject({ kind: 'geotech-class', nadClass: 14 })
     expect(class14.children).toEqual([])
 
-    // lb2 has ONE class (NAD 13) with ONE geotech body → the whole chain
-    // collapses; lb2 is a leaf litho-body row.
+    // lb2 has ONE packing class (NAD 13) with ONE geotech body. Owner ruling
+    // 2026-09-02 — "don't collapse because the pakkingsdichtheid label
+    // disappears": the lone class is NO LONGER collapsed away. lb2 keeps a class
+    // node whose pakkingsdichtheid label is present, so the body stays openable.
     const lb2 = silt.children[1]
     expect(lb2.scope).toMatchObject({ kind: 'litho-body', bodyId: 'lb2' })
-    expect(lb2.children).toEqual([])
+    expect(lb2.children).toHaveLength(1)
+    const lb2Class = lb2.children[0]
+    expect(lb2Class.scope).toMatchObject({ kind: 'geotech-class', nadClass: 13 })
+    expect(lb2Class.label).toBe('SILT, slightly firm')
+    // ...but the class row's own single geotech body still collapses (that
+    // drops only the #ordinal, not the pakkingsdichtheid label).
+    expect(lb2Class.children).toEqual([])
 
-    // CLAY unit has ONE litho body with no geotech subdivision → the unit
-    // collapses to a leaf litho-unit row.
+    // CLAY unit has ONE litho body with NO packing class at all → there is no
+    // pakkingsdichtheid label to lose, so the empty-unit collapse still fires.
     const clay = tree[1]
     expect(clay.scope).toMatchObject({ kind: 'litho-unit', unitId: 'clay-unit' })
     expect(clay.children).toEqual([])
