@@ -39,6 +39,14 @@ export interface ColumnStripQuad {
   investigationId: string
   /** The unit's formation — keys the colour + the dissolve identity. */
   formationId: string
+  /**
+   * The source unit's ``litho_layer.id`` — the un-join spotlight anchor (debt
+   * #278 D3). Hovering "Ontkoppelen van X" carries body X's anchor layer id; an
+   * on-column strip whose ``layerId`` matches must light with the between-column
+   * regions, not just dim. A fallback (litho-frame) strip carries a LITHO layer
+   * id, which a geotech anchor never matches — so it correctly never lights.
+   */
+  layerId: string
   /** Which stack supplied it: the axis's own, or the litho frame's. */
   source: 'primary' | 'fallback'
   /** Closed screen-space ring (no repeated last point). */
@@ -88,6 +96,7 @@ export function buildColumnStripFills(
       out.push({
         investigationId: inv,
         formationId: unit.formationId,
+        layerId: unit.layerId,
         source: usePrimary ? 'primary' : 'fallback',
         pts: [
           { x: screen.leftX, y: yTop },
