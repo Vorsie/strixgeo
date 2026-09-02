@@ -185,6 +185,35 @@ export const MODELS = {
   'geology.reassignToAnother': 'Reassign "{name}" to another formation',
   'geology.sameAs': '→ same as',
   'geology.useCustomName': 'Use "{name}"',
+  // Geology hook toasts (useGeologicalModel / useGeologicalModelOps).
+  'geology.createModelFailed': 'Could not create the geological model — check the connection.',
+  'geology.scanStratigraphyFailed': 'Could not scan borehole stratigraphy — check the connection.',
+  'geology.nothingCreated':
+    'Nothing created — {n} layer(s) already populated. Use Dedupe or Delete model to reset, then retry.',
+  'geology.removedNotInSelection': 'Removed {n} {unit} not in your selection: {names}.',
+  'geology.seededContacts': 'Seeded {created} contacts.',
+  'geology.seededContactsSkipped': 'Seeded {created} contacts. {skipped}',
+  'geology.seedSkippedFragmentOne': '{n} layer skipped — formation not in your model.',
+  'geology.seedSkippedFragmentMany': '{n} layers skipped — formation not in your model.',
+  'geology.nothingSeeded': 'Nothing seeded — {skipped} Add it in the Geology stage to place it here.',
+  'geology.alreadyInSyncNothingToAdd': 'Already in sync — nothing to add.',
+  'geology.seedContactsFailed': 'Could not seed contacts from stratigraphy.',
+  'geology.dedupeAlreadyClean': 'Already clean — no duplicates found.',
+  'geology.dedupeRemoved':
+    'Removed {d} duplicate {contactWord} across {g} (anchor, formation) {pairWord}.',
+  'geology.pairWordOne': 'pair',
+  'geology.pairWordMany': 'pairs',
+  'geology.cleanupFailed': 'Could not run the cleanup — see console.',
+  'geology.noFormationsToRebuild': 'No formations with picks yet — nothing to rebuild.',
+  'geology.cacheInSync': 'Cache already in sync ({n} {formationWord} checked).',
+  'geology.rebuiltSurfaces': 'Rebuilt {rebuilt} of {considered} {surfaceWord}',
+  'geology.surfacesAlreadyCurrent': '{considered} {surfaceWord} already current',
+  'geology.reorderedByDepth': '; reordered {n} {formationWord} by depth',
+  'geology.surfaceWordOne': 'surface',
+  'geology.surfaceWordMany': 'surfaces',
+  'geology.rebuildSurfacesFailed': 'Could not rebuild surfaces — see console.',
+  'geology.plaxisExported': 'Plaxis 3D script exported.',
+  'geology.plaxisExportFailed': 'Could not export the Plaxis script.',
 
   // -------------------------------------------------------------------------
   // lithology stage.
@@ -300,6 +329,84 @@ export const MODELS = {
   'litho.markerWordMany': 'markers',
   'litho.bodiesForName': 'Bodies for {name}',
   'litho.colourForBody': 'Colour for {name} #{ordinal}',
+  // Litho hook toasts + LithoGeoSnapDialog (useLithoModelOps / useLithoSolids /
+  // useLithoSuggestions / useGeologicalModel litho paths / LithologyCanvas).
+  'litho.placeContactFailed': 'Could not place the litho formation contact.',
+  'litho.createFormationFailed': 'Could not create the litho formation.',
+  'litho.noFormationsToRebuild': 'No litho formations with contacts yet — nothing to rebuild.',
+  'litho.cacheInSync': 'Litho cache in sync ({n} {surfaceWord} checked).',
+  'litho.surfaceWordOne': 'surface',
+  'litho.surfaceWordMany': 'surfaces',
+  'litho.rebuiltSurfaces': 'Rebuilt {rebuilt} of {considered} litho {surfaceWord}.',
+  'litho.rebuildSurfacesFailed': 'Could not rebuild litho surfaces — see console.',
+  'litho.modelAlreadyEmpty': 'Litho model already empty.',
+  'litho.clearedModel': 'Cleared litho model — {c} {contactWord}, {u} {unitWord} removed.',
+  'litho.clearModelFailed': 'Could not clear litho model — see console.',
+  'litho.createGeoModelFirst': 'Create a geological model before adding a lithostratigraphic one.',
+  'litho.createModelFailed': 'Could not create the lithostratigraphic model.',
+  'litho.activateModelFailed': 'Could not activate the lithostratigraphic model.',
+  'litho.deleteModelFailed': 'Could not delete the lithostratigraphic model.',
+  'litho.nothingToBuildYet': 'Nothing to build yet — open a cross-section on the litho axis first.',
+  'litho.builtBodies': 'Built {n} {bodyWord}',
+  'litho.nothingCouldBeBuilt': 'Nothing could be built — {reason}. The stored 3-D model was cleared.',
+  'litho.uncoveredInvestigations':
+    '{n} {investigationWord} outside the model footprint, with NO 3-D model: {named}{rest}',
+  'litho.investigationWordOne': 'investigation',
+  'litho.investigationWordMany': 'investigations',
+  'litho.moreCount': ', +{n} more',
+  'litho.underConstrainedBodies':
+    '{n} under-constrained {bodyWord} (fewer than 3 CPT/borehole traces — slab approximation)',
+  'litho.saveBodyColourFailed': 'Could not save body colour — try again.',
+  'litho.gridTooLargeDefault': 'The requested grid is too large to build.',
+  'litho.storedModelUnchanged': 'The stored 3-D model was not changed.',
+  'litho.gridTooLargeRetry':
+    '{reason} Try again with a horizontal spacing of at least {suggested} m. {untouched}',
+  'litho.gridTooLargeNoRetry': '{reason} {untouched}',
+  'litho.buildFailedGeneric': 'Could not build body solids — check the connection.',
+  'litho.autoCorrelateFull': 'Auto-correlate: model already fully correlated — no new edges.',
+  'litho.autoCorrelateCreated':
+    'Auto-correlate: {created} {edgeWord} created, {existing} edge(s) already existed.',
+  'litho.edgeWordOne': 'edge',
+  'litho.edgeWordMany': 'edges',
+  'litho.pinchOutLensOne':
+    '{n} pinch-out lens candidate from crossings — shown as amber diamonds; the crossing edges were not drawn.',
+  'litho.pinchOutLensMany':
+    '{n} pinch-out lens candidates from crossings — shown as amber diamonds; the crossing edges were not drawn.',
+  'litho.autoCorrelateFailed': 'Auto-correlate failed — see console.',
+  'litho.noSuggestionsToClear': 'No correlation suggestions to clear.',
+  'litho.clearedSuggestionsOne': 'Cleared {n} correlation suggestion.',
+  'litho.clearedSuggestionsMany': 'Cleared {n} correlation suggestions.',
+  'litho.clearSuggestionsFailed': 'Could not clear suggestions — see console.',
+  'litho.noGhostToStrip': 'No ghost suggestions to strip.',
+  'litho.noScopedGhostToStrip': 'No {scope} ghost suggestions to strip.',
+  'litho.scopeCpt': 'cpt',
+  'litho.scopeBorehole': 'borehole',
+  'litho.strippedAdmixtures': 'Stripped admixtures from {n} {layerWord}.',
+  'litho.layerWordOne': 'layer',
+  'litho.layerWordMany': 'layers',
+  'litho.noAdmixturesToRestore': 'No overridden borehole admixtures to restore.',
+  'litho.restoredAdmixtures': 'Restored segmenter admixtures on {n} borehole {layerWord}.',
+  'litho.fetchSuggestionsFailed': 'Could not fetch lithostratigraphic suggestions.',
+  'litho.acceptSuggestionFailed': 'Could not accept the litho suggestion.',
+  'litho.acceptAllFailed': 'Could not accept all litho suggestions.',
+  'litho.suggestedFailures': 'Suggested {ok}/{total} — {failed} failed.',
+  'litho.acceptLayersFailed': 'Could not accept litho layers.',
+  'litho.acceptedAnchorsInference': 'Accepted {n} {anchorWord} — inference updated.',
+  'litho.acceptedAnchors': 'Accepted {n} {anchorWord}.',
+  'litho.anchorWordOne': 'anchor',
+  'litho.anchorWordMany': 'anchors',
+  'litho.acceptedFailures': 'Accepted {ok}/{total} — {failed} failed.',
+  'litho.fenceEmptyHint': 'No fence panels — accept correlations in the Sections stage',
+  'litho.snapTitle': 'Snap to geological contact?',
+  'litho.snapContactAt': 'The litho contact at',
+  'litho.snapWithinMulti': 'sits within snap tolerance of two geological contacts.',
+  'litho.snapWithinSingle': 'sits within snap tolerance of a geological contact.',
+  'litho.snapPickContact': 'Pick a geological contact',
+  'litho.snapDistanceAway': '({distance} m away)',
+  'litho.snapGeoContactAt': 'Geological contact at',
+  'litho.snapCancelKeepSeparate': 'Cancel — keep separate',
+  'litho.snapMoveGeoToLitho': 'Move geological to litho',
+  'litho.snapLithoToGeo': 'Snap litho to geological',
 
   // -------------------------------------------------------------------------
   // geotechnical stage.
@@ -388,4 +495,75 @@ export const MODELS = {
   'geotech.chooseColor': '{color} — click to choose a colour for this unit',
   'geotech.colorForUnit': 'Colour for {label}',
   'geotech.sampleSource': 'Sample source:',
+  // Geotech hook toasts + shell components (useGeologicalModel geotech paths /
+  // useGeotechBuildPreflight / GeotechnicalToolbar / GeotechnicalCanvas /
+  // GeotechnicalInspector / geotechBadges / GeotechBuildPreflightDialog /
+  // GeotechBuildReportBanner). The build verbs Build model / Building… /
+  // Build model · stale / Export fence / Reset camera reuse the litho.* keys.
+  'geotech.selectLithoModelFirst': 'Select a lithostratigraphic model first.',
+  'geotech.subdivideAllBodiesFailed': 'Subdivide all bodies failed — see console.',
+  'geotech.subdivideCptsFailed': 'Subdivide CPTs failed — see console.',
+  'geotech.tieReviewOne':
+    '{n} accepted packing tie needs checking — the band it was drawn on changed. Look for the ! marks on the geotech sections.',
+  'geotech.tieReviewMany':
+    '{n} accepted packing ties need checking — the band it was drawn on changed. Look for the ! marks on the geotech sections.',
+  'geotech.tieReviewBoreholeOne':
+    '{n} accepted packing tie needs checking — the borehole band it was drawn on changed. Look for the ! marks on the geotech sections.',
+  'geotech.tieReviewBoreholeMany':
+    '{n} accepted packing ties need checking — the borehole band it was drawn on changed. Look for the ! marks on the geotech sections.',
+  'geotech.divideBoreholesNeedsCpts': 'Run "1 · Subdivide CPTs" before dividing boreholes.',
+  'geotech.noBoreholeSelected': 'No borehole selected — nothing to divide.',
+  'geotech.divideBoreholesFailed': 'Divide boreholes failed — see console.',
+  'geotech.confidenceHigh': 'High',
+  'geotech.confidenceMedium': 'Medium',
+  'geotech.confidenceLow': 'Low',
+  'geotech.nadClassParen': '(NAD {nad})',
+  'geotech.noLithoModelHint':
+    'Create a lithostratigraphic model in the Lithology stage and accept litho suggestions, then return here to build the 3D geotechnical model.',
+  'geotech.fenceEmptyHint': 'No fence panels — connect packing bands on the Sections stage',
+  'geotech.subdividing': 'Subdividing…',
+  'geotech.buildNoBands':
+    'No geotech bands yet — run "Subdivide all bodies" on the Sections stage (geotech axis) first, then Build',
+  'geotech.buildSubdividingTitle': 'Subdividing the tests that had no packing bands, then building…',
+  'geotech.buildingSolidsTitle': 'Building watertight NAD body solids…',
+  'geotech.solidsStaleTitle': 'One or more geotech body solids are stale — click to rebuild',
+  'geotech.buildSolidsTitle': 'Build the 3-D NAD body solids from the geotech partition',
+  'geotech.excludedTestsOne': '{count} test excluded',
+  'geotech.excludedTestsMany': '{count} tests excluded',
+  'geotech.excludedTitleOne':
+    'The last build ignored {names} — it has no packing bands, so the model is the one you had before it was imported.',
+  'geotech.excludedTitleMany':
+    'The last build ignored {names} — they have no packing bands, so the model is the one you had before they were imported.',
+  'geotech.excludedClickHint': 'Click to open the next one on a cross-section.',
+  'geotech.excludedAriaHint': 'Activate to open the next excluded test.',
+  'geotech.preflightTitleOne': 'This test has no packing bands yet',
+  'geotech.preflightTitleMany': 'These {count} tests have no packing bands yet',
+  'geotech.preflightBodyOne':
+    'It is part of the model the build is framed on, so the build would draw a gap around it with no packing data to fill. Open it to subdivide it by hand, or choose one of the two builds below.',
+  'geotech.preflightBodyMany':
+    'They are part of the model the build is framed on, so the build would draw a gap around them with no packing data to fill. Open each one to subdivide it by hand, or choose one of the two builds below.',
+  'geotech.preflightVisitTitle': 'Open {name} on a cross-section that carries it',
+  'geotech.preflightDropWarning':
+    '— Building without {name} removes {sections} from the build; its space fills from the neighbouring sections.',
+  'geotech.preflightBuildWithoutOne': 'Build without it',
+  'geotech.preflightBuildWithoutMany': 'Build without them',
+  'geotech.preflightSubdivideOne': 'Subdivide it & build',
+  'geotech.preflightSubdivideMany': 'Subdivide them & build',
+  'geotech.preflightGiveUpOne':
+    '{names} still has no packing bands, so nothing was built — subdivide on the Sections stage, then Build again.',
+  'geotech.preflightGiveUpMany':
+    '{names} still have no packing bands, so nothing was built — subdivide on the Sections stage, then Build again.',
+  'geotech.reportBroken': '{failed} of {total} model guarantees broken{tail}',
+  'geotech.reportNotCheckedTail': ', {n} not checked',
+  'geotech.reportHeld': '{held} of {total} model guarantees held, {n} not checked',
+  'geotech.reportClean': 'no gaps — all {total} model guarantees held',
+  'geotech.reportVisitSpot': 'Open {name} at this spot',
+  'geotech.reportSectionFallback': 'the section',
+  'geotech.reportShowMe': 'Show me',
+  'geotech.reportNotChecked': 'Not checked — {reason}.',
+  'geotech.reportModelCheck': 'Model check',
+  'geotech.reportHideDetail': 'Hide the detail',
+  'geotech.reportShowDetail': 'Show every guarantee and where it stands',
+  'geotech.reportLess': 'Less',
+  'geotech.reportDetail': 'Detail',
 } as const
