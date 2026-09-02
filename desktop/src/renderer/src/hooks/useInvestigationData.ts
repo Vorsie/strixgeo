@@ -26,6 +26,7 @@ import type {
 import { addAllToSet } from '../utils/sets'
 import { dovSubPhaseFailures } from '../utils/dovImportFailures'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 import type { UndoCommand } from './useUndoStack'
 import type { DovImportState, PendingPin } from './useDovImportStream'
 import { useDovImportStream } from './useDovImportStream'
@@ -485,7 +486,7 @@ export function useInvestigationData({
       // location_x/y for map markers. Detail fetched lazily on select.
     } catch (err) {
       log.error('cpt', 'refreshList failed', err)
-      toast('error', 'Failed to load CPT list')
+      toast('error', t('data.load.cptListFailed'))
     }
   }, [project])
 
@@ -497,7 +498,7 @@ export function useInvestigationData({
       log.debug('borehole', `refreshList: ${list.length} boreholes`)
     } catch (err) {
       log.error('borehole', 'refreshList failed', err)
-      toast('error', 'Failed to load borehole list')
+      toast('error', t('data.load.boreholeListFailed'))
     }
   }, [project])
 
@@ -545,7 +546,7 @@ export function useInvestigationData({
         setPlotMap(prev => new Map(prev).set(id, plot))
       } catch (err) {
         log.error('cpt', `loadChart(${id}) failed`, err)
-        toast('error', 'Failed to load chart data')
+        toast('error', t('data.load.chartFailed'))
       }
     },
     // reason: project.id is a stable scalar that changes only when the
@@ -564,7 +565,7 @@ export function useInvestigationData({
         setBoreholeDetailMap(prev => new Map(prev).set(id, detail))
       } catch (err) {
         log.error('borehole', `loadDetail(${id}) failed`, err)
-        toast('error', 'Failed to load borehole detail')
+        toast('error', t('data.load.boreholeDetailFailed'))
       }
     },
     // reason: project.id is a stable scalar that changes only when the
@@ -859,15 +860,20 @@ export function useInvestigationData({
       const ok = imported + warnings
       const parts: string[] = []
       if (ok > 0)
-        parts.push(`${ok} imported${warnings > 0 ? ` (${warnings} with warnings)` : ''}`)
+        parts.push(
+          warnings > 0
+            ? t('data.import.importedWithWarnings', { ok, warnings })
+            : t('data.import.countImported', { n: ok }),
+        )
       if (refreshed === 1)
-        parts.push(`Refreshed existing CPT ${refreshedNames[0]} from file`)
-      else if (refreshed > 1) parts.push(`${refreshed} refreshed from file`)
-      if (duplicates > 0) parts.push(`${duplicates} already existed`)
-      if (declinedNames.length === 1) parts.push(`${declinedNames[0]} left unchanged`)
+        parts.push(t('data.import.refreshedOne', { name: refreshedNames[0] }))
+      else if (refreshed > 1) parts.push(t('data.import.refreshedMany', { n: refreshed }))
+      if (duplicates > 0) parts.push(t('data.import.countAlreadyExisted', { n: duplicates }))
+      if (declinedNames.length === 1)
+        parts.push(t('data.import.leftUnchangedOne', { name: declinedNames[0] }))
       else if (declinedNames.length > 1)
-        parts.push(`${declinedNames.length} left unchanged`)
-      if (errors > 0) parts.push(`${errors} failed`)
+        parts.push(t('data.import.leftUnchangedMany', { n: declinedNames.length }))
+      if (errors > 0) parts.push(t('data.import.countFailed', { n: errors }))
       toast(errors > 0 && ok === 0 && refreshed === 0 ? 'error' : 'success', parts.join(', '))
 
       unhideCpts(touchedIds)
@@ -951,12 +957,14 @@ export function useInvestigationData({
       const cptResult = result as import('./useDovImportStream').CptImportDonePayload
       const beforeIds = beforeImportIdsRef.current.cptIds
       const parts: string[] = []
-      if (cptResult.imported > 0) parts.push(`${cptResult.imported} imported`)
-      if (cptResult.duplicates > 0) parts.push(`${cptResult.duplicates} already existed`)
-      if (cptResult.failed > 0) parts.push(`${cptResult.failed} failed`)
+      if (cptResult.imported > 0)
+        parts.push(t('data.import.countImported', { n: cptResult.imported }))
+      if (cptResult.duplicates > 0)
+        parts.push(t('data.import.countAlreadyExisted', { n: cptResult.duplicates }))
+      if (cptResult.failed > 0) parts.push(t('data.import.countFailed', { n: cptResult.failed }))
       toast(
         cptResult.failed > 0 && cptResult.imported === 0 ? 'error' : 'success',
-        parts.join(', ') || 'No CPTs found in this area',
+        parts.join(', ') || t('data.import.noCptsInArea'),
       )
       unhideCpts(cptResult.cpt_ids)
       addToManifest('cpt', cptResult.cpt_ids)
@@ -976,16 +984,18 @@ export function useInvestigationData({
       const bhResult = result as import('./useDovImportStream').BoreholeImportDonePayload
       const beforeIds = beforeImportIdsRef.current.boreholeIds
       const parts: string[] = []
-      if (bhResult.imported > 0) parts.push(`${bhResult.imported} imported`)
-      if (bhResult.duplicates > 0) parts.push(`${bhResult.duplicates} already existed`)
-      if (bhResult.failed > 0) parts.push(`${bhResult.failed} failed`)
+      if (bhResult.imported > 0) parts.push(t('data.import.countImported', { n: bhResult.imported }))
+      if (bhResult.duplicates > 0)
+        parts.push(t('data.import.countAlreadyExisted', { n: bhResult.duplicates }))
+      if (bhResult.failed > 0) parts.push(t('data.import.countFailed', { n: bhResult.failed }))
       const extras: string[] = []
       if (bhResult.interpretations_attached)
-        extras.push(`${bhResult.interpretations_attached} obs`)
-      if (bhResult.samples_attached) extras.push(`${bhResult.samples_attached} samples`)
+        extras.push(t('data.import.countObs', { n: bhResult.interpretations_attached }))
+      if (bhResult.samples_attached)
+        extras.push(t('data.import.countSamples', { n: bhResult.samples_attached }))
       if (bhResult.grain_sizes_attached)
-        extras.push(`${bhResult.grain_sizes_attached} grain-size`)
-      const summary = parts.join(', ') || 'No boreholes found in this area'
+        extras.push(t('data.import.countGrainSize', { n: bhResult.grain_sizes_attached }))
+      const summary = parts.join(', ') || t('data.import.noBoreholesInArea')
       const detail = extras.length > 0 ? ` (+ ${extras.join(', ')})` : ''
       // A dead sub-phase (the interpretaties WFS is routinely down) comes back
       // as a COUNTER, not an error — so the severity has to be derived from it
@@ -1000,9 +1010,9 @@ export function useInvestigationData({
       const retryable = subPhaseFailures.some(f => f.retryable)
       const failureDetail =
         subPhaseFailures.length > 0
-          ? ` — DOV did not return ${subPhaseFailures
-              .map(f => `${f.count} × ${f.label}`)
-              .join(', ')}${retryable ? '; re-run the import to retry' : ''}`
+          ? t('data.import.subPhaseMissing', {
+              items: subPhaseFailures.map(f => `${f.count} × ${f.label}`).join(', '),
+            }) + (retryable ? t('data.import.subPhaseRetry') : '')
           : ''
       const severity =
         bhResult.failed > 0 && bhResult.imported === 0
