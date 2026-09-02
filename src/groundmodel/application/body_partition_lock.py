@@ -46,6 +46,24 @@ needs no translation at the call site. It was briefly expressed two ways — pur
 because ``uuid7`` ids are time-ordered and a child is always minted after its
 parent. A hand-written fixture id or a restore that mints out of lineage order
 would have broken that coincidence silently.
+
+BEFORE ANY WRITE, INCLUDING WRITES THAT REACH A CHILD THROUGH A FOREIGN-KEY
+ACTION (audit BP-3, 2026-09-02). "Lock the child before you touch the child" is
+not only about the child's own ``body`` DELETE/INSERT — a write to a PARENT row
+can silently reach the child. ``_run_resolver`` on a litho model deletes litho
+``body`` rows; each delete fires the ``ON DELETE SET NULL`` action of the geotech
+rows' ``parent_litho_body_id`` FK, which row-locks the geotech ``body`` rows. So
+the litho resolve holds geotech ROW locks the moment it deletes a litho body —
+before it ever names the geotech model. Taking the geotech advisory lock only
+afterwards (the litho resolver's old step 6) let a concurrent geotech recompute
+hold that advisory lock and delete those same rows → an ABBA deadlock (litho held
+the rows + wanted the advisory lock; geotech held the advisory lock + wanted the
+rows). The rule is therefore: a caller that will touch a child's rows — directly
+OR through a foreign-key action on a parent it rewrites — takes the child's lock
+UP FRONT, before the first such write. ``_run_resolver`` now does exactly this
+(sibling geotech locks taken right after the litho lock). ``lock_body_partition``
+itself runs its lock SELECTs under ``session.no_autoflush`` so acquiring a lock
+never flushes a pending row write first (belt and braces for the same rule).
 """
 
 from __future__ import annotations
@@ -119,12 +137,22 @@ async def lock_body_partition(
     logger = _BodyPartitionLockLogger()
     key = body_partition_lock_key(model_id)
 
-    acquired = (
-        await session.execute(
-            text("SELECT pg_try_advisory_xact_lock(hashtext(:k))"),
-            {"k": key},
-        )
-    ).scalar_one()
+    # Both lock SELECTs run under ``no_autoflush``. Acquiring a lock must never
+    # be the thing that issues the first row write of a transaction: with
+    # autoflush ON, any pending ORM writes would flush BEFORE the lock statement,
+    # and a flush can emit writes that reach a CHILD row through a foreign-key
+    # action (e.g. the ``ON DELETE SET NULL`` of a geotech body's
+    # ``parent_litho_body_id`` when its litho parent is deleted). That would
+    # re-open the very order-of-operations hole the caller took this lock to
+    # close — a write landing before the lock guarding it. Belt and braces on top
+    # of the caller taking locks before any write (see ``_run_resolver``).
+    with session.no_autoflush:
+        acquired = (
+            await session.execute(
+                text("SELECT pg_try_advisory_xact_lock(hashtext(:k))"),
+                {"k": key},
+            )
+        ).scalar_one()
     if acquired:
         logger.debug(f"body-partition lock: {operation} took model {model_id} uncontended")
         return
@@ -136,10 +164,11 @@ async def lock_body_partition(
         "rather than allowed to collide"
     )
     started = time.monotonic()
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-        {"k": key},
-    )
+    with session.no_autoflush:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+            {"k": key},
+        )
     logger.info(
         f"body-partition lock: {operation} acquired model {model_id} after "
         f"{(time.monotonic() - started) * 1000:.0f} ms of contention"
