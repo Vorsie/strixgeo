@@ -6,7 +6,7 @@
  * helper the backend log uses (``logRotation.ts``). Nothing is transmitted:
  * this file is a local artefact the user owns, exactly like ``backend.log``.
  * Sending it anywhere is a separate, opt-in step — see
- * ``diagnosticsConsent.ts`` and ``diagnosticsTransport.ts``.
+ * ``diagnosticsConsent.ts`` and ``diagnosticsUploader.ts``.
  *
  * ## Why capture is always on but transmission is not
  *
