@@ -34,39 +34,47 @@ import { BarChart3, Beaker, Sliders, Sparkles } from 'lucide-react'
 
 import { EmptyState } from '../../EmptyState'
 import TabBar from '../../../components/ui/TabBar'
-import type { TabSpec } from '../../../components/ui/TabBar'
 import { useShell } from '../../ShellContext'
 import type { ParametersTabId } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
+import type { MessageKey } from '../../../i18n/locales/en'
 import MethodConfigTab from './tabs/MethodConfigTab'
 import PerTestTab from './tabs/PerTestTab'
 import PerUnitTab from './tabs/PerUnitTab'
 
 type TabId = ParametersTabId
 
-// TabSpec is the imported type from TabBar; cast id to TabId for type safety.
-const TABS: readonly (TabSpec & { id: TabId; iconComponent: typeof Beaker })[] = [
+// Tab labels + hints resolve through the message catalogue at render time; the
+// spec carries the KEYS so the component can translate them in the active locale.
+const TABS: readonly {
+  id: TabId
+  labelKey: MessageKey
+  iconComponent: typeof Beaker
+  hintKey: MessageKey
+  testid: string
+}[] = [
   {
     id: 'per-test',
-    label: 'Per test',
+    labelKey: 'params.perTest',
     iconComponent: Beaker,
-    hint: 'One row per CPT / borehole / lab test; columns are parameters.',
+    hintKey: 'params.perTestBlurb',
     testid: 'parameters-tab-per-test',
   },
   {
     id: 'per-unit',
-    label: 'Per unit',
+    labelKey: 'params.perUnit',
     iconComponent: BarChart3,
-    hint: 'One row per litho / geotechnical unit; columns aggregate over the unit (mean / P50 / P95 / derived values).',
+    hintKey: 'params.perUnitBlurb',
     testid: 'parameters-tab-per-unit',
   },
   {
     id: 'methods',
-    label: 'Methods',
+    labelKey: 'params.methods',
     iconComponent: Sliders,
-    hint: 'Correlations (formula) vs Excel lookups (NAD-NEN table) — hard-separated. Plus probabilistic + ML hooks.',
+    hintKey: 'params.methodsBlurb',
     testid: 'parameters-tab-methods',
   },
-] as const
+]
 
 /**
  * Canvas for the Parameters stage — switches between three tabs.
@@ -87,6 +95,7 @@ export default function ParametersCanvas(): JSX.Element {
   const {
     coordinator: { selectedParameterUnit, parametersActiveTab: tab, setParametersActiveTab: setTab },
   } = useShell()
+  const t = useT()
 
   // Landing here from a band's or region's "Unit statistics…" (owner ballot
   // 2026-08-26) must show the per-unit tab — after the R3 layout flip that is
@@ -113,24 +122,20 @@ export default function ParametersCanvas(): JSX.Element {
         <TabBar
           tabs={TABS.map(spec => ({
             id: spec.id,
-            label: spec.label,
+            label: t(spec.labelKey),
             icon: <spec.iconComponent size={13} aria-hidden="true" />,
-            hint: spec.hint,
+            hint: t(spec.hintKey),
             testid: spec.testid,
           }))}
           activeId={tab}
           onActivate={id => setTab(id as TabId)}
-          ariaLabel="Parameter views"
+          ariaLabel={t('params.views')}
           containerClassName="flex items-center gap-0"
           tabClassName="px-3 py-2 text-[11px] border-b-2 transition-colors aria-selected:border-b-status-amber aria-selected:text-text-primary aria-selected:bg-surface-app aria-[selected=false]:border-b-transparent aria-[selected=false]:text-text-secondary aria-[selected=false]:hover:text-text-primary aria-[selected=false]:hover:bg-surface-app/60"
         />
         <div className="ml-auto flex items-center gap-1.5 px-3 py-2 text-[10px] text-text-muted">
           <Sparkles size={11} aria-hidden="true" />
-          <span>
-            Phase-5 surface — design-ready parameters (φ′ / c′ / cu /
-            E50 / OCR / Vs / G0 / M) populate as correlations and
-            lookups land.
-          </span>
+          <span>{t('params.phase5Surface')}</span>
         </div>
       </div>
 
@@ -172,8 +177,8 @@ export default function ParametersCanvas(): JSX.Element {
         {!['per-test', 'per-unit', 'methods'].includes(tab) && (
           <EmptyState
             icon={<Beaker />}
-            title="Unknown parameters tab"
-            hint="Pick a tab above."
+            title={t('params.unknownTab')}
+            hint={t('params.pickTab')}
           />
         )}
       </div>
