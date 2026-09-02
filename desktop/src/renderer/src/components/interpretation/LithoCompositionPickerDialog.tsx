@@ -39,6 +39,7 @@ import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR } from '../../utils/lithoCon
 import { lithoBaseLabel, lithoDisplayName } from '../../utils/lithoLabels'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT } from '../../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Domain vocabulary — English labels at the presentation boundary, raw
@@ -217,6 +218,7 @@ export default function LithoCompositionPickerDialog({
   onCreateLithoUnit,
   onCancel,
 }: LithoCompositionPickerProps): JSX.Element | null {
+  const t = useT()
   // Debt #151 dogfeed refinement 2026-05-27 — filter to litho units
   // within the geological formation at the click depth.  Non-null
   // ``parentFormationId`` narrows the roster; null falls back to the
@@ -344,30 +346,30 @@ export default function LithoCompositionPickerDialog({
           id="litho-picker-title"
           className="text-base font-semibold text-text-primary mb-1"
         >
-          Top of which litho unit?
+          {t('composition.topOfWhichLithoUnit')}
         </h2>
 
         {/* Anchor subtitle */}
         {anchor && (
           <p className="text-xs text-text-secondary mb-2">
-            On <span className="font-medium text-text-primary">{anchor.name}</span>{' '}
-            at depth {anchor.depth_m.toFixed(2)} m (
-            {anchor.elevationM >= 0 ? '+' : ''}
-            {anchor.elevationM.toFixed(2)} m TAW)
+            {t('dialog.pickerAnchorPre')}{' '}
+            <span className="font-medium text-text-primary">{anchor.name}</span>{' '}
+            {t('dialog.pickerAnchorAt', {
+              depth: anchor.depth_m.toFixed(2),
+              taw: `${anchor.elevationM >= 0 ? '+' : ''}${anchor.elevationM.toFixed(2)}`,
+            })}
           </p>
         )}
 
         {/* Parent-formation context / no-context warning */}
         {parentFormationName !== null ? (
           <p className="text-xs text-text-secondary mb-3">
-            within:{' '}
+            {t('composition.within')}{' '}
             <span className="font-medium text-text-primary">{parentFormationName}</span>
           </p>
         ) : (
           <p className="text-xs text-text-secondary mb-3">
-            The parent geological formation is resolved automatically when the
-            contact is committed. If no geology is mapped here, the unit appears
-            under "Unassigned".
+            {t('composition.parentAutoResolved')}
           </p>
         )}
 
@@ -386,7 +388,7 @@ export default function LithoCompositionPickerDialog({
                 busy ? 'opacity-50 cursor-not-allowed' : '',
               ].join(' ')}
             >
-              {tab === 'existing' ? 'Existing units' : 'New unit'}
+              {tab === 'existing' ? t('composition.tabExisting') : t('composition.tabNew')}
             </button>
           ))}
         </div>
@@ -399,15 +401,15 @@ export default function LithoCompositionPickerDialog({
             {filteredLithoFormations.length === 0 ? (
               <p className="text-xs text-text-muted italic px-1 py-3">
                 {parentFormationId !== null && lithoFormations.length > 0
-                  ? 'No litho units in this geological formation yet — use the "New unit" tab to create one.'
-                  : 'No litho units in this model yet — use the "New unit" tab to create the first one.'}
+                  ? t('composition.noUnitsInFormation')
+                  : t('composition.noUnitsInModel')}
               </p>
             ) : (
               <div className="flex flex-col gap-3">
                 {groups.map(group => (
                   <div key={group.parentId ?? '__unassigned__'}>
                     <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide mb-1 px-1">
-                      {group.groupName}
+                      {group.parentId === null ? t('composition.unassigned') : group.groupName}
                     </p>
                     <ul className="flex flex-col gap-1">
                       {group.formations.map(f => {
@@ -440,7 +442,7 @@ export default function LithoCompositionPickerDialog({
                                 </span>
                                 {f.parent_formation_name !== null && (
                                   <span className="text-[10px] text-text-muted truncate">
-                                    under {f.parent_formation_name}
+                                    {t('composition.under', { name: f.parent_formation_name })}
                                   </span>
                                 )}
                               </span>
@@ -463,7 +465,7 @@ export default function LithoCompositionPickerDialog({
           <div className="flex flex-col gap-3">
             {/* Main soil segmented control */}
             <div>
-              <p className="text-xs text-text-secondary mb-1.5">Main lithology</p>
+              <p className="text-xs text-text-secondary mb-1.5">{t('composition.mainLithology')}</p>
               <div className="flex gap-1 flex-wrap">
                 {MAIN_SOIL_CODES.map(code => {
                   const color = LITHOLOGY_COLORS[code] ?? LITHOLOGY_FALLBACK_COLOR
@@ -493,7 +495,7 @@ export default function LithoCompositionPickerDialog({
 
             {/* Admixture rows */}
             <div>
-              <p className="text-xs text-text-secondary mb-1.5">Admixtures</p>
+              <p className="text-xs text-text-secondary mb-1.5">{t('composition.admixtures')}</p>
               <div className="flex flex-col gap-1.5">
                 {admixRows.map(row => (
                   <div key={row.id} className="flex items-center gap-1.5">
@@ -503,7 +505,7 @@ export default function LithoCompositionPickerDialog({
                       onChange={e => updateAdmixtureRow(row.id, { soil_code: e.target.value })}
                       disabled={busy}
                       className="min-w-0 flex-1 text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
-                      aria-label="Admixture soil code"
+                      aria-label={t('composition.admixtureSoilCode')}
                     >
                       {ADMIXTURE_SOIL_OPTIONS.map(opt => (
                         <option key={opt.code} value={opt.code}>
@@ -517,7 +519,7 @@ export default function LithoCompositionPickerDialog({
                       onChange={e => updateAdmixtureRow(row.id, { amount: e.target.value })}
                       disabled={busy}
                       className="min-w-0 flex-1 text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
-                      aria-label="Admixture amount"
+                      aria-label={t('composition.admixtureAmount')}
                     >
                       {ADMIXTURE_AMOUNT_OPTIONS.map(opt => (
                         <option key={opt.code} value={opt.code}>
@@ -534,15 +536,15 @@ export default function LithoCompositionPickerDialog({
                         disabled={busy}
                         className="rounded"
                       />
-                      locally
+                      {t('composition.locally')}
                     </label>
                     {/* Remove */}
                     <button
                       onClick={() => removeAdmixtureRow(row.id)}
                       disabled={busy}
                       className="shrink-0 text-text-muted hover:text-red-600 disabled:opacity-40"
-                      title="Remove admixture"
-                      aria-label="Remove admixture"
+                      title={t('composition.removeAdmixture')}
+                      aria-label={t('composition.removeAdmixture')}
                     >
                       <X size={12} />
                     </button>
@@ -555,13 +557,13 @@ export default function LithoCompositionPickerDialog({
                 className="mt-1.5 flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
               >
                 <Plus size={11} />
-                Add admixture
+                {t('composition.addAdmixture')}
               </button>
             </div>
 
             {/* Live preview */}
             <div className="rounded border border-border-subtle bg-surface-page px-3 py-2">
-              <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">Preview</p>
+              <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">{t('composition.preview')}</p>
               <p
                 className="text-sm font-medium text-text-primary"
                 data-testid="litho-preview"
@@ -575,7 +577,7 @@ export default function LithoCompositionPickerDialog({
         {/* Footer actions */}
         <div className="flex justify-end items-center gap-2 mt-4 pt-3 border-t border-border-subtle">
           <Button variant="secondary" size="md" onClick={handleCancel} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           {activeTab === 'new' && (
             <Button
@@ -584,7 +586,7 @@ export default function LithoCompositionPickerDialog({
               onClick={() => void handleCreateConfirm()}
               disabled={busy}
             >
-              {creating ? 'Creating…' : 'Create unit'}
+              {creating ? t('composition.creating') : t('composition.createUnit')}
             </Button>
           )}
         </div>
