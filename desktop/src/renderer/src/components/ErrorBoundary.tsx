@@ -21,6 +21,10 @@
 
 import React from 'react'
 import { log } from '../utils/log'
+// Class component — cannot use the useT() hook, so the module-level t() reads
+// the active language at render time. An error screen is shown after a crash
+// and is not expected to re-render on a live language flip.
+import { t } from '../i18n/translate'
 
 interface Props {
   children: React.ReactNode
@@ -106,14 +110,14 @@ export default class ErrorBoundary extends React.Component<Props, State> {
         className="flex flex-col items-center justify-center h-screen bg-surface-app text-text-primary gap-4 p-8"
       >
         <div className="text-status-danger text-lg font-semibold">
-          StrixGeo encountered an unexpected error
+          {t('app.crashTitle')}
         </div>
         <div className="text-text-secondary text-sm max-w-md text-center">
           {this.state.errorMessage}
         </div>
         {this.state.logsPath && (
           <div className="text-text-muted text-xs text-center max-w-md">
-            Log file:{' '}
+            {t('app.logFile')}{' '}
             <span className="font-mono">{this.state.logsPath}/backend.log</span>
           </div>
         )}
@@ -122,7 +126,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           onClick={() => window.location.reload()}
           className="mt-2 px-4 py-2 bg-accent text-text-on-accent rounded text-sm hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent"
         >
-          Reload StrixGeo
+          {t('app.reload')}
         </button>
       </div>
     )
