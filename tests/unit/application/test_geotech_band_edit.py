@@ -65,6 +65,19 @@ class _FakeSession:
         #: taken at all rather than silently swallowing it.
         self.executed: list[Any] = []
 
+    @property
+    def no_autoflush(self) -> Any:
+        """Match ``AsyncSession.no_autoflush`` — a no-op ctx for the lock helper.
+
+        ``lock_body_partition`` runs its lock SELECTs under
+        ``with session.no_autoflush:`` so acquiring a lock never flushes a
+        pending write first. The double has nothing to flush, so a null context
+        is a faithful stand-in.
+        """
+        from contextlib import nullcontext
+
+        return nullcontext()
+
     async def execute(self, statement: Any, params: Any = None) -> Any:
         """Record a raw statement (the advisory lock) and answer harmlessly."""
         self.executed.append((statement, params))
