@@ -24,6 +24,8 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
+import { useT } from '../i18n/translate'
+
 interface Props {
   /** Whether the modal is visible. */
   open: boolean
@@ -43,6 +45,7 @@ interface Props {
  *     to the ``backend.log`` file for diagnosis.
  */
 export default function BackendFailedModal({ open, logsPath }: Props): JSX.Element | null {
+  const t = useT()
   const quitRef = useRef<HTMLButtonElement>(null)
 
   // Auto-focus the Quit button when the modal opens.
@@ -81,17 +84,16 @@ export default function BackendFailedModal({ open, logsPath }: Props): JSX.Eleme
           id="backend-failed-title"
           className="text-status-danger font-semibold text-base"
         >
-          StrixGeo failed to start
+          {t('app.backendFailedTitle')}
         </h2>
 
         <p id="backend-failed-desc" className="text-sm text-text-secondary">
-          The StrixGeo backend process exited before it was ready. This usually
-          means a database connection problem or a startup crash.
+          {t('app.backendFailedBody')}
         </p>
 
         {logsPath && (
           <p className="text-xs text-text-muted font-mono break-all">
-            Log file: {logsPath}/backend.log
+            {t('app.logFile')} {logsPath}/backend.log
           </p>
         )}
 
@@ -101,7 +103,7 @@ export default function BackendFailedModal({ open, logsPath }: Props): JSX.Eleme
             onClick={handleQuit}
             className="px-4 py-2 bg-status-danger text-white rounded text-sm hover:bg-status-danger/90 focus:outline-none focus:ring-2 focus:ring-status-danger"
           >
-            Quit StrixGeo
+            {t('app.quit')}
           </button>
         </div>
       </div>
