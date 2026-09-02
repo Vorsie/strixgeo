@@ -35,83 +35,99 @@
 
 import { BookOpen, BrainCircuit, FileSpreadsheet, FunctionSquare } from 'lucide-react'
 
+import { useT } from '../../../../i18n/translate'
+import type { MessageKey } from '../../../../i18n/locales/en'
+
 interface MethodCardSpec {
-  title: string
-  reference: string
-  appliesTo: string
-  status: 'Phase 5 placeholder'
+  titleKey: MessageKey
+  referenceKey: MessageKey
+  appliesToKey: MessageKey
+  statusKey: MessageKey
+  /** Stable English id for the data-testid — kept out of the catalogue so the
+   *  e2e selectors do not move with the locale. */
+  testId: string
 }
 
 const CORRELATION_CARDS: readonly MethodCardSpec[] = [
   {
-    title: 'Robertson & Wride 1986',
-    reference: 'φ′ from Qtn — Robertson, P.K. & Wride, C.E. (1998)',
-    appliesTo: 'Sand units (Ic < 2.6); inputs qc, fs',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.methodRobertsonWride',
+    referenceKey: 'params.methodRefRobertsonWride',
+    appliesToKey: 'params.methodAppliesRobertsonWride',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Robertson & Wride 1986',
   },
   {
-    title: 'Mayne 2007',
-    reference: 'φ′ from Qtn — Mayne, P.W. (2007)',
-    appliesTo: 'Sand units; inputs qc, σ′v',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.methodMayne',
+    referenceKey: 'params.methodRefMayne',
+    appliesToKey: 'params.methodAppliesMayne',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Mayne 2007',
   },
   {
-    title: 'Kulhawy & Mayne 2014',
-    reference: 'OCR from Qt — Kulhawy & Mayne (2014)',
-    appliesTo: 'Clay units (Ic > 2.6); inputs qc, σv, σ′v',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.methodKulhawyMayne',
+    referenceKey: 'params.methodRefKulhawyMayne',
+    appliesToKey: 'params.methodAppliesKulhawyMayne',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Kulhawy & Mayne 2014',
   },
   {
-    title: 'Uzielli 2013',
-    reference: 'φ′ probabilistic — Uzielli (2013)',
-    appliesTo: 'Sand units; emits μ + σ rather than a scalar',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.methodUzielli',
+    referenceKey: 'params.methodRefUzielli',
+    appliesToKey: 'params.methodAppliesUzielli',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Uzielli 2013',
   },
   {
-    title: 'Robertson 2015 / 2009',
-    reference: 'SBT zone + Ic — Robertson (2015), zone map (2009)',
-    appliesTo: 'All units; segmenter already uses this path (port complete)',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.methodRobertson2015',
+    referenceKey: 'params.methodRefRobertson2015',
+    appliesToKey: 'params.methodAppliesRobertson2015',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Robertson 2015 / 2009',
   },
-] as const
+]
 
 const XLSX_CARDS: readonly MethodCardSpec[] = [
   {
-    title: 'NAD-NEN table (38 × 313)',
-    reference: 'Owner-curated; per NAD class × parameter lookup',
-    appliesTo: 'Sand + fines NAD classes 1–31; primary v1.0 lookup source',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.nadNenTable',
+    referenceKey: 'params.methodRefNadNen',
+    appliesToKey: 'params.methodAppliesNadNen',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'NAD-NEN table (38 × 313)',
   },
   {
-    title: 'Project-specific xlsx import',
-    reference: 'User-provided; loaded once per project',
-    appliesTo: 'Overrides the NAD-NEN defaults when the engineer ships their own table',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.projectXlsxImport',
+    referenceKey: 'params.methodRefXlsx',
+    appliesToKey: 'params.methodAppliesXlsx',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Project-specific xlsx import',
   },
-] as const
+]
 
 const FUTURE_CARDS: readonly MethodCardSpec[] = [
   {
-    title: 'Probabilistic distributions',
-    reference: 'Per-parameter μ ± σ + distribution type (Normal / Lognormal / Beta)',
-    appliesTo: 'Downstream probabilistic design (D-Stability Probabilistic Toolkit, Plaxis statistics export)',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.probabilisticDistributions',
+    referenceKey: 'params.methodRefProbabilistic',
+    appliesToKey: 'params.methodAppliesProbabilistic',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'Probabilistic distributions',
   },
   {
-    title: 'ML / AI suggestion',
-    reference: 'Audit-required surface (never auto-applies — owner directive)',
-    appliesTo: 'Side-by-side comparison vs correlation / xlsx choice; flagged when the prediction diverges',
-    status: 'Phase 5 placeholder',
+    titleKey: 'params.mlSuggestion',
+    referenceKey: 'params.methodRefMl',
+    appliesToKey: 'params.methodAppliesMl',
+    statusKey: 'params.phase5Placeholder',
+    testId: 'ML / AI suggestion',
   },
-] as const
+]
 
 export default function MethodConfigTab(): JSX.Element {
+  const t = useT()
   return (
     <div className="h-full overflow-auto p-4 space-y-6">
       <PillarHeader
         icon={<FunctionSquare size={14} />}
-        title="Correlations"
-        subtitle="Formula-driven derivations from in-situ measurements. Pick one method per (parameter, unit)."
+        title={t('params.correlations')}
+        subtitle={t('params.correlationsBlurb')}
       />
       <CardGrid cards={CORRELATION_CARDS} />
 
@@ -119,8 +135,8 @@ export default function MethodConfigTab(): JSX.Element {
 
       <PillarHeader
         icon={<FileSpreadsheet size={14} />}
-        title="Excel lookups"
-        subtitle="Table-driven values from owner-curated or project-imported spreadsheets. Hard-separated from correlations — the engineer picks ONE path per cell."
+        title={t('params.excelLookups')}
+        subtitle={t('params.excelLookupsSubtitle')}
       />
       <CardGrid cards={XLSX_CARDS} />
 
@@ -128,18 +144,16 @@ export default function MethodConfigTab(): JSX.Element {
 
       <PillarHeader
         icon={<BrainCircuit size={14} />}
-        title="Probabilistic + ML"
-        subtitle="Distribution wiring for probabilistic design tools, plus an audit-required ML suggestion surface."
+        title={t('params.probabilisticMl')}
+        subtitle={t('params.probabilisticMlBlurb')}
       />
       <CardGrid cards={FUTURE_CARDS} />
 
       <div className="text-[10px] text-text-muted leading-snug border-t border-border-subtle pt-3">
         <BookOpen size={11} className="inline mr-1" aria-hidden="true" />
-        Status: all cards above are <strong>structural skeletons</strong>{' '}
-        for Phase 5. Surfacing the three-pillar architecture today
-        keeps the design decisions visible — push back on the shape
-        (which methods, which xlsx sources, the hard-separation rule)
-        BEFORE the Phase-5 implementation budget commits.
+        {t('params.methodsStatusPre')}
+        <strong>{t('params.methodsStatusBold')}</strong>
+        {t('params.methodsStatusPost')}
       </div>
     </div>
   )
@@ -167,23 +181,24 @@ function CardGrid({ cards }: { cards: readonly MethodCardSpec[] }): JSX.Element 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
       {cards.map(card => (
-        <MethodCard key={card.title} card={card} />
+        <MethodCard key={card.testId} card={card} />
       ))}
     </div>
   )
 }
 
 function MethodCard({ card }: { card: MethodCardSpec }): JSX.Element {
+  const t = useT()
   return (
     <div
       className="rounded border border-border-subtle bg-surface-sunken/60 p-2.5 text-[11px]"
-      data-testid={`method-card-${card.title}`}
+      data-testid={`method-card-${card.testId}`}
     >
-      <div className="font-medium text-text-primary">{card.title}</div>
-      <div className="text-text-secondary mt-1">{card.reference}</div>
-      <div className="text-text-muted mt-1">{card.appliesTo}</div>
+      <div className="font-medium text-text-primary">{t(card.titleKey)}</div>
+      <div className="text-text-secondary mt-1">{t(card.referenceKey)}</div>
+      <div className="text-text-muted mt-1">{t(card.appliesToKey)}</div>
       <div className="mt-2 inline-block rounded bg-surface-app border border-border-subtle px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-muted">
-        {card.status}
+        {t(card.statusKey)}
       </div>
     </div>
   )
