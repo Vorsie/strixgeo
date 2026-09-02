@@ -1,0 +1,92 @@
+// Launch-prototype chrome — onboarding (#93), licensing/activation (#3) and the
+// updater notification (#6). See docs/design/onboarding-activation-updater-proto.md.
+//
+// Part of the English message catalogue — see 'locales/en/index.ts' for the
+// key-naming rules. Product + tier names (StrixGeo, Solo, Pro, Studio) and the
+// demo licence keys are NOT translated: they are product identifiers, rendered
+// as raw tokens, never routed through a second vocabulary.
+
+export const LAUNCH = {
+  // -------------------------------------------------------------------------
+  // onboarding — first-launch overlay: welcome → choose → skippable tour.
+  // -------------------------------------------------------------------------
+  'onboarding.welcomeTitle': 'Welcome to StrixGeo',
+  'onboarding.welcomeBody':
+    'StrixGeo turns CPT and borehole data into a validated ground model you can export straight to your design tools.',
+  'onboarding.chooseTitle': 'How would you like to start?',
+  'onboarding.sampleTitle': 'Load the sample project',
+  'onboarding.sampleBody': 'Open a finished ground model and explore the whole workflow.',
+  'onboarding.scratchTitle': 'Start from scratch',
+  'onboarding.scratchBody': 'Create an empty project and import your own data.',
+  'onboarding.tourTitle': 'A quick tour',
+  'onboarding.tourIntro': 'Six stages carry raw data to a deliverable. Here is what each one does.',
+  'onboarding.stepCount': 'Step {current} of {total}',
+  'onboarding.skip': 'Skip',
+  'onboarding.back': 'Back',
+  'onboarding.next': 'Next',
+  'onboarding.done': 'Get started',
+  'onboarding.sampleUnavailable':
+    'The sample project is not bundled in this prototype yet — starting an empty project instead.',
+  // The six spine stages, one sentence each.
+  'onboarding.stageImport': 'Import',
+  'onboarding.stageImportBody': 'Bring in CPTs and boreholes from files or straight from DOV.',
+  'onboarding.stageGeology': 'Geology',
+  'onboarding.stageGeologyBody': 'Lay down the geological backbone — formations and their surfaces.',
+  'onboarding.stageLitho': 'Lithology',
+  'onboarding.stageLithoBody': 'Refine the backbone into lithological units along your sections.',
+  'onboarding.stageGeotech': 'Geotechnics',
+  'onboarding.stageGeotechBody': 'Subdivide units into NAD packing classes from CPT-derived indicators.',
+  'onboarding.stageSections': 'Sections',
+  'onboarding.stageSectionsBody': 'Draw and edit cross-sections — the surface where all three model levels are built.',
+  'onboarding.stageExport': 'Export',
+  'onboarding.stageExportBody': 'Send the model to Plaxis, D-Stability, DXF and PDF report slices.',
+
+  // -------------------------------------------------------------------------
+  // licensing — activation screen (#3). Tier names stay raw tokens.
+  // -------------------------------------------------------------------------
+  'licensing.title': 'Licence & activation',
+  'licensing.statusHeading': 'Status',
+  'licensing.deviceHeading': 'This device',
+  'licensing.tierLabel': 'Tier',
+  'licensing.expiresLabel': 'Renews / ends',
+  'licensing.stateUnactivated': 'Not activated',
+  'licensing.stateTrial': 'Trial',
+  'licensing.stateActive': 'Active',
+  'licensing.stateGrace': 'Offline grace',
+  'licensing.stateExpired': 'Expired',
+  'licensing.stateClockRollback': 'Clock problem',
+  'licensing.daysRemaining': '{days} day(s) remaining',
+  'licensing.graceRemaining': '{days} day(s) of offline grace left',
+  'licensing.enterKey': 'Enter a licence key',
+  'licensing.activate': 'Activate',
+  'licensing.startTrial': 'Start free trial',
+  'licensing.deactivate': 'Deactivate / transfer this device',
+  'licensing.deactivateHint': 'Frees this seat so you can activate on another machine.',
+  'licensing.demoKeysHint': 'Prototype demo keys: STRIX-SOLO-DEMO, STRIX-PRO-DEMO, STRIX-STUDIO-DEMO.',
+  'licensing.previewHeading': 'Preview a state (prototype only)',
+  'licensing.errorUnknownKey': 'That licence key was not recognised.',
+  'licensing.errorDeviceLimit':
+    'This key is already active on another device. Deactivate it there, or transfer the seat.',
+  'licensing.errorAlreadyTrialled': 'This device has already used its free trial.',
+  'licensing.errorUnreachable': 'Could not reach the activation server.',
+  'licensing.toastActivated': 'Licence activated.',
+  'licensing.toastTrialStarted': 'Free trial started.',
+  'licensing.toastDeactivated': 'This device was deactivated.',
+
+  // -------------------------------------------------------------------------
+  // updater — the update-available notification (#6).
+  // -------------------------------------------------------------------------
+  'updater.checking': 'Checking for updates…',
+  'updater.availableTitle': 'A new version is available',
+  'updater.availableBody': 'Version {version} is ready to download.',
+  'updater.download': 'Download',
+  'updater.later': 'Later',
+  'updater.downloading': 'Downloading update… {percent}%',
+  'updater.downloadedTitle': 'Update ready to install',
+  'updater.downloadedBody': 'Version {version} will be applied when you restart.',
+  'updater.restart': 'Restart & install',
+  'updater.upToDate': 'You are on the latest version.',
+  'updater.disabled': 'Updates are disabled in development.',
+  'updater.error': 'Update check failed.',
+  'updater.dismiss': 'Dismiss',
+} as const
