@@ -18,6 +18,7 @@
 // outright, so the engineer is never asked to judge the machine's own withdrawn guess.
 
 import ConfirmDialog from '../ui/ConfirmDialog'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   /** How many accepted ties the edit flagged. Zero means the dialog is not open. */
@@ -41,7 +42,8 @@ export default function FlaggedTiesPromptDialog({
   onDelete,
   busy = false,
 }: Props): JSX.Element {
-  const plural = count === 1 ? '' : 's'
+  const t = useT()
+  const one = count === 1
   return (
     <ConfirmDialog
       open={count > 0}
@@ -49,31 +51,23 @@ export default function FlaggedTiesPromptDialog({
       testid="flagged-ties-prompt-dialog"
       cardClassName="w-[30rem]"
       cancelTestid="flagged-ties-prompt-keep"
-      cancelLabel="Keep them flagged"
+      cancelLabel={t('sections.tie.keepFlagged')}
       onCancel={onKeep}
       busy={busy}
-      title={`${count} correlation${plural} no longer match${count === 1 ? 'es' : ''}`}
+      title={t(one ? 'sections.flaggedTies.titleOne' : 'sections.flaggedTies.titleMany', {
+        count,
+      })}
       body={
         <>
-          <p>
-            The packing class changed on one side of {count === 1 ? 'this tie' : 'these ties'},
-            so the two ends no longer describe the same ground.
-          </p>
+          <p>{t(one ? 'sections.flaggedTies.body1One' : 'sections.flaggedTies.body1Many')}</p>
           <p className="mt-2">
-            {count === 1 ? 'It is' : 'They are'} kept and marked for review — nothing has been
-            lost. Delete {count === 1 ? 'it' : 'them'} only if the correlation itself was wrong;
-            keep {count === 1 ? 'it' : 'them'} if the two columns still belong together and the
-            class needs another look.
+            {t(one ? 'sections.flaggedTies.body2One' : 'sections.flaggedTies.body2Many')}
           </p>
-          <p className="mt-2 text-text-secondary">
-            Deleting is one step on the undo stack. While a mismatched tie waits for review it
-            no longer joins its two bands into one body, so the 3-D model will not weld them
-            together either way.
-          </p>
+          <p className="mt-2 text-text-secondary">{t('sections.flaggedTies.body3')}</p>
         </>
       }
       confirm={{
-        label: `Delete ${count === 1 ? 'it' : 'them'}`,
+        label: t(one ? 'sections.flaggedTies.deleteOne' : 'sections.flaggedTies.deleteMany'),
         onClick: onDelete,
         variant: 'danger',
         testid: 'flagged-ties-prompt-delete',
