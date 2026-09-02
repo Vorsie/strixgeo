@@ -244,7 +244,6 @@ export const SECTIONS_NL = {
   'sections.export.plaxisTitle':
     'Exporteer het geologisch model als een Plaxis 3D plxscripting Python-script',
   'sections.export.sectionPdf': 'Profiel-PDF-rapport',
-  'sections.export.generatingPdf': 'PDF genereren…',
   'sections.export.noModelDefine': 'Geen actief {level} model — bepaal er eerst een',
   'sections.export.pdfTitle': 'Genereer een PDF-rapport van het {level} model van dit profiel',
   // "D-Stability (.stix)" / "D-Sheet Piling (.shi)" blijven ongewijzigd
