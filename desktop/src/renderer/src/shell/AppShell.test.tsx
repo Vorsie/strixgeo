@@ -49,6 +49,7 @@ function makeCtx(
     drawingSection?: boolean
     view?: 'map' | 'chart'
     sectionsDeepLinkTarget?: unknown
+    geoDeepLinkTarget?: { sectionId: string; contactId: string } | null
   } = {},
 ): Ctx {
   const setSelectedId = vi.fn()
@@ -74,7 +75,7 @@ function makeCtx(
       setSelectedId,
       setSelectedBoreholeId,
       setView,
-      geoDeepLinkTarget: null,
+      geoDeepLinkTarget: over.geoDeepLinkTarget ?? null,
       setGeoDeepLinkTarget: vi.fn(),
       sectionsDeepLinkTarget: over.sectionsDeepLinkTarget ?? null,
       setSectionsDeepLinkTarget: vi.fn(),
@@ -129,6 +130,42 @@ describe('AppShell geotech report reveal', () => {
     act(() => vi.advanceTimersByTime(50))
     expect(sectionsRevealColumnCallback.current).toHaveBeenCalledWith(['S4', 'B6'])
     expect(setTarget).toHaveBeenCalledWith(null)
+  })
+})
+
+describe('AppShell "Edit in Geology stage" deep-link (#156)', () => {
+  it('lands on the SECTION VIEW (not the 3D globe): switches to the Sections stage, selects the geological axis, selects the section, and focuses the contact with a geological override', () => {
+    const { ctx } = makeCtx({
+      geoDeepLinkTarget: { sectionId: 'section-1', contactId: 'geo-contact-1' },
+    })
+    const setGeoTarget = ctx.coordinator.setGeoDeepLinkTarget as ReturnType<typeof vi.fn>
+    const sections = ctx.sections as unknown as {
+      setSectionModelAxis: ReturnType<typeof vi.fn>
+      handleSelectSection: ReturnType<typeof vi.fn>
+      handleFocusContacts: ReturnType<typeof vi.fn>
+    }
+
+    render(<AppShell context={ctx} />)
+
+    // The geological model is edited on cross-sections, not the globe — so the
+    // deep-link opens the Sections stage, NOT the Geology (Cesium) stage.
+    expect(mockSetActiveStage).toHaveBeenCalledWith('sections')
+    expect(mockSetActiveStage).not.toHaveBeenCalledWith('geology')
+
+    // On the geological axis so the geological contact is the editable one.
+    expect(sections.setSectionModelAxis).toHaveBeenCalledWith('geological')
+    expect(sections.handleSelectSection).toHaveBeenCalledWith('section-1')
+
+    // The contact is focused with the geological axis stated explicitly, so the
+    // amber ring resolves instead of firing "couldn't find the contact".
+    expect(sections.handleFocusContacts).toHaveBeenCalledWith(
+      ['geo-contact-1'],
+      'section-1',
+      'geological',
+    )
+
+    // Single-fire: the payload is cleared so a later re-render does not re-apply it.
+    expect(setGeoTarget).toHaveBeenCalledWith(null)
   })
 })
 
