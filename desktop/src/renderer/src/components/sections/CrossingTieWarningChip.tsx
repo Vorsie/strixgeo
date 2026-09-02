@@ -11,6 +11,8 @@
  * ``PartitionFillOverlay`` god-component (debt #201).
  */
 
+import { useT } from '../../i18n/translate'
+
 /** Amber-500 — the project warning colour, legible on both light and dark section
  *  backgrounds; kept explicit (not a Tailwind class) because this renders in SVG. */
 const AMBER = '#f59e0b'
@@ -65,14 +67,18 @@ export default function CrossingTieWarningChip({
   plotTop,
   onJump,
 }: Props): JSX.Element | null {
+  const t = useT()
   if (conflictCount <= 0) return null
-  const plural = conflictCount === 1 ? '' : 's'
+  const phrase = t(
+    conflictCount === 1 ? 'sections.crossingTie.countOne' : 'sections.crossingTie.countMany',
+    { n: conflictCount },
+  )
   // The tail differs by mode on purpose. Passive, the only useful instruction is
   // WHAT to do; clickable, the affordance itself has to be discoverable, because
   // nothing about an SVG chip says "press me".
   const label = onJump
-    ? `⚠ ${conflictCount} crossing correlation tie${plural} — click to find`
-    : `⚠ ${conflictCount} crossing correlation tie${plural} — resolve to restore bands`
+    ? t('sections.crossingTie.labelFind', { phrase })
+    : t('sections.crossingTie.labelResolve', { phrase })
   const w = Math.ceil(label.length * CHAR_W) + CHIP_PAD_X * 2
   const x = plotLeft + 8
   const y = plotTop + 8
@@ -84,11 +90,7 @@ export default function CrossingTieWarningChip({
       style={{ pointerEvents: onJump ? 'auto' : 'none', cursor: onJump ? 'pointer' : undefined }}
       role={onJump ? 'button' : undefined}
       tabIndex={onJump ? 0 : undefined}
-      aria-label={
-        onJump
-          ? `${conflictCount} crossing correlation tie${plural}. Activate to centre the next one.`
-          : undefined
-      }
+      aria-label={onJump ? t('sections.crossingTie.aria', { phrase }) : undefined}
       onClick={onJump}
       onKeyDown={
         onJump
