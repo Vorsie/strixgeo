@@ -207,14 +207,16 @@ async function snapDepthsForAxis(
 ): Promise<number[]> {
   const restore = withFixedSize(800, 400)
   render(
-    <SectionScopeContext.Provider value={{ geotechModel: GEOTECH_MODEL }}>
-      <SectionPanel
-        section={SECTION}
-        zEpsg={5710}
-        cpts={[CPT]}
-        contacts={[COMMITTED_CONTACT]}
-        axisMode={axisMode}
-      />
+    <SectionScopeContext.Provider
+      value={{
+        geotechModel: GEOTECH_MODEL,
+        zEpsg: 5710,
+        cpts: [CPT],
+        contacts: [COMMITTED_CONTACT],
+        axisMode,
+      }}
+    >
+      <SectionPanel section={SECTION} />
     </SectionScopeContext.Provider>,
   )
   await new Promise(r => setTimeout(r, 0))
