@@ -232,6 +232,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
           icon={<Plus size={13} />}
           label={creating ? t('sections.busy.creating') : t('sections.tail.newSection')}
           onClick={handleNew}
+          testid="section-create"
           disabled={!canCreate || creating}
           busy={creating}
           title={
