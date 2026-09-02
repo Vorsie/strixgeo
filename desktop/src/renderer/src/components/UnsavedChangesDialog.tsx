@@ -18,6 +18,10 @@
 
 import ConfirmDialog from './ui/ConfirmDialog'
 import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
+// Module-level tMsg for the string-building helpers below (not components);
+// useT drives the component so it re-renders on a live language flip.
+import { t as tMsg, useT } from '../i18n/translate'
+import { interpolateSlot } from '../i18n/interpolateSlot'
 
 interface Props {
   open: boolean
@@ -55,16 +59,21 @@ function describeImports(summary: UnsavedWorkSummary): string | null {
   const add = (count: number, one: string, many: string): void => {
     if (count > 0) parts.push(`${count} ${count === 1 ? one : many}`)
   }
-  add(summary.importedCpts, 'CPT', 'CPTs')
-  add(summary.importedBoreholes, 'borehole', 'boreholes')
-  add(summary.importedFormations, 'formation', 'formations')
-  add(summary.importedSections, 'section', 'sections')
-  add(summary.importedContacts, 'geological contact', 'geological contacts')
+  add(summary.importedCpts, tMsg('common.cptWordOne'), tMsg('common.cptWordMany'))
+  add(summary.importedBoreholes, tMsg('common.boreholeWordOne'), tMsg('common.boreholeWordMany'))
+  add(summary.importedFormations, tMsg('common.formationWordOne'), tMsg('common.formationWordMany'))
+  add(summary.importedSections, tMsg('common.sectionWordOne'), tMsg('common.sectionWordMany'))
+  add(
+    summary.importedContacts,
+    tMsg('common.geologicalContactWordOne'),
+    tMsg('common.geologicalContactWordMany'),
+  )
   if (parts.length === 0) return null
   const last = parts[parts.length - 1]
   const head = parts.slice(0, -1)
-  const listed = head.length === 0 ? last : `${head.join(', ')} and ${last}`
-  return `${listed} imported this session.`
+  const listed =
+    head.length === 0 ? last : `${head.join(', ')} ${tMsg('common.listAnd')} ${last}`
+  return tMsg('common.importedThisSession', { list: listed })
 }
 
 /**
@@ -80,11 +89,9 @@ function lossBullets(summary: UnsavedWorkSummary): string[] {
   const imports = describeImports(summary)
   if (imports !== null) bullets.push(imports)
   if (summary.hasInterpretationEdits) {
-    bullets.push(
-      'Correlations, boundary moves, accepted suggestions and deletions made this session, in any stage — these are not counted here.',
-    )
+    bullets.push(tMsg('project.discardLossInterpretation'))
   }
-  if (summary.hasMetadataEdits) bullets.push('Unsaved edits in the project metadata editor.')
+  if (summary.hasMetadataEdits) bullets.push(tMsg('project.discardLossMetadata'))
   return bullets
 }
 
@@ -98,6 +105,7 @@ export default function UnsavedChangesDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const bullets = lossBullets(summary)
 
   // A never-saved project has no .gmproj to restore from, so Discard cannot
@@ -109,11 +117,11 @@ export default function UnsavedChangesDialog({
   // spent the afternoon correlating; the editor now appears only in its own
   // bullet, and only when it actually holds a draft.
   const lead = summary.hasSavedSnapshot
-    ? 'Discard reverts the whole project — in the database, across every stage — to its last saved state.'
-    : 'This project has never been saved to a file, so Discard has no saved state to go back to.'
+    ? t('project.discardLeadSaved')
+    : t('project.discardLeadUnsaved')
   const follow = summary.hasSavedSnapshot
-    ? 'Everything done since the last File → Save is lost'
-    : 'It removes everything this session added to the project'
+    ? t('project.discardFollowSaved')
+    : t('project.discardFollowUnsaved')
 
   return (
     <ConfirmDialog
@@ -124,11 +132,9 @@ export default function UnsavedChangesDialog({
       busy={busy}
       cancelTestid="unsaved-cancel"
       cardClassName="w-[28rem]"
-      title={
-        <>
-          Save changes to <span className="font-bold">{projectName}</span>?
-        </>
-      }
+      title={interpolateSlot(t('project.unsavedTitle'), 'name', (
+        <span className="font-bold">{projectName}</span>
+      ))}
       body={
         <>
           <p>
@@ -142,9 +148,7 @@ export default function UnsavedChangesDialog({
               ))}
             </ul>
           )}
-          <p className="mt-2">
-            Discarding cannot be undone. Cancel keeps the project open so you can save.
-          </p>
+          <p className="mt-2">{t('project.discardBody')}</p>
           {error !== null && (
             <p
               role="alert"
@@ -157,13 +161,13 @@ export default function UnsavedChangesDialog({
         </>
       }
       secondary={{
-        label: 'Discard all changes',
+        label: t('project.discardChanges'),
         onClick: onDiscard,
         variant: 'ghost',
         testid: 'unsaved-discard-and-close',
       }}
       confirm={{
-        label: 'Save',
+        label: t('common.save'),
         onClick: onSave,
         variant: 'primary',
         testid: 'unsaved-save-and-close',
