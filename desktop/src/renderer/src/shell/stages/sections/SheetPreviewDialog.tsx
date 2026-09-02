@@ -69,6 +69,10 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
         dateAuthor: t('sheet.field.dateAuthor'),
       },
     })
+    // A new section starts clean: the previous section's outcome must not show
+    // (or be read by a test) while this one is still building.
+    setNoFill(false)
+    setPayload(null)
     setSettings(readSheetSettings(p.section.view_state, fallback))
     // reason: ``t`` is stable per language; re-seeding on a language switch
     // mid-dialog would discard the engineer's typed fields.
@@ -170,10 +174,15 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
   useEffect(() => {
     if (!p.open) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
+      if (e.key !== 'Escape') return
+      // Escape is ALSO the Sections stage's deselect key; swallow it here so
+      // closing the preview never drops the engineer back to the map.
+      e.stopImmediatePropagation()
+      e.preventDefault()
+      close()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [p.open, close])
 
   if (!p.open || !settings) return null
@@ -222,6 +231,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
           </div>
           <div
             data-testid="sheet-paper-size"
+            data-busy={busy !== null || !settings}
             className={`px-4 py-2 text-sm ${overCap ? 'text-amber-700' : 'text-neutral-600 dark:text-neutral-300'}`}
           >
             {geometry ? t('sheet.paperSize', { w: geometry.paperWidthMm, h: geometry.paperHeightMm }) : ''}
@@ -360,7 +370,12 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
             ))}
           </fieldset>
           <div className="mt-auto flex justify-end gap-2">
-            <button type="button" onClick={close} className="rounded border px-3 py-1.5">
+            <button
+              type="button"
+              onClick={close}
+              className="rounded border px-3 py-1.5"
+              data-testid="sheet-close"
+            >
               {t('sheet.close')}
             </button>
             <button
