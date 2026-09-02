@@ -16,6 +16,8 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type React from 'react'
 
+import { useT } from '../i18n/translate'
+
 /**
  * Accessible name + tooltip for a control that may render icon-only.
  *
@@ -561,6 +563,7 @@ export function SplitToolbarButton({
   testid,
   iconOnly,
 }: SplitToolbarButtonProps): JSX.Element {
+  const t = useT()
   const caretRef = useRef<HTMLButtonElement>(null)
   const { open, anchorRect, toggle: handleCaretClick, close } = usePortalMenu(caretRef)
 
@@ -654,7 +657,7 @@ export function SplitToolbarButton({
           disabled={primaryButtonDisabled}
           title={
             primaryActsAsCaret
-              ? `${title ?? label} — click for options`
+              ? t('shell.clickForOptionsTitle', { label: title ?? label })
               : iconOnly === true
                 ? (title ?? label)
                 : title
@@ -672,7 +675,7 @@ export function SplitToolbarButton({
           onClick={handleCaretClick}
           aria-haspopup="menu"
           aria-expanded={open}
-          aria-label={`${label} options`}
+          aria-label={t('shell.optionsAria', { label })}
           data-testid={testid ? `${testid}-caret` : undefined}
           className={caretClasses}
         >
@@ -684,7 +687,7 @@ export function SplitToolbarButton({
         // bleed off the toolbar's left edge on a narrow viewport.
         <PortalMenu
           anchorRect={anchorRect}
-          ariaLabel={`${label} options`}
+          ariaLabel={t('shell.optionsAria', { label })}
           items={items}
           onClose={close}
           align="right"
