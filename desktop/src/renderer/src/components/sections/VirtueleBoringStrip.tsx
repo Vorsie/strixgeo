@@ -25,6 +25,7 @@ import { useEffect, useState } from 'react'
 
 import type { VirtueleBoringLagenmodelEntry } from '../../api/client'
 import { useVirtueleBoringCatalog } from '../../hooks/useVirtueleBoringCatalog'
+import { useT } from '../../i18n/translate'
 import {
   formatNumericForDisplay,
   tryParseNumeric,
@@ -60,6 +61,7 @@ export default function VirtueleBoringStrip({
 }: Props): JSX.Element {
   const [open, setOpen] = useState(modelA !== null || modelB !== null)
   const catalog = useVirtueleBoringCatalog(open)
+  const t = useT()
   // Local-then-commit pattern for the depth input — the input shows
   // whatever the user is typing immediately, but the actual overlay
   // state (and the PATCH /view-state round-trip) only fires when
@@ -103,11 +105,11 @@ export default function VirtueleBoringStrip({
         onClick={() => setOpen(prev => !prev)}
         className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary"
         aria-expanded={open}
-        title="Show / hide the DOV Virtuele Boring overlay controls"
+        title={t('sections.vb.toggleHint')}
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <Database size={12} className="text-text-muted" />
-        <span className="text-[11px] font-medium">DOV virtuele boring</span>
+        <span className="text-[11px] font-medium">{t('sections.vb.title')}</span>
         {overlayActive && !open && (
           <span className="text-[10px] text-text-muted ml-1">
             ({[modelA, modelB].filter(Boolean).join(' · ')})
@@ -118,7 +120,7 @@ export default function VirtueleBoringStrip({
       {open && (
         <>
           {open && catalog === null && (
-            <span className="text-[10px] text-text-muted">Loading catalogue…</span>
+            <span className="text-[10px] text-text-muted">{t('sections.vb.loadingCatalogue')}</span>
           )}
           <ModelSlotDropdown
             label="A"
@@ -133,7 +135,7 @@ export default function VirtueleBoringStrip({
             onSelect={code => onChangePicker({ modelA, modelB: code, maxDepthM })}
           />
           <label className="flex items-center gap-1.5 text-[11px] text-text-secondary">
-            <span className="text-text-muted">Depth</span>
+            <span className="text-text-muted">{t('common.depth')}</span>
             {/* type=text, NOT type=number: the browser's number-input value
                 sanitisation drops any string its own locale doesn't
                 recognise, so `12,5` reached commitDepth as "" and silently
@@ -155,11 +157,11 @@ export default function VirtueleBoringStrip({
                   e.currentTarget.blur()
                 }
               }}
-              placeholder="Full"
+              placeholder={t('sections.vb.full')}
               className="w-16 px-1.5 py-0.5 border border-border-subtle rounded text-[11px] tabular-nums bg-surface-page text-text-primary"
-              title="Show layers down to N metres below each investigation's surface. Empty = full DOV column."
+              title={t('sections.vb.depthHint')}
             />
-            <span className="text-[10px] text-text-muted">m below surface</span>
+            <span className="text-[10px] text-text-muted">{t('sections.vb.depthBelowSurface')}</span>
           </label>
           {overlayActive && (
             <label className="flex items-center gap-1 text-[11px] text-text-secondary">
@@ -169,7 +171,7 @@ export default function VirtueleBoringStrip({
                 onChange={e => onChangeShowOnSection(e.target.checked)}
                 className="accent-accent"
               />
-              <span>Show on section</span>
+              <span>{t('sections.vb.showOnSection')}</span>
             </label>
           )}
         </>
@@ -189,17 +191,18 @@ function ModelSlotDropdown({
   catalog: VirtueleBoringLagenmodelEntry[] | null
   onSelect: (code: string | null) => void
 }): JSX.Element {
+  const t = useT()
   return (
     <label className="flex items-center gap-1 text-[11px] text-text-secondary">
-      <span className="text-text-muted">Model {label}</span>
+      <span className="text-text-muted">{t('sections.vb.modelSlot', { label })}</span>
       <select
         value={selected ?? ''}
         onChange={e => onSelect(e.target.value === '' ? null : e.target.value)}
         className="px-1.5 py-0.5 border border-border-subtle rounded text-[11px] bg-surface-page text-text-primary max-w-[180px]"
         disabled={catalog === null}
-        title={selected ?? 'No overlay in this slot'}
+        title={selected ?? t('sections.vb.noOverlay')}
       >
-        <option value="">Off</option>
+        <option value="">{t('sections.vb.off')}</option>
         {(catalog ?? []).map(entry => (
           <option key={entry.code} value={entry.code} title={entry.beschrijving}>
             {entry.beschrijving}
