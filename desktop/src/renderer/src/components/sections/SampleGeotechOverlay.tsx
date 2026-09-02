@@ -30,6 +30,7 @@ import {
 // assignmentSource, read by GeotechnicalInspector.
 import { usePsdPreviewOn } from '../../utils/psdPreviewOnStore'
 import { sampleExtentScreenSpan } from '../../utils/sampleExtentSpan'
+import { useT } from '../../i18n/translate'
 
 // Marker appearance constants.
 /** Drawn width of an unselected marker bar (px). */
@@ -159,6 +160,7 @@ export default function SampleGeotechOverlay({
   bodyClickEnabled,
   onSampleHover,
 }: SampleGeotechOverlayProps): JSX.Element {
+  const t = useT()
   const selectedBodyId = useSelectedGeotechBodyId()
   // The native tooltip and the grain-size card fire on the SAME hover, and the
   // OS draws the tooltip ON TOP of the card — the owner's "when i hover a psd,
@@ -246,8 +248,8 @@ export default function SampleGeotechOverlay({
                 role={clickable ? 'button' : 'img'}
                 aria-label={
                   clickable
-                    ? `Sample ${label} — click to highlight body`
-                    : `Sample ${label}`
+                    ? t('sections.sampleGeotech.ariaClickable', { label })
+                    : t('sections.sampleLabel', { n: label })
                 }
                 style={{ cursor: clickable ? 'pointer' : 'default' }}
                 onClick={activate}
@@ -273,9 +275,12 @@ export default function SampleGeotechOverlay({
                     it over that popover (see ``cardCanShow`` above). */}
                 {!cardCanShow && (
                   <title>
-                    {`Sample ${label}\n${sample.depth_top_m.toFixed(2)}–${sample.depth_base_m.toFixed(2)} m${
-                      clickable ? '\nClick to highlight packing body' : ''
-                    }`}
+                    {t('sections.sampleGeotech.tooltip', {
+                      label,
+                      top: sample.depth_top_m.toFixed(2),
+                      base: sample.depth_base_m.toFixed(2),
+                      tail: clickable ? `\n${t('sections.psd.highlightBody')}` : '',
+                    })}
                   </title>
                 )}
               </rect>
