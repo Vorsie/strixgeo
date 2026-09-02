@@ -25,6 +25,7 @@ import { api } from '../../../api/client'
 import type { GeologicalModelResponse } from '../../../api/client'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 
 /** What the two verbs need from the shell bus. */
 export interface UseGeotechCorrelationVerbsDeps {
@@ -82,7 +83,9 @@ export interface UseGeotechCorrelationVerbsResult {
  * @returns A phrase to drop into a toast.
  */
 function scopePhrase(sectionId: string | null): string {
-  return sectionId === null ? 'on all sections' : 'on this section'
+  return sectionId === null
+    ? t('sections.scope.allSections')
+    : t('sections.scope.thisSection')
 }
 
 /**
@@ -163,10 +166,11 @@ export function useGeotechCorrelationVerbs(
           toast(
             'success',
             result.edges_skipped_existing > 0
-              ? `Auto-correlate ${scope}: nothing new — all ${result.edges_skipped_existing} ` +
-                  'automatic tie(s) are already correlated.'
-              : `Auto-correlate ${scope}: no automatic packing ties found — ` +
-                  'subdivide the bodies first.',
+              ? t('sections.geotechCorr.nothingNew', {
+                  scope,
+                  n: result.edges_skipped_existing,
+                })
+              : t('sections.geotechCorr.noTies', { scope }),
           )
         } else {
           // Owner refinement 2026-08-06: litho-backed restatements band
@@ -174,19 +178,31 @@ export function useGeotechCorrelationVerbs(
           // pending ghosts for step 3's review.
           toast(
             'success',
-            `Auto-correlate ${scope}: ${accepted} litho-backed tie` +
-              `${accepted === 1 ? '' : 's'} banded, ` +
-              `${result.edges_proposed} new packing tie` +
-              `${result.edges_proposed === 1 ? '' : 's'} proposed, ` +
-              `${result.edges_skipped_existing} left untouched` +
-              (result.edges_proposed > 0
-                ? ' — review the ghosts, then "3 · Accept ties".'
-                : '.'),
+            t('sections.geotechCorr.result', {
+              scope,
+              accepted,
+              accWord: t(
+                accepted === 1
+                  ? 'sections.geotechCorr.accWordOne'
+                  : 'sections.geotechCorr.accWordMany',
+              ),
+              proposed: result.edges_proposed,
+              propWord: t(
+                result.edges_proposed === 1
+                  ? 'sections.geotechCorr.propWordOne'
+                  : 'sections.geotechCorr.propWordMany',
+              ),
+              skipped: result.edges_skipped_existing,
+              tail:
+                result.edges_proposed > 0
+                  ? t('sections.geotechCorr.resultTailReview')
+                  : '.',
+            }),
           )
         }
       } catch (err) {
         log.error('sections', 'geotechAutoCorrelate: failed', err)
-        toast('error', 'Auto-correlate packing failed — see console.')
+        toast('error', t('sections.geotechCorr.autoFailed'))
       } finally {
         setAutoCorrelating(false)
       }
@@ -237,13 +253,20 @@ export function useGeotechCorrelationVerbs(
         toast(
           'success',
           result.edges_accepted === 0
-            ? `No pending packing correlations to accept ${scope}.`
-            : `Accepted ${result.edges_accepted} packing correlation` +
-                `${result.edges_accepted === 1 ? '' : 's'} ${scope}.`,
+            ? t('sections.geotechCorr.noPending', { scope })
+            : t('sections.geotechCorr.accepted', {
+                n: result.edges_accepted,
+                word: t(
+                  result.edges_accepted === 1
+                    ? 'sections.geotechCorr.packingCorrOne'
+                    : 'sections.geotechCorr.packingCorrMany',
+                ),
+                scope,
+              }),
         )
       } catch (err) {
         log.error('sections', 'geotechAcceptCorrelations: failed', err)
-        toast('error', 'Accept packing correlations failed — see console.')
+        toast('error', t('sections.geotechCorr.acceptFailed'))
       } finally {
         setAcceptingCorrelations(false)
       }
