@@ -21,6 +21,8 @@
 
 import { useRef } from 'react'
 
+import { useT } from '../../i18n/translate'
+
 export default function SectionScrubBar({
   dataMinM,
   dataMaxM,
@@ -39,6 +41,7 @@ export default function SectionScrubBar({
   // drag-start. Lets the user grab anywhere on the handle without
   // the handle jumping to the cursor's exact x.
   const dragGrabRef = useRef<number | null>(null)
+  const t = useT()
 
   const dataSpan = dataMaxM - dataMinM
   if (dataSpan <= 0) return null
@@ -111,7 +114,10 @@ export default function SectionScrubBar({
         ref={trackRef}
         onMouseDown={onTrackClick}
         className="relative flex-1 h-3 rounded bg-border-subtle cursor-pointer select-none"
-        title={`Showing ${viewportSpan.toFixed(0)} m of ${dataSpan.toFixed(0)} m (data range)`}
+        title={t('sections.scrub.showing', {
+          shown: viewportSpan.toFixed(0),
+          total: dataSpan.toFixed(0),
+        })}
       >
         <div
           onMouseDown={startDrag}
