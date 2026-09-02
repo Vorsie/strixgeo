@@ -23,7 +23,11 @@
  */
 
 import { evaluateActivation, type ActivationVerdict, type Licence, type LicenceState } from './activation'
-import type { ActivationRepository, IssueFailureCode } from './activationRepository'
+import {
+  DeactivateFailedError,
+  type ActivationRepository,
+  type IssueFailureCode,
+} from './activationRepository'
 import {
   readActivationState,
   recordActivationLaunch,
@@ -136,14 +140,43 @@ export class ActivationService {
     return { ok: true, status: this.toStatus(this.persistLicence(result.licence)) }
   }
 
-  /** Deactivate / transfer this device: free the seat and clear the local licence. */
-  async deactivate(): Promise<ActivationActionResult> {
-    const { deviceId } = readActivationState()
-    await this.repository.deactivate(deviceId)
+  /** Clear the stored licence (keeping the device id + anchor) and re-evaluate. */
+  private clearLicence(): ActivationState {
     const current = readActivationState()
     const next: ActivationState = { ...current, licence: null }
     writeActivationState(next)
-    return { ok: true, status: this.toStatus(next) }
+    return next
+  }
+
+  /**
+   * Deactivate / transfer this device: free the seat on the server, then clear
+   * the local licence so the app returns to the activation screen. Freeing the
+   * seat is what lets the same key activate on the next machine — that IS the
+   * transfer (ruling 15).
+   *
+   * The local licence is cleared only when the seat is (or already was) free
+   * server-side:
+   *
+   * * a clean release → clear locally;
+   * * a ``404`` (the server holds no binding for this device — already released
+   *   there) → clear locally too, the transfer is effectively done;
+   * * a ``401`` / any other refusal, or a network failure → KEEP the local
+   *   licence and report the failure. The seat may still be held, and destroying
+   *   the local proof of it would strand the seat half-transferred (contract §6).
+   */
+  async deactivate(): Promise<ActivationActionResult> {
+    const { deviceId } = readActivationState()
+    try {
+      await this.repository.deactivate(deviceId)
+    } catch (err) {
+      if (err instanceof DeactivateFailedError && err.status === 404) {
+        return { ok: true, status: this.toStatus(this.clearLicence()) }
+      }
+      // 401 / 5xx / network failure: the seat may still be held server-side, so
+      // the local licence survives and the caller sees the failure.
+      return { ok: false, code: 'unreachable', message: 'could not release this device' }
+    }
+    return { ok: true, status: this.toStatus(this.clearLicence()) }
   }
 
   /**
