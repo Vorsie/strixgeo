@@ -122,6 +122,10 @@ def _make_execute_side_effects(
     ll_survivors = surviving_fids_from_ll if surviving_fids_from_ll is not None else []
     effects: list = [
         _lock_result(),  # 0 — the body-partition advisory lock
+        # 0b — sibling geotech ids (``lock_sibling_geotech_partitions``, taken right
+        # after the own lock and before the deletes; BP-3). These scenes are
+        # litho-only, so the SELECT returns no geotech child and no further lock.
+        _scalars_result([]),
         _rowcount_result(n_edges),  # 1 — DELETE edges (edges-first)
         _rowcount_result(n_contacts),  # 2 — DELETE contacts
         _rowcount_result(0),  # 3 — DELETE litho_layer (rowcount unused)
@@ -236,11 +240,12 @@ async def test_geological_formations_not_touched() -> None:
 
     assert result.contacts == 3
     assert result.formations == 0
-    # 7 execute calls: the body-partition advisory lock, 5 DELETEs (edges,
-    # contacts, litho_layer, surfaces, bodies), and the sweep's candidate
-    # SELECT.  The sweep stops right there — no survivor SELECTs and no
-    # formation DELETE, because the project has no litho formations at all.
-    assert session.execute.call_count == 7
+    # 8 execute calls: the body-partition advisory lock, the sibling-geotech-ids
+    # SELECT (``lock_sibling_geotech_partitions``, empty here → no geotech child,
+    # BP-3), 5 DELETEs (edges, contacts, litho_layer, surfaces, bodies), and the
+    # sweep's candidate SELECT.  The sweep stops right there — no survivor SELECTs
+    # and no formation DELETE, because the project has no litho formations at all.
+    assert session.execute.call_count == 8
 
 
 @pytest.mark.asyncio
