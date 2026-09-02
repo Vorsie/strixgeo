@@ -69,6 +69,15 @@ interface Props {
    * under a body scope (audit F7).
    */
   bodyScoped?: boolean
+  /**
+   * D2 provenance (debt #278, owner ruling 2026-09-02): the source litho body
+   * each group member sits under, one label per member. Present only for a
+   * grouped scope — renders a small heading + bullet list under the title so the
+   * group's provenance ("which litho bodies") shows. Undefined → no list.
+   */
+  provenanceBodies?: readonly string[]
+  /** The heading above the provenance bullets (localised by the caller). */
+  provenanceHeading?: string
 }
 
 /**
@@ -91,6 +100,8 @@ function UnitDistributionPanels({
   populationNote,
   totalBandCount,
   bodyScoped = false,
+  provenanceBodies,
+  provenanceHeading,
 }: Props): JSX.Element {
   const totalSamples = statistics.channels.reduce((sum, c) => sum + c.summary.n, 0)
   // S1 (owner 2026-08-27): "make a button on the 3 cpt statistics, to rescale
@@ -104,7 +115,11 @@ function UnitDistributionPanels({
       {/* Heading — what ground these numbers describe. */}
       <div className="px-3 py-2 border-b border-border-subtle shrink-0">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-semibold text-text-primary truncate" data-testid="unit-stats-title">
+          <div
+            className="text-xs font-semibold text-text-primary truncate"
+            data-testid="unit-stats-title"
+            title={unitLabel}
+          >
             {unitLabel}
           </div>
           {/* The label states the mode the press switches TO. Offered only
@@ -141,6 +156,32 @@ function UnitDistributionPanels({
             data-testid="unit-stats-population"
           >
             {populationNote}
+          </div>
+        )}
+        {/* D2 provenance: which source litho bodies the grouped members came
+            from ("that way we have provenance"). */}
+        {provenanceBodies !== undefined && provenanceBodies.length > 0 && (
+          <div className="mt-1" data-testid="unit-stats-provenance">
+            {provenanceHeading !== undefined && (
+              <div className="text-[10px] uppercase tracking-wide text-text-muted">
+                {provenanceHeading}
+              </div>
+            )}
+            <ul className="mt-0.5 flex flex-col gap-0.5">
+              {provenanceBodies.map((label, i) => (
+                <li
+                  key={`${label}-${i}`}
+                  className="flex items-start gap-1 text-[10px] text-text-secondary"
+                >
+                  <span aria-hidden="true" className="text-text-muted">
+                    •
+                  </span>
+                  <span className="truncate" data-testid="unit-stats-provenance-item">
+                    {label}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
