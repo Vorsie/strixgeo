@@ -16,6 +16,7 @@ export const SHEET = {
   'sheet.vex': 'Vertical exaggeration',
   'sheet.spacing': 'Column spacing',
   'sheet.paperSize': 'Sheet {w} × {h} mm',
+  'sheet.fieldLabelAria': 'Field label {n}',
   'sheet.fields': 'Title block',
   'sheet.field.project': 'Project',
   'sheet.field.profile': 'Profile',
