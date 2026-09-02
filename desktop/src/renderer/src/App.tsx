@@ -35,6 +35,8 @@ import CheatsheetDialog from './components/ui/CheatsheetDialog'
 // Launch prototypes (debt #93 / #3 / #6) — see
 // docs/design/onboarding-activation-updater-proto.md.
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay'
+import TutorialOverlay from './tutorial/TutorialOverlay'
+import { clearTutorialProgress } from './tutorial/tutorialProgress'
 import LicensingDialog from './components/licensing/LicensingDialog'
 import UpdateNotification from './components/updater/UpdateNotification'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
@@ -62,6 +64,9 @@ import {
 } from './utils/sectionDefaults'
 import AppShell from './shell/AppShell'
 import type { ParameterUnitScope, ParametersTabId, ShellContextValue } from './shell/ShellContext'
+// Value import: the tutorial overlay reads the shell bus, so App wraps it in the
+// provider at each mount site (the overlay sits outside AppShell's own provider).
+import { ShellContext } from './shell/ShellContext'
 
 type View = 'map' | 'chart'
 
@@ -226,6 +231,24 @@ export default function App() {
     log.info('onboarding', 'load-sample requested — sample project not bundled in prototype (TODO)')
     toast('warning', tMsg('onboarding.sampleUnavailable'))
   }, [toast])
+
+  // Guided tutorial (#93, spec 2026-09-02). App owns the active flag; the
+  // TutorialOverlay owns its own progress (localStorage). It is started from
+  // onboarding ("Start the tutorial") or from Help → Tutorial (start / resume)
+  // and Restart tutorial. It has NO auto-start, so the STRIX_E2E auto-start
+  // suppression does not apply — the e2e flow starts it explicitly via Help.
+  const [tutorialActive, setTutorialActive] = useState(false)
+  useEffect(() => {
+    const offStart = window.electron.onMenuTutorial(() => setTutorialActive(true))
+    const offRestart = window.electron.onMenuRestartTutorial(() => {
+      clearTutorialProgress()
+      setTutorialActive(true)
+    })
+    return () => {
+      offStart()
+      offRestart()
+    }
+  }, [])
 
   // Licensing / activation (#3): Help → Licence & activation….
   const [licensingOpen, setLicensingOpen] = useState(false)
@@ -1315,7 +1338,13 @@ export default function App() {
           open={onboardingOpen}
           onClose={handleCloseOnboarding}
           onLoadSample={handleLoadSample}
+          onStartTutorial={() => setTutorialActive(true)}
         />
+        {/* Guided tutorial (#93). Wrapped in the shell provider so useShell()
+            resolves; renders nothing while inactive. */}
+        <ShellContext.Provider value={shellContextValue}>
+          <TutorialOverlay active={tutorialActive} onExit={() => setTutorialActive(false)} />
+        </ShellContext.Provider>
         <LicensingDialog open={licensingOpen} onClose={() => setLicensingOpen(false)} />
         <UpdateNotification />
         {/* Backend-failed modal — portal to body, safe in every branch. */}
@@ -1420,7 +1449,13 @@ export default function App() {
         open={onboardingOpen}
         onClose={handleCloseOnboarding}
         onLoadSample={handleLoadSample}
+        onStartTutorial={() => setTutorialActive(true)}
       />
+      {/* Guided tutorial (#93). Wrapped in the shell provider so useShell()
+          resolves; renders nothing while inactive. */}
+      <ShellContext.Provider value={shellContextValue}>
+        <TutorialOverlay active={tutorialActive} onExit={() => setTutorialActive(false)} />
+      </ShellContext.Provider>
       <LicensingDialog open={licensingOpen} onClose={() => setLicensingOpen(false)} />
       <UpdateNotification />
       {/* Backend-failed modal — portal to body, safe in every branch. */}

@@ -174,6 +174,9 @@ declare global {
       downloadUpdate: () => Promise<void>
       quitAndInstallUpdate: () => Promise<void>
       onUpdaterEvent: (cb: (event: UpdaterEventDto) => void) => () => void
+      // Guided tutorial (Help → Tutorial / Restart tutorial).
+      onMenuTutorial: (cb: () => void) => () => void
+      onMenuRestartTutorial: (cb: () => void) => () => void
       printSheetPdf: (payload: SheetPayload) => Promise<ArrayBuffer>
       onSheetPayload: (cb: (payload: SheetPayload) => void) => () => void
       sheetReady: (msg: SheetReadyMessage) => void
