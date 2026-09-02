@@ -22,7 +22,10 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -87,6 +90,17 @@ class DeleteBody(GroundModelLogger):
         # 2026-08-23). Taken after the 404/scope no-ops so a rejected request
         # never queues behind a live writer.
         await lock_body_partition(self._session, model_id=model_id, operation="delete-body")
+
+        # If this body belongs to a LITHO model, lock its sibling GEOTECH children
+        # before the delete below — same ordering rule the resolver follows (BP-3).
+        # Deleting a litho body fires the ``ON DELETE SET NULL`` of the geotech rows'
+        # ``parent_litho_body_id`` FK — a hidden write on the geotech ``body`` rows —
+        # which would race a concurrent geotech ``bodies/recompute`` if the child
+        # lock were taken after. A no-op when the body's model is geotech (a geotech
+        # model has no geotech children), so the call is unconditional and correct.
+        await lock_sibling_geotech_partitions(
+            self._session, litho_model_id=model_id, operation="delete-body"
+        )
 
         formation_id = body.formation_id
         body_ordinal = body.body_ordinal
