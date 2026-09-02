@@ -85,7 +85,7 @@ export function TrackHeader({
       onClick={onHide}
       style={onHide ? { cursor: 'pointer' } : undefined}
       role={onHide ? 'button' : undefined}
-      aria-label={onHide ? `Hide ${title} column` : undefined}
+      aria-label={onHide ? t('borelog.hideColumnAria', { title }) : undefined}
     >
       {/* fill / stroke use CSS custom properties so TrackHeader is legible
           in both light and dark themes without prop drilling the theme down
