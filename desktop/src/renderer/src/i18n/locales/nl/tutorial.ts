@@ -107,44 +107,61 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.section-persist.body':
     'Elke instelling hier — buffer, afstand, overhoging, kanalen, snap — wordt vanzelf bij dit dwarsprofiel bewaard. Heropen het en de kadrering staat exact zoals je ze achterliet; Reset zet de standaardweergave terug.',
 
-  // 4 · Geologisch model (skelet) -------------------------------------------
+  // 4 · Geologisch model ----------------------------------------------------
   'tutorial.geo-open.title': 'Open de Geologie-stap',
-  'tutorial.geo-open.body': 'Het geologisch model is de ruggengraat — de formaties en de vlakken ertussen.',
+  'tutorial.geo-open.body':
+    'Het geologisch model is de ruggengraat van het grondmodel. Het bevat de formaties en de vlakken ertussen, de regionale lagen onder je hele terrein. Bouw dit eerst; het litho- en het geotechnisch model verfijnen het van daaruit.',
   'tutorial.geo-seed.title': 'Zaaien vanuit boringen',
-  'tutorial.geo-seed.body': 'Zaai de eerste contacten van het model vanuit je boringen, op basis van de formatietoppen die ze loggen.',
+  'tutorial.geo-seed.body':
+    'Zaai de eerste contacten van het model vanuit je boringen. StrixGeo leest de formatietoppen die de boringen loggen en plaatst een contact op elke top. Deze stap vinkt zichzelf af zodra de eerste contacten verschijnen.',
   'tutorial.geo-lumping.title': 'Zelfde eenheid, andere naam',
-  'tutorial.geo-lumping.body': 'Vertel het model dat twee eenheden dezelfde zijn door de stratigrafie samen te voegen tot één formatie.',
+  // FLAG alt: van daaruit worden de contacten op de sonderingen doorgetrokken — "extract the contacts to the CPT columns" phrasing is a judgement call
+  'tutorial.geo-lumping.body':
+    'Soms zijn twee gelogde eenheden dezelfde formatie onder een andere naam. Voeg de stratigrafie samen om het model te vertellen dat ze één zijn. Van daaruit bereiken de contacten ook de sonderingskolommen, zodat het hele profiel als één geheel leest. Deze stap vinkt af zodra er een samenvoeging bestaat.',
   'tutorial.geo-surfaces.title': 'Bouw de vlakken',
-  'tutorial.geo-surfaces.body': 'Herbouw de formatievlakken en controleer waar ze elkaar kruisen.',
+  'tutorial.geo-surfaces.body':
+    'Herbouw de formatievlakken vanuit de contacten. StrixGeo legt een vlak door elke formatietop. Controleer daarna waar twee vlakken elkaar kruisen, want een geldig model houdt zijn formaties op volgorde.',
 
-  // 5 · Lithostratigrafisch model (skelet) ----------------------------------
+  // 5 · Lithostratigrafisch model -------------------------------------------
   'tutorial.litho-open.title': 'Open de Lithologie-stap',
-  'tutorial.litho-open.body': 'Verfijn de geologische ruggengraat tot lithologische eenheden langs je profielen.',
+  'tutorial.litho-open.body':
+    'Het lithostratigrafisch model verfijnt de geologische ruggengraat tot lithologische eenheden. Denk aan zand, klei, silt, grind en veen, met hun bijmengingen. Je bouwt het langs je dwarsprofielen, kolom per kolom.',
   'tutorial.litho-accept.title': 'Aanvaard de voorstellen',
-  'tutorial.litho-accept.body': 'De segmenter stelt lithologische lagen voor op elke kolom; aanvaard die welke overeenkomen met wat je ziet.',
-  'tutorial.litho-build.title': 'Bouw de lithobodies',
-  'tutorial.litho-build.body': 'Bouwen zet de aanvaarde lagen om in verbonden 3D-lithobodies.',
+  'tutorial.litho-accept.body':
+    'De segmenter stelt lithologische lagen voor op elke kolom en leest de sondering met een Robertson-classificatie. Aanvaard die welke overeenkomen met wat je ziet. Dit is ondersteund werk, geen automatische correlatie, dus jij houdt elke laag in de hand. Deze stap vinkt af zodra je je eerste voorstel aanvaardt.',
+  // FLAG alt: lithobodies | 3D-bodies — de gepubliceerde models-catalogus gebruikt "lichamen"; het skelet gebruikte "lithobodies"
+  'tutorial.litho-build.title': 'Bouw de litholichamen',
+  'tutorial.litho-build.body':
+    'Correleer een laag op de ene kolom met dezelfde laag op de volgende, zodat het model weet dat ze bij elkaar horen. Bouwen zet de aanvaarde, gecorreleerde lagen daarna om in verbonden litholichamen in 3D. Elke massa die over je profielen verbonden is, wordt één lichaam. Deze stap vinkt af zodra de litho-solids bestaan.',
 
-  // 6 · Geotechnisch model (skelet) -----------------------------------------
+  // 6 · Geotechnisch model --------------------------------------------------
   'tutorial.geotech-open.title': 'Open de Geotechniek-stap',
-  'tutorial.geotech-open.body': 'Verdeel de lithologische eenheden in NAD-pakkingsklassen op basis van CPT-afgeleide indicatoren.',
-  'tutorial.geotech-subdivide.title': 'Doorloop de pakkingspijplijn',
-  'tutorial.geotech-subdivide.body': 'Verdeel de sonderingen om het geotechnisch model te bouwen — elke eenheid opgesplitst in haar pakkingsklassen.',
-  'tutorial.geotech-bodies.title': 'Correleren en herberekenen',
-  'tutorial.geotech-bodies.body': "Herbereken de bodies en gebruik daarna Voeg samen of Scheiden waar twee massa's wel of niet dezelfde body zijn.",
+  // FLAG alt: karakteriseringsschattingen — samenstelling voor "characterisation estimates"
+  'tutorial.geotech-open.body':
+    'Het geotechnisch model verdeelt de lithologische eenheden in NAD-pakkingsklassen. Het leest CPT-afgeleide indicatoren zoals qc en relatieve dichtheid, dus dit zijn karakterisatie-schattingen, geen ontwerpwaarden. Je ontwerpgetallen komen later, in je ontwerptool.',
+  'tutorial.geotech-subdivide.title': 'Doorloop de pakkingsstroom',
+  'tutorial.geotech-subdivide.body':
+    'De pakkingsstroom verloopt in vier stappen. Verdeel eerst de sonderingen onder, zodat elke lithologische eenheid in haar pakkingsklassen splitst. Stel daarna de pakkingscorrelaties voor en aanvaard ze, en verdeel de boringen om de klassen mee over te dragen. Deze stap vinkt af zodra het geotechnisch model bestaat.',
+  'tutorial.geotech-bodies.title': 'Herberekenen en groeperen',
+  'tutorial.geotech-bodies.body':
+    "Herbereken de lichamen om vast te leggen welke massa's als één geotechnisch lichaam tellen. Gebruik Voeg samen met om gelijkaardige massa's te groeperen, zodat je meer data en minder exportklassen draagt. Gebruik Ontkoppelen om een lichaam weer uit een groep te lichten. Bouw daarna het geotechnische 3D-model.",
 
-  // 7 · Parameters & statistiek (skelet) ------------------------------------
+  // 7 · Parameters & statistiek ---------------------------------------------
   'tutorial.params-open.title': 'Open de Parameters-stap',
-  'tutorial.params-open.body': 'De eenhedenboom, de statistiek per eenheid en de fence-uitsnede vind je hier.',
+  'tutorial.params-open.body':
+    'In de Parameters-stap rapporteert het afgewerkte model over zichzelf. De eenhedenboom, de statistiek per eenheid en de fence-uitsnede vind je hier allemaal. Alles hier is karakterisatie, nooit een ontwerpberekening.',
   'tutorial.params-stats.title': 'Statistiek per eenheid',
-  'tutorial.params-stats.body': 'Kies een eenheid om haar statistiek te zien, samengevoegd over elke body die erbij hoort.',
+  'tutorial.params-stats.body':
+    'Kies een eenheid om haar statistiek te zien, samengevoegd over elk lichaam dat erbij hoort. De fence-uitsnede toont dezelfde eenheid in de ondergrond, zodat je het getal aan de vorm toetst. Dit is karakterisatie-statistiek, geen ontwerpparameters.',
 
-  // 8 · Exporteren (skelet) -------------------------------------------------
+  // 8 · Exporteren ----------------------------------------------------------
   'tutorial.export-open.title': 'Open de Export-stap',
-  'tutorial.export-open.body': 'Stuur het afgewerkte model met drie niveaus naar je ontwerptools.',
+  'tutorial.export-open.body':
+    'Stuur het afgewerkte model met drie niveaus naar je ontwerptools. StrixGeo levert het grondmodel, en de ontwerpcontroles gebeuren in de tool waarnaar je exporteert. Kies het formaat dat je volgende tool nodig heeft.',
   'tutorial.export-dxf.title': 'Exporteer je model',
-  'tutorial.export-dxf.body': 'Exporteer een dwarsprofiel naar DXF, Plaxis, D-Stability / D-Sheet, of een PDF-rapportblad.',
+  'tutorial.export-dxf.body':
+    'Exporteer een dwarsprofiel naar DXF, naar Plaxis, naar D-Stability of D-Sheet, of naar een PDF-rapportblad. Elke export draagt je eenheidsidentificaties mee, zodat het model gelabeld aankomt in de ontwerptool. Kies het formaat dat je volgende stap nodig heeft.',
   'tutorial.closing.title': 'Je bent klaar',
   'tutorial.closing.body':
-    'Dat is de volledige workflow — importeren, dwarsprofiel, geologie, litho, geotech, parameters, export. Bouw je eerste model en laat ons weten wat je daarna nodig hebt.',
+    'Dat is de volledige workflow: importeren, dwarsprofiel, geologie, litho, geotech, parameters, export. Bouw je eerste model op je eigen data. Er komen meer import- en exportfuncties, dus stuur de bestandsformaten die je gebruikt naar StrixGeo en wij bouwen ze als volgende.',
 }
