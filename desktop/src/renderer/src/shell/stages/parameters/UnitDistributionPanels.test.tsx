@@ -192,3 +192,28 @@ describe('UnitDistributionPanels', () => {
     expect(dots.length).toBeLessThan(900)
   })
 })
+
+// The grouped-body provenance list (debt #278 D2, owner ruling 2026-09-02:
+// "a summation in bullet points which litho bodies — that way we have
+// provenance").
+describe('UnitDistributionPanels — group provenance', () => {
+  it('UP-G1 — renders a heading and one bullet per source litho body when provided', () => {
+    render(
+      <UnitDistributionPanels
+        statistics={twoChannelStatistics()}
+        unitLabel="Group 1 — 2 bodies · SILT, slightly firm"
+        provenanceHeading="Source litho bodies"
+        provenanceBodies={['SILT · #0', 'SILT · #1']}
+      />,
+    )
+    const list = screen.getByTestId('unit-stats-provenance')
+    expect(within(list).getByText('Source litho bodies')).toBeTruthy()
+    const items = screen.getAllByTestId('unit-stats-provenance-item')
+    expect(items.map(i => i.textContent)).toEqual(['SILT · #0', 'SILT · #1'])
+  })
+
+  it('UP-G2 — draws no provenance list for a non-grouped scope', () => {
+    render(<UnitDistributionPanels statistics={twoChannelStatistics()} unitLabel="SILT · #0" />)
+    expect(screen.queryByTestId('unit-stats-provenance')).toBeNull()
+  })
+})
