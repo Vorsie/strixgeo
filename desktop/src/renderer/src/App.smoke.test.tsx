@@ -240,6 +240,40 @@ function installElectronStub(): void {
     onMenuEditRedo: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenSettings: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenCheatsheet: vi.fn().mockReturnValue(noopUnsubscribe),
+    // Launch prototypes (#93 / #3 / #6) — menu subscribers fire on mount, so
+    // they must return an unsubscribe; the invoke stubs are here for completeness.
+    // launchFlags is read SYNCHRONOUSLY during the first render (the activation
+    // gate's useState initializer + the onboarding auto-open effect + the
+    // LicensingDialog preview row), so it must be a plain object: a dev, non-e2e
+    // launch, which keeps the gate 'pass' and never fetches status.
+    launchFlags: { e2e: false, packaged: false },
+    onMenuOpenOnboarding: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuOpenLicensing: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuCheckUpdates: vi.fn().mockReturnValue(noopUnsubscribe),
+    onUpdaterEvent: vi.fn().mockReturnValue(noopUnsubscribe),
+    getActivationStatus: vi.fn().mockResolvedValue({
+      verdict: {
+        state: 'unactivated',
+        blocked: true,
+        tier: null,
+        isTrial: false,
+        daysRemaining: null,
+        graceDaysRemaining: null,
+        expiresAtMs: null,
+        graceEndsAtMs: null,
+        reason: 'no licence',
+      },
+      deviceLabel: 'smoke-host',
+      keyMasked: null,
+      isTrial: false,
+    }),
+    activateLicence: vi.fn().mockResolvedValue({ ok: false, code: 'unknown_key', message: '' }),
+    startTrial: vi.fn().mockResolvedValue({ ok: false, code: 'already_trialled', message: '' }),
+    deactivateLicence: vi.fn().mockResolvedValue({ ok: false, code: 'unreachable', message: '' }),
+    previewActivationState: vi.fn().mockResolvedValue(undefined),
+    checkForUpdates: vi.fn().mockResolvedValue(undefined),
+    downloadUpdate: vi.fn().mockResolvedValue(undefined),
+    quitAndInstallUpdate: vi.fn().mockResolvedValue(undefined),
     // #214 — distribution robustness stubs
     onAppBackendFailed: vi.fn().mockReturnValue(noopUnsubscribe),
     getLogsPath: vi.fn().mockResolvedValue('/tmp/strix-logs'),
@@ -273,6 +307,10 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   mockProjectLoaded = false
   installElectronStub()
+  // Mark onboarding seen so the first-launch overlay does not auto-open and
+  // change this smoke test's DOM (the overlay has its own coverage). The flag
+  // key mirrors utils/onboardingSeen.ts.
+  localStorage.setItem('strix.onboarding.seen.v1', '1')
   // React swallows render-time errors that hit an error boundary and
   // reports them via console.error. Spy so the test can fail on any
   // unexpected console.error (which the smoke test would otherwise
