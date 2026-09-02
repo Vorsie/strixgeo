@@ -66,6 +66,7 @@ import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 import { nadCompactFromName } from '../../utils/nadClasses'
 import { isTypingTarget } from '../../utils/keyboard'
 import { allocateMinHitExpansions } from '../../utils/minHitAllocation'
+import { useT } from '../../i18n/translate'
 import {
   clamp,
   columnUnderCursor,
@@ -709,6 +710,7 @@ export default function ContactsLayer({
   focusedContactIds,
   onEditInGeologyStage,
 }: Props): JSX.Element | null {
+  const t = useT()
   // P1b — apply the live cross-store-drag preview override to the
   // contacts list before anything else reads them. When a sibling
   // ``LithoSuggestionGhostColumns`` is dragging a pending edge across
@@ -2691,7 +2693,7 @@ export default function ContactsLayer({
           onClick={lithoBandClickHandler(band)}
         >
           {onRequestAddLithoSuggestion && (
-            <title>Click to insert new layer here · right-click to remove</title>
+            <title>{t('sections.contacts.insertHint')}</title>
           )}
         </rect>
       ))}
@@ -2724,7 +2726,7 @@ export default function ContactsLayer({
             onClick={lithoBandClickHandler(band)}
           >
             {onRequestAddLithoSuggestion && (
-              <title>Click to insert new layer here · right-click to remove</title>
+              <title>{t('sections.contacts.insertHint')}</title>
             )}
           </rect>
         ))
@@ -3031,7 +3033,7 @@ export default function ContactsLayer({
                     fontSize={10}
                     pointerEvents="none"
                   >
-                    <title>Lithostratigraphic contact — dragging it moves the litho model</title>
+                    <title>{t('sections.contacts.lithoContactHint')}</title>
                     🔒
                   </text>
                 )}
@@ -3088,7 +3090,7 @@ export default function ContactsLayer({
                   <rect x={0} y={3} width={14} height={4} rx={2} fill="#f59e0b" opacity={0.85} />
                   <circle cx={3} cy={5} r={3} fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.85} />
                   <circle cx={11} cy={5} r={3} fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.85} />
-                  <title>Coupled to geological contact — right-click to unlink</title>
+                  <title>{t('sections.contacts.coupledHint')}</title>
                 </g>
               )}
             {/* Transparent hit-strip — wider than the visible line so
@@ -3216,7 +3218,7 @@ export default function ContactsLayer({
           data-testid="ref-contact-drag-strip"
           data-contact-id={strip.contactId}
         >
-          <title>{strip.formationName} — right-click to edit in Geology stage</title>
+          <title>{t('sections.contacts.refContactHint', { name: strip.formationName })}</title>
         </rect>
       ))}
 
@@ -3406,7 +3408,7 @@ export default function ContactsLayer({
                       cursor: 'pointer',
                     }}
                   >
-                    Remove this litho unit
+                    {t('sections.menu.removeLithoUnit')}
                   </button>
                 )}
                 {/* Last, under a rule when it has company: everything above
@@ -3447,7 +3449,7 @@ export default function ContactsLayer({
                   cursor: 'pointer',
                 }}
               >
-                Add new suggestion here
+                {t('sections.menu.addSuggestionHere')}
               </button>
             )}
           </div>
@@ -3485,13 +3487,10 @@ export default function ContactsLayer({
             }}
           >
             <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-              Merge adjacent {lithoMergePending.lithoCode} layers?
+              {t('sections.lithoMerge.title', { litho: lithoMergePending.lithoCode })}
             </h2>
             <p style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 16, color: 'var(--color-text-secondary, #94a3b8)' }}>
-              Removing that contact left two {lithoMergePending.lithoCode}{' '}
-              units adjacent.  Merging deletes the now-redundant
-              boundary so they read as one continuous {lithoMergePending.lithoCode}{' '}
-              band.
+              {t('sections.lithoMerge.body', { litho: lithoMergePending.lithoCode })}
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button
@@ -3508,7 +3507,7 @@ export default function ContactsLayer({
                   cursor: 'pointer',
                 }}
               >
-                Keep separate
+                {t('sections.keepSeparate')}
               </button>
               <button
                 type="button"
@@ -3528,7 +3527,7 @@ export default function ContactsLayer({
                   cursor: 'pointer',
                 }}
               >
-                Merge layers
+                {t('sections.menu.mergeLayers')}
               </button>
             </div>
           </div>
@@ -3568,16 +3567,16 @@ export default function ContactsLayer({
           }}
         >
           {clampDragToBoundary === undefined
-            ? 'Can’t move further — right-click and delete the adjacent layer first, then drag to the next boundary.'
+            ? t('sections.clampDrag.cannotMove')
             : drag.currentRelease === 'merge'
               ? // The consequence, before the release rather than after it: this is the
                 // drag-merge, and it costs a whole band.
-                'Release here and the band below is absorbed into this unit. One boundary per drag — drag again to take the next.'
+                t('sections.contacts.absorbHint')
               : drag.currentRelease === 'blocked'
                 ? // The wall is a lithostratigraphic contact, and landing on it would
                   // leave the unit between the two contacts with nothing in it.
-                  'Stops short of the next lithostratigraphic contact — going further would delete the unit below. Subdivide it first, or edit it on the lithology axis.'
-                : 'Stops at this packing boundary — drag again to take the next one.'}
+                  t('sections.contacts.absorbBlockedHint')
+                : t('sections.clampDrag.packingBoundary')}
         </div>,
         document.body,
       )}
