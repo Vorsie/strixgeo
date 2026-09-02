@@ -60,6 +60,7 @@ import { divideBoreholesToastMessage } from '../utils/divideBoreholesToast'
 import { lostTieMessage } from '../utils/lostTieMessage'
 import { subdivideCptsToast } from '../utils/subdivideCptsToast'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
 
@@ -1445,10 +1446,7 @@ export function useGeologicalModel({
           // The Fill-from-boreholes button's ensureActiveGeologicalModel
           // provides the self-heal path — the user can click it and the
           // model will be created/adopted on demand.
-          toast(
-            'error',
-            'Could not load the geological model — check the connection and reopen the project.',
-          )
+          toast('error', t('geology.loadFailed'))
         }
       }
     })()
@@ -1732,7 +1730,7 @@ export function useGeologicalModel({
         return active
       } catch (err) {
         log.error('geology', 'ensureActiveGeologicalModel failed', err)
-        toast('error', 'Could not create the geological model — check the connection.')
+        toast('error', t('geology.createModelFailed'))
         return null
       }
     },
@@ -1928,7 +1926,7 @@ export function useGeologicalModel({
         return { candidates, collisions }
       } catch (err) {
         log.error('geology', 'discoverBoreholeFormations failed', err)
-        toast('error', 'Could not scan borehole stratigraphy — check the connection.')
+        toast('error', t('geology.scanStratigraphyFailed'))
         throw err
       }
     },
@@ -2013,11 +2011,7 @@ export function useGeologicalModel({
           outcome.created_formation_ids.length === 0 &&
           outcome.skipped_existing > 0
         ) {
-          toast(
-            'error',
-            `Nothing created — ${outcome.skipped_existing} layer(s) already ` +
-              `populated. Use Dedupe or Delete model to reset, then retry.`,
-          )
+          toast('error', t('geology.nothingCreated', { n: outcome.skipped_existing }))
         }
 
         // Step 2b: report what the server actually removed, by NAME.
@@ -2036,8 +2030,11 @@ export function useGeologicalModel({
           const removed = outcome.deleted_formation_names
           toast(
             'warning',
-            `Removed ${removed.length} unit${removed.length === 1 ? '' : 's'} ` +
-              `not in your selection: ${removed.join(', ')}.`,
+            t('geology.removedNotInSelection', {
+              n: removed.length,
+              unit: removed.length === 1 ? t('geology.unitWordOne') : t('geology.unitWordMany'),
+              names: removed.join(', '),
+            }),
           )
         }
 
@@ -2188,7 +2185,7 @@ export function useGeologicalModel({
         )
       } catch (err) {
         log.error('geology', 'createLithoContact failed', err)
-        toast('error', 'Could not place the litho formation contact.')
+        toast('error', t('litho.placeContactFailed'))
       }
     },
     [project, lithoLayers, refetchLithoContacts, refetchLithoSurfaces, toast],
@@ -2220,7 +2217,7 @@ export function useGeologicalModel({
         return { id: created.id }
       } catch (err) {
         log.error('geology', 'handleInlineLithoCreateFormation failed', err)
-        toast('error', 'Could not create the litho formation.')
+        toast('error', t('litho.createFormationFailed'))
         return null
       }
     },
@@ -2498,7 +2495,7 @@ export function useGeologicalModel({
     }): Promise<void> => {
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
-        toast('error', 'Select a lithostratigraphic model first.')
+        toast('error', t('geotech.selectLithoModelFirst'))
         return
       }
       // Owner ruling 2026-08-15 — a section id rebuilds that section's columns
@@ -2538,7 +2535,12 @@ export function useGeologicalModel({
             )
       } catch (err) {
         log.error('geology', `${verb} failed`, err)
-        toast('error', `${deriveEdges ? 'Subdivide all bodies' : 'Subdivide CPTs'} failed — see console.`)
+        toast(
+          'error',
+          deriveEdges
+            ? t('geotech.subdivideAllBodiesFailed')
+            : t('geotech.subdivideCptsFailed'),
+        )
         return
       }
       // The rebuild has landed: every geotech row the undo commands referenced is
@@ -2627,8 +2629,9 @@ export function useGeologicalModel({
       if (needsReview > 0) {
         toast(
           'warning',
-          `${needsReview} accepted packing tie${needsReview === 1 ? '' : 's'} need${needsReview === 1 ? 's' : ''} checking — ` +
-            'the band it was drawn on changed. Look for the ! marks on the geotech sections.',
+          needsReview === 1
+            ? t('geotech.tieReviewOne', { n: needsReview })
+            : t('geotech.tieReviewMany', { n: needsReview }),
         )
       }
       if (lostTies > 0) {
@@ -2668,18 +2671,18 @@ export function useGeologicalModel({
       }
       const lithoModel = activeLithoModelRef.current
       if (!project || !lithoModel) {
-        toast('error', 'Select a lithostratigraphic model first.')
+        toast('error', t('geotech.selectLithoModelFirst'))
         return
       }
       if (!activeGeotechModel) {
-        toast('error', 'Run "1 · Subdivide CPTs" before dividing boreholes.')
+        toast('error', t('geotech.divideBoreholesNeedsCpts'))
         return
       }
       // An EMPTY subset is "divide none" on the wire, so refusing it here saves
       // a pointless round trip AND makes the no-op visible instead of silent.
       const subset = options?.boreholeIds
       if (subset !== undefined && subset.length === 0) {
-        toast('warning', 'No borehole selected — nothing to divide.')
+        toast('warning', t('geotech.noBoreholeSelected'))
         return
       }
       // Owner ruling 2026-08-15 — step 4 joined the other three: a section id
@@ -2712,7 +2715,7 @@ export function useGeologicalModel({
           'error',
           err instanceof ApiError && err.message
             ? err.message
-            : 'Divide boreholes failed — see console.',
+            : t('geotech.divideBoreholesFailed'),
         )
         return
       } finally {
@@ -2768,8 +2771,9 @@ export function useGeologicalModel({
       if (needsReview > 0) {
         toast(
           'warning',
-          `${needsReview} accepted packing tie${needsReview === 1 ? '' : 's'} need${needsReview === 1 ? 's' : ''} checking — ` +
-            'the borehole band it was drawn on changed. Look for the ! marks on the geotech sections.',
+          needsReview === 1
+            ? t('geotech.tieReviewBoreholeOne', { n: needsReview })
+            : t('geotech.tieReviewBoreholeMany', { n: needsReview }),
         )
       }
       if (lostTies > 0) {
