@@ -9211,6 +9211,20 @@ litho-axis arm gesture + Rejoin); fence one-panel-per-connected-body-per-section
 (`mergeFencePanels.ts`); #279 item 1 (nonce-stamped body-menu arming gate,
 `useRosterLoadedGate.ts`).
 
+**2026-09-02 — the machine tie path now carries the litho-frame WARNING.**
+`AutoCorrelateGeotechEdges` restates a direct top-to-top litho tie onto the
+packing bands regardless of class (2026-08-13), so a cross-soil litho surface
+tie silently proposed the cross-soil packing tie the hand path would flag. It
+now runs the SAME shared resolver as the hand path
+(`application/litho_frame_conformance_resolver.py`, extracted from
+`correlate_litho_contacts.py`) after the crossing/off-section sweeps and stamps
+`review_reason='frame_mismatch'` on this run's non-conforming NEW ties — WARNS,
+never refuses (a restatement is legitimate; no `shares_litho_body` refusal is
+added to the machine path). Logs the flagged count (`frame_flagged` in the run
++ the `AutoCorrelateGeotechResponse`). Integration `test_auto_tie_frame_warning.py`
+(AT1 cross-soil restatement lands flagged, AT2 conforming run flags nothing);
+design note geotech-stage.md §4b-i.
+
 **Still open on this entry:**
 * ~~R3 twins migration~~ — **EXECUTED against the dev DB 2026-09-01 with the
   owner at the keyboard** (dry-run previewed, pg_dump taken to
