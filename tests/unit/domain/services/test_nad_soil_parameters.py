@@ -55,24 +55,34 @@ def test_every_value_lies_in_a_physically_sane_range() -> None:
         )
 
 
-def test_the_shipped_table_is_empty_pending_the_owner_transcription() -> None:
-    """The repository ships NO values — the workbook is the owner's to enter.
+def test_the_table_covers_every_nad_class_once() -> None:
+    """The transcription is complete: one row per NAD class 1..31, no extras.
 
-    This is not a range check but a provenance one: shipping a guessed
-    number is the product's liability line. The day the owner fills the
-    table this test is updated in the same commit that adds the rows.
+    Transcribed 2026-09-02 from the owner's workbook (sheet NAD-NEN, rows per the
+    reference manifest); a missing or surplus class here means the transcript
+    and the classifier drifted apart.
     """
-    assert NAD_SOIL_PARAMETERS == {}, (
-        "NAD_SOIL_PARAMETERS is no longer empty — update this test in the same "
-        "commit that transcribes the workbook values, and confirm every row was "
-        "read from 'Correlaties uit S en NAD_NEN_v2.xlsx', never inferred."
+    assert set(NAD_SOIL_PARAMETERS) == set(NAD_CLASSES), sorted(
+        set(NAD_SOIL_PARAMETERS) ^ set(NAD_CLASSES)
     )
+
+
+def test_undrained_strength_is_absent_for_granular_and_present_for_cohesive() -> None:
+    """The workbook carries a dash for cu on every GRIND / ZAND row (classes
+    1..12) and a value on every SILT / KLEI / VEEN row (13..31)."""
+    for class_id, params in NAD_SOIL_PARAMETERS.items():
+        if class_id <= 12:
+            assert params.cu_kpa is None, f"class {class_id}: granular row must carry no cu"
+        else:
+            assert params.cu_kpa is not None and 0.0 < params.cu_kpa <= 300.0, (
+                f"class {class_id}: cu {params.cu_kpa} kPa outside (0, 300]"
+            )
 
 
 def test_the_parameter_record_is_a_frozen_value_object() -> None:
     """A characteristic value is data — it cannot be mutated after construction."""
     params = NadSoilParameters(
-        gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=30.0, c_kpa=0.0
+        gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=30.0, c_kpa=0.0, cu_kpa=None
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         params.phi_deg = 35.0  # type: ignore[misc]
