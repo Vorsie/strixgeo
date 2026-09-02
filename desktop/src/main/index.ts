@@ -820,6 +820,18 @@ function buildMenu(win: BrowserWindow): void {
           click: () => win.webContents.send('menu:open-onboarding'),
         },
         {
+          // Guided tutorial (#93, spec 2026-09-02). One-way fire — the renderer
+          // owns the TutorialOverlay active flag and its localStorage progress.
+          // "Tutorial" resumes at the last incomplete step (or starts fresh).
+          label: 'Tutorial',
+          click: () => win.webContents.send('menu:tutorial'),
+        },
+        {
+          // Clears saved progress and starts the tutorial from the first step.
+          label: 'Restart tutorial',
+          click: () => win.webContents.send('menu:tutorial-restart'),
+        },
+        {
           label: 'Gesture cheatsheet…',
           // One-way main→renderer fire — same pattern as Settings. The
           // renderer owns the CheatsheetDialog open state.
