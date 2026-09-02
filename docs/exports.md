@@ -15,6 +15,22 @@ probabilistic side (Probabilistic Toolkit / PTK) consumes `.stix`
 downstream — Strix is the producer, PTK is not in our integration
 surface. D-Settlement and D-Foundations stay unbuilt.
 
+### Cross-section PDF sheet — client-rendered (debt #52 slice 1)
+
+The section PDF is NOT a backend exporter. It is drawn by the desktop app
+itself: a second renderer entry (`sheet.html` → `SectionSheet`) renders an
+A3-high landscape drawing sheet from a serialisable `SheetPayload` — the same
+on-screen partition the D-Series exports POST, plus the column logs, units and
+map points — and Chromium prints it through `webContents.printToPDF` in a hidden
+window (`main/sheetPdf.ts`). The engineer previews the sheet live in an iframe
+and plays with the app's own exaggeration + spacing sliders before exporting, so
+preview and PDF are the same DOM. This replaced the old A4-portrait matplotlib /
+ReportLab exporter, which redrew contacts as straight chords in depth-below-
+surface and never drew a fill — it could not be made faithful, so it was deleted
+(route, exporter trio, tests and the `reportlab` dependency; `matplotlib` stays
+only as a `d-geolib` transitive dep). Full design:
+`docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md`.
+
 ### The closed-geometry contract — `SectionPolygonSet`
 
 D-Stability has no borehole concept: its geometry IS a set of closed
@@ -218,9 +234,11 @@ disagree about which units were renamed.
   name>"`, variable `mat_nad_06_zand`, and a `UNIT MAPPING TABLE` block
   in the script's docstring header (after USAGE) listing material → NAD
   class → soil → unit name → formation UUID.
-* **PDF section report** — the figure legend leads with the token.
+* **Cross-section PDF sheet** — the unit legend + the labels inside the fills
+  carry the on-screen unit name (client-rendered; see the sheet subsection
+  above).
 
-### Same-NAD thinning — DXF and PDF only (debt #104b)
+### Same-NAD thinning — DXF only (debt #104b)
 
 Owner ruling 2026-08-26, verbatim: *"thin in dxf and pdf, keep plaxis
 exact, shallower parent name wins."*
@@ -234,8 +252,10 @@ where the engineer has one.
 
 * **Where** — `ThinExportUnits` (`application/thin_export_units.py`),
   applied in `_build_export_snapshot` (`api/routers/cross_section.py`).
-  The DXF and PDF handlers pass `thin_units=True`; the helper defaults
-  to `False`, so a new caller gets the exact snapshot.
+  The DXF handler passes `thin_units=True`; the helper defaults to
+  `False`, so a new caller gets the exact snapshot. (The old PDF handler
+  thinned too; the PDF is now the client-rendered sheet, which draws the
+  on-screen partition and does not route through this snapshot.)
 * **Plaxis never thins.** Both Plaxis exporters index ONE global
   `soillayer` stack that every borehole reuses, so an interleaved merge
   would need one global layer twice in a column — inexpressible. The
@@ -253,10 +273,10 @@ where the engineer has one.
 * **Auditable** — the survivor carries `absorbed_unit_names`, and the
   mapping table grows an `Absorbed units` column *only* when something
   merged, so unthinned artefacts stay byte-identical.
-* **Default ON with an opt-out** — `?thin_units=false` on the DXF and
-  PDF endpoints. The merge erases a boundary the engineer drew, so a
-  client whose CAD deliverable must show parent boundaries can get them
-  without a code change.
+* **Default ON with an opt-out** — `?thin_units=false` on the DXF
+  endpoint. The merge erases a boundary the engineer drew, so a client
+  whose CAD deliverable must show parent boundaries can get them without
+  a code change.
 
 **Collisions are expected, not defensive.** Two units legitimately share
 a `(nad_class, soil)` pair — NAD 6 sand under two different geological
