@@ -32,6 +32,7 @@ import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
+import { useT } from '../../i18n/translate'
 import MultiLineLabel from './MultiLineLabel'
 import { lookupCptValueAtDepth } from './cptInterpolation'
 import { depthAxisAtSurface } from './utils'
@@ -339,6 +340,7 @@ export default function LithoSuggestionGhostColumns({
   onContactLivePreview,
   cptPlotByAnchorId,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
+  const t = useT()
   // Live drag preview state. Set on mousedown on an edge handle;
   // updated on document mousemove; cleared on mouseup which fires
   // ``onEdit`` once with the final depth. Pre-commit edit lives only
@@ -676,7 +678,7 @@ export default function LithoSuggestionGhostColumns({
         fill="#6b7280"
         style={{ pointerEvents: 'none', userSelect: 'none' }}
       >
-        Litho
+        {t('sections.axis.litho')}
       </text>
 
       {suggestions.map((rawLayer, idx) => {
@@ -1089,7 +1091,7 @@ export default function LithoSuggestionGhostColumns({
           onMouseDown={e => e.stopPropagation()}
           className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 min-w-[10rem] text-xs"
           role="menu"
-          aria-label="Ghost layer actions"
+          aria-label={t('sections.menu.ghostActions')}
         >
           {/* Accept stays reachable from the menu — the primary accept
               gesture is dbl-click (owner directive 2026-05-22), and a
@@ -1102,7 +1104,7 @@ export default function LithoSuggestionGhostColumns({
               setContextMenu(null)
             }}
           >
-            Accept layer
+            {t('sections.menu.acceptLayer')}
           </button>
           {onEdit && (
             <button
@@ -1113,7 +1115,7 @@ export default function LithoSuggestionGhostColumns({
                 setContextMenu(null)
               }}
             >
-              Edit composition…
+              {t('sections.menu.editComposition')}
             </button>
           )}
           {/* Debt #98: split the layer in two at its midpoint. Both
@@ -1130,7 +1132,7 @@ export default function LithoSuggestionGhostColumns({
                 setContextMenu(null)
               }}
             >
-              Split layer
+              {t('sections.menu.splitLayer')}
             </button>
           )}
           {/* Extend a manual-ghost sentinel to the nearest committed contacts.
@@ -1153,7 +1155,7 @@ export default function LithoSuggestionGhostColumns({
                 }
               }}
             >
-              Extend to nearest contacts
+              {t('sections.menu.extendToNearest')}
             </button>
           )}
           <button
@@ -1164,7 +1166,7 @@ export default function LithoSuggestionGhostColumns({
               setContextMenu(null)
             }}
           >
-            Reject layer
+            {t('sections.menu.rejectLayer')}
           </button>
         </div>,
         document.body,
@@ -1185,7 +1187,7 @@ export default function LithoSuggestionGhostColumns({
           onMouseDown={e => e.stopPropagation()}
           className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 min-w-[10rem] text-xs"
           role="menu"
-          aria-label="Boundary actions"
+          aria-label={t('sections.menu.boundaryActions')}
           data-testid="litho-boundary-menu"
         >
           <button
@@ -1197,7 +1199,7 @@ export default function LithoSuggestionGhostColumns({
               setBoundaryContextMenu(null)
             }}
           >
-            Insert layer here…
+            {t('sections.menu.insertLayerHere')}
           </button>
           {/* Debt #102: merge two adjacent same-lithology pending layers
               into one. Item appears ONLY when both neighbours are
@@ -1222,7 +1224,7 @@ export default function LithoSuggestionGhostColumns({
                   setBoundaryContextMenu(null)
                 }}
               >
-                Merge layers
+                {t('sections.menu.mergeLayers')}
               </button>
             )}
         </div>,
@@ -1264,14 +1266,16 @@ export default function LithoSuggestionGhostColumns({
           className="bg-amber-500 text-white text-xs font-medium px-2 py-1 rounded shadow"
           data-testid="copy-composition-preview-chip"
         >
-          Copy {lithoDisplayName(
-            edits?.get(copyDrag.sourceIdx)?.suggested_lithology ??
-              suggestions[copyDrag.sourceIdx]?.suggested_lithology ??
-              '?',
-            edits?.get(copyDrag.sourceIdx)?.suggested_admixtures ??
-              suggestions[copyDrag.sourceIdx]?.suggested_admixtures ??
-              [],
-          )}
+          {t('sections.ghost.copyChip', {
+            litho: lithoDisplayName(
+              edits?.get(copyDrag.sourceIdx)?.suggested_lithology ??
+                suggestions[copyDrag.sourceIdx]?.suggested_lithology ??
+                '?',
+              edits?.get(copyDrag.sourceIdx)?.suggested_admixtures ??
+                suggestions[copyDrag.sourceIdx]?.suggested_admixtures ??
+                [],
+            ),
+          })}
         </div>,
         document.body,
       )}
