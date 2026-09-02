@@ -4,6 +4,23 @@ Two groups live here: the geometry tolerances that decide whether a
 region of the 2-D partition is drawable at all, and the fixed strings
 the artefact carries so an engineer reading the file in D-Stability
 knows what Strix did and did not state.
+
+Absent-parameter representation (audit 2026-09-02)
+--------------------------------------------------
+When a unit's NAD class is NOT in ``NAD_SOIL_PARAMETERS`` (the shipped
+state — the table is empty until the owner fills it), the exporter adds
+the soil with name + code only and writes NO parameter. GEOLib then
+leaves its own initial values, which are the honest "blank": cohesion,
+friction angle and both unit weights are **0**. Two defaults GEOLib
+forces that Strix does NOT choose, and that stay in place on the absent
+path (they only matter once the engineer parameterises the soil):
+``ShearStrengthModelTypeBelowPhreaticLevel = Su`` (not Mohr-Coulomb),
+and ``SuShearStrengthModel.StrengthIncreaseExponent = 1.0``. GEOLib CAN
+express "no model" (``ShearStrengthModelTypePhreaticLevel.NONE``), but
+the absent path deliberately does not set it — the zeros are already the
+unmistakable blank, and forcing NONE would change dogfed behaviour. When
+parameters ARE present the exporter sets Mohr-Coulomb on both sides, so
+the ``Su``-below default no longer applies.
 """
 
 from __future__ import annotations
