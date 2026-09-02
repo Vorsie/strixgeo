@@ -5,7 +5,7 @@
 // are passed in, so this file holds no hooks and changes no behaviour — it is
 // the same JSX, one call boundary away.
 
-import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
+import { SheetPreviewDialog } from './SheetPreviewDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 import ReSubdivideConfirmDialog from '../../../components/ReSubdivideConfirmDialog'
 import ConfirmDialog from '../../../components/ui/ConfirmDialog'
@@ -16,12 +16,13 @@ import { useT } from '../../../i18n/translate'
 
 /** What the toolbar's dialog stack needs to render + resolve each modal. */
 export interface SectionsToolbarDialogsProps {
-  // -- Section PDF report metadata dialog (debt #52) --
-  pdfDialogOpen: boolean
-  pdfDefaultTitle: string
-  exportingPdf: boolean
-  onExportPdf: (metadata: { title: string; author: string; notes: string }) => Promise<void>
-  onPdfCancel: () => void
+  // -- Cross-section PDF sheet preview dialog (debt #52) --
+  sheetDialogOpen: boolean
+  onSheetClose: () => void
+  /** Panel axis — seeds the sheet's default fill. */
+  sheetIsGeotech: boolean
+  /** Whether a geotech model exists (gates the geotech fill radio). */
+  sheetHasGeotechModel: boolean
 
   // -- Delete-section confirm modal --
   deleteConfirmOpen: boolean
@@ -77,11 +78,10 @@ export interface SectionsToolbarDialogsProps {
  *     The fragment of dialogs (mostly closed at any given moment).
  */
 export default function SectionsToolbarDialogs({
-  pdfDialogOpen,
-  pdfDefaultTitle,
-  exportingPdf,
-  onExportPdf,
-  onPdfCancel,
+  sheetDialogOpen,
+  onSheetClose,
+  sheetIsGeotech,
+  sheetHasGeotechModel,
   deleteConfirmOpen,
   deleting,
   selectedSection,
@@ -112,13 +112,12 @@ export default function SectionsToolbarDialogs({
   const t = useT()
   return (
     <>
-      <ReportMetadataDialog
-        open={pdfDialogOpen}
-        defaultTitle={pdfDefaultTitle}
-        defaultAuthor=""
-        onSubmit={onExportPdf}
-        onCancel={onPdfCancel}
-        busy={exportingPdf}
+      <SheetPreviewDialog
+        open={sheetDialogOpen}
+        onClose={onSheetClose}
+        section={selectedSection}
+        isGeotech={sheetIsGeotech}
+        hasGeotechModel={sheetHasGeotechModel}
       />
 
       {/* Model-management verbs (Build / Sync geology / Seed / Dedupe)
