@@ -77,6 +77,49 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // height-datum axis symbol (Tweede Algemene Waterpassing), kept verbatim.
   'sheet.field.project',
   'sheet.mTaw',
+
+  // ---------------------------------------------------------------------------
+  // 2026-09-02 renderer coverage pass. Each key below renders identically in
+  // BE Dutch by design; grouped by why. A handful (buffer, whisker, box, curve)
+  // are also owner-review candidates — the NL catalogue carries a `// FLAG alt:`
+  // above them.
+  // ---------------------------------------------------------------------------
+  // Pure placeholder compositions — the only content is interpolated values
+  // (themselves already-translated fragments), so there is no word to translate.
+  'data.inspector.count', // "{n} {noun}"
+  'litho.gridTooLargeNoRetry', // "{reason} {untouched}"
+  'sections.header.lengthBuffer', // "{length} m · buffer ±{buffer} m"
+  'sections.inspector.lengthEpsg', // "{length} m · EPSG:{epsg}"
+  'params.idDotTooltip', // "{value} {unit} · {elevation} mTAW · {borehole}{sample}"
+  // Loanwords / words BE Dutch keeps identical (+ a placeholder or unit).
+  'geotech.nadClassParen', // "(NAD {nad})" — NAD is a BE standard abbreviation
+  'sections.header.buffer', // "Buffer"
+  'sections.vb.modelSlot', // "Model {label}"
+  'params.zoneN', // "zone {n}"
+  'params.bandCountOne', // "{n} band" — singular "band" like geotech.bandLabel
+  'sections.bandEdit.bandWordOne', // "band"
+  'params.diameterMm', // "Diameter (mm)"
+  'lab.diameterAxis', // "Diameter (mm)"
+  'export.heading', // "Export" — like export.title
+  'params.markWhisker', // "whisker" — box-plot term kept in BE Dutch
+  'params.markBox', // "box" — box-plot term kept in BE Dutch
+  'params.curveCountOne', // "{n} curve" — PSD "curve" loanword
+  'params.curveCountMany', // "{n} curves"
+  // Compact statistic abbreviations (median→mediaan and mean→gemiddelde DO differ).
+  'params.statMin', // "min"
+  'params.statMax', // "max"
+  'params.statSd', // "sd"
+  // Axis / readout symbols kept as international notation.
+  'sections.header.scaleH', // "H: {scale} px/m"
+  'sections.header.scaleV', // "V: {scale} px/m"
+  'sections.geotech.qcLabel', // "qc: {statistic}"
+  'params.colIcBar', // "Ic̄ (Robertson 2015)"
+  // Author-year method citations — proper names, identical in every locale.
+  'params.methodRobertsonWride',
+  'params.methodMayne',
+  'params.methodKulhawyMayne',
+  'params.methodUzielli',
+  'params.methodRobertson2015',
 ])
 
 describe('locale catalogues', () => {
