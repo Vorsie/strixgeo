@@ -6,6 +6,8 @@
 // Cancel, action-named danger confirm button.
 
 import ConfirmDialog from './ui/ConfirmDialog'
+import { useT } from '../i18n/translate'
+import { interpolateSlot } from '../i18n/interpolateSlot'
 
 interface Props {
   /** Truthy = render the dialog. The caller owns the open lifecycle. */
@@ -27,6 +29,7 @@ export default function DeleteContactConfirmDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   return (
     <ConfirmDialog
       open={open}
@@ -34,14 +37,12 @@ export default function DeleteContactConfirmDialog({
       testid="delete-contact-confirm-dialog"
       onCancel={onCancel}
       busy={busy}
-      title={
-        <>
-          Delete contact at <span className="font-bold">{formationName}</span>?
-        </>
-      }
-      body="This cannot be undone. The contact will be removed from the model and dependent surfaces will become stale."
+      title={interpolateSlot(t('sections.deleteContact.title'), 'name', (
+        <span className="font-bold">{formationName}</span>
+      ))}
+      body={t('sections.deleteContact.body')}
       confirm={{
-        label: 'Delete contact',
+        label: t('sections.menu.deleteContact'),
         onClick: onConfirm,
         variant: 'danger',
         testid: 'delete-contact-confirm',
