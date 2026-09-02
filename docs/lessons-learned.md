@@ -348,3 +348,20 @@ of a wedge that is 9.9 cm thick at its other end.
 * **The security-guidance hook drops a whole Write on a text pattern match**, including
   a markdown plan that merely quotes `RegExp.prototype.exec` or React's raw-HTML prop.
   Reword the snippet (`str.match`, tag-stripped text); never route around the hook.
+
+## 2026-09-02 — a later request-validation guard can silently disarm a concurrency test
+
+* **A schema validator added after a race test can turn it into a false-green — if the
+  test tolerates the resulting 4xx, it stays green while no longer racing.** BP-1
+  (`test_body_partition_concurrency`) pins that a correlate ‖ bodies/recompute cannot
+  500; its `_check` deliberately flags only `>= 500`, tolerating 409/422. Three days
+  after it landed, the P1-3 recompute coverage guard added a validator requiring
+  `section_ids` parallel to `sections`. BP-1's recompute payload never carried
+  `section_ids`, so from then on its recompute arm 422'd at request validation — BEFORE
+  the endpoint takes the body-partition lock — every round. The test kept passing (a 422
+  is not a 500) but only the correlate side ever reached `_run_resolver`, so it would
+  have stayed green even with the lock removed from recompute. Rule: when you add a
+  request-schema guard, grep the tests that POST that endpoint and confirm their payloads
+  still pass it — a concurrency test that tolerates 4xx will not tell you it stopped
+  racing. Make a race test assert a 200 (or log both status codes), so a silenced arm
+  fails loudly instead of passing on the 4xx.
