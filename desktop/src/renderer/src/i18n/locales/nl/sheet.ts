@@ -16,6 +16,7 @@ export const SHEET_NL = {
   'sheet.vex': 'Overhoging',
   'sheet.spacing': 'Kolomafstand',
   'sheet.paperSize': 'Blad {w} × {h} mm',
+  'sheet.fieldLabelAria': 'Veldlabel {n}',
   'sheet.fields': 'Tekstblok',
   'sheet.field.project': 'Project',
   'sheet.field.profile': 'Profiel',
