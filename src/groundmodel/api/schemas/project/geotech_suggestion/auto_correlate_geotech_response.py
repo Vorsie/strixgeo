@@ -41,6 +41,12 @@ class AutoCorrelateGeotechResponse(BaseModel):
         Mis-scoped ties left standing because they are ACCEPTED or hand-drawn.
         Non-zero means the engineer has a decision to make; the backend log
         names each one.
+    frame_flagged_count : int
+        New machine ties born with the violet ``frame_mismatch`` review badge
+        because they exceed the litho frame (owner order 2026-08-21) — a
+        restatement two bands can never become one mass.  The tie is still
+        proposed; the badge asks the engineer to review it, exactly as the hand
+        path flags the same tie.
     """
 
     edges_proposed: int
@@ -52,3 +58,4 @@ class AutoCorrelateGeotechResponse(BaseModel):
     investigations_off_section: int = 0
     offsection_ties_deleted: int = 0
     offsection_ties_retained: int = 0
+    frame_flagged_count: int = 0
