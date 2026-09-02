@@ -226,6 +226,16 @@ function countBands(bands: readonly LithoLayerResponse[]): {
  * children (the SF-silt-1 / SF-silt-2 the owner wants reachable). This keeps
  * "identical by construction" literally true — only leaf-identical scopes
  * collapse — and never drops a selectable geotech body.
+ *
+ * ⚠ NOT applied to the class level under a litho body. Owner ruling
+ * 2026-09-02 (verbatim: "i see some litho bodies whose submenus i cannot open
+ * ... only one packing class, still confusing though, don't collapse because
+ * the pakkingsdichtheid label disappears"): folding a litho body's lone
+ * packing class into the body dropped the pakkingsdichtheid (NAD-class) label
+ * AND left the body a non-openable leaf. So ``buildParameterTree`` keeps that
+ * class node; this helper now runs only at the geotech-body level (drops the
+ * body #ordinal, never the class label) and the litho-unit level (drops a lone
+ * body with no packing class at all — no label to lose).
  */
 function collapseSingleLeafChild(children: ParameterTreeNode[]): ParameterTreeNode[] {
   if (children.length === 1 && children[0].children.length === 0) return []
@@ -376,10 +386,13 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
       const counts = countBands(bandsForScope(scope, input))
       return {
         scope,
+        // The class level does NOT collapse (owner ruling 2026-09-02): a litho
+        // body with a single packing class keeps that class node, so the
+        // pakkingsdichtheid label survives and the body stays openable.
+        children: classNodes,
         label: lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies),
         bandCount: counts.bandCount,
         coneBandCount: counts.coneBandCount,
-        children: collapseSingleLeafChild(classNodes),
       }
     })
 
