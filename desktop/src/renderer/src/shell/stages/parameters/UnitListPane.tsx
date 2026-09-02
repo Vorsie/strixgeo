@@ -19,7 +19,7 @@
 // structure, the labels, the counts and the single-child collapse; this file
 // renders it and owns only the expand state + the listbox a11y.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
 
 import { EmptyState, LoadingState } from '../../EmptyState'
@@ -56,6 +56,36 @@ function ancestorsOfSelection(
     return node.children.some(child => walk(child, nextAncestors))
   }
   nodes.forEach(node => walk(node, []))
+  return out
+}
+
+/**
+ * The keys of litho-body nodes that open by DEFAULT — a litho body whose only
+ * child is its single packing class.
+ *
+ * Owner ruling 2026-09-02 (verbatim: "i see some litho bodies whose submenus i
+ * cannot open ... only one packing class ... don't collapse because the
+ * pakkingsdichtheid label disappears"): a single-class litho body must show
+ * that class row — the pakkingsdichtheid label — without an extra click. Each
+ * such key is SEEDED open once, into the real expand state (see the effect in
+ * ``UnitListPane``), so the row stays a normal, fully collapsible tree node
+ * rather than a force-open one with an inert chevron.
+ */
+function defaultOpenLithoBodyKeys(
+  nodes: readonly ParameterTreeNode[],
+): ReadonlySet<string> {
+  const out = new Set<string>()
+  const walk = (node: ParameterTreeNode): void => {
+    if (
+      node.scope.kind === 'litho-body' &&
+      node.children.length === 1 &&
+      node.children[0].scope.kind === 'geotech-class'
+    ) {
+      out.add(scopeKey(node.scope))
+    }
+    node.children.forEach(walk)
+  }
+  nodes.forEach(walk)
   return out
 }
 
@@ -148,6 +178,28 @@ export default function UnitListPane(): JSX.Element {
     () => ancestorsOfSelection(tree, selectedKey),
     [tree, selectedKey],
   )
+  // Single-class litho bodies open by default so their lone packing-class row
+  // (the pakkingsdichtheid label) shows without an extra click — owner ruling
+  // 2026-09-02. Computed before the early returns to keep the hook order fixed.
+  const autoOpenKeys = useMemo(() => defaultOpenLithoBodyKeys(tree), [tree])
+
+  // Seed each single-class litho body OPEN once, the first time it appears in
+  // the tree. Seeding into the real expand state (not a force-open override)
+  // keeps the row a normal, fully collapsible node: its chevron and ArrowLeft
+  // behave like every other row. The ref tracks what has already been seeded so
+  // a manual collapse survives a later tree rebuild (body recompute, nonce bump)
+  // — a key the user deliberately closed is never re-opened.
+  const seededOpenKeys = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const toSeed = [...autoOpenKeys].filter(key => !seededOpenKeys.current.has(key))
+    if (toSeed.length === 0) return
+    for (const key of toSeed) seededOpenKeys.current.add(key)
+    setExpandedKeys(prev => {
+      const next = new Set(prev)
+      for (const key of toSeed) next.add(key)
+      return next
+    })
+  }, [autoOpenKeys])
 
   // F12 — while the geotech layers are loading, the geotech subsplit is
   // unknown; show honest loading rather than a tree that grows children the
