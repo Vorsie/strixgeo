@@ -253,6 +253,19 @@ Stripe, the **Ed25519 signature** (the local file is plain JSON — the
 biggest remaining TODO), and the device fingerprint. Design note:
 [design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
 
+**Client half + contract + dev stub landed 2026-09-02** (branch
+`activation-http-client`, NOT merged). The HTTP client
+(`httpActivationRepository.ts`) implements the `ActivationRepository` seam over
+`fetch` behind a single config point (`activationConfig.ts` — env
+`STRIXGEO_ACTIVATION_URL` in dev, a packaged constant, `null` = the mock, which
+stays the default so the dogfeed is unchanged); a hardware-derived stable device
+id (`deviceIdentity.ts`) survives a reinstall; the written HTTP contract
+([design/activation-api-contract.md](design/activation-api-contract.md)) is what
+the strixgeo.com server implements; a dev-only in-memory FastAPI stub
+(`scripts/dev/activation_stub_server.py`, `--mint` CLI) runs the contract
+locally. Server implementation on the strixgeo.com hosting (MySQL) + the key
+FORMAT / Ed25519 signing (§8) remain pending.
+
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
 
