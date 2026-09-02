@@ -71,9 +71,11 @@ from __future__ import annotations
 import time
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -173,3 +175,67 @@ async def lock_body_partition(
         f"body-partition lock: {operation} acquired model {model_id} after "
         f"{(time.monotonic() - started) * 1000:.0f} ms of contention"
     )
+
+
+async def lock_sibling_geotech_partitions(
+    session: AsyncSession,
+    *,
+    litho_model_id: UUID,
+    operation: str,
+) -> list[UUID]:
+    """Lock every sibling GEOTECH child's body partition for a litho-parent write.
+
+    Resolves the geotechnical models whose ``parent_model_id`` is
+    ``litho_model_id`` and takes each one's :func:`lock_body_partition` in a
+    canonical order (sorted by ``str(id)``), returning the sibling ids.
+
+    Callers take this BEFORE any write that deletes litho ``body`` rows. Deleting
+    a litho body fires the ``ON DELETE SET NULL`` action of the geotech rows'
+    ``parent_litho_body_id`` FK (and, when a litho_layer is deleted, the geotech
+    bands' ``parent_litho_layer_id``) — a HIDDEN WRITE that row-locks the geotech
+    child rows. So the child lock must be held BEFORE that delete, not after (the
+    ABBA the module docstring describes; audit BP-3). This is the single copy of
+    the "resolve sibling geotech ids and lock them sorted" step, shared by
+    ``_run_resolver``, ``ClearLithoModel`` and ``DeleteBody``.
+
+    A GEOTECH model has no geotech children (the hierarchy is
+    geological -> litho -> geotech), so calling this with a geotech ``model_id``
+    is a safe no-op — the SELECT returns nothing and no lock is taken. A caller
+    holding a possibly-geotech model may therefore call it unconditionally.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active session; the litho parent's OWN partition lock must already be
+        held (litho-parent-first is the mandated order — see the module
+        docstring).
+    litho_model_id : UUID
+        The lithostratigraphic model whose ``body`` rows the caller is about to
+        rewrite or delete.
+    operation : str
+        Human name of the caller for the contention log, forwarded to each
+        sibling :func:`lock_body_partition` (e.g. ``"restamp-parent-litho-body"``,
+        ``"clear-litho-model"`` or ``"delete-body"``).
+
+    Returns
+    -------
+    list[UUID]
+        The sibling geotech model ids that were locked — empty when the model has
+        no geotech children. Advisory xact locks are re-entrant, so a caller that
+        later touches these same models may reuse the ids without re-locking.
+    """
+    sibling_geotech_ids = list(
+        (
+            await session.execute(
+                select(GeologicalModelOrm.id).where(
+                    GeologicalModelOrm.parent_model_id == litho_model_id,
+                    GeologicalModelOrm.kind == MODEL_KIND_GEOTECHNICAL,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for sibling_id in sorted(sibling_geotech_ids, key=str):
+        await lock_body_partition(session, model_id=sibling_id, operation=operation)
+    return sibling_geotech_ids
