@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { matchColumns, type ColumnFindEntry } from './columnFind'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   /** Every placed column on the open section, any order. */
@@ -29,6 +30,7 @@ export default function ColumnFindBar({ columns, onJump, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const t = useT()
 
   const matches = matchColumns(columns, query)
   // The current index survives re-renders but must never point past a
@@ -54,13 +56,13 @@ export default function ColumnFindBar({ columns, onJump, onClose }: Props) {
     <div
       className="pointer-events-auto absolute right-3 top-3 z-30 flex items-center gap-2 rounded-md border border-slate-300 bg-white/95 px-2 py-1.5 shadow-md dark:border-slate-600 dark:bg-slate-800/95"
       role="search"
-      aria-label="Find column"
+      aria-label={t('sections.findColumn')}
     >
       <input
         ref={inputRef}
         value={query}
-        placeholder="Find column… (e.g. S8)"
-        aria-label="Column name"
+        placeholder={t('sections.findColumnPlaceholder')}
+        aria-label={t('sections.columnName')}
         className="w-40 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
         onChange={e => {
           const next = e.target.value
@@ -85,11 +87,15 @@ export default function ColumnFindBar({ columns, onJump, onClose }: Props) {
         className="min-w-10 select-none text-right text-xs tabular-nums text-slate-500 dark:text-slate-400"
         aria-live="polite"
       >
-        {query.trim() === '' ? '' : matches.length === 0 ? '0 found' : `${current + 1}/${matches.length}`}
+        {query.trim() === ''
+          ? ''
+          : matches.length === 0
+            ? t('sections.findNoneFound')
+            : `${current + 1}/${matches.length}`}
       </span>
       <button
         type="button"
-        aria-label="Close find"
+        aria-label={t('sections.closeFind')}
         className="rounded px-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
         onClick={onClose}
       >
