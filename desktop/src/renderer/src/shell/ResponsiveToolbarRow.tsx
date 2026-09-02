@@ -29,6 +29,7 @@ import {
 } from './toolbarOverflow'
 import { DEFAULT_TOOLBAR_METRICS, type ToolbarMetrics } from './toolbarOverflow_constants'
 import { PortalMenu, usePortalMenu, type ToolbarDropdownItem } from './ToolbarPrimitives'
+import { useT } from '../i18n/translate'
 
 /** Presentations a control can actually be asked to render. */
 export type ToolbarRenderPresentation = Exclude<ToolbarPresentation, 'overflow'>
@@ -95,10 +96,14 @@ export interface ResponsiveToolbarRowProps {
  */
 export default function ResponsiveToolbarRow({
   items,
-  overflowMenuLabel = 'More toolbar actions',
+  overflowMenuLabel,
   measureWidth = defaultMeasureWidth,
   metrics = DEFAULT_TOOLBAR_METRICS,
 }: ResponsiveToolbarRowProps): JSX.Element {
+  const t = useT()
+  // A caller usually names the stage ("More Sections actions"); the generic
+  // fallback keeps the ⋯ menu announced even when it does not.
+  const menuLabel = overflowMenuLabel ?? t('shell.moreToolbarActions')
   const rowRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
   const [availablePx, setAvailablePx] = useState(0)
@@ -174,8 +179,12 @@ export default function ResponsiveToolbarRow({
             onClick={toggle}
             aria-haspopup="menu"
             aria-expanded={open}
-            aria-label={overflowMenuLabel}
-            title={`${menuItems.length} more action${menuItems.length === 1 ? '' : 's'} — the toolbar is narrower than the full verb row`}
+            aria-label={menuLabel}
+            title={t('shell.moreActionsTitle', {
+              n: menuItems.length,
+              actionWord:
+                menuItems.length === 1 ? t('shell.actionWordOne') : t('shell.actionWordMany'),
+            })}
             data-testid="toolbar-overflow-more"
             className={[
               'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors shrink-0',
@@ -184,12 +193,12 @@ export default function ResponsiveToolbarRow({
             ].join(' ')}
           >
             <MoreHorizontal size={13} aria-hidden="true" />
-            More
+            {t('shell.more')}
           </button>
           {open && anchorRect !== null && (
             <PortalMenu
               anchorRect={anchorRect}
-              ariaLabel={overflowMenuLabel}
+              ariaLabel={menuLabel}
               items={menuItems}
               onClose={close}
               align="right"
