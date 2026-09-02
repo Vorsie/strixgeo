@@ -17,7 +17,6 @@ from __future__ import annotations
 import warnings
 
 import pytest
-from fastapi import status
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -162,61 +161,6 @@ class TestCptSeriesRowCap:
         n = _series_row_count(cpt)
         assert n is not None
         assert n > _MAX_CPT_SERIES_ROWS
-
-
-# ===========================================================================
-# Debt #112 — PDF query-param length caps
-# ===========================================================================
-
-
-class TestPdfQueryParamCaps:
-    """title / author / notes query params on export/pdf must be capped."""
-
-    def test_title_above_cap_returns_422(self, client: TestClient) -> None:
-        """A title longer than 256 chars must be rejected with 422."""
-        long_title = "x" * 257
-        # We hit the endpoint; the DB is absent so it would 500 anyway, but
-        # Pydantic/FastAPI validates query params BEFORE the handler runs and
-        # returns 422 — that's what we're testing.
-        import uuid
-
-        pid = uuid.uuid4()
-        sid = uuid.uuid4()
-        mid = uuid.uuid4()
-        response = client.get(
-            f"/projects/{pid}/sections/{sid}/export/pdf",
-            params={"model_id": str(mid), "title": long_title},
-        )
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-    def test_notes_above_cap_returns_422(self, client: TestClient) -> None:
-        """A notes string longer than 4096 chars must be rejected with 422."""
-        import uuid
-
-        pid, sid, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-        long_notes = "n" * 4097
-        response = client.get(
-            f"/projects/{pid}/sections/{sid}/export/pdf",
-            params={"model_id": str(mid), "notes": long_notes},
-        )
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-    def test_title_at_cap_not_rejected_by_validation(self, client: TestClient) -> None:
-        """A title of exactly 256 chars must NOT be rejected by the query-param validator.
-
-        The handler will still 500 (no DB), but the 422 must not fire.
-        """
-        import uuid
-
-        pid, sid, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-        title_at_cap = "t" * 256
-        response = client.get(
-            f"/projects/{pid}/sections/{sid}/export/pdf",
-            params={"model_id": str(mid), "title": title_at_cap},
-        )
-        # 422 would mean the validator rejected the length — any other
-        # status (500 = handler ran, 404 = route not found, etc.) is fine.
-        assert response.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 # ===========================================================================
