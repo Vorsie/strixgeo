@@ -10,6 +10,7 @@ import { useCallback, useState } from 'react'
 
 import { api } from '../../../api/client'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 import type { GeologicalModelResponse, ProjectResponse } from '../../../api/client'
 import type { Coordinator } from '../../ShellContext'
 import type { UseGeologicalModelResult } from '../../../hooks/useGeologicalModel'
@@ -110,7 +111,7 @@ export function useLithoCorrelateVerbs({
       }
     } catch (err) {
       log.error('sections', 'autoCorrelate pre-check failed', err)
-      toast('error', 'Auto-correlate pre-check failed — see console.')
+      toast('error', t('sections.lithoCorr.precheckFailed'))
     } finally {
       // Clear the busy state only when we did NOT open the dialog.
       // The dialog close handlers (cancel/skip/reCorrelate) own the cleanup
@@ -146,12 +147,19 @@ export function useLithoCorrelateVerbs({
       )
       toast(
         'success',
-        `Cleared ${del.deleted} auto edge${del.deleted === 1 ? '' : 's'}; re-running…`,
+        t('sections.lithoCorr.cleared', {
+          n: del.deleted,
+          word: t(
+            del.deleted === 1
+              ? 'sections.lithoCorr.autoEdgeOne'
+              : 'sections.lithoCorr.autoEdgeMany',
+          ),
+        }),
       )
       await handleAutoCorrelate(selectedSectionId)
     } catch (err) {
       log.error('sections', 'reCorrelate failed', err)
-      toast('error', 'Re-correlate failed — see console.')
+      toast('error', t('sections.lithoCorr.reCorrelateFailed'))
     } finally {
       setAutoCorrelating(false)
     }
@@ -190,11 +198,18 @@ export function useLithoCorrelateVerbs({
       if (result.edges_accepted > 0) requestBodyRecompute('litho')
       toast(
         'success',
-        `Accepted ${result.edges_accepted} correlation${result.edges_accepted === 1 ? '' : 's'}.`,
+        t('sections.lithoCorr.accepted', {
+          n: result.edges_accepted,
+          word: t(
+            result.edges_accepted === 1
+              ? 'sections.lithoCorr.correlationOne'
+              : 'sections.lithoCorr.correlationMany',
+          ),
+        }),
       )
     } catch (err) {
       log.error('sections', 'acceptCorrelations: failed', err)
-      toast('error', 'Accept failed — try again.')
+      toast('error', t('sections.lithoCorr.acceptFailed'))
     } finally {
       setAcceptingCorrelations(false)
     }
