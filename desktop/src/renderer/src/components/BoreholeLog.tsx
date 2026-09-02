@@ -497,6 +497,7 @@ export default function BoreholeLog({
               }
             >
               <Database size={11} />
+              {/* i18n-exempt: DOV is the product/brand name (Databank Ondergrond Vlaanderen), identical across locales */}
               DOV
             </button>
             {onChangeVirtueleBoringOverrideModel !== undefined && (
@@ -782,10 +783,11 @@ function VirtueleBoringBorelogRail({
   pxPerM: number
   totalDepthM: number
 }): JSX.Element | null {
+  const t = useT()
   if (!prediction || surfaceElevationM === null) {
     return (
       <text x={leftX} y={topY + 12} fontSize={9} fill="#9ca3af">
-        no data
+        {t('borelog.noData')}
       </text>
     )
   }
