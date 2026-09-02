@@ -72,6 +72,33 @@ The server is the **issuer**; a short-lived signed licence file is the
 
 ---
 
+## Tier encoding — how the app tells Solo from Pro from Studio
+
+*(Owner note, recorded 2026-09-01 from the onboarding-prototype review, cleaned
+up. NOT built — there is no server yet; this is a design option for stage 2.)*
+
+The app has to know which tier a key grants (it gates exports on the tier). Two
+shapes, both compatible with Option C's signed file:
+
+* **Tier lives in the DB, carried in the signed licence (recommended).** The key
+  itself is an opaque random string; the server looks it up, finds the tier, and
+  writes the tier INTO the signed licence file it issues. The app reads the tier
+  from the signed (tamper-proof) file, never from the key. Clean separation: the
+  key is just an identifier, the DB row is the source of truth, and re-tiering a
+  customer is a one-row change. No tier information leaks in the key string.
+* **Salt/encode the tier into the key.** The key is minted so its own bytes
+  reveal the tier (a prefix, or a salted encoding). Lets the app guess the tier
+  before any server round-trip. Trade-off: the tier is now visible in the key,
+  re-tiering means re-issuing the key, and it is only a hint — the signed file
+  still has to be the authority, so it buys little.
+
+**Recommendation:** tier in the DB, carried in the signed licence. The key stays
+an opaque token; the signed file is the single tamper-proof authority for tier,
+dates and device binding. The **key format itself is deliberately left open** —
+it is a downstream choice of the Ed25519 signing decision (Option C, stage 2).
+
+---
+
 ## The file-passing leak — no change of position
 
 `.strix` is portable and offline, so any *occasional gated action* (export) can
