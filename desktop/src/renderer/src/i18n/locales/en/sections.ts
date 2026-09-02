@@ -561,7 +561,7 @@ export const SECTIONS = {
   // Body Join / Ontkoppelen flow (owner ruling 2026-09-01) — the armed hint,
   // toasts and advisories. ``{label}`` is the armed body.
   'sections.join.armHint': 'Joining {label} — click the other body · Esc cancels',
-  'sections.join.success': 'Bodies joined — right-click the body → Un-join to undo.',
+  'sections.join.success': 'Bodies grouped — right-click the body → Un-join to undo.',
   'sections.join.blockedSeparation':
     'Join blocked by a standing separation — remove that separation first.',
   // A body is one soil + one packing class, so a Join across two masses is
@@ -575,7 +575,7 @@ export const SECTIONS = {
   'sections.join.failed': 'Failed to join bodies.',
   'sections.join.noticeSame': 'That is the same body — click a different one to join.',
   'sections.join.noticeUnresolvable': 'Could not identify that body — click a filled body.',
-  'sections.unjoin.success': 'Un-joined — the bodies may split.',
+  'sections.unjoin.success': 'Un-grouped — the body stands on its own again.',
   'sections.unjoin.failed': 'Failed to un-join bodies.',
 
   'sections.contacts.insertHint': 'Click to insert new layer here · right-click to remove',
