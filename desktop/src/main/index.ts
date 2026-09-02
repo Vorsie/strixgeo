@@ -25,6 +25,7 @@ import { buildCrashBundle } from './crashBundle'
 import { readTransmissionConsent } from './diagnosticsConsent'
 import { captureDiagnostic, configureDiagnosticsStore } from './diagnosticsStore'
 import { rotateIfNeeded, realFsOps } from './logRotation'
+import { registerSheetPdfIpc } from './sheetPdf'
 import {
   LOCAL_CLIENT_TOKEN_ENV_VAR,
   LOCAL_CLIENT_TOKEN_HEADER,
@@ -1149,6 +1150,10 @@ ipcMain.handle(
     writeFileAtomic(filePath, Buffer.from(contents))
   },
 )
+
+// Cross-section PDF sheet: render sheet.html in a hidden window and print it
+// through Chromium (docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md).
+registerSheetPdfIpc()
 
 ipcMain.handle(
   'project:add-recent',
