@@ -58,7 +58,10 @@ describe('buildContentSecurityPolicy', () => {
 
   it('iframe + object embedding is denied', () => {
     const csp = buildContentSecurityPolicy(false)
-    expect(csp).toContain("frame-src 'none'")
+    // Same-origin frames only: the PDF sheet preview is an iframe on our own
+    // sheet.html; anything foreign stays blocked.
+    expect(csp).toContain("frame-src 'self'")
+    expect(csp).not.toContain("frame-src *")
     expect(csp).toContain("object-src 'none'")
   })
 
