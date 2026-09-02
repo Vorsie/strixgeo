@@ -703,6 +703,38 @@ matches across the tie, the unmatched band (e.g. the clay below the clicked
 clay-base) must taper out to a point AT the tied contact â€” the tie tells the
 fill exactly where the pinch lands.
 
+### 4b-i. The litho-frame FLAG warns on both hand and machine ties (owner order 2026-08-21; machine path 2026-09-02)
+
+Separate from the `shares_litho_body` REFUSAL above is a WARNING that never
+refuses: a packing tie can still exceed the litho frame lawfully (two bands that
+state a shared surface but can never become one mass), and the owner asked for
+it to be flagged rather than blocked -- *"next time flag a tie like that when
+it doesn't conform to the litho model!"* (2026-08-21). The tie is written and
+born with the violet `review_reason='frame_mismatch'` badge + Confirm-tie flow.
+The pure decision is `domain/services/litho_frame_conformance.py`
+(`frame_tie_warning`): different parent soils, or same soil with no accepted
+litho-correlation path between the parent units.
+
+The hand-drawn tie path ran this from the start. The machine tie path
+(`AutoCorrelateGeotechEdges`) did NOT, so it could silently propose exactly the
+ties the hand path flags -- it restates a direct top-to-top litho tie onto the
+packing bands REGARDLESS of class (section 4a, owner ruling 2026-08-13), so a
+cross-soil litho surface tie yields a cross-soil packing restatement. As of
+2026-09-02 the machine path carries the SAME warning: after the crossing and
+off-section sweeps it re-reads the ties it just created (id-diffed against a
+pre-derivation snapshot, so an older cleared badge is never re-applied) and
+stamps `frame_mismatch` on the non-conforming ones, logging the flagged count
+(`frame_flagged` in the success line and the run's response). It WARNS, never
+refuses -- a restatement is legitimate. Behaviour is otherwise unchanged: the
+same ties are proposed, only the non-conforming ones now arrive badged. Both
+paths call one shared resolver, `application/litho_frame_conformance_resolver.py`
+(`band_frame_warning`), so the flag and its message are identical whoever drew
+the tie. Note the equivalence for machine ties: a machine tie always restates a
+litho edge, so its parent units are litho-connected by construction -- the only
+non-conforming case it can produce is the cross-soil one (different soils = a
+different litho body), which is why no separate `shares_litho_body`-style
+refusal is added to the machine path.
+
 ## 4c. Dragging a litho contact onto a packing boundary (owner ruling 2026-08-09)
 
 Ruling 2 forbids a *packing* boundary from crossing a litho contact. It never
