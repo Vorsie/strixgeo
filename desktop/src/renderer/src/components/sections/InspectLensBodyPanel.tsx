@@ -37,6 +37,7 @@ import { api } from '../../api/client'
 import { log } from '../../utils/log'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT } from '../../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -145,6 +146,7 @@ export default function InspectLensBodyPanel({
   onAbsenceUpdated,
   onClose,
 }: Props): JSX.Element {
+  const t = useT()
   // Absences fetched from GET .../formations/{id}/absences on open.
   const [absences, setAbsences] = useState<FormationAbsenceItem[]>([])
   const [absencesLoading, setAbsencesLoading] = useState(false)
@@ -426,7 +428,7 @@ export default function InspectLensBodyPanel({
           {formationName}
         </h2>
         <p className="text-xs text-text-secondary mt-0.5">
-          Body{' '}
+          {t('sections.lensPanel.bodyLabel')}{' '}
           <span className="font-mono font-medium text-text-primary">#{target.bodyOrdinal}</span>
         </p>
       </div>
@@ -437,7 +439,7 @@ export default function InspectLensBodyPanel({
         {presentInvestigationIds.length > 0 && (
           <section>
             <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
-              Present at
+              {t('sections.lens.presentAt')}
             </h3>
             <ul className="space-y-1">
               {presentInvestigationIds.map(id => (
@@ -454,7 +456,7 @@ export default function InspectLensBodyPanel({
         <section>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Absent at
+              {t('sections.lens.absentAt')}
             </h3>
             {hasAnyInferred && (
               <button
@@ -464,15 +466,15 @@ export default function InspectLensBodyPanel({
                 disabled={confirmAllBusy}
                 className="text-xs text-accent hover:text-accent-muted disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {confirmAllBusy ? 'Confirmingâ€¦' : `Confirm all auto (${inferredCount})`}
+                {confirmAllBusy ? t('sections.lensPanel.confirming') : t('sections.lensPanel.confirmAllAuto', { count: inferredCount })}
               </button>
             )}
           </div>
 
           {absencesLoading ? (
-            <p className="text-xs text-text-muted italic">Loadingâ€¦</p>
+            <p className="text-xs text-text-muted italic">{t('common.loading')}</p>
           ) : absences.length === 0 ? (
-            <p className="text-xs text-text-muted italic">No absence records.</p>
+            <p className="text-xs text-text-muted italic">{t('sections.lens.noAbsenceRecords')}</p>
           ) : (
             <ul className="space-y-1.5">
               {sourceOrder.flatMap(src => {
@@ -497,9 +499,9 @@ export default function InspectLensBodyPanel({
                           type="button"
                           onClick={() => void handleConfirmAbsence(a)}
                           className="shrink-0 text-xs text-accent hover:text-accent-muted"
-                          title="Promote from inferred to manual â€” the inference engine will no longer overwrite this row"
+                          title={t('sections.lens.promoteToManual')}
                         >
-                          Confirm
+                          {t('common.confirm')}
                         </button>
                       )}
                     </li>
@@ -513,7 +515,7 @@ export default function InspectLensBodyPanel({
         {/* Lens name */}
         <section>
           <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
-            Lens name
+            {t('sections.lens.name')}
           </h3>
           <div className="flex gap-2">
             <input
@@ -528,7 +530,7 @@ export default function InspectLensBodyPanel({
               onKeyDown={e => {
                 if (e.key === 'Enter') void handleSaveName()
               }}
-              placeholder="e.g. Boom Klei lens #1"
+              placeholder={t('sections.lens.namePlaceholder')}
               className={[
                 'flex-1 text-sm rounded border px-3 py-1.5 bg-surface-overlay text-text-primary',
                 'placeholder:text-text-muted focus:outline-none focus:ring-1',
@@ -545,7 +547,7 @@ export default function InspectLensBodyPanel({
               onClick={() => void handleSaveName()}
               disabled={nameSaving}
             >
-              {nameSaving ? 'Savingâ€¦' : 'Save'}
+              {nameSaving ? t('sections.lensPanel.saving') : t('common.save')}
             </Button>
           </div>
           {nameError && (
@@ -559,7 +561,7 @@ export default function InspectLensBodyPanel({
         {existingLensId !== null && (
           <section data-testid="inspect-lens-style">
             <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
-              Boundary style
+              {t('sections.lens.boundaryStyle')}
             </h3>
             <div className="flex gap-1.5">
               {(['straight', 'blocky', 'rounded'] as const).map(style => (
@@ -576,12 +578,18 @@ export default function InspectLensBodyPanel({
                       : 'border-border-default text-text-secondary hover:bg-surface-overlay',
                   ].join(' ')}
                 >
-                  {style}
+                  {t(
+                    style === 'straight'
+                      ? 'sections.lens.styleStraight'
+                      : style === 'blocky'
+                        ? 'sections.lens.styleBlocky'
+                        : 'sections.lens.styleRounded',
+                  )}
                 </button>
               ))}
             </div>
             <p className="mt-1 text-xs text-text-muted">
-              How the lens boundary is drawn between its control nodes.
+              {t('sections.lens.boundaryStyleHint')}
             </p>
           </section>
         )}
@@ -596,14 +604,14 @@ export default function InspectLensBodyPanel({
           disabled={existingLensId === null}
           title={
             existingLensId === null
-              ? 'Save a lens name first'
-              : 'Auto-create a perpendicular companion cross-section through the lens centroid'
+              ? t('sections.lensPanel.saveNameFirst')
+              : t('sections.lensPanel.companionHint')
           }
         >
-          Perpendicular sectionâ€¦
+          {t('sections.lens.perpendicularSection')}
         </Button>
         <Button variant="secondary" size="sm" onClick={onClose}>
-          Close
+          {t('common.close')}
         </Button>
       </div>
     </Modal>
