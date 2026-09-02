@@ -18,6 +18,7 @@ import type { GeologicalFormationResponse } from '../../../api/client'
 import type { FencePanel } from '../../../utils/fencePanels'
 import { buildFenceExportRequest } from '../../../utils/fenceExportRequest'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 
 /** Everything one fence export needs. */
 export interface FenceExportOptions {
@@ -60,10 +61,7 @@ export async function exportFenceDxf(options: FenceExportOptions): Promise<void>
   const request = buildFenceExportRequest(panels, formations)
   if (request.panels.length === 0) {
     log.warn('geology', `exportFenceDxf refused model=${modelId} — no drawable panels`)
-    toast(
-      'warning',
-      'Nothing to export — switch the 3-D view to Fence and make sure the fence has walls.',
-    )
+    toast('warning', t('export.fenceNothingToExport'))
     return
   }
 
@@ -73,8 +71,8 @@ export async function exportFenceDxf(options: FenceExportOptions): Promise<void>
     // proposed default is the name the file would have had anyway.
     const safeName = modelName.replace(/[^A-Za-z0-9\- _]/g, '_').trim() || 'model'
     const dialogPath = await window.electron.showExportSaveDialog(`${safeName}_fence.dxf`, [
-      { name: 'AutoCAD DXF', extensions: ['dxf'] },
-      { name: 'All Files', extensions: ['*'] },
+      { name: t('export.dxf'), extensions: ['dxf'] },
+      { name: t('export.allFiles'), extensions: ['*'] },
     ])
     if (dialogPath === null) {
       log.debug('geology', 'exportFenceDxf cancelled at save dialog')
@@ -87,9 +85,9 @@ export async function exportFenceDxf(options: FenceExportOptions): Promise<void>
       'geology',
       `exportFenceDxf ok model=${modelId} bytes=${bytes.byteLength} path=${dialogPath}`,
     )
-    toast('success', `Fence diagram exported — ${request.panels.length} panels.`)
+    toast('success', t('export.fenceExported', { count: request.panels.length }))
   } catch (err) {
     log.error('geology', 'exportFenceDxf failed', err)
-    toast('error', err instanceof Error ? err.message : 'Could not export the fence diagram.')
+    toast('error', err instanceof Error ? err.message : t('export.fenceFailed'))
   }
 }
