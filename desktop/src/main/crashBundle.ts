@@ -2,10 +2,10 @@
  * The crash bundle a tester can be asked to send by hand — debt #16.
  *
  * One ``.zip``, assembled on demand, containing only files this module names.
- * It is the *manual* half of crash reporting and the only half that works
- * today: there is no endpoint (``diagnosticsTransport.ts``), so "send us your
- * logs" has to be something the user does deliberately, with an artefact they
- * can open and inspect first.
+ * It is the USER-DRIVEN half of crash reporting: the automatic half is the
+ * consent-gated ``diagnosticsUploader.ts``, but "save a bundle to send by hand"
+ * stays available for a user who has not opted in to transmission, or who wants
+ * to open and inspect the artefact first.
  *
  * ## The promise the bundle keeps
  *
