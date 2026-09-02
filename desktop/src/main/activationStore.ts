@@ -55,6 +55,15 @@ export interface ActivationState {
 export interface ActivationStoreConfig {
   /** Absolute path to Electron's ``userData`` directory. */
   userDataDir: string
+  /**
+   * A stable device id to seed a fresh store with, instead of a random UUID.
+   *
+   * ``index.ts`` passes the hardware-derived {@link ../deviceIdentity.resolveDeviceIdentity}
+   * id here so the id the issuer binds a licence to is the SAME after the app is
+   * reinstalled (a random UUID is lost when ``activation.json`` is wiped). Absent
+   * (e.g. in unit tests) → a random UUID, the original behaviour.
+   */
+  deviceIdSeed?: string
 }
 
 let config: ActivationStoreConfig | null = null
@@ -106,7 +115,11 @@ function isUsableInstant(value: unknown): value is number {
  */
 export function readActivationState(): ActivationState {
   const path = activationStatePath()
-  const fresh = (): ActivationState => ({ licence: null, anchor: null, deviceId: randomUUID() })
+  // A configured seed (the hardware-derived device id) is preferred over a
+  // random UUID so a reinstall re-derives the same device id; unset → random,
+  // the original behaviour.
+  const seededDeviceId = (): string => requireConfig().deviceIdSeed?.trim() || randomUUID()
+  const fresh = (): ActivationState => ({ licence: null, anchor: null, deviceId: seededDeviceId() })
   if (!existsSync(path)) return fresh()
 
   let raw: unknown
@@ -122,7 +135,8 @@ export function readActivationState(): ActivationState {
   const envelope = raw as Record<string, unknown>
   if (envelope.kind !== ACTIVATION_KIND) return fresh()
 
-  const deviceId = typeof envelope.deviceId === 'string' && envelope.deviceId ? envelope.deviceId : randomUUID()
+  const deviceId =
+    typeof envelope.deviceId === 'string' && envelope.deviceId ? envelope.deviceId : seededDeviceId()
   const licence = isPlausibleLicence(envelope.licence) ? (envelope.licence as Licence) : null
   const anchor = isPlausibleAnchor(envelope.anchor) ? (envelope.anchor as ClockAnchor) : null
   return { licence, anchor, deviceId }
