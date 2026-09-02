@@ -313,3 +313,48 @@ describe('bandsForScope — a body spans twin formation rows (F2)', () => {
     expect(ids).toEqual(['t1', 't2'])
   })
 })
+
+// The manual-group tag (D1) + the group pooling scope (D2), owner ruling
+// 2026-09-02: "grouping is just for lumping things that are similar together, so
+// we have more data" — a grouped body keeps its own id AND stays selectable, and
+// selecting it pools every member's bands.
+describe('parameterBodyTree — manual groups (debt #278 D1/D2)', () => {
+  it('PT-G1 — a geotech-body leaf carries its group number from groupByBodyId', () => {
+    // gbA + gbB are two same-class (NAD 13) bodies under litho body lb1 — the
+    // Join makes them one group. Both leaves must show "(group 1)".
+    const tree = buildParameterTree({ ...makeScene(), groupByBodyId: new Map([['gbA', 1], ['gbB', 1]]) })
+    const class13 = tree[0].children[0].children[0]
+    expect(class13.children.map(c => (c.scope as { bodyId: string }).bodyId)).toEqual(['gbA', 'gbB'])
+    expect(class13.children.map(c => c.groupNumber)).toEqual([1, 1])
+  })
+
+  it('PT-G2 — a grouped SOLE-body class does NOT collapse, so the body stays a taggable, selectable leaf', () => {
+    // lb2 has ONE geotech body (gb2). Ungrouped it collapses to its class row
+    // (PT2). Grouped, the leaf must survive so it can carry the tag and be the
+    // selection that pools the group.
+    const tree = buildParameterTree({ ...makeScene(), groupByBodyId: new Map([['gb2', 1]]) })
+    const lb2Class = tree[0].children[1].children[0]
+    expect(lb2Class.children).toHaveLength(1)
+    expect(lb2Class.children[0].scope).toMatchObject({ kind: 'geotech-body', bodyId: 'gb2' })
+    expect(lb2Class.children[0].groupNumber).toBe(1)
+  })
+
+  it('PT-G3 — an ungrouped geotech-body leaf carries a null group number', () => {
+    const tree = buildParameterTree(makeScene())
+    const gbALeaf = tree[0].children[0].children[0].children[0]
+    expect(gbALeaf.scope).toMatchObject({ kind: 'geotech-body', bodyId: 'gbA' })
+    expect(gbALeaf.groupNumber ?? null).toBeNull()
+  })
+
+  it('BS-G — a geotech-group scope pools EVERY member body’s accepted bands', () => {
+    // Group {gbA (under lb1), gb2 (under lb2)} — two disjoint SF bodies in two
+    // different litho bodies. Pooling gives gbA’s band g1 + gb2’s band g4.
+    const ids = bandsForScope(
+      { kind: 'geotech-group', unitId: 'silt-sf-A', groupNumber: 1, memberBodyIds: ['gbA', 'gb2'] },
+      makeScene(),
+    )
+      .map(b => b.id)
+      .sort()
+    expect(ids).toEqual(['g1', 'g4'])
+  })
+})
