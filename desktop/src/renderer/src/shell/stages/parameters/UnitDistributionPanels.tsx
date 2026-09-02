@@ -32,6 +32,7 @@ import { memo, useState } from 'react'
 import { BarChart3 } from 'lucide-react'
 
 import { EmptyState } from '../../EmptyState'
+import { useT } from '../../../i18n/translate'
 import ChannelRow from './UnitDistributionChannelRow'
 import type { UnitStatistics } from './unitStatistics'
 
@@ -103,6 +104,7 @@ function UnitDistributionPanels({
   provenanceBodies,
   provenanceHeading,
 }: Props): JSX.Element {
+  const t = useT()
   const totalSamples = statistics.channels.reduce((sum, c) => sum + c.summary.n, 0)
   // S1 (owner 2026-08-27): "make a button on the 3 cpt statistics, to rescale
   // x-axis to better fit the data. 0 stays minimum and ofcourse the button has
@@ -132,7 +134,7 @@ function UnitDistributionPanels({
               onClick={() => setFitAxes(f => !f)}
               className="shrink-0 px-1.5 py-0.5 rounded border border-border-default text-[10px] text-text-secondary hover:text-text-primary hover:bg-surface-app"
             >
-              {fitAxes ? 'Standard CPT axes' : 'Fit axes to data'}
+              {fitAxes ? t('params.standardCptAxes') : t('params.fitAxesToData')}
             </button>
           )}
         </div>
@@ -140,15 +142,17 @@ function UnitDistributionPanels({
           {/* "X of Y" when the pool covers fewer bands than the scope owns
               (F7) — the plain count when they agree. */}
           {totalBandCount !== undefined && totalBandCount > statistics.bandCount
-            ? `${statistics.bandCount} of ${totalBandCount} bands`
-            : `${statistics.bandCount} band${statistics.bandCount === 1 ? '' : 's'}`}{' '}
-          on {statistics.cptCount} CPT{statistics.cptCount === 1 ? '' : 's'}
+            ? t('params.bandsOfTotal', { n: statistics.bandCount, total: totalBandCount })
+            : t(statistics.bandCount === 1 ? 'params.bandCountOne' : 'params.bandCountMany', {
+                n: statistics.bandCount,
+              })}{' '}
+          {t(statistics.cptCount === 1 ? 'params.onNCpt' : 'params.onNCpts', {
+            n: statistics.cptCount,
+          })}
           {statistics.coveredThicknessM > 0
-            ? ` · ${statistics.coveredThicknessM.toFixed(1)} m of ground`
+            ? t('params.mOfGround', { thickness: statistics.coveredThicknessM.toFixed(1) })
             : ''}
-          {pendingCptCount > 0
-            ? ` · ${pendingCptCount} without series`
-            : ''}
+          {pendingCptCount > 0 ? t('params.withoutSeries', { count: pendingCptCount }) : ''}
         </div>
         {populationNote !== undefined && (
           <div
@@ -193,15 +197,15 @@ function UnitDistributionPanels({
         <div data-testid="unit-stats-empty">
           <EmptyState
             icon={<BarChart3 />}
-            title={bodyScoped ? 'No cone measurements in this body' : 'No cone measurements in this unit'}
+            title={bodyScoped ? t('params.noConeInBody') : t('params.noConeInUnit')}
             hint={
               statistics.bandCount === 0
                 ? bodyScoped
                   ? // F7: under a body scope the UNIT may have plenty of cone
                     // bands — the scoped BODY is what has none.
-                    'This body has no bands on a CPT — a borehole-only body carries no cone resistance to summarise.'
-                  : 'This unit has no bands on a CPT — a borehole-only unit carries no cone resistance to summarise.'
-                : 'The bands are there, but no CPT series covers them yet.'
+                    t('params.noConeBodyHint')
+                  : t('params.noConeUnitHint')
+                : t('params.noConeBandsHint')
             }
           />
         </div>
@@ -219,9 +223,7 @@ function UnitDistributionPanels({
         className="px-3 py-2 text-[10px] text-text-muted border-t border-border-subtle shrink-0"
         data-testid="unit-stats-characterisation-note"
       >
-        Characterisation only — the spread of the measurements inside this
-        unit&apos;s bands. These are not design parameters; φ′, c′, cu, E50, OCR
-        and Vs are not derived here.
+        {t('params.characterisationNote')}
       </div>
     </div>
   )
