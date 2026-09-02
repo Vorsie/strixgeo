@@ -44,12 +44,14 @@ contract below is engine-agnostic: JSON over HTTPS, nothing more.
 | `POST /trial` | Issue a one-per-device time-limited trial licence. | "Start free trial". |
 | `POST /deactivate` | Release a device's bindings (self-service transfer). | "Deactivate / transfer". |
 | `POST /refresh` | Re-verify a still-bound device and re-issue its licence. | On launch when online (resets the offline-grace clock). |
-| `POST /diagnostics` | Accept a consent-gated redacted NDJSON diagnostics bundle. | Only when the user opted in (debt #16). |
+| `POST /v1/diagnostics` | Accept a consent-gated redacted diagnostics bundle. | Only when the user opted in, at launch + on retry (debt #16). |
 
-> The current client wires `POST /activate`, `/trial` and `/deactivate` (the
-> `ActivationRepository` interface). `POST /refresh` and `POST /diagnostics` are
-> specified here because they are part of the server's job and the next client
-> slice; implement all five.
+> The current client wires `POST /activate`, `/trial`, `/deactivate` (the
+> `ActivationRepository` interface) and `POST /v1/diagnostics` (the diagnostics
+> uploader, `diagnosticsUploader.ts`). `POST /refresh` is specified here because
+> it is part of the server's job and the next client slice; implement all five.
+> Diagnostics is versioned (`/v1/`) because its payload is the shape most likely
+> to grow; the others are unversioned under the same base URL.
 
 ---
 
@@ -143,14 +145,55 @@ artefact is what the licence travels in; the field set above is unchanged.
 * **Success:** `200` + the licence. **Errors:** `key_unknown`, `key_bound_elsewhere`,
   `licence_expired`, `clock_rollback_suspected`.
 
-### `POST /diagnostics`
-* Body: the redacted NDJSON bundle — one JSON object per line — exactly as
-  `desktop/.../diagnostics/diagnostics.log` (see `docs/design/diagnostics-capture.md`;
-  already redacted client-side). `Content-Type: application/x-ndjson`.
-* The client sends this ONLY when the user has opted in (consent default-off).
-  Do not require any identity; there is no device id or session id in the payload
-  by design.
-* **Success:** `202` `{ "received": <int line count> }`.
+### `POST /v1/diagnostics`
+
+One consent-gated crash/diagnostics bundle. The client sends this ONLY when the
+user has opted in (consent default-off, `docs/design/diagnostics-capture.md`).
+
+**Request** — a single JSON object, `Content-Type: application/json`:
+```json
+{
+  "bundleId":   "1756814400000-1.0.0",        // opaque; the server dedups on this
+  "createdAt":  1756814400000,                 // epoch ms, when the client assembled it
+  "appVersion": "1.0.0",                       // the build the events came from
+  "platform":   "win32",                       // process.platform — the OS
+  "buildId":    "2026-09-02T10-00-00Z-abc123", // beta build stamp, when present (optional)
+  "events":     42,                            // number of NDJSON records in this bundle
+  "truncated":  false,                         // true when the OLDEST records were dropped to fit the cap
+  "ndjson":     "{…}\n{…}\n…",                 // the redacted NDJSON tail, one JSON object per line
+  "licenceKey": "strix_solo_9f0c…",            // OPTIONAL — see "Identity" below; omitted today
+  "deviceId":   "b1c9…"                        // OPTIONAL — see "Identity" below; omitted today
+}
+```
+
+* **`ndjson`** is the redacted local log tail — redacted-by-construction on the
+  client (field whitelist + redaction pass; see the capture doc). No project
+  data, no file paths outside the app dir, no email/DSN/coordinate. The server
+  receives text that is already safe to store.
+* **Size cap: 512 KiB** for the whole JSON body. The client trims `ndjson` from
+  the FRONT (oldest records first) until the payload fits and sets
+  `truncated: true`, so the newest records — where the crash is — always survive.
+  Reject a body over the cap with `413` (the client treats it as a 4xx and drops
+  the bundle rather than looping).
+* **Identity (`licenceKey` / `deviceId`) is OPTIONAL and omitted by the current
+  client.** The capture design's shipped, tested invariant is that a diagnostics
+  record carries no device id and no session id; attaching identity reverses that
+  and is an OPEN owner decision (a single client flag,
+  `ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS`, gates it). When the owner rules it
+  in, the fields are sent only when an activation licence exists. A server MUST
+  treat both as optional and MUST NOT require identity — there is no auth on this
+  endpoint.
+* **Success:** `202` (or any 2xx) `{ "received": true, "id": "<server id>" }`.
+  The `id` is a server-chosen bundle id, logged by the client for support
+  correlation; the client only needs a 2xx to consider the bundle delivered.
+
+**Error semantics (client behaviour):**
+* **4xx** (malformed, too large, unauthorised) → the client **drops** the bundle
+  and does not retry it — a bundle the server refuses will never be accepted, so
+  keeping it would wedge the oldest-first queue.
+* **5xx or network failure / timeout** → the client **keeps** the bundle and
+  retries it on a later pass with exponential backoff. So a transient outage
+  loses nothing, and a permanently-bad bundle is discarded, not looped.
 
 ---
 
