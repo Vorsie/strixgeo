@@ -266,6 +266,14 @@ the strixgeo.com server implements; a dev-only in-memory FastAPI stub
 locally. Server implementation on the strixgeo.com hosting (MySQL) + the key
 FORMAT / Ed25519 signing (§8) remain pending.
 
+**Self-service deactivate/transfer landed 2026-09-02** (branch `wt-deact`, NOT
+merged) — ruling 15's required flow: the LicensingDialog Deactivate button routes
+through an irreversible-action confirmation dialog (Cancel default-focused, action
+"Deactivate"); the client throws a typed `DeactivateFailedError` and the service
+clears the local licence on a clean release **or a 404** (already released
+server-side) but KEEPS it on 401/network, so a transfer never strands the seat
+(contract §4/§6). EN+NL keys + main/dialog vitest added.
+
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
 
@@ -322,6 +330,12 @@ before any token-gated call ships.
 
 **Re-scope 2026-06-25 (with #3).** Targets the subscription-activation
 check, not perpetual license keys — see #3's re-scope note.
+
+**Deactivate/transfer counterpart landed 2026-09-02** (with #3): the strict
+1-device Solo binding this hardening enforces is exactly what makes a self-service
+deactivate/transfer *required* (ruling 15) — without it a reinstall is a support
+email. That flow (confirmation dialog + 404/401/network handling) now exists; see
+#3's "Self-service deactivate/transfer" note.
 
 **Owner ruling 2026-08-31 (SUPERSEDES the "readable source is acceptable"
 posture for the engine + parsers).** *"the underlying codebase should also be
