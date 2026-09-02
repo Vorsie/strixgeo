@@ -2483,6 +2483,20 @@ export default function SectionsCanvas(): JSX.Element {
             SectionScopeContext.tsx. */}
         <SectionScopeContext.Provider
           value={{
+            // Phase B (debt #201): the core per-section data slices moved off
+            // SectionPanel's props onto the scope. Each keeps the exact value
+            // and axis gating it had as a prop.
+            zEpsg: project.default_vertical_epsg,
+            cpts: visibleCpts,
+            boreholes: visibleBoreholes,
+            contacts: sectionContacts,
+            formations: axisFormations,
+            axisMode: isGeotech
+              ? 'geotechnical'
+              : isLitho
+                ? 'lithostratigraphic'
+                : 'geological',
+            activeLithoModelId: isLitho ? (activeLithoModel?.id ?? null) : null,
             focusableContacts: axisContacts,
             excludedBoreholeIds: axisExcludedBoreholeIds,
             surfacesByFormationId: axisSurfacesByFormationId,
@@ -2561,16 +2575,11 @@ export default function SectionsCanvas(): JSX.Element {
         >
         <SectionPanel
           section={selectedSection}
-          zEpsg={project.default_vertical_epsg}
-          cpts={visibleCpts}
-          boreholes={visibleBoreholes}
           onPatch={handlePatchSelectedSection}
           onClose={clearSectionSelection}
           onSelectCpt={handleSelect}
           onSelectBorehole={handleSelectBorehole}
-          contacts={sectionContacts}
           liveContactDepthOverride={lithoSuggestionContactPreview}
-          formations={axisFormations}
           // On the litho axis, left-click must never open the formation
           // picker â€” the right-click ghost flow is the intended entry point
           // (dogfeed 2026-05-26). Passing undefined here prevents
@@ -2690,17 +2699,10 @@ export default function SectionsCanvas(): JSX.Element {
           columnRevealRef={columnRevealRef}
           // Manual litho composition picker (Phase-1.5): the picker dialog
           // is shown instead of the geological FormationPicker when the
-          // section is on the lithostratigraphic axis.
-          axisMode={
-            isGeotech
-              ? 'geotechnical'
-              : isLitho
-                ? 'lithostratigraphic'
-                : 'geological'
-          }
+          // section is on the lithostratigraphic axis (axisMode, now on the
+          // scope, gates it).
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
           onLithoExistingUnitPick={isLitho ? handleLithoExistingUnitPick : undefined}
-          activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
           contactGestureState={contactGestureState}
           onUnapprovedDragStart={isLitho ? handleUnapprovedDragStart : undefined}
           unapprovedEdgeDrag={unapprovedEdgeDrag}
