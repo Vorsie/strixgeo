@@ -329,3 +329,22 @@ of a wedge that is 9.9 cm thick at its other end.
 * The proposed remedy would have made things worse: dropping sub-threshold
   patches deletes logged ground and punches holes in a model whose stated
   invariant is that it is gapless.
+
+## 2026-09-02 — three from an autonomous landing day
+
+* **A distribution build stages the working tree at the moment it starts.** `npm run dist`
+  copies the backend, compiles it, then runs the behavioural native gate against the
+  staged copy. Landing commits while it runs (even backend-only ones) gives the gate a
+  half-landed tree — here a new test file with no compiled module behind it — and the
+  build fails at the gate with a message that looks like a Nuitka deviation. Rule: no
+  landings between `npm run dist` start and its gate; if in doubt, rebuild.
+* **An e2e sweep red is a regression only if it fails solo.** On a 130-spec single-worker
+  sweep, three specs timed out under load and passed alone, and one of those (a
+  link-then-unlink round trip) left a stray contact that made a LATER spec's "zero
+  crossings" assertion fail. Diagnose the earliest red first; rerun every red solo
+  before reading code. A deterministic solo red was a stale spec encoding a rule the
+  owner changed that morning — the spec's own comment named the old rule, which is the
+  tell.
+* **The security-guidance hook drops a whole Write on a text pattern match**, including
+  a markdown plan that merely quotes `RegExp.prototype.exec` or React's raw-HTML prop.
+  Reword the snippet (`str.match`, tag-stripped text); never route around the hook.
