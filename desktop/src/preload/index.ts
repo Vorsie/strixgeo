@@ -112,6 +112,18 @@ contextBridge.exposeInMainWorld('electron', {
   writeExportFile: (filePath: string, contents: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke('export:write-file', filePath, contents),
 
+  // Cross-section sheet (PDF). ``printSheetPdf`` hands the payload to the main
+  // process, which renders sheet.html in a hidden window and prints it;
+  // ``onSheetPayload`` / ``sheetReady`` are the hidden window's side of that.
+  printSheetPdf: (payload: unknown): Promise<ArrayBuffer> =>
+    ipcRenderer.invoke('sheet:print-pdf', payload),
+  onSheetPayload: (cb: (payload: unknown) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)
+    ipcRenderer.on('sheet:payload', handler)
+    return () => ipcRenderer.removeListener('sheet:payload', handler)
+  },
+  sheetReady: (msg: unknown): void => ipcRenderer.send('sheet:ready', msg),
+
   addRecentProject: (filePath: string, name: string): Promise<RecentProject[]> =>
     ipcRenderer.invoke('project:add-recent', filePath, name),
 
