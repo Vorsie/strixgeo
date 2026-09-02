@@ -18,6 +18,7 @@ import { useState } from 'react'
 
 import type { UnitPsdCurve, UnitPsdPool } from './unitPsd'
 import { sampleColor } from './sampleColor'
+import { useT } from '../../../i18n/translate'
 import ContextMenu from '../../../components/ui/ContextMenu'
 import {
   PSD_FIXED_DOMAIN,
@@ -78,6 +79,7 @@ export default function UnitPsdPanel({
 }): JSX.Element | null {
   // Declared before the early return so the hook order is stable whether or not
   // the unit has curves (rules of hooks).
+  const t = useT()
   const [menu, setMenu] = useState<{ x: number; y: number; curve: UnitPsdCurve } | null>(null)
 
   if (pool.curves.length === 0) return null
@@ -94,15 +96,17 @@ export default function UnitPsdPanel({
     <div className="px-3 py-2 max-w-xl" data-testid="unit-psd-panel">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[11px] font-medium text-text-primary">
-          Grain-size distributions{' '}
-          <span className="text-text-muted font-normal">(% passing)</span>
+          {t('params.grainSizeDistributions')}{' '}
+          <span className="text-text-muted font-normal">{t('params.percentPassingParen')}</span>
         </span>
         <span className="text-[10px] text-text-muted tabular-nums">
-          {pool.curves.length} curve{pool.curves.length === 1 ? '' : 's'}
+          {t(pool.curves.length === 1 ? 'params.curveCountOne' : 'params.curveCountMany', {
+            n: pool.curves.length,
+          })}
           {pool.skippedCurves > 0 && (
             <span data-testid="unit-psd-skipped">
               {' '}
-              · {pool.skippedCurves} skipped (fewer than 2 sieve points)
+              · {t('params.psdSkipped', { n: pool.skippedCurves })}
             </span>
           )}
         </span>
@@ -119,7 +123,7 @@ export default function UnitPsdPanel({
           data-testid="unit-psd-yaxis-label"
         >
           <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-            Passing (%)
+            {t('params.passingPct')}
           </span>
         </div>
         <div className="min-w-0 flex-1">
@@ -171,7 +175,7 @@ export default function UnitPsdPanel({
           className="w-full"
           style={{ height: 180 }}
           role="img"
-          aria-label={`Grain-size distributions: ${pool.curves.length} curves, % passing against diameter`}
+          aria-label={t('params.psdAriaLabel', { n: pool.curves.length })}
         >
           {/* % passing gridlines. */}
           {PCT_TICKS.slice(1, -1).map(pct => (
@@ -256,7 +260,7 @@ export default function UnitPsdPanel({
                   onContextMenu={onContext}
                 >
                   <title>
-                    {`${curve.boreholeName}${curve.sampleNumber ? ` · sample ${curve.sampleNumber}` : ''} · ${curve.depthTopM.toFixed(2)}–${curve.depthBaseM.toFixed(2)} m`}
+                    {`${curve.boreholeName}${curve.sampleNumber ? t('params.sampleSuffix', { n: curve.sampleNumber }) : ''} · ${curve.depthTopM.toFixed(2)}–${curve.depthBaseM.toFixed(2)} m`}
                   </title>
                 </polyline>
               </g>
@@ -289,7 +293,7 @@ export default function UnitPsdPanel({
             className="ml-7 text-center text-[9px] text-text-muted"
             data-testid="unit-psd-xaxis-label"
           >
-            Diameter (mm)
+            {t('params.diameterMm')}
           </div>
         </div>
       </div>
@@ -304,12 +308,12 @@ export default function UnitPsdPanel({
           x={menu.x}
           y={menu.y}
           testid="unit-psd-curve-menu"
-          ariaLabel="Grain-size curve actions"
-          header={`${menu.curve.boreholeName}${menu.curve.sampleNumber ? ` · sample ${menu.curve.sampleNumber}` : ''}`}
+          ariaLabel={t('params.grainSizeCurveActions')}
+          header={`${menu.curve.boreholeName}${menu.curve.sampleNumber ? t('params.sampleSuffix', { n: menu.curve.sampleNumber }) : ''}`}
           onClose={() => setMenu(null)}
           items={[
             {
-              label: 'Show sample on cross-section',
+              label: t('params.showSampleOnSection'),
               testid: 'unit-psd-reveal-sample',
               onClick: () => onRevealSample(menu.curve),
             },
