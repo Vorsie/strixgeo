@@ -223,14 +223,30 @@ export default function App() {
     markOnboardingSeen()
     setOnboardingOpen(false)
   }, [])
-  // "Load sample project" intent. STUB: the sample .strix is not bundled in the
-  // prototype. The wiring is real (button → here); the data is the TODO.
-  // TODO(strixgeo): import a bundled sample .strix so first launch shows a
-  // finished ground model (owner ruling 24).
-  const handleLoadSample = useCallback(() => {
-    log.info('onboarding', 'load-sample requested — sample project not bundled in prototype (TODO)')
-    toast('warning', tMsg('onboarding.sampleUnavailable'))
-  }, [toast])
+  // "Load sample project" intent (#93, owner ruling A8). The worked example
+  // ships as an installer resource (main-process sample:* IPC). MECHANISM only:
+  // the owner authors the .strix later, so until it is bundled sampleAvailable()
+  // is false and the fallback (toast + start empty) stays. When it IS present we
+  // install a user-owned COPY — the bundled resource is never opened in place,
+  // because a Save from the app rewrites the .strix at its own path — then open
+  // that copy exactly as onOpenRecent does.
+  const handleLoadSample = useCallback(async () => {
+    if (!(await window.electron.sampleAvailable())) {
+      log.info('onboarding', 'load-sample requested — no bundled sample; starting empty')
+      toast('warning', tMsg('onboarding.sampleUnavailable'))
+      return
+    }
+    const path = await window.electron.sampleInstall()
+    if (path === null) return // user cancelled the save dialog
+    const result = await openProjectFile(path)
+    const opened = result !== null && result !== 'file-missing' && !isProjectOpenUnreadable(result)
+    if (opened) {
+      toast('success', tMsg('onboarding.sampleLoaded', { path }))
+    } else {
+      // openProjectFile already logged the specific failure; don't claim success.
+      log.error('onboarding', `load-sample: opening the installed copy at ${path} failed`)
+    }
+  }, [toast, openProjectFile])
 
   // Guided tutorial (#93, spec 2026-09-02). App owns the active flag; the
   // TutorialOverlay owns its own progress (localStorage). It is started from
