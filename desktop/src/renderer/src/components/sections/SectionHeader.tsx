@@ -216,6 +216,7 @@ export default function SectionHeader({
           onKeyUp={() => onBufferCommit?.(localBuffer)}
           className="w-28 cursor-pointer accent-accent"
           aria-label={t('sections.bufferLabel')}
+          data-testid="section-control-buffer"
           disabled={onBufferCommit === undefined}
         />
         <span className="tabular-nums w-12 text-right text-text-secondary">±{Math.round(localBuffer)} m</span>
@@ -233,6 +234,8 @@ export default function SectionHeader({
               onClick={() => onChannelsChange({ ...channels, [key]: !active })}
               title={t(titleKey)}
               aria-label={t('sections.header.toggle', { label })}
+              // Tutorial anchor (Chapter 3: the qc / Rf / fs / u2 / qT channels).
+              data-testid={`section-control-channel-${key}`}
               aria-pressed={active}
               className={
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
@@ -264,6 +267,8 @@ export default function SectionHeader({
               }
               title={t(titleKey)}
               aria-label={t('sections.header.toggle', { label })}
+              // Tutorial anchor (Chapter 3: the borehole interpretation streams).
+              data-testid={`section-control-borehole-${key}`}
               aria-pressed={active}
               className={
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
@@ -282,6 +287,7 @@ export default function SectionHeader({
         onClick={() => onSnapToStratigraphyChange(!snapToStratigraphy)}
         aria-pressed={snapToStratigraphy}
         title={t('sections.header.snapHint')}
+        data-testid="section-control-snap"
         className={
           'px-1.5 py-0.5 text-[10px] rounded border transition-colors ' +
           (snapToStratigraphy
@@ -311,6 +317,7 @@ export default function SectionHeader({
           onKeyUp={() => onColumnSpacingCommit?.(columnSpacing)}
           className="w-24 cursor-pointer accent-accent"
           aria-label={t('sections.columnSpacing')}
+          data-testid="section-control-spacing"
           disabled={onColumnSpacingCommit === undefined}
         />
         <span className="tabular-nums w-10 text-right text-text-secondary">
@@ -331,6 +338,7 @@ export default function SectionHeader({
           onKeyUp={() => onVexCommit?.(vex)}
           className="w-32 cursor-pointer accent-accent"
           aria-label={t('sections.vex')}
+          data-testid="section-control-vexag"
         />
         <span className="tabular-nums w-12 text-right text-text-secondary">{vex.toFixed(1)}×</span>
       </div>
@@ -369,6 +377,9 @@ export default function SectionHeader({
 
       <button
         onClick={onReset}
+        // Tutorial anchor (Chapter 3: view-state persistence — every slider here
+        // saves to the section automatically; Reset returns the default framing).
+        data-testid="section-view-reset"
         className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors"
         title={t('sections.resetFraming')}
       >
