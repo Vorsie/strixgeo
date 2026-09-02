@@ -133,8 +133,8 @@ class FormationDisplay:
 class GroundModelSnapshot:
     """Materialised geological-model + investigation geometry for one project.
 
-    Consumed by every concrete exporter via the
-    ``BaseExporter.export`` ABC method. The application layer
+    Consumed by every concrete project exporter via the
+    ``ProjectExporter.export`` ABC method. The application layer
     produces the snapshot in one place
     (``application/build_ground_model_snapshot.py``) so each
     exporter sees a consistent shape.
