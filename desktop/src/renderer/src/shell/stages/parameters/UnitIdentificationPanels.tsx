@@ -26,6 +26,7 @@ import { api } from '../../../api/client'
 import type { BoreholeDetailResponse, LithoLayerResponse } from '../../../api/client'
 import { axisTickValues, fitAxisMax } from '../../../utils/cptAxisScales'
 import { log } from '../../../utils/log'
+import { t as tStatic, useT } from '../../../i18n/translate'
 import { useShell } from '../../ShellContext'
 import AxisTickRow from './AxisTickRow'
 import { sampleColor } from './sampleColor'
@@ -83,6 +84,7 @@ export default function UnitIdentificationPanels({
   onRevealSample,
 }: Props): JSX.Element {
   const { project } = useShell()
+  const t = useT()
   const projectId = project.id
 
   // The lab + PSD pools read the SAME scope bands the statistics do (the one
@@ -145,8 +147,8 @@ export default function UnitIdentificationPanels({
         log.error('borehole', `unit identification detail-batch(${missing.length}) failed`, err)
         setError(
           err instanceof Error && err.message
-            ? `Could not load the lab tests for this unit — ${err.message}`
-            : 'Could not load the lab tests for this unit.',
+            ? tStatic('params.labTestsLoadFailedDetail', { error: err.message })
+            : tStatic('params.labTestsLoadFailed'),
         )
         setLoading(false)
       }
@@ -190,7 +192,7 @@ export default function UnitIdentificationPanels({
       <div className="px-3 py-2">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs font-semibold text-text-primary">
-            Identification tests
+            {t('params.identificationTests')}
           </div>
           {/* S4 — the label states the mode the press switches TO; offered
               only when there are panels to scale (no-affordance rule). */}
@@ -202,15 +204,19 @@ export default function UnitIdentificationPanels({
               onClick={() => setFitAxes(f => !f)}
               className="shrink-0 px-1.5 py-0.5 rounded border border-border-default text-[10px] text-text-secondary hover:text-text-primary hover:bg-surface-app"
             >
-              {fitAxes ? 'Pooled axes' : 'Fit axes to data'}
+              {fitAxes ? t('params.pooledAxes') : t('params.fitAxesToData')}
             </button>
           )}
         </div>
         <div className="text-[10px] text-text-muted">
-          Classification lab results (OKP) on the unit&apos;s borehole samples —
-          value against elevation.
+          {t('params.okpBlurb')}
           {pool.skippedNoElevation > 0
-            ? ` ${pool.skippedNoElevation} sample${pool.skippedNoElevation === 1 ? '' : 's'} skipped — collar elevation unknown.`
+            ? t(
+                pool.skippedNoElevation === 1
+                  ? 'params.samplesSkippedOne'
+                  : 'params.samplesSkippedMany',
+                { n: pool.skippedNoElevation },
+              )
             : ''}
         </div>
       </div>
@@ -223,12 +229,12 @@ export default function UnitIdentificationPanels({
             className="px-2 py-0.5 rounded border border-border-default text-text-primary hover:bg-surface-app"
             data-testid="unit-idtests-retry"
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       ) : loading ? (
         <div className="px-3 pb-3 text-[10px] text-text-muted" data-testid="unit-idtests-loading">
-          Loading identification tests…
+          {t('params.loadingIdentificationTests')}
         </div>
       ) : pool.panels.length === 0 && psd.curves.length === 0 ? (
         // The quiet line — never an error (R8.5). Covers both "no borehole
@@ -236,7 +242,7 @@ export default function UnitIdentificationPanels({
         // pools (F8): grain-size curves ARE identification tests, so a
         // PSD-only unit must not claim to have none right above its curves.
         <div className="px-3 pb-3 text-[10px] text-text-muted" data-testid="unit-idtests-empty">
-          No identification tests in this unit.
+          {t('params.noIdentificationTests')}
         </div>
       ) : (
         <div className="flex flex-wrap gap-x-4">
@@ -278,6 +284,7 @@ function IdentificationPanelRow({
   /** S4 — fitted axis: the panel's own max, rounded up to a tick. */
   fit: boolean
 }): JSX.Element {
+  const t = useT()
   const values = panel.points.map(p => p.value)
   const dataMax = Math.max(forcedMax ?? 0, ...values, 1e-9)
   // Fit mode rounds the panel's own pooled max up to a tick (headroom);
@@ -348,6 +355,7 @@ function IdentificationPanelRow({
         className="text-[9px] uppercase tracking-wide text-text-muted leading-none"
         data-testid={`unit-idtests-yaxis-label-${panel.key}`}
       >
+        {/* i18n-exempt: mTAW is a datum unit symbol — domain canon */}
         mTAW
       </div>
 
@@ -375,7 +383,10 @@ function IdentificationPanelRow({
           className="w-full"
           style={{ height: 96 }}
           role="img"
-          aria-label={`${panel.label}: ${panel.points.length} samples against elevation`}
+          aria-label={t('params.idPanelAriaLabel', {
+            label: panel.label,
+            n: panel.points.length,
+          })}
         >
           {/* Gridlines at the labelled ticks (S3) — the grid and the labels
               state the same positions. */}
@@ -426,7 +437,13 @@ function IdentificationPanelRow({
               fillOpacity={0.85}
             >
               <title>
-                {`${p.value} ${panel.unit ?? ''} · ${p.elevationM.toFixed(2)} mTAW · ${p.boreholeName}${p.sampleNumber ? ` · sample ${p.sampleNumber}` : ''}`}
+                {t('params.idDotTooltip', {
+                  value: p.value,
+                  unit: panel.unit ?? '',
+                  elevation: p.elevationM.toFixed(2),
+                  borehole: p.boreholeName,
+                  sample: p.sampleNumber ? t('params.sampleSuffix', { n: p.sampleNumber }) : '',
+                })}
               </title>
             </circle>
           ))}
@@ -440,7 +457,7 @@ function IdentificationPanelRow({
           className="ml-9 text-[10px] text-text-muted tabular-nums"
           data-testid={`unit-idtests-offaxis-${panel.key}`}
         >
-          {offAxisCount} off axis
+          {t('params.offAxis', { count: offAxisCount })}
         </div>
       )}
 
