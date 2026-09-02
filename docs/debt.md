@@ -6024,6 +6024,7 @@ starts to matter.
   drifted); ~~DOC-06~~ **RESOLVED 2026-07-13** (example shows on-disk v3 + the v3/v4 decoupling note). Plus the one-class-per-file rule is
   violated 50× by co-located result dataclasses (DOC-07/MAINT-05 — recommend
   *amending the rule* to sanction co-located I/O dataclasses rather than splitting).
+  * DOC-01/02/03 refreshed 2026-09-02: api.md 140 routes across 22 routers; architecture.md 75 use cases; README at Phase 4.
 * **#110 / #169** (Plaxis exporter dup) — ~~DRY-02/03~~ **CLOSED 2026-07-13,
   audit premise stale:** re-diffed — `_emit_boreholes` and `_emit_header` are
   NOT duplicates. The shared building blocks (`emit_borehole_layer_levels`
