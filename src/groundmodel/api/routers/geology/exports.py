@@ -10,13 +10,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
+    export_response,
     get_in_project_or_404,
-    safe_filename_stem,
+    parse_error_as_404,
 )
 from groundmodel.api.schemas.project.fence_export_request import (
     FenceExportPanel,
@@ -25,6 +26,7 @@ from groundmodel.api.schemas.project.fence_export_request import (
 from groundmodel.application.build_ground_model_snapshot import (
     BuildGroundModelSnapshot,
 )
+from groundmodel.application.export_artifact import ExportArtifact
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -38,7 +40,6 @@ from groundmodel.infrastructure.exporters.dxf_fence_exporter import (
     FenceFormationIdentity,
 )
 from groundmodel.infrastructure.exporters.plaxis_exporter import PlaxisExporter
-from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -88,20 +89,20 @@ async def export_model_plaxis3d(
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
     )
-    try:
+    with parse_error_as_404():
         snapshot = await BuildGroundModelSnapshot(session).execute(
             app_project_id=project_id, model_id=model_id
         )
-    except ParseError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     payload = PlaxisExporter().export(snapshot)
-    safe_name = safe_filename_stem(snapshot.project_name, "project")
-    filename = f"{safe_name}_plaxis3d.py"
-    return Response(
-        content=payload,
-        media_type="text/x-python",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=snapshot.project_name,
+            fallback="project",
+            suffix="_plaxis3d.py",
+            media_type="text/x-python",
+        )
     )
 
 
@@ -175,11 +176,14 @@ async def export_model_fence_dxf(
         crs_epsg=crs_epsg,
         identity_by_formation_id=identity_by_formation_id,
     )
-    filename = f"{safe_filename_stem(project_name, 'project')}_fence.dxf"
-    return Response(
-        content=payload,
-        media_type="application/dxf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=project_name,
+            fallback="project",
+            suffix="_fence.dxf",
+            media_type="application/dxf",
+        )
     )
 
 
