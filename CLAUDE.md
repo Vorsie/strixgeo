@@ -518,6 +518,7 @@ Current-state design of the interpretation subsystems. Each doc describes ONLY t
 * [docs/design/autosave-recovery.md](docs/design/autosave-recovery.md) — why a crash loses NO interpretation (Postgres outlives Electron; every gesture is an awaited call), the six renderer-only items that ARE lost, the lumping map's new columns + revision reconciliation, and the recovery-file mechanism. **Load before autosave / recovery / stratigraphy-lumping work.**
 * [docs/design/beta-expiry.md](docs/design/beta-expiry.md) — the beta-build expiry primitive (build stamp, monotonic clock anchor, hard stop) every activation option reuses. **Load before licensing / activation / build-stamp work (debt #3/#5).**
 * [docs/design/diagnostics-capture.md](docs/design/diagnostics-capture.md) — local diagnostics capture (NDJSON store, redaction, consent default-off, crash bundle); the transmit half deliberately sends nowhere pending the activation ruling. **Load before telemetry / crash-report work (debt #16).**
+* [docs/design/onboarding-activation-updater-proto.md](docs/design/onboarding-activation-updater-proto.md) — the onboarding, licensing/activation, and auto-updater PROTOTYPE (branch `onboarding-proto`, not merged): real-vs-mocked + the packaged start-screen gate. **Load before onboarding / activation / updater work (debt #93/#3/#6).**
 * 3D voxel litho builder — `memory/project_voxel_litho_builder.md` (geo-band-bounded voxel labelling from the 2D partition, honor-borehole, greedy meshing, Numba hotspot). **Load before 3D build work.**
 
 ---
