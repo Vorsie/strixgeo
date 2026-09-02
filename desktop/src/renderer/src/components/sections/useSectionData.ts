@@ -42,6 +42,7 @@ import {
   type DemSamplePoint,
 } from '../../api/client'
 import { log } from '../../utils/log'
+import { fetchBoreholeDetails, fetchCptPlots } from './fetchSectionLogs'
 import { implausibleSectionCoordinates } from '../../utils/sectionCoordinatePlausibility'
 import {
   investigationsOnSection,
@@ -305,16 +306,13 @@ export function useSectionData(
       setCptPlots(new Map())
       return
     }
-    api.cpt
-      .plotBatch(inBufferCptIds, section.app_project_id)
-      .then(plots => {
+    fetchCptPlots(section.app_project_id, inBufferCptIds)
+      .then(m => {
         if (cancelled) return
-        const m = new Map<string, CptPlotResponse>()
-        for (const p of plots) m.set(p.cpt_id, p)
         setCptPlots(m)
         log.debug(
           'section',
-          `loaded ${plots.length}/${inBufferCptIds.length} CPT plots`,
+          `loaded ${m.size}/${inBufferCptIds.length} CPT plots`,
         )
       })
       .catch(err => {
@@ -368,16 +366,9 @@ export function useSectionData(
     // selectinloads are still skipped. Project scope is enforced server-side
     // via app_project_id (VULN-6). The tokens are the backend's aliases (see
     // ``LAB_TEST_INCLUDE_ALIASES``), not the relationship names.
-    api.borehole
-      .detailBatch(inBufferBhIds, section.app_project_id, [
-        'grain_size',
-        'organic',
-        'scalar',
-      ])
-      .then(boreholes => {
+    fetchBoreholeDetails(section.app_project_id, inBufferBhIds)
+      .then(m => {
         if (cancelled) return
-        const m = new Map<string, BoreholeDetailResponse>()
-        for (const bh of boreholes) m.set(bh.id, bh)
         setBoreholeDetails(m)
         log.debug(
           'section',
