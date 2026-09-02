@@ -70,8 +70,18 @@ cd desktop
 MAIN_VITE_STRIX_BETA_BUILD_ID=2026.08.27-beta \
 MAIN_VITE_STRIX_BETA_BUILT_AT=2026-08-27T00:00:00.000Z \
 MAIN_VITE_STRIX_BETA_EXPIRES_AT=2026-10-11T00:00:00.000Z \
-npm run build
+npm run dist
 ```
+
+**The package script enforces the stamp (2026-09-02).** `npm run package` (and
+therefore `npm run dist`) runs `scripts/require-beta-stamp.mjs pre` before the
+build and `… post` after it: packaging REFUSES when
+`MAIN_VITE_STRIX_BETA_EXPIRES_AT` is unset, and fails when the built
+`out/main/index.js` does not contain the ISO string. `STRIX_ALLOW_UNSTAMPED=1`
+opts out for a local-only package that never leaves the machine. Set the
+variable on the `dist` command itself: `package` rebuilds the main bundle, so a
+stamp given only to an earlier `npm run build` is lost.
+
 
 **Then verify the stamp actually landed** — injection failure is silent:
 
