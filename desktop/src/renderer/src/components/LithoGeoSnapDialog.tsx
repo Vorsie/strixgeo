@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { FormationContactResponse } from '../api/client'
+import { useT } from '../i18n/translate'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
 
@@ -53,6 +54,7 @@ export default function LithoGeoSnapDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element | null {
+  const t = useT()
   // Selected candidate id — defaults to the first (the caller already
   // sorted nearer-first / deeper-tie-break).  Resets when the dialog
   // re-opens with a different candidate set.
@@ -91,22 +93,21 @@ export default function LithoGeoSnapDialog({
           id="litho-geo-snap-title"
           className="text-sm font-semibold text-text-primary mb-1"
         >
-          Snap to geological contact?
+          {t('litho.snapTitle')}
         </h2>
         <p className="text-xs text-text-secondary mb-3">
-          The litho contact at{' '}
+          {t('litho.snapContactAt')}{' '}
           <span className="font-semibold tabular-nums">
             {lithoDepthM.toFixed(2)} m
           </span>{' '}
-          sits within snap tolerance of{' '}
-          {multi ? 'two geological contacts' : 'a geological contact'}.
+          {multi ? t('litho.snapWithinMulti') : t('litho.snapWithinSingle')}
         </p>
 
         {/* Candidate selector — radio group when there are two
             candidates, plain depth readout when there's only one. */}
         {multi ? (
           <fieldset className="mb-4 space-y-1.5">
-            <legend className="sr-only">Pick a geological contact</legend>
+            <legend className="sr-only">{t('litho.snapPickContact')}</legend>
             {candidates.map(c => {
               const distance = Math.abs(c.depth_top_m - lithoDepthM)
               const checked = selectedId === c.id
@@ -127,7 +128,7 @@ export default function LithoGeoSnapDialog({
                     {c.depth_top_m.toFixed(2)} m
                   </span>
                   <span className="text-text-secondary">
-                    ({distance.toFixed(2)} m away)
+                    {t('litho.snapDistanceAway', { distance: distance.toFixed(2) })}
                   </span>
                 </label>
               )
@@ -135,7 +136,7 @@ export default function LithoGeoSnapDialog({
           </fieldset>
         ) : (
           <p className="text-xs text-text-secondary mb-4">
-            Geological contact at{' '}
+            {t('litho.snapGeoContactAt')}{' '}
             <span className="font-semibold tabular-nums text-text-primary">
               {candidates[0].depth_top_m.toFixed(2)} m
             </span>
@@ -151,7 +152,7 @@ export default function LithoGeoSnapDialog({
             disabled={busy}
             data-testid="snap-cancel"
           >
-            Cancel — keep separate
+            {t('litho.snapCancelKeepSeparate')}
           </Button>
           <Button
             variant="secondary"
@@ -160,7 +161,7 @@ export default function LithoGeoSnapDialog({
             disabled={busy}
             data-testid="move-geo-to-litho"
           >
-            Move geological to litho
+            {t('litho.snapMoveGeoToLitho')}
           </Button>
           {/* Default-focused primary action (the snap). Button forwards the
               ref (#165) so the old plain-<button> workaround is gone. */}
@@ -172,7 +173,7 @@ export default function LithoGeoSnapDialog({
             disabled={busy}
             data-testid="snap-litho-to-geo"
           >
-            Snap litho to geological
+            {t('litho.snapLithoToGeo')}
           </Button>
         </div>
       </div>
