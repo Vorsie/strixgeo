@@ -24,7 +24,16 @@ import { configureBetaExpiryStore, recordLaunch } from './betaExpiryStore'
 import { compiledBuildStamp, readBuildStamp } from './buildStamp'
 import { buildCrashBundle } from './crashBundle'
 import { readTransmissionConsent } from './diagnosticsConsent'
-import { captureDiagnostic, configureDiagnosticsStore } from './diagnosticsStore'
+import {
+  captureDiagnostic,
+  configureDiagnosticsStore,
+  diagnosticsBuildFacts,
+  diagnosticsDirPath,
+  readDiagnosticEvents,
+} from './diagnosticsStore'
+import { DiagnosticsUploader } from './diagnosticsUploader'
+import { diagnosticsIdentityFor } from './diagnosticsPayload'
+import { DIAGNOSTICS_QUEUE_DIR_NAME } from './diagnosticsUploaderConstants'
 import { rotateIfNeeded, realFsOps } from './logRotation'
 import { registerSheetPdfIpc } from './sheetPdf'
 import {
@@ -68,9 +77,9 @@ import {
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
-import { configureActivationStore } from './activationStore'
+import { configureActivationStore, readActivationState } from './activationStore'
 import { ActivationService } from './activationService'
-import { createActivationRepository } from './activationConfig'
+import { activationBaseUrl, createActivationRepository } from './activationConfig'
 import { resolveDeviceIdentity } from './deviceIdentity'
 import { previewControlAllowed } from './prototypeFlags'
 import { registerPrototypeIpc } from './prototypeIpc'
@@ -1483,6 +1492,53 @@ async function saveDiagnosticsBundle(win: BrowserWindow): Promise<void> {
   }
 }
 
+/**
+ * The diagnostics uploader for this run, so ``before-quit`` can stop its timer.
+ * Declared above its writer/reader on purpose (TDZ discipline).
+ */
+let diagnosticsUploader: DiagnosticsUploader | null = null
+
+/**
+ * Wire the consent-gated diagnostics transmitter (#16, transmit half).
+ *
+ * Called once at startup AFTER the activation setup: the endpoint is the SAME
+ * origin as the activation service (owner ruling 2026-08-31), so it comes from
+ * the activation config. When no base URL is configured (the mock/dogfeed
+ * default) or consent is off, every call below is inert — nothing is queued and
+ * nothing leaves the machine. It enqueues whatever was captured since the last
+ * upload, then drains on an interval while the queue is non-empty.
+ *
+ * Best-effort: any failure here is swallowed with a log line. Transmission must
+ * never keep the app from starting, and the local capture log is untouched.
+ */
+function startDiagnosticsUpload(): void {
+  try {
+    const uploader = new DiagnosticsUploader({
+      queueDir: join(diagnosticsDirPath(), DIAGNOSTICS_QUEUE_DIR_NAME),
+      baseUrl: activationBaseUrl({ env: process.env, packaged: app.isPackaged }),
+      consent: readTransmissionConsent,
+    })
+    diagnosticsUploader = uploader
+
+    // Identity (licence key + device id) is attached only when the capture
+    // design's "no device id" invariant is deliberately lifted — the gate lives
+    // in diagnosticsIdentityFor and is OFF today (see the constant's note).
+    const activation = readActivationState()
+    const identity = diagnosticsIdentityFor(
+      activation.licence ? { key: activation.licence.key, deviceId: activation.deviceId } : null,
+    )
+    uploader.enqueueRecentDiagnostics(readDiagnosticEvents(), {
+      facts: diagnosticsBuildFacts(),
+      identity,
+    })
+    uploader.start()
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    // eslint-disable-next-line no-console
+    console.warn('[main] diagnostics upload wiring failed:', detail)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -1862,6 +1918,11 @@ if (!gotSingleInstanceLock) {
     startApi()
     createWindow()
 
+    // #16 transmit half — flush any consented, captured diagnostics to the
+    // activation origin. Inert unless consent is on AND an activation URL is
+    // configured, so the mock/dogfeed default sends nothing.
+    startDiagnosticsUpload()
+
     // Auto-update check (#6) — a no-op in dev (gated on app.isPackaged). The
     // window exists now, so its renderer can receive update events.
     checkForUpdatesOnLaunch()
@@ -1877,4 +1938,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', stopApi)
+app.on('before-quit', () => {
+  stopApi()
+  // Cancel the retry timer so a pending drain cannot keep the event loop alive.
+  diagnosticsUploader?.stop()
+})
