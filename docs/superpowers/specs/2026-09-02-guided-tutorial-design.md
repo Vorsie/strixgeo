@@ -21,6 +21,8 @@ Two deliverables, one of them his:
    you use and we build the parser".
 
 This document designs the tutorial. The sample-project mechanism is a separate slice.
+The owner will also record tutorial videos on the worked example; the tutorial links
+to them per chapter (A7).
 
 ## What exists
 
@@ -153,6 +155,10 @@ the e2e flow starts it explicitly.
   owner confirmed it is NOT G3Dv3. Chapter 2 covers the Import menu's real verbs
   until he names it.
 * A6 — the closing "send us your formats" step names StrixGeo and no address yet.
+* A7 — (owner, same day) he will record **tutorial videos on the worked-example
+  project**. Each chapter carries an optional `videoUrl`; the coach card shows a
+  "Watch the clip" button only when one is set, opening the URL in the system
+  browser (the app is offline-first; videos are not bundled). No URLs today.
 
 ## Owner's words (transcribed 2026-09-02, cleaned for punctuation only)
 
