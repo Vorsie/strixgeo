@@ -130,7 +130,7 @@ exports.py                  2 routes  Plaxis 3D script + 3-D fence DXF
 
 ## Application use cases
 
-75 use-case classes (one orchestrator per unit of work, most exposing `execute`). The application layer has 118 modules total — the remaining ~43 are supporting DTOs, result value objects, constants, shared helpers, the re-anchor machinery, and the task-queue abstraction (`task_queue.py` ABC + `synchronous_queue.py` MVP inline impl + `job_registry.py`).
+75 use-case classes (one orchestrator per unit of work, most exposing `execute`). The application layer has 120 modules total — the remaining ~45 are supporting DTOs, result value objects, constants, shared helpers, the re-anchor machinery, and the task-queue abstraction (`task_queue.py` ABC + `synchronous_queue.py` MVP inline impl + `job_registry.py`). One of the DTOs is `export_artifact.py` (`ExportArtifact`), the framework-free download contract every export route returns for the API layer to serve (debt #110).
 
 **Imports + interpretation**
 
