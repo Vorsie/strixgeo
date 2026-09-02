@@ -102,10 +102,19 @@ export interface UseSectionsResult {
    * flow sets this explicitly so the AppShell deep-link dispatches to
    * the section the user picked (avoids a race with the hook's own
    * "prefer current" logic during the sections-stage transition).
+   *
+   * When ``axisOverride`` is provided, the contact set searched is chosen by
+   * that axis rather than the axis the section currently shows. The
+   * "Edit in Geology stage" deep-link (#156) fires from the LITHO axis but
+   * hands a GEOLOGICAL contact id, so without the override the axis-gate
+   * (see the body) searches ``lithoContacts``, misses, and fires the
+   * "couldn't find the contact" toast. Stating the contact's own axis lets
+   * it resolve regardless of what the section is displaying.
    */
   handleFocusContacts: (
     contactIds: readonly string[],
     targetSectionId?: string,
+    axisOverride?: SectionModelAxis,
   ) => void
   /**
    * Apply a fully-resolved section row returned by the server (e.g. the
@@ -746,14 +755,26 @@ export function useSections({
   // focusedContactIds for the ContactsLayer ring + pulse. Cleared
   // after 2.5 s. debt #9.
   const handleFocusContacts = useCallback(
-    (contactIds: readonly string[], targetSectionId?: string) => {
+    (
+      contactIds: readonly string[],
+      targetSectionId?: string,
+      axisOverride?: SectionModelAxis,
+    ) => {
       if (contactIds.length === 0) return
       // Slice 2 (#55): search the contact set that matches the active axis so
       // "focus crossing" still works when the litho axis is active. The
       // crossings validator runs on the geological model; on the litho axis the
       // banner won't fire, but the handler is future-proof for litho crossings.
+      //
+      // #156: the "Edit in Geology stage" deep-link overrides the axis because
+      // it fires from the litho axis but focuses a geological contact — without
+      // the override this lookup would miss and toast "couldn't find". The
+      // override also sidesteps the stale-axis closure the deep-link would
+      // otherwise capture (the axis it states is passed by value, not read from
+      // this callback's captured ``sectionModelAxis``).
+      const effectiveAxis = axisOverride ?? sectionModelAxis
       const activeContacts =
-        sectionModelAxis === 'lithostratigraphic' ? lithoContacts : contacts
+        effectiveAxis === 'lithostratigraphic' ? lithoContacts : contacts
       const offending = activeContacts.filter(c => contactIds.includes(c.id))
       if (offending.length === 0) {
         toast('error', t('sections.toast.contactNotFound'))
