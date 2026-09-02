@@ -29,6 +29,7 @@ import {
   VCRS_LABEL_BY_EPSG,
 } from '../utils/verticalDatum'
 import { arraysEqual } from '../utils/arrays'
+import { useT } from '../i18n/translate'
 
 const PHASES: ReadonlyArray<{ value: ProjectPhase; label: string }> = [
   { value: 'feasibility', label: 'Feasibility' },
@@ -42,6 +43,22 @@ const STATUSES: ReadonlyArray<{ value: ProjectStatus; label: string }> = [
   { value: 'on_hold', label: 'On hold' },
   { value: 'completed', label: 'Completed' },
 ]
+
+// Catalogue keys for the dropdown labels. ``as const`` keeps each value a
+// literal member of MessageKey so t() accepts it without a type import; the
+// English text still lives in the catalogue (project.phase* / project.status*).
+const PHASE_LABEL_KEYS = {
+  feasibility: 'project.phaseFeasibility',
+  design: 'project.phaseDesign',
+  construction: 'project.phaseConstruction',
+  monitoring: 'project.phaseMonitoring',
+} as const
+
+const STATUS_LABEL_KEYS = {
+  active: 'project.statusActive',
+  on_hold: 'project.statusOnHold',
+  completed: 'project.statusCompleted',
+} as const
 
 interface Props {
   open: boolean
@@ -235,6 +252,7 @@ export default function ProjectMetadataDialog({
   onSubmit,
   onCancel,
 }: Props) {
+  const t = useT()
   const [state, setState] = useState<FormState | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
@@ -343,11 +361,10 @@ export default function ProjectMetadataDialog({
             id="project-metadata-title"
             className="text-base font-semibold text-gray-800"
           >
-            Project metadata
+            {t('project.metadata')}
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Edit the project's header info. Changes save to the database
-            and the .gmproj file in one go.
+            {t('project.metadataBlurbFull')}
           </p>
         </div>
 
@@ -355,7 +372,7 @@ export default function ProjectMetadataDialog({
           {/* Name — full width. Required (NOT NULL in the DB); a blank
               submit preserves the existing value rather than erroring. */}
           <div className="col-span-2">
-            <Label htmlFor="pm-name">Name</Label>
+            <Label htmlFor="pm-name">{t('common.name')}</Label>
             <input
               ref={nameRef}
               id="pm-name"
@@ -367,56 +384,56 @@ export default function ProjectMetadataDialog({
           </div>
 
           <div>
-            <Label htmlFor="pm-project-number">Project number</Label>
+            <Label htmlFor="pm-project-number">{t('project.number')}</Label>
             <input
               id="pm-project-number"
               type="text"
               value={state.project_number}
               onChange={e => update('project_number', e.target.value)}
-              placeholder="e.g. GEO-2026-042"
+              placeholder={t('project.numberPlaceholder')}
               className={fieldClassFor(fieldDirty.project_number)}
             />
           </div>
 
           <div>
-            <Label htmlFor="pm-client">Client</Label>
+            <Label htmlFor="pm-client">{t('project.client')}</Label>
             <input
               id="pm-client"
               type="text"
               value={state.client}
               onChange={e => update('client', e.target.value)}
-              placeholder="e.g. Port of Antwerp"
+              placeholder={t('project.clientPlaceholder')}
               className={fieldClassFor(fieldDirty.client)}
             />
           </div>
 
           <div className="col-span-2">
-            <Label htmlFor="pm-site">Site / location label</Label>
+            <Label htmlFor="pm-site">{t('project.site')}</Label>
             <input
               id="pm-site"
               type="text"
               value={state.site_label}
               onChange={e => update('site_label', e.target.value)}
-              placeholder="e.g. Antwerp port — quay 7"
+              placeholder={t('project.sitePlaceholder')}
               className={fieldClassFor(fieldDirty.site_label)}
             />
           </div>
 
           <div className="col-span-2">
-            <Label htmlFor="pm-description">Description</Label>
+            <Label htmlFor="pm-description">{t('project.description')}</Label>
             <textarea
               id="pm-description"
               rows={3}
               value={state.description}
               onChange={e => update('description', e.target.value)}
-              placeholder="Free-text scope notes"
+              placeholder={t('project.descriptionHint')}
               className={`${fieldClassFor(fieldDirty.description)} resize-y`}
             />
           </div>
 
           {/* Tags — full width with chip rendering above the input. */}
           <div className="col-span-2">
-            <Label htmlFor="pm-tags">Tags</Label>
+            <Label htmlFor="pm-tags">{t('project.tags')}</Label>
             {state.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-1.5">
                 {state.tags.map(tag => (
@@ -428,7 +445,7 @@ export default function ProjectMetadataDialog({
                     <button
                       type="button"
                       onClick={() => removeTag(tag)}
-                              title={`Remove ${tag}`}
+                      title={t('project.removeTag', { tag })}
                       className="text-blue-400 hover:text-blue-700 disabled:opacity-50"
                     >
                       <X size={10} />
@@ -444,13 +461,13 @@ export default function ProjectMetadataDialog({
               onChange={e => update('tagDraft', e.target.value)}
               onKeyDown={onTagKeyDown}
               onBlur={commitTagDraft}
-              placeholder="Type a tag and press Enter or comma"
+              placeholder={t('project.tagsPlaceholder')}
               className={fieldClassFor(fieldDirty.tags)}
             />
           </div>
 
           <div>
-            <Label htmlFor="pm-h-epsg">Default horizontal CRS</Label>
+            <Label htmlFor="pm-h-epsg">{t('project.defaultHorizontalCrs')}</Label>
             <select
               id="pm-h-epsg"
               value={state.default_horizontal_epsg ?? ''}
@@ -462,7 +479,7 @@ export default function ProjectMetadataDialog({
               }
               className={fieldClassFor(fieldDirty.default_horizontal_epsg)}
             >
-              <option value="">— none —</option>
+              <option value="">{t('common.none')}</option>
               {PICKABLE_HORIZONTAL_EPSGS.map(c => (
                 <option key={c.epsg} value={c.epsg}>
                   {c.label}
@@ -472,7 +489,7 @@ export default function ProjectMetadataDialog({
           </div>
 
           <div>
-            <Label htmlFor="pm-v-epsg">Default vertical CRS</Label>
+            <Label htmlFor="pm-v-epsg">{t('project.defaultVerticalCrs')}</Label>
             <select
               id="pm-v-epsg"
               value={state.default_vertical_epsg ?? ''}
@@ -484,9 +501,10 @@ export default function ProjectMetadataDialog({
               }
               className={fieldClassFor(fieldDirty.default_vertical_epsg)}
             >
-              <option value="">— none —</option>
+              <option value="">{t('common.none')}</option>
               {PICKABLE_VERTICAL_EPSGS.map(epsg => (
                 <option key={epsg} value={epsg}>
+                  {/* i18n-exempt: EPSG registry code — a technical CRS identifier, identical in every locale. */}
                   {VCRS_LABEL_BY_EPSG[epsg] ?? `EPSG:${epsg}`}
                 </option>
               ))}
@@ -494,7 +512,7 @@ export default function ProjectMetadataDialog({
           </div>
 
           <div>
-            <Label htmlFor="pm-phase">Phase</Label>
+            <Label htmlFor="pm-phase">{t('project.phase')}</Label>
             <select
               id="pm-phase"
               value={state.phase ?? ''}
@@ -503,17 +521,17 @@ export default function ProjectMetadataDialog({
               }
               className={fieldClassFor(fieldDirty.phase)}
             >
-              <option value="">— none —</option>
+              <option value="">{t('common.none')}</option>
               {PHASES.map(p => (
                 <option key={p.value} value={p.value}>
-                  {p.label}
+                  {t(PHASE_LABEL_KEYS[p.value])}
                 </option>
               ))}
             </select>
           </div>
 
           <div>
-            <Label htmlFor="pm-status">Status</Label>
+            <Label htmlFor="pm-status">{t('project.status')}</Label>
             <select
               id="pm-status"
               value={state.status}
@@ -522,7 +540,7 @@ export default function ProjectMetadataDialog({
             >
               {STATUSES.map(s => (
                 <option key={s.value} value={s.value}>
-                  {s.label}
+                  {t(STATUS_LABEL_KEYS[s.value])}
                 </option>
               ))}
             </select>
@@ -531,7 +549,7 @@ export default function ProjectMetadataDialog({
 
         <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end gap-2">
           <Button variant="secondary" size="md" onClick={onCancel}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -541,7 +559,7 @@ export default function ProjectMetadataDialog({
             // nothing to apply is just a Cancel in disguise.
             disabled={!dirty}
           >
-            Save
+            {t('common.save')}
           </Button>
         </div>
       </div>
