@@ -28,6 +28,12 @@ from groundmodel.application.section_polygon_set import (
     SectionPolygonSet,
     SectionPolygonUnit,
 )
+from groundmodel.domain.services import nad_soil_parameters_constants as nad_params
+from groundmodel.domain.services.nad_soil_parameters_constants import (
+    SOURCE_LABEL,
+    NadSoilParameters,
+)
+from groundmodel.infrastructure.exporters.ascii_fold import ascii_fold
 from groundmodel.infrastructure.exporters.dsheet_piling_exporter import (
     DSheetPilingExporter,
 )
@@ -356,3 +362,82 @@ def test_dp_unclassified_fallback_soil_name_is_folded_to_ascii(tmp_path: Path) -
     model.parse(target)
     names = {soil.name for soil in model.datastructure.input_data.soil_collection.soil}
     assert names == {"Zande - Mol"}
+
+
+# --- NAD soil parameters (empty-until-filled) --------------------------
+
+
+def _parsed_soils(payload: bytes, tmp_path: Path) -> dict:
+    """Re-parse the .shi with GEOLib and return its soils keyed by name."""
+    target = tmp_path / "params.shi"
+    target.write_bytes(payload)
+    model = DSheetPilingModel()
+    model.parse(target)
+    return {s.name: s for s in model.datastructure.input_data.soil_collection.soil}
+
+
+def test_dp16_a_populated_class_writes_its_parameters_and_names_the_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A class in the NAD table exports its γ, φ′, c′, and the file names the source.
+
+    D-Sheet's ``[SOIL]`` block has no per-soil free-text slot, so the NAD-table
+    provenance rides in the ``[RUN IDENTIFICATION]`` block (ASCII-folded, so the
+    .shi stays byte-portable). The parameter values land on the right soils.
+    """
+    monkeypatch.setattr(
+        nad_params,
+        "NAD_SOIL_PARAMETERS",
+        {
+            6: NadSoilParameters(
+                gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=32.5, c_kpa=0.0
+            ),
+            21: NadSoilParameters(
+                gamma_unsat_kn_m3=16.0, gamma_sat_kn_m3=17.5, phi_deg=22.0, c_kpa=5.0
+            ),
+        },
+    )
+
+    payload = DSheetPilingExporter().export(_two_layer_set())
+    soils = _parsed_soils(payload, tmp_path)
+
+    sand = soils["NAD-06_ZAND"]
+    assert sand.soilgamdry == 18.0
+    assert sand.soilgamwet == 20.0
+    assert sand.soilcohesion == 0.0
+    assert sand.soilphi == 32.5
+
+    clay = soils["NAD-21_KLEI"]
+    assert clay.soilgamdry == 16.0
+    assert clay.soilgamwet == 17.5
+    assert clay.soilcohesion == 5.0
+    assert clay.soilphi == 22.0
+
+    text = _text(payload)
+    assert ascii_fold(SOURCE_LABEL) in text, "the run-identification names the NAD table"
+    # The label must not break the whole-file ASCII invariant.
+    assert all(b <= 0x7F for b in payload), "the source label smuggled a non-ASCII byte"
+
+
+def test_dp17_a_class_absent_from_the_table_writes_no_invented_numbers(
+    tmp_path: Path,
+) -> None:
+    """A class the owner has not transcribed stays at D-Sheet's blank defaults.
+
+    Pins the audited "absent" representation: GEOLib initialises a D-Sheet soil
+    with a 0.01 kN/m³ unit weight and cohesion / phi 0 — its own placeholders,
+    not values Strix chose. The run-identification does NOT name the NAD table.
+    """
+    assert nad_params.NAD_SOIL_PARAMETERS == {}  # the shipped table is empty
+    payload = DSheetPilingExporter().export(_two_layer_set())
+    soils = _parsed_soils(payload, tmp_path)
+
+    assert len(soils) == 2
+    for soil in soils.values():
+        assert soil.soilgamdry == 0.01
+        assert soil.soilgamwet == 0.01
+        assert soil.soilcohesion == 0.0
+        assert soil.soilphi == 0.0
+
+    assert ascii_fold(SOURCE_LABEL) not in _text(payload)
