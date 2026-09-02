@@ -15,6 +15,7 @@
 
 import type { StageId } from './StageDescriptor'
 import { STAGE_REGISTRY } from './StageRegistry'
+import { useT } from '../i18n/translate'
 
 /** Width class for the open inspector (420 px). */
 const WIDTH_OPEN = 'w-[420px]'
@@ -53,12 +54,13 @@ export interface InspectorProps {
  *     The inspector rail element.
  */
 export default function Inspector({ activeStageId, open }: InspectorProps): JSX.Element {
+  const t = useT()
   const descriptor = STAGE_REGISTRY.get(activeStageId)
   const InspectorContent = descriptor?.InspectorComponent ?? null
 
   return (
     <aside
-      aria-label="Stage inspector"
+      aria-label={t('shell.inspector')}
       // overflow-hidden clips content when collapsing and prevents
       // a horizontal scrollbar on the body row during the transition.
       className={[
