@@ -31,6 +31,7 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'onboarding.startLater': 'Misschien later',
   'onboarding.sampleUnavailable':
     'Het voorbeeldproject zit nog niet in deze prototypebuild — er wordt een leeg project gestart.',
+  'onboarding.sampleLoaded': 'Voorbeeldproject geopend. Opgeslagen als {path}',
   'onboarding.stageImport': 'Importeren',
   'onboarding.stageImportBody': 'Haal sonderingen en boringen binnen uit bestanden of rechtstreeks uit DOV.',
   'onboarding.stageGeology': 'Geologie',
