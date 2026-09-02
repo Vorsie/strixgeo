@@ -82,7 +82,7 @@ export async function printSheetToPdf(payload: unknown, log: Log = consoleLog): 
     const pdf = await wc.printToPDF({
       pageSize: { width: msg.paperWidthMm / MM_PER_INCH, height: msg.paperHeightMm / MM_PER_INCH },
       printBackground: true,
-      margins: { marginType: 'custom', top: 0, bottom: 0, left: 0, right: 0 },
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
       preferCSSPageSize: false,
     })
     log('info', `sheet pdf ${pdf.byteLength} bytes`)
