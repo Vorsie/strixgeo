@@ -11,7 +11,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && node scripts/copy-cesium.mjs",
     "preview": "electron-vite preview",
-    "package": "electron-vite build && node scripts/copy-cesium.mjs && electron-builder --publish=never",
+    "package": "node scripts/require-beta-stamp.mjs pre && electron-vite build && node scripts/copy-cesium.mjs && node scripts/require-beta-stamp.mjs post && electron-builder --publish=never",
     "embedded:postgres": "powershell -ExecutionPolicy Bypass -File ../scripts/build-embedded-postgres.ps1",
     "embedded:python": "powershell -ExecutionPolicy Bypass -File ../scripts/build-embedded-python.ps1",
     "dist": "npm run embedded:postgres && npm run embedded:python && npm run package",
