@@ -18,6 +18,7 @@ import { Layers, MousePointerClick } from 'lucide-react'
 
 import { EmptyState } from '../../../EmptyState'
 import { useShell } from '../../../ShellContext'
+import { useT } from '../../../../i18n/translate'
 import UnitStatisticsCanvas from '../UnitStatisticsCanvas'
 
 export default function PerUnitTab(): JSX.Element {
@@ -25,6 +26,7 @@ export default function PerUnitTab(): JSX.Element {
     geoModel: { lithoFormations, geotechFormations },
     coordinator: { selectedParameterUnit },
   } = useShell()
+  const t = useT()
 
   if (selectedParameterUnit !== null) {
     return <UnitStatisticsCanvas scope={selectedParameterUnit} />
@@ -34,8 +36,8 @@ export default function PerUnitTab(): JSX.Element {
     return (
       <EmptyState
         icon={<Layers />}
-        title="No units yet"
-        hint="Build a lithostratigraphic model on the Lithology stage, then subdivide it on the Geotechnical stage — the units will populate here with their statistics."
+        title={t('params.noUnitsYet')}
+        hint={t('params.noUnitsHintStats')}
         compact={false}
       />
     )
@@ -46,8 +48,8 @@ export default function PerUnitTab(): JSX.Element {
     <div data-testid="parameters-unit-pick-hint" className="h-full">
       <EmptyState
         icon={<MousePointerClick />}
-        title="Pick a unit"
-        hint="Click a unit in the list on the right — its qc / fs / Rf statistics draw here. Right-clicking a band in a cross-section jumps here too."
+        title={t('params.pickUnit')}
+        hint={t('params.pickUnitHint')}
         compact={false}
       />
     </div>
