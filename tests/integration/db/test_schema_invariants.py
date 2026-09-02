@@ -5,6 +5,15 @@ Pins the CHECK constraints + partial-unique indexes added by migrations
 NULL-discriminated invariant), and ``c3e4f5a6b7c8`` (partial-unique dedup
 indexes on cpt + borehole).
 
+Wave 3 (2026-09-02) adds direct negative pins for the body-pair ruling tables
+introduced after 2026-06-01 — ``body_union`` (``b5c6d7e8f9a0``),
+``body_separation`` (``f3d0a1b2c4e5``) and ``body_geometry_fact``
+(``c4d5e6f7a8b9``). Each carries a canonical-order CHECK
+(``layer_a_id < layer_b_id``) + a per-model unique on the ordered pair; the
+FK-and-index sweep (debt #107) found both already declared in migration AND
+ORM, so these pins are GUARDS against a future edit dropping them, not
+red-first tests for new constraints.
+
 Setup uses ORM helpers so Python-side defaults (``excluded_borehole_ids``,
 ``pre_drill_m``, etc) get applied. The constraint-violating mutation is
 the raw SQL — that's the only behaviour under test.
@@ -19,6 +28,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
+from groundmodel.infrastructure.db.models.body_separation_orm import BodySeparationOrm
+from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -27,6 +39,11 @@ from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+
+# The body-pair pins reuse the proven two-layer litho scene builder from the
+# bodies-recompute suite (already imported cross-module by test_bundle_geometry_facts)
+# so their FK targets (model + two accepted litho_layer rows) are real rows.
+from tests.integration.api.test_recompute_bodies import _build_scene, _canonical_fact_pair
 
 
 @pytest_asyncio.fixture
@@ -331,3 +348,89 @@ async def test_cpt_dedup_partial_unique_ignores_null_project(
         )
     )
     await db_session.flush()
+
+
+# ---------------------------------------------------------------------------
+# Wave 3 — body-pair ruling tables (canonical-order CHECK + per-model unique)
+#
+# Migrations b5c6d7e8f9a0 (body_union), f3d0a1b2c4e5 (body_separation),
+# c4d5e6f7a8b9 (body_geometry_fact). Each stores a layer pair in canonical
+# (min, max) order and is unique per (model, ordered pair). GUARD pins: the
+# constraints already exist in migration AND ORM — these fail loudly if a
+# future edit drops either. ``_build_scene`` gives two real accepted litho
+# layers so the pair's FK targets are genuine rows and the CHECK is what the
+# insert actually trips (not a dangling FK).
+# ---------------------------------------------------------------------------
+
+
+async def test_body_union_canonical_order_rejected(db_session: AsyncSession) -> None:
+    """A descending (a > b) pair violates ``ck_body_union_canonical_order``."""
+    scene = await _build_scene(db_session)
+    a, b = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    # Insert the pair the WRONG way round (b, a): b > a fails layer_a_id < layer_b_id.
+    db_session.add(BodyUnionOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=b, layer_b_id=a))
+    with pytest.raises(IntegrityError, match="ck_body_union_canonical_order"):
+        await db_session.flush()
+
+
+async def test_body_union_pair_unique(db_session: AsyncSession) -> None:
+    """Re-asserting the same (model, ordered pair) union violates ``uq_body_union_pair``."""
+    scene = await _build_scene(db_session)
+    a, b = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    db_session.add(BodyUnionOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=a, layer_b_id=b))
+    await db_session.flush()
+    db_session.add(BodyUnionOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=a, layer_b_id=b))
+    with pytest.raises(IntegrityError, match="uq_body_union_pair"):
+        await db_session.flush()
+
+
+async def test_body_separation_canonical_order_rejected(db_session: AsyncSession) -> None:
+    """A descending (a > b) pair violates ``ck_body_separation_canonical_order``."""
+    scene = await _build_scene(db_session)
+    a, b = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    db_session.add(
+        BodySeparationOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=b, layer_b_id=a)
+    )
+    with pytest.raises(IntegrityError, match="ck_body_separation_canonical_order"):
+        await db_session.flush()
+
+
+async def test_body_separation_pair_unique(db_session: AsyncSession) -> None:
+    """Re-asserting the same separation pair violates ``uq_body_separation_pair``."""
+    scene = await _build_scene(db_session)
+    a, b = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    db_session.add(
+        BodySeparationOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=a, layer_b_id=b)
+    )
+    await db_session.flush()
+    db_session.add(
+        BodySeparationOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=a, layer_b_id=b)
+    )
+    with pytest.raises(IntegrityError, match="uq_body_separation_pair"):
+        await db_session.flush()
+
+
+async def test_body_geometry_fact_canonical_order_rejected(db_session: AsyncSession) -> None:
+    """A descending (a > b) pair violates ``ck_body_geometry_fact_canonical_order``."""
+    scene = await _build_scene(db_session)
+    a, b = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    db_session.add(
+        BodyGeometryFactOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=b, layer_b_id=a)
+    )
+    with pytest.raises(IntegrityError, match="ck_body_geometry_fact_canonical_order"):
+        await db_session.flush()
+
+
+async def test_body_geometry_fact_pair_unique(db_session: AsyncSession) -> None:
+    """Re-asserting the same geometry-fact pair violates ``uq_body_geometry_fact_pair``."""
+    scene = await _build_scene(db_session)
+    a, b = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    db_session.add(
+        BodyGeometryFactOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=a, layer_b_id=b)
+    )
+    await db_session.flush()
+    db_session.add(
+        BodyGeometryFactOrm(id=uuid7(), model_id=scene.model_id, layer_a_id=a, layer_b_id=b)
+    )
+    with pytest.raises(IntegrityError, match="uq_body_geometry_fact_pair"):
+        await db_session.flush()
