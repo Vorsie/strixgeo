@@ -135,9 +135,14 @@ async function renderWithFlag(
   try {
     render(
       <SectionScopeContext.Provider
-        value={{ lenses: [], lensBoundaries: storedBoundaries() }}
+        value={{
+          lenses: [],
+          lensBoundaries: storedBoundaries(),
+          zEpsg: 5710,
+          axisMode: 'lithostratigraphic',
+        }}
       >
-        <SectionPanel section={makeSection()} zEpsg={5710} axisMode="lithostratigraphic" />
+        <SectionPanel section={makeSection()} />
       </SectionScopeContext.Provider>,
     )
     await waitFor(() => expect(capturedBoundaries).toBeDefined())
