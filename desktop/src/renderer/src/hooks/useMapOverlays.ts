@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 import type {
   ProjectResponse,
   VirtueleBoringInvestigationPrediction,
@@ -141,7 +142,7 @@ export function useMapOverlays({
       // whatever the server has committed by then.
       const ok = await applyViewStatePatch({ dem_overlay: next })
       if (!ok) {
-        toast('error', 'Could not save the terrain overlay setting.')
+        toast('error', t('data.overlay.saveTerrainFailed'))
       }
     },
     // ``toast`` is a hoisted ``function`` declaration in App.tsx body —
@@ -168,7 +169,7 @@ export function useMapOverlays({
     async (next: boolean): Promise<void> => {
       const ok = await applyViewStatePatch({ show_confidence_fade: next })
       if (!ok) {
-        toast('error', 'Could not save the confidence-fade setting.')
+        toast('error', t('data.overlay.saveConfidenceFadeFailed'))
       }
     },
     [applyViewStatePatch],
@@ -345,7 +346,7 @@ export function useMapOverlays({
     async (next: VirtueleBoringPickerPayload): Promise<void> => {
       const ok = await applyViewStatePatch({ [VIRTUELE_BORING_VIEW_STATE_KEY]: next })
       if (!ok) {
-        toast('error', 'Could not save the virtuele-boring overlay setting.')
+        toast('error', t('data.overlay.saveVirtueleBoringFailed'))
         return
       }
       // Selecting a model in the section picker auto-enables the section
