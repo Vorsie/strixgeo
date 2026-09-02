@@ -44,6 +44,7 @@ import TabBar from '../../../components/ui/TabBar'
 import { isTypingTarget } from '../../../utils/keyboard'
 import { isWithinDateRange, parseInvestigationDate } from '../../../utils/investigationDate'
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../../../api/client'
+import { useT } from '../../../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,6 +143,7 @@ const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base
  *     The inspector content element.
  */
 export default function DataInspector(): JSX.Element {
+  const t = useT()
   const {
     visibleCpts,
     visibleBoreholes,
@@ -467,13 +469,13 @@ export default function DataInspector(): JSX.Element {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder={activeTab === 'cpt' ? 'Search CPTs…' : 'Search boreholes…'}
+            placeholder={activeTab === 'cpt' ? t('data.inspector.searchCpts') : t('data.inspector.searchBoreholes')}
             className="w-full bg-transparent text-xs text-[--color-text-secondary] placeholder-[--color-text-muted] focus:outline-none"
           />
           {searchQuery !== '' && (
             <button
               onClick={() => setSearchQuery('')}
-              title="Clear search"
+              title={t('data.inspector.clearSearch')}
               className="text-[--color-text-muted] hover:text-[--color-text-secondary] shrink-0"
             >
               <X size={11} />
@@ -493,7 +495,7 @@ export default function DataInspector(): JSX.Element {
       {/* Bulk-action bar — visible when ≥1 checkbox is ticked */}
       {selectedCount > 0 && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-100 dark:border-blue-900/40 text-[11px] flex-shrink-0">
-          <span className="text-accent font-medium">{selectedCount} selected</span>
+          <span className="text-accent font-medium">{t('data.inspector.selectedCount', { n: selectedCount })}</span>
           <button
             onClick={bulkRemove}
             // Remove is a project-local hide — reversible — so it uses a
@@ -501,13 +503,13 @@ export default function DataInspector(): JSX.Element {
             // reserved for irreversible destructive actions per UX rule).
             className="ml-auto px-2 py-0.5 rounded bg-surface-page border border-border-default text-text-primary hover:bg-surface-card transition-colors text-[10px] font-semibold uppercase tracking-wide"
           >
-            Remove
+            {t('common.remove')}
           </button>
           <button
             onClick={clearSelection}
             className="px-1.5 py-0.5 text-[--color-text-secondary] hover:text-[--color-text-primary]"
           >
-            Clear
+            {t('data.inspector.clear')}
           </button>
         </div>
       )}
@@ -524,11 +526,11 @@ export default function DataInspector(): JSX.Element {
             }
             disabled={activeVisibleIds.length === 0}
             className="ml-auto text-[--color-text-secondary] hover:text-[--color-text-primary] disabled:text-[--color-text-muted] disabled:cursor-not-allowed"
-            title="Select all in this tab"
+            title={t('data.inspector.selectAllInTab')}
           >
             {selectedCount === activeVisibleIds.length && activeVisibleIds.length > 0
-              ? 'Clear'
-              : 'Select all'}
+              ? t('data.inspector.clear')
+              : t('data.inspector.selectAll')}
           </button>
         </div>
       )}
@@ -538,11 +540,20 @@ export default function DataInspector(): JSX.Element {
         {activeTab === 'cpt' &&
           (visibleCpts.length === 0 ? (
             <EmptyState
-              label={removedCptCount > 0 ? 'All CPTs removed' : 'No CPTs imported yet'}
+              label={
+                removedCptCount > 0
+                  ? t('data.inspector.allCptsRemoved')
+                  : t('data.inspector.noCptsImported')
+              }
             />
           ) : cptVisible.length === 0 && cptHidden.length === 0 ? (
             <EmptyState
-              label={searchLower !== '' ? 'No matches for this search' : 'No CPTs visible'}
+              isSearch={searchLower !== ''}
+              label={
+                searchLower !== ''
+                  ? t('data.inspector.noMatches')
+                  : t('data.inspector.noCptsVisible')
+              }
             />
           ) : (
             <>
@@ -582,12 +593,19 @@ export default function DataInspector(): JSX.Element {
           (visibleBoreholes.length === 0 ? (
             <EmptyState
               label={
-                removedBoreholeCount > 0 ? 'All boreholes removed' : 'No boreholes imported yet'
+                removedBoreholeCount > 0
+                  ? t('data.inspector.allBoreholesRemoved')
+                  : t('data.inspector.noBoreholesImported')
               }
             />
           ) : bhVisible.length === 0 && bhHidden.length === 0 ? (
             <EmptyState
-              label={searchLower !== '' ? 'No matches for this search' : 'No boreholes visible'}
+              isSearch={searchLower !== ''}
+              label={
+                searchLower !== ''
+                  ? t('data.inspector.noMatches')
+                  : t('data.inspector.noBoreholesVisible')
+              }
             />
           ) : (
             <>
@@ -629,24 +647,54 @@ export default function DataInspector(): JSX.Element {
         {activeTab === 'cpt' && (
           <span>
             {cptDateActive
-              ? `${cptsAfterDate.length} of ${cptsAfterSearch.length} CPT${cptsAfterSearch.length !== 1 ? 's' : ''}`
-              : `${visibleCpts.length} CPT${visibleCpts.length !== 1 ? 's' : ''}`}
+              ? t('data.inspector.countOfTotal', {
+                  shown: cptsAfterDate.length,
+                  total: cptsAfterSearch.length,
+                  noun: t(
+                    cptsAfterSearch.length !== 1
+                      ? 'data.inspector.cptWordMany'
+                      : 'data.inspector.cptWordOne',
+                  ),
+                })
+              : t('data.inspector.count', {
+                  n: visibleCpts.length,
+                  noun: t(
+                    visibleCpts.length !== 1
+                      ? 'data.inspector.cptWordMany'
+                      : 'data.inspector.cptWordOne',
+                  ),
+                })}
           </span>
         )}
         {activeTab === 'borehole' && (
           <span>
             {bhDateActive
-              ? `${boreholesAfterDate.length} of ${boreholesAfterSearch.length} borehole${boreholesAfterSearch.length !== 1 ? 's' : ''}`
-              : `${visibleBoreholes.length} borehole${visibleBoreholes.length !== 1 ? 's' : ''}`}
+              ? t('data.inspector.countOfTotal', {
+                  shown: boreholesAfterDate.length,
+                  total: boreholesAfterSearch.length,
+                  noun: t(
+                    boreholesAfterSearch.length !== 1
+                      ? 'geology.boreholeWordMany'
+                      : 'geology.boreholeWordOne',
+                  ),
+                })
+              : t('data.inspector.count', {
+                  n: visibleBoreholes.length,
+                  noun: t(
+                    visibleBoreholes.length !== 1
+                      ? 'geology.boreholeWordMany'
+                      : 'geology.boreholeWordOne',
+                  ),
+                })}
           </span>
         )}
         {removedCount > 0 && (
           <button
             onClick={restoreAll}
             className="ml-auto text-[--color-accent] hover:underline"
-            title="Restore items removed from this project"
+            title={t('data.inspector.restoreRemovedTitle')}
           >
-            {removedCount} removed · restore all
+            {t('data.inspector.removedRestoreAll', { n: removedCount })}
           </button>
         )}
       </div>
@@ -665,19 +713,20 @@ function SortControl({
   sort: SortState
   onChange: (next: SortState) => void
 }) {
+  const t = useT()
   const isDefault = sort.key === 'default'
   return (
     <div className="flex items-center gap-1 text-[--color-text-secondary]">
-      <span className="text-[--color-text-muted]">Sort:</span>
+      <span className="text-[--color-text-muted]">{t('data.inspector.sortLabel')}</span>
       <select
         value={sort.key}
         onChange={e => onChange({ ...sort, key: e.target.value as SortKey })}
         className="bg-transparent text-[--color-text-secondary] cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent rounded"
       >
-        <option value="default">Default</option>
-        <option value="name">Name</option>
-        <option value="depth">Depth</option>
-        <option value="date">Date</option>
+        <option value="default">{t('data.inspector.sortDefault')}</option>
+        <option value="name">{t('common.name')}</option>
+        <option value="depth">{t('common.depth')}</option>
+        <option value="date">{t('data.inspector.sortDate')}</option>
       </select>
       <button
         onClick={() =>
@@ -685,7 +734,7 @@ function SortControl({
         }
         disabled={isDefault}
         className="text-[--color-text-muted] hover:text-[--color-text-primary] disabled:text-[--color-text-muted] disabled:opacity-40 disabled:cursor-not-allowed p-0.5"
-        title={`Direction: ${sort.direction === 'asc' ? 'ascending' : 'descending'}`}
+        title={t(sort.direction === 'asc' ? 'data.inspector.directionAsc' : 'data.inspector.directionDesc')}
       >
         {sort.direction === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
       </button>
@@ -758,10 +807,11 @@ function makeBoreholeSorter(
 // ---------------------------------------------------------------------------
 
 function HiddenSeparator({ count }: { count: number }) {
+  const t = useT()
   return (
     <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wide text-[--color-text-muted] bg-[--color-surface-card] border-y border-[--color-border-subtle]">
       <EyeOff size={10} />
-      <span>Hidden ({count})</span>
+      <span>{t('data.inspector.hiddenCount', { n: count })}</span>
     </div>
   )
 }
@@ -805,6 +855,7 @@ function CptRow({
   /** Row hover — highlights the matching map marker (if visible). */
   onHover?: (hovered: boolean) => void
 }) {
+  const t = useT()
   function handleRemove(e: React.MouseEvent) {
     e.stopPropagation()
     onRemove()
@@ -844,10 +895,10 @@ function CptRow({
               Previously text-gray-800 (#1f2937) — invisible on dark inspector surface. */}
           <span className="text-xs font-medium text-[--color-text-primary] truncate">{cpt.name}</span>
           {unsaved && (
-            <DirtyAsterisk title="Imported since last save — File → Save to commit" />
+            <DirtyAsterisk title={t('data.inspector.importedSinceSave')} />
           )}
           {cpt.elevation_m == null && (
-            <span title="No surface elevation — needs manual Z entry">
+            <span title={t('data.inspector.noSurfaceElevation')}>
               <AlertTriangle size={10} className="text-status-amber shrink-0" />
             </span>
           )}
@@ -863,7 +914,7 @@ function CptRow({
       </button>
       <button
         onClick={handleRemove}
-        title="Remove from project"
+        title={t('data.inspector.removeFromProject')}
         className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
@@ -894,6 +945,7 @@ function BoreholeRow({
   /** Row hover — highlights the matching map marker (if visible). */
   onHover?: (hovered: boolean) => void
 }) {
+  const t = useT()
   function handleRemove(e: React.MouseEvent) {
     e.stopPropagation()
     onRemove()
@@ -935,10 +987,10 @@ function BoreholeRow({
               Previously text-gray-800 (#1f2937) — invisible on dark inspector surface. */}
           <span className="text-xs font-medium text-[--color-text-primary] truncate">{borehole.name}</span>
           {unsaved && (
-            <DirtyAsterisk title="Imported since last save — File → Save to commit" />
+            <DirtyAsterisk title={t('data.inspector.importedSinceSave')} />
           )}
           {noZ && (
-            <span title="No surface elevation — needs manual Z entry">
+            <span title={t('data.inspector.noSurfaceElevation')}>
               <AlertTriangle size={10} className="text-status-amber shrink-0" />
             </span>
           )}
@@ -956,7 +1008,7 @@ function BoreholeRow({
       </button>
       <button
         onClick={handleRemove}
-        title="Remove from project"
+        title={t('data.inspector.removeFromProject')}
         className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
@@ -1000,27 +1052,28 @@ function DateRangeControl({
   filter: DateRangeFilter
   onChange: (next: DateRangeFilter) => void
 }): JSX.Element {
+  const t = useT()
   const active = filter.from !== '' || filter.to !== ''
 
   return (
     <div className="px-3 py-1.5 border-b border-[--color-border-subtle] flex-shrink-0">
       <div className="flex items-center gap-1 mb-1">
         <Calendar size={11} className="text-[--color-text-muted] shrink-0" />
-        <span className="text-[10px] text-[--color-text-muted]">Date range</span>
+        <span className="text-[10px] text-[--color-text-muted]">{t('data.inspector.dateRange')}</span>
         {active && (
           <button
             onClick={() => onChange({ from: '', to: '' })}
-            title="Clear date filter"
+            title={t('data.inspector.clearDateFilter')}
             className="ml-auto text-[10px] text-[--color-accent] hover:underline"
           >
-            Clear
+            {t('data.inspector.clear')}
           </button>
         )}
       </div>
       <div className="flex items-center gap-1.5">
         {/* From bound. The native date picker is keyboard-navigable and
             announces itself properly to screen readers via the label. */}
-        <label className="sr-only" htmlFor="date-filter-from">From date</label>
+        <label className="sr-only" htmlFor="date-filter-from">{t('data.inspector.fromDate')}</label>
         <input
           id="date-filter-from"
           type="date"
@@ -1035,7 +1088,7 @@ function DateRangeControl({
           ].join(' ')}
         />
         <span className="text-[10px] text-[--color-text-muted] shrink-0">–</span>
-        <label className="sr-only" htmlFor="date-filter-to">To date</label>
+        <label className="sr-only" htmlFor="date-filter-to">{t('data.inspector.toDate')}</label>
         <input
           id="date-filter-to"
           type="date"
@@ -1063,15 +1116,19 @@ function DateRangeControl({
  * Parameters
  * ----------
  * label
- *     The empty-state line (preserved API — call sites unchanged).
+ *     The empty-state line.
+ * isSearch
+ *     True when this empty state is the "no search matches" case, which picks
+ *     the Search glyph instead of Inbox. Passed explicitly rather than sniffed
+ *     from the label text, because the label is now translated and a substring
+ *     check ("match") would not survive translation.
  *
  * Returns
  * -------
  * JSX.Element
  *     The compact empty-state block.
  */
-function EmptyState({ label }: { label: string }): JSX.Element {
-  const isSearch = label.toLowerCase().includes('match')
+function EmptyState({ label, isSearch = false }: { label: string; isSearch?: boolean }): JSX.Element {
   return (
     <SharedEmptyState
       compact
