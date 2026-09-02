@@ -1,29 +1,31 @@
-// First-launch onboarding overlay (prototype, debt #93).
+// First-launch onboarding overlay (debt #93).
 //
 // Owner ruling 24 (CLAUDE.local.md → "Rulings 2026-08-31"): onboarding is BOTH a
-// worked sample project AND a skippable tour. This overlay is that flow:
+// worked sample project AND a skippable tour. This overlay is the front door:
 //
-//   welcome  →  choose (Load sample | Start from scratch)  →  skippable tour
+//   welcome  →  choose (Load sample | Start from scratch)  →  start the tutorial?
 //
-// It layers over the WelcomeScreen and is gated by App on the persisted "seen"
-// flag (utils/onboardingSeen.ts). It is also re-openable from Help → Getting
-// started…, so it is intentionally stateless about WHY it opened — App decides.
+// The old six-slide "tour" that only NAMED the stages is gone (spec
+// 2026-09-02-guided-tutorial-design.md): the last screen now offers the
+// hands-on guided tutorial, which highlights each control on the user's own
+// project. It layers over the WelcomeScreen, is gated by App on the persisted
+// "seen" flag (utils/onboardingSeen.ts), and is re-openable from Help.
 //
-// What is REAL vs MOCKED: the flow, the persistence gate and the tour copy are
-// real; the "Load sample" DATA is a placeholder — see the onLoadSample prop and
-// the design note (docs/design/onboarding-activation-updater-proto.md).
+// What is REAL vs MOCKED: the flow, the persistence gate and the copy are real;
+// the "Load sample" DATA is a placeholder — see the onLoadSample prop and the
+// design note (docs/design/onboarding-activation-updater-proto.md).
 
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, Database, Download, FilePlus2, FolderOpen, Layers, Boxes, Ruler, Spline, Rocket } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, FilePlus2, FolderOpen, PlayCircle, Rocket } from 'lucide-react'
 
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
-import { useT, type Translator } from '../../i18n/translate'
+import { useT } from '../../i18n/translate'
 
 /** Which screen of the flow is showing. */
-type Phase = 'welcome' | 'choose' | 'tour'
+type Phase = 'welcome' | 'choose' | 'start'
 
-/** What the user chose on the "choose" screen; executed when the tour finishes. */
+/** What the user chose on the "choose" screen; executed when the flow finishes. */
 type StartIntent = 'sample' | 'scratch' | null
 
 interface Props {
@@ -35,21 +37,8 @@ interface Props {
    * ``.strix`` is not bundled in the prototype) — see the design note.
    */
   onLoadSample: () => void
-}
-
-/** The six spine stages, one sentence each (from the i18n catalogue). */
-function useSpineStages(t: Translator): ReadonlyArray<{ icon: JSX.Element; title: string; body: string }> {
-  return useMemo(
-    () => [
-      { icon: <Database size={18} />, title: t('onboarding.stageImport'), body: t('onboarding.stageImportBody') },
-      { icon: <Layers size={18} />, title: t('onboarding.stageGeology'), body: t('onboarding.stageGeologyBody') },
-      { icon: <Boxes size={18} />, title: t('onboarding.stageLitho'), body: t('onboarding.stageLithoBody') },
-      { icon: <Ruler size={18} />, title: t('onboarding.stageGeotech'), body: t('onboarding.stageGeotechBody') },
-      { icon: <Spline size={18} />, title: t('onboarding.stageSections'), body: t('onboarding.stageSectionsBody') },
-      { icon: <Download size={18} />, title: t('onboarding.stageExport'), body: t('onboarding.stageExportBody') },
-    ],
-    [t],
-  )
+  /** Activate the guided tutorial (App owns the tutorial-active flag). */
+  onStartTutorial: () => void
 }
 
 /**
@@ -62,46 +51,45 @@ function useSpineStages(t: Translator): ReadonlyArray<{ icon: JSX.Element; title
  * onClose
  *     Dismiss handler (skip or finish). App marks the "seen" flag here.
  * onLoadSample
- *     Runs the sample-project intent when the tour finishes with it chosen.
+ *     Runs the sample-project intent when the flow finishes with it chosen.
+ * onStartTutorial
+ *     Activates the guided tutorial when the user chooses to start it.
  */
-export default function OnboardingOverlay({ open, onClose, onLoadSample }: Props): JSX.Element {
+export default function OnboardingOverlay({
+  open,
+  onClose,
+  onLoadSample,
+  onStartTutorial,
+}: Props): JSX.Element {
   const t = useT()
-  const stages = useSpineStages(t)
 
   const [phase, setPhase] = useState<Phase>('welcome')
-  const [tourIndex, setTourIndex] = useState(0)
   const [intent, setIntent] = useState<StartIntent>(null)
 
   // Reset to the first screen each time the overlay opens, so a re-open from
-  // Help never resumes mid-tour.
+  // Help never resumes mid-flow.
   useEffect(() => {
     if (open) {
       setPhase('welcome')
-      setTourIndex(0)
       setIntent(null)
     }
   }, [open])
 
-  function chooseAndTour(next: StartIntent): void {
+  function chooseAndStart(next: StartIntent): void {
     setIntent(next)
-    setTourIndex(0)
-    setPhase('tour')
+    setPhase('start')
   }
 
+  /** Run the chosen intent and close. Sample is a stub in the prototype. */
   function finish(): void {
-    // The chosen intent runs on the way out. Sample is a stub in the prototype.
     if (intent === 'sample') onLoadSample()
     onClose()
   }
 
-  function advanceTour(): void {
-    if (tourIndex < stages.length - 1) setTourIndex(i => i + 1)
-    else finish()
-  }
-
-  function retreatTour(): void {
-    if (tourIndex > 0) setTourIndex(i => i - 1)
-    else setPhase('choose')
+  /** Close onboarding, then hand off to the guided tutorial. */
+  function startTutorial(): void {
+    finish()
+    onStartTutorial()
   }
 
   return (
@@ -162,7 +150,7 @@ export default function OnboardingOverlay({ open, onClose, onLoadSample }: Props
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
-                  onClick={() => chooseAndTour('sample')}
+                  onClick={() => chooseAndStart('sample')}
                   data-testid="onboarding-choose-sample"
                   className="flex items-start gap-3 text-left p-4 rounded-lg border border-border-default hover:bg-surface-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
@@ -178,7 +166,7 @@ export default function OnboardingOverlay({ open, onClose, onLoadSample }: Props
                 </button>
                 <button
                   type="button"
-                  onClick={() => chooseAndTour('scratch')}
+                  onClick={() => chooseAndStart('scratch')}
                   data-testid="onboarding-choose-scratch"
                   className="flex items-start gap-3 text-left p-4 rounded-lg border border-border-default hover:bg-surface-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
@@ -202,49 +190,33 @@ export default function OnboardingOverlay({ open, onClose, onLoadSample }: Props
             </div>
           )}
 
-          {phase === 'tour' && (
-            <div data-testid="onboarding-tour">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted mb-1">
-                {t('onboarding.tourTitle')}
-              </div>
-              <p className="text-xs text-text-secondary mb-4">{t('onboarding.tourIntro')}</p>
-
-              {/* One stage at a time, with a progress dot rail. */}
-              <div className="flex items-start gap-3 p-4 rounded-lg bg-surface-card border border-border-subtle min-h-[104px]">
-                <div className="mt-0.5 text-accent shrink-0">{stages[tourIndex].icon}</div>
+          {phase === 'start' && (
+            <div data-testid="onboarding-start">
+              <div className="flex items-start gap-3 p-4 rounded-lg bg-surface-card border border-border-subtle mb-5">
+                <PlayCircle size={22} className="mt-0.5 text-accent shrink-0" />
                 <div>
                   <h2 id="onboarding-title" className="text-base font-semibold text-text-primary">
-                    {stages[tourIndex].title}
+                    {t('onboarding.startTitle')}
                   </h2>
                   <p className="text-sm text-text-secondary mt-1 leading-relaxed">
-                    {stages[tourIndex].body}
+                    {t('onboarding.startBody')}
                   </p>
                 </div>
               </div>
-
-              <div className="flex items-center justify-center gap-1.5 mt-4" aria-hidden>
-                {stages.map((s, i) => (
-                  <span
-                    key={s.title}
-                    className={`h-1.5 rounded-full transition-all ${
-                      i === tourIndex ? 'w-5 bg-accent' : 'w-1.5 bg-border-default'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between mt-4">
-                <Button variant="ghost" size="md" onClick={retreatTour} data-testid="onboarding-tour-back">
+              <div className="flex items-center justify-between">
+                <Button variant="ghost" size="md" onClick={() => setPhase('choose')} data-testid="onboarding-start-back">
                   <ArrowLeft size={15} />
                   {t('onboarding.back')}
                 </Button>
-                <span className="text-[11px] text-text-muted">
-                  {t('onboarding.stepCount', { current: tourIndex + 1, total: stages.length })}
-                </span>
-                <Button variant="primary" size="md" onClick={advanceTour} data-testid="onboarding-tour-next">
-                  {tourIndex < stages.length - 1 ? t('onboarding.next') : t('onboarding.done')}
-                  <ArrowRight size={15} />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="md" onClick={finish} data-testid="onboarding-start-skip">
+                    {t('onboarding.startLater')}
+                  </Button>
+                  <Button variant="primary" size="md" onClick={startTutorial} data-testid="onboarding-start-tutorial">
+                    {t('onboarding.startTutorial')}
+                    <ArrowRight size={15} />
+                  </Button>
+                </div>
               </div>
             </div>
           )}
