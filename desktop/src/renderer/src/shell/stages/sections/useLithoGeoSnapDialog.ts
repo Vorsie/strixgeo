@@ -20,6 +20,7 @@ import { api } from '../../../api/client'
 import type { FormationContactResponse } from '../../../api/client'
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 
 /** The open snap prompt — null when the dialog is closed. */
 export interface LithoGeoSnapPrompt {
@@ -200,7 +201,7 @@ export function useLithoGeoSnapDialog(
           geoContactId,
           err,
         })
-        toast('error', `Snap failed: ${(err as Error).message}`)
+        toast('error', t('sections.snap.failed', { message: (err as Error).message }))
       } finally {
         setLithoGeoSnapBusy(false)
         setLithoGeoSnapPrompt(null)
@@ -224,14 +225,14 @@ export function useLithoGeoSnapDialog(
         await handleUpdateContactDepth(geoContactId, lithoDepth, false)
         await api.geology.rebuildSurfaces(project.id, geo.model_id)
         await handleLoadBackdropSurfaces(geo.model_id)
-        toast('success', 'Geological contact moved; surfaces rebuilt.')
+        toast('success', t('sections.snap.moved'))
       } catch (err) {
         log.error('section', 'handleMoveGeoToLitho: move failed', {
           geoContactId,
           lithoDepth: lithoGeoSnapPrompt.rawDepthM,
           err,
         })
-        toast('error', `Move failed: ${(err as Error).message}`)
+        toast('error', t('sections.snap.moveFailed', { message: (err as Error).message }))
         // Best-effort rollback of the geological-contact depth.  Swallow
         // a secondary failure — the user already saw the primary error.
         try {
