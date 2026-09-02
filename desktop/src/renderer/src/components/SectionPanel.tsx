@@ -4209,7 +4209,7 @@ export default function SectionPanel({
         )}
         {!size && (
           <div className="flex items-center justify-center h-full text-xs text-gray-400">
-            Sizing canvas…
+            {t('sections.sizingCanvas')}
           </div>
         )}
         {findOpen && (
@@ -4243,6 +4243,7 @@ export default function SectionPanel({
             data-testid="cursor-elevation-readout"
             className="absolute bottom-2 right-2 rounded bg-slate-800/90 px-2 py-1 text-xs font-mono text-slate-100 pointer-events-none select-none"
           >
+            {/* i18n-exempt: mTAW is a unit symbol (m TAW) — domain-canon carve-out */}
             {cursorLevelM.toFixed(2)} mTAW
           </div>
         )}
@@ -4290,13 +4291,13 @@ export default function SectionPanel({
 
         {focusedColumn !== null && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-purple-600 text-white text-xs px-3 py-1.5 rounded-full shadow">
-            <span>Focus: {focusedColumn.name}</span>
+            <span>{t('sections.focusLabel', { name: focusedColumn.name })}</span>
             <button
               type="button"
               className="hover:text-purple-200"
               onClick={exitFocus}
-              title="Exit focus mode (Esc)"
-              aria-label="Exit focus mode"
+              title={t('sections.exitFocusHint')}
+              aria-label={t('sections.exitFocus')}
             >
               ✕
             </button>
@@ -4316,11 +4317,11 @@ export default function SectionPanel({
             <EmptyState
               compact
               icon={<Layers />}
-              title="No formation contacts on this section"
+              title={t('sections.noFormationContacts')}
               hint={
                 onAutoPopulateFromStratigraphy
-                  ? "Click 'Seed' in the toolbar to populate from the active model, or draw contacts manually."
-                  : 'Define formations in the Geology stage first, then return here to seed or draw contacts manually.'
+                  ? t('sections.emptyContacts.hintSeed')
+                  : t('sections.emptyContacts.hintDefine')
               }
             />
           </div>
@@ -4370,8 +4371,9 @@ export default function SectionPanel({
             data-testid="section-hidden-footer"
           >
             <span>
-              {section.excluded_cpt_ids.length + section.excluded_borehole_ids.length}{' '}
-              hidden from this section
+              {t('sections.hiddenFooter.count', {
+                n: section.excluded_cpt_ids.length + section.excluded_borehole_ids.length,
+              })}
             </span>
             <button
               type="button"
@@ -4382,9 +4384,9 @@ export default function SectionPanel({
                   excluded_borehole_ids: [],
                 })
               }
-              title="Restore every test hidden from this section. Their columns reappear on the next render."
+              title={t('sections.restoreHidden')}
             >
-              restore all
+              {t('sections.hiddenFooter.restoreAll')}
             </button>
           </div>
         )}
