@@ -91,12 +91,12 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
   const hasGeotechBands = geotechLayers.length > 0
 
   const buildModelLabel = preflight.busy
-    ? 'Subdividing…'
+    ? t('geotech.subdividing')
     : geotechSolidsBuilding
-      ? 'Building…'
+      ? t('litho.building')
       : hasStaleGeotechSolid
-        ? 'Build model · stale'
-        : 'Build model'
+        ? t('litho.buildModelStale')
+        : t('litho.buildModel')
 
   const excludedCount = preflight.excludedFromLastBuild.length
   const excludedNames = preflight.excludedFromLastBuild.map(t => t.name).join(', ')
@@ -126,14 +126,14 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
         testid="geotech-build-model-button"
         title={
           !hasGeotechBands
-            ? 'No geotech bands yet — run "Subdivide all bodies" on the Sections stage (geotech axis) first, then Build'
+            ? t('geotech.buildNoBands')
             : preflight.busy
-              ? 'Subdividing the tests that had no packing bands, then building…'
+              ? t('geotech.buildSubdividingTitle')
               : geotechSolidsBuilding
-                ? 'Building watertight NAD body solids…'
+                ? t('geotech.buildingSolidsTitle')
                 : hasStaleGeotechSolid
-                  ? 'One or more geotech body solids are stale — click to rebuild'
-                  : 'Build the 3-D NAD body solids from the geotech partition'
+                  ? t('geotech.solidsStaleTitle')
+                  : t('geotech.buildSolidsTitle')
         }
       />
       {/* What the last build deliberately left out. Same chip contract as the
@@ -142,14 +142,18 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       {excludedCount > 0 && (
         <AttentionChip
           testid="geotech-excluded-tests-chip"
-          label={`${excludedCount} test${excludedCount === 1 ? '' : 's'} excluded`}
-          title={
-            `The last build ignored ${excludedNames} — ${excludedCount === 1 ? 'it has' : 'they have'} ` +
-            'no packing bands, so the model is the one you had before ' +
-            `${excludedCount === 1 ? 'it was' : 'they were'} imported.`
+          label={
+            excludedCount === 1
+              ? t('geotech.excludedTestsOne', { count: excludedCount })
+              : t('geotech.excludedTestsMany', { count: excludedCount })
           }
-          clickHint="Click to open the next one on a cross-section."
-          ariaHint="Activate to open the next excluded test."
+          title={
+            excludedCount === 1
+              ? t('geotech.excludedTitleOne', { names: excludedNames })
+              : t('geotech.excludedTitleMany', { names: excludedNames })
+          }
+          clickHint={t('geotech.excludedClickHint')}
+          ariaHint={t('geotech.excludedAriaHint')}
           onReveal={preflight.visitNextExcluded}
         />
       )}
@@ -160,10 +164,10 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       {hasGeotechSolids && (
         <ToolbarButton
           icon={<Download size={13} />}
-          label="Export fence"
+          label={t('litho.exportFence')}
           onClick={() => void geotechFenceExportCallback.current?.()}
           testid="geotech-export-fence-button"
-          title="Save the 3-D fence diagram as a DXF (switch the view to Fence first)"
+          title={t('litho.exportFenceHint')}
         />
       )}
       {/* Debt #266 — packing standing on lithology that was edited after the
@@ -182,14 +186,14 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       {hasGeotechSolids && (
         <ToolbarButton
           icon={<RefreshCw size={13} />}
-          label="Reset camera"
+          label={t('litho.resetCamera')}
           onClick={() => {
             // Collapse split viewport (if active) then fly to model bounds —
             // mirrors LithologyToolbar's two-step Reset behaviour.
             resetGeotechSplitViewportCallback.current?.()
             resetGeotechCameraCallback.current?.()
           }}
-          title="Collapse any split view and fly the camera back to the model extent"
+          title={t('litho.resetCameraHint')}
         />
       )}
       <GeotechBuildPreflightDialog
