@@ -24,6 +24,7 @@ import { api } from '../api/client'
 import type { GeologicalModelResponse, ProjectResponse } from '../api/client'
 import type { BulkAnchorGhost } from './useGeologicalModel'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 
 /** Inputs for {@link useLithoModelOps}. */
 export interface UseLithoModelOpsParams {
@@ -121,23 +122,27 @@ export function useLithoModelOps({
         'geology',
         `rebuildLithoSurfaces ok considered=${result.formations_considered} rebuilt=${result.formations_rebuilt}`,
       )
+      const surfaceWord =
+        result.formations_considered === 1
+          ? t('litho.surfaceWordOne')
+          : t('litho.surfaceWordMany')
       if (result.formations_considered === 0) {
-        toast('success', 'No litho formations with contacts yet — nothing to rebuild.')
+        toast('success', t('litho.noFormationsToRebuild'))
       } else if (result.formations_rebuilt === 0) {
-        toast(
-          'success',
-          `Litho cache in sync (${result.formations_considered} ` +
-            `surface${result.formations_considered === 1 ? '' : 's'} checked).`,
-        )
+        toast('success', t('litho.cacheInSync', { n: result.formations_considered, surfaceWord }))
       } else {
         toast(
           'success',
-          `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} litho surface${result.formations_considered === 1 ? '' : 's'}.`,
+          t('litho.rebuiltSurfaces', {
+            rebuilt: result.formations_rebuilt,
+            considered: result.formations_considered,
+            surfaceWord,
+          }),
         )
       }
     } catch (err) {
       log.error('geology', 'rebuildLithoSurfaces failed', err)
-      toast('error', 'Could not rebuild litho surfaces — see console.')
+      toast('error', t('litho.rebuildSurfacesFailed'))
     }
   }, [project, refetchLithoSurfaces, toast])
 
@@ -177,13 +182,18 @@ export function useLithoModelOps({
       toast(
         'success',
         total === 0
-          ? 'Litho model already empty.'
-          : `Cleared litho model — ${result.contacts} contact${result.contacts === 1 ? '' : 's'}, ` +
-              `${result.formations} unit${result.formations === 1 ? '' : 's'} removed.`,
+          ? t('litho.modelAlreadyEmpty')
+          : t('litho.clearedModel', {
+              c: result.contacts,
+              contactWord:
+                result.contacts === 1 ? t('litho.contactWordOne') : t('litho.contactWordMany'),
+              u: result.formations,
+              unitWord: result.formations === 1 ? t('litho.unitWordOne') : t('litho.unitWordMany'),
+            }),
       )
     } catch (err) {
       log.error('geology', 'clearLithoModel failed', err)
-      toast('error', 'Could not clear litho model — see console.')
+      toast('error', t('litho.clearModelFailed'))
     }
   }, [project, refetchLithoContacts, refetchFormations, refetchLithoSurfaces, toast, markMutated])
 
@@ -196,7 +206,7 @@ export function useLithoModelOps({
       if (!project) return null
       const parent = activeGeologicalModelRef.current
       if (!parent) {
-        toast('error', 'Create a geological model before adding a lithostratigraphic one.')
+        toast('error', t('litho.createGeoModelFirst'))
         return null
       }
       try {
@@ -211,7 +221,7 @@ export function useLithoModelOps({
         return created
       } catch (err) {
         log.error('geology', `handleCreateLithoModel failed (${name})`, err)
-        toast('error', 'Could not create the lithostratigraphic model.')
+        toast('error', t('litho.createModelFailed'))
         return null
       }
     },
@@ -229,7 +239,7 @@ export function useLithoModelOps({
         log.success('geology', `activated litho model ${modelId}`)
       } catch (err) {
         log.error('geology', `handleActivateLithoModel failed ${modelId}`, err)
-        toast('error', 'Could not activate the lithostratigraphic model.')
+        toast('error', t('litho.activateModelFailed'))
       }
     },
     [project, refreshModels, toast],
@@ -268,9 +278,7 @@ export function useLithoModelOps({
         // Surface the server's reason (del() now carries `detail`).
         toast(
           'error',
-          err instanceof Error
-            ? err.message
-            : 'Could not delete the lithostratigraphic model.',
+          err instanceof Error ? err.message : t('litho.deleteModelFailed'),
         )
         throw err
       }
