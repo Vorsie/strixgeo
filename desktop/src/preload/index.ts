@@ -273,6 +273,13 @@ contextBridge.exposeInMainWorld('electron', {
   // open state and its persisted "seen" flag.
   onMenuOpenOnboarding: (cb: () => void) => onMenuEvent('menu:open-onboarding', cb),
 
+  // "Load sample project" (#93, owner ruling A8). ``sampleAvailable`` reports
+  // whether the worked example ships in this build; ``sampleInstall`` copies it
+  // to a user-chosen location and returns that path (null when cancelled or
+  // when no sample is bundled), which the renderer then opens.
+  sampleAvailable: (): Promise<boolean> => ipcRenderer.invoke('sample:available'),
+  sampleInstall: (): Promise<string | null> => ipcRenderer.invoke('sample:install'),
+
   // --- Guided tutorial (#93, spec 2026-09-02) -----------------------------
   // Help → Tutorial (start / resume) and Restart tutorial. One-way fire; the
   // renderer owns the overlay's active flag and its persisted progress.
