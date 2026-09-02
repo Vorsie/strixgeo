@@ -476,17 +476,20 @@ relatieve dichtheid van de sondering."
 
 **Shot 3 — Correlate and recompute.**
 On screen: the recompute-bodies control in the section (`sections-recompute-bodies`).
-<!-- CHECK: exact recompute-bodies label; Join / Separate verb labels -->
-Action: recompute the bodies. Use Join or Separate on two masses.
-EN: "Recompute the bodies. Then use Join with, or Separate, where two masses are,
-or are not, the same body. Join groups similar masses so you carry more data and
-fewer export classes. Separate keeps two touching masses apart for good."
-NL: "Herbereken de bodies. Gebruik daarna Voeg samen met, of Scheiden, waar twee
-massa's wel of niet dezelfde body zijn. Voeg samen groepeert gelijkaardige massa's
-zodat je meer data en minder exportklassen draagt. Scheiden houdt twee rakende
-massa's definitief uit elkaar."
+<!-- CHECK: exact recompute-bodies label -->
+Action: recompute the bodies. Right-click a body and use Join with… on a similar
+mass; right-click a grouped body and use Un-join from… to undo it.
+EN: "Recompute the bodies. Then right-click a body and choose Join with, where two
+masses belong together. Join groups similar masses, so you carry more data and
+fewer export classes. Each body keeps its own identity. Un-join takes a body out of
+its group again."
+NL: "Herbereken de lichamen. Rechtsklik daarna een lichaam en kies Voeg samen met,
+waar twee massa's bij elkaar horen. Samenvoegen groepeert gelijkaardige massa's,
+zodat je meer data en minder exportklassen draagt. Elk lichaam houdt zijn eigen
+identiteit. Ontkoppelen haalt een lichaam weer uit zijn groep."
 <!-- DRAFT: owner to confirm -->
-<!-- CHECK: the spec names the separation verb "Ontkoppelen"; the shipped NL catalogue and owner rulings use "Scheiden van..." and "Voeg samen met...". Script uses the shipped terms. -->
+(The shipped verbs are "Join with…" / "Un-join from…", NL "Voeg samen met…" /
+"Ontkoppelen van…". Separate and Rejoin were removed on 2026-09-01.)
 
 **Closing:** "The three models are built. Next, we read their statistics."
 NL: "De drie modellen staan. Hierna lezen we hun statistiek af."
@@ -518,7 +521,7 @@ Point at the fence cutout.
 EN: "Pick a unit to see its statistics, pooled across every body that belongs to
 it. The fence cutout shows the same unit in the ground, so you check the number
 against the shape. These are characterisation statistics, not design parameters."
-NL: "Kies een eenheid om haar statistiek te zien, samengevoegd over elke body die
+NL: "Kies een eenheid om haar statistiek te zien, samengevoegd over elk lichaam dat
 erbij hoort. De fence-uitsnede toont dezelfde eenheid in de ondergrond, zodat je
 het getal aan de vorm toetst. Dit is karakterisatie-statistiek, geen
 ontwerpparameters."
