@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import type { GeologicalModelResponse, ProjectResponse } from '../../../api/client'
 import { DEFAULT_GEOTECH_STATISTIC, type GeotechStatistic } from '../../../utils/geotechStatistic'
+import { t } from '../../../i18n/translate'
 
 /** What the statistic hook needs from the shell bus. */
 export interface UseGeotechStatisticDeps {
@@ -126,11 +127,7 @@ export function useGeotechStatistic({
         // Nothing to write to yet — park the choice and say what will consume
         // it. No markMutated: no row changed, so the project is not dirty.
         setPendingStatistic(statistic)
-        toast(
-          'success',
-          `Representative statistic set to ${statistic} — press "1 · Subdivide CPTs" ` +
-            'to build the packing bands under it.',
-        )
+        toast('success', t('sections.stat.setBuild', { statistic }))
         return
       }
       void api.geology
@@ -145,12 +142,12 @@ export function useGeotechStatistic({
           toast(
             'success',
             result.bands_stale
-              ? `Representative statistic set to ${statistic} — press "1 · Subdivide CPTs" to re-classify the bands under it.`
-              : `Representative statistic set to ${statistic}.`,
+              ? t('sections.stat.setReclassify', { statistic })
+              : t('sections.stat.set', { statistic }),
           )
         })
         .catch((err: unknown) => {
-          toast('error', err instanceof Error ? err.message : 'Could not set the statistic.')
+          toast('error', err instanceof Error ? err.message : t('sections.toolbar.statisticFailed'))
         })
     },
     [project, activeGeotechModel, markMutated, toast],
