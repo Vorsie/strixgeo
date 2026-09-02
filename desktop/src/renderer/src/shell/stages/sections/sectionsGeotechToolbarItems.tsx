@@ -98,14 +98,14 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           id: 'geotech-statistic-menu',
           priority: 'high',
           kind: 'dropdown',
-          label: `qc: ${geotechStatistic}`,
+          label: t('sections.geotech.qcLabel', { statistic: geotechStatistic }),
           iconOnly: false,
           separatorBefore: true,
           overflowItems: geotechStatisticMenuItems,
           render: () => (
             <ToolbarDropdown
               icon={<FlaskConical size={13} />}
-              label={`qc: ${geotechStatistic}`}
+              label={t('sections.geotech.qcLabel', { statistic: geotechStatistic })}
               title={t('sections.geotech.statisticMenuTitle')}
               testid="geotech-statistic-menu"
               items={geotechStatisticMenuItems}
