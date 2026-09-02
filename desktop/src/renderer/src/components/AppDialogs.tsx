@@ -18,6 +18,7 @@ import ProjectMetadataDialog from './ProjectMetadataDialog'
 import UnsavedChangesDialog from './UnsavedChangesDialog'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
+import { useT } from '../i18n/translate'
 
 export interface AppDialogsProps {
   toasts: Toast[]
@@ -90,6 +91,8 @@ export default function AppDialogs({
   setCloseConfirmOpen,
   closeProject,
 }: AppDialogsProps): JSX.Element {
+  // Named ``tr`` to avoid shadowing the ``t`` toast used in the map below.
+  const tr = useT()
   return (
     <>
       {/* Toast stack — z-[1100] keeps it above Leaflet's stacked
@@ -119,7 +122,7 @@ export default function AppDialogs({
               <button
                 type="button"
                 onClick={() => dismissToast(t.id)}
-                aria-label="Dismiss notification"
+                aria-label={tr('app.dismissNotification')}
                 data-testid="toast-dismiss"
                 className="shrink-0 rounded p-0.5 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60"
               >
@@ -177,15 +180,13 @@ export default function AppDialogs({
             id="close-project-title"
             className="text-sm font-semibold text-text-primary mb-1"
           >
-            Close this project?
+            {tr('project.closeConfirmTitle')}
           </h2>
           <p className="text-xs text-text-muted mb-4">
             <span className="font-medium text-text-secondary">
               {project.name}
             </span>{' '}
-            will close and you&apos;ll be returned to the welcome screen.
-            The .gmproj file and your saved data are kept — you can reopen
-            from the Recent list.
+            {tr('project.closeConfirmBodyDetailed')}
           </p>
           <div className="flex justify-end gap-2">
             <Button
@@ -193,7 +194,7 @@ export default function AppDialogs({
               size="md"
               onClick={() => setCloseConfirmOpen(false)}
             >
-              Cancel
+              {tr('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -203,7 +204,7 @@ export default function AppDialogs({
                 closeProject()
               }}
             >
-              Close project
+              {tr('project.close')}
             </Button>
           </div>
         </div>
