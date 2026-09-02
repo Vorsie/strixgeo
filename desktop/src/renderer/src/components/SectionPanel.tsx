@@ -53,7 +53,6 @@ import type {
   FormationContactResponse,
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
-  GeologicalFormationResponse,
   CrossingPinchOut,
   LithoContactCorrelationEdge,
   LithoBodySolidResponse,
@@ -230,15 +229,6 @@ import { geotechUnitColor, nadClassName } from '../utils/nadClasses'
 
 interface Props {
   section: CrossSectionResponse
-  /** Project-level vertical EPSG used for the y-axis label.
-   * ``null`` → the axis renders without a datum suffix (just
-   * "Level (m)"). */
-  zEpsg?: number | null
-  /** All CPTs in the project. The panel filters down to those that
-   * project within the section's buffer + endpoints. */
-  cpts?: readonly CptListItem[]
-  /** All boreholes in the project. Same filter as cpts. */
-  boreholes?: readonly BoreholeListItem[]
   /** Patch the section row server-side. Called on slider release
    * for ``projection_buffer_m`` and ``vertical_exaggeration`` and
    * on every channel-toggle click for ``view_state.cpt_channels``,
@@ -287,19 +277,10 @@ interface Props {
    * Absent in the test-render path and wherever nothing needs to reveal.
    */
   columnRevealRef?: MutableRefObject<SectionColumnRevealFn | null>
-  /** Active geological model's formation contacts — render as the
-   * Phase 4 editor overlay (horizontal lines connecting picks per
-   * formation across the projected investigations). Filtered by the
-   * section's ``seeded_formation_contact_ids`` (the explicit-content
-   * invariant), so it's a SUBSET of the active model's contacts. */
-  contacts?: readonly FormationContactResponse[]
   /** P1b (dogfeed 2026-05-30) — forwarded to ContactsLayer so the
    *  matching contact renders at the live depth during a cross-store
    *  suggestion drag. SectionsCanvas owns the state. */
   liveContactDepthOverride?: { contactId: string; depthM: number } | null
-  /** Formation vocabulary — used to colour each contact polyline
-   * with the formation's own colour. */
-  formations?: readonly GeologicalFormationResponse[]
   /** Click-to-place hook. Fires when the user picks a formation on
    * the picker modal — caller (App) POSTs the contact and updates
    * the contacts state. Omitting it leaves the section read-only.
@@ -444,24 +425,6 @@ interface Props {
    * geological model) hides the button. */
   onExportDxf?: () => Promise<void>
   /**
-   * Which model axis is active on this section.  Defaults to
-   * ``'geological'`` (existing behaviour — zero regression).
-   *
-   * When ``'lithostratigraphic'``, the formation-contact picker
-   * renders ``LithoCompositionPickerDialog`` instead of
-   * ``FormationPickerDialog``.  The geological + geotechnical axes
-   * use the original dialog unchanged.
-   *
-   * When ``'geotechnical'``, contact and band rendering mirrors the
-   * lithostratigraphic axis: ``PartitionFillOverlay`` renders bands
-   * coloured by ``geotechUnitColor`` (the engineer's own pick where he
-   * made one, else the NAD class colour), and the label shows the NAD
-   * class name (via ``nadClassName``).  Litho-only
-   * gestures (correlation, auto-correlate, lens detection) are
-   * excluded — the geotech axis is view-only for F3.
-   */
-  axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
-  /**
    * Litho axis: fired when the user picks a composition in the "New
    * unit" tab of ``LithoCompositionPickerDialog``.  The caller posts
    * the synthetic accept-litho-suggestions payload and returns the
@@ -504,21 +467,6 @@ interface Props {
     depthM: number,
     formationId: string,
   ) => Promise<void>
-  /**
-   * Geotech axis only — when true the geotech model for this section has
-   * not yet been built, so the NAD subdivision suggestion flow is
-   * unavailable.  Forwarded to ``CanvasHints`` to surface a discoverability
-   * hint (``data-testid="geotech-not-built-hint"``).  No-op on other axes.
-   */
-  geotechNotReconciled?: boolean
-  /**
-   * Active lithostratigraphic model id.  Required for the lens-naming
-   * context-menu gesture — passed through so the action always has a
-   * valid model UUID even when no contacts have been seeded yet.
-   * When absent (or when ``axisMode !== 'lithostratigraphic'``) the
-   * lens-naming menu item is hidden.
-   */
-  activeLithoModelId?: string | null
   /** Fire the "Seed from stratigraphy" header action. Receives the
    * borehole IDs projected onto the active section (computed here
    * from placedColumns); the handler scopes the auto-populate call
@@ -826,14 +774,9 @@ interface Props {
 
 export default function SectionPanel({
   section,
-  zEpsg = null,
-  cpts = [],
-  boreholes = [],
   onPatch,
   onClose,
-  contacts = [],
   liveContactDepthOverride,
-  formations = [],
   onCreateContact,
   onUpdateContactDepth,
   onDeleteContact,
@@ -864,11 +807,8 @@ export default function SectionPanel({
   bulkLithoGhostState,
   onInspectLensBody,
   onPropagateAdmixtures,
-  axisMode = 'geological',
   onManualLithoUnitCreate,
   onLithoExistingUnitPick,
-  geotechNotReconciled = false,
-  activeLithoModelId,
   onEditInGeologyStage,
   contactGestureState,
   onUnapprovedDragStart,
@@ -893,8 +833,19 @@ export default function SectionPanel({
   // read the catalogue. Placed first so it sits above every early return / hook.
   const t = useT()
   // Section-scoped data slices (debt #201 round 2 / #178): provided by
-  // SectionsCanvas via SectionScopeContext instead of prop-threading.
+  // SectionsCanvas via SectionScopeContext instead of prop-threading. The
+  // first eight moved off Props in Phase B; their defaults mirror the old
+  // destructure defaults so provider-less test mounts keep prop-omitted
+  // behaviour.
   const {
+    zEpsg = null,
+    cpts = [],
+    boreholes = [],
+    contacts = [],
+    formations = [],
+    axisMode = 'geological',
+    geotechNotReconciled = false,
+    activeLithoModelId,
     focusableContacts,
     excludedBoreholeIds,
     surfacesByFormationId,
