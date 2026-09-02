@@ -8,7 +8,7 @@
 // moved. The hook call sits after ``axisLevelLabel`` in the toolbar because the
 // D-Series items read it.
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { useDseriesExportItems } from './useDseriesExportItems'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
@@ -31,21 +31,18 @@ export interface UseSectionExportVerbsDeps {
   project: ProjectResponse
   axisLevelLabel: string
   handleExportSectionDxf: Coordinator['handleExportSectionDxf']
-  handleExportSectionPdf: Coordinator['handleExportSectionPdf']
   handleExportModelPlaxis3d: UseGeologicalModelResult['handleExportModelPlaxis3d']
 }
 
-/** The export busy flags, handlers, PDF dialog state and D-Series items. */
+/** The export busy flags, handlers, sheet-preview dialog state and D-Series items. */
 export interface UseSectionExportVerbsResult {
   exportingDxf: boolean
   exportingPlaxis: boolean
-  exportingPdf: boolean
-  pdfDialogOpen: boolean
-  setPdfDialogOpen: (open: boolean) => void
-  pdfDefaultTitle: string
+  /** The cross-section PDF sheet preview dialog (replaces the old metadata dialog). */
+  sheetDialogOpen: boolean
+  setSheetDialogOpen: (open: boolean) => void
   handleExportDxf: () => Promise<void>
   handleExportPlaxis: () => Promise<void>
-  handleExportPdf: (metadata: { title: string; author: string; notes: string }) => Promise<void>
   dseriesExportItems: ToolbarDropdownItem[]
 }
 
@@ -73,7 +70,6 @@ export function useSectionExportVerbs({
   project,
   axisLevelLabel,
   handleExportSectionDxf,
-  handleExportSectionPdf,
   handleExportModelPlaxis3d,
 }: UseSectionExportVerbsDeps): UseSectionExportVerbsResult {
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
@@ -128,37 +124,11 @@ export function useSectionExportVerbs({
     }
   }
 
-  // Debt #52 slice 1: PDF metadata dialog + handler. The Export
-  // dropdown's "Section PDF" item opens this dialog (title / author /
-  // notes); on Generate, the App-level handleExportSectionPdf owns
-  // the save-dialog + file-write flow.
-  const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
-  const [exportingPdf, setExportingPdf] = useState(false)
-  const pdfDefaultTitle = useMemo(
-    () => (selectedSection ? `Cross-section: ${selectedSection.name}` : 'Cross-section'),
-    [selectedSection],
-  )
-  async function handleExportPdf(metadata: {
-    title: string
-    author: string
-    notes: string
-  }): Promise<void> {
-    const axisModel = axisModelForExport()
-    if (!selectedSection || !axisModel || exportingPdf) return
-    setExportingPdf(true)
-    try {
-      await handleExportSectionPdf(
-        project.id,
-        selectedSection.id,
-        selectedSection.name,
-        axisModel.id,
-        metadata,
-      )
-      setPdfDialogOpen(false)
-    } finally {
-      setExportingPdf(false)
-    }
-  }
+  // Debt #52 slice 1: the cross-section PDF sheet. The Export dropdown's
+  // "Section PDF" item opens the live preview dialog (SheetPreviewDialog),
+  // which owns its own save-dialog + Chromium print flow — the App-level
+  // matplotlib PDF handler is retired.
+  const [sheetDialogOpen, setSheetDialogOpen] = useState(false)
 
   // The two closed-geometry exports (D-Stability / D-Sheet Piling). They own
   // their own busy state and handlers because, unlike DXF / PDF / Plaxis, they
@@ -174,13 +144,10 @@ export function useSectionExportVerbs({
   return {
     exportingDxf,
     exportingPlaxis,
-    exportingPdf,
-    pdfDialogOpen,
-    setPdfDialogOpen,
-    pdfDefaultTitle,
+    sheetDialogOpen,
+    setSheetDialogOpen,
     handleExportDxf,
     handleExportPlaxis,
-    handleExportPdf,
     dseriesExportItems,
   }
 }
