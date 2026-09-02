@@ -18,6 +18,7 @@ import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
 import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
 import { buildContactOverlays } from '../../../utils/contactOverlays'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Center canvas for the Data stage.
@@ -38,6 +39,7 @@ import { buildContactOverlays } from '../../../utils/contactOverlays'
  *     The data canvas element.
  */
 export default function DataCanvas(): JSX.Element {
+  const t = useT()
   const {
     visibleCpts,
     visibleBoreholes,
@@ -157,13 +159,13 @@ export default function DataCanvas(): JSX.Element {
         <div className="flex items-center gap-1 px-3 py-1 border-b border-border-subtle bg-surface-card">
           <ViewTab
             icon={<MapIcon size={13} />}
-            label="Map"
+            label={t('data.canvas.map')}
             active={view === 'map'}
             onClick={() => setView('map')}
           />
           <ViewTab
             icon={<BarChart2 size={13} />}
-            label="Chart"
+            label={t('data.canvas.chart')}
             active={view === 'chart'}
             onClick={() => setView('chart')}
           />
@@ -230,7 +232,7 @@ export default function DataCanvas(): JSX.Element {
               contactOverlays={boreholeContactOverlays}
             />
           ) : (
-            <LoadingState label="Loading borehole…" />
+            <LoadingState label={t('data.canvas.loadingBorehole')} />
           )
         ) : selectedCpt && plotMap.has(selectedId!) ? (
           <CptChart
@@ -257,7 +259,7 @@ export default function DataCanvas(): JSX.Element {
             contactOverlays={cptContactOverlays}
           />
         ) : (
-          <LoadingState label="Loading chart…" />
+          <LoadingState label={t('data.canvas.loadingChart')} />
         )}
       </div>
 
@@ -275,17 +277,17 @@ export default function DataCanvas(): JSX.Element {
           // progress/result without trapping focus — correct semantics
           // for a non-blocking status, unlike the prior role=dialog.
           role="status"
-          aria-label="DOV import status"
+          aria-label={t('data.import.status')}
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1100] w-80 bg-surface-overlay border border-border-default text-text-primary rounded-lg shadow-lg px-5 py-4 flex flex-col gap-3"
         >
           <h2 className="text-sm font-semibold text-text-primary">
             {dovImportState.status === 'running'
               ? dovImportState.kind === 'cpt'
-                ? 'Importing CPTs from DOV…'
-                : 'Importing boreholes from DOV…'
+                ? t('data.import.importingCpts')
+                : t('data.import.importingBoreholes')
               : dovImportState.status === 'done'
-              ? 'Import complete'
-              : 'Import failed'}
+              ? t('data.import.complete')
+              : t('data.import.importFailed')}
           </h2>
 
           <DovImportProgressPanel state={dovImportState} />
@@ -299,7 +301,7 @@ export default function DataCanvas(): JSX.Element {
                 onClick={resetDovImport}
                 className="px-3 py-1.5 text-xs font-medium rounded bg-surface-card text-text-primary hover:bg-border-default transition-colors"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           )}
