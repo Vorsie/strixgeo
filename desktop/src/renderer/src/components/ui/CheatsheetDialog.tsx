@@ -18,6 +18,7 @@ import { Keyboard, Search, SearchX, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import Modal from './Modal'
+import { useT } from '../../i18n/translate'
 
 /** One gesture / shortcut entry. ``trigger`` is the key combo or mouse
  *  gesture; ``action`` is what it does. Both feed the search filter. */
@@ -200,6 +201,7 @@ interface Props {
  *     click — the last two are wired by the shared ``Modal``).
  */
 export default function CheatsheetDialog({ open, onClose }: Props): JSX.Element {
+  const t = useT()
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -247,13 +249,13 @@ export default function CheatsheetDialog({ open, onClose }: Props): JSX.Element 
             id="cheatsheet-title"
             className="text-base font-semibold text-text-primary flex-1"
           >
-            Gestures & shortcuts
+            {t('cheatsheet.title')}
           </h2>
           <button
             type="button"
             onClick={onClose}
             data-testid="cheatsheet-close"
-            aria-label="Close cheatsheet"
+            aria-label={t('cheatsheet.close')}
             className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-card"
           >
             <X size={16} />
@@ -273,8 +275,8 @@ export default function CheatsheetDialog({ open, onClose }: Props): JSX.Element 
               value={query}
               onChange={e => setQuery(e.target.value)}
               data-testid="cheatsheet-search"
-              placeholder="Search gestures — e.g. marquee, alt, zoom"
-              aria-label="Search gestures"
+              placeholder={t('cheatsheet.searchPlaceholder')}
+              aria-label={t('cheatsheet.search')}
               className="w-full border border-border-default rounded pl-8 pr-3 py-1.5 text-sm bg-surface-overlay text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
@@ -288,7 +290,7 @@ export default function CheatsheetDialog({ open, onClose }: Props): JSX.Element 
               className="flex flex-col items-center gap-2 text-text-muted py-10 text-center"
             >
               <SearchX size={20} />
-              <p className="text-sm">No gesture matches “{query.trim()}”.</p>
+              <p className="text-sm">{t('cheatsheet.noMatch', { query: query.trim() })}</p>
             </div>
           ) : (
             filtered.map(group => (
