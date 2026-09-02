@@ -38,6 +38,7 @@ import {
   type IssueFailureCode,
   type IssueResult,
 } from './activationRepository'
+import { postJson, type HttpPostResult } from './httpPostJson'
 
 /** Milliseconds in a day — the wire carries grace as a whole-day count. */
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -103,9 +104,7 @@ export function maskLicenceKey(key: string): string {
 }
 
 /** A finished HTTP round-trip, or the flag that no answer came back. */
-type Transport =
-  | { kind: 'response'; status: number; body: unknown }
-  | { kind: 'network-failure' }
+type Transport = HttpPostResult
 
 /** True for a JSON object (and not an array or null). */
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -229,29 +228,13 @@ export class HttpActivationRepository implements ActivationRepository {
    *     connection failure.
    */
   private async send(path: string, body: unknown): Promise<Transport> {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs)
-    try {
-      const response = await this.fetchImpl(`${this.baseUrl}/${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-      let parsed: unknown = null
-      try {
-        parsed = await response.json()
-      } catch {
-        // A 2xx with no/invalid JSON is unreadable; a non-2xx with none maps by
-        // status alone. Either way, null body is a fine sentinel here.
-        parsed = null
-      }
-      return { kind: 'response', status: response.status, body: parsed }
-    } catch {
-      return { kind: 'network-failure' }
-    } finally {
-      clearTimeout(timer)
-    }
+    // The fetch + timeout + parse-or-null plumbing lives in the shared
+    // {@link ./httpPostJson} helper (the diagnostics uploader is its second
+    // caller); this method only joins the path onto the base URL.
+    return postJson(`${this.baseUrl}/${path}`, body, {
+      fetchImpl: this.fetchImpl,
+      timeoutMs: this.timeoutMs,
+    })
   }
 }
 
