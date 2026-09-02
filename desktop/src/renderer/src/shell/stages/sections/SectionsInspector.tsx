@@ -346,6 +346,7 @@ export default function SectionsInspector(): JSX.Element {
             </select>
             <p className="text-xs text-text-muted mt-1">
               {t('sections.geologyBackdropHint')}{' '}
+              {/* i18n-exempt: &nbsp; is a non-breaking space, not translatable copy */}
               {t('sections.inspector.backdropClickPrefix')}&nbsp;
               <em>{t('sections.inspector.syncGeology')}</em>{' '}
               {t('sections.inspector.backdropClickSuffix')}
@@ -964,7 +965,10 @@ function SectionProperties({
           </button>
         )}
         <p className="text-[10px] text-text-muted mt-0.5">
-          {lengthM.toFixed(0)} m · EPSG:{section.epsg}
+          {t('sections.inspector.lengthEpsg', {
+            length: lengthM.toFixed(0),
+            epsg: section.epsg,
+          })}
         </p>
       </div>
 
