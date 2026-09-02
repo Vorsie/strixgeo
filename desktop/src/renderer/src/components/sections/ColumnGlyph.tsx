@@ -27,6 +27,7 @@
  */
 
 import type { ColumnLabelMode } from '../../utils/columnLabelLod'
+import { useT } from '../../i18n/translate'
 
 // Theme-aware via CSS vars (index.css): :root == the prior hard-coded
 // hex (light byte-identical), .dark lifts them off the dark plot bg
@@ -95,6 +96,7 @@ export default function ColumnGlyph({
   /** Mouse-leave handler — paired with ``onMouseEnter``. */
   onMouseLeave?: () => void
 }): JSX.Element | null {
+  const t = useT()
   const sx = screenX
   // ``null`` elevation gets the column floated at level=0 in a
   // faded tone so the user sees "this exists but we can't position
@@ -162,10 +164,12 @@ export default function ColumnGlyph({
           handling adds offset indicators / leader lines in S5. */}
       <title>
         {`${name}`}
-        {elevation !== null ? ` · ${elevation.toFixed(2)} m` : ' · elevation unknown'}
-        {depth !== null ? ` · ${depth.toFixed(1)} m deep` : ''}
-        {` · ${Math.abs(offset).toFixed(1)} m off-line`}
-        {onClick ? ' · click for detail' : ''}
+        {elevation !== null
+          ? ` · ${elevation.toFixed(2)} m`
+          : t('sections.glyph.elevationUnknown')}
+        {depth !== null ? t('sections.glyph.deep', { depth: depth.toFixed(1) }) : ''}
+        {t('sections.glyph.offLine', { offset: Math.abs(offset).toFixed(1) })}
+        {onClick ? t('sections.glyph.clickForDetail') : ''}
       </title>
 
       {/* Tie-back: short tick at the true X on the top axis +
