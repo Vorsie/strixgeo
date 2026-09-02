@@ -345,13 +345,31 @@ before ANY binary leaves this machine** — beta testers and the coworker handof
 included (rulings 5-7; this re-sequences `memory/project_coworker_distribution.md`,
 which had assumed an internal handoff *before* hardening). **Implemented** (this
 slice, working tree): `scripts/compile-backend-natives.ps1` +
-`scripts/native_compile_manifest.py` compile 66 modules (voxel-litho builder,
-NAD classifier, representative statistic, all GEF/DOV parsers) to native `.pyd`
-in the staged tree, driven from `build-embedded-python.ps1`; two gates (smoke +
+`scripts/native_compile_manifest.py` compile 132 modules (the voxel-litho builder
++ whole `domain/services` modelling engine, all GEF/DOV parsers, and the
+application-layer geotech/body engine) to native `.pyd` in the staged tree,
+driven from `build-embedded-python.ps1`; two gates (smoke +
 `verify-staged-natives.ps1`) EXECUTE the artifacts before the dist build
-proceeds. Carve-outs: `greedy_mesh.py` (Numba), every `__init__.py`;
-`geotech_band_reclassification.py` deferred pending decision C3. Full design:
-[docs/distribution-build.md](distribution-build.md) "The compiled subset".
+proceeds. Carve-outs: `greedy_mesh.py` (Numba), every `__init__.py`,
+`geotech_column_sampler` (Nuitka lens-drop) + the five source `domain/services`
+modules; C3 (`geotech_band_reclassification`) landed and ships compiled. Full
+design: [docs/distribution-build.md](distribution-build.md) "The compiled subset".
+
+**Q1 landed 2026-09-02 (owner ruling Q1, 2026-09-01 — compile the engine-class
+`application/` modules too).** 12 modules added to the manifest: `divide_boreholes`,
+`subdivide_all_bodies`, `geotech_edge_derivation`, `build_voxel_litho_model`, the
+in-module geotech band-edit planning + tie/pair reanchor (`geotech_band_edit_helpers`,
+`geotech_tie_reanchor`, `pair_ruling_reanchor`), and the section/wedge/companion/
+stratigraphy/export geometry with no compiled-domain home (`build_section_polygons`,
+`create_perpendicular_companion`, `materialize_wedge_tips_for_formation`,
+`stratigraphy_bridge`, `thin_export_units`). **No Nuitka carve-out** — all 12
+compile + import clean. The band-reclassification hand-edit verbs (merge/split/
+move/preview) and the body resolver/recompute use cases stay source because they
+**delegate** to a compiled `domain/services` service (that delegation boundary is
+the algorithm/orchestration line). Set pinned by
+`tests/unit/scripts/test_native_compile_manifest.py`; proven against the staged
+`.pyd` by the geotech/voxel/body integration suites (impure async-ORM layer, so
+the integration gate — not the unit gate — is authoritative).
 
 **Residual — the TypeScript engine is NOT protected (open owner decision).** A
 large share of the interpretation engine lives in the renderer as TypeScript
