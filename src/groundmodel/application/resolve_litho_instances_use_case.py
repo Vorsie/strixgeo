@@ -38,7 +38,6 @@ from groundmodel.domain.services.resolve_litho_instances import (
     LayerEdge,
     LayerNode,
     LayerSeparation,
-    LayerUnion,
     resolve_litho_instances,
 )
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
@@ -129,12 +128,15 @@ class ResolveResult:
         won, or a shift where the survivor's own name gave way). Surfaced so
         the recompute toast can say what happened to the engineer's labels.
     inert_unions : tuple[tuple[UUID, UUID], ...]
-        Canonical layer pairs of every user "Join with…" union this resolve found
-        INERT (a class mismatch — never a mixed body). Surfaced so a caller can
-        tell the engineer their join did nothing instead of a silent WARNING.
+        ALWAYS EMPTY since owner 2026-09-02: a "Join with…" is a GROUP relation,
+        not a merge, so the resolver is passed ``unions=()`` and never marks a union
+        inert. The "never a mixed body" guard now runs at write time in the
+        body-unions router. Kept (empty) for schema stability — the router still
+        reads it as a defensive backstop.
     suppressed_unions : tuple[tuple[UUID, UUID], ...]
-        Canonical layer pairs of every user union this resolve found SUPPRESSED
-        (a standing separation overruled it — cannot-link wins). Same rationale.
+        ALWAYS EMPTY since owner 2026-09-02 (and since separations went dormant,
+        2026-09-01): a union never enters the partition, so nothing can suppress it.
+        Kept (empty) for schema stability.
     """
 
     updated: list[OrdinalUpdate]
@@ -186,10 +188,10 @@ async def _run_resolver(
 tuple[tuple[UUID, UUID], ...]]
         One ``{"formation_id": str, "new_ordinal": int}`` per body whose ordinal
         changed (drives the section's stale-surface cue); the names displaced by
-        lineage adoption; the canonical layer pairs of every user "Join with…"
-        union the resolve found INERT (class re-derived apart); and of every one
-        it found SUPPRESSED (a standing separation overruled it). The last two let
-        a caller surface a join that did nothing beyond a server-side WARNING.
+        lineage adoption; and two ALWAYS-EMPTY tuples (inert / suppressed union
+        pairs). Since owner 2026-09-02 a "Join with…" is a GROUP relation, not a
+        merge, so ``unions=()`` is passed to the resolver — it never marks a union
+        inert or suppressed. The two tuples are kept for signature stability.
     """
     repo = GeologyRepository(session)
     logger = _RunResolverLogger()
@@ -343,13 +345,16 @@ tuple[tuple[UUID, UUID], ...]]
     ).all()
     separations = [LayerSeparation(layer_a_id=a, layer_b_id=b) for a, b in separation_rows]
 
-    # 2d. User "Join with…" rulings (debt #278) — must-link constraints that MERGE
-    #     two anchors even with no tie or fact between them. ONLY the user writes
-    #     these (the tombstone rule), the mirror of the separations above. The
-    #     resolver rides the same guards: a dangling anchor drops silently, a union
-    #     that would make a mixed body is inert, and a union contradicting a
-    #     standing separation is suppressed (cannot-link wins). The last two come
-    #     back on the result so they can be warned about below.
+    # 2d. User "Join with…" GROUP rulings (debt #278). DORMANT for identity since
+    #     owner 2026-09-02: a union is a GROUP relation, NOT a merge — it lumps
+    #     similar bodies for exports / display ("group 3 (silt FF)") and must NEVER
+    #     change a body_id. Body identity is geometry-only, so these rows are NOT
+    #     fed to the resolver as must-links (``unions=()`` below); the grouping is
+    #     resolved client-side (``geotechGroupOrdinals``). We still COUNT them for
+    #     the phase log, and EVERY OTHER use of the rows is untouched (the
+    #     body_union table, its router, the re-anchor across a re-subdivide, and
+    #     .strix bundle persistence), so a group survives a recompute / re-subdivide
+    #     / reopen. Mirrors the dormant ``separations`` handling above.
     union_rows = (
         await session.execute(
             select(
@@ -358,7 +363,6 @@ tuple[tuple[UUID, UUID], ...]]
             ).where(BodyUnionOrm.model_id == model_id)
         )
     ).all()
-    unions = [LayerUnion(layer_a_id=a, layer_b_id=b) for a, b in union_rows]
 
     logger.debug(
         f"_run_resolver: {len(nodes)} layer(s), {len(edge_rows)} edge(s), "
@@ -366,15 +370,16 @@ tuple[tuple[UUID, UUID], ...]]
         f"{len(union_rows)} union(s)"
     )
 
-    result = resolve_litho_instances(
-        layers=nodes, edges=edges, separations=separations, unions=unions
-    )
+    # Body identity is geometry-only (owner 2026-09-02): a "Join with…" is a GROUP
+    # relation, not a merge, so the union rows are NOT passed as must-links. The
+    # resolve is identical whether or not groups exist.
+    result = resolve_litho_instances(layers=nodes, edges=edges, separations=separations, unions=())
 
-    # A user union that could not take effect is never silent — the engineer
-    # asked for it. A cross-class union would make a mixed body (inert); a union
-    # of a pair a standing separation keeps apart is overruled by that separation
-    # (suppressed, cannot-link wins). Both name BOTH anchors so a dogfeed can
-    # find the layers on screen.
+    # DORMANT backstop (owner 2026-09-02): with ``unions=()`` above, the resolver
+    # never marks a union inert or suppressed, so ``inert_unions`` / ``suppressed_
+    # unions`` are always empty and these loops never fire. Kept as a defensive
+    # backstop (and to keep the WARN wording near its data) — a later slice removes
+    # the union path here entirely.
     for u in result.inert_unions:
         logger.warning(
             f"_run_resolver: model {model_id} — user join ({u.layer_a_id}, {u.layer_b_id}) "
