@@ -54,7 +54,7 @@ disclaimer.
 
 **Design parameters are written only when the NAD table carries the
 unit's class** (see "NAD soil parameters" below). By default that table
-is empty, so cohesion, friction angle and both unit weights stay at
+has no row for the class, cohesion, friction angle and both unit weights stay at
 GEOLib's initial **zero** — chosen over a plausible default precisely
 because a zero cannot be mistaken for a value Strix stood behind. When a
 class IS in the table, its γ, φ′ and c′ ride on the Mohr-Coulomb model
@@ -107,7 +107,7 @@ GEOLib `Soil` when present.
   the water table); both unit weights; and the annotation `SOURCE_LABEL`
   ("NAD Tabel 2.b — karakteristieke waarde") on the soil `Notes` (D-Stability)
   or folded into `[RUN IDENTIFICATION]` (D-Sheet).
-* **Absent** (the shipped state, and any class the owner has not transcribed)
+* **Absent** (a class without a row in the table — none today, all 31 are transcribed)
   → **no** parameters; GEOLib's own blank initial values (D-Stability 0/0/0;
   D-Sheet 0.01 kN/m³ unit weight, 0 cohesion/φ′). Never a plausible default.
 
