@@ -5,11 +5,6 @@
 (the model builders) and the ``source=`` of the contact (debt #199). This
 module is the single source of truth so a future schema change edits one
 copy, not twelve.
-
-Scope note: the ``_contact`` in ``test_section_pdf_report_exporter`` is a
-name-collision only — it builds a ``SectionFormationContact`` snapshot value
-object, not a ``FormationContactOrm`` — so it is intentionally NOT migrated
-here.
 """
 
 from __future__ import annotations
