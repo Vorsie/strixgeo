@@ -17,14 +17,17 @@
  * JSX.Element
  *     The boot-error screen.
  */
+import { useT } from '../i18n/translate'
+
 export default function AppBootError(): JSX.Element {
+  const t = useT()
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-surface-app text-text-secondary text-sm gap-2">
       <div className="text-status-danger font-medium">
-        Failed to start the StrixGeo API
+        {t('app.bootFailedTitle')}
       </div>
       <div className="text-xs text-text-muted">
-        Check the developer console for the Python traceback.
+        {t('app.bootFailedBody')}
       </div>
     </div>
   )
