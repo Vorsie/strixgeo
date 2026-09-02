@@ -17,6 +17,7 @@ import { api } from '../../api/client'
 import { log } from '../../utils/log'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT } from '../../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,6 +72,7 @@ export default function CompanionOfferDialog({
 }: Props): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const t = useT()
 
   async function handleYes(): Promise<void> {
     setBusy(true)
@@ -116,14 +118,13 @@ export default function CompanionOfferDialog({
             id="companion-offer-title"
             className="text-sm font-semibold text-text-primary"
           >
-            Create perpendicular cross-section?
+            {t('sections.lens.companionTitle')}
           </h2>
           <p className="text-xs text-text-muted mt-0.5">
             {lensName
-              ? `Lens "${lensName}" created.`
-              : 'Lens created.'}{' '}
-            A perpendicular cross-section through the lens centroid helps verify
-            the lens geometry from a second direction.
+              ? t('sections.companion.lensNamedCreated', { name: lensName })
+              : t('sections.companion.lensCreated')}{' '}
+            {t('sections.companion.blurb')}
           </p>
         </div>
 
@@ -137,10 +138,10 @@ export default function CompanionOfferDialog({
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
-            No, skip
+            {t('sections.lens.companionSkip')}
           </Button>
           <Button variant="primary" onClick={handleYes} disabled={busy}>
-            {busy ? 'Creating…' : 'Yes, create section'}
+            {busy ? t('sections.busy.creating') : t('sections.companion.yesCreate')}
           </Button>
         </div>
       </div>
