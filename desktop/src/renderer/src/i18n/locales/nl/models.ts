@@ -403,6 +403,10 @@ export const MODELS_NL = {
   // De handmatige-groep-tag op een pakkingslichaam dat in een groep is
   // samengevoegd (debt #278 D4). FLAG: door de eigenaar te bevestigen.
   'geotech.groupTag': '(groep {count})',
+  // De gegroepeerde-lichaam Parameters-kop (debt #278 D2). FLAG: door de
+  // eigenaar te bevestigen ("Groep N — N lichamen") + kop.
+  'geotech.groupHeader': 'Groep {group} — {count} lichamen',
+  'geotech.groupProvenanceHeading': 'Bron-lithostratigrafische lichamen',
   'geotech.soilBodies': '{soil}-lichamen',
   'geotech.packingBodiesIn': 'Pakkingslichamen in {label}',
   'geotech.bandLabel': '{count} band',
