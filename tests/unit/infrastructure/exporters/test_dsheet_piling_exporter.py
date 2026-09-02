@@ -163,26 +163,21 @@ def test_dp5_the_ground_surface_we_measured_is_exported() -> None:
     assert "4.50" in surfaces
 
 
-def test_dp6_no_design_parameter_is_written(tmp_path: Path) -> None:
-    """The liability line, again: characterisation travels, design values do not.
-
-    GEOLib initialises a D-Sheet soil with cohesion 0, phi 0 and a
-    0.01 kN/m3 unit weight — its own placeholders, not values Strix
-    chose. Asserting them pins that the exporter never fills one in.
-    """
+def test_dp6_the_shipped_table_reaches_the_file_for_the_scene_classes(tmp_path: Path) -> None:
+    """Owner ruling 2026-09-02: the D-Series files carry the NAD characteristic
+    values per soil + packing class, read from the SHIPPED table (no monkeypatch)
+    so a drifted transcription shows up here."""
+    table = nad_params.NAD_SOIL_PARAMETERS
     payload = DSheetPilingExporter().export(_two_layer_set())
-    target = tmp_path / "roundtrip.shi"
-    target.write_bytes(payload)
-    model = DSheetPilingModel()
-    model.parse(target)
-
-    soils = model.datastructure.input_data.soil_collection.soil
-    assert len(soils) == 2
-    for soil in soils:
-        assert soil.soilcohesion == 0.0
-        assert soil.soilphi == 0.0
-        assert soil.soilgamdry == 0.01
-        assert soil.soilgamwet == 0.01
+    soils = _parsed_soils(payload, tmp_path)
+    for code, class_id in (("NAD-06_ZAND", 6), ("NAD-21_KLEI", 21)):
+        row = table[class_id]
+        soil = soils[code]
+        assert soil.soilgamdry == row.gamma_unsat_kn_m3
+        assert soil.soilgamwet == row.gamma_sat_kn_m3
+        assert soil.soilcohesion == row.c_kpa
+        assert soil.soilphi == row.phi_deg
+    assert ascii_fold(SOURCE_LABEL) in _text(payload)
 
 
 def test_dp7_the_file_states_what_strix_did_not_supply() -> None:
@@ -225,7 +220,10 @@ def test_dp15_the_run_identification_fits_the_three_lines_dsheet_shows() -> None
 
     assert len(lines) == 3
     assert lines[0].startswith("StrixGeo export")
-    assert all("TODO" in line for line in lines[1:])
+    assert "TODO" in lines[1]
+    assert "NAD Tabel 2.b" in lines[2], (
+        "line 3 names the parameter source once soils carry NAD values"
+    )
 
 
 def test_dp8_the_file_names_the_project_the_section_and_the_sample_position() -> None:
@@ -391,10 +389,10 @@ def test_dp16_a_populated_class_writes_its_parameters_and_names_the_source(
         "NAD_SOIL_PARAMETERS",
         {
             6: NadSoilParameters(
-                gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=32.5, c_kpa=0.0
+                gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=32.5, c_kpa=0.0, cu_kpa=None
             ),
             21: NadSoilParameters(
-                gamma_unsat_kn_m3=16.0, gamma_sat_kn_m3=17.5, phi_deg=22.0, c_kpa=5.0
+                gamma_unsat_kn_m3=16.0, gamma_sat_kn_m3=17.5, phi_deg=22.0, c_kpa=5.0, cu_kpa=None
             ),
         },
     )
@@ -421,6 +419,7 @@ def test_dp16_a_populated_class_writes_its_parameters_and_names_the_source(
 
 
 def test_dp17_a_class_absent_from_the_table_writes_no_invented_numbers(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """A class the owner has not transcribed stays at D-Sheet's blank defaults.
@@ -429,7 +428,7 @@ def test_dp17_a_class_absent_from_the_table_writes_no_invented_numbers(
     with a 0.01 kN/m³ unit weight and cohesion / phi 0 — its own placeholders,
     not values Strix chose. The run-identification does NOT name the NAD table.
     """
-    assert nad_params.NAD_SOIL_PARAMETERS == {}  # the shipped table is empty
+    monkeypatch.setattr(nad_params, "NAD_SOIL_PARAMETERS", {})
     payload = DSheetPilingExporter().export(_two_layer_set())
     soils = _parsed_soils(payload, tmp_path)
 
