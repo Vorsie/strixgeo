@@ -22,6 +22,11 @@ from uuid6 import uuid7
 
 from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.geotech_tie_tombstones import record_tie_tombstone
+from groundmodel.application.litho_frame_conformance_resolver import (
+    band_frame_warning,
+    containing_litho_layer,
+    describe_geotech_band,
+)
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.domain.services.geotech_edge_crossing_guard import (
@@ -30,14 +35,10 @@ from groundmodel.domain.services.geotech_edge_crossing_guard import (
     gap_key,
 )
 from groundmodel.domain.services.litho_body_guard import shares_litho_body
-from groundmodel.domain.services.litho_frame_conformance import (
-    FRAME_MISMATCH_REVIEW_REASON,
-    frame_tie_warning,
-)
+from groundmodel.domain.services.litho_frame_conformance import FRAME_MISMATCH_REVIEW_REASON
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
-from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
@@ -613,6 +614,10 @@ class CorrelateLithoContacts(GroundModelLogger):
     ) -> LithoLayerOrm | None:
         """Return the accepted litho layer containing *band*, or ``None``.
 
+        Thin delegation to
+        :func:`groundmodel.application.litho_frame_conformance_resolver.containing_litho_layer`
+        — the shared resolver the machine tie path also uses.
+
         Parameters
         ----------
         litho_model_id : UUID
@@ -625,27 +630,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         LithoLayerOrm | None
             The containing accepted litho layer row.
         """
-        if band.cpt_id is not None:
-            inv_filter = LithoLayerOrm.cpt_id == band.cpt_id
-        elif band.borehole_id is not None:
-            inv_filter = LithoLayerOrm.borehole_id == band.borehole_id
-        else:
-            return None
-        stmt = (
-            select(LithoLayerOrm)
-            .where(
-                and_(
-                    LithoLayerOrm.model_id == litho_model_id,
-                    LithoLayerOrm.status == "accepted",
-                    inv_filter,
-                    LithoLayerOrm.depth_top_m <= band.depth_top_m + _DEPTH_CONTAINMENT_EPS_M,
-                    LithoLayerOrm.depth_base_m >= band.depth_base_m - _DEPTH_CONTAINMENT_EPS_M,
-                )
-            )
-            .order_by(LithoLayerOrm.depth_top_m)
-            .limit(1)
-        )
-        return (await self._session.execute(stmt)).scalars().first()
+        return await containing_litho_layer(self._session, litho_model_id=litho_model_id, band=band)
 
     async def _frame_conformance_warning(
         self,
@@ -656,13 +641,13 @@ class CorrelateLithoContacts(GroundModelLogger):
     ) -> str | None:
         """Draw-time warning when a packing tie exceeds the litho frame, or ``None``.
 
-        Owner order 2026-08-21 (after deleting a silt-to-clay tie that
-        rendered as nothing): *"next time flag a tie like that when it
-        doesn't conform to the litho model!"* Resolves each endpoint band's
-        parent litho unit, compares main soils, and — for same-soil pairs —
-        walks the parent litho model's ACCEPTED correlation edges for a path
-        between the two units. Unresolvable parents stay silent: absence of
-        evidence is not evidence of non-conformance.
+        Thin delegation to
+        :func:`groundmodel.application.litho_frame_conformance_resolver.band_frame_warning`
+        — the shared resolver the machine tie path
+        (:class:`~groundmodel.application.auto_correlate_geotech_edges.AutoCorrelateGeotechEdges`)
+        also runs, so both paths flag the identical tie with the identical
+        message (owner order 2026-08-21). ``None`` when the geotech model has no
+        litho parent.
 
         Parameters
         ----------
@@ -679,93 +664,12 @@ class CorrelateLithoContacts(GroundModelLogger):
         litho_model_id = geotech_model.parent_model_id
         if litho_model_id is None:
             return None
-        band_a = await self._session.get(LithoLayerOrm, a_id)
-        band_b = await self._session.get(LithoLayerOrm, b_id)
-        if band_a is None or band_b is None:
-            return None
-        unit_a = await self._containing_litho_layer(litho_model_id=litho_model_id, band=band_a)
-        unit_b = await self._containing_litho_layer(litho_model_id=litho_model_id, band=band_b)
-        if unit_a is None or unit_b is None:
-            return None
-        soil_a = await self._main_soil_of(unit_a)
-        soil_b = await self._main_soil_of(unit_b)
-        # The BFS only decides the same-soil case; skip it when soils differ.
-        connected = (
-            soil_a == soil_b
-            and soil_a is not None
-            and await self._litho_units_connected(
-                litho_model_id=litho_model_id, a=unit_a.id, b=unit_b.id
-            )
+        return await band_frame_warning(
+            self._session,
+            litho_model_id=litho_model_id,
+            band_a_id=a_id,
+            band_b_id=b_id,
         )
-        return frame_tie_warning(
-            soil_a=soil_a,
-            soil_b=soil_b,
-            litho_connected=connected,
-            band_a=await self._describe_geotech_band(a_id),
-            band_b=await self._describe_geotech_band(b_id),
-        )
-
-    async def _main_soil_of(self, unit: LithoLayerOrm) -> str | None:
-        """The main soil code of *unit*'s formation, or ``None``."""
-        formation = await self._session.get(GeologicalFormationOrm, unit.formation_id)
-        if formation is None:
-            return None
-        return formation.litho_main_soil_code
-
-    async def _litho_units_connected(
-        self,
-        *,
-        litho_model_id: UUID,
-        a: UUID,
-        b: UUID,
-    ) -> bool:
-        """Whether an accepted litho correlation path connects units *a* and *b*.
-
-        Plain BFS over the parent litho model's accepted contact-correlation
-        edges (all sections — bodies union across sections). Deliberately
-        permissive: any path counts, so an over-connection under-flags rather
-        than nagging about a conforming tie.
-
-        Parameters
-        ----------
-        litho_model_id : UUID
-            The parent lithostratigraphic model.
-        a, b : UUID
-            The two accepted litho layer ids.
-
-        Returns
-        -------
-        bool
-            ``True`` when a path exists (or ``a == b``).
-        """
-        if a == b:
-            return True
-        rows = (
-            await self._session.execute(
-                select(
-                    LithoContactCorrelationEdgeOrm.layer_a_id,
-                    LithoContactCorrelationEdgeOrm.layer_b_id,
-                ).where(
-                    LithoContactCorrelationEdgeOrm.model_id == litho_model_id,
-                    LithoContactCorrelationEdgeOrm.user_approved.is_(True),
-                )
-            )
-        ).all()
-        adjacency: dict[UUID, list[UUID]] = {}
-        for x, y in rows:
-            adjacency.setdefault(x, []).append(y)
-            adjacency.setdefault(y, []).append(x)
-        frontier = [a]
-        seen = {a}
-        while frontier:
-            node = frontier.pop()
-            for neighbour in adjacency.get(node, []):
-                if neighbour == b:
-                    return True
-                if neighbour not in seen:
-                    seen.add(neighbour)
-                    frontier.append(neighbour)
-        return False
 
     async def _enclosing_body_of(
         self,
@@ -957,19 +861,7 @@ class CorrelateLithoContacts(GroundModelLogger):
             e.g. ``"KLEI (NAD 23) on GEO-22/115-S10"`` - or the bare id when
             the band cannot be resolved.
         """
-        band = await self._session.get(LithoLayerOrm, contact_id)
-        if band is None:
-            return str(contact_id)
-        formation = await self._session.get(GeologicalFormationOrm, band.formation_id)
-        fname = formation.name if formation is not None else "?"
-        inv_name: str | None = None
-        if band.cpt_id is not None:
-            cpt = await self._session.get(CptOrm, band.cpt_id)
-            inv_name = cpt.name if cpt is not None else None
-        elif band.borehole_id is not None:
-            bh = await self._session.get(BoreholeOrm, band.borehole_id)
-            inv_name = bh.name if bh is not None else None
-        return f"{fname} on {inv_name}" if inv_name else fname
+        return await describe_geotech_band(self._session, contact_id)
 
 
 class UncorrelateLithoContacts(GroundModelLogger):
