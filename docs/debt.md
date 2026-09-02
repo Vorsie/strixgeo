@@ -861,14 +861,26 @@ server-managed timestamps) and promote them to `_SKIP_COLUMNS`; add a
 fixture test per top-level bundle array asserting its exact column
 set, so a new column forces a conscious format-version decision.
 
-## 52. PDF report export (Tier D — Phase 5 reporting deliverable; slice 1 shipped 2026-05-21)
+## 52. PDF report export (Tier D — Phase 5 reporting deliverable; slice 1 SUPERSEDED 2026-09-02)
 
-**Slice 1 shipped 2026-05-21.** Single-section PDF report. Engine
-choice: ReportLab (layout + text) + matplotlib (figures, Agg headless
-backend) — both deps added to pyproject.toml. The exporter
-``infrastructure/exporters/section_pdf_report_exporter.py`` consumes a
+**Slice 1 SUPERSEDED 2026-09-02 by the client-rendered cross-section PDF
+sheet.** The owner ruled the matplotlib exporter could not be made faithful
+(straight-chord contacts, depth-below-surface, no fill) and replaced it with an
+A3-high landscape sheet the desktop app draws itself and prints through Chromium
+(`sheet.html` / `SectionSheet` / `main/sheetPdf.ts`; live preview dialog with the
+app's own exaggeration + spacing sliders). The old route, exporter trio, tests
+and the `reportlab` dependency were deleted (`matplotlib` stays only as a
+`d-geolib` transitive dep). Design:
+`docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md`. **Slices B / C /
+D (below) reuse this sheet as a page + its hidden-window print pipeline rather
+than the backend exporter.**
+
+**History — slice 1 (matplotlib), shipped 2026-05-21, now deleted.** Single-
+section PDF report. Engine choice: ReportLab (layout + text) + matplotlib
+(figures, Agg headless backend) — both deps added to pyproject.toml. The exporter
+``infrastructure/exporters/section_pdf_report_exporter.py`` consumed a
 ``SectionSnapshot`` + a ``ReportMetadata`` bundle (title / author /
-notes / date) and produces PDF bytes via ``SimpleDocTemplate``.
+notes / date) and produced PDF bytes via ``SimpleDocTemplate``.
 
 Content shipped:
 * Title block with the user-editable title.
