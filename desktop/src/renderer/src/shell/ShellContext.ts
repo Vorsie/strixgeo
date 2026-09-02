@@ -144,16 +144,6 @@ export interface Coordinator {
     sectionName: string,
     modelId: string,
   ) => Promise<void>
-  /** Export the section as a PDF report (debt #52 slice 1 — owns the
-   *  save-dialog + file-write flow; metadata is collected by the
-   *  SectionsToolbar dialog). */
-  handleExportSectionPdf: (
-    projectId: string,
-    sectionId: string,
-    sectionName: string,
-    modelId: string,
-    metadata: { title?: string; author?: string; notes?: string },
-  ) => Promise<void>
   /** CPT ids that are outside the current map viewport. Empty before the map reports bounds. */
   outOfViewportCptIds: ReadonlySet<string>
   /** Borehole ids outside the current map viewport. */
