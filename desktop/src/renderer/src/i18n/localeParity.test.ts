@@ -73,6 +73,10 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // header field label. Translating either would disagree with the data.
   'sections.vb.title',
   'borelog.boring',
+  // Sheet: "Project" is the same word in BE Dutch; "m TAW" is the Belgian
+  // height-datum axis symbol (Tweede Algemene Waterpassing), kept verbatim.
+  'sheet.field.project',
+  'sheet.mTaw',
 ])
 
 describe('locale catalogues', () => {
