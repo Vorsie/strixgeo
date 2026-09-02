@@ -365,3 +365,26 @@ of a wedge that is 9.9 cm thick at its other end.
   still pass it — a concurrency test that tolerates 4xx will not tell you it stopped
   racing. Make a race test assert a 200 (or log both status codes), so a silenced arm
   fails loudly instead of passing on the 4xx.
+
+## 2026-09-02 — a foreign-key ON DELETE action is a hidden write on the child row
+
+* **A parent write that reaches a child through a foreign-key action counts as "touching
+  the child" — so the child's lock must precede it.** A litho `bodies/recompute` and a
+  geotech `bodies/recompute` fire independently and take DIFFERENT per-model advisory
+  locks, so they run concurrently. The litho resolver deleted litho `body` rows, then — at
+  the very end (step 6) — took the sibling geotech lock to re-stamp `parent_litho_body_id`.
+  But deleting a litho body fires the `ON DELETE SET NULL` of the geotech rows'
+  `parent_litho_body_id` FK, row-locking the geotech `body` rows before the geotech
+  advisory lock was ever requested; a concurrent geotech recompute holding that advisory
+  lock and deleting those same rows gave a textbook ABBA deadlock (8 victims in one e2e
+  sweep, `DeadlockDetectedError` on `DELETE FROM body`, pinned red-first by BP-3
+  `test_body_partition_litho_geotech_lock_order`). The documented order (litho parent
+  first, geotech child second) was right; the flaw was taking the child lock AFTER a write
+  that had already reached the child. Rule: when choosing where to acquire a child's lock,
+  trace every `ON DELETE`/`ON UPDATE` FK action on the rows you're about to write — a `SET
+  NULL`/`CASCADE` on a parent you delete IS a write on the child, so the child's lock has
+  to come before that delete. Fix here: take the sibling geotech locks up front, right
+  after the litho lock and before the first delete; belt and braces, run the lock helper's
+  own SELECTs under `no_autoflush` so acquiring a lock never flushes a pending write first.
+  Same class still unfixed in `clear_litho_model` / `delete_body` (they delete litho bodies
+  without the geotech child lock — lower-probability, user-initiated).
