@@ -13,6 +13,8 @@
 
 import { useState } from 'react'
 
+import { useT } from '../../i18n/translate'
+
 /** One positioned review flag: the flooded unit + where to draw its marker + its correlate target. */
 export interface ReviewFlagMarker {
   /** Stable id (reviewFlagId) — the dismissal key + the popover open-state key. */
@@ -52,6 +54,7 @@ const ROW_H = 22
 
 export default function ReviewFlagLayer({ markers, onCorrelate, onDismiss, interactivePtr }: Props): JSX.Element | null {
   const [openId, setOpenId] = useState<string | null>(null)
+  const t = useT()
   if (markers.length === 0) return null
   const open = openId != null ? markers.find((m) => m.id === openId) ?? null : null
 
@@ -70,7 +73,7 @@ export default function ReviewFlagLayer({ markers, onCorrelate, onDismiss, inter
       {open && (
         <g data-testid="review-flag-popover" transform={`translate(${open.x + 10}, ${open.y + 8})`}>
           <rect x={0} y={0} width={PW} height={PH} rx={6} fill={PANEL_BG} stroke={AMBER} strokeWidth={1} />
-          <text x={8} y={15} fontSize={10.5} fontWeight="bold" fill={TEXT}>Uncorrelated clay</text>
+          <text x={8} y={15} fontSize={10.5} fontWeight="bold" fill={TEXT}>{t('sections.reviewFlag.uncorrelatedClay')}</text>
           {/* Correlate row (disabled when no facing neighbour was found) */}
           <g
             style={{ cursor: open.facingLayerId ? 'pointer' : 'not-allowed' }}
@@ -80,7 +83,7 @@ export default function ReviewFlagLayer({ markers, onCorrelate, onDismiss, inter
             }}
           >
             <rect x={6} y={ROW_H} width={PW - 12} height={16} rx={3} fill={open.facingLayerId ? '#fef3c7' : '#f1f5f9'} />
-            <text x={12} y={ROW_H + 12} fontSize={10} fill={open.facingLayerId ? AMBER_DARK : '#94a3b8'}>Correlate → one band</text>
+            <text x={12} y={ROW_H + 12} fontSize={10} fill={open.facingLayerId ? AMBER_DARK : '#94a3b8'}>{t('sections.reviewFlag.correlateOneBand')}</text>
           </g>
           {/* Keep-separate row */}
           <g
@@ -88,7 +91,7 @@ export default function ReviewFlagLayer({ markers, onCorrelate, onDismiss, inter
             onClick={(e) => { e.stopPropagation(); onDismiss(open.id); setOpenId(null) }}
           >
             <rect x={6} y={ROW_H + 18} width={PW - 12} height={16} rx={3} fill="#ffffff" stroke="#e2e8f0" strokeWidth={0.5} />
-            <text x={12} y={ROW_H + 30} fontSize={10} fill={TEXT}>Keep separate</text>
+            <text x={12} y={ROW_H + 30} fontSize={10} fill={TEXT}>{t('sections.keepSeparate')}</text>
           </g>
         </g>
       )}
