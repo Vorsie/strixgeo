@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
     apply_view_state_patch,
+    export_response,
     get_in_project_or_404,
-    safe_filename_stem,
+    parse_error_as_404,
 )
 from groundmodel.api.schemas.project.batch_create_sections_request import (
     BatchCreateSectionsRequest,
@@ -37,6 +38,7 @@ from groundmodel.api.schemas.project.section_geometry_export_request import (
 from groundmodel.application.batch_create_sections import BatchCreateSections
 from groundmodel.application.build_section_polygons import BuildSectionPolygons
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
+from groundmodel.application.export_artifact import ExportArtifact
 from groundmodel.application.section_polygon_set import SectionPolygonSet
 from groundmodel.application.section_snapshot import SectionSnapshot
 from groundmodel.application.thin_export_units import ThinExportUnits
@@ -60,7 +62,6 @@ from groundmodel.infrastructure.exporters.dxf_section_exporter import DxfSection
 from groundmodel.infrastructure.exporters.plaxis_section_exporter import (
     PlaxisSectionExporter,
 )
-from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -152,17 +153,12 @@ async def _build_export_snapshot(
     HTTPException(400)
         When the section carries a non-metric CRS (debt #31).
     """
-    try:
+    with parse_error_as_404():
         snapshot = await BuildSectionSnapshot(session).execute(
             app_project_id=project_id,
             section_id=section_id,
             model_id=model_id,
         )
-    except ParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
     _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
     if thin_units:
         snapshot = ThinExportUnits().execute(snapshot)
@@ -517,11 +513,14 @@ async def export_section_dxf(
         session, project_id, section_id, model_id, thin_units=thin_units
     )
     payload = DxfSectionExporter().export(snapshot)
-    filename = f"{safe_filename_stem(snapshot.section_name, 'section')}.dxf"
-    return Response(
-        content=payload,
-        media_type="application/dxf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=snapshot.section_name,
+            fallback="section",
+            suffix=".dxf",
+            media_type="application/dxf",
+        )
     )
 
 
@@ -577,11 +576,14 @@ async def export_section_plaxis2d(
     # mapping table names every unit separately instead.
     snapshot = await _build_export_snapshot(session, project_id, section_id, model_id)
     payload = PlaxisSectionExporter().export(snapshot)
-    filename = f"{safe_filename_stem(snapshot.section_name, 'section')}_plaxis2d.py"
-    return Response(
-        content=payload,
-        media_type="text/x-python",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=snapshot.section_name,
+            fallback="section",
+            suffix="_plaxis2d.py",
+            media_type="text/x-python",
+        )
     )
 
 
@@ -720,11 +722,14 @@ async def export_section_dstability(
         payload = DStabilityExporter().export(polygons)
     except ValueError as exc:
         raise _refuse_empty_geometry(exc, "dstability_export_refused") from exc
-    filename = f"{safe_filename_stem(polygons.section_name, 'section')}.stix"
-    return Response(
-        content=payload,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=polygons.section_name,
+            fallback="section",
+            suffix=".stix",
+            media_type="application/octet-stream",
+        )
     )
 
 
@@ -793,9 +798,12 @@ async def export_section_dsheetpiling(
         payload = DSheetPilingExporter().export(polygons, fraction=fraction)
     except ValueError as exc:
         raise _refuse_empty_geometry(exc, "dsheetpiling_export_refused") from exc
-    filename = f"{safe_filename_stem(polygons.section_name, 'section')}.shi"
-    return Response(
-        content=payload,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=polygons.section_name,
+            fallback="section",
+            suffix=".shi",
+            media_type="application/octet-stream",
+        )
     )
