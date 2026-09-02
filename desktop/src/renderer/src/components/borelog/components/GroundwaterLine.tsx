@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
 import { usePxPerM } from '../utils'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Horizontal dashed line marking the water table inside the canvas.
@@ -25,6 +26,7 @@ export function GroundwaterLine({
   y: number
   totalDepth: number
 }): ReactElement | null {
+  const t = useT()
   const PX_PER_M = usePxPerM()
   if (waterDepth > totalDepth) return null
 
@@ -47,7 +49,7 @@ export function GroundwaterLine({
         fill="#1e88e5"
         fontStyle="italic"
       >
-        ▾ water at {waterDepth.toFixed(2)} m
+        {t('borelog.waterMarker', { depth: waterDepth.toFixed(2) })}
       </text>
     </g>
   )
