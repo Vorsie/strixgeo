@@ -91,14 +91,17 @@ what the test suite runs against.
 
 Readable source is a leak — owner ruling 2026-08-31: *"the underlying codebase
 should also be protected and not leak at all times ... otherwise someone else
-could just duplicate"*. So the two areas the owner named (rulings 5-6) do **not**
-ship as source: the **engine** (voxel-litho builder, NAD classifier,
-representative statistic) and the **parsers** (all GEF + DOV parsing). Right
+could just duplicate"*. So the areas the owner named do **not** ship as source:
+the **engine** (rulings 5-6 — the voxel-litho builder plus the whole
+`domain/services` modelling core: NAD classifier, CPT segmenter / Robertson
+chain, the full geotech subdivision family, TIN/DEM/lens/correlation geometry),
+the **parsers** (all GEF + DOV parsing), and — owner ruling "Q1", 2026-09-01 —
+the **engine-class modules that live in `application/`** (see below). Right
 after the backend is copied, `scripts/compile-backend-natives.ps1` translates
 each module listed in `scripts/native_compile_manifest.py` to C with Nuitka,
 drops a `<name>.cp311-win_amd64.pyd` beside its package `__init__.py`, and
 deletes the `.py` **in the staged tree only** (the repo `src/` is never touched;
-dev keeps running all-source). 66 modules today, ~23 MB of `.pyd`. The API,
+dev keeps running all-source). 132 modules today. The rest of the API,
 repositories and application layer stay source, so alembic + the codelist data
 files keep resolving `__file__`-relative exactly as under pytest.
 
@@ -109,9 +112,26 @@ Two carve-outs stay source, recorded in the manifest's `SOURCE_CARVEOUTS`:
 | `voxel_litho/greedy_mesh.py` | its greedy-mesh kernel is a Numba `@njit(cache=True)` function — Numba needs the `__code__` object + an on-disk `.py` to cache beside; a `.pyd` has neither. Pinned by `test_greedy_mesh.py:58-77` (drops to object-mode otherwise). |
 | every `__init__.py` | compiling a package marker breaks the package's importability and hides no logic. |
 
-`domain/services/geotech_band_reclassification.py` is engine code but is left
-**source pending owner decision C3** (band-reclassification behaviour is still
-under active dogfeed rulings); add it to the manifest when C3 lands.
+The **application engine** compiled under ruling Q1 is ALGORITHM code only — the
+geotech subdivision / borehole-division / packing-edge engine
+(`divide_boreholes`, `subdivide_all_bodies`, `geotech_edge_derivation`), the
+in-module geotech band-edit planning and tie/pair reanchor matching
+(`geotech_band_edit_helpers`, `geotech_tie_reanchor`, `pair_ruling_reanchor`),
+the voxel build (`build_voxel_litho_model`), and the section / wedge / companion /
+stratigraphy / export geometry that has no compiled-domain home
+(`build_section_polygons`, `create_perpendicular_companion`,
+`materialize_wedge_tips_for_formation`, `stratigraphy_bridge`,
+`thin_export_units`) — 12 modules. The rest of `application/` stays source: the
+band-reclassification hand-edit verbs (merge / split / move / preview) and the
+body resolution / recompute use cases **delegate** their algorithm to a compiled
+`domain/services` service (`geotech_band_reclassification.plan_*`,
+`resolve_litho_instances`, `body_fact_translation`) — so that IP already ships as
+a `.pyd` — and the CRUD / import / snapshot / DTO / queue families carry none.
+That delegation boundary is the ALGORITHM-vs-orchestration line. The application
+set needed **no Nuitka carve-out**: all 12 compile and import clean (verified
+2026-09-02). (`geotech_band_reclassification` itself landed as C3 and ships
+compiled with the rest of the geotech family — no longer a deferred source
+module.)
 
 **Nuitka rewrites `__file__` and `__spec__.origin` back to the original `.py`
 path** so tracebacks point at source — so a "`__file__` ends with `.pyd`" check
