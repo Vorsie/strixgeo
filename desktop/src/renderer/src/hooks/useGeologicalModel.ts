@@ -937,6 +937,18 @@ export interface UseGeologicalModelResult {
   hasStaleGeotechSolid: UseLithoSolidsResult['hasStaleLithoSolid']
   /** Build / rebuild solids for the active geotech model, toast the result. */
   buildGeotechSolids: UseLithoSolidsResult['buildLithoSolids']
+  /**
+   * Bumps when a geotech ``buildGeotechSolids`` press completes — the units
+   * pane's geotech body roster keys on it to RE-READ (not recompute) the
+   * healed litho parent links (debt #278 dogfeed 2026-09-01).
+   *
+   * The Build heals ``body.parent_litho_body_id`` server-side, but the roster
+   * (``useModelBodies``) only re-fetched on a body-recompute nonce, which the
+   * Build never bumps — so the tree kept the pre-Build bodies (NULL parents) and
+   * grouped them all under "no litho body" until a manual reload. Optional so the
+   * many ShellContext stubs need not set it (mirrors ``requestCorrelationEdgesRefetch``).
+   */
+  geotechBodyRosterRefetchNonce?: number
   /** Set or clear a per-body display colour on the geotech model. */
   setGeotechBodyColor: UseLithoSolidsResult['setBodyColor']
   /**
@@ -2425,6 +2437,33 @@ export function useGeologicalModel({
     markMutated,
   )
 
+  // The units-pane geotech body roster (``useModelBodies`` in GeotechnicalInspector)
+  // groups packing bodies under their litho parent via ``parent_litho_body_id``.
+  // A geotech Build HEALS those links server-side, but the roster only re-fetched
+  // on a body-recompute nonce the Build never bumps — so the tree kept the pre-Build
+  // bodies (NULL parents) under "no litho body" until a manual reload (debt #278
+  // dogfeed 2026-09-01). This counter is the missing signal: ``buildGeotechSolids``
+  // bumps it, the roster keys on it, and it re-READS the already-correct DB. NOT a
+  // recompute — the geotech stage cannot assemble the Sections partition payload a
+  // recompute needs, and the DB is already right, so a re-read is both sufficient
+  // and far lighter.
+  const [geotechBodyRosterRefetchNonce, setGeotechBodyRosterRefetchNonce] = useState(0)
+
+  // GEOTECH-only wrapper around the second useLithoSolids build. Awaits the
+  // underlying build, then bumps the roster nonce. Finally-style on purpose: the
+  // inner build swallows its own errors (it toasts, never rejects) and no-ops on
+  // an empty payload, so a partial / no-op build harmlessly re-reads unchanged
+  // data — threading a success signal out of buildLithoSolids buys nothing here.
+  // The LITHO build (spread from ``lithoSolidsResult`` above) is deliberately NOT
+  // wrapped: it changes a different model's roster.
+  const buildGeotechSolids = useCallback<UseLithoSolidsResult['buildLithoSolids']>(
+    async voxelRequestBuilder => {
+      await geotechSolidsResult.buildLithoSolids(voxelRequestBuilder)
+      setGeotechBodyRosterRefetchNonce(n => n + 1)
+    },
+    [geotechSolidsResult.buildLithoSolids],
+  )
+
   // Debt #266 — which geotech columns are standing on litho that has since been
   // edited.  Sibling signal to the stale-solid flag above, and re-read on BOTH
   // version counters: a litho edit is what makes a column stale, and a geotech
@@ -2857,7 +2896,8 @@ export function useGeologicalModel({
     geotechSolidsBuilding: geotechSolidsResult.lithoSolidsBuilding,
     hasGeotechSolids: geotechSolidsResult.hasLithoSolids,
     hasStaleGeotechSolid: geotechSolidsResult.hasStaleLithoSolid,
-    buildGeotechSolids: geotechSolidsResult.buildLithoSolids,
+    buildGeotechSolids,
+    geotechBodyRosterRefetchNonce,
     setGeotechBodyColor: geotechSolidsResult.setBodyColor,
     geotechHideMarkers: geotechSolidsResult.hideMarkers,
     setGeotechHideMarkers: geotechSolidsResult.setHideMarkers,
