@@ -30,6 +30,7 @@ import {
   VCRS_LABEL_BY_EPSG,
   verticalDatumLabel,
 } from '../utils/verticalDatum'
+import { useT } from '../i18n/translate'
 
 interface Props {
   elevationM: number | null
@@ -83,6 +84,7 @@ export default function ElevationEditor({
   elevationSource,
   onSave,
 }: Props) {
+  const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<string>('')
   // The picker's selected EPSG. Initialised at edit-mode entry from the
@@ -120,7 +122,7 @@ export default function ElevationEditor({
       await onSave(value, z)
       setEditing(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
+      setError(err instanceof Error ? err.message : t('elevation.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -141,14 +143,14 @@ export default function ElevationEditor({
     const normalized = trimmed.replace(',', '.')
     const parsed = Number(normalized)
     if (!Number.isFinite(parsed)) {
-      setError('Enter a number')
+      setError(t('elevation.enterANumber'))
       return
     }
     // Mirror the backend range guard so the user gets feedback before
     // round-tripping to the server. The bounds match
     // ElevationPatchRequest's ge/le constraints.
     if (parsed < -500 || parsed > 9000) {
-      setError('Out of range')
+      setError(t('elevation.outOfRange'))
       return
     }
     await commit(parsed)
@@ -179,22 +181,27 @@ export default function ElevationEditor({
         <button
           onClick={start}
           className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-800 hover:underline"
-          title="Add a surface elevation so this record can be correlated with others"
+          title={t('elevation.addHint')}
         >
           <AlertTriangle size={11} />
-          Set elevation
+          {t('elevation.set')}
         </button>
       )
     }
     // Provenance tag — small, greyed, only when a real source is set.
     // Goes between the datum label and the pencil so the user's eye
     // hits "Z = +12.45 m TAW (DOV)" → pencil-on-hover.
-    const sourceLabel = elevationSource ? SOURCE_LABEL[elevationSource] : undefined
+    // DOV / GEF are source acronyms kept verbatim; "manual" is plain copy.
+    const sourceLabel = !elevationSource
+      ? undefined
+      : elevationSource === 'manual'
+        ? t('elevation.sourceManual')
+        : SOURCE_LABEL[elevationSource]
     return (
       <button
         onClick={start}
         className="group inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800"
-        title="Edit surface elevation"
+        title={t('elevation.edit')}
       >
         <span>
           Z = {elevationM.toFixed(2)} {idleDatumLabel}
@@ -202,7 +209,7 @@ export default function ElevationEditor({
         {sourceLabel && (
           <span
             className="text-[10px] text-gray-400"
-            title={`Elevation source: ${elevationSource}`}
+            title={t('elevation.sourceTitle', { source: elevationSource ?? '' })}
           >
             ({sourceLabel})
           </span>
@@ -240,11 +247,12 @@ export default function ElevationEditor({
         value={pickedZEpsg}
         onChange={e => setPickedZEpsg(Number(e.target.value))}
         disabled={saving}
-        title="Vertical reference system"
+        title={t('elevation.verticalReference')}
         className="px-0.5 py-0.5 border border-gray-300 rounded bg-white text-[11px] text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300"
       >
         {PICKABLE_VERTICAL_EPSGS.map(epsg => (
           <option key={epsg} value={epsg}>
+            {/* i18n-exempt: EPSG is the international CRS-registry code prefix, identical across locales */}
             {VCRS_LABEL_BY_EPSG[epsg] ?? `EPSG:${epsg}`}
           </option>
         ))}
@@ -252,7 +260,7 @@ export default function ElevationEditor({
       <button
         onClick={() => void save()}
         disabled={saving}
-        title="Save (Enter)"
+        title={t('elevation.saveEnter')}
         className="p-0.5 rounded text-green-600 hover:bg-green-50 disabled:opacity-40"
       >
         <Check size={12} />
@@ -260,7 +268,7 @@ export default function ElevationEditor({
       <button
         onClick={cancel}
         disabled={saving}
-        title="Cancel (Esc)"
+        title={t('elevation.cancelEsc')}
         className="p-0.5 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-40"
       >
         <X size={12} />
@@ -269,10 +277,10 @@ export default function ElevationEditor({
         <button
           onClick={() => void commit(null)}
           disabled={saving}
-          title="Clear elevation — returns the row to the 'needs Z' state"
+          title={t('elevation.clearHint')}
           className="ml-1 text-[10px] text-gray-400 hover:text-red-600 hover:underline disabled:opacity-40"
         >
-          Clear
+          {t('elevation.clear')}
         </button>
       )}
       {error && <span className="ml-1 text-[10px] text-red-600">{error}</span>}
