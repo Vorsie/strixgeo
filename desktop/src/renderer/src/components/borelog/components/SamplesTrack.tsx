@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { SampleResponse } from '../../../api/client'
 import { LAB_TEST_ICONS } from '../labTestIcons'
 import { usePxPerM } from '../utils'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Clickable samples column. Each sample is rendered as either a
@@ -33,6 +34,7 @@ export function SamplesTrack({
   selectedSampleId: string | null
   onSampleClick: (id: string | null) => void
 }): ReactElement {
+  const t = useT()
   const PX_PER_M = usePxPerM()
   return (
     <g>
@@ -46,15 +48,23 @@ export function SamplesTrack({
         const tests = LAB_TEST_ICONS.filter(icon => icon.hasOn(sample))
         const hasAnyTest = tests.length > 0
 
+        // Multi-line SVG tooltip: sample number / depth range / lab-test count.
+        // The depth line is unit-only (no words), so it stays verbatim.
+        const numberLabel = sample.sample_number ?? t('lab.unnumbered')
+        const depthLine = `${sample.depth_top_m.toFixed(2)} – ${sample.depth_base_m.toFixed(2)} m`
+        const testLine = t(
+          tests.length === 1 ? 'borelog.labTestCountOne' : 'borelog.labTestCountMany',
+          { n: tests.length },
+        )
+        const tooltip = `${numberLabel}\n${depthLine}\n${testLine}`
+
         return (
           <g
             key={sample.id}
             style={{ cursor: 'pointer' }}
             onClick={() => onSampleClick(selected ? null : sample.id)}
           >
-            <title>
-              {`${sample.sample_number ?? '(unnumbered)'}\n${sample.depth_top_m.toFixed(2)} – ${sample.depth_base_m.toFixed(2)} m\n${tests.length} lab test${tests.length !== 1 ? 's' : ''}`}
-            </title>
+            <title>{tooltip}</title>
 
             {selected && (
               <rect
@@ -93,7 +103,7 @@ export function SamplesTrack({
             )}
             {!hasAnyTest && (
               <text x={x + 50} y={mid + 3} fontSize={9} fill="var(--borelog-text-muted)" fontStyle="italic">
-                no tests
+                {t('borelog.noTests')}
               </text>
             )}
           </g>
