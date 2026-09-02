@@ -79,6 +79,7 @@ export default function SectionsAxisPill({
           role="radio"
           aria-checked={!isLitho && !isGeotech}
           onClick={() => handleAxisChange('geological')}
+          data-testid="axis-geology"
           className={[
             'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap',
             !isLitho && !isGeotech
@@ -107,6 +108,7 @@ export default function SectionsAxisPill({
             aria-checked={isLitho}
             disabled={activeLithoModel === null}
             onClick={() => handleAxisChange('lithostratigraphic')}
+            data-testid="axis-litho"
             className={[
               'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent whitespace-nowrap',
               isLitho
