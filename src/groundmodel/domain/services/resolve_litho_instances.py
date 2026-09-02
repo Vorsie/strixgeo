@@ -39,6 +39,15 @@ The layer-level resolver groups nodes with a CONSTRAINED union-find (cannot-link
 constraints from user "Separate" rulings, debt #278 R5) — see
 ``_constrained_components``. It does NOT use ``_bfs_reachable``.
 
+Body identity is GEOMETRY-ONLY (owner 2026-09-02): every geometrically-
+disconnected mass keeps its own body id. A user "Join with…" (``body_union`` /
+``LayerUnion``) is a GROUP relation — it lumps similar bodies for exports /
+display ("group 3 (silt FF)") and must NEVER change a ``body_id`` — so the
+resolver IGNORES ``unions`` (dormant); the grouping is resolved client-side
+(``geotechGroupOrdinals``). ``separations`` are likewise dormant (the Separate
+verb was removed 2026-09-01). Both args are still accepted for caller / bundle-
+restore / test compatibility; a later slice removes the dead handling.
+
 This module also hosts ``connected_formation_ids`` (+ its ``CorrelationEdge``
 input DTO), a separate pure BFS helper consumed by
 ``application.propagate_litho_admixtures`` to walk the formation-level
@@ -153,42 +162,38 @@ class LayerSeparation:
 
 @dataclass(frozen=True)
 class LayerUnion:
-    """One user "Join with…" ruling — a must-link constraint between two layers.
+    """One user "Join with…" ruling — a GROUP relation between two layers.
 
-    Owner ruling 2026-08-31 (debt #278): the "Join with…" verb is the POSITIVE
-    half of the body-identity rule, the counterpart to Separate. Where a
-    ``LayerSeparation`` FORBIDS its two anchors from sharing a body, a union
-    REQUIRES it — the engineer states *"this body IS the same as that body"* and
-    the resolver merges the two masses even when NO edge (tie or geometry fact)
-    connects them. It is the additive twin of the machine's edges, and only the
-    user writes one.
+    Owner ruling 2026-09-02 (his words): *"I want all bodies that are separate to
+    keep their separate body IDs. Grouping is just for lumping things that are
+    similar together, so we have more data and maybe we have less export classes.
+    E.g. in an export it then becomes group 3 (silt FF)."* And, because a group can
+    span two different litho bodies, merging would lose provenance, so *"the only
+    way to group those is add a label"*.
 
-    Precedence and guards (the resolver applies these, never this dataclass):
+    So a "Join with…" is a **GROUP** relation, NOT a merge. It lumps two similar
+    bodies (same soil + same NAD class) so exports can pool them into one class and
+    the units pane can tag them "(group N)"; it must NEVER change a body's
+    ``body_id``. Body identity is geometry-only — every geometrically-disconnected
+    mass keeps its own id.
 
-    * **Cannot-link wins.** A union whose two anchors are also under a standing
-      ``LayerSeparation`` is SUPPRESSED — the separation holds, the union does
-      nothing, and it is reported so the caller can WARN. (The constrained
-      union-find already skips any union that would complete a separation; the
-      suppression is detected post-hoc.)
-    * **Never a mixed body.** A union across two soils, or two known-and-differing
-      packing classes, is INERT — it fails the same ``same_mass`` predicate an
-      edge does — and is reported so the caller can WARN "classes re-derived
-      apart".
-    * **Dangling anchor.** A union whose anchor is absent from this run's layers
-      is inert and dropped SILENTLY, mirroring a dangling separation (the
-      re-anchor pass restores it after a rebuild).
-    * **User beats machine.** Surviving unions are processed BEFORE the machine
-      edges, so a machine edge can never complete a separation by riding a union.
+    DORMANT in the pure resolver (owner 2026-09-02): the resolver IGNORES ``unions``
+    entirely — it never unions nodes for identity. The grouping is resolved for
+    DISPLAY / POOLING on the client (``geotechGroupOrdinals``). The dataclass + the
+    ``unions`` parameter are kept for signature / caller / bundle-restore / test
+    compatibility; the "never a mixed body" rule now lives ONLY in the body-unions
+    router's write-time guard (``same_mass`` on soil + class). See the module note.
 
-    The constraint is expressed in LAYER-id space, never body-id space — body ids
-    re-mint on every resolve, so a body-anchored must-link would bind the wrong
-    mass after the next renumbering. Anchoring on the layer rows survives that.
+    The relation is expressed in LAYER-id space, never body-id space — body ids
+    re-mint on every resolve, so a body-anchored ruling would bind the wrong mass
+    after the next renumbering. Anchoring on the layer rows survives that (this is
+    why a ``body_union`` row is re-anchored, not dropped, across a re-subdivide).
 
     Attributes
     ----------
     layer_a_id : UUID
-        One anchor (litho_layer id). Order is irrelevant to the constraint — the
-        two anchors simply must share a body.
+        One anchor (litho_layer id). Order is irrelevant — the two anchors simply
+        name the two bodies the engineer grouped together.
     layer_b_id : UUID
         The other anchor (litho_layer id).
     """
@@ -239,16 +244,14 @@ class ResolveResult:
         formation; may differ from the layer's own formation_id when a
         component spans admixtures).
     inert_unions : tuple[LayerUnion, ...]
-        User "Join with…" unions that could NOT take effect because they would
-        make a mixed body — a cross-soil pair, or two known-and-differing packing
-        classes (they failed ``same_mass``). Reported, not silent, so the use
-        case can WARN "classes re-derived apart — join inert". A DANGLING union
-        (anchor absent this run) is dropped silently and does NOT appear here.
+        ALWAYS EMPTY since owner 2026-09-02: a "Join with…" is a GROUP relation,
+        not a merge, so the resolver never judges a union inert. The "never a mixed
+        body" guard now runs at write time in the body-unions router, not here.
+        Kept for signature / caller compatibility (a later slice removes it).
     suppressed_unions : tuple[LayerUnion, ...]
-        User unions that filter-survived (both anchors present, same mass) yet
-        whose anchors ended in DIFFERENT components — a standing separation
-        overruled them (cannot-link wins). Reported so the use case can WARN the
-        engineer their join was blocked by their own separation.
+        ALWAYS EMPTY since owner 2026-09-02 (and already empty since separations
+        went dormant, 2026-09-01): a union never enters the partition, so nothing
+        can suppress it. Kept for signature / caller compatibility.
     """
 
     instances: list[InstanceAssignment]
@@ -456,22 +459,17 @@ def resolve_litho_instances(
         empty in the body, so a ``body_union`` always unions and no union is ever
         suppressed). Restore the live filter when the Separate verb returns.
     unions : Sequence[LayerUnion], optional
-        User "Join with…" rulings — must-link constraints (debt #278). Each
-        REQUIRES its two anchors to share a body even when no edge connects them.
-        A union rides the same guards as an edge:
-
-        * a dangling anchor (absent this run) drops it silently, like a dangling
-          separation;
-        * a union that would make a mixed body (fails ``same_mass``) is INERT
-          and reported in ``inert_unions``;
-        * a surviving union whose anchors a standing separation keeps apart is
-          reported in ``suppressed_unions`` (cannot-link wins).
-
-        Surviving unions are sorted canonically and PREPENDED to the sorted
-        edges, so the user's ruling is applied before the machine's edges — a
-        machine edge can never complete a separation by riding a union. Default
-        empty: the resolve is byte-identical when the engineer has joined
-        nothing.
+        User "Join with…" GROUP rulings (debt #278). DORMANT since owner
+        2026-09-02: a union is a GROUP relation, NOT a merge — it lumps similar
+        bodies for exports / display and must NEVER change a ``body_id``. Body
+        identity is geometry-only, so the resolver IGNORES this argument entirely:
+        no union enters the partition, and ``inert_unions`` / ``suppressed_unions``
+        are always empty. The resolve is byte-identical whether or not unions are
+        supplied. The arg is still ACCEPTED so every caller — including bundle
+        restore of legacy rows and the direct unit tests — is unchanged. Grouping
+        is resolved client-side (``geotechGroupOrdinals``); the "never a mixed
+        body" guard runs at write time in the body-unions router. Restore the live
+        merge here only if the ruling ever reverts.
 
     Returns
     -------
@@ -501,61 +499,59 @@ def resolve_litho_instances(
             continue
         surviving_edges.append((e.layer_a_id, e.layer_b_id))
 
-    # User "Join with…" unions (debt #278) — must-link constraints that merge two
-    # anchors even with no edge between them. Same dangling guard as an edge, and
-    # the SAME ``same_mass`` predicate: a union that would make a mixed body is
-    # INERT and reported (never a mixed body), a dangling union drops silently.
-    surviving_unions: list[tuple[UUID, UUID]] = []
-    survivors_to_check: list[LayerUnion] = []
-    inert_unions: list[LayerUnion] = []
-    for u in unions:
-        a = node_map.get(u.layer_a_id)
-        b = node_map.get(u.layer_b_id)
-        if a is None or b is None:
-            continue  # dangling-anchor guard — silent, mirroring separations
-        if not same_mass(a, b):
-            inert_unions.append(u)  # would make a mixed body — reported, not applied
-            continue
-        surviving_unions.append((u.layer_a_id, u.layer_b_id))
-        survivors_to_check.append(u)
+    # --- "Join with…" unions (debt #278) — DORMANT since owner 2026-09-02 ------
+    # A union is now a GROUP relation, NOT a merge. The engineer groups similar
+    # bodies together (same soil + same NAD class — "things that are similar") so
+    # an export can pool them into one class — "group 3 (silt FF)" — and the units
+    # pane can tag a grouped body "(group N)". Grouping gives MORE data per export
+    # class; it must NEVER change a body's identity. Body identity is geometry-only
+    # (the granular connected-components rule: every geometrically-disconnected
+    # mass keeps its own body id), because a group can span two different litho
+    # bodies and merging would lose that provenance (owner 2026-09-02: "all bodies
+    # that are separate keep their separate body IDs … the only way to group those
+    # is add a label").
+    #
+    # So the resolver IGNORES ``unions``: none is prepended to the machine edges,
+    # and nothing is reported inert/suppressed. The grouping is resolved for
+    # DISPLAY / POOLING on the client (``geotechGroupOrdinals``), never here. The
+    # ``unions`` arg + the ``LayerUnion`` dataclass stay for signature / caller /
+    # bundle-restore / test compatibility; the "never a mixed body" rule now lives
+    # ONLY in the body-unions router's write-time guard (``same_mass`` on soil +
+    # class). Mirrors the dormant ``separations`` treatment below; a later slice
+    # removes this dead handling (debt #278 follow-on).
+    _ = unions  # accepted for signature / caller compatibility; dormant (GROUP, not merge)
+    inert_unions: list[LayerUnion] = []  # dormant: a union never merges, so never inert
+    suppressed_unions: list[LayerUnion] = []  # dormant: separations gone, nothing suppresses
 
     def _canonical(uv: tuple[UUID, UUID]) -> tuple[str, str]:
         return (min(str(uv[0]), str(uv[1])), max(str(uv[0]), str(uv[1])))
 
-    # Determinism: with the cannot-link constraints below, the partition depends
-    # on the order pairs are unioned. Sort edges AND unions canonically, then
-    # PREPEND the unions — the user's ruling is applied before the machine's
-    # edges, so a machine edge can never complete a separation by riding a union
-    # (R-JOIN-4: user beats machine). ``_constrained_components`` needs no change.
+    # Determinism: with the (now dormant) cannot-link constraints the partition can
+    # depend on the order pairs are unioned, so the machine edges are sorted
+    # canonically before the constrained union-find. Unions are no longer prepended
+    # (dormant, GROUP not merge), so ``all_pairs`` is the machine edges ALONE —
+    # geometry is the only thing that decides identity.
     surviving_edges.sort(key=_canonical)
-    surviving_unions.sort(key=_canonical)
-    all_pairs = surviving_unions + surviving_edges
+    all_pairs = surviving_edges
 
     # Owner 2026-09-01: the Separate / Rejoin verbs were removed and
     # ``body_separation`` is DORMANT — the ORM, table, router and bundle restore
     # survive so leftover rows stay readable, but a standing separation must no
     # longer affect a resolve (a leftover row was refusing the owner's Join). We
     # keep accepting the ``separations`` arg (signature + every caller unchanged)
-    # but ignore it: with no cannot-link constraints the constrained union-find
-    # never skips a must-link, so a ``body_union`` always unions and the post-hoc
-    # ``suppressed_unions`` below is always empty. When Separate returns this
-    # becomes the live filter again.
+    # but ignore it: there are no cannot-link constraints. (Unions are dormant too,
+    # 2026-09-02, so nothing rides the constrained union-find any more; both
+    # ``inert_unions`` and ``suppressed_unions`` are always empty.) When Separate
+    # returns this becomes the live filter again.
     live_separations: list[tuple[UUID, UUID]] = []
     _ = separations  # accepted for signature / caller compatibility; dormant
 
     components = _constrained_components(node_ids, all_pairs, live_separations)
 
-    # Suppressed unions (cannot-link wins): a filter-surviving union whose two
-    # anchors ended in DIFFERENT components was skipped by the constrained
-    # union-find because completing it would complete a separation. Detected
-    # post-hoc against the resolved partition, reported so the use case can WARN.
-    comp_of: dict[UUID, int] = {}
-    for idx, comp in enumerate(components):
-        for n in comp:
-            comp_of[n] = idx
-    suppressed_unions: list[LayerUnion] = [
-        u for u in survivors_to_check if comp_of.get(u.layer_a_id) != comp_of.get(u.layer_b_id)
-    ]
+    # No post-hoc suppressed-union pass any more: a union is a GROUP relation that
+    # never enters the partition (dormant, above), so there is nothing to detect as
+    # "the separation overruled it" — ``suppressed_unions`` stays the empty list set
+    # in the dormant stub. (A later slice removes the whole union path.)
 
     # Sort key for the shallowest member of a component: by depth, then layer
     # UUID for determinism.
