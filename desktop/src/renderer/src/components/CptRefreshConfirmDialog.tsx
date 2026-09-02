@@ -11,6 +11,7 @@
 
 import type { CptRefreshDiff } from '../api/client'
 import ConfirmDialog from './ui/ConfirmDialog'
+import { useT } from '../i18n/translate'
 
 interface Props {
   /** Truthy = render. The caller owns the open lifecycle. */
@@ -47,6 +48,7 @@ export default function CptRefreshConfirmDialog({
   onConfirm,
   onCancel,
 }: Props): JSX.Element {
+  const t = useT()
   return (
     <ConfirmDialog
       open={open && diff !== null}
@@ -56,32 +58,33 @@ export default function CptRefreshConfirmDialog({
       onCancel={onCancel}
       title={
         <>
-          Replace <span className="font-bold">{diff?.name ?? ''}</span>’s data with this file?
+          {t('dialog.cptRefreshTitlePre')}{' '}
+          <span className="font-bold">{diff?.name ?? ''}</span>
+          {t('dialog.cptRefreshTitlePost')}
         </>
       }
       body={
         <>
           <p className="mb-2">
-            <span className="font-mono">{fileName}</span> is already in this project. Importing
-            it replaces the stored measurements. This cannot be undone, and any interpretation
-            anchored below the new depth will need checking.
+            <span className="font-mono">{fileName}</span>
+            {t('dialog.cptRefreshBody')}
           </p>
           <table className="w-full text-left" data-testid="cpt-refresh-diff">
             <thead>
               <tr className="text-text-secondary">
                 <th className="font-normal" />
-                <th className="font-normal">Stored</th>
-                <th className="font-normal">This file</th>
+                <th className="font-normal">{t('dialog.cptRefreshStored')}</th>
+                <th className="font-normal">{t('dialog.cptRefreshThisFile')}</th>
               </tr>
             </thead>
             <tbody className="font-mono">
               <tr>
-                <td className="pr-3 font-sans">Depth</td>
+                <td className="pr-3 font-sans">{t('common.depth')}</td>
                 <td className="pr-3">{depth(diff?.oldMaxDepthM ?? null)}</td>
                 <td>{depth(diff?.newMaxDepthM ?? null)}</td>
               </tr>
               <tr>
-                <td className="pr-3 font-sans">Readings</td>
+                <td className="pr-3 font-sans">{t('dialog.cptRefreshReadings')}</td>
                 <td className="pr-3">{rows(diff?.oldNRows ?? null)}</td>
                 <td>{rows(diff?.newNRows ?? null)}</td>
               </tr>
@@ -89,14 +92,18 @@ export default function CptRefreshConfirmDialog({
           </table>
           {(diff?.nWarnings ?? 0) > 0 && (
             <p className="mt-2">
-              The new file parsed with {diff?.nWarnings} warning
-              {diff?.nWarnings === 1 ? '' : 's'}.
+              {t(
+                diff?.nWarnings === 1
+                  ? 'dialog.cptRefreshWarningsOne'
+                  : 'dialog.cptRefreshWarningsMany',
+                { n: diff?.nWarnings ?? 0 },
+              )}
             </p>
           )}
         </>
       }
       confirm={{
-        label: 'Replace data',
+        label: t('dialog.cptRefreshReplace'),
         onClick: onConfirm,
         variant: 'danger',
         testid: 'cpt-refresh-confirm',
