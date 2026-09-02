@@ -6,11 +6,10 @@
 // the tree landed — the flat list fitted here, the tree does not, and debt #201
 // is about not letting a stage component absorb everything again.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { FlaskConical } from 'lucide-react'
 
 import { api } from '../../../api/client'
-import type { BodyUnionListItem } from '../../../api/client'
 import { log } from '../../../utils/log'
 import { nadClassName } from '../../../utils/nadClasses'
 import {
@@ -22,6 +21,7 @@ import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
 import { useLanguage } from '../../../i18n/languageSelect'
 import { useModelBodies } from '../parameters/useModelBodies'
+import { useBodyUnions } from '../parameters/useBodyUnions'
 import GeotechnicalUnitRoster from './GeotechnicalUnitRoster'
 
 /**
@@ -103,33 +103,15 @@ export default function GeotechnicalInspector(): JSX.Element {
   )
 
   // D4: the geotech model's manual body unions ("Join with…" verb) — the source
-  // of the "(group N)" leaf tag. A missing/failed list degrades to no tags, so a
-  // warning names what was not found rather than a toast.
-  const [bodyUnions, setBodyUnions] = useState<BodyUnionListItem[]>([])
-  const geotechModelId = activeGeotechModel?.id ?? null
-  useEffect(() => {
-    if (projectId === null || geotechModelId === null) {
-      setBodyUnions([])
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      try {
-        const list = await api.geology.listBodyUnions(projectId, geotechModelId)
-        if (!cancelled) setBodyUnions(list)
-      } catch (err) {
-        if (!cancelled) {
-          log.warn('geology', `body unions: list failed for model ${geotechModelId}`, err)
-          setBodyUnions([])
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // ``bodyRecomputeGeotechNonce``: a recompute can re-resolve the anchors'
-    // bodies, so the group tags must follow it.
-  }, [projectId, geotechModelId, bodyRecomputeGeotechNonce])
+  // of the "(group N)" leaf tag. Via the shared ``useBodyUnions`` hook (also read
+  // by the Parameters stage). A missing/failed list degrades to no tags. The
+  // recompute nonce is the refetch key: a recompute can re-resolve the anchors'
+  // bodies, so the group tags must follow it.
+  const bodyUnions = useBodyUnions(
+    projectId,
+    activeGeotechModel?.id ?? null,
+    bodyRecomputeGeotechNonce,
+  )
 
   // The colour the engineer picks on a roster row (owner ruling 2026-08-26).
   //
