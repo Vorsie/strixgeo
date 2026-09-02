@@ -35,6 +35,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
+import { t } from '../../../i18n/translate'
 import type { LithoBodySolidResponse } from '../../../api/clients/geology'
 import { useShell } from '../../ShellContext'
 import type { SplitLine } from '../geology/Geology3DViewer'
@@ -373,9 +374,10 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
         const n = result.failedSectionIds.length
         toast(
           'warning',
-          `${n} cross-section${n === 1 ? '' : 's'} could not load ${n === 1 ? 'its' : 'their'} ` +
-            `correlations — the fence is incomplete and shows those panels untied: ` +
-            `${names.join(', ')}. Reopen Fence view to retry.`,
+          t(n === 1 ? 'export.fenceIncompleteOne' : 'export.fenceIncompleteMany', {
+            n,
+            names: names.join(', '),
+          }),
         )
       }
     })
