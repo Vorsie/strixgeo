@@ -18,6 +18,26 @@ export const PANELS = {
   'map.editMetadata': 'Edit metadata',
   'map.drawSectionLine': 'Click two points on the map to draw the cross-section line',
   'map.noValuesForAxis': 'No values for this axis.',
+  // DOV import progress panel (rendered in the bbox-import modal while the
+  // SSE stream runs).
+  'map.cptImportProgress': 'CPT import progress',
+  'map.boreholeImportProgress': 'Borehole import progress',
+  'map.importProgressOf': '{label} {done} of {total}',
+  'map.importFinishedWithErrors': 'Import finished with errors',
+  'map.importComplete': 'Import complete',
+  'map.imported': 'Imported',
+  'map.alreadyExisted': 'Already existed',
+  'map.failed': 'Failed',
+  'map.cptsInProjectOne': '{n} CPT in project',
+  'map.cptsInProjectMany': '{n} CPTs in project',
+  'map.observationsAttached': 'Observations attached',
+  'map.samplesAttached': 'Samples attached',
+  'map.subPhaseFailed': '{label} failed',
+  'map.dovMissingData': 'DOV did not return this data — the boreholes are imported, but',
+  'map.dovMissingRetry': ' re-run the import over the same area to retry the missing parts.',
+  'map.dovMissingNoRetry':
+    ' DOV’s catalogue lists these and its own service returns nothing; re-running will not help — check the boreholes on dov.vlaanderen.be.',
+  'map.importFailed': 'Import failed',
 
   // -------------------------------------------------------------------------
   // borelog + CPT chart.
@@ -69,7 +89,23 @@ export const PANELS = {
   'borelog.resetZoom1x': 'Reset zoom to 1×',
   'borelog.noSurfaceElevation':
     'Surface elevation missing — borelog renders without absolute level axis.',
+  // DOV Virtuele Boring overlay + samples/groundwater helpers on the SVG.
+  'borelog.noData': 'no data',
+  'borelog.waterMarker': '▾ water at {depth} m',
+  'borelog.labTestCountOne': '{n} lab test',
+  'borelog.labTestCountMany': '{n} lab tests',
+  'borelog.noTests': 'no tests',
+  'borelog.hideColumnAria': 'Hide {title} column',
   'chart.zMissing': 'Z missing',
+  // CPT chart run-summary line, legend + recharts axis / tooltip chrome.
+  'chart.runSummary': '{type} · {rows} rows · {depth} m',
+  'chart.preDrill': 'Pre-drill {depth} m',
+  'chart.lengthAxis': 'Length (m)',
+  'chart.depthAxis': 'Depth (m)',
+  'chart.levelAxis': 'Level ({datum})',
+  'chart.surfaceRef': '{level} m — surface',
+  'chart.tooltipDepth': 'Depth: {depth} m',
+  'chart.tooltipLevelSuffix': '  |  Level: {level}',
 
   // -------------------------------------------------------------------------
   // lab tests.
@@ -82,6 +118,18 @@ export const PANELS = {
   'lab.curveNotRecorded': 'Curve not recorded.',
   'lab.atterberg': 'Atterberg',
   'lab.cobbles': 'Cobbles',
+  // Lab-test panel — sample header nav, grain-size chart chrome + treatments.
+  'lab.unnumbered': '(unnumbered)',
+  'lab.previousSample': 'Previous: {name}',
+  'lab.noPreviousSample': 'No previous sample',
+  'lab.nextSample': 'Next: {name}',
+  'lab.noNextSample': 'No next sample',
+  'lab.methodsCombined': '{n} methods combined',
+  'lab.methodN': 'Method {n}',
+  'lab.limeRemoved': 'lime removed',
+  'lab.organicsRemoved': 'organics removed',
+  'lab.pctFiner': '% finer',
+  'lab.diameterAxis': 'Diameter (mm)',
 
   // -------------------------------------------------------------------------
   // elevation editor.
@@ -94,6 +142,11 @@ export const PANELS = {
   'elevation.saveEnter': 'Save (Enter)',
   'elevation.cancelEsc': 'Cancel (Esc)',
   'elevation.saveFailed': 'Save failed',
+  'elevation.sourceTitle': 'Elevation source: {source}',
+  'elevation.sourceManual': 'manual',
+  'elevation.clear': 'Clear',
+  'elevation.enterANumber': 'Enter a number',
+  'elevation.outOfRange': 'Out of range',
 
   // -------------------------------------------------------------------------
   // composition + formation dialogs (litho interpretation).
@@ -110,6 +163,22 @@ export const PANELS = {
   'composition.preview': 'Preview',
   'composition.save': 'Save composition',
   'composition.fixedByCorrelation': '(fixed by correlation group)',
+  'composition.locally': 'locally',
+  'composition.editAdmixturesTitle': 'Edit admixtures for this body',
+  'composition.editSuggestionTitle': 'Edit suggestion composition',
+  'composition.within': 'within:',
+  'composition.parentAutoResolved':
+    'The parent geological formation is resolved automatically when the contact is committed. If no geology is mapped here, the unit appears under "Unassigned".',
+  'composition.unassigned': 'Unassigned',
+  'composition.tabExisting': 'Existing units',
+  'composition.tabNew': 'New unit',
+  'composition.noUnitsInFormation':
+    'No litho units in this geological formation yet — use the "New unit" tab to create one.',
+  'composition.noUnitsInModel':
+    'No litho units in this model yet — use the "New unit" tab to create the first one.',
+  'composition.under': 'under {name}',
+  'composition.creating': 'Creating…',
+  'composition.createUnit': 'Create unit',
   'formation.topOfWhichFormation': 'Top of which formation?',
   'formation.newHere': 'New formation here',
   'formation.newHereHint': 'Create a new formation and commit this contact in one step',
@@ -121,6 +190,19 @@ export const PANELS = {
   'formation.lensCodeHint': '(optional — sets the lens code)',
   'formation.searchFormal': 'Search formal unit (e.g. Holoceen, QH)…',
   'formation.notInModel': ' — formation not in your model.',
+  // FormationDialog (create/edit) + FormationPickerDialog chrome.
+  'formation.editTitle': 'Edit formation',
+  'formation.newTitle': 'New formation',
+  'formation.dialogBlurb':
+    'A formation is a substrate unit you reference in the geological model — e.g.',
+  'formation.exampleQuaternary': 'Quaternary deposits',
+  'formation.colour': 'Colour',
+  'formation.regionalReference': 'Regional reference',
+  'formation.formalStratigraphy': 'Formal stratigraphy',
+  'formation.clear': 'Clear',
+  'formation.noneDefinedPickerPre':
+    'No formations defined yet — create one with the button below or use',
+  'formation.noneDefinedPickerPost': 'in the Ground model pane.',
 
   // -------------------------------------------------------------------------
   // confirm dialogs shared across surfaces.
@@ -180,6 +262,17 @@ export const PANELS = {
   'dialog.recoveryNotNow': 'Not now',
   'dialog.recoveryDeleteBackup': 'Delete backup',
   'dialog.recoveryUntouched': 'Your saved project is untouched.',
+  // CPT refresh-on-reimport confirm dialog. Title is split around the bold
+  // CPT name so the value can be emphasised while the phrase reorders in NL.
+  'dialog.cptRefreshTitlePre': 'Replace',
+  'dialog.cptRefreshTitlePost': '’s data with this file?',
+  'dialog.cptRefreshBody':
+    ' is already in this project. Importing it replaces the stored measurements. This cannot be undone, and any interpretation anchored below the new depth will need checking.',
+  'dialog.cptRefreshWarningsOne': 'The new file parsed with {n} warning.',
+  'dialog.cptRefreshWarningsMany': 'The new file parsed with {n} warnings.',
+  // Shared picker-dialog anchor subtitle (formation + litho pickers).
+  'dialog.pickerAnchorPre': 'On',
+  'dialog.pickerAnchorAt': 'at depth {depth} m ({taw} m TAW)',
 
   // -------------------------------------------------------------------------
   // undo-stack action labels — shown in the undo toast / tooltip.
@@ -206,4 +299,6 @@ export const PANELS = {
   'cheatsheet.borelogCharts': 'Borehole log & charts',
   'cheatsheet.escHint':
     'Context-dependent: close dialog / panel · cancel draw, drag or marquee · peel one section interaction layer · clear selection',
+  'cheatsheet.searchPlaceholder': 'Search gestures — e.g. marquee, alt, zoom',
+  'cheatsheet.noMatch': 'No gesture matches “{query}”.',
 } as const
