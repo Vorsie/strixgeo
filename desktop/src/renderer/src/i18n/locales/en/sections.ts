@@ -227,7 +227,6 @@ export const SECTIONS = {
   'sections.export.plaxisTitle':
     'Export the geological model as a Plaxis 3D plxscripting Python script',
   'sections.export.sectionPdf': 'Section PDF report',
-  'sections.export.generatingPdf': 'Generating PDF…',
   'sections.export.noModelDefine': 'No active {level} model — define one first',
   'sections.export.pdfTitle': 'Generate a PDF report of this section’s {level} model',
   // D-Series (closed-geometry) rows. The label + format names stay identical in
