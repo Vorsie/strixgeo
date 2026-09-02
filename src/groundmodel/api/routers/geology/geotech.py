@@ -1007,7 +1007,8 @@ async def auto_correlate_geotech(
         f"sections={result.sections_processed} "
         f"off_section_investigations={result.investigations_off_section} "
         f"offsection_ties_deleted={result.offsection_ties_deleted} "
-        f"offsection_ties_retained={result.offsection_ties_retained}"
+        f"offsection_ties_retained={result.offsection_ties_retained} "
+        f"frame_flagged={result.frame_flagged_count}"
     )
     return AutoCorrelateGeotechResponse(
         edges_proposed=result.edges_proposed,
@@ -1019,6 +1020,7 @@ async def auto_correlate_geotech(
         investigations_off_section=result.investigations_off_section,
         offsection_ties_deleted=result.offsection_ties_deleted,
         offsection_ties_retained=result.offsection_ties_retained,
+        frame_flagged_count=result.frame_flagged_count,
     )
 
 
