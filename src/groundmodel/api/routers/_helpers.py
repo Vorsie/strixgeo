@@ -13,17 +13,21 @@ routers (per the Maintenance Rules: "extract on the second copy" —
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Iterator
+from contextlib import contextmanager
 from typing import Any, TypeVar
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy import ARRAY, Text, case, cast, func, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.export_artifact import ExportArtifact
 from groundmodel.shared.constants.db_constraints import LITHO_LAYER_NO_OVERLAP_CONSTRAINT
+from groundmodel.shared.exceptions import ParseError
 
 T = TypeVar("T")
 
@@ -92,32 +96,60 @@ async def apply_view_state_patch(
     await session.execute(update(model).where(model.id == row_id).values(view_state=merged))
 
 
-def safe_filename_stem(name: str, fallback: str) -> str:
-    """Sanitise a user-supplied name into a safe filename stem.
+def export_response(artifact: ExportArtifact) -> Response:
+    """Turn an application-layer ``ExportArtifact`` into a download response.
 
-    Strips characters that cause problems in filenames or
-    ``Content-Disposition`` headers (forward slashes, control chars,
-    double-quotes, etc.), replacing them with underscores. Falls back
-    to ``fallback`` when nothing safe remains. Single source of truth
-    for download-filename safety across the export endpoints.
+    The single place the ``Content-Disposition`` attachment header is built.
+    Every export handler ends here (debt #110): the handler runs its exporter
+    and packages the bytes with :meth:`ExportArtifact.build`, then hands the
+    artefact to this converter. Keeping the header construction in ONE place
+    means the six routes cannot drift in how they propose a filename.
 
     Parameters
     ----------
-    name : str
-        Raw name (project name, section name, ...).
-    fallback : str
-        Stem to use when the sanitised result is empty (e.g.
-        ``"project"`` or ``"section"``).
+    artifact : ExportArtifact
+        The packaged export — payload, filename and media type — from the
+        application layer.
 
     Returns
     -------
-    str
-        Alphanumeric + ``-_`` + space filename stem, stripped of
-        leading/trailing spaces.
+    fastapi.responses.Response
+        A raw-bytes response with the ``attachment`` ``Content-Disposition``
+        header proposing ``artifact.filename``.
     """
-    return (
-        "".join(c if c.isalnum() or c in ("-", "_", " ") else "_" for c in name).strip() or fallback
+    return Response(
+        content=artifact.content,
+        media_type=artifact.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{artifact.filename}"'},
     )
+
+
+@contextmanager
+def parse_error_as_404() -> Iterator[None]:
+    """Map a snapshot builder's ``ParseError`` to an HTTP 404.
+
+    Every export handler that assembles a snapshot resolves ids the caller
+    supplied (project / model / section); when one cannot be resolved the
+    application-layer builder raises ``ParseError``, and the honest HTTP
+    answer is 404 — the typical failure is "this id does not exist in this
+    project". This wraps the ``await`` of any such builder so the two routers
+    map the failure the same way (debt #110). The awaited call goes inside the
+    ``with`` body; a ``ParseError`` raised there propagates through here.
+
+    Yields
+    ------
+    None
+        Control returns to the ``with`` body.
+
+    Raises
+    ------
+    fastapi.HTTPException
+        Status 404 with the ``ParseError`` message as the detail.
+    """
+    try:
+        yield
+    except ParseError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 def require_model_kind(model: Any, expected_kind: str, verb: str) -> None:
