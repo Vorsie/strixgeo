@@ -17,6 +17,7 @@ import { KeyRound, ShieldCheck, X } from 'lucide-react'
 
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
+import ConfirmDialog from '../ui/ConfirmDialog'
 import { useT, type Translator } from '../../i18n/translate'
 import type { MessageKey } from '../../i18n/locales/en'
 import { log } from '../../utils/log'
@@ -144,6 +145,9 @@ export default function LicensingDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Deactivate / transfer is irreversible (it frees the seat on the server), so
+  // the button opens a confirmation instead of firing (docs/ux.md).
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false)
 
   // The prototype-only "Preview a state" control never ships in a packaged build
   // (senior review SHOULD-FIX 1) — mirrors previewControlAllowed(app.isPackaged)
@@ -211,7 +215,9 @@ export default function LicensingDialog({
       'licensing.toastTrialStarted',
     )
   }
-  const handleDeactivate = (): void => {
+  // Only reached after the user confirms the irreversible deactivate.
+  const handleDeactivateConfirmed = (): void => {
+    setConfirmDeactivate(false)
     void runAction(
       () => window.electron.deactivateLicence() as Promise<ActivationActionResultDto>,
       'licensing.toastDeactivated',
@@ -233,6 +239,7 @@ export default function LicensingDialog({
   const activated = status !== null && status.verdict.state !== 'unactivated'
 
   return (
+    <>
     <Modal
       open={open}
       // A non-dismissable start screen swallows Esc / backdrop so a blocked
@@ -322,7 +329,7 @@ export default function LicensingDialog({
                 variant="secondary"
                 size="md"
                 disabled={busy}
-                onClick={handleDeactivate}
+                onClick={() => setConfirmDeactivate(true)}
                 data-testid="licensing-deactivate"
               >
                 {t('licensing.deactivate')}
@@ -369,5 +376,26 @@ export default function LicensingDialog({
         </div>
       </div>
     </Modal>
+
+    {/* Irreversible-action guard: freeing the seat on the server cannot be
+        undone locally, so Cancel is default-focused and the action button names
+        the action (docs/ux.md "Reversible vs irreversible"). */}
+    <ConfirmDialog
+      open={confirmDeactivate}
+      labelledBy="licensing-deactivate-confirm-title"
+      title={t('licensing.deactivateConfirmTitle')}
+      body={t('licensing.deactivateConfirmBody')}
+      confirm={{
+        label: t('licensing.deactivateConfirmAction'),
+        onClick: handleDeactivateConfirmed,
+        variant: 'danger',
+        testid: 'licensing-deactivate-confirm',
+      }}
+      cancelTestid="licensing-deactivate-cancel"
+      onCancel={() => setConfirmDeactivate(false)}
+      busy={busy}
+      testid="licensing-deactivate-dialog"
+    />
+    </>
   )
 }
