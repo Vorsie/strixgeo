@@ -30,6 +30,7 @@ import {
   writeActivationState,
 } from './activationStore'
 import { HttpActivationRepository, maskLicenceKey } from './httpActivationRepository'
+import { DeactivateFailedError } from './activationRepository'
 import { MockActivationRepository } from './mockActivationRepository'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -175,6 +176,28 @@ describe('HttpActivationRepository', () => {
     await expect(makeRepo(fetchReturning(200, { released: true })).deactivate('device-A')).resolves.toBeUndefined()
     await expect(makeRepo(fetchReturning(500, {})).deactivate('device-A')).rejects.toThrow()
     await expect(makeRepo(fetchThrowing()).deactivate('device-A')).rejects.toThrow()
+  })
+
+  it('throws a typed DeactivateFailedError carrying the HTTP status (null for a network failure)', async () => {
+    // The status lets the orchestration layer tell a 404 (already released ->
+    // clear locally) from a 401 / network failure (keep the local licence).
+    const notFound = await makeRepo(fetchReturning(404, { error: { code: 'key_unknown' } }))
+      .deactivate('device-A')
+      .catch((err: unknown) => err)
+    expect(notFound).toBeInstanceOf(DeactivateFailedError)
+    expect((notFound as DeactivateFailedError).status).toBe(404)
+
+    const unauthorised = await makeRepo(fetchReturning(401, {}))
+      .deactivate('device-A')
+      .catch((err: unknown) => err)
+    expect(unauthorised).toBeInstanceOf(DeactivateFailedError)
+    expect((unauthorised as DeactivateFailedError).status).toBe(401)
+
+    const offline = await makeRepo(fetchThrowing())
+      .deactivate('device-A')
+      .catch((err: unknown) => err)
+    expect(offline).toBeInstanceOf(DeactivateFailedError)
+    expect((offline as DeactivateFailedError).status).toBeNull()
   })
 
   it('never hands the full key to the debug sink — last four only', async () => {
