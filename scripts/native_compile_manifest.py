@@ -23,11 +23,41 @@ GEF + DOV parsing modules). "The engine" is the whole pure-domain modelling
 core, not a hand-picked trio: every engine-class module under
 ``domain/services`` (the voxel litho builder, the CPT segmenter / Robertson SBT
 classifier chain, the NAD packing classifier, the full geotech subdivision
-family, and the TIN/DEM/lens/correlation geometry) is compiled. The API,
-repositories and application layer stay source — a domain module that reaches
-into ``infrastructure``/``api``/``application`` (or imports SQLAlchemy /
-Pydantic) is by definition NOT pure domain and is carved out with its offending
-import as evidence, exactly like ``greedy_mesh`` (numba) below.
+family, and the TIN/DEM/lens/correlation geometry) is compiled. A domain module
+that reaches into ``infrastructure``/``api``/``application`` (or imports
+SQLAlchemy / Pydantic) is by definition NOT pure domain and is carved out with
+its offending import as evidence, exactly like ``greedy_mesh`` (numba) below.
+
+Scope EXTENSION (owner ruling "Q1", 2026-09-01): the **engine-class modules that
+live in ``application/``** are compiled too — a partial reversal of "the whole
+application layer stays source". The owner's criterion is "algorithm modules
+only; repos / use-case orchestration / API glue stay source", and he named
+``divide_boreholes`` (5090 LOC), ``subdivide_all_bodies``, ``geotech_edge_
+derivation`` and ``build_voxel_litho_model``. The compiled set
+(:data:`_ENGINE_APPLICATION`) is those plus every OTHER ``application/`` module
+whose algorithm is computed IN-MODULE rather than delegated to a compiled
+``domain/services`` module.
+
+That delegation boundary is the real ALGORITHM/orchestration line in this layer:
+the band-reclassification hand-edit verbs (merge / split / move / preview), the
+body-identity resolution and recompute use cases, and the auto-correlate / sweep
+/ recompute-absence / import / snapshot / CRUD families all LOAD inputs, call a
+``domain/services`` service that holds the actual algorithm (``plan_split`` /
+``plan_merge`` / ``plan_move`` in the compiled ``geotech_band_reclassification``;
+``resolve_litho_instances``; ``body_fact_translation``; ...), then persist — so
+their IP already ships as a ``.pyd`` and the wrapper stays SOURCE. What is
+compiled is the code that carries the math itself: the geotech subdivision /
+edge-derivation engine, the tie/pair reanchor matching, the in-module geotech
+band-edit planning (``plan_edge_transfer``), the voxel build, and the
+section/wedge/companion/stratigraphy/export geometry that has no compiled-domain
+home. ``geotech_borehole_materialiser`` was CONSIDERED and left source: ~two
+thirds of it is find-or-create upsert orchestration, so by "what dominates the
+body" it is a GLUE base that happens to carry light geo-attribution geometry.
+
+Because ``application/`` is impure (async ORM + session access) and thinly
+unit-tested, the ``_ENGINE_APPLICATION`` set is proven by the INTEGRATION suite
+run against the staged ``.pyd`` — not the unit gate alone — and Nuitka carve-outs
+are expected and recorded in :data:`SOURCE_CARVEOUTS` like any other.
 
 Deliberate SOURCE carve-outs, each recorded with its reason in
 :data:`SOURCE_CARVEOUTS`:
@@ -222,10 +252,60 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.lab.dov.scalar_observation_wfs_row",
 ]
 
+# ---------------------------------------------------------------------------
+# The engine in application/ (owner ruling "Q1", 2026-09-01). ALGORITHM modules
+# only — every application module whose algorithm is computed IN-MODULE rather
+# than delegated to a compiled domain/services service. NOT wholesale: the
+# band-reclassification hand-edit verbs (delegate to the compiled
+# geotech_band_reclassification), the body resolution / recompute use cases
+# (delegate to the compiled resolve_litho_instances / body_fact_translation), the
+# auto-correlate / sweep / recompute-absence / import / snapshot / CRUD families,
+# and the queue/job/lock/scope/DTO infrastructure all stay SOURCE. There is no
+# application-wide classification test — this is a hand-picked set, pinned exactly
+# by tests/unit/scripts/test_native_compile_manifest.py. Grouped by role;
+# alphabetical within each group.
+# ---------------------------------------------------------------------------
+_ENGINE_APPLICATION = [
+    # Geotech subdivision / borehole division + packing-edge derivation — the
+    # owner-named core. Band merge/coarsen/clip/donor + tie-pair math
+    # (divide_boreholes), mm-clamped sub-interval computation (subdivide_all_
+    # bodies), packing-stack alignment + bandless-column bridging
+    # (geotech_edge_derivation) — all inline.
+    "groundmodel.application.divide_boreholes",
+    "groundmodel.application.geotech_edge_derivation",
+    "groundmodel.application.subdivide_all_bodies",
+    # Geotech in-module planning + reanchor matching. band_edit_helpers holds
+    # plan_edge_transfer / edge_review_actions in-module (the reclassification
+    # plan_* itself is the compiled domain service); geotech_tie_reanchor and
+    # pair_ruling_reanchor are the tie/pair identity + overlap band-matching math.
+    "groundmodel.application.geotech_band_edit_helpers",
+    "groundmodel.application.geotech_tie_reanchor",
+    "groundmodel.application.pair_ruling_reanchor",
+    # Voxel litho build — stack blend, body-alias, honored columns, footprint,
+    # checksums (all inline).
+    "groundmodel.application.build_voxel_litho_model",
+    # Litho / section / body / stratigraphy / export geometry computed IN-MODULE
+    # with no compiled-domain home: section-polygon gap-fraction->ring coordinate
+    # mapping, per-absence pinch-tip wedge geometry, lens-centroid/perpendicular
+    # companion geometry, stratigraphy key-precedence + interval-overlap bridging,
+    # and same-identifier export-unit adjacency merging.
+    "groundmodel.application.build_section_polygons",
+    "groundmodel.application.create_perpendicular_companion",
+    "groundmodel.application.materialize_wedge_tips_for_formation",
+    "groundmodel.application.stratigraphy_bridge",
+    "groundmodel.application.thin_export_units",
+]
+
 #: Dotted module names compiled to native ``.pyd`` in the packaged tree.
 #: Order is engine-first (voxel_litho, then the rest of domain/services), then
-#: parsers; each block is grouped/alphabetical within itself.
-COMPILED_MODULES: list[str] = [*_VOXEL_LITHO, *_ENGINE_DOMAIN_SERVICES, *_PARSERS]
+#: parsers, then the application-layer engine; each block is grouped/alphabetical
+#: within itself.
+COMPILED_MODULES: list[str] = [
+    *_VOXEL_LITHO,
+    *_ENGINE_DOMAIN_SERVICES,
+    *_PARSERS,
+    *_ENGINE_APPLICATION,
+]
 
 #: Modules that live inside an otherwise-compiled area but ship as SOURCE, with
 #: the reason. Keys are either a dotted module name or the sentinel ``"__init__"``
