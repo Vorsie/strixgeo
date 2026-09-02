@@ -14,7 +14,7 @@
 // Pattern: render GeotechnicalInspector inside a ShellContext.Provider —
 // mirrors LithologyInspector.test.tsx.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -167,6 +167,8 @@ function makeCtx(overrides: {
   /** Active models — non-null makes the roster fetch its body rosters + unions. */
   activeGeotechModel?: GeologicalModelResponse | null
   activeLithoModel?: GeologicalModelResponse | null
+  /** The geotech Build's roster refetch nonce — bumping it re-reads the roster. */
+  geotechBodyRosterRefetchNonce?: number
 } = {}): ShellContextValue {
   return {
     project: {
@@ -345,6 +347,7 @@ function makeCtx(overrides: {
       hasGeotechSolids: false,
       hasStaleGeotechSolid: false,
       buildGeotechSolids: noopAsync,
+      geotechBodyRosterRefetchNonce: overrides.geotechBodyRosterRefetchNonce ?? 0,
       setGeotechBodyColor: vi.fn(),
       geotechHideMarkers: false,
       setGeotechHideMarkers: vi.fn(),
@@ -654,6 +657,36 @@ describe('GeotechnicalInspector roster integration (INT)', () => {
     fireEvent.blur(input)
 
     expect(updateFormation).toHaveBeenCalledWith('proj-1', 'f-1', { color_override: '#ff00ff' })
+  })
+
+  it('INT4 — a geotech build re-reads the roster so healed litho links group', async () => {
+    // Yesterday's fix heals parent_litho_body_id server-side on Build, but the
+    // pane kept the pre-Build roster (NULL parents → everything under "no litho
+    // body") until a reload. A completed Build bumps geotechBodyRosterRefetchNonce;
+    // the geotech roster must re-fetch so the healed links reach the tree — and it
+    // is a re-read, never a recompute.
+    const ctx = intScene()
+    const { rerender } = renderInspector(ctx)
+    await screen.findByTestId('geotech-body-row-gbA')
+    const geoCallsBefore = listLenses.mock.calls.filter(c => c[1] === 'geo-1').length
+
+    rerender(
+      <ShellContext.Provider
+        value={{
+          ...ctx,
+          geoModel: { ...ctx.geoModel, geotechBodyRosterRefetchNonce: 1 },
+        }}
+      >
+        <GeotechnicalInspector />
+      </ShellContext.Provider>,
+    )
+
+    await waitFor(() => {
+      const geoCallsAfter = listLenses.mock.calls.filter(c => c[1] === 'geo-1').length
+      expect(geoCallsAfter).toBeGreaterThan(geoCallsBefore)
+    })
+    // A refetch, not a recompute — the DB is already correct after the Build.
+    expect(ctx.coordinator.requestBodyRecompute).not.toHaveBeenCalled()
   })
 
   it('INT3 — an unstamped geotech model shows no roster tree', () => {
