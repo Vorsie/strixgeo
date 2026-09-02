@@ -111,7 +111,27 @@ artefact is what the licence travels in; the field set above is unchanged.
 { "deviceId": "b1c9…" }
 ```
 * Release every binding this device holds, freeing the seat(s) for transfer.
-* **Success:** `200` `{ "released": true }`. Idempotent (see §6).
+  **This IS the transfer:** once the seat is free, the same key activates on the
+  next machine (the self-service deactivate/transfer flow ruling 15 made
+  required — a laptop replacement or reinstall must not need a support email).
+* `deviceId` alone identifies the bindings to drop; the key is not needed (a
+  binding is keyed by device). When the Ed25519 signed licence lands (§8), the
+  signed token travels alongside, exactly as §3 already handles the signature.
+* **Success:** `200` `{ "released": true }` — you MAY also return
+  `"seats_free": <int>` (how many seats the key now has open) for your own admin
+  views; the current client ignores the body and treats any `2xx` as released.
+  Idempotent (see §6).
+* **Client error handling** (informative — how the desktop reacts):
+  * `404` — the server holds no binding for this device. The client treats this
+    as **already deactivated** and clears the local licence too, so a device
+    whose binding was released elsewhere still returns to the activation screen.
+    (A `200` no-op is equally fine and reaches the same local outcome; `404` is
+    the alternative some servers return for an unknown device.)
+  * `401` (or any other non-2xx) — the client **keeps** the local licence and
+    surfaces the error; the seat may still be held, and a half-completed
+    transfer that strands the seat is the worst outcome.
+  * network failure / timeout — the client keeps the local licence and the user
+    can retry; an offline deactivate fails loudly (see §6).
 
 ### `POST /refresh`
 ```json
@@ -183,7 +203,9 @@ the app then keeps its stored licence rather than trusting or destroying anythin
   `now < expiresAt + graceDays`.
 * `deactivate` **fails loudly** offline (the client surfaces an error and keeps
   the local licence) so a transfer is never half-completed with the seat
-  stranded on the server.
+  stranded on the server. The one exception is a `404`: an unknown device is
+  already released server-side, so the client clears the local licence and
+  returns to the activation screen (see §4).
 * A successful `refresh` with a later `expiresAt` is what resets the 30-day grace
   clock; a failed one is a silent no-op.
 
