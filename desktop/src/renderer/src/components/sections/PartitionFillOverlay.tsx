@@ -67,6 +67,7 @@ import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOver
 import { fillIdentityOf } from './sectionFillIdentity'
 import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
 import { buildColumnStripFills } from './columnStripFills'
+import { resolveHighlightLayer } from './unjoinSpotlight'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 import { resolveRegionBodyId } from './regionBodyId'
 import { resolveJoinPick, type JoinPick } from './joinPick'
@@ -2206,11 +2207,14 @@ export default function PartitionFillOverlay({
     // dim-everything pass would darken the whole canvas and highlight NOTHING —
     // which reads as a broken response, worse than no feedback (ux-reviewer). So
     // fall back to the normal render there; the item label still names the option.
-    const hlRaw = highlightLayerId ?? null
-    const hl =
-      hlRaw !== null && screenRegions.some((sr) => sr.region.layerIds?.includes(hlRaw))
-        ? hlRaw
-        : null
+    // D3: the guard consults BOTH the between-column regions AND the on-column
+    // strips, so an anchor that surfaces only as a column band still lights
+    // rather than dimming the whole canvas to no effect.
+    const hl = resolveHighlightLayer(
+      highlightLayerId,
+      screenRegions.map((sr) => sr.region.layerIds),
+      columnStrips.map((s) => s.layerId),
+    )
     const elements: FillGroupElement[] = []
     // Card-covering strips first — same opacity, same dissolve identity, so a
     // band continues across its column at exactly the gap fill's tone.
@@ -2220,7 +2224,9 @@ export default function PartitionFillOverlay({
           ? (formationColorById.get(s.formationId) ?? FALLBACK_COLOR)
           : (lithoFrame?.lithoFormationColorById.get(s.formationId) ?? FALLBACK_COLOR)
       const opacity = hl
-        ? 0.25
+        ? s.layerId === hl
+          ? FILL_OPACITY
+          : 0.25
         : selectedBodyId && selFormId !== null && s.formationId !== selFormId
           ? 0.25
           : FILL_OPACITY
