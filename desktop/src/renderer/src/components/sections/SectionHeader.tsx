@@ -19,6 +19,7 @@ import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
 import { useT } from '../../i18n/translate'
+import type { MessageKey } from '../../i18n/locales/en'
 import { sectionDisplayName } from '../../utils/sectionDisplayName'
 import {
   COLUMN_SPACING_MAX,
@@ -31,12 +32,16 @@ import { VEX_MAX, VEX_MIN } from './utils'
 // Order matches DOV's "lengteprofiel" PDF reading order: primary
 // tracks (qc, Rf) first, then specialist toggles. Each entry is
 // the channel key + a 2-char button label.
-const CHANNEL_BUTTONS: readonly { key: keyof CptChannels; label: string; title: string }[] = [
-  { key: 'qc', label: 'qc', title: 'Cone resistance (qc)' },
-  { key: 'rf', label: 'Rf', title: 'Friction ratio (Rf)' },
-  { key: 'fs', label: 'fs', title: 'Sleeve friction (fs) — CPTU/CPTE only' },
-  { key: 'u2', label: 'u2', title: 'Pore-water pressure (u2) — CPTU only' },
-  { key: 'qTotal', label: 'qT', title: 'Total resistance (qTotal) — CPTM only' },
+const CHANNEL_BUTTONS: readonly {
+  key: keyof CptChannels
+  label: string
+  titleKey: MessageKey
+}[] = [
+  { key: 'qc', label: 'qc', titleKey: 'sections.header.qc' },
+  { key: 'rf', label: 'Rf', titleKey: 'sections.header.rf' },
+  { key: 'fs', label: 'fs', titleKey: 'sections.header.fs' },
+  { key: 'u2', label: 'u2', titleKey: 'sections.header.u2' },
+  { key: 'qTotal', label: 'qT', titleKey: 'sections.header.qTotal' },
 ]
 
 // Borehole interpretation stream toggles, in DOV lengteprofiel
@@ -48,11 +53,11 @@ const CHANNEL_BUTTONS: readonly { key: keyof CptChannels; label: string; title: 
 const BOREHOLE_CHANNEL_BUTTONS: readonly {
   key: keyof BoreholeChannels
   label: string
-  title: string
+  titleKey: MessageKey
 }[] = [
-  { key: 'geotech', label: 'Geo', title: 'Geotechnical coding' },
-  { key: 'formal_strat', label: 'F-Strat', title: 'Formal stratigraphy' },
-  { key: 'informal_strat', label: 'I-Strat', title: 'Informal stratigraphy' },
+  { key: 'geotech', label: 'Geo', titleKey: 'sections.header.geotechnicalCoding' },
+  { key: 'formal_strat', label: 'F-Strat', titleKey: 'sections.header.formalStratigraphy' },
+  { key: 'informal_strat', label: 'I-Strat', titleKey: 'sections.header.informalStratigraphy' },
 ]
 
 // Projection-buffer slider bounds. 5 m is the tightest engineers
@@ -169,7 +174,10 @@ export default function SectionHeader({
           {sectionDisplayName(section, t)}
         </span>
         <span className="text-[10px] text-text-muted">
-          {lengthM.toFixed(0)} m · buffer ±{section.projection_buffer_m.toFixed(0)} m
+          {t('sections.header.lengthBuffer', {
+            length: lengthM.toFixed(0),
+            buffer: section.projection_buffer_m.toFixed(0),
+          })}
         </span>
         {/* Lens companion badge — visible when this section was auto-created
             as a perpendicular companion for a lens (#101 Slice 6). */}
@@ -178,13 +186,13 @@ export default function SectionHeader({
             className="text-[10px] text-violet-600 font-medium mt-0.5"
             title={
               section.companion_body_id
-                ? 'This section was auto-created as a perpendicular companion for a litho lens'
-                : 'This section was a lens companion (the lens has since been deleted)'
+                ? t('sections.header.companionTitleActive')
+                : t('sections.header.companionTitleDeleted')
             }
           >
             {section.companion_body_name
-              ? `perp · Companion of ${section.companion_body_name}`
-              : 'perp · Lens companion section'}
+              ? t('sections.header.companionOf', { name: section.companion_body_name })
+              : t('sections.header.lensCompanion')}
           </span>
         )}
       </div>
@@ -192,9 +200,9 @@ export default function SectionHeader({
       <div className="flex items-center gap-2 ml-auto">
         <span
           className="text-[10px] text-text-muted"
-          title="Lateral distance from the section line within which investigations are projected onto it"
+          title={t('sections.header.bufferHint')}
         >
-          Buffer
+          {t('sections.header.buffer')}
         </span>
         <input
           type="range"
@@ -207,24 +215,24 @@ export default function SectionHeader({
           onTouchEnd={() => onBufferCommit?.(localBuffer)}
           onKeyUp={() => onBufferCommit?.(localBuffer)}
           className="w-28 cursor-pointer accent-accent"
-          aria-label="Projection buffer (m)"
+          aria-label={t('sections.bufferLabel')}
           disabled={onBufferCommit === undefined}
         />
         <span className="tabular-nums w-12 text-right text-text-secondary">±{Math.round(localBuffer)} m</span>
       </div>
 
       <div className="flex items-center gap-1">
-        <span className="text-[10px] text-text-muted mr-1" title="CPT data channel toggles">
-          Channels
+        <span className="text-[10px] text-text-muted mr-1" title={t('sections.header.cptChannels')}>
+          {t('sections.header.channels')}
         </span>
-        {CHANNEL_BUTTONS.map(({ key, label, title }) => {
+        {CHANNEL_BUTTONS.map(({ key, label, titleKey }) => {
           const active = channels[key]
           return (
             <button
               key={key}
               onClick={() => onChannelsChange({ ...channels, [key]: !active })}
-              title={title}
-              aria-label={`Toggle ${label}`}
+              title={t(titleKey)}
+              aria-label={t('sections.header.toggle', { label })}
               aria-pressed={active}
               className={
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
@@ -242,11 +250,11 @@ export default function SectionHeader({
       <div className="flex items-center gap-1">
         <span
           className="text-[10px] text-text-muted mr-1"
-          title="Borehole interpretation stream toggles — each enabled stream renders as its own strip side by side"
+          title={t('sections.header.streamToggles')}
         >
-          Bore
+          {t('sections.header.bore')}
         </span>
-        {BOREHOLE_CHANNEL_BUTTONS.map(({ key, label, title }) => {
+        {BOREHOLE_CHANNEL_BUTTONS.map(({ key, label, titleKey }) => {
           const active = boreholeChannels[key]
           return (
             <button
@@ -254,8 +262,8 @@ export default function SectionHeader({
               onClick={() =>
                 onBoreholeChannelsChange({ ...boreholeChannels, [key]: !active })
               }
-              title={title}
-              aria-label={`Toggle ${label}`}
+              title={t(titleKey)}
+              aria-label={t('sections.header.toggle', { label })}
               aria-pressed={active}
               className={
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
@@ -273,10 +281,7 @@ export default function SectionHeader({
       <button
         onClick={() => onSnapToStratigraphyChange(!snapToStratigraphy)}
         aria-pressed={snapToStratigraphy}
-        title={
-          'When on, click-to-place on a borehole snaps the contact depth ' +
-          'to the nearest formal / informal stratigraphy boundary (within 8 px)'
-        }
+        title={t('sections.header.snapHint')}
         className={
           'px-1.5 py-0.5 text-[10px] rounded border transition-colors ' +
           (snapToStratigraphy
@@ -284,15 +289,15 @@ export default function SectionHeader({
             : 'bg-surface-page text-text-muted border-border-subtle hover:text-text-primary hover:bg-surface-card dark:hover:bg-surface-card')
         }
       >
-        Snap
+        {t('sections.header.snap')}
       </button>
 
       <div className="flex items-center gap-2">
         <span
           className="text-[10px] text-text-muted"
-          title="Spacing between investigations — at 0% tests render at their true projected X (bands may overlap)"
+          title={t('sections.columnSpacingHint')}
         >
-          Spacing
+          {t('sections.header.spacing')}
         </span>
         <input
           type="range"
@@ -305,7 +310,7 @@ export default function SectionHeader({
           onTouchEnd={() => onColumnSpacingCommit?.(columnSpacing)}
           onKeyUp={() => onColumnSpacingCommit?.(columnSpacing)}
           className="w-24 cursor-pointer accent-accent"
-          aria-label="Column spacing"
+          aria-label={t('sections.columnSpacing')}
           disabled={onColumnSpacingCommit === undefined}
         />
         <span className="tabular-nums w-10 text-right text-text-secondary">
@@ -314,7 +319,7 @@ export default function SectionHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-text-muted">V exag</span>
+        <span className="text-[10px] text-text-muted">{t('sections.vexShort')}</span>
         <input
           type="range"
           min={0}
@@ -325,7 +330,7 @@ export default function SectionHeader({
           onTouchEnd={() => onVexCommit?.(vex)}
           onKeyUp={() => onVexCommit?.(vex)}
           className="w-32 cursor-pointer accent-accent"
-          aria-label="Vertical exaggeration"
+          aria-label={t('sections.vex')}
         />
         <span className="tabular-nums w-12 text-right text-text-secondary">{vex.toFixed(1)}×</span>
       </div>
@@ -337,24 +342,26 @@ export default function SectionHeader({
           fraction of the distance being aimed at. Reading the value the renderer
           itself used removes the measurement from the test entirely. */}
       <div className="flex flex-col items-end text-[10px] text-text-muted tabular-nums">
-        <span>H: {scaleH.toFixed(2)} px/m</span>
-        <span data-testid="section-scale-v">V: {scaleV.toFixed(2)} px/m</span>
+        <span>{t('sections.header.scaleH', { scale: scaleH.toFixed(2) })}</span>
+        <span data-testid="section-scale-v">
+          {t('sections.header.scaleV', { scale: scaleV.toFixed(2) })}
+        </span>
       </div>
 
       <div className="flex items-center rounded border border-border-subtle overflow-hidden">
         <button
           onClick={onZoomOut}
           className="flex items-center justify-center w-7 h-7 text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors border-r border-border-subtle"
-          title="Zoom out (or scroll the canvas)"
-          aria-label="Zoom out"
+          title={t('sections.zoomOutHint')}
+          aria-label={t('common.zoomOut')}
         >
           <Minus size={13} />
         </button>
         <button
           onClick={onZoomIn}
           className="flex items-center justify-center w-7 h-7 text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors"
-          title="Zoom in (or scroll the canvas)"
-          aria-label="Zoom in"
+          title={t('sections.zoomInHint')}
+          aria-label={t('common.zoomIn')}
         >
           <Plus size={13} />
         </button>
@@ -363,10 +370,10 @@ export default function SectionHeader({
       <button
         onClick={onReset}
         className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors"
-        title="Reset view to default framing"
+        title={t('sections.resetFraming')}
       >
         <RotateCcw size={11} />
-        Reset
+        {t('common.reset')}
       </button>
 
       {/* Debt #93 (2026-05-21): the "Seed from stratigraphy" and "DXF"
@@ -385,8 +392,8 @@ export default function SectionHeader({
           // even when the header overflows into two rows in narrow
           // windows.
           className="ml-auto shrink-0 flex items-center justify-center w-7 h-7 rounded border border-border-subtle text-text-muted hover:bg-surface-page hover:text-text-primary transition-colors"
-          title="Close section view (back to map)"
-          aria-label="Close section view"
+          title={t('sections.closeViewHint')}
+          aria-label={t('sections.closeView')}
         >
           <X size={13} />
         </button>
