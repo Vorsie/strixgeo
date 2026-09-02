@@ -256,9 +256,13 @@ describe('isInAppNavigation', () => {
     )
   })
 
-  it('rejects external https navigation', () => {
+  it('rejects external http(s) navigation to a foreign host', () => {
     expect(isInAppNavigation('https://evil.com', null, RENDERER_DIR)).toBe(false)
     expect(isInAppNavigation('https://evil.com', 'http://localhost:5173', null)).toBe(false)
+    // A plain http:// foreign host is denied the same way — only the dev
+    // origin prefix or the packaged renderer-directory prefix is in-app.
+    expect(isInAppNavigation('http://evil.com', null, RENDERER_DIR)).toBe(false)
+    expect(isInAppNavigation('http://evil.com/', 'http://localhost:5173', null)).toBe(false)
   })
 
   it('rejects javascript: navigation', () => {
