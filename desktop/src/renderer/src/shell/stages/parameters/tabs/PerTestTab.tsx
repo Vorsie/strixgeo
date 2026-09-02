@@ -33,6 +33,7 @@ import { ArrowUpDown, Beaker } from 'lucide-react'
 
 import { EmptyState } from '../../../EmptyState'
 import { useShell } from '../../../ShellContext'
+import { useT } from '../../../../i18n/translate'
 
 type Row = {
   id: string
@@ -52,6 +53,7 @@ export default function PerTestTab(): JSX.Element {
     investigations: { cpts, boreholes, plotMap },
     coordinator: { selectedId, handleSelectWithoutView },
   } = useShell()
+  const t = useT()
 
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [sortAsc, setSortAsc] = useState(true)
@@ -144,8 +146,8 @@ export default function PerTestTab(): JSX.Element {
     return (
       <EmptyState
         icon={<Beaker />}
-        title="No tests yet"
-        hint="Import CPTs / boreholes on the Data stage. They'll appear here once the project has investigations."
+        title={t('params.noTestsYet')}
+        hint={t('params.noTestsHint')}
         compact={false}
       />
     )
@@ -174,37 +176,45 @@ export default function PerTestTab(): JSX.Element {
           <thead className="sticky top-0 bg-surface-sunken text-text-secondary">
             <tr className="border-b border-border-subtle">
               <SortableHeader
-                label="Name"
+                label={t('common.name')}
                 active={sortKey === 'name'}
                 asc={sortAsc}
                 onClick={() => toggleSort('name')}
               />
               <SortableHeader
-                label="Kind"
+                label={t('params.colKind')}
                 active={sortKey === 'kind'}
                 asc={sortAsc}
                 onClick={() => toggleSort('kind')}
               />
               <SortableHeader
-                label="Depth (m)"
+                label={t('params.colDepthM')}
                 active={sortKey === 'depth_m'}
                 asc={sortAsc}
                 onClick={() => toggleSort('depth_m')}
               />
+              {/* i18n-exempt: x / y are coordinate-axis symbols — domain canon */}
               <th className="px-2 py-1.5 text-left font-medium">x / y</th>
               <SortableHeader
-                label="Ic̄ (Robertson 2015)"
+                label={t('params.colIcBar')}
                 active={sortKey === 'ic_avg'}
                 asc={sortAsc}
                 onClick={() => toggleSort('ic_avg')}
               />
               {/* Phase 5 columns — visible but muted so the engineer sees
-                  the surface that will populate later. */}
+                  the surface that will populate later. The labels are parameter
+                  symbols (φ′ / c′ / cu / E50 / OCR / Vs) — domain canon. */}
+              {/* i18n-exempt: parameter symbol — domain canon */}
               <PhaseFiveHeader label="φ′" />
+              {/* i18n-exempt: parameter symbol — domain canon */}
               <PhaseFiveHeader label="c′" />
+              {/* i18n-exempt: parameter symbol — domain canon */}
               <PhaseFiveHeader label="cu" />
+              {/* i18n-exempt: parameter symbol — domain canon */}
               <PhaseFiveHeader label="E50" />
+              {/* i18n-exempt: parameter symbol — domain canon */}
               <PhaseFiveHeader label="OCR" />
+              {/* i18n-exempt: parameter symbol — domain canon */}
               <PhaseFiveHeader label="Vs" />
             </tr>
           </thead>
@@ -248,9 +258,10 @@ export default function PerTestTab(): JSX.Element {
           </tbody>
         </table>
         <div className="px-3 py-2 text-[10px] text-text-muted border-t border-border-subtle">
-          {rows.length} test{rows.length === 1 ? '' : 's'} · click a CPT row to
-          plot its depth series and soil-behaviour-type profile in the inspector
-          on the right. Ic̄ appears once that CPT&apos;s series has been loaded.
+          {t(rows.length === 1 ? 'params.testCountOne' : 'params.testCountMany', {
+            n: rows.length,
+          })}
+          {t('params.perTestFooterRest')}
         </div>
       </div>
     </div>
@@ -285,10 +296,11 @@ function SortableHeader({ label, active, asc, onClick }: SortableHeaderProps): J
 }
 
 function PhaseFiveHeader({ label }: { label: string }): JSX.Element {
+  const t = useT()
   return (
     <th
       className="px-2 py-1.5 text-left font-medium text-text-muted opacity-60"
-      title="Design-ready parameter — populated in Phase 5 when the correlation / xlsx pipeline lands."
+      title={t('params.designReadyParam')}
     >
       {label}
     </th>
