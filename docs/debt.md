@@ -5063,6 +5063,20 @@ to regress silently. **Fix.** A test per item
 (Domain services — TIN, pinch-out geometry, Robertson, age-order, lens inference —
 are already well covered; this is the application/exporter layer.)
 
+C12 pinned 2026-09-02: 3 route branches (unsupported `format_version` → 400,
+`BundleIntegrityError` → 422, ValueError/KeyError/TypeError → 400) covered at the
+route-handler level in `tests/unit/api/test_restore_project_error_branches.py` (6
+tests, incl. a 422-wins-over-400 ordering control) — all reachable at unit level
+with the session mocked and `restore_project_bundle` patched.
+C6 pinned 2026-09-02: skip branches unit-covered for `create_perpendicular_companion`
+(single-companion idempotency → `already_existed`), `name_body` (renamed from
+`name_lens_body` in the lens→body sweep; find-or-create `was_created=False`),
+`upsert_formation_absence` (ON CONFLICT `was_created` flag — flag logic pinned at
+unit level; the ON CONFLICT resolution itself stays DB-enforced), and
+`materialize_wedge_tips_for_formation` (`absences_skipped_no_geometry` counted-skip,
+the true skip-and-count at the re-located :478/:633). `delete_lens_metadata` no
+longer exists — retired in the lens→body naming sweep (#216-#218), so nothing to pin.
+
 ## 175. Frontend test gaps — the state-machine + geometry hot spots (Tier D — frontend, M/L)
 
 **What.** **C7** `useGeologicalModel.ts` (5084 ln) has only narrow-slice tests; the
