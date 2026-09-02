@@ -71,6 +71,7 @@ export function SectionSheet({ payload, map }: { payload: SheetPayload; map: Rea
         </div>
       </div>
       <div style={{ position: 'absolute', left: `${MARGIN_MM + 1}mm`, bottom: `${MARGIN_MM - 3.5}mm`, fontSize: '6.5pt', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8a9098' }}>
+        {/* i18n-exempt: brand name */}
         StrixGeo · {t(distanceKey(payload.settings.spacing))}
       </div>
     </div>
