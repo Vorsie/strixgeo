@@ -9,6 +9,7 @@
 import type { LithoLayerSuggestion } from '../../api/client'
 import { lithoDisplayName } from '../../utils/lithoLabels'
 import ConfirmDialog from '../ui/ConfirmDialog'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   open: boolean
@@ -29,6 +30,7 @@ export default function CopyCompositionConfirmDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const sourceLabel =
     sourceLayer !== null
       ? lithoDisplayName(
@@ -46,22 +48,19 @@ export default function CopyCompositionConfirmDialog({
       onCancel={onCancel}
       busy={busy}
       cancelTestid="copy-composition-cancel"
-      title="Replace target composition?"
+      title={t('sections.copyComposition.title')}
       body={
         <>
-          <p className="mb-3">
-            The target layer already carries an edit. Replacing it will drop the existing
-            composition.
-          </p>
+          <p className="mb-3">{t('sections.copyComposition.body')}</p>
           <div className="space-y-1 text-text-primary">
             <div>
-              <span className="text-text-muted">From:</span>{' '}
+              <span className="text-text-muted">{t('sections.copyComposition.from')}</span>{' '}
               <span className="font-semibold" data-testid="copy-composition-source">
                 {sourceLabel}
               </span>
             </div>
             <div>
-              <span className="text-text-muted">To (currently):</span>{' '}
+              <span className="text-text-muted">{t('sections.copyComposition.toCurrently')}</span>{' '}
               <span className="font-semibold" data-testid="copy-composition-target">
                 {targetLabel}
               </span>
@@ -70,7 +69,7 @@ export default function CopyCompositionConfirmDialog({
         </>
       }
       confirm={{
-        label: 'Replace',
+        label: t('sections.copyComposition.replace'),
         onClick: onConfirm,
         variant: 'primary',
         testid: 'copy-composition-submit',
