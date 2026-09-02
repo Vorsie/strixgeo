@@ -36,6 +36,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Box, Layers } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 import { EmptyState } from '../../EmptyState'
 import GeotechBuildReportBanner from './GeotechBuildReportBanner'
 import Geology3DViewer from '../geology/Geology3DViewer'
@@ -150,6 +151,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     coordinator: { setSectionsDeepLinkTarget },
     toasts: { toast },
   } = useShell()
+  const t = useT()
 
   // -------------------------------------------------------------------------
   // Marker-filtered solids — MUST be useMemo'd (an inline filter would re-create
@@ -356,15 +358,15 @@ export default function GeotechnicalCanvas(): JSX.Element {
     activeLithoModel === null ? (
       <EmptyState
         icon={<Layers />}
-        title="No lithostratigraphic model yet"
-        hint="Create a lithostratigraphic model in the Lithology stage and accept litho suggestions, then return here to build the 3D geotechnical model."
+        title={t('geotech.noLithoModel')}
+        hint={t('geotech.noLithoModelHint')}
       />
     ) : !hasGeotechSolids ? (
       // Litho model present but nothing built yet — guide the user to Build.
       <EmptyState
         icon={<Box />}
-        title="No geotech body model yet"
-        hint="Run 'Subdivide all bodies' on the Sections stage (geotech axis), then click 'Build model' on the Geotechnical toolbar to generate the 3D NAD body solids."
+        title={t('geotech.noBodyModel')}
+        hint={t('geotech.buildHint')}
       />
     ) : null
 
@@ -384,7 +386,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
     <div className="relative w-full h-full">
       <BodyViewModePills
         testIdPrefix="geotech"
-        title="Switch between solid body model and fence-diagram walls"
+        title={t('geotech.switchSolidFence')}
         viewMode={viewMode}
         setViewMode={setViewMode}
         wireframe={wireframe}
@@ -392,7 +394,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
         fenceLoading={fenceLoading}
         fencePanels={fencePanels}
         emptyHintTestId="geotech-fence-empty-hint"
-        emptyHintText="No fence panels — connect packing bands on the Sections stage"
+        emptyHintText={t('geotech.fenceEmptyHint')}
         emptyHintTopClassName="top-10"
       />
 
