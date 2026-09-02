@@ -1,4 +1,5 @@
-// Section DXF / PDF must export the model the ACTIVE AXIS is showing.
+// Section DXF must export the model the ACTIVE AXIS is showing (the PDF path
+// moved to the client-rendered sheet — see the AX2 note at the end of the file).
 //
 // Audit 2026-08-02: on the Geotechnical axis both export verbs fell through to
 // `activeGeologicalModel`, so an engineer looking at NAD sub-bands got a DXF /
@@ -57,7 +58,6 @@ const GEOTECH_MODEL_ID = 'geotech-model-1'
 function ctxWithAllThreeModels(
   axis: SectionModelAxis,
   exportDxf: ReturnType<typeof vi.fn>,
-  exportPdf: ReturnType<typeof vi.fn>,
 ): ShellContextValue {
   const base = makeShellCtx(axis)
   return {
@@ -83,8 +83,6 @@ function ctxWithAllThreeModels(
       ...base.coordinator,
       handleExportSectionDxf:
         exportDxf as unknown as ShellContextValue['coordinator']['handleExportSectionDxf'],
-      handleExportSectionPdf:
-        exportPdf as unknown as ShellContextValue['coordinator']['handleExportSectionPdf'],
     },
   }
 }
@@ -108,7 +106,7 @@ afterEach(cleanup)
 describe('SectionsToolbar — AX1: DXF follows the active axis', () => {
   it('exports the GEOTECH model when the section is on the geotechnical axis', () => {
     const exportDxf = vi.fn().mockResolvedValue(undefined)
-    renderToolbar(ctxWithAllThreeModels('geotechnical', exportDxf, vi.fn()))
+    renderToolbar(ctxWithAllThreeModels('geotechnical', exportDxf))
 
     clickExportItem('export-section-dxf')
 
@@ -118,7 +116,7 @@ describe('SectionsToolbar — AX1: DXF follows the active axis', () => {
 
   it('still exports the geological model on the geology axis', () => {
     const exportDxf = vi.fn().mockResolvedValue(undefined)
-    renderToolbar(ctxWithAllThreeModels('geological', exportDxf, vi.fn()))
+    renderToolbar(ctxWithAllThreeModels('geological', exportDxf))
 
     clickExportItem('export-section-dxf')
 
@@ -127,7 +125,7 @@ describe('SectionsToolbar — AX1: DXF follows the active axis', () => {
 
   it('still exports the litho model on the litho axis', () => {
     const exportDxf = vi.fn().mockResolvedValue(undefined)
-    renderToolbar(ctxWithAllThreeModels('lithostratigraphic', exportDxf, vi.fn()))
+    renderToolbar(ctxWithAllThreeModels('lithostratigraphic', exportDxf))
 
     clickExportItem('export-section-dxf')
 
@@ -135,15 +133,10 @@ describe('SectionsToolbar — AX1: DXF follows the active axis', () => {
   })
 })
 
-describe('SectionsToolbar — AX2: PDF report follows the active axis', () => {
-  it('exports the GEOTECH model when the section is on the geotechnical axis', () => {
-    const exportPdf = vi.fn().mockResolvedValue(undefined)
-    renderToolbar(ctxWithAllThreeModels('geotechnical', vi.fn(), exportPdf))
-
-    clickExportItem('export-section-pdf')
-    fireEvent.click(screen.getByTestId('report-metadata-submit'))
-
-    expect(exportPdf).toHaveBeenCalledTimes(1)
-    expect(exportPdf.mock.calls[0][3]).toBe(GEOTECH_MODEL_ID)
-  })
-})
+// AX2 (PDF report follows the active axis) retired with the matplotlib PDF path.
+// The section PDF is now the client-rendered sheet: the export verb opens
+// ``SheetPreviewDialog``, which picks the axis from the sheet's fill setting
+// (seeded from the panel axis) inside ``useSheetPayload`` — no model_id crosses
+// a mocked handler to assert on here. The verb-opens-the-dialog wiring is pinned
+// by the ``flow_export_section_pdf`` e2e; the payload assembly by
+// ``buildSheetPayload.test.ts``.
