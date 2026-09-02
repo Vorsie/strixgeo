@@ -273,6 +273,12 @@ contextBridge.exposeInMainWorld('electron', {
   // open state and its persisted "seen" flag.
   onMenuOpenOnboarding: (cb: () => void) => onMenuEvent('menu:open-onboarding', cb),
 
+  // --- Guided tutorial (#93, spec 2026-09-02) -----------------------------
+  // Help → Tutorial (start / resume) and Restart tutorial. One-way fire; the
+  // renderer owns the overlay's active flag and its persisted progress.
+  onMenuTutorial: (cb: () => void) => onMenuEvent('menu:tutorial', cb),
+  onMenuRestartTutorial: (cb: () => void) => onMenuEvent('menu:tutorial-restart', cb),
+
   // --- Licensing / activation prototype (#3) ------------------------------
   // Help → Licence & activation…. One-way fire; the renderer owns the dialog.
   onMenuOpenLicensing: (cb: () => void) => onMenuEvent('menu:open-licensing', cb),
