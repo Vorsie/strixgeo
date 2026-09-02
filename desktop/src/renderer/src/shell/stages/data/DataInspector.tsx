@@ -446,11 +446,14 @@ export default function DataInspector(): JSX.Element {
             id: 'cpt',
             label: 'CPT',
             icon: <Activity size={13} aria-hidden="true" />,
+            // Tutorial anchor (Chapter 2: filter the list by test type).
+            testid: 'data-filter-testtype-cpt',
           },
           {
             id: 'borehole',
             label: 'Borehole',
             icon: <Drill size={13} aria-hidden="true" />,
+            testid: 'data-filter-testtype-borehole',
           },
         ]}
         activeId={activeTab}
@@ -915,6 +918,8 @@ function CptRow({
       <button
         onClick={handleRemove}
         title={t('data.inspector.removeFromProject')}
+        // Tutorial anchor (Chapter 2: hiding a test is a reversible, project-local
+        data-testid="data-row-remove"
         className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
@@ -1009,6 +1014,8 @@ function BoreholeRow({
       <button
         onClick={handleRemove}
         title={t('data.inspector.removeFromProject')}
+        // Tutorial anchor (Chapter 2: hiding a test is a reversible, project-local
+        data-testid="data-row-remove"
         className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
@@ -1056,7 +1063,10 @@ function DateRangeControl({
   const active = filter.from !== '' || filter.to !== ''
 
   return (
-    <div className="px-3 py-1.5 border-b border-[--color-border-subtle] flex-shrink-0">
+    <div
+      data-testid="data-filter-date"
+      className="px-3 py-1.5 border-b border-[--color-border-subtle] flex-shrink-0"
+    >
       <div className="flex items-center gap-1 mb-1">
         <Calendar size={11} className="text-[--color-text-muted] shrink-0" />
         <span className="text-[10px] text-[--color-text-muted]">{t('data.inspector.dateRange')}</span>
