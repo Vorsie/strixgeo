@@ -184,12 +184,12 @@ function yLevel(domain: [number, number], fmt: (d: number) => string, label: str
     />
   )
 }
-function yLength(domain: [number, number]) {
+function yLength(domain: [number, number], label: string) {
   return (
     <YAxis yAxisId="yr" orientation="right" dataKey="depth" type="number"
       domain={domain} tickCount={11} tick={{ fontSize: 11 }}
       tickFormatter={fmtDepth}
-      label={{ value: 'Length (m)', angle: 90, position: 'insideRight', offset: -(Y_W - 12), style: { fontSize: 10 } }}
+      label={{ value: label, angle: 90, position: 'insideRight', offset: -(Y_W - 12), style: { fontSize: 10 } }}
       width={Y_W}
     />
   )
@@ -353,7 +353,8 @@ export default function CptChart({
   // Y-axis label switches to absolute level when we have a Z; the datum
   // suffix tracks the row's z_epsg so a NAP-tagged CPT shows "Level (m NAP)".
   const datumLabel = verticalDatumLabel(zEpsg)
-  const levelLabel = elevationM !== null ? `Level (${datumLabel})` : 'Depth (m)'
+  const levelLabel =
+    elevationM !== null ? t('chart.levelAxis', { datum: datumLabel }) : t('chart.depthAxis')
   const datumShort = verticalDatumShort(zEpsg)
 
   const topM = 16
@@ -379,7 +380,7 @@ export default function CptChart({
     return (
       <ReferenceLine yAxisId="y" xAxisId={xAxisId} y={0}
         stroke={SURFACE_REF_CLR} strokeDasharray="3 3" strokeWidth={1}
-        label={{ value: `${fmtLevel(0)} m — surface`, position: 'insideTopLeft', style: { fontSize: 9, fill: SURFACE_LABEL_CLR } }}
+        label={{ value: t('chart.surfaceRef', { level: fmtLevel(0) }), position: 'insideTopLeft', style: { fontSize: 9, fill: SURFACE_LABEL_CLR } }}
       />
     )
   }
@@ -422,7 +423,7 @@ export default function CptChart({
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
-        {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
+        {isRight ? yLength(zoomDomain, t('chart.lengthAxis'))                    : yGhostRight(zoomDomain)}
         <XAxis xAxisId="u2" type="number" orientation="top" domain={[U2_MIN, U2_MAX]}
           tick={{ fontSize: 11, fill: U2_CLR }} ticks={[...U2_AXIS_TICKS_KPA]}
         />
@@ -435,7 +436,7 @@ export default function CptChart({
         {contactOverlayLines('u2', false)}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(1)} kPa`, key]}
-          labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
+          labelFormatter={d => t('chart.tooltipDepth', { depth: Number(d).toFixed(2) })}
         />
         <Line yAxisId="y" xAxisId="u2" dataKey="u2_kpa" name="u (kPa)"
           stroke={U2_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
@@ -448,7 +449,7 @@ export default function CptChart({
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
-        {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
+        {isRight ? yLength(zoomDomain, t('chart.lengthAxis'))                    : yGhostRight(zoomDomain)}
         <XAxis xAxisId="qc" type="number" orientation="top" domain={[0, QC_MAX]}
           tick={{ fontSize: 11, fill: QC_CLR }} ticks={[...QC_AXIS_TICKS_MPA]}
         />
@@ -466,9 +467,11 @@ export default function CptChart({
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]}
           labelFormatter={d =>
-            `Depth: ${Number(d).toFixed(2)} m` +
+            t('chart.tooltipDepth', { depth: Number(d).toFixed(2) }) +
             (elevationM !== null
-              ? `  |  Level: ${fmtLevel(Number(d))}${datumShort ? ` ${datumShort}` : ''}`
+              ? t('chart.tooltipLevelSuffix', {
+                  level: `${fmtLevel(Number(d))}${datumShort ? ` ${datumShort}` : ''}`,
+                })
               : '')
           }
         />
@@ -491,7 +494,7 @@ export default function CptChart({
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
-        {isRight ? yLength(zoomDomain)                      : yGhostRight(zoomDomain)}
+        {isRight ? yLength(zoomDomain, t('chart.lengthAxis'))                    : yGhostRight(zoomDomain)}
         <XAxis xAxisId="rf" type="number" orientation="top" domain={[0, RF_MAX]}
           tick={{ fontSize: 11, fill: RF_CLR }} ticks={[...RF_AXIS_TICKS_PCT]}
         />
@@ -503,7 +506,7 @@ export default function CptChart({
         {contactOverlayLines('rf', false)}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)} %`, key]}
-          labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
+          labelFormatter={d => t('chart.tooltipDepth', { depth: Number(d).toFixed(2) })}
         />
         <Line yAxisId="y" xAxisId="rf" dataKey="rf" name="Rf (%)"
           stroke={RF_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
@@ -524,7 +527,7 @@ export default function CptChart({
       <div className="px-4 pt-3 pb-1 shrink-0">
         <div className="text-sm font-semibold text-gray-700 dark:text-slate-200">{name}</div>
         <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-slate-400 mt-0.5">
-          <span>{cptType} · {detail?.n_rows ?? rawData.length} rows · {maxDepth.toFixed(2)} m</span>
+          <span>{t('chart.runSummary', { type: cptType, rows: detail?.n_rows ?? rawData.length, depth: maxDepth.toFixed(2) })}</span>
           {/* Inline elevation editor sits on the same line as the run
               summary so the user can fix a missing Z without leaving the
               chart. Falls back to the static "Z = …" readout when no
@@ -540,7 +543,7 @@ export default function CptChart({
           ) : elevationM !== null ? (
             <span>Z = {elevationM.toFixed(2)} {datumLabel}</span>
           ) : (
-            <span className="text-amber-600">Z missing</span>
+            <span className="text-amber-600">{t('chart.zMissing')}</span>
           )}
         </div>
       </div>
@@ -548,13 +551,14 @@ export default function CptChart({
       {/* Legend + zoom controls */}
       <div className="flex items-center justify-between px-4 pb-1 shrink-0">
         <div className="flex items-center gap-4 flex-wrap">
+          {/* i18n-exempt: qc/Qt/fs/Rf/u + MPa/kPa/% are CPT channel + unit axis symbols (international notation, identical across locales) */}
           <LegendItem color={QC_CLR} label="qc (MPa)" />
-          {hasQt  && <LegendItem color={QT_CLR} label="Qt (MPa)" />}
-          {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" />}
-          {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" />}
-          {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" />}
+          {hasQt  && <LegendItem color={QT_CLR} label="Qt (MPa)" /> /* i18n-exempt: channel+unit symbol */}
+          {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" /> /* i18n-exempt: channel+unit symbol */}
+          {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" /> /* i18n-exempt: channel+unit symbol */}
+          {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" /> /* i18n-exempt: channel+unit symbol */}
           {/* Ic legend removed — Ic/SBT chart lives in Parameters stage (debt #22) */}
-          {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
+          {preDrillM > 0 && <LegendItem color={PD_CLR} label={t('chart.preDrill', { depth: preDrillM.toFixed(1) })} dashed />}
         </div>
         <div className="flex items-center gap-1 shrink-0 text-gray-400 dark:text-slate-400 text-[10px] select-none">
           {isZoomed && (
@@ -626,6 +630,7 @@ export default function CptChart({
                 }
               >
                 <Database size={11} />
+                {/* i18n-exempt: DOV is the product/brand name (Databank Ondergrond Vlaanderen), identical across locales */}
                 DOV
               </button>
               {onChangeVirtueleBoringOverrideModel !== undefined && (
