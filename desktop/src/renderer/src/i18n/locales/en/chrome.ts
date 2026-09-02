@@ -126,4 +126,135 @@ export const CHROME = {
   'spine.selectionFooterAbbr': 'sel.',
   'shell.toolbar': 'Stage toolbar',
   'shell.inspector': 'Stage inspector',
+
+  // -------------------------------------------------------------------------
+  // common — count words + list joiners (one/many selected by the caller).
+  // Used by the recovery + unsaved-changes dialogs to build "3 CPTs, 1
+  // borehole and 2 sections imported this session." The geology/litho modules
+  // carry their own parallel word pairs; these live here so the chrome dialogs
+  // stay self-contained.
+  // -------------------------------------------------------------------------
+  'common.cptWordOne': 'CPT',
+  'common.cptWordMany': 'CPTs',
+  'common.boreholeWordOne': 'borehole',
+  'common.boreholeWordMany': 'boreholes',
+  'common.formationWordOne': 'formation',
+  'common.formationWordMany': 'formations',
+  'common.sectionWordOne': 'section',
+  'common.sectionWordMany': 'sections',
+  'common.geologicalContactWordOne': 'geological contact',
+  'common.geologicalContactWordMany': 'geological contacts',
+  'common.columnWordOne': 'column',
+  'common.columnWordMany': 'columns',
+  'common.groupingWordOne': 'grouping',
+  'common.groupingWordMany': 'groupings',
+  'common.listAnd': 'and',
+  'common.importedThisSession': '{list} imported this session.',
+
+  // -------------------------------------------------------------------------
+  // app — backend-body copy, log-file label, export-result toasts.
+  // -------------------------------------------------------------------------
+  'app.backendFailedBody':
+    'The StrixGeo backend process exited before it was ready. This usually means a database connection problem or a startup crash.',
+  'app.backendUnreachableBody':
+    '— saving and every other change are unavailable, and recent actions may not have been stored. Restart the app to reconnect.',
+  'app.logFile': 'Log file:',
+  'app.dxfExported': 'DXF exported.',
+  'app.dxfExportFailed': 'Could not export the DXF.',
+  'app.pdfExported': 'PDF exported.',
+  'app.pdfExportFailed': 'Could not export the PDF.',
+  'app.plaxis2dExported': 'Plaxis 2D script exported.',
+  'app.plaxis2dExportFailed': 'Could not export the Plaxis 2D script.',
+
+  // -------------------------------------------------------------------------
+  // welcome — start-screen extras + the recovery-prompt dialog copy.
+  // NOTE (owner reconcile): welcome.heading is the component's stale product
+  // name "Ground Model"; the catalogue app.name is "StrixGeo".
+  // welcome.taglineFull is the component's full tagline (welcome.tagline is a
+  // truncated variant).
+  // -------------------------------------------------------------------------
+  'welcome.heading': 'Ground Model',
+  'welcome.taglineFull':
+    'Open an existing project file or create a new one to start importing and analysing data.',
+  'welcome.orDivider': 'or',
+  'welcome.untitledProject': 'Untitled project',
+  'welcome.openToRestore': 'Open the project file to restore',
+  'welcome.fromAge': 'from {age}',
+  'welcome.theProject': 'the project',
+  'welcome.fileNotFoundFor':
+    "Couldn't find the file for {name} at {path}. Did you move or rename it?",
+  'welcome.openFailedNamed':
+    "Couldn't open {name}. The file may be corrupt, or the API isn't reachable.",
+  'welcome.recoveryTitle': 'Restore unsaved work in {name}?',
+  'welcome.recoveryIntro':
+    'StrixGeo closed unexpectedly{age}. A backup of your unsaved work was kept',
+  'welcome.recoverySavedUntouched': 'Your saved project is untouched.',
+  'welcome.recoveryRestore': 'Restore',
+  'welcome.recoveryNotNow': 'Not now',
+  'welcome.recoveryDeleteBackup': 'Delete backup',
+  'welcome.recoveryRestoreDesc':
+    '— puts the unsaved work back. Nothing is saved to the file until you click Save in the app.',
+  'welcome.recoveryNotNowDesc':
+    '— opens the project as last saved. The backup is offered again next launch.',
+  'welcome.recoveryDeleteBackupDesc':
+    '— as if the session never happened: the project returns to its last save and the unsaved work is permanently discarded.',
+  'welcome.recoveryLithoTriage': 'Litho suggestion triage on {count} {columnWord}',
+  'welcome.recoveryMetadataEdits': 'unsaved project-metadata edits',
+  'welcome.recoveryLumpingMap': 'the stratigraphy lumping map ({count} {groupingWord})',
+  'welcome.recoveryUnsavedMarker': 'the unsaved-changes marker',
+
+  // -------------------------------------------------------------------------
+  // project — new-project blurb, metadata + close copy, discard/revert toasts.
+  // NOTE (owner reconcile): namePlaceholderExample ("Brugge") differs from the
+  // catalogue namePlaceholder ("Bruges"); metadataBlurbFull, closeConfirmBody-
+  // Detailed and closeHintGmproj carry the component's stale ".gmproj" wording
+  // (the catalogue's project.metadataBlurb / .closeConfirmBody / .closeHint use
+  // ".strix").
+  // -------------------------------------------------------------------------
+  'project.newBlurb':
+    "Name it now; richer details (client, site, tags, default CRSes…) can be added from the project's metadata editor when that lands.",
+  'project.createEllipsis': 'Create…',
+  'project.namePlaceholderExample': 'e.g. GEO-22/040 Brugge',
+  'project.metadataBlurbFull':
+    "Edit the project's header info. Changes save to the database and the .gmproj file in one go.",
+  'project.removeTag': 'Remove {tag}',
+  'project.closeConfirmBodyDetailed':
+    "will close and you'll be returned to the welcome screen. The .gmproj file and your saved data are kept — you can reopen from the Recent list.",
+  'project.closeHintGmproj':
+    'Close project — returns to the welcome screen. The .gmproj file and DB data are kept.',
+  'project.editMetadataHint': 'Click to edit project metadata',
+  'project.editMetadataHintWithPath': '{path} — click to edit project metadata',
+  'project.revertNotLatest':
+    'Could not revert: this file is not the project’s latest save. The backup was kept.',
+  'project.revertFailed': 'Could not revert the project to its last save — the backup was kept.',
+  'project.fileNotFoundToast':
+    "Couldn't find the project file at {path}. Did you move or rename it?",
+  'project.discardLossInterpretation':
+    'Correlations, boundary moves, accepted suggestions and deletions made this session, in any stage — these are not counted here.',
+  'project.discardLossMetadata': 'Unsaved edits in the project metadata editor.',
+  'project.discardLeadSaved':
+    'Discard reverts the whole project — in the database, across every stage — to its last saved state.',
+  'project.discardLeadUnsaved':
+    'This project has never been saved to a file, so Discard has no saved state to go back to.',
+  'project.discardFollowSaved': 'Everything done since the last File → Save is lost',
+  'project.discardFollowUnsaved': 'It removes everything this session added to the project',
+  'project.unsavedTitle': 'Save changes to {name}?',
+
+  // -------------------------------------------------------------------------
+  // shell — toolbar overflow, inspector toggle, split-button menus, theme.
+  // -------------------------------------------------------------------------
+  'shell.moreToolbarActions': 'More toolbar actions',
+  'shell.more': 'More',
+  'shell.actionWordOne': 'action',
+  'shell.actionWordMany': 'actions',
+  'shell.moreActionsTitle':
+    '{n} more {actionWord} — the toolbar is narrower than the full verb row',
+  'shell.collapseInspector': 'Collapse inspector',
+  'shell.expandInspector': 'Expand inspector',
+  'shell.clickForOptionsTitle': '{label} — click for options',
+  'shell.optionsAria': '{label} options',
+  'shell.themeSystem': 'System theme',
+  'shell.themeLight': 'Light theme',
+  'shell.themeDark': 'Dark theme',
+  'shell.themeToggleTitle': '{current} (click for {next})',
 } as const
