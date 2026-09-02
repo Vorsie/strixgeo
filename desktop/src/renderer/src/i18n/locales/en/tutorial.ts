@@ -5,11 +5,10 @@
 // key-naming rules. Keys are `tutorial.chapter.<n>`, `tutorial.<stepId>.title|body`
 // and `tutorial.ui.*` for the coach-card chrome.
 //
-// Chapters 1-3 carry full drafted copy (2-4 short sentences a step); chapters
-// 4-8 carry one-sentence skeleton drafts. ALL wording is a DRAFT for the owner's
-// review. Behaviour described here is derived from the real controls, never
-// invented (brief: "never invent behaviour"). Product names (StrixGeo, DOV,
-// Plaxis, D-Stability, DXF, NAD) stay raw tokens.
+// Chapters 1-8 all carry full drafted copy (2-4 short sentences a step). ALL
+// wording is a DRAFT for the owner's review. Behaviour described here is derived
+// from the real controls, never invented (brief: "never invent behaviour").
+// Product names (StrixGeo, DOV, Plaxis, D-Stability, DXF, NAD) stay raw tokens.
 
 export const TUTORIAL = {
   // Chapter titles ----------------------------------------------------------
@@ -109,44 +108,58 @@ export const TUTORIAL = {
   'tutorial.section-persist.body':
     'Every setting here — buffer, spacing, exaggeration, channels, snap — saves to this section on its own. Reopen it and the framing is exactly as you left it; Reset returns the default view.',
 
-  // 4 · Geological model (skeleton) -----------------------------------------
+  // 4 · Geological model ----------------------------------------------------
   'tutorial.geo-open.title': 'Open the Geology stage',
-  'tutorial.geo-open.body': 'The geological model is the backbone — the formations and the surfaces between them.',
+  'tutorial.geo-open.body':
+    'The geological model is the backbone of the ground model. It holds the formations and the surfaces between them, the regional layers under your whole site. Build it first, then the litho and geotech models refine it from there.',
   'tutorial.geo-seed.title': 'Seed from boreholes',
-  'tutorial.geo-seed.body': "Seed the model's first contacts from your boreholes, reading the formation tops they log.",
+  'tutorial.geo-seed.body':
+    "Seed the model's first contacts from your boreholes. StrixGeo reads the formation tops the boreholes log and places a contact at each one. This step ticks itself once the first contacts appear.",
   'tutorial.geo-lumping.title': 'Same unit, different name',
-  'tutorial.geo-lumping.body': 'Tell the model that two units are the same by lumping the stratigraphy into one formation.',
+  'tutorial.geo-lumping.body':
+    'Sometimes two logged units are the same formation under different names. Lump the stratigraphy to tell the model they are one. From there the contacts extend onto the CPT columns too, so the whole section reads as one story. This step ticks once a lumping exists.',
   'tutorial.geo-surfaces.title': 'Build the surfaces',
-  'tutorial.geo-surfaces.body': 'Rebuild the formation surfaces and check where any of them cross.',
+  'tutorial.geo-surfaces.body':
+    'Rebuild the formation surfaces from the contacts. StrixGeo fits a surface through every formation top. Then check where two surfaces cross, because a valid model keeps its formations in order.',
 
-  // 5 · Lithostratigraphic model (skeleton) ---------------------------------
+  // 5 · Lithostratigraphic model --------------------------------------------
   'tutorial.litho-open.title': 'Open the Lithology stage',
-  'tutorial.litho-open.body': 'Refine the geological backbone into lithological units along your sections.',
+  'tutorial.litho-open.body':
+    'The lithostratigraphic model refines the geological backbone into lithological units. Think sand, clay, silt, gravel and peat, with their admixtures. You build it along your cross-sections, one column at a time.',
   'tutorial.litho-accept.title': 'Accept the suggestions',
-  'tutorial.litho-accept.body': 'The segmenter proposes litho layers on each column; accept the ones that match what you see.',
+  'tutorial.litho-accept.body':
+    'The segmenter proposes litho layers on each column, reading the CPT with a Robertson classification. Accept the ones that match what you see. This is assisted work, not automatic correlation, so you stay in control of every layer. This step ticks once you accept your first suggestion.',
   'tutorial.litho-build.title': 'Build the litho bodies',
-  'tutorial.litho-build.body': 'Build turns the accepted layers into connected 3-D litho bodies.',
+  'tutorial.litho-build.body':
+    'Correlate a layer on one column to the same layer on the next, so the model knows they belong together. Then Build turns the accepted, correlated layers into connected litho bodies in 3-D. Each mass that joins across your sections becomes one body. This step ticks once the litho solids exist.',
 
-  // 6 · Geotechnical model (skeleton) ---------------------------------------
+  // 6 · Geotechnical model --------------------------------------------------
   'tutorial.geotech-open.title': 'Open the Geotechnics stage',
-  'tutorial.geotech-open.body': 'Subdivide the litho units into NAD packing classes from CPT-derived indicators.',
+  'tutorial.geotech-open.body':
+    'The geotechnical model subdivides the litho units into NAD packing classes. It reads CPT-derived indicators like qc and relative density, so these are characterisation estimates, not design values. Your design numbers come later, in your design tool.',
   'tutorial.geotech-subdivide.title': 'Run the packing pipeline',
-  'tutorial.geotech-subdivide.body': 'Subdivide the CPTs to build the geotechnical model — each unit split into its packing classes.',
-  'tutorial.geotech-bodies.title': 'Correlate and recompute',
-  'tutorial.geotech-bodies.body': 'Recompute the bodies, then Join or Separate where two masses are (or are not) the same body.',
+  'tutorial.geotech-subdivide.body':
+    'The packing pipeline runs in four steps. Subdivide the CPTs first, so each litho unit splits into its packing classes. Then propose and accept the packing correlations, and divide the boreholes to carry the classes across. This step ticks once the geotechnical model exists.',
+  'tutorial.geotech-bodies.title': 'Recompute and group bodies',
+  'tutorial.geotech-bodies.body':
+    'Recompute the bodies to settle which masses count as one geotechnical body. Use Join with to group similar masses, so you carry more data and fewer export classes. Use Un-join to lift a body back out of a group. Then Build the 3-D geotechnical model.',
 
-  // 7 · Parameters & statistics (skeleton) ----------------------------------
+  // 7 · Parameters & statistics ---------------------------------------------
   'tutorial.params-open.title': 'Open the Parameters stage',
-  'tutorial.params-open.body': 'The unit tree, per-unit statistics and the fence cutout live here.',
+  'tutorial.params-open.body':
+    'The Parameters stage is where the finished model reports on itself. The unit tree, the per-unit statistics and the fence cutout all live here. Everything here is characterisation, never a design calculation.',
   'tutorial.params-stats.title': 'Per-unit statistics',
-  'tutorial.params-stats.body': 'Pick a unit to see its statistics pooled across every body that belongs to it.',
+  'tutorial.params-stats.body':
+    'Pick a unit to see its statistics, pooled across every body that belongs to it. The fence cutout shows that same unit in the ground, so you can check the number against the shape. These are characterisation statistics, not design parameters.',
 
-  // 8 · Export (skeleton) ---------------------------------------------------
+  // 8 · Export --------------------------------------------------------------
   'tutorial.export-open.title': 'Open the Export stage',
-  'tutorial.export-open.body': 'Send the finished three-level model to your design tools.',
+  'tutorial.export-open.body':
+    'Send the finished three-level model to your design tools. StrixGeo hands over the ground model, and the design checks happen in the tool you export to. Choose the format your next tool needs.',
   'tutorial.export-dxf.title': 'Export your model',
-  'tutorial.export-dxf.body': 'Export a section to DXF, Plaxis, D-Stability / D-Sheet, or a PDF report sheet.',
+  'tutorial.export-dxf.body':
+    'Export a section to DXF, to Plaxis, to D-Stability or D-Sheet, or to a PDF report sheet. Each export carries your unit identifiers, so the model arrives labelled in the design tool. Pick the format your next step needs.',
   'tutorial.closing.title': "You're all set",
   'tutorial.closing.body':
-    "That's the whole workflow — import, section, geology, litho, geotech, parameters, export. Build your first model, and tell us what you need next.",
+    'That is the whole workflow: import, section, geology, litho, geotech, parameters, export. Build your first model on your own data. More importers and exporters are coming, so send the file formats you use to StrixGeo and we build them next.',
 } as const
