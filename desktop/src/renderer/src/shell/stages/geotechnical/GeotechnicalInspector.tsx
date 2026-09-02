@@ -66,6 +66,7 @@ export default function GeotechnicalInspector(): JSX.Element {
       lithoFormations,
       activeGeotechModel,
       activeLithoModel,
+      geotechBodyRosterRefetchNonce,
       refetchFormations,
       handleFormationUpdated,
     },
@@ -76,14 +77,18 @@ export default function GeotechnicalInspector(): JSX.Element {
 
   const projectId = project?.id ?? null
 
-  // The geotech model's bodies, for the crossed-formation subtitle (debt #278,
-  // R2). Reuses the Parameters stage's fetch hook — the roster reads only their
-  // ``geo_formations`` lists. Follows the body-recompute nonce so the subtitle
-  // refreshes after a recompute; a null active model fetches nothing.
+  // The geotech model's bodies — the L3 packing leaves AND the crossed-formation
+  // subtitle (debt #278, R2). Reuses the Parameters stage's fetch hook. Re-fetches
+  // on EITHER signal: a body recompute (subtitle re-resolves) OR a geotech Build
+  // (``geotechBodyRosterRefetchNonce`` — the Build heals ``parent_litho_body_id``
+  // server-side, and the roster must re-READ so the tree groups the healed links
+  // WITHOUT a recompute; debt #278 dogfeed 2026-09-01). Both are monotonic
+  // counters, so their sum strictly increases on any bump — a collision-free
+  // combined invalidation key. A null active model fetches nothing.
   const geotechBodiesById = useModelBodies(
     projectId,
     activeGeotechModel?.id ?? null,
-    bodyRecomputeGeotechNonce,
+    bodyRecomputeGeotechNonce + (geotechBodyRosterRefetchNonce ?? 0),
   )
   const geotechBodies = useMemo(() => [...geotechBodiesById.values()], [geotechBodiesById])
 
