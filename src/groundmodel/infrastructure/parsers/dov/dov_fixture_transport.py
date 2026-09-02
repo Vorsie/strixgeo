@@ -54,7 +54,10 @@ the test as a failure with a clear message.
 Environment variables
 ---------------------
 ``STRIXGEO_DOV_FIXTURE_MODE`` : ``"1"``
-    Enables fixture mode. Any other value (or absent) uses the live network.
+    Enables fixture mode -- but only in a development backend. A packaged
+    build runs as ``ENVIRONMENT=production`` and ignores this variable, so an
+    end user cannot redirect the shipped app's DOV imports to on-disk
+    synthetic fixtures. Any other value (or absent) uses the live network.
 ``STRIXGEO_DOV_FIXTURE_ROOT`` : path string
     Root directory for fixture files. Defaults to
     ``desktop/tests/e2e/fixtures/dov`` relative to the Python CWD (which is
@@ -68,6 +71,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+
+from groundmodel.shared.config import settings
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -368,15 +373,50 @@ def _serve_fixture(fixture_path: Path, content_type: str) -> httpx.Response:
     )
 
 
-def is_fixture_mode() -> bool:
-    """Return True when ``STRIXGEO_DOV_FIXTURE_MODE=1`` is set.
+def _fixture_mode_allowed(env_value: str | None, environment: str) -> bool:
+    """Decide whether fixture mode may be honoured, given the raw inputs.
+
+    Pure decision function (no environment access) so the production-refusal
+    invariant is testable without mutating ``os.environ`` or the settings
+    singleton. Fixture mode is a development / e2e-only convenience: an end
+    user must never be able to redirect a packaged build's DOV imports to
+    on-disk synthetic fixtures by exporting an env var, so the ``"1"`` flag is
+    honoured only when the backend runs in development. Any other environment
+    (``"production"``, which the packaged launcher sets, or ``"staging"`` / a
+    coworker binary) refuses fixture mode outright.
+
+    Parameters
+    ----------
+    env_value : str | None
+        The raw value of ``STRIXGEO_DOV_FIXTURE_MODE`` (``None`` when absent).
+    environment : str
+        The resolved deployment environment (``settings.environment``).
 
     Returns
     -------
     bool
-        ``True`` if the env var is ``"1"``, ``False`` otherwise.
+        ``True`` only when the env var is exactly ``"1"`` AND the environment
+        is exactly ``"development"``.
     """
-    return os.environ.get(DOV_FIXTURE_MODE_ENV) == "1"
+    return env_value == "1" and environment == "development"
+
+
+def is_fixture_mode() -> bool:
+    """Return True only when fixture mode is both requested and permitted.
+
+    Fixture mode is requested via ``STRIXGEO_DOV_FIXTURE_MODE=1`` and permitted
+    only in a development backend (see :func:`_fixture_mode_allowed`). A
+    packaged build runs as ``ENVIRONMENT=production`` and therefore ignores the
+    env var; the same flag that turns the interactive API docs off gates this
+    test seam.
+
+    Returns
+    -------
+    bool
+        ``True`` if the env var is ``"1"`` and ``settings.environment`` is
+        ``"development"``; ``False`` otherwise.
+    """
+    return _fixture_mode_allowed(os.environ.get(DOV_FIXTURE_MODE_ENV), settings.environment)
 
 
 def fixture_root_path() -> Path:
