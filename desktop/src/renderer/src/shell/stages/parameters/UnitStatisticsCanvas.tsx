@@ -19,18 +19,23 @@ import { Layers, X } from 'lucide-react'
 import type { GeologicalFormationResponse } from '../../../api/client'
 import { memberIdsBySection } from '../../../utils/sectionClassification'
 import { EmptyState, LoadingState } from '../../EmptyState'
+import { useLanguage } from '../../../i18n/languageSelect'
+import { translate } from '../../../i18n/translate'
+import { bodyUnionsToGroupPairs, geotechGroupOrdinals } from '../../../utils/geotechGroupOrdinals'
 import { useShell } from '../../ShellContext'
 import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
 import { bandsForScope, type ParameterTreeInput } from './parameterBodyTree'
+import { effectiveGroupScope } from './groupScope'
 import {
   pickSectionForInvestigation,
   sampleNotOnAnySectionMessage,
 } from './sampleSectionReveal'
-import { scopeHeaderLabel } from './parameterScopeHeader'
+import { groupProvenanceLithoBodies, scopeHeaderLabel } from './parameterScopeHeader'
 import UnitDistributionPanels from './UnitDistributionPanels'
 import UnitFenceCutout from './UnitFenceCutout'
 import UnitIdentificationPanels from './UnitIdentificationPanels'
 import type { UnitPsdCurve } from './unitPsd'
+import { useBodyUnions } from './useBodyUnions'
 import { useModelBodies } from './useModelBodies'
 import { useUnitStatistics } from './useUnitStatistics'
 
@@ -50,6 +55,7 @@ function scopeUnitExists(
     case 'litho-body':
       return lithoFormations.some(f => f.id === scope.unitId)
     case 'geotech-body':
+    case 'geotech-group':
     case 'geotech-unit':
       return geotechFormations.some(f => f.id === scope.unitId)
     case 'geotech-class':
@@ -154,6 +160,28 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     bodyRecomputeGeotechNonce,
   )
 
+  // ── The manual groups (D2) ────────────────────────────────────────────────
+  // A grouped body's statistics pool the WHOLE group (owner ruling 2026-09-02:
+  // "grouping is just for lumping things that are similar together, so we have
+  // more data"). Fetch the unions, number the groups, then EXPAND a selected
+  // grouped body to its group scope — the header, the pools and the fence all
+  // read the expanded scope through the one band authority. ``lang`` subscribes
+  // so the group title re-localises on a language flip.
+  const lang = useLanguage()
+  const bodyUnions = useBodyUnions(
+    projectId,
+    activeGeotechModel?.id ?? null,
+    bodyRecomputeGeotechNonce,
+  )
+  const groupOrdinals = useMemo(
+    () => geotechGroupOrdinals(bodyUnionsToGroupPairs(bodyUnions)),
+    [bodyUnions],
+  )
+  const effectiveScope = useMemo(
+    () => effectiveGroupScope(scope, groupOrdinals),
+    [scope, groupOrdinals],
+  )
+
   // ── The one band-selection authority ──────────────────────────────────────
   // ``bandsForScope`` maps the scope to its accepted bands; every pool below
   // (statistics, OKP/PSD, the cutout, the counts) reads THIS, never a per-kind
@@ -171,13 +199,13 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
   )
 
   const unitExists = useMemo(
-    () => scopeUnitExists(scope, lithoFormations, geotechFormations ?? []),
-    [scope, lithoFormations, geotechFormations],
+    () => scopeUnitExists(effectiveScope, lithoFormations, geotechFormations ?? []),
+    [effectiveScope, lithoFormations, geotechFormations],
   )
 
   const scopeBands = useMemo(
-    () => (unitExists ? bandsForScope(scope, treeInput) : []),
-    [scope, treeInput, unitExists],
+    () => (unitExists ? bandsForScope(effectiveScope, treeInput) : []),
+    [effectiveScope, treeInput, unitExists],
   )
 
   // The header names the path (spec §3); the label authority lives in the tree
@@ -185,14 +213,30 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
   // so the "pooled across N bodies" claim counts the SAME population the
   // numbers below are computed from (F7) — without it the header counts bodies
   // whose cones are hidden, removed, or on no section.
+  // ``lang`` in deps so the group TITLE re-localises on a language flip (the
+  // header reads ``getLanguage()`` internally, like ``nadClassName``).
   const unitLabel = useMemo(
-    () => scopeHeaderLabel(scope, treeInput, memberIds),
-    [scope, treeInput, memberIds],
+    () => scopeHeaderLabel(effectiveScope, treeInput, memberIds),
+    [effectiveScope, treeInput, memberIds, lang],
   )
 
+  // D2 provenance: for a grouped scope, the source litho body under each member
+  // — the bullet list the header carries ("that way we have provenance"). Undefined
+  // for every non-group scope, so the panel renders no bullets.
+  const provenanceBodies = useMemo(
+    () =>
+      effectiveScope.kind === 'geotech-group'
+        ? groupProvenanceLithoBodies(effectiveScope.memberBodyIds, treeInput)
+        : undefined,
+    [effectiveScope, treeInput],
+  )
+  const provenanceHeading =
+    provenanceBodies !== undefined ? translate(lang, 'geotech.groupProvenanceHeading') : undefined
+
   // A LEAF body scope blames the body, not the unit, on an empty pool (F7); a
-  // class row is an aggregate view, so it does not.
-  const bodyScoped = scope.kind === 'litho-body' || scope.kind === 'geotech-body'
+  // class row / group is an aggregate view, so it does not.
+  const bodyScoped =
+    effectiveScope.kind === 'litho-body' || effectiveScope.kind === 'geotech-body'
 
   // The scope's TOTAL accepted band count (both anchors) — feeds the "X of Y
   // bands" honesty line when the member/anchor-filtered pool is smaller (F7).
@@ -277,6 +321,8 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
             <UnitDistributionPanels
               statistics={statistics}
               unitLabel={unitLabel}
+              provenanceHeading={provenanceHeading}
+              provenanceBodies={provenanceBodies}
               pendingCptCount={pendingCptCount}
               populationNote={populationNote}
               totalBandCount={totalBandCount}
@@ -297,7 +343,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
           {/* Fence cutout (R4) — the selected unit's walls over the basemap,
               a passive visual anchor. Mounted only while a unit is scoped, so
               the Cesium chunk and the fence fetches stay lazy. */}
-          <UnitFenceCutout scope={scope} />
+          <UnitFenceCutout scope={effectiveScope} />
         </div>
       </div>
     </div>
