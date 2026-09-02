@@ -43,6 +43,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Layers3 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 import { EmptyState } from '../../EmptyState'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import { nadColoredFormations } from '../../../utils/nadClasses'
@@ -170,6 +171,7 @@ export default function LithologyCanvas(): JSX.Element {
     sections: { visibleSections },
     toasts: { toast },
   } = useShell()
+  const t = useT()
 
   // ---------------------------------------------------------------------------
   // Marker-filtered solids — MUST be useMemo'd.
@@ -326,7 +328,7 @@ export default function LithologyCanvas(): JSX.Element {
 
         <BodyViewModePills
           testIdPrefix="litho"
-          title="Switch between solid TIN surfaces and fence-diagram walls"
+          title={t('litho.switchSolidFence')}
           viewMode={viewMode}
           setViewMode={setViewMode}
           wireframe={wireframe}
@@ -334,7 +336,7 @@ export default function LithologyCanvas(): JSX.Element {
           fenceLoading={fenceLoading}
           fencePanels={fencePanels}
           emptyHintTestId="fence-empty-hint"
-          emptyHintText="No fence panels — accept correlations in the Sections stage"
+          emptyHintText={t('litho.fenceEmptyHint')}
           emptyHintTopClassName="top-8"
         />
 
@@ -365,8 +367,8 @@ export default function LithologyCanvas(): JSX.Element {
   return (
     <EmptyState
       icon={<Layers3 />}
-      title="Lithostratigraphic model"
-      hint="Select or create a lithology model in the right panel. Draw contacts in the Sections stage, then click Build model on the Lithology toolbar to generate the 3D solid bodies."
+      title={t('litho.modelFull')}
+      hint={t('litho.emptyCanvas')}
     />
   )
 }
