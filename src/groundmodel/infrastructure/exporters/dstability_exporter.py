@@ -48,12 +48,21 @@ from uuid import UUID
 
 from geolib.geometry.one import Point
 from geolib.models import DStabilityModel
-from geolib.soils import Soil
+from geolib.soils import (
+    MohrCoulombParameters,
+    ShearStrengthModelTypePhreaticLevel,
+    Soil,
+    SoilWeightParameters,
+)
 
 from groundmodel.application.section_polygon_set import (
     SectionPolygon,
     SectionPolygonSet,
     SectionPolygonUnit,
+)
+from groundmodel.domain.services.nad_soil_parameters_constants import (
+    SOURCE_LABEL,
+    NadSoilParameters,
 )
 from groundmodel.infrastructure.exporters.dstability_exporter_constants import (
     LAYER_NOTE_TEMPLATE,
@@ -62,6 +71,9 @@ from groundmodel.infrastructure.exporters.dstability_exporter_constants import (
     NOTE_ABSENT,
     STIX_LAST_MODIFIER,
     STIX_REMARKS,
+)
+from groundmodel.infrastructure.exporters.nad_soil_parameter_lookup import (
+    soil_parameters_for_unit,
 )
 from groundmodel.infrastructure.exporters.section_geometry_exporter import (
     SectionGeometryExporter,
@@ -223,18 +235,40 @@ class DStabilityExporter(SectionGeometryExporter):
     ) -> int:
         """Add one soil per unit that actually fills something. Returns the count."""
         emitted = 0
+        parameterised = 0
         skipped = [unit.name for unit in units if unit.formation_id not in drawn_formation_ids]
         for unit in units:
             if unit.formation_id not in drawn_formation_ids:
                 continue
             code = labels[unit.formation_id]
-            model.add_soil(Soil(name=unit.name, code=code))
-            self.debug(
-                f"D-Stability soil added: code='{code}' name='{unit.name}' "
-                f"nad_class={unit.nad_class} soil={unit.litho_main_soil_code} "
-                "(strength / stiffness / unit weight left at GEOLib defaults)"
-            )
+            params = soil_parameters_for_unit(unit)
+            model.add_soil(_build_soil(unit, code, params))
+            if params is not None:
+                # GEOLib's Soil constructor forbids a ``notes`` key (pydantic
+                # extra=forbid), so the provenance label is written on the
+                # persisted soil after it is added — the ``Notes`` field round-
+                # trips into soils.json.
+                model.soils.get_soil(code).Notes = SOURCE_LABEL
+                parameterised += 1
+                self.debug(
+                    f"D-Stability soil added: code='{code}' name='{unit.name}' "
+                    f"nad_class={unit.nad_class} soil={unit.litho_main_soil_code} "
+                    f"parameters=NAD Tabel 2.b (gamma_unsat={params.gamma_unsat_kn_m3} "
+                    f"gamma_sat={params.gamma_sat_kn_m3} phi={params.phi_deg} "
+                    f"c={params.c_kpa})"
+                )
+            else:
+                self.debug(
+                    f"D-Stability soil added: code='{code}' name='{unit.name}' "
+                    f"nad_class={unit.nad_class} soil={unit.litho_main_soil_code} "
+                    "(strength / stiffness / unit weight left at GEOLib defaults)"
+                )
             emitted += 1
+        self.info(
+            f"D-Stability soil parameters: {parameterised}/{emitted} soil(s) carried "
+            f"NAD Tabel 2.b characteristic values, {emitted - parameterised} left at "
+            "GEOLib's blank defaults"
+        )
         if skipped:
             self.debug(f"D-Stability export: {len(skipped)} unit(s) fill nothing — {skipped}")
         return emitted
@@ -277,6 +311,50 @@ class DStabilityExporter(SectionGeometryExporter):
             )
             emitted += 1
         return emitted
+
+
+def _build_soil(
+    unit: SectionPolygonUnit,
+    code: str,
+    params: NadSoilParameters | None,
+) -> Soil:
+    """Build the GEOLib soil for a unit, with NAD parameters when present.
+
+    Parameters
+    ----------
+    unit : SectionPolygonUnit
+        The unit the soil represents (supplies the display name).
+    code : str
+        The unique export code the layer keys on.
+    params : NadSoilParameters | None
+        Characteristic parameters for the unit's NAD class, or ``None`` when
+        the class is not in the table. When ``None`` the soil is built with
+        name + code only, leaving every strength / weight field at GEOLib's
+        blank initial value — never an invented default.
+
+    Returns
+    -------
+    Soil
+        A GEOLib soil. When parameterised, cohesion + friction angle sit on
+        the Mohr-Coulomb model D-Stability applies both above AND below the
+        phreatic level (so the strength is used below the water table, not
+        GEOLib's default Su model), and both unit weights are set.
+    """
+    if params is None:
+        return Soil(name=unit.name, code=code)
+    return Soil(
+        name=unit.name,
+        code=code,
+        mohr_coulomb_parameters=MohrCoulombParameters(
+            cohesion=params.c_kpa, friction_angle=params.phi_deg
+        ),
+        soil_weight_parameters=SoilWeightParameters(
+            unsaturated_weight=params.gamma_unsat_kn_m3,
+            saturated_weight=params.gamma_sat_kn_m3,
+        ),
+        shear_strength_model_above_phreatic_level=ShearStrengthModelTypePhreaticLevel.MOHR_COULOMB,
+        shear_strength_model_below_phreatic_level=ShearStrengthModelTypePhreaticLevel.MOHR_COULOMB,
+    )
 
 
 def _layer_note(unit: SectionPolygonUnit) -> str:
