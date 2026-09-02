@@ -102,9 +102,12 @@ _VOXEL_LITHO = [
 # ---------------------------------------------------------------------------
 _ENGINE_DOMAIN_SERVICES = [
     # NAD packing classifier + lookup constants + representative-statistic
-    # aggregator (the original named slice).
+    # aggregator (the original named slice). nad_soil_parameters_constants holds
+    # the norm-derived characteristic values (γ/φ′/c′ per class) the D-Series
+    # exports carry — the same class of IP as the qc thresholds, so it compiles.
     "groundmodel.domain.services.nad_classification_constants",
     "groundmodel.domain.services.nad_classifier",
+    "groundmodel.domain.services.nad_soil_parameters_constants",
     "groundmodel.domain.services.representative_statistic",
     # Voxel-builder domain deps the compiled voxel_litho package is built on.
     "groundmodel.domain.services.model_domain",
