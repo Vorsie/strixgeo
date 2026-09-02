@@ -31,6 +31,7 @@
 
 import { CHROME } from './chrome'
 import { DATA } from './data'
+import { LAUNCH } from './launch'
 import { MODELS } from './models'
 import { OUTPUTS } from './outputs'
 import { PANELS } from './panels'
@@ -47,6 +48,7 @@ export const EN = {
   ...SECTIONS,
   ...OUTPUTS,
   ...PANELS,
+  ...LAUNCH,
 } as const
 
 /** The per-surface modules, kept addressable so tests can assert that no key is
@@ -60,6 +62,7 @@ export const EN_MODULES = {
   sections: SECTIONS,
   outputs: OUTPUTS,
   panels: PANELS,
+  launch: LAUNCH,
 } as const
 
 /** Every key the app can translate. Derived from EN so a typo'd key is a
