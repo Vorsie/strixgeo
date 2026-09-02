@@ -1,35 +1,42 @@
-"""Integration tests — the "Join with…" verb (debt #278).
+"""Integration tests — the "Join with…" GROUP verb (debt #278).
 
-Owner ruling 2026-08-31: a "Join with…" verb, the POSITIVE half of the
-body-identity rule and the counterpart to Separate, so the engineer can state
-*"this body IS the same as that body"* and have the resolver honour it. His
-standing rule: *"a body is only a body if it is geometrically connected, OR if
-the user says this body is the same as that body"* — a union is that second half,
-the must-link only the user writes.
+Owner ruling 2026-09-02 (his words): *"I want all bodies that are separate to keep
+their separate body IDs. Grouping is just for lumping things that are similar
+together, so we have more data and maybe we have less export classes. E.g. in an
+export it then becomes group 3 (silt FF)."* And, because a group can span two
+different litho bodies, merging would lose provenance, so *"the only way to group
+those is add a label"*.
+
+So a "Join with…" is a GROUP relation, NOT a merge: the two bodies KEEP their
+separate body ids (body identity is geometry-only), and the union row records the
+group so exports can pool them / the units pane can tag "(group N)". These pins are
+the mirror of the old must-link pins, which asserted the now-removed MERGE.
 
 Scene
 -----
 Two CPTs 500 m apart, each with a two-zone qc log and an accepted ZAND layer,
-DELIBERATELY LEFT UNCORRELATED so their sands are TWO separate litho bodies (the
-mirror of the separation scene, which starts them as one). ``SubdivideAllBodies``
-then bands both columns (a LOOSE zone over a DENSE zone), giving two untied loose
-bodies + two untied dense bodies on the geotech model.
+DELIBERATELY LEFT UNCORRELATED so their sands are TWO separate litho bodies.
+``SubdivideAllBodies`` then bands both columns (a LOOSE zone over a DENSE zone),
+giving two loose bodies + two dense bodies on the geotech model. A group never
+changes any of these ids — it only records that two of them belong together.
 
 Test assertions
 ---------------
-UNI1  A join merges two untied same-class bodies into one.
-UNI2  The join survives a re-resolve (recompute) — no edge holds it, only the union.
-UNI3  Disjoin (DELETE) restores the two bodies.
+UNI1  A Join GROUPS two bodies that KEEP their distinct ids; the group row exists
+      and listBodyUnions reports both anchors with their (distinct) current bodies.
+UNI2  The group row survives a re-resolve (recompute); the two bodies stay two.
+UNI3  Disjoin (DELETE) removes the group row; the two bodies were always two.
 UNI4  Create is idempotent and order-independent (200, same id, one row).
-UNI5  A cross-class join is refused 422, naming both classes.
-UNI6  A join contradicting a standing separation is refused 422, naming the separation.
-UNI7  A contradicting union arriving via restore is suppressed — the separation
-      wins and the restore still succeeds.
-UNI8  A join survives a full re-subdivide, re-anchored onto the rebuilt bands.
-UNI9  A join survives a bundle save/restore round trip.
+UNI5  A cross-class group is refused 422, naming both classes.
+UNI6  (skipped) legacy cannot-link pin — separations dormant.
+UNI7  (skipped) legacy cannot-link pin — separations dormant.
+UNI8  A group row survives a full re-subdivide, re-anchored onto the rebuilt bands;
+      the two bodies stay two.
+UNI9  A group row survives a bundle save/restore round trip; the two bodies stay two.
 UNI10 The endpoints are scoped to the project + model (IDOR shape).
-UNI12 A Join does NOT stale the 3-D solids (identity, not geometry) — but the
-      SAME body re-stamp run through the DEFAULT resolve path still stales (D3).
+UNI12 A Join is identity-neutral: it changes no body_id and never stales the 3-D
+      solids. (REFRAME — see the test; the old "same re-stamp, vary the flag"
+      comparison is no longer expressible now a Join re-stamps nothing.)
 
 ⚠ NOT RUN by the author — the integration suite must go through the wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_body_unions.py
@@ -184,13 +191,16 @@ async def _bands(session: AsyncSession, model_id: str, cpt_id: str) -> list:
 
 
 @pytest.mark.asyncio
-async def test_uni1_join_merges_two_untied_bodies(
+async def test_uni1_join_groups_two_bodies_that_keep_their_ids(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
 ) -> None:
-    """UNI1 — the user says these two ARE the same body; the resolver merges.
+    """UNI1 — a Join GROUPS two bodies; they KEEP their separate body ids.
 
-    The two sand layers are two separate litho bodies — no correlation edge joins
-    them. A union alone merges them into one body, exactly as the ruling promises.
+    Owner 2026-09-02: a Join is a GROUP relation, not a merge — *"all bodies that
+    are separate keep their separate body IDs"*. The two sand layers are two
+    separate litho bodies; after the Join they are STILL two bodies (distinct
+    body_id), and the group row exists with listBodyUnions reporting both anchors
+    with their (distinct) current bodies.
     """
     pid = str(uni_scene["project"].id)
     lm = uni_scene["litho_model_id"]
@@ -210,18 +220,30 @@ async def test_uni1_join_merges_two_untied_bodies(
     left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
     assert left[0].body_id is not None and right[0].body_id is not None
-    assert left[0].body_id == right[0].body_id, "the join must merge the two bodies"
+    assert left[0].body_id != right[0].body_id, (
+        "a Join is a GROUP, not a merge — the two bodies keep their separate ids"
+    )
+
+    # The group row exists and the listing reports both anchors' (distinct) bodies.
+    listing = await async_client.get(f"/projects/{pid}/geology/models/{lm}/body-unions")
+    assert listing.status_code == 200, listing.text
+    items = listing.json()
+    assert len(items) == 1, "the group row must exist"
+    body_a = items[0]["anchor_a"]["body_id"]
+    body_b = items[0]["anchor_b"]["body_id"]
+    assert body_a is not None and body_b is not None
+    assert body_a != body_b, "the grouped anchors keep their distinct current bodies"
 
 
 @pytest.mark.asyncio
-async def test_uni2_join_survives_recompute(
+async def test_uni2_group_survives_recompute_and_two_bodies_stay_two(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
 ) -> None:
-    """UNI2 — the join holds across a re-resolve; only the union connects them.
+    """UNI2 — the group row holds across a re-resolve; the two bodies stay two.
 
-    No correlation edge or geometry fact ties the two sands, so a re-resolve
-    (what a bodies/recompute runs) keeps them one body ONLY because it reads the
-    union again. A union that did not survive re-resolve would silently un-merge.
+    A recompute re-runs the resolver, which IGNORES the union for identity (owner
+    2026-09-02: a group never merges). So the two sands stay two bodies AND the
+    group row survives — a recompute neither merges them nor drops the group.
     """
     pid = str(uni_scene["project"].id)
     lm = uni_scene["litho_model_id"]
@@ -234,21 +256,31 @@ async def test_uni2_join_survives_recompute(
     )
     assert resp.status_code == 201, resp.text
 
-    # Re-resolve as the recompute would, then confirm the merge persists.
+    # Re-resolve as the recompute would, then confirm the two bodies stay two and
+    # the group row survives.
     await ResolveLithoInstances(db_session).execute(model_id=lm, commit=True)
     left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
-    assert left[0].body_id == right[0].body_id, "the union must survive a re-resolve"
+    assert left[0].body_id is not None and right[0].body_id is not None
+    assert left[0].body_id != right[0].body_id, "a group never merges — two bodies stay two"
+
+    group_count = (
+        await db_session.execute(
+            select(func.count()).select_from(BodyUnionOrm).where(BodyUnionOrm.model_id == lm)
+        )
+    ).scalar_one()
+    assert group_count == 1, "the group row must survive a re-resolve"
 
 
 @pytest.mark.asyncio
-async def test_uni3_disjoin_restores_two_bodies(
+async def test_uni3_disjoin_removes_the_group_row_two_bodies_were_always_two(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
 ) -> None:
-    """UNI3 — deleting the union (Disjoin) splits the merged body back into two.
+    """UNI3 — Disjoin (DELETE) removes the group row; the two bodies were always two.
 
-    Lifting the must-link lets the resolver fall back to geometry/edges — and
-    there are none between the two sands — so they return to two bodies.
+    A group never merged anything (identity is geometry-only), so the two sands are
+    two bodies before AND after the Disjoin — deleting the union only drops the
+    grouping row.
     """
     pid = str(uni_scene["project"].id)
     lm = uni_scene["litho_model_id"]
@@ -264,7 +296,7 @@ async def test_uni3_disjoin_restores_two_bodies(
 
     left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
-    assert left[0].body_id == right[0].body_id, "precondition: joined"
+    assert left[0].body_id != right[0].body_id, "precondition: grouped but still two bodies"
 
     disjoin = await async_client.delete(
         f"/projects/{pid}/geology/models/{lm}/body-unions/{union_id}"
@@ -274,7 +306,15 @@ async def test_uni3_disjoin_restores_two_bodies(
     left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
     assert left[0].body_id is not None and right[0].body_id is not None
-    assert left[0].body_id != right[0].body_id, "Disjoin must split the two bodies again"
+    assert left[0].body_id != right[0].body_id, "the two bodies stay two after the ungroup"
+
+    # And the group row is gone.
+    group_count = (
+        await db_session.execute(
+            select(func.count()).select_from(BodyUnionOrm).where(BodyUnionOrm.model_id == lm)
+        )
+    ).scalar_one()
+    assert group_count == 0, "Disjoin must delete the group row"
 
 
 @pytest.mark.asyncio
@@ -446,23 +486,23 @@ async def test_uni7_a_contradicting_union_via_restore_is_suppressed(
 
 
 @pytest.mark.asyncio
-async def test_uni8_join_survives_a_re_subdivide(
+async def test_uni8_group_row_survives_a_re_subdivide(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
 ) -> None:
-    """UNI8 — a geotech join is re-anchored across a full re-subdivide.
+    """UNI8 — a geotech group row is re-anchored across a full re-subdivide.
 
-    On the geotech model the two LOOSE bands are joined into one body. A
-    re-subdivide wipes every geotech band (fresh ids) and its CASCADE would eat
-    the union — but the re-anchor captures it before the wipe and re-creates it
-    against the rebuilt bands, so the two loose bands stay merged and the Disjoin
-    listing still names both sides.
+    On the geotech model the two LOOSE bands are grouped. They stay two bodies (a
+    group never merges), but the group ROW must survive a re-subdivide: the wipe
+    (fresh ids, CASCADE) would eat the union, yet the re-anchor captures it before
+    the wipe and re-creates it against the rebuilt bands, so listBodyUnions still
+    names both sides afterwards.
     """
     pid = str(uni_scene["project"].id)
     gm = uni_scene["geotech_model_id"]
     left = await _bands(db_session, gm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, gm, uni_scene["cpt_b_id"])
     assert left and right, "the subdivide produced no geotech bands"
-    assert left[0].body_id != right[0].body_id, "the loose bands should start untied"
+    assert left[0].body_id != right[0].body_id, "the loose bands should start as two bodies"
 
     join = await async_client.post(
         f"/projects/{pid}/geology/models/{gm}/body-unions",
@@ -471,7 +511,7 @@ async def test_uni8_join_survives_a_re_subdivide(
     assert join.status_code == 201, join.text
     left = await _bands(db_session, gm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, gm, uni_scene["cpt_b_id"])
-    assert left[0].body_id == right[0].body_id, "the union should merge the loose bands"
+    assert left[0].body_id != right[0].body_id, "a group never merges the loose bands"
 
     # Full re-subdivide — wipes and rebuilds every geotech band with fresh ids.
     await SubdivideAllBodies(db_session).execute(
@@ -482,24 +522,24 @@ async def test_uni8_join_survives_a_re_subdivide(
     listing = await async_client.get(f"/projects/{pid}/geology/models/{gm}/body-unions")
     assert listing.status_code == 200, listing.text
     items = listing.json()
-    assert len(items) == 1, f"the union should survive the re-subdivide: {items}"
+    assert len(items) == 1, f"the group row should survive the re-subdivide: {items}"
 
     left = await _bands(db_session, gm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, gm, uni_scene["cpt_b_id"])
-    assert left[0].body_id is not None
-    assert left[0].body_id == right[0].body_id, "the rebuilt loose bands must stay merged"
+    assert left[0].body_id is not None and right[0].body_id is not None
+    assert left[0].body_id != right[0].body_id, "the rebuilt loose bands stay two bodies"
 
 
 @pytest.mark.asyncio
-async def test_uni9_join_survives_a_bundle_save_restore(
+async def test_uni9_group_row_survives_a_bundle_save_restore(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
 ) -> None:
-    """UNI9 — a union survives a bundle save → restore → reconcile round trip.
+    """UNI9 — a group row survives a bundle save → restore → reconcile round trip.
 
     "Permanent" means across a reopen: save the bundle, wipe the project, restore
-    it (the /restore route reconciles). The union row comes back and the
-    post-restore resolver honours it, so the two bodies stay ONE — a restore that
-    lost the union would silently split the bodies the engineer joined.
+    it (the /restore route reconciles). The union row comes back so the engineer's
+    grouping is preserved; the two bodies stay TWO (a group never merges) — a
+    restore that lost the row would silently drop the grouping.
     """
     pid = str(uni_scene["project"].id)
     lm = uni_scene["litho_model_id"]
@@ -513,12 +553,12 @@ async def test_uni9_join_survives_a_bundle_save_restore(
     assert created.status_code == 201, created.text
     left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
-    assert left[0].body_id == right[0].body_id, "precondition: joined in the source project"
+    assert left[0].body_id != right[0].body_id, "precondition: grouped but two bodies"
 
     bundle_resp = await async_client.get(f"/projects/{pid}/bundle")
     assert bundle_resp.status_code == 200, bundle_resp.text
     bundle = bundle_resp.json()
-    assert len(bundle["body_unions"]) == 1, "the bundle must carry the union"
+    assert len(bundle["body_unions"]) == 1, "the bundle must carry the group row"
 
     project = await db_session.get(ProjectOrm, uni_scene["project"].id)
     assert project is not None
@@ -533,13 +573,13 @@ async def test_uni9_join_survives_a_bundle_save_restore(
             select(func.count()).select_from(BodyUnionOrm).where(BodyUnionOrm.model_id == lm)
         )
     ).scalar_one()
-    assert union_count == 1, "the union must restore with the bundle"
+    assert union_count == 1, "the group row must restore with the bundle"
 
     left = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right = await _bands(db_session, lm, uni_scene["cpt_b_id"])
     assert left[0].body_id is not None and right[0].body_id is not None
-    assert left[0].body_id == right[0].body_id, (
-        "the restored union must keep the two bodies merged — the ruling is permanent"
+    assert left[0].body_id != right[0].body_id, (
+        "the restored group keeps the two bodies distinct — a group never merges"
     )
 
 
@@ -699,22 +739,24 @@ async def _solid_is_stale(session: AsyncSession, solid_id) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_uni12_a_join_does_not_stale_the_solids_but_the_default_resolve_does(
+async def test_uni12_a_join_is_identity_neutral_and_never_stales_the_solids(
     db_session: AsyncSession, uni_scene: dict, async_client: AsyncClient
 ) -> None:
-    """UNI12 — a Join leaves the 3-D solids CURRENT; the default resolve still stales.
+    """UNI12 — a Join changes no body_id and never stales the 3-D solids.
 
-    D3 (owner 2026-09-01: *"the geotech model is stale but it doesn't have to be
-    stale ... we only grouped two units together"*). A Join changes body IDENTITY,
-    not the voxel geometry or any voxel's packing class, so the cached solids stay
-    valid and forcing a rebuild is wrong. The endpoint therefore resolves with
-    ``stale_solids=False``.
+    Owner 2026-09-02: a Join is a GROUP relation, not a merge — it changes no
+    body_id (identity is geometry-only). Consequently it re-stamps NOTHING and the
+    cached 3-D solids stay CURRENT. (The endpoint also passes ``stale_solids=False``;
+    the flag-forwarding itself is pinned by the use-case unit test R5.)
 
-    The pin holds the OPERATION constant — a body-membership re-stamp — and varies
-    only the flag: the Join (endpoint, ``stale_solids=False``) does NOT stale, while
-    the SAME re-stamp through the default resolve path (what a subdivide / litho
-    edit runs) DOES. That proves the flag is what suppresses the stale, not that
-    staling has been removed.
+    ⚠ REFRAME (owner flag): the old UNI12 held the OPERATION constant — a real
+    body-membership re-stamp caused by the merge — and varied only the flag, then
+    proved the DEFAULT resolve path still stales that re-stamp. Under the GROUP
+    contract a Join causes NO re-stamp at all, so that comparison is no longer
+    expressible through a Join, and the second half was removed. The "default path
+    still stales a real body change" property is unrelated to grouping and, if it
+    needs its own pin, belongs on a geometry-changing operation (an edit / accept),
+    not here.
     """
     pid = str(uni_scene["project"].id)
     lm = uni_scene["litho_model_id"]
@@ -730,8 +772,8 @@ async def test_uni12_a_join_does_not_stale_the_solids_but_the_default_resolve_do
     solid_id = await _seed_solid(db_session, lm, formation_id)
     assert await _solid_is_stale(db_session, solid_id) is False
 
-    # The Join re-stamps body_id (a real membership change → n_stamped > 0), but the
-    # endpoint resolves with stale_solids=False, so the solid stays CURRENT.
+    # The Join is identity-neutral: it changes no body_id, so the two bodies stay
+    # two and the cached solid stays CURRENT.
     resp = await async_client.post(
         f"/projects/{pid}/geology/models/{lm}/body-unions",
         json={"layer_a_id": str(left[0].id), "layer_b_id": str(right[0].id)},
@@ -739,21 +781,7 @@ async def test_uni12_a_join_does_not_stale_the_solids_but_the_default_resolve_do
     assert resp.status_code == 201, resp.text
     left2 = await _bands(db_session, lm, uni_scene["cpt_a_id"])
     right2 = await _bands(db_session, lm, uni_scene["cpt_b_id"])
-    assert left2[0].body_id == right2[0].body_id, "the join must merge (a real re-stamp)"
+    assert left2[0].body_id != right2[0].body_id, "a Join is a GROUP — it changes no body_id"
     assert await _solid_is_stale(db_session, solid_id) is False, (
-        "a Join is identity-only — it must NOT stale the 3-D solids"
-    )
-
-    # Now the SAME kind of re-stamp through the DEFAULT resolve path: delete the
-    # union and re-resolve with stale_solids left at its True default (what a
-    # subdivide / litho edit runs). The re-split re-stamps body_id again — and this
-    # time the solid MUST stale.
-    union = (
-        await db_session.execute(select(BodyUnionOrm).where(BodyUnionOrm.model_id == lm))
-    ).scalar_one()
-    await db_session.delete(union)
-    await db_session.flush()
-    await ResolveLithoInstances(db_session).execute(model_id=lm, commit=True)
-    assert await _solid_is_stale(db_session, solid_id) is True, (
-        "the default resolve path (subdivide / litho edit) must still stale the solids"
+        "a Join is identity-neutral — it must NOT stale the 3-D solids"
     )
