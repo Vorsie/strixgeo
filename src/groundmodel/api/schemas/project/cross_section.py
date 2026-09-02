@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -64,6 +64,30 @@ class ReviewFlags(_StrictModel):
     dismissed: list[str] | None = None
 
 
+class SheetField(_StrictModel):
+    """One free-text field of the cross-section PDF sheet's title block."""
+
+    label: str = Field(max_length=80)
+    value: str = Field(max_length=200)
+
+
+class SheetSettingsState(_StrictModel):
+    """The cross-section PDF sheet's per-section settings (``view_state.pdf_sheet``).
+
+    Written by the desktop's sheet preview dialog on Export and on close, read back
+    to seed the dialog; travels in the bundle like the rest of ``view_state``. The
+    shape mirrors ``desktop/src/renderer/src/sheet/sheetPayload.ts`` ``SheetSettings``.
+    """
+
+    fill: Literal["litho", "geotech"]
+    scaleMode: Literal["fit", "explicit"]  # noqa: N815 — wire name, camelCase by the renderer
+    hScale: float | None = Field(default=None, gt=0)  # noqa: N815
+    vScale: float | None = Field(default=None, gt=0)  # noqa: N815
+    vex: float = Field(gt=0, le=100)
+    spacing: float = Field(ge=0.0, le=1.0)
+    fields: list[SheetField] = Field(min_length=4, max_length=4)
+
+
 class SectionViewState(_StrictModel):
     """Validated shape of the ``cross_section.view_state`` JSONB bag.
 
@@ -78,6 +102,8 @@ class SectionViewState(_StrictModel):
     cpt_channels: CptChannels | None = None
     borehole_channels: BoreholeChannels | None = None
     column_spacing: float | None = Field(default=None, ge=0.0, le=1.0)
+    # The PDF sheet dialog's settings (2026-09-02); absent until first use.
+    pdf_sheet: SheetSettingsState | None = None
     snap_to_stratigraphy: bool | None = None
     review_flags: ReviewFlags | None = None
 
