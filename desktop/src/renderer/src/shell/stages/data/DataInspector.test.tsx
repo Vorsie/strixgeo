@@ -94,7 +94,6 @@ function makeCtx(overrides?: Partial<ShellContextValue>): ShellContextValue {
       handleSelectBorehole: async () => {},
       handleExportSectionDxf: async () => {},
       handleExportSectionPlaxis2d: async () => {},
-      handleExportSectionPdf: vi.fn(),
       outOfViewportCptIds: new Set(),
       outOfViewportBoreholeIds: new Set(),
       projectFilePath: null,
