@@ -61,23 +61,42 @@ $StdlibDropDirs = @('test', 'idlelib', 'lib2to3', 'turtledemo')
 # Files under infrastructure/codelists/data/ pruned from the STAGED backend
 # (owner exposure-cuts ruling 2026-09-01). The runtime reads ONLY the .json
 # catalogs (g3dv3_catalog.py -> g3dv3_units.json + g3dv3_aliases.json;
-# dov_formal_stratigraphy_catalog.py -> dov_formal_stratigraphy.json). These
-# four are build-time sources or an internal doc the shipped app never opens,
-# so a customer installer has no reason to carry them:
-#   * README.md                 - internal working-group provenance + rebuild
-#                                 recipes + translation doctrine.
-#   * g3dv3_modeleenheden.xlsx   - build source for g3dv3_units.json, read only
-#                                 by scripts/build_g3dv3_catalog.py (never ships).
-#   * g3dv3_kleurcode_rgb.xlsx   - build source for g3dv3_units.json, same reader.
-#   * grondsoort GEO-BGGG.xlsx   - working-group reference document, read by
-#                                 nothing at all.
+# dov_formal_stratigraphy_catalog.py -> dov_formal_stratigraphy.json). Every
+# other file here is a build-time source, a schema snapshot, or an internal
+# reference the shipped app never opens (verified: no runtime __file__-relative
+# reader and no directory glob touches them), so a customer installer has no
+# reason to carry them:
+#   * README.md                     - internal working-group provenance +
+#                                     rebuild recipes + translation doctrine.
+#   * g3dv3_modeleenheden.xlsx       - build source for g3dv3_units.json, read
+#                                     only by scripts/build_g3dv3_catalog.py
+#                                     (never ships).
+#   * g3dv3_kleurcode_rgb.xlsx       - build source for g3dv3_units.json, same
+#                                     reader.
+#   * grondsoort GEO-BGGG.xlsx       - working-group reference document, read by
+#                                     nothing at all.
+#   * FormeleStratigrafieDataCodes.xsd - DOV schema snapshot, build source for
+#                                     dov_formal_stratigraphy.json, read only by
+#                                     scripts/build_dov_formal_stratigraphy.py
+#                                     (never ships). 93 KB, the largest drop.
+#   * codetabel_hoofdnaam.csv        - DOV code table; the constants transcribed
+#                                     from it are hand-baked into
+#                                     litho_segmentation_constants.py /
+#                                     nad_classification_constants.py. Read by
+#                                     no code at runtime or build time.
+#   * codetabel_kleur.csv            - DOV colour code table, same category.
+#   * codetabel_consistentie.csv     - DOV consistency code table, same category.
 # The REPO copies are untouched (they rebuild the .json via scripts/build_*.py);
 # only the freshly-staged tree is pruned.
 $CodelistDataDropFiles = @(
     'README.md',
     'g3dv3_modeleenheden.xlsx',
     'g3dv3_kleurcode_rgb.xlsx',
-    'grondsoort GEO-BGGG.xlsx'
+    'grondsoort GEO-BGGG.xlsx',
+    'FormeleStratigrafieDataCodes.xsd',
+    'codetabel_hoofdnaam.csv',
+    'codetabel_kleur.csv',
+    'codetabel_consistentie.csv'
 )
 
 function Write-Step($message) {
