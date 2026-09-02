@@ -40,6 +40,7 @@ import type {
 import type { BulkAnchorGhost, LithoSuggestionEdit } from './useGeologicalModel'
 import type { UndoCommand } from './useUndoStack'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 import {
   buildLithoAcceptBody,
   lithoAcceptTuningParams,
@@ -316,17 +317,18 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         // No contacts with a valid litho code + parent formation — the model
         // is empty or has no correlatable units yet. Guide the user toward
         // accepting litho suggestions first.
-        toast(
-          'success',
-          'Auto-correlate: no correlatable units found — accept litho suggestions first.',
-        )
+        toast('success', t('litho.autoCorrelateNothing'))
       } else if (result.edges_created === 0) {
-        toast('success', 'Auto-correlate: model already fully correlated — no new edges.')
+        toast('success', t('litho.autoCorrelateFull'))
       } else {
         toast(
           'success',
-          `Auto-correlate: ${result.edges_created} edge${result.edges_created === 1 ? '' : 's'} created, ` +
-            `${result.edges_skipped_existing} edge(s) already existed.`,
+          t('litho.autoCorrelateCreated', {
+            created: result.edges_created,
+            edgeWord:
+              result.edges_created === 1 ? t('litho.edgeWordOne') : t('litho.edgeWordMany'),
+            existing: result.edges_skipped_existing,
+          }),
         )
       }
       // Auto-lens: tell the user the crossings became lens candidates, not edges.
@@ -334,13 +336,12 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         const n = pinchOuts.length
         toast(
           'success',
-          `${n} pinch-out lens candidate${n === 1 ? '' : 's'} from crossings — ` +
-            'shown as amber diamonds; the crossing edges were not drawn.',
+          n === 1 ? t('litho.pinchOutLensOne', { n }) : t('litho.pinchOutLensMany', { n }),
         )
       }
     } catch (err) {
       log.error('geology', 'autoCorrelate failed', err)
-      toast('error', 'Auto-correlate failed — see console.')
+      toast('error', t('litho.autoCorrelateFailed'))
     }
   }, [project, refetchFormations, toast, requestCorrelationEdgesRefetch, requestBodyRecompute, markMutated])
 
@@ -362,12 +363,14 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       toast(
         'success',
         result.deleted === 0
-          ? 'No correlation suggestions to clear.'
-          : `Cleared ${result.deleted} correlation suggestion${result.deleted === 1 ? '' : 's'}.`,
+          ? t('litho.noSuggestionsToClear')
+          : result.deleted === 1
+            ? t('litho.clearedSuggestionsOne', { n: result.deleted })
+            : t('litho.clearedSuggestionsMany', { n: result.deleted }),
       )
     } catch (err) {
       log.error('geology', 'clearSuggestions failed', err)
-      toast('error', 'Could not clear suggestions — see console.')
+      toast('error', t('litho.clearSuggestionsFailed'))
     }
   }, [project, toast, requestCorrelationEdgesRefetch, markMutated])
 
@@ -453,7 +456,11 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       if (targets.length === 0) {
         toast(
           'error',
-          `No ${scope === 'all' ? '' : `${scope} `}ghost suggestions to strip.`,
+          scope === 'all'
+            ? t('litho.noGhostToStrip')
+            : t('litho.noScopedGhostToStrip', {
+                scope: scope === 'cpt' ? t('litho.scopeCpt') : t('litho.scopeBorehole'),
+              }),
         )
         return
       }
@@ -481,7 +488,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       )
       toast(
         'success',
-        `Stripped admixtures from ${layerCount} layer${layerCount === 1 ? '' : 's'}.`,
+        t('litho.strippedAdmixtures', {
+          n: layerCount,
+          layerWord: layerCount === 1 ? t('litho.layerWordOne') : t('litho.layerWordMany'),
+        }),
       )
     },
     [ghostsByAnchor, toast],
@@ -506,7 +516,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         ),
     )
     if (targets.length === 0) {
-      toast('error', 'No overridden borehole admixtures to restore.')
+      toast('error', t('litho.noAdmixturesToRestore'))
       return
     }
     const layerCount = targets.reduce(
@@ -544,9 +554,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     )
     toast(
       'success',
-      `Restored segmenter admixtures on ${layerCount} borehole layer${
-        layerCount === 1 ? '' : 's'
-      }.`,
+      t('litho.restoredAdmixtures', {
+        n: layerCount,
+        layerWord: layerCount === 1 ? t('litho.layerWordOne') : t('litho.layerWordMany'),
+      }),
     )
   }, [ghostsByAnchor, toast])
 
@@ -902,7 +913,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         setFocusedSuggestAnchorId(anchorId)
       } catch (err) {
         log.error('geology', `handleSuggestLitho failed for ${anchorId}`, err)
-        toast('error', 'Could not fetch lithostratigraphic suggestions.')
+        toast('error', t('litho.fetchSuggestionsFailed'))
       } finally {
         setLithoSuggesting(false)
       }
@@ -1189,7 +1200,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         return result
       } catch (err) {
         log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
-        toast('error', 'Could not accept the litho suggestion.')
+        toast('error', t('litho.acceptSuggestionFailed'))
         return null
       }
     },
@@ -1289,7 +1300,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         })
       } catch (err) {
         log.error('geology', 'acceptAllLithoSuggestions failed', err)
-        toast('error', 'Could not accept all litho suggestions.')
+        toast('error', t('litho.acceptAllFailed'))
       }
     },
     // reason: all suggestion state (lithoSuggestions / lithoSuggestionAnchorKind /
@@ -1429,7 +1440,11 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         if (failures.length > 0) {
           toast(
             'error',
-            `Suggested ${anchors.length - failures.length}/${anchors.length} — ${failures.length} failed.`,
+            t('litho.suggestedFailures', {
+              ok: anchors.length - failures.length,
+              total: anchors.length,
+              failed: failures.length,
+            }),
           )
         }
       } finally {
@@ -1519,7 +1534,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         })
       } catch (err) {
         log.error('geology', `acceptBulkLitho failed anchor=${anchorId} idx=${idx}`, err)
-        toast('error', 'Could not accept the litho suggestion.')
+        toast('error', t('litho.acceptSuggestionFailed'))
       }
     },
     // reason: activeLithoModelRef is a ref (stable identity); not listed.
@@ -1611,7 +1626,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         })
       } catch (err) {
         log.error('geology', 'acceptAllBulkLitho batch call failed', err)
-        toast('error', 'Could not accept litho layers.')
+        toast('error', t('litho.acceptLayersFailed'))
         return
       }
 
@@ -1654,8 +1669,17 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       )
       toast(
         'success',
-        `Accepted ${committedCount} anchor${committedCount === 1 ? '' : 's'}` +
-          (resp.inference_ran ? ' — inference updated.' : '.'),
+        resp.inference_ran
+          ? t('litho.acceptedAnchorsInference', {
+              n: committedCount,
+              anchorWord:
+                committedCount === 1 ? t('litho.anchorWordOne') : t('litho.anchorWordMany'),
+            })
+          : t('litho.acceptedAnchors', {
+              n: committedCount,
+              anchorWord:
+                committedCount === 1 ? t('litho.anchorWordOne') : t('litho.anchorWordMany'),
+            }),
       )
 
       // #140 (owner directive 2026-05-28): auto-correlate is DECOUPLED from
@@ -1664,7 +1688,14 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       // when they want it, so accepting suggestions never surprises them with
       // amber edges. (handleAutoCorrelate remains the manual entry point.)
       if (failures.length > 0) {
-        toast('error', `Accepted ${committedCount}/${plans.length} — ${failures.length} failed.`)
+        toast(
+          'error',
+          t('litho.acceptedFailures', {
+            ok: committedCount,
+            total: plans.length,
+            failed: failures.length,
+          }),
+        )
       }
       // Shared post-accept tail. Multi-anchor, multi-layer accept: no
       // contactIdsByIdx (see handleAcceptAllLithoSuggestions — the
