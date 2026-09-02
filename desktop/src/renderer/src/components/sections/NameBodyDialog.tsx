@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   /** Open when a body id is being named; null = closed. */
@@ -42,6 +43,7 @@ export default function NameBodyDialog({
   const [name, setName] = useState(initialName)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const t = useT()
 
   // Seed the draft from the body's current name on each open, and focus +
   // select so a rename overwrites in one keystroke.
@@ -85,18 +87,15 @@ export default function NameBodyDialog({
     >
       <div className="p-6">
         <h2 id="name-body-title" className="text-base font-semibold text-text-primary mb-1">
-          Name lens
+          {t('sections.lens.nameDialogTitle')}
         </h2>
-        <p className="text-xs text-text-secondary mb-4">
-          A named lens is kept: it survives "Delete all detected lenses" and the
-          detector's reconcile.
-        </p>
+        <p className="text-xs text-text-secondary mb-4">{t('sections.nameBody.keptHint')}</p>
 
         <label
           htmlFor="name-body-input"
           className="block text-xs font-medium text-text-secondary mb-1"
         >
-          Lens name
+          {t('sections.lens.name')}
         </label>
         <input
           ref={inputRef}
@@ -106,14 +105,14 @@ export default function NameBodyDialog({
           onChange={e => setName(e.target.value)}
           onKeyDown={handleKey}
           disabled={busy}
-          placeholder="e.g. Sand lens — quay 7"
+          placeholder={t('sections.nameBody.placeholder')}
           data-testid="name-body-input"
           className="w-full border border-border-default rounded px-3 py-1.5 text-sm text-text-primary bg-surface-page placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent mb-4 disabled:bg-surface-card"
         />
 
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="md" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -122,7 +121,7 @@ export default function NameBodyDialog({
             disabled={!name.trim() || busy}
             data-testid="name-body-submit"
           >
-            Save name
+            {t('sections.lens.saveName')}
           </Button>
         </div>
       </div>
