@@ -18,6 +18,7 @@
 // re-subdivide dialog next door (that one destroys hand edits and defaults to Cancel).
 
 import ConfirmDialog from './ui/ConfirmDialog'
+import { useT } from '../i18n/translate'
 
 interface Props {
   /** Truthy = render the dialog. The caller owns the open lifecycle. */
@@ -52,6 +53,7 @@ export default function MoveRestatedContactDialog({
   depthM,
   movesGeology,
 }: Props): JSX.Element {
+  const t = useT()
   return (
     <ConfirmDialog
       open={open}
@@ -61,39 +63,30 @@ export default function MoveRestatedContactDialog({
       cancelTestid="move-restated-contact-cancel"
       onCancel={onCancel}
       busy={busy}
-      title={movesGeology ? 'Move contact, litho and geology?' : 'Move contact and litho?'}
+      title={
+        movesGeology
+          ? t('sections.moveRestated.titleGeo')
+          : t('sections.moveRestated.titleLitho')
+      }
       body={
         <>
-          <p>
-            This boundary is a lithostratigraphic contact, not a packing boundary. Moving it
-            to <span className="font-semibold tabular-nums">{depthM.toFixed(2)} m</span>{' '}
-            changes more than the geotechnical model.
-          </p>
+          <p>{t('sections.moveRestated.body', { depth: depthM.toFixed(2) })}</p>
           <ul className="mt-2 list-disc pl-5 space-y-1" data-testid="move-restated-contact-list">
-            <li>
-              the two <span className="font-semibold">packing bands</span> either side — both
-              re-derive their NAD class, because their depth range changed and so does the qc
-              over it
-            </li>
-            <li>
-              the <span className="font-semibold">lithostratigraphic contact</span> it restates
-            </li>
+            <li>{t('sections.moveRestated.bullet1')}</li>
+            <li>{t('sections.moveRestated.bullet2')}</li>
             {/* Built from the row, never assumed: roughly one litho layer in three carries a
                 geological parent, so a fixed sentence would be wrong most of the time. */}
             {movesGeology && (
               <li data-testid="move-restated-contact-geology">
-                the <span className="font-semibold">geological contact</span> this unit is
-                derived from — all three in one write, so they cannot disagree afterwards
+                {t('sections.moveRestated.bullet3')}
               </li>
             )}
           </ul>
-          <p className="mt-2 text-text-secondary">
-            One step on the undo stack. Ctrl+Z puts all of it back.
-          </p>
+          <p className="mt-2 text-text-secondary">{t('sections.moveRestated.undoNote')}</p>
         </>
       }
       confirm={{
-        label: 'Move it',
+        label: t('sections.moveRestated.moveIt'),
         onClick: onConfirm,
         variant: 'primary',
         testid: 'move-restated-contact-confirm',
