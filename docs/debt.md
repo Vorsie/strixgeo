@@ -1686,8 +1686,14 @@ merged).** REAL: deliverable 1's skippable tour — a welcome → choose
 launch (gated on a persisted "seen" flag AND `!launchFlags.e2e` so the
 z-max modal never covers the e2e suite), re-openable from Help → Getting
 started…, full EN+NL. e2e-pinned by `flow_onboarding_first_launch.spec.ts`.
-MOCKED: the "Load sample project" DATA — the button is wired but no sample
-`.strix` is bundled yet (it toasts and starts empty). NOT built:
+Load sample project: the MECHANISM shipped 2026-09-02 (ruling A8) —
+`resolveSampleProjectPath` + the `sample:available` / `sample:install`
+main-process IPC copy a bundled `.strix` (shipped as an installer
+`extraResources` at `resources/sample`) to a user-owned location and open it,
+falling back to a toast + empty project when none is bundled. PENDING THE
+OWNER: the worked-example `.strix` DATA itself — he builds it later and drops it
+at `desktop/resources/sample/worked-example.strix` (tracking that file in git is
+his call). NOT built:
 deliverable 2 (per-stage "next step" hinting) and the coach-mark
 walkthrough of deliverable 1. Design note:
 [design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
