@@ -219,24 +219,6 @@ export const sectionClient = {
   exportDxf: (projectId: string, sectionId: string, modelId: string): Promise<ArrayBuffer> =>
     getBytes(`/projects/${projectId}/sections/${sectionId}/export/dxf?model_id=${modelId}`),
 
-  // Debt #52 slice 1: section PDF report. Same byte-pipe contract
-  // as exportDxf. The user-editable metadata (title, author, notes)
-  // is forwarded as query params; the backend builds sensible
-  // defaults when omitted.
-  exportPdf: (
-    projectId: string,
-    sectionId: string,
-    modelId: string,
-    metadata: { title?: string; author?: string; notes?: string },
-  ): Promise<ArrayBuffer> => {
-    const params = new URLSearchParams()
-    params.set('model_id', modelId)
-    if (metadata.title) params.set('title', metadata.title)
-    if (metadata.author) params.set('author', metadata.author)
-    if (metadata.notes) params.set('notes', metadata.notes)
-    return getBytes(`/projects/${projectId}/sections/${sectionId}/export/pdf?${params.toString()}`)
-  },
-
   // Download the section's Plaxis 2D plxscripting script as raw
   // bytes (debt #29). Same byte-pipe contract as exportDxf.
   exportPlaxis2d: (projectId: string, sectionId: string, modelId: string): Promise<ArrayBuffer> =>
