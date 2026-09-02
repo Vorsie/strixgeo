@@ -10,6 +10,7 @@
 import { Suspense, lazy } from 'react'
 
 import { LoadingState } from '../../EmptyState'
+import { useT } from '../../../i18n/translate'
 import type { ParameterUnitScope } from '../../ShellContext'
 
 const UnitFenceScene = lazy(() => import('./UnitFenceScene'))
@@ -33,20 +34,18 @@ interface Props {
  *     A titled panel whose body is the scene (or its loading fallback).
  */
 export default function UnitFenceCutout({ scope }: Props): JSX.Element {
+  const t = useT()
   return (
     <div className="border-t border-border-subtle" data-testid="unit-fence-cutout">
       <div className="px-3 py-2">
-        <div className="text-xs font-semibold text-text-primary">Where this unit sits</div>
-        <div className="text-[10px] text-text-muted">
-          The fence diagram cut down to the selected unit&apos;s walls over the
-          basemap — a visual anchor, not an editor.
-        </div>
+        <div className="text-xs font-semibold text-text-primary">{t('params.whereUnitSits')}</div>
+        <div className="text-[10px] text-text-muted">{t('params.fenceCutoutBlurb')}</div>
       </div>
       <div className="px-3 pb-3">
         <Suspense
           fallback={
             <div className="h-40">
-              <LoadingState label="Loading the 3D view…" />
+              <LoadingState label={t('params.loading3dView')} />
             </div>
           }
         >
