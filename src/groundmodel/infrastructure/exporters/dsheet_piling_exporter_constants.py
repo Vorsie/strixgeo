@@ -5,6 +5,23 @@ file, so they are written as sentences rather than as tokens: the
 ``[RUN IDENTIFICATION]`` block is the only place a ``.shi`` lets us
 speak, and it is where the export says what it supplied and what the
 engineer still has to.
+
+Absent-parameter representation (audit 2026-09-02)
+--------------------------------------------------
+When a unit's NAD class is NOT in ``NAD_SOIL_PARAMETERS`` (the shipped
+state — the table is empty until the owner fills it), the exporter adds
+the soil with name + code only. Unlike D-Stability, a name+code-only
+D-Sheet soil is NOT all-zero: GEOLib forces its own initial values,
+which are ``SoilGamDry = SoilGamWet = 0.01`` kN/m³ and
+``SoilCohesion = SoilPhi = 0`` (the four fields the export would fill),
+plus a set of non-zero structural defaults nobody chose —
+``SoilOCR = 1.0``, ``SoilEModMenard = 0.01``, the subgrade-reaction
+``SoilKb*/SoilKo* ≈ 1e4``, ``SoilPermeabKx = 1e-4``,
+``SoilLn = SoilLp = 0.01``. Those are D-Sheet's own placeholders; the
+export never writes them, and the ``[RUN IDENTIFICATION]`` block says
+the parameters are at defaults. When the table carries the class the
+export fills only the four Mohr-Coulomb / weight fields and names the
+source table on line 3.
 """
 
 from __future__ import annotations
@@ -81,9 +98,22 @@ RUN_LINE_MISSING_INPUTS = (
     "anchor or strut."
 )
 
-# Line 3 — the liability line, in the file.
+# Line 3 — the liability line, in the file. Used when NO exported unit carries
+# NAD-table parameters (the shipped state, until the owner fills the table).
 RUN_LINE_PARAMETERS = (
     "TODO - soil parameters are at D-Sheet Piling defaults. Exported units carry "
     "Strix CHARACTERISATION only (NAD packing class + soil code); design-ready "
     "values are the engineer's to enter."
+)
+
+# Line 3, alternate — used when at least one exported unit DID carry parameters
+# from the NAD table. D-Sheet's [SOIL] block has no per-soil free-text field, so
+# this is where the provenance for those parameters is stated. ``source_label``
+# is filled with the ASCII-folded ``SOURCE_LABEL`` so the .shi stays portable.
+# Units whose class is not in the table still carry D-Sheet's own defaults, so
+# the line says both halves.
+RUN_LINE_PARAMETERS_FROM_TABLE = (
+    "Soil parameters (gamma / phi / c): {source_label}. Strix CPT-derived "
+    "characterisation - the engineer must verify each value; any unit without a "
+    "table entry stays at D-Sheet Piling defaults."
 )
