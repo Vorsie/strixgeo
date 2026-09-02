@@ -49,21 +49,25 @@ export default function DataToolbar(): JSX.Element {
 
   // The verbs carry a message KEY, not a rendered string: the labels are read
   // in one place below so a language flip re-renders every row together.
+  // `testid` anchors each verb for the guided tutorial (Chapter 2 spotlights the
+  // verbs one at a time) and for e2e; PortalMenu renders it as a data-testid.
   const importActions: ImportAction[] = [
-    { key: 'data.toolbar.importCptGef', available: true, onClick: handleImportCpt },
-    { key: 'data.toolbar.importCptDov', available: true, onClick: handleImportDov },
+    { key: 'data.toolbar.importCptGef', testid: 'import-verb-cpt-gef', available: true, onClick: handleImportCpt },
+    { key: 'data.toolbar.importCptDov', testid: 'import-verb-cpt-dov', available: true, onClick: handleImportDov },
     {
       key: 'data.toolbar.importBoreholeDov',
+      testid: 'import-verb-borehole-dov',
       available: true,
       onClick: handleImportBoreholeDov,
     },
-    { key: 'data.toolbar.importDmt', available: false },
-    { key: 'data.toolbar.importLabTest', available: false },
-    { key: 'data.toolbar.importMonitoring', available: false },
+    { key: 'data.toolbar.importDmt', testid: 'import-verb-dmt', available: false },
+    { key: 'data.toolbar.importLabTest', testid: 'import-verb-lab', available: false },
+    { key: 'data.toolbar.importMonitoring', testid: 'import-verb-monitoring', available: false },
   ]
 
   const items: ToolbarDropdownItem[] = importActions.map(action => ({
     label: t(action.key),
+    testid: action.testid,
     onClick: action.onClick ?? (() => undefined),
     disabled: !action.available || isImporting,
     tag: !action.available ? t('data.toolbar.phaseTag') : undefined,
@@ -71,6 +75,7 @@ export default function DataToolbar(): JSX.Element {
 
   return (
     <DropdownMenu
+      testid="import-menu-button"
       label={drawingBbox ? t('data.toolbar.drawingBbox') : t('data.toolbar.import')}
       icon={
         isImporting ? (
@@ -94,6 +99,8 @@ interface ImportAction {
   /** Message key for the row label — resolved at render, not at declaration,
    *  so the whole menu follows a language flip in one re-render. */
   key: MessageKey
+  /** Stable `data-testid` for the menu row (tutorial + e2e anchor). */
+  testid: string
   available: boolean
   onClick?: () => void
 }
@@ -111,6 +118,8 @@ interface DropdownMenuProps {
   label: string
   icon?: React.ReactNode
   highlight?: boolean
+  /** Stable `data-testid` for the trigger button (the import "knob"). */
+  testid?: string
   items: readonly ToolbarDropdownItem[]
   /** Passed down rather than re-derived: the accessible name of the menu is
    *  built from the already-translated trigger label, so both must come from
@@ -118,7 +127,7 @@ interface DropdownMenuProps {
   t: Translator
 }
 
-function DropdownMenu({ label, icon, highlight, items, t }: DropdownMenuProps): JSX.Element {
+function DropdownMenu({ label, icon, highlight, testid, items, t }: DropdownMenuProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement>(null)
   const { open, anchorRect, toggle, close } = usePortalMenu(btnRef)
 
@@ -126,6 +135,7 @@ function DropdownMenu({ label, icon, highlight, items, t }: DropdownMenuProps): 
     <div className="relative">
       <button
         ref={btnRef}
+        data-testid={testid}
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={open}
