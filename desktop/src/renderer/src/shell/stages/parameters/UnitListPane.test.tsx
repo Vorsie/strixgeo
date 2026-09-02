@@ -30,9 +30,15 @@ import UnitListPane from './UnitListPane'
 
 const setSelectedParameterUnit = vi.fn()
 const listLenses = vi.fn()
+const listBodyUnions = vi.fn()
 
 vi.mock('../../../api/client', () => ({
-  api: { geology: { listLenses: (...args: unknown[]) => listLenses(...args) } },
+  api: {
+    geology: {
+      listLenses: (...args: unknown[]) => listLenses(...args),
+      listBodyUnions: (...args: unknown[]) => listBodyUnions(...args),
+    },
+  },
 }))
 
 let mockLithoFormations: unknown[] = []
@@ -303,5 +309,48 @@ describe('UnitListPane — the body tree (spec §1)', () => {
     mockLithoLayers = [...mockLithoLayers]
     view.rerender(<UnitListPane />)
     expect(screen.queryByTestId('parameters-node-label-geotech-class:silt:lb1:13')).toBeNull()
+  })
+})
+
+// The manual-group tag on the Parameters tree (debt #278 D1, owner ruling
+// 2026-09-02: a grouped body shows "(group N)" behind it in the right pane).
+describe('UnitListPane — manual-group tag', () => {
+  it('NP-G1 — a geotech body joined into a group shows "(group 1)" on its leaf', async () => {
+    seedScene()
+    mockActiveGeotechModel = { id: 'geo-1' }
+    // gbA + gbB are two same-class bodies under silt › lb1 › class 13; a Join
+    // makes them one group. Both leaves must carry "(group 1)".
+    listBodyUnions.mockResolvedValue([
+      {
+        id: 'u1',
+        model_id: 'geo-1',
+        layer_a_id: 'g1',
+        layer_b_id: 'g2',
+        anchor_a: { layer_id: 'g1', body_id: 'gbA', body_name: null, body_ordinal: 0, formation_id: 'silt-sf' },
+        anchor_b: { layer_id: 'g2', body_id: 'gbB', body_name: null, body_ordinal: 1, formation_id: 'silt-sf' },
+        created_at: '',
+      },
+    ])
+    render(<UnitListPane />)
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-unit:silt'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-body:silt:lb1'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-geotech-class:silt:lb1:13'))
+    // The tag appears once the async union fetch resolves and the tree rebuilds.
+    const tagA = await screen.findByTestId('parameters-node-group-geotech-body:silt-sf:gbA')
+    expect(tagA.textContent).toContain('(group 1)')
+    expect(
+      screen.getByTestId('parameters-node-group-geotech-body:silt-sf:gbB').textContent,
+    ).toContain('(group 1)')
+  })
+
+  it('NP-G2 — with no union, a geotech-body leaf carries no group tag', () => {
+    seedScene()
+    mockActiveGeotechModel = { id: 'geo-1' }
+    listBodyUnions.mockResolvedValue([])
+    render(<UnitListPane />)
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-unit:silt'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-body:silt:lb1'))
+    fireEvent.click(screen.getByTestId('parameters-node-expander-geotech-class:silt:lb1:13'))
+    expect(screen.queryByTestId('parameters-node-group-geotech-body:silt-sf:gbA')).toBeNull()
   })
 })
