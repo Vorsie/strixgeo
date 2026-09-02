@@ -35,6 +35,9 @@
 import ConfirmDialog from './ui/ConfirmDialog'
 import { formatRecoveryAge } from '../utils/recoveryAge'
 import type { RecoverySnapshotV1 } from '../utils/recoverySnapshot'
+// Module-level tMsg for the string-building helpers below (not components);
+// useT drives the component so it re-renders on a live language flip.
+import { t as tMsg, useT } from '../i18n/translate'
 
 interface Props {
   open: boolean
@@ -69,16 +72,21 @@ function describeImports(snapshot: RecoverySnapshotV1): string | null {
   const add = (ids: readonly string[], one: string, many: string): void => {
     if (ids.length > 0) parts.push(`${ids.length} ${ids.length === 1 ? one : many}`)
   }
-  add(imports.cpt, 'CPT', 'CPTs')
-  add(imports.borehole, 'borehole', 'boreholes')
-  add(imports.formation, 'formation', 'formations')
-  add(imports.section, 'section', 'sections')
-  add(imports.contact, 'geological contact', 'geological contacts')
+  add(imports.cpt, tMsg('common.cptWordOne'), tMsg('common.cptWordMany'))
+  add(imports.borehole, tMsg('common.boreholeWordOne'), tMsg('common.boreholeWordMany'))
+  add(imports.formation, tMsg('common.formationWordOne'), tMsg('common.formationWordMany'))
+  add(imports.section, tMsg('common.sectionWordOne'), tMsg('common.sectionWordMany'))
+  add(
+    imports.contact,
+    tMsg('common.geologicalContactWordOne'),
+    tMsg('common.geologicalContactWordMany'),
+  )
   if (parts.length === 0) return null
   const last = parts[parts.length - 1]
   const head = parts.slice(0, -1)
-  const listed = head.length === 0 ? last : `${head.join(', ')} and ${last}`
-  return `${listed} imported this session.`
+  const listed =
+    head.length === 0 ? last : `${head.join(', ')} ${tMsg('common.listAnd')} ${last}`
+  return tMsg('common.importedThisSession', { list: listed })
 }
 
 /**
@@ -98,7 +106,10 @@ function restoreBullets(snapshot: RecoverySnapshotV1): string[] {
   const columns = snapshot.ghosts.length
   if (columns > 0) {
     bullets.push(
-      `Litho suggestion triage on ${columns} ${columns === 1 ? 'column' : 'columns'}`,
+      tMsg('welcome.recoveryLithoTriage', {
+        count: columns,
+        columnWord: columns === 1 ? tMsg('common.columnWordOne') : tMsg('common.columnWordMany'),
+      }),
     )
   }
 
@@ -106,14 +117,18 @@ function restoreBullets(snapshot: RecoverySnapshotV1): string[] {
   if (imports !== null) bullets.push(imports)
 
   if (Object.keys(snapshot.metadataDraftPatch).length > 0) {
-    bullets.push('unsaved project-metadata edits')
+    bullets.push(tMsg('welcome.recoveryMetadataEdits'))
   }
 
   const lumping = snapshot.lumping.current
   if (lumping !== null) {
     const entries = Object.keys(lumping.map).length
     bullets.push(
-      `the stratigraphy lumping map (${entries} ${entries === 1 ? 'grouping' : 'groupings'})`,
+      tMsg('welcome.recoveryLumpingMap', {
+        count: entries,
+        groupingWord:
+          entries === 1 ? tMsg('common.groupingWordOne') : tMsg('common.groupingWordMany'),
+      }),
     )
   }
 
@@ -123,7 +138,7 @@ function restoreBullets(snapshot: RecoverySnapshotV1): string[] {
     // database to the file — destroying pre-crash work the crash never
     // touched. Kept in the list but no longer explained in the dialog — the
     // explanation made the copy longer than the decision (owner dogfeed).
-    bullets.push('the unsaved-changes marker')
+    bullets.push(tMsg('welcome.recoveryUnsavedMarker'))
   }
 
   return bullets
@@ -145,6 +160,7 @@ export default function RecoveryPromptDialog({
   onDiscard,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const bullets = restoreBullets(snapshot)
   const age = writtenAt === null ? null : formatRecoveryAge(writtenAt)
 
@@ -157,22 +173,17 @@ export default function RecoveryPromptDialog({
       // place, so a dismissal by reflex costs nothing.
       onCancel={onOpenWithoutRestoring}
       busy={busy}
-      cancelLabel="Not now"
+      cancelLabel={t('welcome.recoveryNotNow')}
       cancelTestid="recovery-open-without-restoring"
       cardClassName="w-[30rem]"
-      title={
-        <>
-          Restore unsaved work in <span className="font-bold">{projectName}</span>?
-        </>
-      }
+      title={t('welcome.recoveryTitle', { name: projectName })}
       body={
         <>
           <p>
-            StrixGeo closed unexpectedly{age === null ? '' : ` ${age}`}. A backup of
-            your unsaved work was kept
-            {bullets.length > 0 ? <> &mdash; {bullets.join(' · ')}.</> : '.'}{' '}
+            {t('welcome.recoveryIntro', { age: age === null ? '' : ` ${age}` })}
+            {bullets.length > 0 ? ` — ${bullets.join(' · ')}.` : '.'}{' '}
             <span className="font-semibold text-text-primary">
-              Your saved project is untouched.
+              {t('welcome.recoverySavedUntouched')}
             </span>
           </p>
           {/* One line per button, in button order. This legend IS the body —
@@ -180,31 +191,34 @@ export default function RecoveryPromptDialog({
               too long and it is unclear what happens". */}
           <ul className="mt-3 space-y-1.5">
             <li>
-              <span className="font-semibold text-text-primary">Restore</span> &mdash;
-              puts the unsaved work back. Nothing is saved to the file until you
-              click Save in the app.
+              <span className="font-semibold text-text-primary">
+                {t('welcome.recoveryRestore')}
+              </span>{' '}
+              {t('welcome.recoveryRestoreDesc')}
             </li>
             <li>
-              <span className="font-semibold text-text-primary">Not now</span> &mdash;
-              opens the project as last saved. The backup is offered again next
-              launch.
+              <span className="font-semibold text-text-primary">
+                {t('welcome.recoveryNotNow')}
+              </span>{' '}
+              {t('welcome.recoveryNotNowDesc')}
             </li>
             <li>
-              <span className="font-semibold text-text-primary">Delete backup</span>{' '}
-              &mdash; as if the session never happened: the project returns to its
-              last save and the unsaved work is permanently discarded.
+              <span className="font-semibold text-text-primary">
+                {t('welcome.recoveryDeleteBackup')}
+              </span>{' '}
+              {t('welcome.recoveryDeleteBackupDesc')}
             </li>
           </ul>
         </>
       }
       secondary={{
-        label: 'Delete backup',
+        label: t('welcome.recoveryDeleteBackup'),
         onClick: onDiscard,
         variant: 'danger',
         testid: 'recovery-discard',
       }}
       confirm={{
-        label: 'Restore',
+        label: t('welcome.recoveryRestore'),
         onClick: onRestore,
         variant: 'primary',
         testid: 'recovery-restore',
