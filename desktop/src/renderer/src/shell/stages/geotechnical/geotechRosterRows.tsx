@@ -126,13 +126,18 @@ export function GeotechPackingBodyRow({
         data-testid={`geotech-body-row-${body.bodyId}`}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate" title={body.label}>
-            {body.label}
+          {/* Label + group tag on one line: the label truncates, the tag is a
+              shrink-0 sibling so it never clips (ux-reviewer 2026-09-02). */}
+          <span className="flex items-baseline gap-1 min-w-0">
+            <span className="truncate" title={body.label}>
+              {body.label}
+            </span>
             {/* D4: the manual-group tag — "(group N)" — when the body was joined
-                into a multi-member group ("Join with…" verb). */}
+                into a multi-member group ("Join with…" verb). text-secondary for
+                WCAG AA contrast (was text-muted ~2.6:1, fails — ux-reviewer). */}
             {body.groupNumber !== null && (
               <span
-                className="ml-1 text-text-muted"
+                className="shrink-0 text-text-secondary"
                 data-testid={`geotech-body-group-${body.bodyId}`}
               >
                 {t('geotech.groupTag', { count: body.groupNumber })}
