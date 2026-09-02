@@ -194,6 +194,39 @@ export const MODELS_NL = {
   'geology.reassignToAnother': '"{name}" aan een andere formatie toewijzen',
   'geology.sameAs': '→ zelfde als',
   'geology.useCustomName': 'Gebruik "{name}"',
+  // Geologie-hook-toasts (useGeologicalModel / useGeologicalModelOps).
+  'geology.createModelFailed': 'Kon het geologisch model niet aanmaken — controleer de verbinding.',
+  'geology.scanStratigraphyFailed':
+    'Kon de boorstratigrafie niet scannen — controleer de verbinding.',
+  // FLAG alt: {n} laag (lagen) — English dodges the plural with "layer(s)"; Dutch
+  // "laag/lagen" mirrors it but reads awkwardly.
+  'geology.nothingCreated':
+    'Niets aangemaakt — {n} laag/lagen al ingevuld. Gebruik Ontdubbelen of Model verwijderen om te resetten en probeer opnieuw.',
+  'geology.removedNotInSelection': 'Verwijderd: {n} {unit} die niet in je selectie zaten: {names}.',
+  'geology.seededContacts': '{created} laaggrenzen gezaaid.',
+  'geology.seededContactsSkipped': '{created} laaggrenzen gezaaid. {skipped}',
+  'geology.seedSkippedFragmentOne': '{n} laag overgeslagen — formatie niet in je model.',
+  'geology.seedSkippedFragmentMany': '{n} lagen overgeslagen — formatie niet in je model.',
+  'geology.nothingSeeded':
+    'Niets gezaaid — {skipped} Voeg ze toe in de geologiestap om ze hier te plaatsen.',
+  'geology.alreadyInSyncNothingToAdd': 'Al gesynchroniseerd — niets toe te voegen.',
+  'geology.seedContactsFailed': 'Kon geen laaggrenzen zaaien vanuit de stratigrafie.',
+  'geology.dedupeAlreadyClean': 'Al opgeschoond — geen duplicaten gevonden.',
+  'geology.dedupeRemoved':
+    'Verwijderd: {d} dubbele {contactWord} over {g} (anker, formatie)-{pairWord}.',
+  'geology.pairWordOne': 'paar',
+  'geology.pairWordMany': 'paren',
+  'geology.cleanupFailed': 'Kon de opschoning niet uitvoeren — zie console.',
+  'geology.noFormationsToRebuild': 'Nog geen formaties met keuzes — niets om te herbouwen.',
+  'geology.cacheInSync': 'Cache al gesynchroniseerd ({n} {formationWord} gecontroleerd).',
+  'geology.rebuiltSurfaces': '{rebuilt} van {considered} {surfaceWord} herbouwd',
+  'geology.surfacesAlreadyCurrent': '{considered} {surfaceWord} al actueel',
+  'geology.reorderedByDepth': '; {n} {formationWord} herordend op diepte',
+  'geology.surfaceWordOne': 'oppervlak',
+  'geology.surfaceWordMany': 'oppervlakken',
+  'geology.rebuildSurfacesFailed': 'Kon de oppervlakken niet herbouwen — zie console.',
+  'geology.plaxisExported': 'Plaxis 3D-script geëxporteerd.',
+  'geology.plaxisExportFailed': 'Kon het Plaxis-script niet exporteren.',
 
   // -------------------------------------------------------------------------
   // lithostratigrafie
@@ -323,6 +356,93 @@ export const MODELS_NL = {
   'litho.markerWordMany': 'markeringen',
   'litho.bodiesForName': 'Lichamen voor {name}',
   'litho.colourForBody': 'Kleur voor {name} #{ordinal}',
+  // Litho-hook-toasts + LithoGeoSnapDialog + LithologyCanvas.
+  'litho.placeContactFailed': 'Kon de litho-formatielaaggrens niet plaatsen.',
+  'litho.createFormationFailed': 'Kon de litho-formatie niet aanmaken.',
+  'litho.noFormationsToRebuild':
+    'Nog geen litho-formaties met laaggrenzen — niets om te herbouwen.',
+  'litho.cacheInSync': 'Lithocache gesynchroniseerd ({n} {surfaceWord} gecontroleerd).',
+  'litho.surfaceWordOne': 'oppervlak',
+  'litho.surfaceWordMany': 'oppervlakken',
+  'litho.rebuiltSurfaces': '{rebuilt} van {considered} litho-{surfaceWord} herbouwd.',
+  'litho.rebuildSurfacesFailed': 'Kon de litho-oppervlakken niet herbouwen — zie console.',
+  'litho.modelAlreadyEmpty': 'Lithomodel is al leeg.',
+  'litho.clearedModel': 'Lithomodel gewist — {c} {contactWord}, {u} {unitWord} verwijderd.',
+  'litho.clearModelFailed': 'Kon het lithomodel niet wissen — zie console.',
+  'litho.createGeoModelFirst':
+    'Maak een geologisch model aan voor je een lithostratigrafisch model toevoegt.',
+  'litho.createModelFailed': 'Kon het lithostratigrafisch model niet aanmaken.',
+  'litho.activateModelFailed': 'Kon het lithostratigrafisch model niet activeren.',
+  'litho.deleteModelFailed': 'Kon het lithostratigrafisch model niet verwijderen.',
+  'litho.nothingToBuildYet': 'Nog niets om te bouwen — open eerst een dwarsprofiel op de litho-as.',
+  'litho.builtBodies': '{n} {bodyWord} gebouwd',
+  'litho.nothingCouldBeBuilt':
+    'Er kon niets gebouwd worden — {reason}. Het opgeslagen 3D-model is gewist.',
+  'litho.uncoveredInvestigations':
+    '{n} {investigationWord} buiten de modelvoetafdruk, ZONDER 3D-model: {named}{rest}',
+  'litho.investigationWordOne': 'onderzoek',
+  'litho.investigationWordMany': 'onderzoeken',
+  'litho.moreCount': ', +{n} meer',
+  'litho.underConstrainedBodies':
+    '{n} {bodyWord} onvoldoende bepaald (minder dan 3 sondeer-/boortrajecten — plaatbenadering)',
+  'litho.saveBodyColourFailed': 'Kon de lichaamskleur niet opslaan — probeer opnieuw.',
+  'litho.gridTooLargeDefault': 'Het gevraagde raster is te groot om te bouwen.',
+  'litho.storedModelUnchanged': 'Het opgeslagen 3D-model is niet gewijzigd.',
+  'litho.gridTooLargeRetry':
+    '{reason} Probeer opnieuw met een horizontale afstand van minstens {suggested} m. {untouched}',
+  'litho.gridTooLargeNoRetry': '{reason} {untouched}',
+  'litho.buildFailedGeneric': 'Kon de lichaamssolids niet bouwen — controleer de verbinding.',
+  'litho.autoCorrelateFull': 'Autocorrelatie: model al volledig gecorreleerd — geen nieuwe koppelingen.',
+  'litho.autoCorrelateCreated':
+    'Autocorrelatie: {created} {edgeWord} aangemaakt, {existing} koppeling(en) bestonden al.',
+  'litho.edgeWordOne': 'koppeling',
+  'litho.edgeWordMany': 'koppelingen',
+  // FLAG alt: uitwig-lenskandidaat | pinch-out-lenskandidaat — "pinch-out lens"
+  // (a lens that wedges out); owner jargon "wigging out" = pinches out laterally.
+  'litho.pinchOutLensOne':
+    '{n} uitwiggende lenskandidaat uit kruisingen — getoond als amberkleurige ruiten; de kruisende koppelingen zijn niet getekend.',
+  'litho.pinchOutLensMany':
+    '{n} uitwiggende lenskandidaten uit kruisingen — getoond als amberkleurige ruiten; de kruisende koppelingen zijn niet getekend.',
+  'litho.autoCorrelateFailed': 'Autocorrelatie mislukt — zie console.',
+  'litho.noSuggestionsToClear': 'Geen correlatievoorstellen om te wissen.',
+  'litho.clearedSuggestionsOne': '{n} correlatievoorstel gewist.',
+  'litho.clearedSuggestionsMany': '{n} correlatievoorstellen gewist.',
+  'litho.clearSuggestionsFailed': 'Kon de voorstellen niet wissen — zie console.',
+  // FLAG alt: spookvoorstellen — "ghost" is kept as a loanword elsewhere in the
+  // NL catalogue (ghost-kolom, litho-ghost-overlay), so "ghost-voorstellen" here.
+  'litho.noGhostToStrip': 'Geen ghost-voorstellen om te verwijderen.',
+  'litho.noScopedGhostToStrip': 'Geen {scope}-ghost-voorstellen om te verwijderen.',
+  'litho.scopeCpt': 'sondering',
+  'litho.scopeBorehole': 'boring',
+  'litho.strippedAdmixtures': 'Bijmengingen verwijderd uit {n} {layerWord}.',
+  'litho.layerWordOne': 'laag',
+  'litho.layerWordMany': 'lagen',
+  'litho.noAdmixturesToRestore': 'Geen overschreven boorbijmengingen om te herstellen.',
+  'litho.restoredAdmixtures': 'Segmenter-bijmengingen hersteld op {n} boor{layerWord}.',
+  'litho.fetchSuggestionsFailed': 'Kon geen lithostratigrafische voorstellen ophalen.',
+  'litho.acceptSuggestionFailed': 'Kon het lithovoorstel niet aanvaarden.',
+  'litho.acceptAllFailed': 'Kon niet alle lithovoorstellen aanvaarden.',
+  'litho.suggestedFailures': '{ok}/{total} voorgesteld — {failed} mislukt.',
+  'litho.acceptLayersFailed': 'Kon de litholagen niet aanvaarden.',
+  'litho.acceptedAnchorsInference': '{n} {anchorWord} aanvaard — inferentie bijgewerkt.',
+  'litho.acceptedAnchors': '{n} {anchorWord} aanvaard.',
+  'litho.anchorWordOne': 'anker',
+  'litho.anchorWordMany': 'ankers',
+  'litho.acceptedFailures': '{ok}/{total} aanvaard — {failed} mislukt.',
+  // FLAG alt: Geen hekdiagrampanelen — "fence panels" = walls of the fence diagram
+  // (elsewhere "Hekkendiagram" / "3D-profielwand").
+  'litho.fenceEmptyHint': 'Geen hekpanelen — aanvaard correlaties in de profielstap',
+  // FLAG alt: Koppelen aan geologische laaggrens? — "snap" = vastklikken.
+  'litho.snapTitle': 'Vastklikken aan geologische laaggrens?',
+  'litho.snapContactAt': 'De litholaaggrens op',
+  'litho.snapWithinMulti': 'ligt binnen de vastkliktolerantie van twee geologische laaggrenzen.',
+  'litho.snapWithinSingle': 'ligt binnen de vastkliktolerantie van een geologische laaggrens.',
+  'litho.snapPickContact': 'Kies een geologische laaggrens',
+  'litho.snapDistanceAway': '({distance} m verderop)',
+  'litho.snapGeoContactAt': 'Geologische laaggrens op',
+  'litho.snapCancelKeepSeparate': 'Annuleren — apart houden',
+  'litho.snapMoveGeoToLitho': 'Geologische naar litho verplaatsen',
+  'litho.snapLithoToGeo': 'Litho naar geologische vastklikken',
 
   // -------------------------------------------------------------------------
   // geotechniek
@@ -416,4 +536,79 @@ export const MODELS_NL = {
   'geotech.chooseColor': '{color} — klik om een kleur voor deze eenheid te kiezen',
   'geotech.colorForUnit': 'Kleur voor {label}',
   'geotech.sampleSource': 'Bron van monster:',
+  // Geotech-hook-toasts + shell-componenten. Build model / Building… /
+  // Build model · stale / Export fence / Reset camera hergebruiken de litho.*-sleutels.
+  'geotech.selectLithoModelFirst': 'Selecteer eerst een lithostratigrafisch model.',
+  // FLAG alt: verb name "Subdivide all bodies" — matches the toolbar verb (owned
+  // by the sections module); confirm the Dutch button label there.
+  'geotech.subdivideAllBodiesFailed': '"Alle lichamen onderverdelen" mislukt — zie console.',
+  'geotech.subdivideCptsFailed': '"Sonderingen onderverdelen" mislukt — zie console.',
+  'geotech.tieReviewOne':
+    '{n} aanvaarde pakkingskoppeling moet nagekeken worden — de band waarop ze getekend werd, is gewijzigd. Let op de !-tekens op de geotechnische profielen.',
+  'geotech.tieReviewMany':
+    '{n} aanvaarde pakkingskoppelingen moeten nagekeken worden — de band waarop ze getekend werden, is gewijzigd. Let op de !-tekens op de geotechnische profielen.',
+  'geotech.tieReviewBoreholeOne':
+    '{n} aanvaarde pakkingskoppeling moet nagekeken worden — de boorband waarop ze getekend werd, is gewijzigd. Let op de !-tekens op de geotechnische profielen.',
+  'geotech.tieReviewBoreholeMany':
+    '{n} aanvaarde pakkingskoppelingen moeten nagekeken worden — de boorband waarop ze getekend werden, is gewijzigd. Let op de !-tekens op de geotechnische profielen.',
+  // FLAG alt: verb name "1 · Subdivide CPTs" — matches the sections-toolbar verb.
+  'geotech.divideBoreholesNeedsCpts':
+    'Voer eerst "1 · Sonderingen onderverdelen" uit voor je boringen verdeelt.',
+  'geotech.noBoreholeSelected': 'Geen boring geselecteerd — niets om te verdelen.',
+  'geotech.divideBoreholesFailed': 'Boringen verdelen mislukt — zie console.',
+  'geotech.confidenceHigh': 'Hoog',
+  // FLAG alt: Gemiddeld — "Medium" confidence tier.
+  'geotech.confidenceMedium': 'Middel',
+  'geotech.confidenceLow': 'Laag',
+  'geotech.nadClassParen': '(NAD {nad})',
+  'geotech.noLithoModelHint':
+    'Maak een lithostratigrafisch model aan in de lithologiestap en aanvaard de lithovoorstellen; kom daarna hier terug om het 3D geotechnisch model te bouwen.',
+  // FLAG alt: Geen hekdiagrampanelen — "fence panels".
+  'geotech.fenceEmptyHint': 'Geen hekpanelen — verbind pakkingsbanden in de profielstap',
+  'geotech.subdividing': 'Onderverdelen…',
+  'geotech.buildNoBands':
+    'Nog geen geotechnische banden — gebruik eerst "Alle lichamen onderverdelen" in de profielstap (geotechnische as) en bouw daarna',
+  'geotech.buildSubdividingTitle': 'De onderzoeken zonder pakkingsbanden onderverdelen en daarna bouwen…',
+  'geotech.buildingSolidsTitle': 'Waterdichte NAD-lichaamssolids bouwen…',
+  'geotech.solidsStaleTitle':
+    'Een of meer geotechnische lichaamssolids zijn verouderd — klik om te herbouwen',
+  'geotech.buildSolidsTitle': 'Bouw de 3D NAD-lichaamssolids uit de geotechnische partitie',
+  'geotech.excludedTestsOne': '{count} onderzoek uitgesloten',
+  'geotech.excludedTestsMany': '{count} onderzoeken uitgesloten',
+  'geotech.excludedTitleOne':
+    'De laatste build negeerde {names} — het heeft geen pakkingsbanden, dus het model is dat van voor het geïmporteerd werd.',
+  'geotech.excludedTitleMany':
+    'De laatste build negeerde {names} — ze hebben geen pakkingsbanden, dus het model is dat van voor ze geïmporteerd werden.',
+  'geotech.excludedClickHint': 'Klik om de volgende te openen op een dwarsprofiel.',
+  'geotech.excludedAriaHint': 'Activeer om het volgende uitgesloten onderzoek te openen.',
+  'geotech.preflightTitleOne': 'Dit onderzoek heeft nog geen pakkingsbanden',
+  'geotech.preflightTitleMany': 'Deze {count} onderzoeken hebben nog geen pakkingsbanden',
+  'geotech.preflightBodyOne':
+    'Het maakt deel uit van het model waarop de build gekaderd is, dus de build zou er een gat rond tekenen zonder pakkingsgegevens om te vullen. Open het om het handmatig onder te verdelen, of kies een van de twee builds hieronder.',
+  'geotech.preflightBodyMany':
+    'Ze maken deel uit van het model waarop de build gekaderd is, dus de build zou er een gat rond tekenen zonder pakkingsgegevens om te vullen. Open ze elk om ze handmatig onder te verdelen, of kies een van de twee builds hieronder.',
+  'geotech.preflightVisitTitle': 'Open {name} op een dwarsprofiel dat het bevat',
+  'geotech.preflightDropWarning':
+    '— Bouwen zonder {name} verwijdert {sections} uit de build; die ruimte wordt vanuit de naburige profielen gevuld.',
+  'geotech.preflightBuildWithoutOne': 'Bouwen zonder het',
+  'geotech.preflightBuildWithoutMany': 'Bouwen zonder ze',
+  'geotech.preflightSubdivideOne': 'Het onderverdelen & bouwen',
+  'geotech.preflightSubdivideMany': 'Ze onderverdelen & bouwen',
+  'geotech.preflightGiveUpOne':
+    '{names} heeft nog geen pakkingsbanden, dus er is niets gebouwd — verdeel onder in de profielstap en bouw dan opnieuw.',
+  'geotech.preflightGiveUpMany':
+    '{names} hebben nog geen pakkingsbanden, dus er is niets gebouwd — verdeel onder in de profielstap en bouw dan opnieuw.',
+  'geotech.reportBroken': '{failed} van {total} modelgaranties geschonden{tail}',
+  'geotech.reportNotCheckedTail': ', {n} niet gecontroleerd',
+  'geotech.reportHeld': '{held} van {total} modelgaranties nageleefd, {n} niet gecontroleerd',
+  'geotech.reportClean': 'geen gaten — alle {total} modelgaranties nageleefd',
+  'geotech.reportVisitSpot': 'Open {name} op deze plek',
+  'geotech.reportSectionFallback': 'het profiel',
+  'geotech.reportShowMe': 'Toon me',
+  'geotech.reportNotChecked': 'Niet gecontroleerd — {reason}.',
+  'geotech.reportModelCheck': 'Modelcontrole',
+  'geotech.reportHideDetail': 'Details verbergen',
+  'geotech.reportShowDetail': 'Toon elke garantie en waar ze staat',
+  'geotech.reportLess': 'Minder',
+  'geotech.reportDetail': 'Details',
 } as const
