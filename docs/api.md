@@ -2,858 +2,260 @@
 
 Additive-only contract — see CLAUDE.md "Backwards Compatibility" for the deprecation cycle when fields must be removed or repurposed. The frontend always goes through the API — never directly to domain or DB.
 
-```
-POST   /cpt/import              Import a GEF file (multipart form; project_id form field)
-POST   /cpt/import-dov          Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id).
-                                Synchronous — waits for the full import to complete. For large
-                                bboxes use the streaming variant below.
-POST   /cpt/import-dov/stream   Async SSE variant. Returns ``202 Accepted``
-                                with ``{job_id}``. Connect to
-                                ``GET /cpt/import-dov/stream/{job_id}``
-                                to receive ``text/event-stream`` progress frames
-                                (``data: <json>\n\n``). Each frame carries
-                                phase, count, total, and status fields.
-                                Same import semantics as the synchronous
-                                endpoint but keeps the connection alive for
-                                the DOV download + parse phase.
-GET    /cpt/import-dov/stream/{job_id}
-                                Drain a CPT import job's SSE event queue.
-                                Closes when the job completes or errors.
-GET    /cpt/                    List CPTs (optional ?project_id=UUID filters by project)
-GET    /cpt/{id}                CPT metadata (location, elevation, cone props, summary).
-                                Requires ``?project_id=UUID`` — the CPT must
-                                belong to that project, else 404 (VULN-1
-                                cross-project id enumeration guard).
-GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt).
-                                Requires ``?project_id=UUID`` (VULN-4).
-GET    /cpt/{id}/sbt-profile    Per-depth soil-behaviour-type profile — BOTH
-                                classifiers. Returns ``depths_m``, ``ic`` +
-                                ``zone_normalised`` (full Robertson-2015
-                                pipeline, incl. the extended organic/peat
-                                boundary), ``i_sbt`` + ``zone_non_normalised``
-                                (Robertson 2010 closed form), and the
-                                PROVENANCE of the water table the normalised
-                                columns used: ``gwt_m`` +
-                                ``gwt_source ∈ {recorded, engineer, assumed}``.
-                                Derived on read — nothing is stored. The GWT is
-                                resolved by ``domain/services/gwt_resolution.py``,
-                                the SAME resolver the Ic chart and the litho
-                                segmenter use. Optional ``&gunsat_kNm3=`` /
-                                ``&gwater_kNm3=`` (defaults 16 / 9.81, bounds
-                                8–25 / 9–10.5 — the SAME domain constants
-                                ``LithoSuggestionRequest`` validates against):
-                                the client sends the engineer's Settings →
-                                Litho segmenter values so the strip and the
-                                ghost boundaries normalise under one
-                                effective-stress profile.
-                                Requires ``?project_id=UUID``.
-DELETE /cpt/{id}                Delete CPT and its series (cascade). NOTE: the
-                                desktop frontend no longer calls this — sidebar
-                                "remove from project" is project-local
-                                (localStorage), preserving the DB cache so a
-                                re-import doesn't refetch.
-                                Requires ``?project_id=UUID`` (VULN-3).
-PATCH  /cpt/{id}/elevation      Phase 3a manual surface-elevation editor.
-                                JSON body: ``{elevation_m: float | null,
-                                z_epsg?: int | null}``. ``elevation_m: null``
-                                clears a previously-entered value. When
-                                ``z_epsg`` is omitted, the canonical vertical
-                                datum for the row's horizontal CRS is used
-                                (31370 → 5710 mTAW for BE; 28992 → 5709 NAP
-                                for NL — see ``infrastructure/codelists/
-                                vertical_crs.py``). Returns the full
-                                ``CptResponse`` so the frontend can patch its
-                                detail cache without a second GET. 404 when
-                                the id is unknown or belongs to a different
-                                project. Requires ``?project_id=UUID``
-                                (VULN-2).
-PATCH  /cpt/{id}/water-table    Engineer-set depth to groundwater. JSON body:
-                                ``{water_depth_m: float | null}`` (metres below
-                                ground surface, positive down; 0–500).
-                                Stamps ``water_depth_source = 'engineer'``,
-                                which the refresh-on-reimport path will NOT
-                                overwrite — the whole Robertson normalisation
-                                hangs off this number, so engineer judgement
-                                outranks a re-parse. The FIRST override of a
-                                recorded depth SNAPSHOTS it
-                                (``original_water_depth_m/_source``, mirroring
-                                ``original_elevation_*``), so ``null`` restores
-                                the file's value; with no snapshot it clears
-                                back to "nothing recorded" → consumers fall
-                                back to the assumption and label it as
-                                assumed. Out-of-range depths 422. Returns
-                                the full ``CptResponse``. No cached geometry is
-                                staled: the water table moves only
-                                derived-on-read values.
-                                Requires ``?project_id=UUID``.
+One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 140 routes across 22 router modules. Conflict semantics that need more than one line follow the catalogue.
 
-POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + samples
-                                + grain-size + Atterberg + CaCO3 + organic-C + water-content
-                                + the ScalarLabTest catch-all from DOV bbox
-                                (Phase C1+C2+C3+C4+C5). Synchronous. Response
-                                carries per-test attached/failed counters; the
-                                catch-all reports under
-                                ``scalar_lab_tests_attached / _failed``.
-POST   /borehole/import-dov/stream
-                                Async SSE variant of ``/borehole/import-dov``.
-                                Returns ``202 Accepted`` with ``{job_id}``.
-                                Connect to
-                                ``GET /borehole/import-dov/stream/{job_id}``
-                                for ``text/event-stream`` progress frames.
-                                Same semantics + same counters in the final
-                                frame.
-GET    /borehole/import-dov/stream/{job_id}
-                                Drain a borehole import job's SSE event queue.
-                                Closes when the job completes or errors.
-GET    /borehole/{id}           Full borehole tree (header + drill segments + field log
-                                + observations with layers + admixtures + samples with
-                                grain-size + Atterberg + CaCO3 + organic + water-content
-                                + the ``scalar_lab_tests`` catch-all list). 404 when
-                                missing or belongs to a different project.
-                                Requires ``?project_id=UUID`` (VULN-6 cross-project
-                                id enumeration guard).
-                                Optional ``?include=`` query parameter scopes the
-                                per-sample lab-test families that get eager-loaded
-                                (debt #2): comma-separated aliases from
-                                {``grain_size``, ``atterberg``, ``caco3``,
-                                ``organic``, ``water_content``, ``scalar``}.
-                                Default (no ``?include=``) loads every family. Unrequested
-                                families come back as empty lists, so the JSON shape is
-                                unchanged — existing clients keep working.
-PATCH  /borehole/{id}/elevation Mirror of ``PATCH /cpt/{id}/elevation`` — same
-                                request body. Returns the lightweight
-                                ``BoreholeListItem`` shape so the frontend can
-                                refresh the sidebar badge without re-fetching
-                                the heavy detail tree. Requires ``?project_id=UUID``
-                                (VULN-7).
+All **Geology** routes are mounted under one parent prefix `/projects/{project_id}/geology` (the `geology` package aggregates 13 sub-routers, debt #40); the paths in that section are shown relative to that prefix. **Borehole** routes are mounted under `/borehole`.
 
-GET    /projects/               List active projects, most-recent first.
-                                Optional ``?include_archived=true`` returns
-                                both active and archived in one query.
-GET    /projects/archived       List only archived projects (the
-                                "Archived projects" view).
-POST   /projects/               Create a new project. Body matches
-                                ``ProjectCreateRequest`` — ``name`` is
-                                required; everything else (project_number,
-                                client, site_label, description, tags,
-                                default CRSes, phase, status) optional.
-                                Returns the full ``ProjectResponse``.
-GET    /projects/{id}           Project detail (returns archived rows too).
-PATCH  /projects/{id}           Partial update. Only fields present in the
-                                JSON body are written; null clears optional
-                                fields. ``name`` and ``status`` are NOT NULL
-                                in the DB — sending null for either returns
-                                400.
-POST   /projects/{id}/archive   Soft-delete (stamps ``archived_at``).
-                                Project + all its data preserved in the DB.
-POST   /projects/{id}/unarchive Restore (clears ``archived_at``).
-GET    /projects/{id}/bundle    Full project snapshot — metadata + every
-                                CPT (with series) + every borehole (with
-                                full child tree) + geological models with
-                                contacts/litho_layers + correlation edges
-                                + bodies + formation absences + boundary
-                                shapes. Embedded verbatim in .gmproj v4
-                                files on save. The frontend's
-                                ``PROJECT_FILE_FORMAT_VERSION`` is 3
-                                (outer file wrapper); the bundle payload
-                                inside is the v4 shape. Backend supports
-                                restore from v3 and v4 bundles.
-POST   /projects/{id}/restore   Idempotently materialise a project + its
-                                CPTs + boreholes + geology from a bundle
-                                when the DB has lost the rows (wiped
-                                local DB, fresh install). Body matches the
-                                bundle shape (v3 or v4); id is in the
-                                URL. Existing rows are returned / skipped
-                                (no mutation); missing rows are inserted
-                                with the supplied ids. After restore,
-                                runs ResolveLithoInstances +
-                                DetectLithoLenses per litho model to
-                                reconcile any stale lens rows from older
-                                bundles. Always 200.
+**Project-scope guard:** single-resource by-id endpoints (e.g. `GET /cpt/{cpt_id}`, `GET /borehole/{borehole_id}`, and their `PATCH` / `DELETE` siblings) require a `?project_id` query parameter and answer `404` when the id is not in that project — a cross-project id-enumeration guard (`scope_guard.load_scoped_or_raise`, #166). Every read and write goes through the SQLAlchemy ORM; there is no raw-SQL surface.
 
-POST   /projects/{pid}/geology/formations           Create a formation.
-GET    /projects/{pid}/geology/formations           List project formations
-                                                    (display order, then name).
-PATCH  /projects/{pid}/geology/formations/{fid}     Partial update.
-DELETE /projects/{pid}/geology/formations/{fid}     Cascade-removes every
-                                                    contact pointing at it.
-
-POST   /projects/{pid}/geology/models               Create a model.
-GET    /projects/{pid}/geology/models               List models (active first).
-PATCH  /projects/{pid}/geology/models/{mid}         Partial update.
-                                                    is_active NOT updatable
-                                                    here — use /activate.
-POST   /projects/{pid}/geology/models/{mid}/activate
-                                                    Mark active; clear flag on
-                                                    every sibling.
-DELETE /projects/{pid}/geology/models/{mid}         Cascade-removes contacts.
-
-POST   /projects/{pid}/geology/models/{mid}/contacts
-                                                    Add a formation top at an
-                                                    investigation. Exactly one
-                                                    of borehole_id / cpt_id
-                                                    must be set (XOR enforced
-                                                    at API + DB layers).
-GET    /projects/{pid}/geology/models/{mid}/contacts
-                                                    List contacts. Optional
-                                                    ?borehole_id and
-                                                    ?formation_id filters.
-                                                    Sorted shallowest-first.
-PATCH  /projects/{pid}/geology/models/{mid}/contacts/{cid}
-                                                    Update depth / formation /
-                                                    notes / anchor. Anchor
-                                                    (borehole_id + cpt_id) IS
-                                                    updatable — the section
-                                                    editor's drag-re-anchor
-                                                    flow uses it. BOTH anchor
-                                                    fields must be sent
-                                                    together when either
-                                                    changes (one of them
-                                                    null); partial anchor
-                                                    updates are 422 at the
-                                                    schema layer.
-DELETE /projects/{pid}/geology/models/{mid}/contacts/{cid}
-POST   /projects/{pid}/geology/models/{mid}/contacts/auto-populate
-                                                    Seed the model with
-                                                    contacts derived from
-                                                    each borehole's
-                                                    stratigraphy observation
-                                                    (FORMAL_STRATIGRAPHY
-                                                    preferred, falls through
-                                                    to INFORMAL_STRATIGRAPHY
-                                                    only when no formal
-                                                    exists). Body:
-                                                    {borehole_ids:[uuid,...]}
-                                                    (1..500). Auto-creates
-                                                    formations whose name
-                                                    matches the layer
-                                                    description (case-
-                                                    insensitive); skips
-                                                    surface layers
-                                                    (top_m == 0); skips
-                                                    layers already used
-                                                    (idempotent via
-                                                    observation_layer_id).
-                                                    Returns created counts
-                                                    + ids + skip breakdown
-                                                    (existing / unmatched /
-                                                    no-stratigraphy).
-PUT    /projects/{pid}/geology/models/{mid}/contacts/batch
-                                                    All-or-nothing batch
-                                                    update for N contacts.
-                                                    Body: {updates: [{
-                                                    contact_id, depth_top_m?,
-                                                    borehole_id?, cpt_id?,
-                                                    source?, confidence?,
-                                                    notes?}]}. Same XOR rule
-                                                    per entry as the single
-                                                    PATCH. Used by the
-                                                    section editor's multi-
-                                                    drag + cross-column re-
-                                                    anchor flows; one
-                                                    transaction commits the
-                                                    whole list. Min 1 / max
-                                                    500 entries (422). Any
-                                                    contact missing or out
-                                                    of model scope → 404
-                                                    with no mutations.
-
-GET    /projects/{pid}/geology/models/{mid}/boreholes/{bid}/validate
-                                                    No-gaps validator. Returns
-                                                    a list of GapIssue. Empty
-                                                    list = clean stratigraphy.
-                                                    Issue kinds:
-                                                    missing_surface_contact,
-                                                    duplicate_depth,
-                                                    contact_below_test,
-                                                    no_contacts. Each issue
-                                                    carries optional
-                                                    ``contact_ids`` /
-                                                    ``formation_ids`` arrays
-                                                    so the editor can
-                                                    highlight the offenders.
-
-GET    /projects/{pid}/geology/models/{mid}/validate/crossings
-                                                    Cross-formation validator.
-                                                    Walks every cached TIN
-                                                    pair (older, younger) and
-                                                    flags any (x, y) where
-                                                    the younger formation's
-                                                    surface dips below the
-                                                    older's — a violation of
-                                                    the stratigraphic-order
-                                                    superposition rule
-                                                    (lower display_order =
-                                                    older). Issue kind:
-                                                    ``formation_crossing``;
-                                                    ``formation_ids`` carries
-                                                    ``[older_id, younger_id]``
-                                                    and ``depth_m`` carries
-                                                    the worst Δ-elevation in
-                                                    metres. Empty list = all
-                                                    surfaces stack consistently.
-                                                    1 cm tolerance absorbs
-                                                    interpolation + survey
-                                                    noise.
-
-GET    /projects/{pid}/geology/models/{mid}/surfaces
-                                                    List the cached TIN
-                                                    formation surfaces for
-                                                    the model. One row per
-                                                    formation that has at
-                                                    least one anchor with a
-                                                    known elevation. On-click
-                                                    build: surfaces only land
-                                                    after the user clicks
-                                                    Build (POST /rebuild) —
-                                                    contact mutations flip
-                                                    ``is_stale=true`` instead
-                                                    of recomputing. Each row
-                                                    carries ``is_stale: bool``
-                                                    so the section consumer
-                                                    can render stale TINs at
-                                                    a demoted style. Vertices
-                                                    are [x, y, elevation] in
-                                                    the project's horizontal
-                                                    CRS; triangles are
-                                                    integer triplets indexing
-                                                    vertices. Empty list when
-                                                    nothing has been picked
-                                                    + built. Bundle round-
-                                                    trips the cache + the
-                                                    is_stale flag; restore
-                                                    force-stales any surface
-                                                    whose source_contact_count
-                                                    drifted from the live
-                                                    contacts.
-POST   /projects/{pid}/geology/models/{mid}/surfaces/rebuild?method=tin
-                                                    PRIMARY build path —
-                                                    materialise every
-                                                    formation's TIN from
-                                                    its current contacts.
-                                                    Empty body. The
-                                                    InterpretationPane's
-                                                    "Build model" button +
-                                                    File → Save's auto-fire
-                                                    both call this. Clears
-                                                    ``is_stale`` on every
-                                                    successful upsert; per-
-                                                    contact mutations no
-                                                    longer auto-recompute
-                                                    (on-click build pivot).
-                                                    Optional ``?method`` query
-                                                    param scaffolds for
-                                                    Phase 5+ kriging / RBF /
-                                                    GemPy; v1 enforces
-                                                    ``method=tin`` via
-                                                    pattern. Unknown method
-                                                    → 422. Idempotent — the
-                                                    checksum short-circuit
-                                                    skips the Delaunay run
-                                                    when no contacts changed
-                                                    since the last build but
-                                                    still clears a lingering
-                                                    is_stale flag (e.g. a
-                                                    PATCH that round-tripped
-                                                    to the same depth).
-                                                    Response:
-                                                    ``{formations_considered,
-                                                    formations_rebuilt}`` —
-                                                    the second is the subset
-                                                    whose cache write actually
-                                                    fired. On a clean model
-                                                    both are 0. 404 when the
-                                                    model isn't in this
-                                                    project.
-GET    /projects/{pid}/geology/models/{mid}/export/plaxis3d
-                                                    Export the geological
-                                                    model as a runnable
-                                                    Plaxis 3D plxscripting
-                                                    Python script (v1.0
-                                                    MVP gate; Plaxis target
-                                                    decided 2026-05-14).
-                                                    Emits one soilmat
-                                                    (Mohr-Coulomb placeholder)
-                                                    per formation, one
-                                                    global soillayer in
-                                                    stratigraphic order
-                                                    (display_order DESC =
-                                                    youngest first = Plaxis
-                                                    layer 0), one borehole
-                                                    per investigation with
-                                                    elevation, and a
-                                                    setsoillayerlevel call
-                                                    per (borehole, layer).
-                                                    Investigations without
-                                                    elevation_m are dropped
-                                                    upstream of the script
-                                                    with a logged warning.
-                                                    ``text/x-python`` body
-                                                    with a
-                                                    ``Content-Disposition``
-                                                    header naming the
-                                                    project. 404 when the
-                                                    model / project
-                                                    resolution fails.
-POST   /projects/{pid}/geology/models/{mid}/export/fence-dxf
-                                                    Export the 3-D fence
-                                                    diagram as a DXF (owner
-                                                    ballot 2026-08-26, v1.0
-                                                    MVP). The walls are
-                                                    triangulated in the
-                                                    RENDERER — the section
-                                                    partition engine has no
-                                                    server-side twin — so the
-                                                    geometry travels UP in the
-                                                    body, which is why this is
-                                                    a POST. Body:
-                                                    ``{panels: [{formation_id,
-                                                    body_id, name, color,
-                                                    vertices: [[x,y,z]],
-                                                    triangles: [[i,j,k]]}]}``
-                                                    — ``name``/``color`` are
-                                                    the RENDERED label and
-                                                    colour (NAD colours are a
-                                                    presentation-boundary
-                                                    recolour the DB never
-                                                    stores), so the DXF cannot
-                                                    disagree with the screen.
-                                                    Coordinates stay in the
-                                                    project CRS; the EPSG
-                                                    rides in the DXF header.
-                                                    One 3DFACE per triangle,
-                                                    one layer per panel name,
-                                                    interior edges hidden via
-                                                    the 3DFACE invisibility
-                                                    flags so CAD shows clean
-                                                    panel outlines. A triangle
-                                                    index out of range for its
-                                                    panel is 422 (a dropped
-                                                    face would ship a hole in
-                                                    a deliverable). Empty
-                                                    ``panels`` is valid and
-                                                    yields a well-formed empty
-                                                    DXF. ``application/dxf``.
-GET    /projects/{pid}/geology/models/{mid}/footprint
-                                                    The model's footprint
-                                                    boundary — the alpha hull
-                                                    the last 3-D build clipped
-                                                    the labelling to, so the
-                                                    ring the viewer draws is
-                                                    the build's OWN edge and
-                                                    not a client-side guess.
-                                                    Re-derived by replaying
-                                                    the persisted
-                                                    ``litho_build_generation``
-                                                    payload through the same
-                                                    ``build_domain_from_sections``
-                                                    the build ran; no
-                                                    migration, nothing stored.
-                                                    Response: ``{polygon:
-                                                    [[x_m, y_m]], generation_id,
-                                                    built_at,
-                                                    unavailable_reason}`` —
-                                                    the ring carries NO
-                                                    repeated last vertex.
-                                                    NEVER errors for "no ring
-                                                    yet": never built, fewer
-                                                    than 3 non-collinear
-                                                    columns, and an unreadable
-                                                    stored payload all answer
-                                                    200 with an empty polygon
-                                                    and a plain-English
-                                                    reason. 404 only when the
-                                                    model is not in the
-                                                    project.
-
-POST   /projects/{pid}/geology/models/{mid}/correlations
-                                                    Create a litho-correlation
-                                                    edge between two formations
-                                                    in the same model. Body:
-                                                    ``{formation_a_id,
-                                                    formation_b_id, source}``.
-                                                    Canonical ordering
-                                                    (formation_a_id <
-                                                    formation_b_id in UUID
-                                                    lex) enforced at write;
-                                                    duplicate edges return
-                                                    the existing edge's id
-                                                    (idempotent). 404 when
-                                                    either formation is not
-                                                    in the model. 422 when
-                                                    formation_a_id ==
-                                                    formation_b_id (self-loop).
-                                                    Shipped in Slice 1.
-GET    /projects/{pid}/geology/models/{mid}/correlations
-                                                    List all litho-correlation
-                                                    edges for the model,
-                                                    ordered by created_at.
-                                                    Each item: ``{id,
-                                                    formation_a_id,
-                                                    formation_b_id, source,
-                                                    created_at}``. Empty
-                                                    list when no edges exist.
-                                                    Project-scope-guarded —
-                                                    404 when model ∉ project.
-                                                    No section_id parameter
-                                                    (structural #57 guard).
-                                                    Shipped in Slice 3.
-DELETE /projects/{pid}/geology/models/{mid}/correlations/{cid}
-                                                    Remove one edge. 404 when
-                                                    edge missing or ∉ model.
-                                                    Shipped in Slice 1.
-POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
-                                                    Re-run the BFS instance-
-                                                    ordinal resolver for the
-                                                    model's litho formations.
-                                                    Idempotent — running twice
-                                                    on the same graph yields
-                                                    the same ordinals. Assigns
-                                                    a 1-based ordinal per
-                                                    connected component
-                                                    (body 1, body 2, …);
-                                                    locked formations
-                                                    (instance_ordinal_locked)
-                                                    keep their current ordinal
-                                                    unless they lose a conflict.
-                                                    Response:
-                                                    ``{updated: [{formation_id,
-                                                    new_ordinal}]}`` — only
-                                                    rows whose ordinal changed.
-                                                    Stale surface flags on the
-                                                    model are set when any
-                                                    ordinal changes (ordinal
-                                                    re-number = model changed).
-                                                    Project-scope-guarded — 404
-                                                    when model ∉ project. No
-                                                    section_id parameter
-                                                    (structural #57 guard).
-                                                    Shipped in Slice 3.
-
-GET    /projects/{pid}/geology/models/{mid}/layers
-                                                    List litho_layer rows for
-                                                    a lithostratigraphic model.
-                                                    Optional filters:
-                                                    ``borehole_id``,
-                                                    ``cpt_id``,
-                                                    ``formation_id``,
-                                                    ``status`` (pending /
-                                                    accepted / rejected).
-                                                    Sorted shallowest-first.
-POST   /projects/{pid}/geology/models/{mid}/layers
-                                                    Bulk-create litho_layer rows
-                                                    from a segmenter result (CPT
-                                                    Robertson-SBT or borehole
-                                                    ObservationLayer). Replaces
-                                                    existing pending layers for
-                                                    the same anchor.
-PATCH  /projects/{pid}/geology/models/{mid}/layers/{lid}
-                                                    Update a single layer
-                                                    (depth_top_m, depth_base_m,
-                                                    formation_id, status,
-                                                    admixtures).
-POST   /projects/{pid}/geology/models/{mid}/layers/{lid}/move-boundary
-                                                    Move a shared boundary
-                                                    between two adjacent layers
-                                                    atomically.
-PATCH  /projects/{pid}/geology/models/{mid}/layers/{lid}/status
-                                                    Accept or reject a single
-                                                    pending layer.
-POST   /projects/{pid}/geology/models/{mid}/layers/batch-update
-                                                    Batch status update (accept
-                                                    or reject) for N layers.
-DELETE /projects/{pid}/geology/models/{mid}/layers/{lid}
-                                                    Delete one layer row.
-PATCH  /projects/{pid}/geology/models/{mid}/layers/{lid}/geo-contact
-                                                    Couple / uncouple a litho
-                                                    layer to a geological
-                                                    formation contact
-                                                    (``parent_geo_contact_id``
-                                                    FK; snap + propagation).
-
-POST   /projects/{pid}/geology/models/{mid}/contacts/suggest-litho
-                                                    Run the Robertson-SBT CPT
-                                                    segmenter (or borehole
-                                                    ObservationLayer reader)
-                                                    for one anchor; returns
-                                                    ephemeral ghost-layer
-                                                    candidates.  Writes
-                                                    ``pending`` litho_layer
-                                                    rows as a side-effect.
-POST   /projects/{pid}/geology/models/{mid}/layers/accept-litho-suggestions
-                                                    Accept a set of ghost
-                                                    suggestion layers for one
-                                                    anchor.  Creates
-                                                    formation_contact rows
-                                                    (find-or-create per
-                                                    formation), runs straddle-
-                                                    split if a contact spans
-                                                    a geological boundary,
-                                                    seeds the section, runs
-                                                    inference. Returns
-                                                    AcceptLithoSuggestionsResponse.
-POST   /projects/{pid}/geology/models/{mid}/layers/batch-accept-litho-suggestions
-                                                    Batch variant — accepts
-                                                    all anchors in one
-                                                    transaction + single
-                                                    inference recompute.
-                                                    N+2 calls → 1 call / 3
-                                                    commits.
-DELETE /projects/{pid}/geology/models/{mid}/contacts/clear-litho
-                                                    Delete all litho_layer rows
-                                                    for the model and prune
-                                                    the section's
-                                                    seeded_formation_contact_ids
-                                                    GC sweep.
-POST   /projects/{pid}/geology/models/{mid}/contacts/seed-litho
-                                                    Seed litho_layer rows from
-                                                    the parent geological model's
-                                                    formation contacts (initial
-                                                    state for the litho axis).
-
-POST   /projects/{pid}/geology/models/{mid}/contact-correlations
-                                                    Create (or confirm) a
-                                                    contact-level correlation
-                                                    edge between two litho_layer
-                                                    rows. Returns 201 when new,
-                                                    200 when existing.
-DELETE /projects/{pid}/geology/models/{mid}/contact-correlations/{cid}
-                                                    Remove one edge.
-GET    /projects/{pid}/geology/models/{mid}/contact-correlations
-                                                    List all edges for the model.
-POST   /projects/{pid}/geology/models/{mid}/contact-correlations/auto-correlate
-                                                    Run the section-order
-                                                    auto-correlate algorithm:
-                                                    groups same-lithology
-                                                    contacts by adjacency +
-                                                    depth window along the
-                                                    section, creates edges.
-POST   /projects/{pid}/geology/models/{mid}/contact-correlations/accept
-                                                    Promote pending edges to
-                                                    approved.
-POST   /projects/{pid}/geology/models/{mid}/contact-correlations/uncorrelate
-                                                    Remove an edge by its two
-                                                    endpoint contact ids.
-
-POST   /projects/{pid}/geology/models/{mid}/lenses/detect
-                                                    Explicit "Detect bodies"
-                                                    verb — materialises BodyOrm
-                                                    rows for bilateral-closure
-                                                    topologies. Idempotent.
-
-POST   /projects/{pid}/sections             Create a cross-section (line
-                                            endpoints + projection buffer
-                                            + view prefs). 422 when the
-                                            endpoints coincide. 400 when
-                                            ``epsg`` is not a supported
-                                            projected metric CRS (debt
-                                            #31 — degrees would yield
-                                            garbage along-distance); the
-                                            DXF + Plaxis 2D exports apply
-                                            the same guard defensively.
-GET    /projects/{pid}/sections             List sections, display_order
-                                            then name.
-GET    /projects/{pid}/sections/{sid}       Fetch one.
-PATCH  /projects/{pid}/sections/{sid}       Partial update. Post-update
-                                            distinct-endpoints invariant
-                                            re-checked at the API layer.
-DELETE /projects/{pid}/sections/{sid}       Delete a section.
-GET    /projects/{pid}/sections/{sid}/export/dxf
-                                            Stream the section's drawn
-                                            geological model as a DXF file
-                                            (v1.0 MVP gate #5). Query param
-                                            ``model_id`` selects which
-                                            geological model's contacts to
-                                            include. Per-formation polylines
-                                            + per-investigation columns +
-                                            title block. ``application/dxf``
-                                            body with a
-                                            ``Content-Disposition`` header
-                                            naming the section. 404 when the
-                                            section / model / project
-                                            resolution fails.
-GET    /projects/{pid}/sections/{sid}/export/plaxis2d
-                                            Stream the section's drawn
-                                            geological model as a runnable
-                                            Plaxis 2D ``plxscripting`` Python
-                                            script (debt #29). Same
-                                            ``model_id`` query param + 404
-                                            contract as the DXF export. One
-                                            ``g_i.borehole(x)`` per projected
-                                            column at its along-section
-                                            distance; columns without surface
-                                            Z are dropped + counted.
-                                            ``text/x-python`` body with a
-                                            ``<section>_plaxis2d.py``
-                                            ``Content-Disposition``.
-GET    /projects/{pid}/sections/{sid}/export/pdf
-                                            Export a section as a PDF report
-                                            (``SectionPdfReportExporter``).
-                                            Same ``model_id`` query param.
-                                            ``application/pdf`` response with
-                                            a ``Content-Disposition`` header.
-                                            404 when section / model / project
-                                            resolution fails.
-POST   /projects/{pid}/sections/{sid}/export/dstability
-                                            Stream the section as a Deltares
-                                            D-Stability ``.stix`` (v1.0 gate,
-                                            ballot 2026-08-26). **POST, not
-                                            GET**: D-Stability's geometry IS
-                                            the section's closed polygons and
-                                            the fill is computed in the
-                                            renderer, so the body carries
-                                            ``{partition: <the same
-                                            SectionPartitionInput the voxel
-                                            build POSTs>}``. Required â€” a
-                                            backend-derived approximation
-                                            would disagree with the section on
-                                            screen. Same ``model_id`` query
-                                            param + 404 / 400-CRS contract as
-                                            the DXF export. One layer per
-                                            drawn region, one soil per unit
-                                            named by its export identifier
-                                            (``NAD-06_ZAND``); **no design
-                                            parameter and no phreatic line are
-                                            written**. 422 ``code =
-                                            "dstability_export_refused"`` when
-                                            the section has no closed geometry
-                                            â€” an empty ``.stix`` is a
-                                            plausible, correctly-named,
-                                            completely wrong deliverable.
-POST   /projects/{pid}/sections/{sid}/export/dsheetpiling
-                                            Stream a 1-D soil profile through
-                                            the section as a Deltares D-Sheet
-                                            Piling ``.shi``. Same body and
-                                            guards as the D-Stability export,
-                                            plus ``fraction`` (0.0 = section
-                                            start, 1.0 = end, default 0.5)
-                                            naming where along the line to
-                                            sample. Layers named by unit
-                                            identifier; the ground surface is
-                                            exported, and everything Strix
-                                            cannot derive (the wall, real
-                                            water levels, surcharges) is an
-                                            explicit TODO in the file's
-                                            ``[RUN IDENTIFICATION]`` block.
-                                            422 ``code =
-                                            "dsheetpiling_export_refused"``
-                                            when nothing is drawn there.
-
-GET    /dem/sample               Sample ``n_samples`` evenly-spaced DEM
-                                 elevations along a line. Query params:
-                                 ``start_x``, ``start_y``, ``end_x``,
-                                 ``end_y``, ``epsg``, ``n_samples``
-                                 (default 200, max 2000). Returns
-                                 ``{source, samples: [{along_m,
-                                 elevation_m}]}``. Source today:
-                                 ``"dhmvii"`` (EPSG:31370 / Flanders).
-                                 Any other EPSG → 400 "no DEM source
-                                 mapped". Used by the section canvas to
-                                 draw the ground-surface polyline.
-
-GET    /projects/{pid}/reviews              List every per-(project,
-                                            investigation) decision row
-                                            (review status / notes /
-                                            hidden flag). Empty when
-                                            nothing has been reviewed
-                                            yet — absence of a row =
-                                            the default unreviewed /
-                                            not-hidden state.
-GET    /projects/{pid}/reviews/{kind}/{tid} Look up the decision row
-                                            for one investigation.
-                                            ``kind`` ∈ {cpt, borehole}.
-                                            404 when no row exists.
-PUT    /projects/{pid}/reviews/{kind}/{tid} Upsert by target. Body keys
-                                            (all optional):
-                                            review_status,
-                                            review_notes, is_hidden.
-                                            reviewed_at is managed
-                                            server-side on transitions
-                                            into / out of 'reviewed'.
-                                            404 when the target row
-                                            isn't in this project.
-DELETE /projects/{pid}/reviews/{kind}/{tid} Drop the decision row.
-                                            Idempotent — no 404 when
-                                            already absent.
-
-PATCH  /projects/{pid}/view-state           Shallow-merge a patch dict
-                                            into ``project.view_state``
-                                            (project-level toggles:
-                                            DEM overlay, hidden-by-type
-                                            sets, …). ``null`` for a
-                                            key removes it. Returns
-                                            the full ProjectResponse.
-
-GET    /dov/virtuele-boring/lagenmodellen   List DOV's available
-                                            Virtuele Boring layered
-                                            models (12 today: g3dv3_F,
-                                            g3dv3_L, hcovv2_H/S/B,
-                                            OMAv1.1, …). Each entry:
-                                            ``{code, beschrijving,
-                                            resoluties}``. Live
-                                            passthrough — desktop
-                                            client caches per session.
-GET    /projects/{pid}/virtuele-boring/predictions?models=A,B
-                                            Per-investigation overlay
-                                            payload: for each CPT +
-                                            borehole in EPSG:31370,
-                                            fetches one ``doorprik``
-                                            call per requested model
-                                            (max 12). Returns
-                                            ``{models, predictions[],
-                                            skipped_count}``. Each
-                                            prediction carries
-                                            ``predictions_by_model``
-                                            keyed by the requested
-                                            model codes (missing key
-                                            = per-call failure for
-                                            that pair, surfaced in
-                                            server log). Informative-
-                                            only — no rows persisted.
-```
-
-**Bodies** — full catalogue. The per-side lateral-extent endpoints
-(`/bodies/detect`, `/bodies/suggest-pinch-outs`, bulk `DELETE /bodies`,
-`DELETE /bodies/{bid}/extents/{side}`) were **removed 2026-06-06** with the
-body-extent retirement — body shape is now derived client-side by the
-partition fill, not stored as extents (design doc:
-`docs/superpowers/specs/2026-06-06-body-extent-retirement-design.md`):
+**CPT — `cpt.py`**
 
 ```
-GET    /projects/{pid}/geology/models/{mid}/bodies
-                                List all body metadata rows (oldest-first).
-POST   /projects/{pid}/geology/models/{mid}/bodies/merge-enclosed-lenses
-                                Merge an enclosed-lens body into its
-                                surrounding matrix body (MergeEnclosedLensBodies).
-PATCH  /projects/{pid}/geology/models/{mid}/bodies/{bid}
-                                Update a body's human-readable name
-                                (NameBody use case).
-DELETE /projects/{pid}/geology/models/{mid}/bodies/{bid}
-                                Hard-delete the BodyOrm metadata row
-                                (Dissolve). Formation absence rows + member
-                                layers are preserved.
-GET    /projects/{pid}/geology/models/{mid}/bodies/{bid}/boundary
-                                Return the user-authored boundary shape
-                                (upper/lower control nodes + render_style).
-                                Returns straight defaults when no shape
-                                stored yet.
-PUT    /projects/{pid}/geology/models/{mid}/bodies/{bid}/boundary
-                                Full-replace the boundary shape + nodes.
-                                Serialised with an advisory lock to prevent
-                                concurrent drag-PUT races.
-POST   /projects/{pid}/geology/models/{mid}/bodies/{bid}/perpendicular-companion
-                                Auto-create a perpendicular companion
-                                cross-section centred on the body's
-                                formation-contact centroid. Idempotent —
-                                200 when companion already exists,
-                                201 when newly created.
-GET    /projects/{pid}/geology/formations/{fid}/absences
-                                List formation absence rows for one
-                                formation (absent investigations + confidence
-                                source: inferred / manual / observed).
-POST   /projects/{pid}/geology/formations/{fid}/absences
-                                Upsert a formation absence row (manual
-                                override).
+POST   /cpt/import — Import a CPT file and persist it, refreshing the row if it already exists.
+POST   /cpt/import-dov — Import CPTs from DOV within a WGS84 bounding box.
+POST   /cpt/import-dov/stream — Spawn a CPT DOV import as a background task and return its job-id.
+GET    /cpt/import-dov/stream/{job_id} — Drain the SSE event queue for a running CPT DOV import job.
+GET    /cpt/ — Return a lightweight summary list of CPTs.
+GET    /cpt/{cpt_id} — Return full CPT metadata for a single record.
+PATCH  /cpt/{cpt_id}/elevation — Update the manually-entered surface elevation for a CPT.
+PATCH  /cpt/{cpt_id}/water-table — Set (or clear) the engineer's depth to groundwater for a CPT.
+DELETE /cpt/{cpt_id} — Delete a CPT and its series data.
+GET    /cpt/{cpt_id}/plot — Return raw depth-series arrays for plotting qc, fs, and u2 vs depth.
+GET    /cpt/{cpt_id}/sbt-profile — Return both Robertson SBT classifications per depth point for one CPT.
+POST   /cpt/plot-batch — Batch the per-CPT plot endpoint into one round-trip.
+```
+
+**Borehole — `borehole.py` (mounted at `/borehole`)**
+
+```
+POST   /borehole/import-dov — Import boreholes from DOV within a WGS84 bounding box.
+POST   /borehole/import-dov/stream — Spawn a borehole DOV import as a background task and return its job-id.
+GET    /borehole/import-dov/stream/{job_id} — Drain the SSE event queue for a running borehole DOV import job.
+GET    /borehole/ — Return a lightweight summary list of boreholes.
+GET    /borehole/{borehole_id} — Retrieve full borehole detail (header + drill segments + field log + observations).
+POST   /borehole/detail-batch — Batch the per-borehole detail endpoint into one round-trip (debt #39).
+PATCH  /borehole/{borehole_id}/elevation — Update the manually-entered surface elevation for a borehole.
+```
+
+**Projects — `project.py`**
+
+```
+GET    /projects/ — List all projects, most-recent first.
+GET    /projects/archived — List only archived projects, ordered by archive date (most-recent first).
+POST   /projects/ — Create a new project.
+GET    /projects/{project_id} — Return a single project by id.
+PATCH  /projects/{project_id} — Apply a partial metadata update to a project.
+POST   /projects/{project_id}/archive — Soft-delete a project — hide from default listings, keep all data.
+POST   /projects/{project_id}/unarchive — Restore a previously-archived project to active status.
+GET    /projects/{project_id}/bundle — Return a complete snapshot of a project + every CPT and borehole.
+POST   /projects/{project_id}/restore — Idempotently materialise a project row + its CPTs + boreholes from a bundle.
+POST   /projects/{project_id}/duplicate — Deep-clone a project — investigations AND the whole interpretation.
+```
+
+**Cross-sections + section exports — `cross_section.py`**
+
+```
+POST   /projects/{project_id}/sections — Create a new cross-section under the given project.
+POST   /projects/{project_id}/sections/batch — Create several cross-sections in one transaction (Accept-all tie-sections).
+GET    /projects/{project_id}/sections — List every section for a project, ordered by display_order then name.
+GET    /projects/{project_id}/sections/{section_id} — Fetch a single section by id. 404 when missing or not in this project.
+PATCH  /projects/{project_id}/sections/{section_id} — Partial update — only fields present in the body are written.
+DELETE /projects/{project_id}/sections/{section_id} — Delete a section. Polylines drawn on it (when the editor lands)
+GET    /projects/{project_id}/sections/{section_id}/export/dxf — Export the section's drawn geological model to a DXF file.
+GET    /projects/{project_id}/sections/{section_id}/export/pdf — Export the section as a PDF project report (debt #52 slice 1).
+GET    /projects/{project_id}/sections/{section_id}/export/plaxis2d — Export the section's drawn geology as a runnable Plaxis 2D script.
+POST   /projects/{project_id}/sections/{section_id}/export/dstability — Export the section's drawn geometry as a D-Stability ``.stix``.
+POST   /projects/{project_id}/sections/{section_id}/export/dsheetpiling — Export a 1-D soil profile through the section as a D-Sheet Piling ``.shi``.
+```
+
+**DEM — `dem.py`**
+
+```
+GET    /dem/sample — Return ``n_samples`` evenly-spaced elevations along the requested line.
+```
+
+**Investigation reviews + view-state — `investigation_review.py`**
+
+```
+GET    /projects/{project_id}/reviews — Return every review row for a project, oldest first.
+GET    /projects/{project_id}/reviews/{target_kind}/{target_id} — Fetch the decision row for a specific investigation.
+PUT    /projects/{project_id}/reviews/{target_kind}/{target_id} — Create or update the decision row for an investigation.
+DELETE /projects/{project_id}/reviews/{target_kind}/{target_id} — Drop the decision row for an investigation.
+PATCH  /projects/{project_id}/view-state — Shallow-merge the patch dict into ``project.view_state``.
+```
+
+**Codelists — `codelists.py`**
+
+```
+GET    /codelists/g3dv3 — Return every G3Dv3 unit, in age order (youngest first).
+GET    /codelists/formal-stratigraphy — Return every DOV formal-stratigraphy unit (code + canonical Dutch name).
+```
+
+**Stratigraphy lumping — `stratigraphy_lumping.py`**
+
+```
+PUT    /projects/{project_id}/stratigraphy-lumping/staged — Write the lumping snapshot to the project's ``staged`` slot.
+POST   /projects/{project_id}/stratigraphy-lumping/promote — Copy ``staged`` onto ``saved`` — the File → Save half of the model.
+```
+
+**Virtuele Boring (DOV predictions) — `virtuele_boring.py`**
+
+```
+GET    /dov/virtuele-boring/lagenmodellen — Return the list of DOV lagenmodels the Virtuele Boring server exposes.
+GET    /projects/{project_id}/virtuele-boring/predictions — Return overlay predictions for every investigation in a project.
+```
+
+**Geology » Formations — `geology/formations.py`**
+
+```
+POST   /formations — Create a new formation under the given project.
+GET    /formations — List all formations defined for a project.
+GET    /formations/codelist — Kind-aware formation-name suggestion set (debt-campaign follow-on).
+PATCH  /formations/{formation_id} — Partial update on a formation. Only fields present in the body are written.
+DELETE /formations/{formation_id} — Delete a formation. Cascades to every contact that referenced it.
+```
+
+**Geology » Models — `geology/models.py`**
+
+```
+POST   /models — Create a model, enforcing the three-level parent invariant.
+GET    /models — List all geological models for a project, active first.
+PATCH  /models/{model_id} — Partial update on a model. ``is_active`` lives on its own activate endpoint.
+POST   /models/{model_id}/activate — Mark this model active; clear ``is_active`` on every sibling in the project.
+DELETE /models/{model_id} — Delete a model and all its dependent data.
+```
+
+**Geology » Contacts — `geology/contacts.py`**
+
+```
+POST   /models/{model_id}/contacts — Create a new formation contact under a model.
+GET    /models/{model_id}/contacts — List contacts in a model, optionally filtered by borehole / formation.
+PATCH  /models/{model_id}/contacts/{contact_id} — Partial update on a contact (depth, formation, anchor, confidence, notes).
+DELETE /models/{model_id}/contacts/{contact_id} — Delete a contact.
+PUT    /models/{model_id}/contacts/batch — All-or-nothing batch PATCH for N contacts.
+```
+
+**Geology » Litho ops (auto-populate / seed / suggest / accept) — `geology/litho_ops.py`**
+
+```
+POST   /models/{model_id}/contacts/auto-populate — Seed the model with contacts derived from borehole stratigraphy.
+POST   /models/{model_id}/contacts/discover-from-stratigraphy — Return candidate formation names from borehole stratigraphy — read-only.
+POST   /models/{model_id}/contacts/dedupe — One-shot cleanup for legacy duplicate (anchor, formation) contacts.
+DELETE /models/{model_id}/contacts — Clear ALL content from a lithostratigraphic model in one atomic call.
+POST   /models/{model_id}/layers/seed-from-parent — Copy the parent geological model's contacts into a lithostratigraphic model.
+POST   /models/{model_id}/contacts/suggest-litho — Suggest lithostratigraphic layer contacts for one CPT or borehole.
+POST   /models/{model_id}/layers/accept-litho-suggestions — Bulk-accept litho suggestions, committing formations + contacts.
+POST   /models/{model_id}/layers/batch-accept-litho-suggestions — Accept many anchors' litho suggestions in one transaction (#153 batch lever).
+```
+
+**Geology » Litho layers — `geology/litho_layers.py`**
+
+```
+GET    /models/{model_id}/layers — List ``litho_layer`` rows in a model, optionally filtered.
+POST   /models/{model_id}/layers — Insert N ``litho_layer`` rows in one transaction.
+PATCH  /models/{model_id}/layers/boundary-move — Atomic two-row depth update on the shared boundary.
+POST   /models/{model_id}/layers/batch-status — Set the same status on N rows in one transaction (accept-all / reject-all).
+PATCH  /models/{model_id}/layers/batch-update — All-or-nothing PATCH for N layer rows in one transaction.
+POST   /models/{model_id}/layers/{layer_id}/link-geo — Link a litho LAYER to the nearest geological contact (A4 cleanup).
+DELETE /models/{model_id}/layers/{layer_id} — Delete one ``litho_layer`` row + reconcile downstream state.
+PATCH  /models/{model_id}/layers/{layer_id} — Partial update on one layer row.
+```
+
+**Geology » Surfaces + validation — `geology/surfaces.py`**
+
+```
+POST   /models/{model_id}/surfaces/rebuild — Build the geological model — recompute every formation's TIN cache.
+GET    /models/{model_id}/surfaces — Return every cached TIN surface in this model.
+GET    /models/{model_id}/boreholes/{borehole_id}/validate — Check that a borehole's formation contacts form a clean stratigraphy.
+GET    /models/{model_id}/validate/crossings — Check that no two formation surfaces violate stratigraphic order.
+POST   /models/{model_id}/ground-surface/build — Sample the DEM over the model's investigation hull and return a TIN.
+```
+
+**Geology » Bodies + formation absences — `geology/bodies.py`**
+
+```
+GET    /models/{model_id}/bodies — List all body metadata rows for a lithostratigraphic model.
+POST   /models/{model_id}/bodies/merge-enclosed-lenses — Merge a lithology split only by a local lens into one body (Fill bands).
+POST   /models/{model_id}/bodies/recompute — Persist the geometric body merge and re-stamp ``litho_layer.body_id``.
+PATCH  /models/{model_id}/bodies/{body_id} — Update a body's human-readable name.
+DELETE /models/{model_id}/bodies/{body_id} — Hard-delete the ``BodyOrm`` metadata row for a body.
+GET    /models/{model_id}/bodies/{body_id}/boundary — Return the user-authored boundary shape for a body.
+PUT    /models/{model_id}/bodies/{body_id}/boundary — Full-replace the boundary shape + nodes for a body.
+DELETE /models/{model_id}/boundaries — Reset every user-authored body boundary shape for a model.
+POST   /models/{model_id}/bodies/{body_id}/perpendicular-companion — Auto-create a perpendicular companion cross-section for a body.
+GET    /formations/{formation_id}/absences — Return all absence records for a formation in this project.
+POST   /formations/{formation_id}/absences — Create or promote a formation absence row.
+```
+
+**Geology » Body separations (Separate / Rejoin) — `geology/body_separations.py`**
+
+```
+POST   /models/{model_id}/body-separations — Record that two bodies must never resolve into one, then re-resolve.
+GET    /models/{model_id}/body-separations — Return the model's separations, each with its two anchors' current bodies.
+DELETE /models/{model_id}/body-separations/{sep_id} — Delete one separation and re-run the resolver — the Rejoin.
+```
+
+**Geology » Body unions (Join / Disjoin) — `geology/body_unions.py`**
+
+```
+POST   /models/{model_id}/body-unions — Record that two bodies belong to one GROUP, then re-resolve.
+GET    /models/{model_id}/body-unions — Return the model's unions, each with its two anchors' current bodies.
+DELETE /models/{model_id}/body-unions/{union_id} — Delete one union and re-run the resolver — the Disjoin (ungroup).
+```
+
+**Geology » Contact correlations — `geology/contact_correlations.py`**
+
+```
+POST   /models/{model_id}/contact-correlations — Record that two formation contacts represent the same boundary across columns.
+DELETE /models/{model_id}/contact-correlations — Remove the contact-level correlation edge between two contacts.
+GET    /models/{model_id}/contact-correlations — Return contact-level correlation edges in the model.
+POST   /models/{model_id}/contact-correlations/auto — Run the contact-level auto-correlate algorithm for a model.
+DELETE /models/{model_id}/contact-correlations/auto — Remove unapproved (suggestion) contact-correlation edges for a model.
+POST   /models/{model_id}/contact-correlations/accept — Flip ``user_approved=True`` for in-scope unapproved edges.
+POST   /models/{model_id}/contact-correlations/{edge_id}/accept — Flip ``user_approved=True`` for one edge identified by ``edge_id``.
+POST   /models/{model_id}/contact-correlations/{edge_id}/confirm-review — Clear ``review_reason`` on one edge — the engineer says the tie is right.
+POST   /models/{model_id}/contact-correlations/confirm-review — Clear ``review_reason`` on every flagged edge of the model.
+POST   /models/{model_id}/body-companions/materialise — Auto-create companion sections for lenses whose primary section is fully correlated.
+PATCH  /models/{model_id}/contact-correlations/admixtures — Write ``litho_admixtures`` to every formation in the seed's connected component.
+```
+
+**Geology » Geotech subdivision — `geology/geotech.py`**
+
+```
+POST   /models/{model_id}/geotech/subdivide-all-bodies — Classify and materialise geotech NAD bodies for all litho bodies in the model.
+POST   /models/{model_id}/geotech/subdivide-cpts — Materialise the CPT packing bands WITHOUT proposing any tie.
+GET    /models/{model_id}/geotech/litho-staleness — Report the geotech columns standing on litho that has since been edited.
+GET    /models/{model_id}/geotech/tie-status — Report the geotech model's packing ties by approval state.
+POST   /models/{model_id}/geotech/divide-boreholes — Materialise geotech packing bands on the borehole columns.
+POST   /models/{model_id}/geotech/divide-boreholes/preview — Answer what packing each borehole would get, without writing anything.
+POST   /models/{model_id}/geotech/auto-correlate — Re-derive the automatic geotech packing ties as UNAPPROVED suggestions.
+POST   /models/{model_id}/geotech/bands/preview-split — Answer what a proposed split would do, without writing anything.
+POST   /models/{model_id}/geotech/bands/preview-merge — Answer what a proposed merge would do, without writing anything.
+POST   /models/{model_id}/geotech/bands/split — Commit a hand split. Only the edited column is rewritten.
+POST   /models/{model_id}/geotech/columns/clear — Delete one investigation's geotech bands (owner ask 2026-08-18).
+POST   /models/{model_id}/geotech/bands/set-class — Commit an engineer-chosen class on ONE borehole band. Geometry never moves.
+POST   /models/{model_id}/geotech/bands/merge — Commit a hand merge. Only the edited column is rewritten.
+POST   /models/{model_id}/geotech/statistic — Change which representative statistic the NAD classifier reads.
+POST   /models/{model_id}/geotech/bands/preview-move — Answer what dragging this boundary to this depth would do, without writing.
+POST   /models/{model_id}/geotech/bands/move — Commit the drag: an atomic two-row write, both classes re-derived.
+POST   /models/{model_id}/geotech/contact/move — Move a contact restated by a packing boundary, in every model that records it.
+```
+
+**Geology » Litho 3-D solids + footprint — `geology/litho_solids.py`**
+
+```
+GET    /models/{model_id}/litho-solids — Return every cached 3-D solid in this lithostratigraphic model.
+POST   /models/{model_id}/litho-solids/build-voxel — Build the 3-D litho-solid cache from the validated 2-D voxel partitions.
+GET    /models/{model_id}/litho-solids/build-report — Return the seven-clause gapless-gate report of the model's LATEST build.
+PATCH  /models/{model_id}/bodies/{body_id}/color — Update the per-body display colour override for the 3-D viewer.
+GET    /models/{model_id}/footprint — Return the model's footprint ring, re-derived from its last voxel build.
+```
+
+**Geology » Exports (Plaxis 3D + fence DXF) — `geology/exports.py`**
+
+```
+GET    /models/{model_id}/export/plaxis3d — Export the geological model as a runnable Plaxis 3D Python script.
+POST   /models/{model_id}/export/fence-dxf — Export the client-built 3-D fence diagram as a DXF file.
 ```
 
 Re-import semantics for `POST /cpt/import`: a file whose CPT is already in the
@@ -880,9 +282,15 @@ The legacy `409` whose body carries only `cpt_id` + `message` is reachable
 only when a caller opts out with `ImportCpt.persist(refresh_existing=False)`.
 
 DEM endpoints refuse an impossible extent locally: `GET /dem/sample` (and the
-ground-surface build) answers `422` naming the extent when the requested
-coordinates fall outside the project CRS's own domain, carry a non-finite
-bound, or span beyond the per-tile cap — no upstream request is made. A tile
-key that just failed upstream is suppressed for a few minutes and answers `502`
-(sample) / `503` (ground-surface) with the retry window, instead of re-hitting
-the WCS.
+ground-surface build `POST .../ground-surface/build`) answer `422` naming the
+extent when the requested coordinates fall outside the project CRS's own
+domain, carry a non-finite bound, or span beyond the per-tile cap — no upstream
+request is made. A tile key that just failed upstream is suppressed for a few
+minutes and answers `502` (sample) / `503` (ground-surface) with the retry
+window, instead of re-hitting the WCS.
+
+Body shape is **not** stored as lateral extents: the retired `/bodies/detect`,
+`/bodies/suggest-pinch-outs`, bulk `DELETE /bodies`, and the per-side extent
+endpoints were removed with the body-extent retirement — body shape is derived
+client-side by the partition fill and persisted only as the merged `BodyOrm`
+metadata + optional user-authored boundary shape above.
