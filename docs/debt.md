@@ -2723,7 +2723,7 @@ Partial / residual still open:
   scope of `InterpretationPane` removal cleanup is outside the three orientation docs
   this entry targeted.
 
-## 109. BaseExporter ABC split — RESOLVED 2026-06-01
+## 109. BaseExporter ABC split — RESOLVED 2026-06-01 (re-verified 2026-09-02)
 
 Replaced the single `BaseExporter` ABC with two shape-correct ABCs:
 `ProjectExporter(GroundModelLogger, ABC)` for project-wide exporters
@@ -2735,7 +2735,20 @@ suppressions are gone — the ABC parameter type matches each concrete class.
 (two-argument `export(snapshot, metadata)` is incompatible with the ABC).
 `base_exporter.py` deleted. 1133 unit tests green.
 
-## 110. Export-path duplication — RESOLVED 2026-06-01
+**Re-verified 2026-09-02** against the grown export surface: the split held.
+A **third** ABC — `SectionGeometryExporter` (`SectionPolygonSet` in) — was added
+for the D-Series family (`DStabilityExporter`, `DSheetPilingExporter`), and the
+former PDF exporter was deleted (the sheet is now client-rendered), so
+`SectionPdfReportExporter` is gone. `DxfFenceExporter` deliberately inherits
+`GroundModelLogger` directly: a fence panel is pre-triangulated client geometry,
+not a snapshot, and one exporter of that shape does not justify a fourth ABC
+(the "don't pre-abstract" counterweight). No `# type: ignore[override]` and no
+`base_exporter.py` remain. Three stale docstrings still naming the deleted
+`BaseExporter.export` (`build_section_snapshot.py`, `ground_model_snapshot.py`,
+`section_snapshot.py`) were repointed to the correct current ABC. The three
+ABCs are now catalogued in [exports.md](exports.md).
+
+## 110. Export-path duplication — RESOLVED 2026-06-01 (re-deduped 2026-09-02)
 
 Backend duplication fully addressed (frontend `App.tsx` handlers out of scope
 for this backend-only debt item):
@@ -2750,6 +2763,28 @@ for this backend-only debt item):
   `_build_export_snapshot()` and `_section_safe_name()` in `cross_section.py`.
   Each of the three section-export handlers (`/export/dxf`, `/export/pdf`,
   `/export/plaxis2d`) is now 2-3 lines of unique logic.
+
+**Re-deduped 2026-09-02.** Between June and September the export surface grew
+from 3 section GET routes in one router to **6 download routes across two**
+(`cross_section.py`: DXF, Plaxis 2D, D-Stability, D-Sheet; `geology/exports.py`:
+Plaxis 3D, fence DXF; the PDF route was deleted). The identical download tail —
+`filename = f"{safe_filename_stem(name, fb)}{suffix}"` + a `Response` with the
+same `Content-Disposition` attachment header — had re-appeared verbatim **6×**,
+and `ParseError→404` was duplicated across the two routers. Extracted to one
+application-layer DTO + two API-layer helpers:
+  - `application/export_artifact.py` — `ExportArtifact(content, filename,
+    media_type)` frozen DTO + `ExportArtifact.build(...)` classmethod (single
+    source of truth for the safe filename stem, moved here from
+    `api/routers/_helpers.py`). Framework-free — the application layer never
+    imports a response class.
+  - `api/routers/_helpers.export_response(artifact)` — the ONLY place the
+    `Content-Disposition` header is built; every route ends `return
+    export_response(ExportArtifact.build(...))`.
+  - `api/routers/_helpers.parse_error_as_404()` — a context manager wrapping
+    the snapshot-builder `await`, so both routers map the failure identically.
+  Route-specific differences (name source, fallback, suffix, media type) are
+  parameters. Artefacts byte-identical (exporters untouched); 2966 unit tests
+  green; the three edited router/application files clean under ruff + mypy.
 
 ## 111. useGeologicalModel duplication — litho-accept block + bypassed helper — RESOLVED 2026-06-01
 
