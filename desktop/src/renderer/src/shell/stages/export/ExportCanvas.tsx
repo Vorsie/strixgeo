@@ -20,6 +20,7 @@ import { useState } from 'react'
 import { Download, FileOutput, Cpu } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { useT } from '../../../i18n/translate'
 
 /**
  * Center canvas for the Export stage.
@@ -40,6 +41,7 @@ export default function ExportCanvas(): JSX.Element {
     geoModel: { activeGeologicalModel, handleExportModelPlaxis3d },
     coordinator: { handleExportSectionDxf, handleExportSectionPlaxis2d },
   } = useShell()
+  const t = useT()
 
   // One section picker drives every section-scoped export (DXF +
   // Plaxis 2D). Default to whatever the user last selected in the
@@ -86,35 +88,35 @@ export default function ExportCanvas(): JSX.Element {
       <div className="mx-auto max-w-2xl px-6 py-10">
         <div className="flex items-center gap-3 mb-1">
           <Download size={22} className="text-text-secondary" />
-          <h1 className="text-lg font-semibold text-text-primary">Export</h1>
+          <h1 className="text-lg font-semibold text-text-primary">{t('export.heading')}</h1>
         </div>
         <p className="text-sm text-text-secondary mb-6 leading-snug">
-          Hand the ground model off to a downstream design tool. Layer
-          geometry is the integration unit — per-layer parameters are set
-          in the destination tool.
+          {t('export.canvasBlurb')}
         </p>
 
         <div className="flex flex-col gap-3">
           {/* Section-scoped exports — one picker, DXF + Plaxis 2D. */}
           <ExportCard
             icon={<FileOutput size={18} />}
-            title="Cross-section"
-            description="Export one cross-section's layer geometry — DXF (universal CAD exchange) or a runnable Plaxis 2D plxscripting script with one borehole per projected column."
+            title={t('export.crossSection')}
+            description={t('export.sectionBlurb')}
           >
             {!hasModel ? (
               <Guidance>
-                No active geological model. Define formations and place
-                contacts in the <Stage>Geology</Stage> stage first.
+                {t('export.guidanceNoModelPre')}
+                <Stage>{t('export.geology')}</Stage>
+                {t('export.guidanceNoModelPost')}
               </Guidance>
             ) : !hasSections ? (
               <Guidance>
-                No cross-sections yet. Create one in the{' '}
-                <Stage>Sections</Stage> stage.
+                {t('export.guidanceNoSectionsPre')}
+                <Stage>{t('export.sections')}</Stage>
+                {t('export.guidanceNoSectionsPost')}
               </Guidance>
             ) : (
               <div className="flex items-center gap-2">
                 <label className="sr-only" htmlFor="export-section-select">
-                  Cross-section to export
+                  {t('export.crossSectionToExport')}
                 </label>
                 <select
                   id="export-section-select"
@@ -130,13 +132,13 @@ export default function ExportCanvas(): JSX.Element {
                   ))}
                 </select>
                 <ActionButton
-                  label={sectionBusy === 'dxf' ? 'Exporting…' : 'Export DXF'}
+                  label={sectionBusy === 'dxf' ? t('export.exporting') : t('export.exportDxf')}
                   onClick={() => void handleSectionExport('dxf')}
                   disabled={!section || sectionBusy !== null}
                 />
                 <ActionButton
                   label={
-                    sectionBusy === 'plaxis2d' ? 'Exporting…' : 'Export Plaxis 2D'
+                    sectionBusy === 'plaxis2d' ? t('export.exporting') : t('export.exportPlaxis2d')
                   }
                   onClick={() => void handleSectionExport('plaxis2d')}
                   disabled={!section || sectionBusy !== null}
@@ -148,18 +150,19 @@ export default function ExportCanvas(): JSX.Element {
           {/* Geological model → Plaxis 3D (model-wide, not section-scoped) */}
           <ExportCard
             icon={<Cpu size={18} />}
-            title="Geological model → Plaxis 3D"
-            description="Export the whole model as a runnable plxscripting Python script — one Mohr-Coulomb placeholder soil + one borehole per investigation."
+            title={t('export.geologyPlaxis3d')}
+            description={t('export.geologyBlurb')}
           >
             {!hasModel ? (
               <Guidance>
-                No active geological model. Define formations and place
-                contacts in the <Stage>Geology</Stage> stage first.
+                {t('export.guidanceNoModelPre')}
+                <Stage>{t('export.geology')}</Stage>
+                {t('export.guidanceNoModelPost')}
               </Guidance>
             ) : (
               <div className="flex justify-end">
                 <ActionButton
-                  label={exportingPlaxis3d ? 'Exporting…' : 'Export Plaxis 3D'}
+                  label={exportingPlaxis3d ? t('export.exporting') : t('export.exportPlaxis3d')}
                   onClick={() => void handlePlaxis3d()}
                   disabled={exportingPlaxis3d}
                 />
