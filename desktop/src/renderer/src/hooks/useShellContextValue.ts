@@ -131,7 +131,6 @@ export interface UseShellContextValueArgs {
   handleSelectBorehole: ShellContextValue['coordinator']['handleSelectBorehole']
   handleExportSectionDxf: ShellContextValue['coordinator']['handleExportSectionDxf']
   handleExportSectionPlaxis2d: ShellContextValue['coordinator']['handleExportSectionPlaxis2d']
-  handleExportSectionPdf: ShellContextValue['coordinator']['handleExportSectionPdf']
   outOfViewportCptIds: ShellContextValue['coordinator']['outOfViewportCptIds']
   outOfViewportBoreholeIds: ShellContextValue['coordinator']['outOfViewportBoreholeIds']
   projectFilePath: ShellContextValue['coordinator']['projectFilePath']
@@ -207,7 +206,7 @@ export function useShellContextValue(
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade, toasts,
     toast, undoStack, ready, apiError, mapState, selectedId,
     selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView, handleSelect,
-    handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
+    handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
@@ -369,7 +368,6 @@ export function useShellContextValue(
       handleSelectBorehole,
       handleExportSectionDxf,
       handleExportSectionPlaxis2d,
-      handleExportSectionPdf,
       outOfViewportCptIds,
       outOfViewportBoreholeIds,
       projectFilePath,
