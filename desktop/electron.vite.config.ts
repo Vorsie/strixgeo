@@ -13,6 +13,16 @@ import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 
 export default defineConfig({
+  // main + preload: the defaults electron-vite applied when NO config was loaded.
+  // Spelled out because a config file with only a ``renderer`` section made
+  // electron-vite skip the other two builds, leaving stale out/main + out/preload
+  // (found 2026-09-02: a preload bridge missing at runtime after a clean build).
+  main: {
+    build: { rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } } },
+  },
+  preload: {
+    build: { rollupOptions: { input: { index: resolve(__dirname, 'src/preload/index.ts') } } },
+  },
   renderer: {
     build: {
       rollupOptions: {
