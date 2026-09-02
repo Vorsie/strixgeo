@@ -30,6 +30,7 @@ import type {
 import type { ContactCopyPayload } from '../components/sections/ContactsLayer'
 import type { UndoCommand } from './useUndoStack'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 
 /** Project a {@link FormationContactBatchUpdateEntry} onto the layer
  * batch-update shape. Used by handleBatchUpdateContacts (A4 slice 4b)
@@ -519,7 +520,7 @@ export function useContactCrud({
         })
       } catch (err) {
         log.error('geology', 'updateContact failed', err)
-        toast('error', 'Could not update the contact depth.')
+        toast('error', t('sections.toast.contactDepthUpdateFailed'))
       }
     },
     [
@@ -634,12 +635,12 @@ export function useContactCrud({
             await handleUpdateContactDepth(existingId, depth_m, snapped)
           } catch (moveErr) {
             log.error('geology', 'duplicate-contact move failed', moveErr)
-            toast('error', 'Could not move the existing contact to the new depth.')
+            toast('error', t('sections.toast.contactMoveFailed'))
           }
           return
         }
         log.error('geology', 'createContact failed', err)
-        toast('error', 'Could not place the formation contact.')
+        toast('error', t('sections.toast.contactPlaceFailed'))
       }
     },
     [project, activeGeologicalModel, addToSessionImports, pushUndo, handleUpdateContactDepth],
@@ -794,17 +795,11 @@ export function useContactCrud({
           `moved-existing=${patched.length} failed=${failed}`,
       )
       if (total === 0) {
-        toast(
-          'error',
-          'Could not copy any contacts to the target — see console for details.',
-        )
+        toast('error', t('sections.contacts.copyFailed'))
         return
       }
       if (failed > 0) {
-        toast(
-          'error',
-          `Copied ${total} contact(s); ${failed} failed — some may be missing.`,
-        )
+        toast('error', t('sections.toast.copiedSomeFailed', { total, failed }))
       }
 
       // Undo: revert BOTH lanes — DELETE everything we created, PATCH
@@ -1019,7 +1014,7 @@ export function useContactCrud({
         })
       } catch (err) {
         log.error('geology', 'batchUpdateContacts failed', err)
-        toast('error', 'Could not update the selected contacts.')
+        toast('error', t('sections.toast.contactsUpdateFailed'))
       }
     },
     [project, contacts, lithoContacts, pushUndo, markMutated],
@@ -1145,7 +1140,7 @@ export function useContactCrud({
         })
       } catch (err) {
         log.error('geology', `deleteContact failed id=${contactId}`, err)
-        toast('error', 'Could not delete the contact.')
+        toast('error', t('sections.toast.contactDeleteFailed'))
       }
     },
     [
@@ -1187,7 +1182,7 @@ export function useContactCrud({
         log.success('geology', `unlinkLithoFromGeo ok id=${contactId}`)
       } catch (err) {
         log.error('geology', `unlinkLithoFromGeo failed id=${contactId}`, err)
-        toast('error', 'Could not unlink the contact from geology.')
+        toast('error', t('sections.toast.unlinkFailed'))
       }
     },
     [project, contacts, lithoContacts, refetchLithoContacts, markMutated],
@@ -1213,7 +1208,7 @@ export function useContactCrud({
         const result = await api.geology.linkLayerToGeo(project.id, modelId, contactId)
         if (result == null) {
           // No geological contact within tolerance — inform the user.
-          toast('warning', 'No geological contact within snap tolerance to link.')
+          toast('warning', t('sections.toast.noGeoInTolerance'))
           log.warn('geology', `linkLithoToGeo no geo contact in range id=${contactId}`)
           return
         }
@@ -1226,7 +1221,7 @@ export function useContactCrud({
         log.success('geology', `linkLithoToGeo ok id=${contactId}`)
       } catch (err) {
         log.error('geology', `linkLithoToGeo failed id=${contactId}`, err)
-        toast('error', 'Could not link the contact to geology.')
+        toast('error', t('sections.toast.linkFailed'))
       }
     },
     [project, contacts, lithoContacts, refetchLithoContacts, markMutated],
