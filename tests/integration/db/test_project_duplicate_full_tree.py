@@ -263,8 +263,9 @@ async def _make_project_with_every_collection(db_session: AsyncSession) -> Proje
     # bulk-inserts them, and the ``a<b`` CHECK is all that gates a pair row here —
     # nothing re-derives body identity, so the contradiction is never evaluated.
     # Separations are now DORMANT (owner 2026-09-01 removed the Separate/Rejoin
-    # verbs): the resolver ignores them, so a body_union always merges and a
-    # body_separation row has no effect. The row is kept here only to prove Save-As
+    # verbs): the resolver ignores them; a body_union is a GROUP relation that
+    # never merges (owner 2026-09-02); and a body_separation row has no effect.
+    # The row is kept here only to prove Save-As
     # copies the (now-inert) row; the subsystem is a candidate for a later
     # full-removal slice.
     db_session.add(
