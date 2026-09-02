@@ -98,6 +98,11 @@ test.describe('flow_unit_statistics', () => {
       const list = page.getByTestId('parameters-unit-list')
       await expect(list).toBeVisible()
       const options = list.getByRole('option')
+      // Auto-wait for the first row: the list is visible before the litho
+      // formations land, so a bare count() read too early sees zero rows.
+      await expect(options.first(), 'the tree must render at least one row').toBeVisible({
+        timeout: 15_000,
+      })
       expect(await options.count(), 'the tree must render at least one row').toBeGreaterThan(0)
 
       // 4. Walk the resolved chain to the depth the LEAF-ABSORB rule leaves
@@ -131,7 +136,10 @@ test.describe('flow_unit_statistics', () => {
         if (level < deepest) {
           const expander = page.getByTestId(`parameters-node-expander-${chain[level]}`)
           await expect(expander).toBeVisible()
-          await expander.click()
+          // A single-class litho body is DEFAULT-OPEN (owner ruling 2026-09-02);
+          // clicking its expander would collapse it. Open only what is closed.
+          const nextRow = page.getByTestId(`parameters-node-${chain[level + 1]}`)
+          if (!(await nextRow.isVisible())) await expander.click()
         }
       }
 
