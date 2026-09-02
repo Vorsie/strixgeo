@@ -11,10 +11,11 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build && node scripts/copy-cesium.mjs",
     "preview": "electron-vite preview",
-    "package": "electron-vite build && node scripts/copy-cesium.mjs && electron-builder",
+    "package": "electron-vite build && node scripts/copy-cesium.mjs && electron-builder --publish=never",
     "embedded:postgres": "powershell -ExecutionPolicy Bypass -File ../scripts/build-embedded-postgres.ps1",
     "embedded:python": "powershell -ExecutionPolicy Bypass -File ../scripts/build-embedded-python.ps1",
     "dist": "npm run embedded:postgres && npm run embedded:python && npm run package",
+    "release": "electron-builder --publish=always",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e:smoke": "playwright test tests/e2e/flow_boot_open.spec.ts",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "cesium": "^1.141.0",
+    "electron-updater": "^6.8.9",
     "jsts": "^2.12.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.513.0",
@@ -83,6 +85,14 @@
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Vorsie",
+        "repo": "strixgeo-releases",
+        "releaseType": "draft"
+      }
+    ],
     "files": [
       "out/**/*",
       "resources/**/*"
