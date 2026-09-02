@@ -2680,30 +2680,75 @@ any pre-existing duplicate-active rows), `u5v6w7x8y9z0` (read indexes:
 13 integration tests pin all constraints at
 `tests/integration/db/test_schema_invariants.py`.
 
+**Wave 3 (2026-09-02) — verified the remainder + swept every table added
+after `u5v6w7x8y9z0`.** The FK/index sweep found the newer tables impeccable:
+`body_union`, `body_separation`, `body_geometry_fact` (canonical-order CHECK +
+per-model `UNIQUE` + `model_id` index + FK CASCADE on model AND both anchor
+layers), `geotech_tie_tombstone` (model FK CASCADE + `model_id` index; section
+FK deliberately un-indexed — matching is an in-memory scan by model, and the
+table deliberately carries NO unique, per its ORM docstring), the geotech dual-ref
+FKs (`c120996a504d`, SET NULL), `parent_litho_layer_id` / `parent_litho_body_id`
+(FK + index), `sample.geotech_nad_class` / `geotech_assignment_source` (scalar,
+no FK needed). Every one is declared identically in the migration AND the ORM
+(`__table_args__`) — no autogenerate drift. **The single gap** — `sample.geotech_body_id`
+(migration `fce0b6dcb273`) carries an index but NO FK — is being closed by a
+SEPARATE sibling migration (`sample.geotech_body_id` FK, ON DELETE SET NULL,
+2026-09-02); not duplicated here. Added 6 direct negative GUARD pins (canonical-order
++ pair-unique for the three body-pair tables) to `test_schema_invariants.py`.
+
 **Still open:**
-- `geological_formation` litho-column co-nullation CHECK: the intended
-  `litho_main_soil_code IS NULL OR parent_formation_id IS NOT NULL`
-  invariant CANNOT be added as a DB constraint yet. `AcceptLithoSuggestions`
-  legitimately creates `GeologicalFormationOrm` rows with
-  `litho_main_soil_code` AND `parent_formation_id=NULL` as an "orphan
-  accept" fallback when no geological TIN surfaces exist (documented as
-  `orphan_formation_ids` in `AcceptLithoSuggestionsResult`; debt #87 tracks
-  the manual-confirm/reassign flow). Adding the CHECK would break this
-  path. Revisit when debt #87 lands and the accept-path is redesigned to
-  disallow orphan units entirely, or when the accept path is made to always
-  assign a parent.
-- `cpt.app_project_id` / `borehole.app_project_id` are `nullable=True`
-  (Phase-1 leftover) and no table has a real FK to `project` — orphan
-  rows are possible. Folds into the backwards-compat re-arm (#3 / #47).
+- `geological_formation` litho-column co-nullation CHECK — **OBSOLETE, not
+  merely blocked.** The originally-intended `litho_main_soil_code IS NULL OR
+  parent_formation_id IS NOT NULL` ("a litho unit must have a geological
+  parent") is now the OPPOSITE of the shipped model. Under A2 (geo-decoupled
+  litho units) `AcceptLithoSuggestions._create_litho_formation` ALWAYS sets
+  `parent_formation_id=None` on a non-null `litho_main_soil_code` row (geo name
+  is a derived body-level label, never stored per unit) — so the CHECK would
+  reject EVERY litho unit, not an "orphan accept" fallback. The
+  `orphan_formation_ids` field the old entry named no longer exists in the
+  codebase (grep is empty); the #87 orphan-accept framing is stale. The
+  A2-CONSISTENT invariant would be the inverse — `litho_main_soil_code IS NULL
+  OR parent_formation_id IS NULL` (a litho unit is parentless) — but it is NOT
+  safe to land blind: `_recompute_litho_display_orders` still defensively reads
+  a litho formation's `parent_formation_id`, so a data audit (are there legacy
+  litho rows with a non-null parent?) must run against a real DB before the
+  inverse CHECK can be trusted. Recorded as a candidate, not landed.
+- `cpt.app_project_id` / `borehole.app_project_id` NOT NULL — **STILL BLOCKED
+  by three live import routes that write NULL by design:** `POST /cpt/import`
+  (`project_id: str | None = Form(None)`; when absent, imports with
+  `app_project_id=None`), `POST /cpt/import-dov` + `/stream`
+  (`ImportCptDovRequest.project_id: UUID | None = None`), and
+  `POST /borehole/import-dov` (`ImportBoreholeDovRequest.project_id: UUID | None
+  = None` — the router comment names admin tools as the reason). The NULL state
+  is pinned by a PASSING test (`test_cpt_dedup_partial_unique_ignores_null_project`,
+  which inserts two `app_project_id=None` CPTs and asserts the partial-unique
+  ignores them). No `app_project_id=None` is assigned in any service; NULL only
+  arises from a project-less import.
+- No real FK from `cpt` / `borehole` to `project`. Projects are SOFT-deleted
+  only (no hard-delete endpoint exists), so an investigation never orphans via
+  deletion — adding a nullable FK is low-risk and additive (a nullable FK does
+  not touch the project-less-import path, since NULL values are unchecked). It
+  is NOT landed here for two reasons: (1) unverifiable without a DB — the
+  migration would fail if any legacy non-NULL `app_project_id` points at a
+  vanished `project` row, and this slice has no DB to prove orphan-freeness; and
+  (2) the owner folded it into the backwards-compat re-arm with a one-time
+  orphan/NULL backfill (#3 / #47), which should add the FK + NOT NULL atomically.
+  Ready-to-land sketch for the re-arm: `op.create_foreign_key(..., "cpt",
+  "project", ["app_project_id"], ["id"], ondelete="RESTRICT")` (RESTRICT matches
+  soft-delete-only; revisit if a hard project-delete ever ships), same for
+  `borehole`, guarded by a `SELECT` that ABORTS on any orphan rather than
+  deleting.
 
-**Why deferred (remaining).** The orphan-accept path is an intentional
-application-layer design (not a schema bug); the app_project_id NOT NULL
-+ FK work must be coordinated with the backwards-compat re-arm (#47)
-and a one-time orphan/NULL backfill.
+**Why deferred (remaining).** The co-nullation CHECK is obsolete (A2 inverted
+the invariant); the NOT NULL + FK work must be coordinated with the
+backwards-compat re-arm (#47), a decision to make `project_id` mandatory on the
+import routes (owner call — it removes the project-less/admin import), and a
+one-time orphan/NULL backfill.
 
-**When to revisit.** Co-nullation CHECK: when debt #87 (orphan-unit
-inspector + reassign/detach flow) lands and the accept path is hardened.
-FK + NOT NULL: the backwards-compat re-arm (#3 / #47).
+**When to revisit.** Co-nullation CHECK: only if the A2 geo-decoupling is ever
+reversed, OR land the inverse (parentless-litho) CHECK after a real-DB audit of
+legacy litho `parent_formation_id`. FK + NOT NULL: the backwards-compat re-arm
+(#3 / #47), once project-less import is retired or the backfill lands.
 
 ## 108. RESOLVED 2026-06-01. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4.
 Surgical pass on all four debt-entry targets:
