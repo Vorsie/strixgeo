@@ -28,6 +28,7 @@ import type { SampleResponse } from '../../api/client'
 import { clampPopoverPosition } from '../../utils/hoverPopoverPlacement'
 import { selectOrganicContent } from '../../utils/organicContentSummary'
 import { PSD_FIXED_DOMAIN, PSD_FRACTION_ZONES, psdCurvePoints, psdPolyline } from '../../utils/psdCurve'
+import { useT } from '../../i18n/translate'
 
 // --- Card + chart metrics --------------------------------------------------
 
@@ -125,6 +126,7 @@ export default function SamplePsdPopover({
   containerHeight,
   bodyClickable = false,
 }: SamplePsdPopoverProps): JSX.Element {
+  const t = useT()
   const curves = sample.grain_sizes.map(test => ({
     id: test.id,
     points: psdCurvePoints(test),
@@ -158,9 +160,10 @@ export default function SamplePsdPopover({
     containerHeight,
   })
 
-  const label = sample.sample_number !== null
-    ? `Sample ${sample.sample_number}`
-    : `Sample ${sample.id.slice(0, 8)}`
+  const label =
+    sample.sample_number !== null
+      ? t('sections.sampleLabel', { n: sample.sample_number })
+      : t('sections.sampleLabel', { n: sample.id.slice(0, 8) })
 
   return (
     <div
@@ -188,7 +191,10 @@ export default function SamplePsdPopover({
           data-testid="sample-organic-content"
           className="text-[10px] leading-tight text-gray-500 dark:text-gray-400 truncate"
         >
-          organic {organic.quantity} {organic.pct.toFixed(1)} %
+          {t('sections.psd.organic', {
+            quantity: organic.quantity,
+            pct: organic.pct.toFixed(1),
+          })}
         </div>
       )}
 
@@ -307,13 +313,13 @@ export default function SamplePsdPopover({
           >
             {/* Inverted axis: the COARSE end labels the left wall. */}
             <span>{formatDiameter(domain.maxMm)} mm</span>
-            <span>% finer by weight</span>
+            <span>{t('sections.psd.finerByWeight')}</span>
             <span>{formatDiameter(domain.minMm)} mm</span>
           </div>
         </>
       ) : (
         <div className="mt-1 text-[10px] leading-tight text-gray-500 dark:text-gray-400">
-          No grain-size test
+          {t('sections.psd.noGrainSize')}
         </div>
       )}
       {/* The affordance the marker's native tooltip used to carry, now a card
@@ -324,7 +330,7 @@ export default function SamplePsdPopover({
           data-testid="sample-click-hint"
           className="mt-1 text-[9px] leading-tight italic text-gray-400 dark:text-gray-500 truncate"
         >
-          Click to highlight packing body
+          {t('sections.psd.highlightBody')}
         </div>
       )}
     </div>
