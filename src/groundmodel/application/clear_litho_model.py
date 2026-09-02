@@ -45,7 +45,10 @@ from uuid import UUID
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -160,6 +163,20 @@ class ClearLithoModel(GroundModelLogger):
         # litho model" inside the debounced bodies/recompute window deadlocks
         # exactly as the band merge did.
         await lock_body_partition(self._session, model_id=model_id, operation="clear-litho-model")
+
+        # Take every sibling GEOTECH child's partition lock too, BEFORE the deletes
+        # below — same ordering rule the resolver follows (BP-3). This verb deletes
+        # litho ``body`` rows (step 5b), and deleting a litho body fires the
+        # ``ON DELETE SET NULL`` of the geotech rows' ``parent_litho_body_id`` FK
+        # (the litho_layer deletes similarly SET NULL the geotech bands'
+        # ``parent_litho_layer_id``) — hidden writes that row-lock the geotech child
+        # rows. Taking the child lock only after those deletes would race a
+        # concurrent geotech ``bodies/recompute`` exactly as the resolver did; taking
+        # it up front, litho-parent-first, closes the cross-model deadlock class. A
+        # no-op when the model has no geotech child.
+        await lock_sibling_geotech_partitions(
+            self._session, litho_model_id=model_id, operation="clear-litho-model"
+        )
 
         # Step 2 — bulk-delete contact-correlation edges for this model.
         # Done BEFORE the contact delete: FormationContact rows are the FK
