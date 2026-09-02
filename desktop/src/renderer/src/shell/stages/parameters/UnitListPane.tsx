@@ -139,6 +139,7 @@ export default function UnitListPane(): JSX.Element {
       bodyRecomputeGeotechNonce,
     },
   } = useShell()
+  const t = useT()
 
   // Both rosters — the body labels (and F1 homes) ride their axis's recompute
   // nonce (F9). A no-model axis fetches nothing.
@@ -232,7 +233,7 @@ export default function UnitListPane(): JSX.Element {
   if (!geotechLayersLoaded) {
     return (
       <div className="py-6" data-testid="parameters-unit-list-loading">
-        <LoadingState label="Loading the unit roster…" />
+        <LoadingState label={t('params.loadingUnitRoster')} />
       </div>
     )
   }
@@ -241,8 +242,8 @@ export default function UnitListPane(): JSX.Element {
     return (
       <EmptyState
         icon={<Layers />}
-        title="No units yet"
-        hint="Build a lithostratigraphic model on the Lithology stage, then subdivide it on the Geotechnical stage — the tree will populate here."
+        title={t('params.noUnitsYet')}
+        hint={t('params.noUnitsHintTree')}
       />
     )
   }
@@ -254,10 +255,10 @@ export default function UnitListPane(): JSX.Element {
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="parameters-unit-list">
       <div className="px-3 py-2 border-b border-border-subtle shrink-0">
-        <div className="text-[10px] uppercase tracking-wide text-text-muted">Units</div>
+        <div className="text-[10px] uppercase tracking-wide text-text-muted">{t('params.unitsHeader')}</div>
       </div>
 
-      <ul role="listbox" aria-label="Units" className="flex-1 min-h-0 overflow-auto">
+      <ul role="listbox" aria-label={t('params.unitsHeader')} className="flex-1 min-h-0 overflow-auto">
         {rows.map(({ node, depth }) => {
           const key = scopeKey(node.scope)
           const expandable = node.children.length > 0
@@ -281,13 +282,14 @@ export default function UnitListPane(): JSX.Element {
           <div data-testid="parameters-orphan-footer">
             {/* Geotech bands with no covering litho band — never given an
                 invented home in the tree (spec §1), counted honestly here. */}
-            {orphanTotal} band{orphanTotal === 1 ? '' : 's'} outside the litho model
+            {t(orphanTotal === 1 ? 'params.orphanBandsOne' : 'params.orphanBandsMany', {
+              n: orphanTotal,
+            })}
           </div>
         )}
         {/* The Phase-5 note the old dash columns carried — still visible. */}
         <div className="mt-1" data-testid="parameters-unit-phase5-note">
-          φ′ · c′ · cu · E50 — design parameters populate in Phase 5, when the
-          correlation + NAD-NEN lookup pipeline lands.
+          {t('params.phase5NoteUnitList')}
         </div>
       </div>
     </div>
@@ -385,7 +387,10 @@ function NodeRow({
         >
           {/* F7: "N bands · M with cone" over exactly what the row's click
               pools, so a borehole-heavy node reads honestly. */}
-          {node.bandCount} band{node.bandCount === 1 ? '' : 's'} · {node.coneBandCount} with cone
+          {t(node.bandCount === 1 ? 'params.nodeBandsOne' : 'params.nodeBandsMany', {
+            n: node.bandCount,
+            cone: node.coneBandCount,
+          })}
         </span>
       </div>
     </li>
