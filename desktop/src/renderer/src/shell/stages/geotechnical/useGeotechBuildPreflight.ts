@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useShell } from '../../ShellContext'
+import { t } from '../../../i18n/translate'
 import { nextVisitIndex } from '../../../components/sections/tieVisitNav'
 import {
   geotechBuildPreflight,
@@ -286,8 +287,9 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
       )
       toast(
         'warning',
-        `${names} still ${stillUnbanded.length === 1 ? 'has' : 'have'} no packing bands, ` +
-          'so nothing was built — subdivide on the Sections stage, then Build again.',
+        stillUnbanded.length === 1
+          ? t('geotech.preflightGiveUpOne', { names })
+          : t('geotech.preflightGiveUpMany', { names }),
       )
     }, GEOTECH_BAND_WAIT_MS)
     return () => window.clearTimeout(timer)
