@@ -347,7 +347,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                   value={f.label}
                   onChange={e => setField(i, { label: e.target.value })}
                   className="min-w-0 text-xs uppercase tracking-wide"
-                  aria-label={`label ${i + 1}`}
+                  aria-label={t('sheet.fieldLabelAria', { n: i + 1 })}
                 />
                 <input
                   value={f.value}
