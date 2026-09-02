@@ -117,4 +117,18 @@ describe('buildColumnStripFills', () => {
     const primary = input([col('B', 10, [])], { B: { leftX: 30, rightX: 70 } })
     expect(buildColumnStripFills(primary, null, levelToScreen, 0, 9999)).toEqual([])
   })
+
+  it('CSF5 — each quad carries its source unit’s layerId (the un-join spotlight anchor, D3)', () => {
+    const primary = input(
+      [
+        col('L', 10, [
+          { layerId: 'a1', topDepthM: 0, baseDepthM: 5, formationId: 'fSand' },
+          { layerId: 'a2', topDepthM: 5, baseDepthM: 10, formationId: 'fClay' },
+        ]),
+      ],
+      { L: { leftX: 30, rightX: 70 } },
+    )
+    const strips = buildColumnStripFills(primary, null, levelToScreen, 0, 9999)
+    expect(strips.map(s => s.layerId)).toEqual(['a1', 'a2'])
+  })
 })
