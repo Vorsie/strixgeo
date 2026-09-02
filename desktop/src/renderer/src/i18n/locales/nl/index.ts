@@ -32,6 +32,7 @@ import { OUTPUTS_NL } from './outputs'
 import { PANELS_NL } from './panels'
 import { SECTIONS_NL } from './sections'
 import { SETTINGS_NL } from './settings'
+import { SHEET_NL } from './sheet'
 
 /** The composed Dutch catalogue. */
 export const NL: Partial<Messages> = {
@@ -41,6 +42,7 @@ export const NL: Partial<Messages> = {
   ...MODELS_NL,
   ...SECTIONS_NL,
   ...OUTPUTS_NL,
+  ...SHEET_NL,
   ...PANELS_NL,
   ...LAUNCH_NL,
 }
@@ -54,6 +56,7 @@ export const NL_MODULES = {
   models: MODELS_NL,
   sections: SECTIONS_NL,
   outputs: OUTPUTS_NL,
+  sheet: SHEET_NL,
   panels: PANELS_NL,
   launch: LAUNCH_NL,
 } as const
