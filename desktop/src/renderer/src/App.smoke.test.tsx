@@ -248,6 +248,10 @@ function installElectronStub(): void {
     // launch, which keeps the gate 'pass' and never fetches status.
     launchFlags: { e2e: false, packaged: false },
     onMenuOpenOnboarding: vi.fn().mockReturnValue(noopUnsubscribe),
+    // "Load sample project" (#93) — invoke stubs; never called on mount (the
+    // overlay is marked seen), here for completeness like the tutorial bridges.
+    sampleAvailable: vi.fn().mockResolvedValue(false),
+    sampleInstall: vi.fn().mockResolvedValue(null),
     onMenuTutorial: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuRestartTutorial: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenLicensing: vi.fn().mockReturnValue(noopUnsubscribe),
