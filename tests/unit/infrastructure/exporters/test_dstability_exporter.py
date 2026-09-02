@@ -191,22 +191,21 @@ def test_ds4_geometry_reaches_dstability_in_along_distance_and_elevation(
     assert (40.0, -9.0) in corners
 
 
-def test_ds5_no_design_parameter_is_written_the_soils_stay_blank(tmp_path: Path) -> None:
-    """The liability line: characterisation travels, design values do not.
-
-    Blank here means literally zero — GEOLib's own initial value for a
-    soil nobody parameterised. A zero cannot be mistaken for a value
-    Strix stood behind, where a plausible ``phi = 30`` could.
-    """
-    model = _reparse(DStabilityExporter().export(_two_layer_set()), tmp_path)
-
-    exported = _our_soils(model)
-    assert len(exported) == 2
-    for soil in exported:
-        assert soil.MohrCoulombClassicShearStrengthModel.Cohesion == 0.0
-        assert soil.MohrCoulombClassicShearStrengthModel.FrictionAngle == 0.0
-        assert soil.VolumetricWeightAbovePhreaticLevel == 0.0
-        assert soil.VolumetricWeightBelowPhreaticLevel == 0.0
+def test_ds5_the_shipped_table_reaches_the_file_for_the_scene_classes() -> None:
+    """Owner ruling 2026-09-02: the D-Series files carry the NAD characteristic
+    values per soil + packing class. The scene's two classes (6 ZAND matig gp,
+    21 KLEI weinig vast) resolve through the SHIPPED table, not a monkeypatch,
+    so a drifted transcription shows up here."""
+    table = nad_params.NAD_SOIL_PARAMETERS
+    soils = _archive_soils(DStabilityExporter().export(_two_layer_set()))
+    for code, class_id in (("NAD-06_ZAND", 6), ("NAD-21_KLEI", 21)):
+        row = table[class_id]
+        soil = soils[code]
+        assert soil["MohrCoulombAdvancedShearStrengthModel"]["Cohesion"] == row.c_kpa
+        assert soil["MohrCoulombAdvancedShearStrengthModel"]["FrictionAngle"] == row.phi_deg
+        assert soil["VolumetricWeightAbovePhreaticLevel"] == row.gamma_unsat_kn_m3
+        assert soil["VolumetricWeightBelowPhreaticLevel"] == row.gamma_sat_kn_m3
+        assert SOURCE_LABEL in soil["Notes"]
 
 
 def test_ds6_no_phreatic_line_is_invented(tmp_path: Path) -> None:
@@ -392,10 +391,10 @@ def test_ds16_a_populated_class_writes_its_parameters_and_the_source_label(
         "NAD_SOIL_PARAMETERS",
         {
             6: NadSoilParameters(
-                gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=32.5, c_kpa=0.0
+                gamma_unsat_kn_m3=18.0, gamma_sat_kn_m3=20.0, phi_deg=32.5, c_kpa=0.0, cu_kpa=None
             ),
             21: NadSoilParameters(
-                gamma_unsat_kn_m3=16.0, gamma_sat_kn_m3=17.5, phi_deg=22.0, c_kpa=5.0
+                gamma_unsat_kn_m3=16.0, gamma_sat_kn_m3=17.5, phi_deg=22.0, c_kpa=5.0, cu_kpa=None
             ),
         },
     )
@@ -421,7 +420,9 @@ def test_ds16_a_populated_class_writes_its_parameters_and_the_source_label(
     assert SOURCE_LABEL in clay["Notes"]
 
 
-def test_ds17_a_class_absent_from_the_table_writes_no_invented_numbers() -> None:
+def test_ds17_a_class_absent_from_the_table_writes_no_invented_numbers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A class the owner has not transcribed stays at GEOLib's blank defaults.
 
     Pins the audited "absent" representation so the parameter path cannot
@@ -430,8 +431,7 @@ def test_ds17_a_class_absent_from_the_table_writes_no_invented_numbers() -> None
     below-phreatic model is GEOLib's own ``Su`` default (documented, not
     chosen by Strix — see ``dstability_exporter_constants``).
     """
-    # The shipped table is empty; assert against it without monkeypatching.
-    assert nad_params.NAD_SOIL_PARAMETERS == {}
+    monkeypatch.setattr(nad_params, "NAD_SOIL_PARAMETERS", {})
     soils = _archive_soils(DStabilityExporter().export(_two_layer_set()))
 
     for soil in soils.values():
