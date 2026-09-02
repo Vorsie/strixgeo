@@ -20,7 +20,7 @@ import type { GeologicalFormationResponse } from '../../../api/client'
 import { memberIdsBySection } from '../../../utils/sectionClassification'
 import { EmptyState, LoadingState } from '../../EmptyState'
 import { useLanguage } from '../../../i18n/languageSelect'
-import { translate } from '../../../i18n/translate'
+import { translate, useT } from '../../../i18n/translate'
 import { bodyUnionsToGroupPairs, geotechGroupOrdinals } from '../../../utils/geotechGroupOrdinals'
 import { useShell } from '../../ShellContext'
 import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
@@ -102,6 +102,7 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
   } = useShell()
 
   const projectId = project.id
+  const t = useT()
   const model = parameterScopeModel(scope)
 
   // ── The pooling population (R6) ───────────────────────────────────────────
@@ -259,20 +260,26 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     for (const ids of bySection.values()) {
       if (pooledCptIds.some(id => ids.has(id))) sectionCount += 1
     }
-    return (
-      `n = ${qcN.toLocaleString('en-US')} qc samples over ${cptCount} ` +
-      `CPT${cptCount === 1 ? '' : 's'} on ${sectionCount} ` +
-      `section${sectionCount === 1 ? '' : 's'} — only tests on sections pool; ` +
-      `hidden and removed are excluded`
-    )
-  }, [statistics.channels, pooledCptIds, bySection])
+    return translate(lang, 'params.populationNote', {
+      // Number grouping stays en-US (verbatim with the prior copy); the label
+      // and unit words localise.
+      qcN: qcN.toLocaleString('en-US'),
+      cptCount,
+      cptWord: translate(lang, cptCount === 1 ? 'params.cptWordSingular' : 'params.cptWordPlural'),
+      sectionCount,
+      sectionWord: translate(
+        lang,
+        sectionCount === 1 ? 'params.sectionWordSingular' : 'params.sectionWordPlural',
+      ),
+    })
+  }, [statistics.channels, pooledCptIds, bySection, lang])
 
   if (!unitExists) {
     return (
       <EmptyState
         icon={<Layers />}
-        title="This unit no longer exists"
-        hint="It was removed or rebuilt since it was selected — pick another unit in the list."
+        title={t('params.unitNoLongerExists')}
+        hint={t('params.unitNoLongerExistsHint')}
       />
     )
   }
@@ -283,13 +290,13 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
       <div className="flex items-start gap-2 px-3 py-2 border-b border-border-subtle shrink-0">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] uppercase tracking-wide text-text-muted">
-            {model === 'litho' ? 'Lithostratigraphic unit' : 'Geotechnical unit'}
+            {model === 'litho' ? t('params.lithostratigraphicUnit') : t('params.geotechnicalUnit')}
           </div>
         </div>
         <button
           onClick={() => setSelectedParameterUnit(null)}
-          title="Close the unit statistics"
-          aria-label="Close the unit statistics"
+          title={t('params.closeUnitStats')}
+          aria-label={t('params.closeUnitStats')}
           className="shrink-0 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-app"
           data-testid="parameters-unit-close"
         >
@@ -310,12 +317,12 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
                 className="px-2 py-0.5 rounded border border-border-default text-text-primary hover:bg-surface-app"
                 data-testid="parameters-unit-retry"
               >
-                Retry
+                {t('common.retry')}
               </button>
             </div>
           ) : loading ? (
             <div className="py-6" data-testid="parameters-unit-loading">
-              <LoadingState label="Loading measurements…" />
+              <LoadingState label={t('params.loadingMeasurements')} />
             </div>
           ) : (
             <UnitDistributionPanels
