@@ -89,7 +89,7 @@ D-Stability (below); when a soil is parameterised, line 3 of the
 parameters-at-defaults TODO — a `.shi` `[SOIL]` block has no per-soil
 free-text field, so that block is the only place the provenance can go.
 
-### NAD soil parameters — empty until filled
+### NAD soil parameters — filled 2026-09-02 from the owner's workbook
 
 Both D-Series exporters carry **NAD characteristic soil parameters** (unit
 weight γ, effective φ′, effective c′) per packing class, keyed by NAD class
