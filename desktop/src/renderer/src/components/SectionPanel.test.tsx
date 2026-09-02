@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 
 import type { CrossSectionResponse } from '../api/client'
 import SectionPanel from './SectionPanel'
+import { SectionScopeContext, type SectionScope } from './sections/SectionScopeContext'
 
 // Mock-friendly ResizeObserver lives in test/setup.ts; the panel uses
 // it via the internal ``useElementSize`` hook.
@@ -71,6 +72,47 @@ function makeSection(overrides: Partial<CrossSectionResponse> = {}): CrossSectio
   }
 }
 
+type RenderPanelArgs = React.ComponentProps<typeof SectionPanel> & Partial<SectionScope>
+
+/**
+ * Render SectionPanel inside a SectionScope provider.
+ *
+ * Phase B (debt #201) moved the per-section data slices — zEpsg, axisMode,
+ * contacts, cpts, boreholes, formations, activeLithoModelId,
+ * geotechNotReconciled — off SectionPanel's props and onto the SectionScope
+ * that SectionsCanvas provides. This helper takes a flat prop bag, routes
+ * those eight through the provider and passes everything else straight to the
+ * panel, so each call site keeps its original flat shape.
+ */
+function renderPanel(args: RenderPanelArgs): ReturnType<typeof render> {
+  const {
+    zEpsg,
+    axisMode,
+    contacts,
+    cpts,
+    boreholes,
+    formations,
+    activeLithoModelId,
+    geotechNotReconciled,
+    ...panelProps
+  } = args
+  const scope: SectionScope = {
+    zEpsg,
+    axisMode,
+    contacts,
+    cpts,
+    boreholes,
+    formations,
+    activeLithoModelId,
+    geotechNotReconciled,
+  }
+  return render(
+    <SectionScopeContext.Provider value={scope}>
+      <SectionPanel {...panelProps} />
+    </SectionScopeContext.Provider>,
+  )
+}
+
 describe('SectionPanel — channel toggle group', () => {
   // The five CPT data channels (qc, Rf, fs, u2, qT) each get a small
   // button in the header. Defaults (per ``DEFAULT_CPT_CHANNELS``) are
@@ -79,7 +121,7 @@ describe('SectionPanel — channel toggle group', () => {
   // view_state bag (debt #40).
 
   it('renders every channel button with the documented active default', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     expect(screen.getByLabelText('Toggle qc')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('Toggle Rf')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('Toggle qT')).toHaveAttribute('aria-pressed', 'true')
@@ -94,7 +136,7 @@ describe('SectionPanel — channel toggle group', () => {
         cpt_channels: { qc: false, rf: true, fs: true, u2: false, qTotal: false },
       },
     })
-    render(<SectionPanel section={section} zEpsg={5710} />)
+    renderPanel({ section, zEpsg: 5710 })
     expect(screen.getByLabelText('Toggle qc')).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByLabelText('Toggle fs')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('Toggle qT')).toHaveAttribute('aria-pressed', 'false')
@@ -102,7 +144,7 @@ describe('SectionPanel — channel toggle group', () => {
 
   it('clicking a toggle fires onPatch with the full channels bag under cpt_channels', () => {
     const onPatch = vi.fn().mockResolvedValue(undefined)
-    render(<SectionPanel section={makeSection()} zEpsg={5710} onPatch={onPatch} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710, onPatch })
 
     fireEvent.click(screen.getByLabelText('Toggle fs'))
 
@@ -116,7 +158,7 @@ describe('SectionPanel — channel toggle group', () => {
   })
 
   it('clicking updates the button state optimistically (no server round-trip needed)', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     const fs = screen.getByLabelText('Toggle fs')
     expect(fs).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(fs)
@@ -127,7 +169,7 @@ describe('SectionPanel — channel toggle group', () => {
 describe('SectionPanel — header readouts', () => {
   it('renders the section name and the Euclidean length of the line', () => {
     // length = sqrt(500² + 300²) ≈ 583 m
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     expect(screen.getByTitle('Cross-section AA')).toBeInTheDocument()
     // Both the header subtext and the scrub bar's right-edge label
     // render the length. getAllByText accepts either as evidence the
@@ -137,7 +179,7 @@ describe('SectionPanel — header readouts', () => {
   })
 
   it('seeds the VEX slider from the section row', () => {
-    render(<SectionPanel section={makeSection({ vertical_exaggeration: 5 })} zEpsg={5710} />)
+    renderPanel({ section: makeSection({ vertical_exaggeration: 5 }), zEpsg: 5710 })
     expect(screen.getByText(/5\.0×/)).toBeInTheDocument()
   })
 
@@ -147,7 +189,7 @@ describe('SectionPanel — header readouts', () => {
     // component's null-coalesce keeps the slider sane.
     const s = makeSection() as Partial<CrossSectionResponse>
     delete (s as { vertical_exaggeration?: number }).vertical_exaggeration
-    render(<SectionPanel section={s as CrossSectionResponse} zEpsg={5710} />)
+    renderPanel({ section: s as CrossSectionResponse, zEpsg: 5710 })
     expect(screen.getByText(/1\.0×/)).toBeInTheDocument()
   })
 })
@@ -158,17 +200,17 @@ describe('SectionPanel — axis label uses the project vertical datum', () => {
   // values are in without re-checking project metadata.
 
   it('labels Y "Level (TAW)" for Belgium projects (EPSG 5710)', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     expect(screen.getByText('Level (TAW)')).toBeInTheDocument()
   })
 
   it('labels Y "Level (NAP)" for Netherlands projects (EPSG 5709)', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={5709} />)
+    renderPanel({ section: makeSection(), zEpsg: 5709 })
     expect(screen.getByText('Level (NAP)')).toBeInTheDocument()
   })
 
   it('falls back to bare "Level (m)" when the project has no z_epsg', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={null} />)
+    renderPanel({ section: makeSection(), zEpsg: null })
     expect(screen.getByText('Level (m)')).toBeInTheDocument()
   })
 })
@@ -180,7 +222,7 @@ describe('SectionPanel — Reset button restores defaults', () => {
     // clicking it doesn't throw. Real pan/zoom behaviour is exercised
     // by the bundled smoke test in the dev build, not unit tests.
     const onMouseDown = vi.fn()
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     const reset = screen.getByTitle('Reset view to default framing')
     reset.click()
     expect(onMouseDown).not.toHaveBeenCalled() // sanity: click didn't propagate
@@ -246,14 +288,7 @@ describe('SectionPanel — investigation columns', () => {
     // suffixed version (covered separately below).
     const cpt = makeCpt({ location_y: 0 })
     const bh = makeBorehole({ location_y: 0 })
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        cpts={[cpt]}
-        boreholes={[bh]}
-      />,
-    )
+    renderPanel({ section: horizontal1km, zEpsg: 5710, cpts: [cpt], boreholes: [bh] })
     // Wait for ResizeObserver microtask so the SVG mounts.
     await new Promise(r => setTimeout(r, 0))
     expect(screen.getByText('CPT-1')).toBeInTheDocument()
@@ -270,15 +305,13 @@ describe('SectionPanel — investigation columns', () => {
     > = { current: null }
     const cpt = makeCpt({ id: 'cpt-gap-left', location_x: 300, location_y: 0 })
     const bh = makeBorehole({ id: 'bh-gap-right', location_x: 300.1, location_y: 0 })
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        cpts={[cpt]}
-        boreholes={[bh]}
-        columnRevealRef={columnRevealRef}
-      />,
-    )
+    renderPanel({
+      section: horizontal1km,
+      zEpsg: 5710,
+      cpts: [cpt],
+      boreholes: [bh],
+      columnRevealRef,
+    })
     await new Promise(r => setTimeout(r, 0))
 
     act(() => {
@@ -297,13 +330,7 @@ describe('SectionPanel — investigation columns', () => {
   it('drops investigations whose perpendicular distance exceeds the projection buffer', async () => {
     const restore = withFixedSize(800, 400)
     const far = makeCpt({ id: 'cpt-far', name: 'CPT-FAR', location_y: 200 })
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        cpts={[far]}
-      />,
-    )
+    renderPanel({ section: horizontal1km, zEpsg: 5710, cpts: [far] })
     await new Promise(r => setTimeout(r, 0))
     expect(screen.queryByText('CPT-FAR')).not.toBeInTheDocument()
     restore()
@@ -313,13 +340,11 @@ describe('SectionPanel — investigation columns', () => {
     const restore = withFixedSize(800, 400)
     const a = makeCpt({ id: 'cpt-a', name: 'CPT-A', location_x: 200 })
     const b = makeCpt({ id: 'cpt-b', name: 'CPT-B', location_x: 400 })
-    render(
-      <SectionPanel
-        section={{ ...horizontal1km, excluded_cpt_ids: ['cpt-a'] }}
-        zEpsg={5710}
-        cpts={[a, b]}
-      />,
-    )
+    renderPanel({
+      section: { ...horizontal1km, excluded_cpt_ids: ['cpt-a'] },
+      zEpsg: 5710,
+      cpts: [a, b],
+    })
     await new Promise(r => setTimeout(r, 0))
     expect(screen.queryByText('CPT-A')).not.toBeInTheDocument()
     expect(screen.getByText('CPT-B')).toBeInTheDocument()
@@ -334,13 +359,7 @@ describe('SectionPanel — investigation columns', () => {
     // and the canvas falls back to MapView.
     const restore = withFixedSize(800, 400)
     const onClose = vi.fn()
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        onClose={onClose}
-      />,
-    )
+    renderPanel({ section: horizontal1km, zEpsg: 5710, onClose })
     await new Promise(r => setTimeout(r, 0))
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -352,13 +371,7 @@ describe('SectionPanel — investigation columns', () => {
     // own Esc semantics (e.g. cancelling IME composition).
     const restore = withFixedSize(800, 400)
     const onClose = vi.fn()
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        onClose={onClose}
-      />,
-    )
+    renderPanel({ section: horizontal1km, zEpsg: 5710, onClose })
     await new Promise(r => setTimeout(r, 0))
     const input = document.createElement('input')
     document.body.appendChild(input)
@@ -375,13 +388,7 @@ describe('SectionPanel — investigation columns', () => {
     // the projection convention). Engineers should see "→12 m" in
     // the label.
     const offline = makeBorehole({ id: 'bh-off', name: 'BH-OFF', location_y: 12 })
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        boreholes={[offline]}
-      />,
-    )
+    renderPanel({ section: horizontal1km, zEpsg: 5710, boreholes: [offline] })
     await new Promise(r => setTimeout(r, 0))
     expect(screen.getByText(/BH-OFF.*→12 m/)).toBeInTheDocument()
     restore()
@@ -458,27 +465,25 @@ describe('SectionPanel — investigation columns', () => {
       spans_boundary: false,
     } as unknown as import('../api/client').LithoLayerSuggestion
 
-    render(
-      <SectionPanel
-        section={horizontal1km}
-        zEpsg={5710}
-        cpts={[cpt]}
-        contacts={[contact]}
-        formations={[formationA]}
-        onUpdateContactDepth={vi.fn()}
-        lithoGhostState={{
-          suggestions: [suggestion],
-          investigationId: 'cpt-1',
-          surfaceElevationM: 5,
-          acceptedIndices: new Set<number>(),
-          rejectedIndices: new Set<number>(),
-          onAccept: vi.fn(),
-          onReject: vi.fn(),
-          edits: new Map(),
-          onEdit: vi.fn(),
-        }}
-      />,
-    )
+    renderPanel({
+      section: horizontal1km,
+      zEpsg: 5710,
+      cpts: [cpt],
+      contacts: [contact],
+      formations: [formationA],
+      onUpdateContactDepth: vi.fn(),
+      lithoGhostState: {
+        suggestions: [suggestion],
+        investigationId: 'cpt-1',
+        surfaceElevationM: 5,
+        acceptedIndices: new Set<number>(),
+        rejectedIndices: new Set<number>(),
+        onAccept: vi.fn(),
+        onReject: vi.fn(),
+        edits: new Map(),
+        onEdit: vi.fn(),
+      },
+    })
     await new Promise(r => setTimeout(r, 0))
 
     // Document-order query — querySelectorAll preserves DOM order.
@@ -510,21 +515,19 @@ describe('SectionPanel — gesture hint pill', () => {
   // undiscoverable litho-layer gestures (Alt+drag copy — debt #95).
 
   it('shows the litho-layer gesture line on the lithostratigraphic axis', () => {
-    render(
-      <SectionPanel section={makeSection()} zEpsg={5710} axisMode="lithostratigraphic" />,
-    )
+    renderPanel({ section: makeSection(), zEpsg: 5710, axisMode: 'lithostratigraphic' })
     expect(screen.getByTestId('litho-gesture-hint')).toBeInTheDocument()
     expect(screen.getByTestId('litho-gesture-hint')).toHaveTextContent(/Alt\+drag/i)
   })
 
   it('omits the litho gesture line on the default geological axis', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     expect(screen.queryByTestId('litho-gesture-hint')).toBeNull()
   })
 
   // Debt #203 — the F1 cheatsheet was undiscoverable from the canvas.
   it('CH-F1: always shows the F1 cheatsheet discoverability hint', () => {
-    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    renderPanel({ section: makeSection(), zEpsg: 5710 })
     expect(screen.getByTestId('f1-cheatsheet-hint')).toHaveTextContent(/press f1/i)
   })
 
@@ -542,29 +545,25 @@ describe('SectionPanel — gesture hint pill', () => {
       onClearArmedContact: vi.fn(),
       onContactCorrelate: vi.fn(),
     }
-    render(
-      <SectionPanel
-        section={makeSection()}
-        zEpsg={5710}
-        axisMode="lithostratigraphic"
-        contacts={[]}
-        contactGestureState={contactGestureState}
-      />,
-    )
+    renderPanel({
+      section: makeSection(),
+      zEpsg: 5710,
+      axisMode: 'lithostratigraphic',
+      contacts: [],
+      contactGestureState,
+    })
     const hint = screen.getByTestId('correlate-blocked-hint')
     expect(hint).toBeInTheDocument()
     expect(hint).toHaveTextContent(/accept litho suggestions/i)
   })
 
   it('CH-CR2: omits the correlate-blocked hint when correlate mode is off', () => {
-    render(
-      <SectionPanel
-        section={makeSection()}
-        zEpsg={5710}
-        axisMode="lithostratigraphic"
-        contacts={[]}
-      />,
-    )
+    renderPanel({
+      section: makeSection(),
+      zEpsg: 5710,
+      axisMode: 'lithostratigraphic',
+      contacts: [],
+    })
     expect(screen.queryByTestId('correlate-blocked-hint')).toBeNull()
   })
 
@@ -573,54 +572,46 @@ describe('SectionPanel — gesture hint pill', () => {
   // prompting the user to build the geotech model before the NAD suggestion
   // flow is available.
   it('CH-GN1: renders the geotech-not-built hint on the geotechnical axis when geotechNotReconciled is true', () => {
-    render(
-      <SectionPanel
-        section={makeSection()}
-        zEpsg={5710}
-        axisMode="geotechnical"
-        geotechNotReconciled
-      />,
-    )
+    renderPanel({
+      section: makeSection(),
+      zEpsg: 5710,
+      axisMode: 'geotechnical',
+      geotechNotReconciled: true,
+    })
     const hint = screen.getByTestId('geotech-not-built-hint')
     expect(hint).toBeInTheDocument()
     expect(hint).toHaveTextContent(/build the geotech model/i)
   })
 
   it('CH-GN2: omits the geotech-not-built hint when geotechNotReconciled is false', () => {
-    render(
-      <SectionPanel
-        section={makeSection()}
-        zEpsg={5710}
-        axisMode="geotechnical"
-        geotechNotReconciled={false}
-      />,
-    )
+    renderPanel({
+      section: makeSection(),
+      zEpsg: 5710,
+      axisMode: 'geotechnical',
+      geotechNotReconciled: false,
+    })
     expect(screen.queryByTestId('geotech-not-built-hint')).toBeNull()
   })
 
   it('CH-GN3: omits the geotech-not-built hint on the lithostratigraphic axis even when geotechNotReconciled is true', () => {
     // The hint is gated on axisMode === 'geotechnical' — passing the prop on the
     // wrong axis must never surface the hint (prevents misfire during an axis switch).
-    render(
-      <SectionPanel
-        section={makeSection()}
-        zEpsg={5710}
-        axisMode="lithostratigraphic"
-        geotechNotReconciled
-      />,
-    )
+    renderPanel({
+      section: makeSection(),
+      zEpsg: 5710,
+      axisMode: 'lithostratigraphic',
+      geotechNotReconciled: true,
+    })
     expect(screen.queryByTestId('geotech-not-built-hint')).toBeNull()
   })
 
   it('CH-GN4: omits the geotech-not-built hint on the geological axis', () => {
-    render(
-      <SectionPanel
-        section={makeSection()}
-        zEpsg={5710}
-        axisMode="geological"
-        geotechNotReconciled
-      />,
-    )
+    renderPanel({
+      section: makeSection(),
+      zEpsg: 5710,
+      axisMode: 'geological',
+      geotechNotReconciled: true,
+    })
     expect(screen.queryByTestId('geotech-not-built-hint')).toBeNull()
   })
 })
@@ -635,27 +626,23 @@ describe('SectionPanel — lens gesture prop contract', () => {
     // activeLithoModelId is still threaded so context-menu items can scope
     // the nameBody call correctly even when contacts is empty.
     expect(() =>
-      render(
-        <SectionPanel
-          section={makeSection()}
-          zEpsg={5710}
-          axisMode="lithostratigraphic"
-          activeLithoModelId="01k-LITHO-MODEL"
-          contacts={[]}
-        />,
-      ),
+      renderPanel({
+        section: makeSection(),
+        zEpsg: 5710,
+        axisMode: 'lithostratigraphic',
+        activeLithoModelId: '01k-LITHO-MODEL',
+        contacts: [],
+      }),
     ).not.toThrow()
   })
 
   it('renders without error when activeLithoModelId is omitted', () => {
     expect(() =>
-      render(
-        <SectionPanel
-          section={makeSection()}
-          zEpsg={5710}
-          axisMode="lithostratigraphic"
-        />,
-      ),
+      renderPanel({
+        section: makeSection(),
+        zEpsg: 5710,
+        axisMode: 'lithostratigraphic',
+      }),
     ).not.toThrow()
   })
 })
@@ -694,11 +681,13 @@ describe('SectionPanel — the contact marquee is a selection gesture, not a mut
    * would be the more direct probe, but it renders nothing at all on a section
    * with no contacts, so it cannot tell "marquee suppressed" from "layer empty".)
    */
-  async function shiftMouseDownStartsPan(extra: Record<string, unknown>): Promise<boolean> {
+  async function shiftMouseDownStartsPan(extra: Partial<RenderPanelArgs>): Promise<boolean> {
     const restore = withFixedSize(800, 400)
-    const { container, unmount } = render(
-      <SectionPanel section={horizontal1km} zEpsg={5710} {...extra} />,
-    )
+    const { container, unmount } = renderPanel({
+      section: horizontal1km,
+      zEpsg: 5710,
+      ...extra,
+    })
     await new Promise(r => setTimeout(r, 0))
     const bg = container.querySelector('[data-testid="section-marquee-bg"]')
     expect(bg).not.toBeNull()
