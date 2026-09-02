@@ -1,5 +1,6 @@
 import { app, BrowserWindow, crashReporter, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
+import { hostname } from 'os'
 import { pathToFileURL } from 'url'
 import { spawn, ChildProcess } from 'child_process'
 import {
@@ -60,6 +61,13 @@ import {
 import { applyPackagedProfile } from './packagedProfile'
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
+// Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
+import { configureActivationStore } from './activationStore'
+import { ActivationService } from './activationService'
+import { MockActivationRepository } from './mockActivationRepository'
+import { previewControlAllowed } from './prototypeFlags'
+import { registerPrototypeIpc } from './prototypeIpc'
+import { checkForUpdatesOnLaunch, configureUpdater } from './updaterService'
 
 // FIRST userData-affecting statement in the process, deliberately ahead of the
 // single-instance lock and every store — see packagedProfile.ts for why a
@@ -533,6 +541,11 @@ function createWindow(): void {
   win.setMenuBarVisibility(true)
   buildMenu(win)
 
+  // Prototype updater (#6): attach it to this window so update events reach the
+  // renderer. Only registers listeners + flips autoDownload off — no network
+  // until a check runs, which is itself gated on app.isPackaged.
+  configureUpdater(win)
+
   // Window-close handler — runs on Windows X, Alt+F4, and any other
   // OS-level close. We preventDefault, hand control to the renderer
   // (which knows about the project's dirty state and runs the same
@@ -800,11 +813,29 @@ function buildMenu(win: BrowserWindow): void {
       label: 'Help',
       submenu: [
         {
+          // Prototype onboarding (#93). One-way fire — the renderer owns the
+          // OnboardingOverlay open state and its "seen" flag.
+          label: 'Getting started…',
+          click: () => win.webContents.send('menu:open-onboarding'),
+        },
+        {
           label: 'Gesture cheatsheet…',
           // One-way main→renderer fire — same pattern as Settings. The
           // renderer owns the CheatsheetDialog open state.
           accelerator: 'F1',
           click: () => win.webContents.send('menu:open-cheatsheet'),
+        },
+        { type: 'separator' },
+        {
+          // Prototype licensing (#3). Opens the renderer LicensingDialog.
+          label: 'Licence & activation…',
+          click: () => win.webContents.send('menu:open-licensing'),
+        },
+        {
+          // Prototype updater (#6). Triggers a manual check; results arrive on
+          // the updater event channel and surface as a renderer notification.
+          label: 'Check for updates…',
+          click: () => win.webContents.send('menu:check-updates'),
         },
         // #214d — reveal the logs directory so a developer can open the RAW
         // ``backend.log``. Gated to development only: that file is un-redacted
@@ -926,6 +957,20 @@ function bootstrapAuthorisedPaths(): void {
 // ---------------------------------------------------------------------------
 
 ipcMain.handle('api:base-url', () => API_BASE)
+
+// Boot flags surfaced SYNCHRONOUSLY to the renderer through the preload, so the
+// renderer can gate boot-time UI (the onboarding auto-open, the packaged
+// activation start screen — see docs/design/onboarding-activation-updater-proto.md)
+// with no async round-trip. STRIX_E2E is set by the e2e harness
+// (tests/e2e/helpers/electron_launch.ts); isPackaged separates a dev dogfeed from
+// a distributed build. Registered at module load, before any window's preload
+// issues its sendSync.
+ipcMain.on('launch:flags', (event) => {
+  event.returnValue = {
+    e2e: process.env.STRIX_E2E === '1',
+    packaged: app.isPackaged,
+  }
+})
 
 ipcMain.handle('dialog:open-file', async (_event, filters: Electron.FileFilter[]) => {
   const result = await dialog.showOpenDialog({
@@ -1712,12 +1757,30 @@ if (!gotSingleInstanceLock) {
     })
     configureBetaExpiryStore({ userDataDir: app.getPath('userData') })
 
+    // Prototype activation (#3). The store learns userData; the service runs the
+    // mock issuer behind the ActivationRepository seam (no network). Registered
+    // before any renderer can issue an ``activation:*`` call.
+    configureActivationStore({ userDataDir: app.getPath('userData') })
+    registerPrototypeIpc(
+      new ActivationService({
+        repository: new MockActivationRepository(),
+        deviceLabel: hostname(),
+      }),
+      // The "Preview a state" demo control is dev-only — never registered in a
+      // packaged build (senior review SHOULD-FIX 1).
+      { previewControl: previewControlAllowed(app.isPackaged) },
+    )
+
     // An expired beta stops here: no backend is spawned, no window is created.
     if (enforceBetaExpiry()) return
     startBetaExpiryWatch()
 
     startApi()
     createWindow()
+
+    // Auto-update check (#6) — a no-op in dev (gated on app.isPackaged). The
+    // window exists now, so its renderer can receive update events.
+    checkForUpdatesOnLaunch()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
