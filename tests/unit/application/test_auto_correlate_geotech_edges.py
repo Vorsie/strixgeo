@@ -111,6 +111,7 @@ class _FakeSession:
         existing_geotech_edges: list[tuple[UUID, UUID, UUID]],
         locations: dict[UUID, tuple[float, float]],
         model_geotech_edges: list[SimpleNamespace] | None = None,
+        model_frame_edges: list[SimpleNamespace] | None = None,
     ) -> None:
         self._model = model
         self._geotech_bands = geotech_bands
@@ -123,6 +124,10 @@ class _FakeSession:
         # because the two loaders read different column sets; a scene that
         # cares about the sweep supplies these explicitly.
         self._model_geotech_edges = model_geotech_edges or []
+        # The FULL edge entities the frame-conformance flag re-reads after the
+        # sweeps (the only edge loader that selects ``review_reason``). Empty by
+        # default, so an ordinary scene proposes no frame-flagged tie.
+        self._model_frame_edges = model_frame_edges or []
         self.added: list[Any] = []
         self.executed_sql: list[str] = []
         self.flush = AsyncMock()
@@ -165,6 +170,11 @@ class _FakeSession:
             # a by-section loader that unpacks 5 and blows up.
             # SQLAlchemy compiles with a newline before FROM, so split on the
             # bare keyword rather than a space-padded one.
+            if "review_reason" in select_list:
+                # The frame-conformance flag re-reads the FULL edge entity — the
+                # only edge loader that selects ``review_reason`` — to stamp the
+                # badge after the sweeps. Empty in ordinary scenes.
+                return _Rows(list(self._model_frame_edges))
             if "section_id" in select_list:
                 if "user_approved" in select_list and "source" in select_list:
                     # The off-section sweep — the only loader that reads the
@@ -176,6 +186,10 @@ class _FakeSession:
                     # canned sided geotech rows in these scenes.
                     return _Rows([])
                 return _Rows(list(self._existing_geotech_edges))
+            if "layer_a_id" not in select_list:
+                # ``_load_edge_ids``: the pre-derivation id snapshot the frame
+                # flag diffs against — just the model's edge ids.
+                return _Rows([(edge.id,) for edge in self._model_frame_edges])
             # load_approved_litho_edge_sets selects the sides too; the
             # canned pairs are plain top↔top litho ties.
             return _Rows([(a, b, "top", "top") for a, b in self._approved_litho_edges])
