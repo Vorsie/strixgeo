@@ -294,6 +294,8 @@ cases ``CreateFormationContact``, ``AcceptLithoSuggestions``,
 (VULN-9..12). Frontend ``client.ts`` / ``useInvestigationData.ts``
 / ``useSectionData.ts`` updated in lockstep. Unit suite 895 green.
 
+C11 pinned 2026-09-02: 8 by-id routes, 0 guards added (all already guarded).
+
 **What remains.** The auth-threading step (``user_owns`` predicate
 on project-level endpoints) still waits on debt #3.
 
