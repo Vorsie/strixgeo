@@ -33,6 +33,7 @@ export const LAUNCH = {
   'onboarding.startLater': 'Maybe later',
   'onboarding.sampleUnavailable':
     'The sample project is not bundled in this prototype yet — starting an empty project instead.',
+  'onboarding.sampleLoaded': 'Worked example opened. Saved to {path}',
   // The six spine stages, one sentence each.
   'onboarding.stageImport': 'Import',
   'onboarding.stageImportBody': 'Bring in CPTs and boreholes from files or straight from DOV.',
