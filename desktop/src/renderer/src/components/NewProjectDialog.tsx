@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import Button from './ui/Button'
 import Modal from './ui/Modal'
+import { useT } from '../i18n/translate'
 
 interface Props {
   open: boolean
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
+  const t = useT()
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -69,18 +71,17 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
           id="new-project-title"
           className="text-base font-semibold text-text-primary mb-1"
         >
-          New project
+          {t('project.new')}
         </h2>
         <p className="text-xs text-text-secondary mb-4">
-          Name it now; richer details (client, site, tags, default CRSes…)
-          can be added from the project's metadata editor when that lands.
+          {t('project.newBlurb')}
         </p>
 
         <label
           htmlFor="new-project-name"
           className="block text-xs font-medium text-text-secondary mb-1"
         >
-          Project name
+          {t('project.name')}
         </label>
         <input
           ref={inputRef}
@@ -90,7 +91,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
           onChange={e => setName(e.target.value)}
           onKeyDown={handleKey}
           disabled={busy}
-          placeholder="e.g. GEO-22/040 Brugge"
+          placeholder={t('project.namePlaceholderExample')}
           data-testid="new-project-name-input"
           className="w-full border border-border-default rounded px-3 py-1.5 text-sm text-text-primary bg-surface-page placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent mb-4 disabled:bg-surface-card"
         />
@@ -102,7 +103,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -111,7 +112,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
             disabled={!name.trim() || busy}
             data-testid="new-project-submit"
           >
-            Create…
+            {t('project.createEllipsis')}
           </Button>
         </div>
       </div>
