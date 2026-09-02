@@ -248,6 +248,8 @@ function installElectronStub(): void {
     // launch, which keeps the gate 'pass' and never fetches status.
     launchFlags: { e2e: false, packaged: false },
     onMenuOpenOnboarding: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuTutorial: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuRestartTutorial: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenLicensing: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuCheckUpdates: vi.fn().mockReturnValue(noopUnsubscribe),
     onUpdaterEvent: vi.fn().mockReturnValue(noopUnsubscribe),
