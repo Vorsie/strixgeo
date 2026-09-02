@@ -43,6 +43,179 @@ export const OUTPUTS = {
   'params.sbtNormalised': 'Normalised Robertson 2015 SBT zone',
   'params.sbtNonNormalised': 'Non-normalised I_SBT zone (Robertson 2010)',
 
+  // --- Parameters stage — wired from the stage components (P6 coverage) ---
+  'params.phase5Surface':
+    'Phase-5 surface — design-ready parameters (φ′ / c′ / cu / E50 / OCR / Vs / G0 / M) populate as correlations and lookups land.',
+  'params.unknownTab': 'Unknown parameters tab',
+  // water-table provenance labels
+  'params.gwtRecorded': 'recorded',
+  'params.gwtEngineer': 'set by engineer',
+  'params.gwtEngineerShort': 'engineer',
+  'params.gwtAssumed': 'assumed',
+  'params.waterTableInvalid':
+    'Water table must be a number in metres — negative if the water is above the surface.',
+  'params.waterTableSaveFailedDetail': 'Could not save the water table — {error}',
+  'params.waterTableSaveFailed': 'Could not save the water table.',
+  'params.cptLoadFailedDetail': 'Could not load this CPT — {error}',
+  'params.cptLoadFailed': 'Could not load this CPT.',
+  'params.cptFallbackName': 'CPT',
+  'params.depthMDeep': '{depth} m deep',
+  'params.depthUnknown': 'depth unknown',
+  // depth panels
+  'params.sbtDerivationNote':
+    'SBTn normalised at water table {gwt} m ({source}) · SBT (I_SBT) needs none',
+  'params.zoneN': 'zone {n}',
+  // per-unit distribution channel row
+  'params.channelQc': 'Cone resistance',
+  'params.channelFs': 'Sleeve friction',
+  'params.channelRf': 'Friction ratio',
+  'params.channelAriaLabel':
+    '{title} distribution over this unit: median {median} {unit}, {n} samples',
+  'params.notRecordedOnCpts': 'Not recorded on the CPTs covering this unit.',
+  'params.offAxis': '{count} off axis',
+  'params.marksNotDrawn': '{marks} not drawn — spanning off-axis values',
+  'params.markWhisker': 'whisker',
+  'params.markBox': 'box',
+  'params.statMin': 'min',
+  'params.statMedian': 'median',
+  'params.statMax': 'max',
+  'params.statMean': 'mean',
+  'params.statSd': 'sd',
+  // per-unit distribution panel
+  'params.standardCptAxes': 'Standard CPT axes',
+  'params.fitAxesToData': 'Fit axes to data',
+  'params.pooledAxes': 'Pooled axes',
+  'params.bandsOfTotal': '{n} of {total} bands',
+  'params.bandCountOne': '{n} band',
+  'params.bandCountMany': '{n} bands',
+  'params.onNCpt': 'on {n} CPT',
+  'params.onNCpts': 'on {n} CPTs',
+  'params.mOfGround': ' · {thickness} m of ground',
+  'params.withoutSeries': ' · {count} without series',
+  'params.noConeInBody': 'No cone measurements in this body',
+  'params.noConeInUnit': 'No cone measurements in this unit',
+  'params.noConeBodyHint':
+    'This body has no bands on a CPT — a borehole-only body carries no cone resistance to summarise.',
+  'params.noConeUnitHint':
+    'This unit has no bands on a CPT — a borehole-only unit carries no cone resistance to summarise.',
+  'params.noConeBandsHint': 'The bands are there, but no CPT series covers them yet.',
+  'params.characterisationNote':
+    "Characterisation only — the spread of the measurements inside this unit's bands. These are not design parameters; φ′, c′, cu, E50, OCR and Vs are not derived here.",
+  // fence cutout
+  'params.whereUnitSits': 'Where this unit sits',
+  'params.fenceCutoutBlurb':
+    "The fence diagram cut down to the selected unit's walls over the basemap — a visual anchor, not an editor.",
+  'params.loading3dView': 'Loading the 3D view…',
+  'params.kindGeotech': 'geotechnical',
+  'params.kindLitho': 'lithostratigraphic',
+  'params.noModelYet': 'No {kind} model yet — the fence cutout appears once one exists.',
+  'params.assemblingFence': 'Assembling the fence…',
+  'params.noFenceWalls':
+    'No fence walls for this unit yet — connect its bands across sections and they will appear here.',
+  'params.resetCameraFrame': 'Reset the camera to frame the model',
+  // identification tests
+  'params.identificationTests': 'Identification tests',
+  'params.labTestsLoadFailedDetail': 'Could not load the lab tests for this unit — {error}',
+  'params.labTestsLoadFailed': 'Could not load the lab tests for this unit.',
+  'params.okpBlurb':
+    "Classification lab results (OKP) on the unit's borehole samples — value against elevation.",
+  'params.samplesSkippedOne': ' {n} sample skipped — collar elevation unknown.',
+  'params.samplesSkippedMany': ' {n} samples skipped — collar elevation unknown.',
+  'params.loadingIdentificationTests': 'Loading identification tests…',
+  'params.noIdentificationTests': 'No identification tests in this unit.',
+  'params.sampleSuffix': ' · sample {n}',
+  'params.idDotTooltip': '{value} {unit} · {elevation} mTAW · {borehole}{sample}',
+  'params.idPanelAriaLabel': '{label}: {n} samples against elevation',
+  // PSD panel
+  'params.grainSizeDistributions': 'Grain-size distributions',
+  'params.percentPassingParen': '(% passing)',
+  'params.curveCountOne': '{n} curve',
+  'params.curveCountMany': '{n} curves',
+  'params.psdSkipped': '{n} skipped (fewer than 2 sieve points)',
+  'params.passingPct': 'Passing (%)',
+  'params.psdAriaLabel': 'Grain-size distributions: {n} curves, % passing against diameter',
+  'params.diameterMm': 'Diameter (mm)',
+  'params.grainSizeCurveActions': 'Grain-size curve actions',
+  'params.showSampleOnSection': 'Show sample on cross-section',
+  // unit list pane
+  'params.loadingUnitRoster': 'Loading the unit roster…',
+  'params.noUnitsYet': 'No units yet',
+  'params.noUnitsHintTree':
+    'Build a lithostratigraphic model on the Lithology stage, then subdivide it on the Geotechnical stage — the tree will populate here.',
+  'params.unitsHeader': 'Units',
+  'params.orphanBandsOne': '{n} band outside the litho model',
+  'params.orphanBandsMany': '{n} bands outside the litho model',
+  'params.phase5NoteUnitList':
+    'φ′ · c′ · cu · E50 — design parameters populate in Phase 5, when the correlation + NAD-NEN lookup pipeline lands.',
+  'params.nodeBandsOne': '{n} band · {cone} with cone',
+  'params.nodeBandsMany': '{n} bands · {cone} with cone',
+  // unit statistics canvas
+  'params.unitNoLongerExists': 'This unit no longer exists',
+  'params.unitNoLongerExistsHint':
+    'It was removed or rebuilt since it was selected — pick another unit in the list.',
+  'params.lithostratigraphicUnit': 'Lithostratigraphic unit',
+  'params.geotechnicalUnit': 'Geotechnical unit',
+  'params.closeUnitStats': 'Close the unit statistics',
+  'params.loadingMeasurements': 'Loading measurements…',
+  'params.populationNote':
+    'n = {qcN} qc samples over {cptCount} {cptWord} on {sectionCount} {sectionWord} — only tests on sections pool; hidden and removed are excluded',
+  'params.cptWordSingular': 'CPT',
+  'params.cptWordPlural': 'CPTs',
+  'params.sectionWordSingular': 'section',
+  'params.sectionWordPlural': 'sections',
+  // per-test tab
+  'params.noTestsYet': 'No tests yet',
+  'params.noTestsHint':
+    "Import CPTs / boreholes on the Data stage. They'll appear here once the project has investigations.",
+  'params.colKind': 'Kind',
+  'params.colDepthM': 'Depth (m)',
+  'params.colIcBar': 'Ic̄ (Robertson 2015)',
+  'params.testCountOne': '{n} test',
+  'params.testCountMany': '{n} tests',
+  'params.perTestFooterRest':
+    " · click a CPT row to plot its depth series and soil-behaviour-type profile in the inspector on the right. Ic̄ appears once that CPT's series has been loaded.",
+  'params.designReadyParam':
+    'Design-ready parameter — populated in Phase 5 when the correlation / xlsx pipeline lands.',
+  // per-unit tab
+  'params.noUnitsHintStats':
+    'Build a lithostratigraphic model on the Lithology stage, then subdivide it on the Geotechnical stage — the units will populate here with their statistics.',
+  'params.pickUnit': 'Pick a unit',
+  'params.pickUnitHint':
+    'Click a unit in the list on the right — its qc / fs / Rf statistics draw here. Right-clicking a band in a cross-section jumps here too.',
+  // methods tab
+  'params.excelLookupsSubtitle':
+    'Table-driven values from owner-curated or project-imported spreadsheets. Hard-separated from correlations — the engineer picks ONE path per cell.',
+  'params.methodRobertsonWride': 'Robertson & Wride 1986',
+  'params.methodMayne': 'Mayne 2007',
+  'params.methodKulhawyMayne': 'Kulhawy & Mayne 2014',
+  'params.methodUzielli': 'Uzielli 2013',
+  'params.methodRobertson2015': 'Robertson 2015 / 2009',
+  'params.methodRefRobertsonWride': 'φ′ from Qtn — Robertson, P.K. & Wride, C.E. (1998)',
+  'params.methodRefMayne': 'φ′ from Qtn — Mayne, P.W. (2007)',
+  'params.methodRefKulhawyMayne': 'OCR from Qt — Kulhawy & Mayne (2014)',
+  'params.methodRefUzielli': 'φ′ probabilistic — Uzielli (2013)',
+  'params.methodRefRobertson2015': 'SBT zone + Ic — Robertson (2015), zone map (2009)',
+  'params.methodRefNadNen': 'Owner-curated; per NAD class × parameter lookup',
+  'params.methodRefXlsx': 'User-provided; loaded once per project',
+  'params.methodRefProbabilistic': 'Per-parameter μ ± σ + distribution type (Normal / Lognormal / Beta)',
+  'params.methodRefMl': 'Audit-required surface (never auto-applies — owner directive)',
+  'params.methodAppliesRobertsonWride': 'Sand units (Ic < 2.6); inputs qc, fs',
+  'params.methodAppliesMayne': 'Sand units; inputs qc, σ′v',
+  'params.methodAppliesKulhawyMayne': 'Clay units (Ic > 2.6); inputs qc, σv, σ′v',
+  'params.methodAppliesUzielli': 'Sand units; emits μ + σ rather than a scalar',
+  'params.methodAppliesRobertson2015': 'All units; segmenter already uses this path (port complete)',
+  'params.methodAppliesNadNen': 'Sand + fines NAD classes 1–31; primary v1.0 lookup source',
+  'params.methodAppliesXlsx': 'Overrides the NAD-NEN defaults when the engineer ships their own table',
+  'params.methodAppliesProbabilistic':
+    'Downstream probabilistic design (D-Stability Probabilistic Toolkit, Plaxis statistics export)',
+  'params.methodAppliesMl':
+    'Side-by-side comparison vs correlation / xlsx choice; flagged when the prediction diverges',
+  'params.phase5Placeholder': 'Phase 5 placeholder',
+  'params.methodsStatusPre': 'Status: all cards above are ',
+  'params.methodsStatusBold': 'structural skeletons',
+  'params.methodsStatusPost':
+    ' for Phase 5. Surfacing the three-pillar architecture today keeps the design decisions visible — push back on the shape (which methods, which xlsx sources, the hard-separation rule) BEFORE the Phase-5 implementation budget commits.',
+
   // -------------------------------------------------------------------------
   // export stage.
   // -------------------------------------------------------------------------
@@ -78,4 +251,30 @@ export const OUTPUTS = {
   'export.reportNotesLabel': 'Notes',
   'export.reportGenerating': 'Generating…',
   'export.reportGeneratePdf': 'Generate PDF',
+
+  // --- export stage canvas + fence DXF + shared 3D view (P6 coverage) ---
+  'export.heading': 'Export',
+  'export.canvasBlurb':
+    'Hand the ground model off to a downstream design tool. Layer geometry is the integration unit — per-layer parameters are set in the destination tool.',
+  'export.guidanceNoModelPre':
+    'No active geological model. Define formations and place contacts in the ',
+  'export.guidanceNoModelPost': ' stage first.',
+  'export.guidanceNoSectionsPre': 'No cross-sections yet. Create one in the ',
+  'export.guidanceNoSectionsPost': ' stage.',
+  'export.exporting': 'Exporting…',
+  'export.exportDxf': 'Export DXF',
+  'export.exportPlaxis2d': 'Export Plaxis 2D',
+  'export.exportPlaxis3d': 'Export Plaxis 3D',
+  'export.fenceNothingToExport':
+    'Nothing to export — switch the 3-D view to Fence and make sure the fence has walls.',
+  'export.fenceExported': 'Fence diagram exported — {count} panels.',
+  'export.fenceIncompleteOne':
+    '{n} cross-section could not load its correlations — the fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
+  'export.fenceIncompleteMany':
+    '{n} cross-sections could not load their correlations — the fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
+  'export.viewLabel': 'View',
+  'export.viewSolid': 'Solid',
+  'export.viewFence': 'Fence',
+  'export.viewWireframe': 'Wireframe',
+  'export.viewWireframeTitle': 'Show the body model as wireframe',
 } as const
