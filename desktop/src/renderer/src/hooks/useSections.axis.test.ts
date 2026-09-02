@@ -200,3 +200,47 @@ describe('useSections axis routing (slice 2, #55)', () => {
     )
   })
 })
+
+// ---------------------------------------------------------------------------
+// #156 — "Edit in Geology stage" deep-link axis override.
+//
+// The deep-link fires from the LITHO axis (the user right-clicked a geological
+// backdrop contact there) but hands handleFocusContacts a GEOLOGICAL contact
+// id. With the plain axis-gate (A2/A3 above) that lookup searches lithoContacts
+// and misses → the "Couldn't find the contact" toast (the twin toasts the owner
+// saw in the 2026-05-28 dogfeed). The fix is an explicit axis override: the
+// caller states the axis the contact id belongs to, so the geological contact
+// resolves regardless of which axis the section is currently showing. This is
+// the DELIBERATE exception to the A2/A3 axis-gate, not a removal of it.
+// ---------------------------------------------------------------------------
+
+describe('useSections handleFocusContacts axis override (#156)', () => {
+  it('DL1 — resolves a geological contact via an explicit geological override while the litho axis is active (no "couldn\'t find" toast)', () => {
+    const geoContact = makeContact('geo-c1')
+    const lithoContact = makeContact('litho-c1')
+    const { args, toast } = makeArgs({
+      contacts: [geoContact],
+      lithoContacts: [lithoContact],
+    })
+
+    const { result } = renderHook(() => useSections(args))
+
+    // The user is on the litho axis (the axis "Edit in Geology stage" fires from).
+    act(() => {
+      result.current.setSectionModelAxis('lithostratigraphic')
+    })
+    expect(result.current.sectionModelAxis).toBe('lithostratigraphic')
+
+    // Focus the geological contact, but state that it lives on the GEOLOGICAL
+    // axis via the third argument. It must be FOUND (in `contacts`) despite the
+    // litho axis being active, so the "couldn't find" toast must NOT fire.
+    act(() => {
+      result.current.handleFocusContacts(['geo-c1'], undefined, 'geological')
+    })
+
+    expect(toast).not.toHaveBeenCalledWith(
+      'error',
+      "Couldn't find the contact in the current project.",
+    )
+  })
+})
