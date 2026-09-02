@@ -72,12 +72,16 @@ from geolib.models.dsheetpiling.settings import (
 )
 from geolib.models.dsheetpiling.surface import Surface
 from geolib.models.dsheetpiling.water_level import WaterLevel
-from geolib.soils import Soil
+from geolib.soils import MohrCoulombParameters, Soil, SoilWeightParameters
 
 from groundmodel.application.section_polygon_set import (
     SectionPolygon,
     SectionPolygonSet,
     SectionPolygonUnit,
+)
+from groundmodel.domain.services.nad_soil_parameters_constants import (
+    SOURCE_LABEL,
+    NadSoilParameters,
 )
 from groundmodel.infrastructure.exporters.ascii_fold import ascii_fold
 from groundmodel.infrastructure.exporters.dsheet_piling_exporter_constants import (
@@ -89,11 +93,15 @@ from groundmodel.infrastructure.exporters.dsheet_piling_exporter_constants impor
     RUN_IDENTIFICATION_LINES,
     RUN_LINE_MISSING_INPUTS,
     RUN_LINE_PARAMETERS,
+    RUN_LINE_PARAMETERS_FROM_TABLE,
     RUN_LINE_PROVENANCE,
     STAGE_NAME,
     SURFACE_NAME,
     TODO_WATER_LEVEL_M,
     TODO_WATER_LEVEL_NAME,
+)
+from groundmodel.infrastructure.exporters.nad_soil_parameter_lookup import (
+    soil_parameters_for_unit,
 )
 from groundmodel.infrastructure.exporters.section_geometry_exporter import (
     SectionGeometryExporter,
@@ -182,8 +190,8 @@ class DSheetPilingExporter(SectionGeometryExporter):
             )
 
         ground_level_m = stack[0][0]
-        model = self._build_model(polygons, stack, labels, ground_level_m)
-        self._stamp_run_identification(model, polygons, fraction, along_m)
+        model, parameterised = self._build_model(polygons, stack, labels, ground_level_m)
+        self._stamp_run_identification(model, polygons, fraction, along_m, parameterised)
 
         buffer = BytesIO()
         model.serialize(buffer)
@@ -203,21 +211,49 @@ class DSheetPilingExporter(SectionGeometryExporter):
         stack: list[tuple[float, UUID, float]],
         labels: dict[UUID, str],
         ground_level_m: float,
-    ) -> DSheetPilingModel:
-        """Assemble the GEOLib model: soils, one stage, the profile, the surface."""
+    ) -> tuple[DSheetPilingModel, int]:
+        """Assemble the GEOLib model; return it with the count of parameterised soils.
+
+        Returns
+        -------
+        tuple[DSheetPilingModel, int]
+            The model and how many soils carried NAD-table parameters. The
+            count drives the ``[RUN IDENTIFICATION]`` provenance line — when it
+            is zero the file keeps the parameters-at-defaults TODO.
+        """
         model = DSheetPilingModel()
         model.set_model(SheetModelType(method=LateralEarthPressureMethod.KA_KO_KP))
 
         unit_by_id = {unit.formation_id: unit for unit in polygons.units}
+        parameterised = 0
+        soil_count = 0
         for formation_id in dict.fromkeys(entry[1] for entry in stack):
             unit = unit_by_id[formation_id]
-            model.add_soil(Soil(name=labels[formation_id], code=labels[formation_id]))
-            self.debug(
-                f"D-Sheet Piling soil added: name='{labels[formation_id]}' "
-                f"strix='{unit.name}' nad_class={unit.nad_class} "
-                f"soil={unit.litho_main_soil_code} "
-                "(strength / stiffness / unit weight left at D-Sheet defaults)"
-            )
+            params = soil_parameters_for_unit(unit)
+            model.add_soil(_build_soil(labels[formation_id], params))
+            soil_count += 1
+            if params is not None:
+                parameterised += 1
+                self.debug(
+                    f"D-Sheet Piling soil added: name='{labels[formation_id]}' "
+                    f"strix='{unit.name}' nad_class={unit.nad_class} "
+                    f"soil={unit.litho_main_soil_code} parameters=NAD Tabel 2.b "
+                    f"(gamma_unsat={params.gamma_unsat_kn_m3} "
+                    f"gamma_sat={params.gamma_sat_kn_m3} phi={params.phi_deg} "
+                    f"c={params.c_kpa})"
+                )
+            else:
+                self.debug(
+                    f"D-Sheet Piling soil added: name='{labels[formation_id]}' "
+                    f"strix='{unit.name}' nad_class={unit.nad_class} "
+                    f"soil={unit.litho_main_soil_code} "
+                    "(strength / stiffness / unit weight left at D-Sheet defaults)"
+                )
+        self.info(
+            f"D-Sheet Piling soil parameters: {parameterised}/{soil_count} soil(s) "
+            f"carried NAD Tabel 2.b characteristic values, {soil_count - parameterised} "
+            "left at D-Sheet's blank defaults"
+        )
 
         stage_id = model.add_stage(
             name=STAGE_NAME,
@@ -253,7 +289,7 @@ class DSheetPilingExporter(SectionGeometryExporter):
             f"[WATERLEVELS] block carries GEOLib's own {TODO_WATER_LEVEL_M:.2f} "
             f"placeholder named '{TODO_WATER_LEVEL_NAME}', which the engineer must set"
         )
-        return model
+        return model, parameterised
 
     def _stamp_run_identification(
         self,
@@ -261,14 +297,28 @@ class DSheetPilingExporter(SectionGeometryExporter):
         polygons: SectionPolygonSet,
         fraction: float,
         along_m: float,
+        parameterised: int,
     ) -> None:
-        """Write the provenance + TODO lines into the ``.shi``, within budget."""
+        """Write the provenance + TODO lines into the ``.shi``, within budget.
+
+        When ``parameterised`` is non-zero, line 3 names the NAD table the
+        parameters came from (D-Sheet's ``[SOIL]`` block has no per-soil
+        free-text field, so this block is where their provenance is stated);
+        otherwise it keeps the parameters-at-defaults TODO.
+        """
         # ASCII-folded: the .shi is cp1252, but every reader picks its own
         # encoding — GEOLib's own parser opens it with the ambient locale, so a
         # section named "A–A'" (EN DASH, cp1252 byte 0x96) parses on Windows
         # and dies with UnicodeDecodeError anywhere UTF-8 is the default.
         # Found by CI on Linux, Actions run 33135927403. These are free-text
-        # provenance labels, so folding them costs nothing a reader needs.
+        # provenance labels, so folding them costs nothing a reader needs. The
+        # SOURCE_LABEL carries an em dash, so it too is folded to stay ASCII.
+        if parameterised:
+            parameters_line = RUN_LINE_PARAMETERS_FROM_TABLE.format(
+                source_label=ascii_fold(SOURCE_LABEL)
+            )
+        else:
+            parameters_line = RUN_LINE_PARAMETERS
         lines = (
             RUN_LINE_PROVENANCE.format(
                 project_name=ascii_fold(polygons.project_name),
@@ -278,7 +328,7 @@ class DSheetPilingExporter(SectionGeometryExporter):
                 datum=ascii_fold(polygons.vertical_datum_label),
             ),
             RUN_LINE_MISSING_INPUTS.format(water_level_name=TODO_WATER_LEVEL_NAME),
-            RUN_LINE_PARAMETERS,
+            parameters_line,
         )
         if len(lines) != RUN_IDENTIFICATION_LINES:
             # A fourth line lands in the file and is never shown to the
@@ -371,6 +421,42 @@ class DSheetPilingExporter(SectionGeometryExporter):
             f"{len(polygons)} region(s) -> {len(merged)} layer(s)"
         )
         return merged
+
+
+def _build_soil(label: str, params: NadSoilParameters | None) -> Soil:
+    """Build a D-Sheet soil for a profile layer, with NAD parameters when present.
+
+    Parameters
+    ----------
+    label : str
+        The unique export label; it is both the soil ``name`` and ``code``
+        because D-Sheet references a profile layer's soil by name.
+    params : NadSoilParameters | None
+        Characteristic parameters for the unit's NAD class, or ``None`` when
+        the class is not in the table. When ``None`` the soil carries no
+        parameters — GEOLib leaves its own blank initial values (0.01 kN/m³
+        unit weight, cohesion / phi 0) — never an invented default.
+
+    Returns
+    -------
+    Soil
+        A GEOLib soil whose cohesion, friction angle and both unit weights map
+        onto D-Sheet's ``SoilCohesion`` / ``SoilPhi`` / ``SoilGamDry`` /
+        ``SoilGamWet`` when parameterised.
+    """
+    if params is None:
+        return Soil(name=label, code=label)
+    return Soil(
+        name=label,
+        code=label,
+        mohr_coulomb_parameters=MohrCoulombParameters(
+            cohesion=params.c_kpa, friction_angle=params.phi_deg
+        ),
+        soil_weight_parameters=SoilWeightParameters(
+            unsaturated_weight=params.gamma_unsat_kn_m3,
+            saturated_weight=params.gamma_sat_kn_m3,
+        ),
+    )
 
 
 def _merge_runs(stack: list[tuple[float, UUID, float]]) -> list[tuple[float, UUID, float]]:
