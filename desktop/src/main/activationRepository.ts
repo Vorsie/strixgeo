@@ -85,6 +85,41 @@ export interface ActivationRepository {
   deactivate(deviceId: string): Promise<void>
 }
 
+/**
+ * A refused {@link ActivationRepository.deactivate}, carrying the server's answer.
+ *
+ * ``deactivate`` returns ``Promise<void>`` — its success IS the resolve — so a
+ * refusal has to travel as a THROW. This typed error lets the orchestration layer
+ * ({@link ../activationService}) branch on the HTTP status WITHOUT importing the
+ * concrete HTTP implementation, keeping the seam intact:
+ *
+ * * ``status === 404`` — the server holds no binding for this device; it is
+ *   already released there, so the transfer is effectively done and the LOCAL
+ *   licence is cleared too.
+ * * any other status (e.g. ``401``), and ``status === null`` for a network
+ *   failure / timeout — the seat may still be held on the server, so the local
+ *   licence is KEPT and the failure surfaced; an offline deactivate must fail
+ *   loudly rather than strand the seat half-transferred (contract §6).
+ */
+export class DeactivateFailedError extends Error {
+  /** HTTP status of the refusal, or ``null`` for a network failure / timeout. */
+  readonly status: number | null
+
+  /**
+   * Parameters
+   * ----------
+   * status : number | null
+   *     The HTTP status, or ``null`` when no answer came back.
+   * message : string
+   *     A key-free, human-readable detail for logs (never the licence key).
+   */
+  constructor(status: number | null, message: string) {
+    super(message)
+    this.name = 'DeactivateFailedError'
+    this.status = status
+  }
+}
+
 /** Per-tier device cap. Ruling 15 fixes Solo at 1; the rest are prototype guesses. */
 export const DEVICE_CAP_BY_TIER: Readonly<Record<LicenceTier, number>> = {
   solo: 1,
