@@ -26,6 +26,7 @@ import { useEffect, useRef } from 'react'
 import type { GeotechBandEditPlanResponse } from '../../api/client'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT, type Translator } from '../../i18n/translate'
 
 /** Props for the split / merge consequence sheet. */
 export interface Props {
@@ -47,8 +48,10 @@ function depthRange(topM: number, baseM: number): string {
 }
 
 /** Render a NAD class for display, naming the null case rather than showing a blank. */
-function classLabel(nadClass: number | null): string {
-  return nadClass === null ? 'needs review' : `class ${nadClass}`
+function classLabel(nadClass: number | null, t: Translator): string {
+  return nadClass === null
+    ? t('sections.bandDialog.needsReview')
+    : t('sections.bandDialog.classLabel', { n: nadClass })
 }
 
 /**
@@ -71,10 +74,15 @@ export default function GeotechBandEditDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   const confirmRef = useRef<HTMLButtonElement>(null)
   const isMerge = plan.kind === 'merge'
   const isMove = plan.kind === 'move'
-  const verb = isMove ? 'Move boundary' : isMerge ? 'Merge bands' : 'Split band'
+  const verb = isMove
+    ? t('sections.bandDialog.verbMove')
+    : isMerge
+      ? t('sections.bandDialog.verbMerge')
+      : t('sections.bandDialog.verbSplit')
   // Ruling 6 under ruling 7: once the model's statistic is not the default,
   // the sheet names it — a number labelled bare "representative qc" would
   // read as the median it no longer is.
@@ -105,15 +113,15 @@ export default function GeotechBandEditDialog({
           className="text-base font-semibold text-text-primary mb-1"
         >
           {isMove
-            ? 'Move this packing boundary?'
+            ? t('sections.bandDialog.moveTitle')
             : isMerge
-              ? 'Merge these packing bands?'
-              : 'Split this packing band?'}
+              ? t('sections.bandDialog.mergeTitle')
+              : t('sections.bandDialog.splitTitle')}
         </h2>
         <p className="text-xs text-text-secondary mb-4">
-          The packing class is re-derived from the cone resistance over each resulting
-          interval, inside the litho body at {depthRange(plan.parent_top_m, plan.parent_base_m)}.
-          Only this column re-derives.
+          {t('sections.bandDialog.rederiveBlurb', {
+            range: depthRange(plan.parent_top_m, plan.parent_base_m),
+          })}
         </p>
 
         <ul className="mb-4 space-y-1.5">
@@ -130,18 +138,23 @@ export default function GeotechBandEditDialog({
                 <span>
                   {interval.class_changed ? (
                     <>
-                      {classLabel(interval.previous_nad_class)}
+                      {classLabel(interval.previous_nad_class, t)}
                       {' → '}
-                      <span className="font-semibold">{classLabel(interval.nad_class)}</span>
+                      <span className="font-semibold">{classLabel(interval.nad_class, t)}</span>
                     </>
                   ) : (
-                    <>{classLabel(interval.nad_class)} (unchanged)</>
+                    <>
+                      {classLabel(interval.nad_class, t)} {t('sections.bandDialog.unchanged')}
+                    </>
                   )}
                 </span>
               </div>
               {interval.median_qc_mpa !== null && (
                 <div className="text-text-secondary mt-0.5">
-                  Representative qc{statisticLabel} {interval.median_qc_mpa.toFixed(1)} MPa
+                  {t('sections.bandDialog.representativeQc', {
+                    statistic: statisticLabel,
+                    value: interval.median_qc_mpa.toFixed(1),
+                  })}
                 </div>
               )}
               {interval.unclassifiable_reason !== null && (
@@ -170,14 +183,13 @@ export default function GeotechBandEditDialog({
             data-testid="geotech-band-edit-no-consequence"
             className="text-xs text-text-secondary mb-4"
           >
-            The cone resistance gives the same packing class either way — this edit changes the
-            boundary, not the classification.
+            {t('sections.bandDialog.sameClass')}
           </p>
         )}
 
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="md" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           {/* Never disabled on warnings. Ruling 5: the owner can place a boundary the qc
               does not support, having been told what it costs. */}
