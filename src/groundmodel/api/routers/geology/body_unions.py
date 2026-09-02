@@ -7,26 +7,34 @@ package __init__; paths extend to:
   GET    /projects/{pid}/geology/models/{mid}/body-unions
   DELETE /projects/{pid}/geology/models/{mid}/body-unions/{union_id}
 
-Owner ruling 2026-08-31: a "Join with…" verb, the counterpart to Separate, so the
-engineer can state "this body IS the same as that body" and have the resolver
-honour it. A union is a must-link constraint in LAYER-id space; the resolver reads
-it and merges the two anchors even when no edge connects them.
+Owner ruling 2026-09-02 (his words): *"Grouping is just for lumping things that are
+similar together, so we have more data and maybe we have less export classes. E.g.
+in an export it then becomes group 3 (silt FF)."* A "Join with…" is therefore a
+**GROUP** relation, NOT a merge: the two bodies KEEP their separate body ids (body
+identity is geometry-only), and the union row simply records that they belong to
+one group so exports can pool them and the units pane can tag them "(group N)".
+Because a group can span two different litho bodies, merging would lose provenance
+— *"the only way to group those is add a label"*. The row is stored in LAYER-id
+space (it re-anchors across a re-subdivide); the resolver IGNORES it for identity
+(it never changes a ``body_id``), and the grouping is resolved client-side
+(``geotechGroupOrdinals``).
 
-One guard is enforced at WRITE time so a bad union never reaches the table:
+One guard is enforced at WRITE time so a bad group never reaches the table:
 
-* **Never a mixed body** (``body_union_cross_class``, 422): the two anchors must
-  describe one mass — the SAME ``same_mass`` predicate the resolver applies to
-  an edge, reused here so the write guard cannot diverge from the resolve.
+* **Never a mixed group** (``body_union_cross_class``, 422): the two anchors must
+  describe one mass — a group is "things that are similar", i.e. the SAME soil and
+  NAD class. Reuses the resolver's ``same_mass`` predicate so the write guard
+  matches the notion of similarity the edge loop applies to a merge.
 
 Owner 2026-09-01: the Separate / Rejoin verbs were removed and ``body_separation``
 is DORMANT, so the former cannot-link pre-check (``body_union_contradicts_separation``,
-422) was deleted — a leftover separation row must never refuse a Join. The
-resolver ignores ``separations`` too, so a union always unions.
+422) was deleted — a leftover separation row must never refuse a Join.
 
-Both write endpoints run the body resolver in the SAME request, under the model's
-body-partition lock, so the merge (or split) is durable even if the frontend dies
-right after the call — the reversible-verb rule (fire, provide an undo path) is
-satisfied by DELETE, which is the Disjoin.
+Both write endpoints still run the body resolver in the SAME request, under the
+model's body-partition lock — now a no-op for identity (a group changes no
+``body_id``), but harmless and kept so the response carries a live re-resolve diff.
+The reversible-verb rule (fire, provide an undo path) is satisfied by DELETE, which
+is the Disjoin (ungroup).
 
 Idempotency contract:
   POST   -> 201 when a new union was created; 200 when it already existed
@@ -121,7 +129,7 @@ def _anchor_node(row: object, *, is_geotechnical: bool) -> LayerNode:
     "/models/{model_id}/body-unions",
     response_model=BodyUnionResponse,
     status_code=status.HTTP_201_CREATED,
-    summary='Join two bodies — "these ARE the same body" (debt #278)',
+    summary='Group two bodies — "these are similar, lump them" (debt #278)',
 )
 async def create_body_union(
     project_id: UUID,
@@ -129,13 +137,15 @@ async def create_body_union(
     body: CreateBodyUnionRequest,
     session: AsyncSession = Depends(get_session),
 ) -> BodyUnionResponse:
-    """Record that two bodies ARE one body, then re-resolve.
+    """Record that two bodies belong to one GROUP, then re-resolve.
 
-    Validates that both anchors are ACCEPTED layers of this model, that the two
-    describe one mass (never a mixed body), and that no standing separation
-    forbids the merge; then canonicalises the pair, inserts the union (idempotent
-    on the unique constraint), and re-runs the body resolver in the same request
-    under the model's body-partition lock so the merge is durable.
+    A Join is a GROUP relation, not a merge (owner 2026-09-02): both bodies KEEP
+    their separate body ids. Validates that both anchors are ACCEPTED layers of
+    this model and that the two describe one mass (a group is "things that are
+    similar" — same soil + class, never a mixed group); then canonicalises the
+    pair and inserts the union (idempotent on the unique constraint). The body
+    resolver is still re-run in the same request under the model's body-partition
+    lock, but it is now a no-op for identity (grouping changes no ``body_id``).
 
     Returns **201** when a new union is inserted; **200** when it already existed
     (reversible verb — a duplicate is not a conflict).
@@ -160,9 +170,9 @@ async def create_body_union(
         When the model does not exist or does not belong to ``project_id``.
     422
         When the two anchors are not both accepted layers of this model
-        (``body_union_invalid_anchor``); when they would make a mixed body
-        (``body_union_cross_class``); or when a standing separation forbids the
-        merge (``body_union_contradicts_separation``).
+        (``body_union_invalid_anchor``); or when they are not "things that are
+        similar" — a different soil or NAD class, which would make a mixed group
+        (``body_union_cross_class``).
     """
     repo = GeologyRepository(session)
     model = await get_in_project_or_404(
@@ -202,9 +212,9 @@ async def create_body_union(
             },
         )
 
-    # Never a mixed body: the two anchors must be ONE mass. Reuse the resolver's
-    # own ``same_mass`` so this write guard cannot diverge from the resolve — a
-    # union the router accepts is a union the resolver will actually apply.
+    # Never a mixed group: a group is "things that are similar", so the two anchors
+    # must be ONE mass (same soil + class). Reuse the resolver's own ``same_mass``
+    # so this write guard matches the similarity notion the edge loop applies.
     is_geotechnical = model.kind == MODEL_KIND_GEOTECHNICAL
     row_a, row_b = by_id[layer_a_id], by_id[layer_b_id]
     if not same_mass(
@@ -216,8 +226,8 @@ async def create_body_union(
             detail={
                 "code": "body_union_cross_class",
                 "message": (
-                    "The two bodies are different masses and cannot be joined into one — "
-                    "a body is a single soil and packing class."
+                    "The two bodies are different masses and cannot be grouped — "
+                    "a group is a single soil and packing class."
                 ),
                 "soil_a": row_a.litho_main_soil_code,
                 "soil_b": row_b.litho_main_soil_code,
@@ -249,8 +259,9 @@ async def create_body_union(
     ).scalar_one_or_none()
 
     if existing is not None:
-        # Reversible verb: the union already stands, so the partition already
-        # reflects it — no resolve needed, just release the lock.
+        # Reversible verb: the group already stands (this canonical pair is already
+        # a body_union row), so there is nothing to change — no resolve needed, just
+        # release the lock and return the existing row.
         union_id = existing.id
         was_created = False
         bodies_changed = 0
@@ -273,23 +284,25 @@ async def create_body_union(
         await session.flush()
         union_id = union.id
         was_created = True
-        # The resolver reads the just-flushed union and re-partitions the bodies,
-        # committing this request's transaction (insert + re-resolve). A Join changes
-        # body IDENTITY (grouping), NOT the voxel geometry or any voxel's packing
-        # class, so the cached 3-D solids stay valid — ``stale_solids=False`` keeps
-        # the join from falsely staling the 3-D model (owner 2026-09-01, D3).
+        # Re-run the resolver, committing this request's transaction (insert +
+        # re-resolve). Since owner 2026-09-02 a Join is a GROUP relation: it does
+        # NOT change any ``body_id`` (the resolver ignores the just-inserted row),
+        # so this resolve is a no-op for identity — ``bodies_changed`` will normally
+        # be 0. It is kept so the response carries a live diff and the insert
+        # commits in one transaction. ``stale_solids=False`` also holds: grouping
+        # never touches voxel geometry or packing class, so the cached 3-D solids
+        # stay valid (owner 2026-09-01, D3).
         result = await ResolveLithoInstances(session).execute(
             model_id=model_id, commit=True, stale_solids=False
         )
         bodies_changed = len(result.updated)
         renamed = result.renamed
-        # Surface the resolver's ground truth for THIS pair: the write-time
-        # cross-class guard refuses an inert join with a 422, so ``inert`` is the
-        # backstop for the case it cannot see (an anchor whose body_id was not
-        # stamped when the guard ran). Without it a join that did nothing reads as
-        # ``was_created: true, bodies_changed: 0``. ``suppressed`` is now always
-        # False — separations are dormant (owner 2026-09-01), so the resolver never
-        # suppresses a union — but the field is kept as a defensive backstop.
+        # ``suppressed`` / ``inert`` are now ALWAYS False: a group never enters the
+        # partition, so the resolver never marks it inert or suppressed (both tuples
+        # are always empty since owner 2026-09-02). The write-time cross-class guard
+        # above already refuses a dissimilar pair 422, so a persisted group is
+        # always a valid group. The two fields are kept as defensive backstops on
+        # the response schema.
         pair = (layer_a_id, layer_b_id)
         suppressed = pair in result.suppressed_unions
         inert = pair in result.inert_unions
@@ -434,12 +447,13 @@ async def delete_body_union(
     union_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> BodyUnionDisjoinResponse:
-    """Delete one union and re-run the resolver — the Disjoin.
+    """Delete one union and re-run the resolver — the Disjoin (ungroup).
 
-    Lifting the must-link lets the two anchors fall back to whatever ties /
-    geometry facts connect them; where none do, they split. Runs under the
-    model's body-partition lock and re-resolves in the same request so the split
-    is durable.
+    A Join is a GROUP relation (owner 2026-09-02), so deleting it simply drops the
+    grouping — the two bodies were already distinct (identity is geometry-only), and
+    the client's group ordinals recompute without them. Runs under the model's
+    body-partition lock and re-resolves in the same request (a no-op for identity)
+    so the delete commits with a live diff.
 
     Parameters
     ----------
@@ -486,9 +500,10 @@ async def delete_body_union(
 
     await session.delete(union)
     await session.flush()
-    # Un-join re-splits body IDENTITY, not geometry — the voxel model is unchanged,
-    # so the cached 3-D solids stay valid (``stale_solids=False``, owner 2026-09-01,
-    # D3). The split shows in the 2-D fill + fence, which re-group from live layers.
+    # Ungroup changes no body IDENTITY (a group never merged anything) and no
+    # geometry, so the cached 3-D solids stay valid (``stale_solids=False``, owner
+    # 2026-09-01, D3). The re-resolve is a no-op for identity, kept so the delete
+    # commits with a live diff; the ungroup shows client-side (geotechGroupOrdinals).
     result = await ResolveLithoInstances(session).execute(
         model_id=model_id, commit=True, stale_solids=False
     )
