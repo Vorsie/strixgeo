@@ -50,7 +50,6 @@ export interface TailToolbarItemsDeps {
   acceptingAllTies: boolean
   exportingDxf: boolean
   exportingPlaxis: boolean
-  exportingPdf: boolean
   geoVerbDisabled: boolean
   geoVerbHint: string | null
   activeGeologicalModel: GeologicalModelResponse | null
@@ -58,7 +57,7 @@ export interface TailToolbarItemsDeps {
   recomputingBodies: boolean
   recomputeModelId: string | null
   setAcceptingAllTies: (accepting: boolean) => void
-  setPdfDialogOpen: (open: boolean) => void
+  setSheetDialogOpen: (open: boolean) => void
   handleNew: () => Promise<void>
   handleDelete: () => void
   handleExportDxf: () => Promise<void>
@@ -102,7 +101,6 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
     acceptingAllTies,
     exportingDxf,
     exportingPlaxis,
-    exportingPdf,
     geoVerbDisabled,
     geoVerbHint,
     activeGeologicalModel,
@@ -110,7 +108,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
     recomputingBodies,
     recomputeModelId,
     setAcceptingAllTies,
-    setPdfDialogOpen,
+    setSheetDialogOpen,
     handleNew,
     handleDelete,
     handleExportDxf,
@@ -179,19 +177,18 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
             testid: 'export-plaxis-3d',
           },
           {
-            // Debt #52 slice 1: section PDF report.
-            label: exportingPdf ? t('sections.export.generatingPdf') : t('sections.export.sectionPdf'),
+            // Debt #52 slice 1: the cross-section PDF sheet — opens the live
+            // preview dialog (SheetPreviewDialog), which owns the print flow.
+            label: t('sections.export.sectionPdf'),
             icon: <FileText size={12} />,
-            onClick: () => setPdfDialogOpen(true),
-            disabled: !hasSection || !hasModel || exportingPdf,
+            onClick: () => setSheetDialogOpen(true),
+            disabled: !hasSection || !hasModel,
             title:
               !hasSection
                 ? t('sections.export.selectSection')
                 : !hasModel
                   ? t('sections.export.noModelDefine', { level: axisLevelLabel })
-                  : exportingPdf
-                    ? t('sections.export.generatingPdf')
-                    : t('sections.export.pdfTitle', { level: axisLevelLabel }),
+                  : t('sections.export.pdfTitle', { level: axisLevelLabel }),
             testid: 'export-section-pdf',
           },
           ...dseriesExportItems,
