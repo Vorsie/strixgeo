@@ -192,7 +192,6 @@ export default function SectionsToolbar(): JSX.Element {
       selectedId,
       selectedBoreholeId,
       handleExportSectionDxf,
-      handleExportSectionPdf,
       // Slice 5: mutation verbs bump the mutated axis's body-identity recompute.
       requestBodyRecompute,
     },
@@ -479,13 +478,10 @@ export default function SectionsToolbar(): JSX.Element {
   const {
     exportingDxf,
     exportingPlaxis,
-    exportingPdf,
-    pdfDialogOpen,
-    setPdfDialogOpen,
-    pdfDefaultTitle,
+    sheetDialogOpen,
+    setSheetDialogOpen,
     handleExportDxf,
     handleExportPlaxis,
-    handleExportPdf,
     dseriesExportItems,
   } = useSectionExportVerbs({
     isLitho,
@@ -497,7 +493,6 @@ export default function SectionsToolbar(): JSX.Element {
     project,
     axisLevelLabel,
     handleExportSectionDxf,
-    handleExportSectionPdf,
     handleExportModelPlaxis3d,
   })
   // Litho Suggest / Accept verbs (focused-anchor derivation, ghost counts,
@@ -888,7 +883,6 @@ export default function SectionsToolbar(): JSX.Element {
     acceptingAllTies,
     exportingDxf,
     exportingPlaxis,
-    exportingPdf,
     geoVerbDisabled,
     geoVerbHint,
     activeGeologicalModel,
@@ -896,7 +890,7 @@ export default function SectionsToolbar(): JSX.Element {
     recomputingBodies,
     recomputeModelId,
     setAcceptingAllTies,
-    setPdfDialogOpen,
+    setSheetDialogOpen,
     handleNew,
     handleDelete,
     handleExportDxf,
@@ -921,11 +915,10 @@ export default function SectionsToolbar(): JSX.Element {
         overflowMenuLabel={t('sections.moreActions')}
       />
       <SectionsToolbarDialogs
-        pdfDialogOpen={pdfDialogOpen}
-        pdfDefaultTitle={pdfDefaultTitle}
-        exportingPdf={exportingPdf}
-        onExportPdf={handleExportPdf}
-        onPdfCancel={() => setPdfDialogOpen(false)}
+        sheetDialogOpen={sheetDialogOpen}
+        onSheetClose={() => setSheetDialogOpen(false)}
+        sheetIsGeotech={isGeotech}
+        sheetHasGeotechModel={activeGeotechModel !== null}
         deleteConfirmOpen={deleteConfirmOpen}
         deleting={deleting}
         selectedSection={selectedSection}
