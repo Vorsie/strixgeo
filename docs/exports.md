@@ -53,7 +53,7 @@ the datum, the axis definition and the parameters-not-exported
 disclaimer.
 
 **Design parameters are written only when the NAD table carries the
-unit's class** (see "NAD soil parameters" below). By default that table
+unit's class** (see "NAD soil parameters" below). When that table
 has no row for the class, cohesion, friction angle and both unit weights stay at
 GEOLib's initial **zero** — chosen over a plausible default precisely
 because a zero cannot be mistaken for a value Strix stood behind. When a
