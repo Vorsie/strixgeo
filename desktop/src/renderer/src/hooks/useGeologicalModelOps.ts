@@ -38,6 +38,7 @@ import type {
 import type { StratigraphyLumping } from '../utils/projectFile'
 import type { UndoCommand } from './useUndoStack'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 
 /** Inputs for {@link useGeologicalModelOps}. */
 export interface UseGeologicalModelOpsParams {
@@ -286,33 +287,29 @@ export function useGeologicalModelOps({
         // minted. Surface that count so the dropped borehole data isn't
         // silent — the engineer adds the formation in the Geology stage
         // ("Fill from boreholes") if they want it on the section.
-        const notInModelSuffix =
+        const skippedFragment =
           notInModel > 0
-            ? ` ${notInModel} layer${notInModel === 1 ? '' : 's'} skipped` +
-              ' — formation not in your model.'
+            ? notInModel === 1
+              ? t('geology.seedSkippedFragmentOne', { n: notInModel })
+              : t('geology.seedSkippedFragmentMany', { n: notInModel })
             : ''
         if (created > 0) {
           toast(
             'success',
-            `Seeded ${created} contacts.` + notInModelSuffix,
+            notInModel > 0
+              ? t('geology.seededContactsSkipped', { created, skipped: skippedFragment })
+              : t('geology.seededContacts', { created }),
           )
         } else if (outcome.skipped_no_stratigraphy === boreholeIds.length) {
-          toast(
-            'error',
-            'No boreholes on this section carry stratigraphy data.',
-          )
+          toast('error', t('geology.noStratigraphyOnSection'))
         } else if (notInModel > 0) {
           // Not an error — expected when the corridor's boreholes carry
           // formations the user chose not to curate. 'success' tone keeps
           // parity with the "Already in sync" message below (toast only
           // has success/error).
-          toast(
-            'success',
-            `Nothing seeded —${notInModelSuffix} Add it in the Geology ` +
-              'stage to place it here.',
-          )
+          toast('success', t('geology.nothingSeeded', { skipped: skippedFragment }))
         } else if (skipped > 0) {
-          toast('success', 'Already in sync — nothing to add.')
+          toast('success', t('geology.alreadyInSyncNothingToAdd'))
         }
       } catch (err) {
         log.error(
@@ -320,7 +317,7 @@ export function useGeologicalModelOps({
           'autoPopulateFromStratigraphy failed',
           err,
         )
-        toast('error', 'Could not seed contacts from stratigraphy.')
+        toast('error', t('geology.seedContactsFailed'))
       }
     },
     [
@@ -375,22 +372,30 @@ export function useGeologicalModelOps({
         `dedupeContacts ok inspected=${result.inspected_groups} removed=${result.duplicates_removed}`,
       )
       if (result.duplicates_removed === 0) {
-        toast('success', 'Already clean — no duplicates found.')
+        toast('success', t('geology.dedupeAlreadyClean'))
       } else {
         // Rows were deleted — mark dirty so a close-without-save reverts.
         markMutated()
         toast(
           'success',
-          `Removed ${result.duplicates_removed} duplicate ` +
-            `contact${result.duplicates_removed === 1 ? '' : 's'} ` +
-            `across ${result.inspected_groups} (anchor, formation) ` +
-            `pair${result.inspected_groups === 1 ? '' : 's'}.`,
+          t('geology.dedupeRemoved', {
+            d: result.duplicates_removed,
+            contactWord:
+              result.duplicates_removed === 1
+                ? t('geology.contactWordOne')
+                : t('geology.contactWordMany'),
+            g: result.inspected_groups,
+            pairWord:
+              result.inspected_groups === 1
+                ? t('geology.pairWordOne')
+                : t('geology.pairWordMany'),
+          }),
         )
       }
       return result.duplicates_removed
     } catch (err) {
       log.error('geology', 'dedupeContacts failed', err)
-      toast('error', 'Could not run the cleanup — see console.')
+      toast('error', t('geology.cleanupFailed'))
       return 0
     }
   }, [project, activeGeologicalModel, markMutated])
@@ -425,30 +430,49 @@ export function useGeologicalModelOps({
           `rebuilt=${result.formations_rebuilt} reordered=${reordered}`,
       )
       if (result.formations_considered === 0) {
-        toast('success', 'No formations with picks yet — nothing to rebuild.')
+        toast('success', t('geology.noFormationsToRebuild'))
       } else if (result.formations_rebuilt === 0 && reordered === 0) {
         toast(
           'success',
-          `Cache already in sync (${result.formations_considered} ` +
-            `formation${result.formations_considered === 1 ? '' : 's'} checked).`,
+          t('geology.cacheInSync', {
+            n: result.formations_considered,
+            formationWord:
+              result.formations_considered === 1
+                ? t('geology.formationWordOne')
+                : t('geology.formationWordMany'),
+          }),
         )
       } else {
+        const surfaceWord =
+          result.formations_considered === 1
+            ? t('geology.surfaceWordOne')
+            : t('geology.surfaceWordMany')
         const rebuiltPart =
           result.formations_rebuilt > 0
-            ? `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} ` +
-              `surface${result.formations_considered === 1 ? '' : 's'}`
-            : `${result.formations_considered} surface${
-                result.formations_considered === 1 ? '' : 's'
-              } already current`
+            ? t('geology.rebuiltSurfaces', {
+                rebuilt: result.formations_rebuilt,
+                considered: result.formations_considered,
+                surfaceWord,
+              })
+            : t('geology.surfacesAlreadyCurrent', {
+                considered: result.formations_considered,
+                surfaceWord,
+              })
         const reorderPart =
           reordered > 0
-            ? `; reordered ${reordered} formation${reordered === 1 ? '' : 's'} by depth`
+            ? t('geology.reorderedByDepth', {
+                n: reordered,
+                formationWord:
+                  reordered === 1
+                    ? t('geology.formationWordOne')
+                    : t('geology.formationWordMany'),
+              })
             : ''
         toast('success', `${rebuiltPart}${reorderPart}.`)
       }
     } catch (err) {
       log.error('geology', 'rebuildSurfaces failed', err)
-      toast('error', 'Could not rebuild surfaces — see console.')
+      toast('error', t('geology.rebuildSurfacesFailed'))
     }
   }, [project, activeGeologicalModel, refetchSurfaces, refetchFormations])
 
@@ -480,12 +504,12 @@ export function useGeologicalModelOps({
         'geology',
         `exportPlaxis3d ok model=${modelId} bytes=${bytes.byteLength} path=${dialogPath}`,
       )
-      toast('success', 'Plaxis 3D script exported.')
+      toast('success', t('geology.plaxisExported'))
     } catch (err) {
       log.error('geology', 'exportPlaxis3d failed', err)
       toast(
         'error',
-        err instanceof Error ? err.message : 'Could not export the Plaxis script.',
+        err instanceof Error ? err.message : t('geology.plaxisExportFailed'),
       )
     }
   }, [project, activeGeologicalModel])
