@@ -5773,14 +5773,26 @@ batch clean, then green-lit the remainder; `206dd6e82..0d1059989`):**
   scope so providerless test mounts keep prop-omitted behaviour;
   viewport/transform props REMAIN props (that half of the #168 decline
   stands). ⚠ DOGFEED PENDING before Phase B.
+* **SectionScope Phase B — slice 1 SHIPPED (2026-09-02):** the eight
+  test-used data slices (`zEpsg`/`cpts`/`boreholes`/`contacts`/`formations`/
+  `axisMode`/`geotechNotReconciled`/`activeLithoModelId`) moved off Props
+  onto `SectionScope`; SectionsCanvas provides them in the scope value,
+  SectionPanel reads them from `useSectionScope()` (defaults unchanged),
+  and a `renderPanel` test helper wraps the 31 `SectionPanel.test.tsx` sites
+  in the provider (the 3 other `SectionPanel.*.test.tsx` files + the
+  `SectionsCanvas.p2` mock inject/read the slices through the provider too).
+  Pure plumbing — no behaviour change, no snapshot churn; HIER_COV /
+  GEOTECH_210 gates + the sections vitest suites + `tsc` all green.
+  SectionPanel 4,495 → 4,446. Leaf overlays STILL receive the slices
+  re-threaded from SectionPanel (same as the Phase-A fields) — the direct
+  leaf-overlay reads are deferred to the next slice.
 
 **Still open (the remainder of #201/#178):**
-* SectionScope **Phase B** (after the Phase-A dogfeed): move the test-used
-  data props (`zEpsg`/`axisMode`/`contacts`/`cpts`/`boreholes`/`formations`/
-  `activeLithoModelId`/`geotechNotReconciled` — needs a `renderPanel` test
-  helper for the 29 SectionPanel.test.tsx sites), then the handler groups,
-  then leaf overlays reading the scope directly instead of SectionPanel
-  re-threading.
+* SectionScope **Phase B remainder**: the handler groups (still threaded),
+  then the leaf overlays reading the scope directly instead of SectionPanel
+  (and the SectionsCanvas Provider) re-threading them — a per-overlay change
+  that touches each overlay's props + tests + the CS1/paint goldens, so it
+  is its own slice.
 * `ContactsLayer.tsx` (3,415) drag core and the `useGeologicalModel`
   composer (2,410) are cohesive single concerns — no further split planned
   under the concern-based bar.
