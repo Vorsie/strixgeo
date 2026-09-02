@@ -80,14 +80,19 @@ from groundmodel.application.geotech_edge_derivation import (
 )
 from groundmodel.application.geotech_offsection_sweep import sweep_offsection_pending_ties
 from groundmodel.application.geotech_tie_tombstones import build_tombstone_gates
+from groundmodel.application.litho_frame_conformance_resolver import band_frame_warning
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.application.section_membership import (
     load_investigation_labels,
     load_members_by_section,
 )
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import AUTO_SOURCE
+from groundmodel.domain.services.litho_frame_conformance import FRAME_MISMATCH_REVIEW_REASON
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -135,6 +140,12 @@ class AutoCorrelateGeotechResult:
     offsection_ties_retained : int
         Mis-scoped ties left standing because they are ACCEPTED or hand-drawn.
         Each is named at WARNING; taking one back is the engineer's call.
+    frame_flagged_count : int
+        New machine ties this run stamped with the violet
+        ``review_reason='frame_mismatch'`` badge because they exceed the litho
+        frame (owner order 2026-08-21) — a restatement two bands can never
+        become one mass.  The tie is still written; the badge asks the engineer
+        to review it, exactly as the hand path flags the same tie.
     """
 
     edges_proposed: int
@@ -147,6 +158,7 @@ class AutoCorrelateGeotechResult:
     investigations_off_section: int = 0
     offsection_ties_deleted: int = 0
     offsection_ties_retained: int = 0
+    frame_flagged_count: int = 0
 
 
 class AutoCorrelateGeotechEdges(GroundModelLogger):
@@ -279,6 +291,11 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
         # gate so a deletion stays deleted (owner 2026-08-17). Empty dict in
         # the ordinary never-deleted case.
         tombstone_gates = await build_tombstone_gates(self._session, model_id, project_id)
+        # Snapshot every edge id that exists BEFORE the derivation adds any, so
+        # the frame-conformance flag below touches only the ties THIS run
+        # created — a badge the engineer already cleared on an older tie is
+        # never re-applied.
+        preexisting_edge_ids = await self._load_edge_ids(model_id)
         self.debug(
             f"AutoCorrelateGeotechEdges: preloaded existing edges on "
             f"{len(seen_pairs_by_section)} section(s) — these are left untouched"
@@ -396,6 +413,20 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             members_by_section=members_by_section,
         )
 
+        # Frame-conformance FLAG (owner order 2026-08-21), on the SURVIVING new
+        # ties only — after the sweeps so a swept row is never flagged. The
+        # machine restates a direct litho tie onto the packing bands REGARDLESS
+        # of class (2026-08-13), so a cross-soil litho surface tie yields a
+        # packing tie two bands can never become one mass. It stays written —
+        # never refused — but is born with the same violet review badge the
+        # hand path stamps, so the engineer reviews it instead of finding an
+        # "onlap that should band" on the canvas.
+        frame_flagged = await self._flag_frame_mismatched_new_edges(
+            geotech_model_id=model_id,
+            litho_model_id=litho_model_id,
+            preexisting_edge_ids=preexisting_edge_ids,
+        )
+
         await self._session.commit()
         self.success(
             f"AutoCorrelateGeotechEdges: proposed={totals.edges_proposed} "
@@ -405,7 +436,8 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             f"sections={sections_processed}/{len(sections)} "
             f"skipped_no_lcs={totals.skipped_no_lcs} "
             f"skipped_empty_stack={totals.skipped_empty_stack} "
-            f"crossing_ties_deleted={crossing_dropped}; "
+            f"crossing_ties_deleted={crossing_dropped} "
+            f"frame_flagged={frame_flagged}; "
             f"{len(off_section_investigations)} investigation(s) outside section membership "
             f"excluded; {offsection.deleted} mis-scoped pending proposal(s) removed, "
             f"{offsection.retained} accepted/hand-drawn mis-scoped tie(s) kept"
@@ -421,6 +453,7 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
             investigations_off_section=len(off_section_investigations),
             offsection_ties_deleted=offsection.deleted,
             offsection_ties_retained=offsection.retained,
+            frame_flagged_count=frame_flagged,
         )
 
     async def _load_geotech_bands(
@@ -474,3 +507,106 @@ class AutoCorrelateGeotechEdges(GroundModelLogger):
                 (row.depth_top_m, row.depth_base_m, row.id, row.formation_id, row.nad_class)
             )
         return by_investigation
+
+    async def _load_edge_ids(self, geotech_model_id: UUID) -> set[UUID]:
+        """Every geotech edge id of the model, as a set.
+
+        Snapshotted before the derivation runs so the frame-conformance flag can
+        tell this run's new ties from the edges that were already there.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotechnical model whose edges are enumerated.
+
+        Returns
+        -------
+        set[UUID]
+            The ids of every persisted geotech correlation edge on the model.
+        """
+        rows = (
+            await self._session.execute(
+                select(LithoContactCorrelationEdgeOrm.id).where(
+                    LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                )
+            )
+        ).all()
+        return {row[0] for row in rows}
+
+    async def _flag_frame_mismatched_new_edges(
+        self,
+        *,
+        geotech_model_id: UUID,
+        litho_model_id: UUID,
+        preexisting_edge_ids: set[UUID],
+    ) -> int:
+        """Stamp the frame-mismatch review badge on this run's non-conforming ties.
+
+        The machine restates a direct litho tie onto the packing bands REGARDLESS
+        of class (owner ruling 2026-08-13), so a cross-soil litho surface tie
+        makes it propose a packing tie whose two bands can never become one mass
+        — exactly the tie the hand path flags (owner order 2026-08-21, *"flag a
+        tie like that when it doesn't conform to the litho model!"*). This runs
+        the SAME shared resolver the hand path runs
+        (:func:`~groundmodel.application.litho_frame_conformance_resolver.band_frame_warning`)
+        and, when it warns, stamps the identical ``review_reason='frame_mismatch'``
+        the hand path stamps — the violet review badge and Confirm-tie flow.
+
+        It WARNS, never refuses: a restatement is a legitimate surface statement,
+        so the edge stays written and the engineer is asked to review it rather
+        than discovering the mismatch on the canvas.
+
+        Scoped to the ties THIS run created (``id`` not in
+        ``preexisting_edge_ids``) and left alone if they already carry a review
+        reason, so a badge the engineer already cleared on an older tie is never
+        re-applied.
+
+        Parameters
+        ----------
+        geotech_model_id : UUID
+            The geotechnical model whose new edges are checked.
+        litho_model_id : UUID
+            The parent litho model — the frame the resolver reads.
+        preexisting_edge_ids : set[UUID]
+            Every geotech edge id that existed before this run's derivation.
+
+        Returns
+        -------
+        int
+            How many new machine ties were flagged as ``frame_mismatch``.
+        """
+        new_edges = [
+            edge
+            for edge in (
+                (
+                    await self._session.execute(
+                        select(LithoContactCorrelationEdgeOrm).where(
+                            LithoContactCorrelationEdgeOrm.model_id == geotech_model_id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if edge.id not in preexisting_edge_ids and edge.review_reason is None
+        ]
+        flagged: list[tuple[UUID, str]] = []
+        for edge in new_edges:
+            warning = await band_frame_warning(
+                self._session,
+                litho_model_id=litho_model_id,
+                band_a_id=edge.layer_a_id,
+                band_b_id=edge.layer_b_id,
+            )
+            if warning is None:
+                continue
+            edge.review_reason = FRAME_MISMATCH_REVIEW_REASON
+            flagged.append((edge.id, warning))
+        # Per-flagged INFO with the [i/total] prefix: a load-bearing surface
+        # (the badge the engineer will act on), so it stays at INFO, not DEBUG.
+        for index, (edge_id, warning) in enumerate(flagged, start=1):
+            self.info(
+                f"[{index}/{len(flagged)}] AutoCorrelateGeotechEdges: machine tie {edge_id} "
+                f"flagged frame_mismatch — {warning}"
+            )
+        return len(flagged)
