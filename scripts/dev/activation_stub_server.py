@@ -14,7 +14,8 @@ What it models, faithfully to the contract:
 * ``POST /deactivate`` — releases a device's bindings (the self-service transfer).
 * ``POST /refresh`` — re-issues a licence for a still-bound device (the launch-time
   online re-check).
-* ``POST /diagnostics`` — accepts a redacted NDJSON bundle and counts the lines.
+* ``POST /v1/diagnostics`` — accepts a redacted diagnostics bundle (the JSON
+  envelope: build facts + NDJSON tail) and acknowledges it with a server id.
 
 What it does NOT do (and a real server must): sign the licence (Ed25519), check a
 Stripe subscription, or persist bindings across restarts. Keys live in a small
@@ -343,12 +344,30 @@ def create_app(*, keys: dict[str, str] | None = None, ledger_path: Path | None =
             return error_response(409, "key_bound_elsewhere", "this device is not bound to the key")
         return {"licence": mint_licence(body.key, tier, body.deviceId, "", is_trial=False)}
 
-    @app.post("/diagnostics")
+    @app.post("/v1/diagnostics")
     async def diagnostics(request: Request) -> JSONResponse:
-        """Accept a redacted NDJSON diagnostics bundle; count its lines."""
-        raw = (await request.body()).decode("utf-8", "replace")
-        received = sum(1 for line in raw.splitlines() if line.strip())
-        return JSONResponse(status_code=202, content={"received": received})
+        """Accept a redacted diagnostics bundle (JSON envelope) and acknowledge it.
+
+        The client posts the ``POST /v1/diagnostics`` envelope from
+        ``docs/design/activation-api-contract.md`` — build facts, a redacted
+        NDJSON tail and a ``truncated`` flag, plus optional identity. The stub
+        only acknowledges receipt with a fresh server id; a real server persists
+        the bundle. A body that is not JSON is a ``bad_request`` (a 4xx, which the
+        client drops rather than retries).
+        """
+        try:
+            body = await request.json()
+        except (ValueError, UnicodeDecodeError):
+            return error_response(400, "bad_request", "diagnostics body was not JSON")
+        events = body.get("events") if isinstance(body, dict) else None
+        return JSONResponse(
+            status_code=202,
+            content={
+                "received": True,
+                "id": f"diag_{secrets.token_hex(8)}",
+                "events": events if isinstance(events, int) else 0,
+            },
+        )
 
     return app
 
