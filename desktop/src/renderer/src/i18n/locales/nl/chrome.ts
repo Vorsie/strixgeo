@@ -144,4 +144,142 @@ export const CHROME_NL = {
   // FLAG alt: Inspector | Eigenschappen — the right-hand detail pane. "Inspector"
   // is what LeapFrog/Plaxis-adjacent tools use untranslated in NL builds.
   'shell.inspector': 'Detailvenster',
+
+  // -------------------------------------------------------------------------
+  // common — count words + list joiners.
+  // -------------------------------------------------------------------------
+  'common.cptWordOne': 'sondering',
+  'common.cptWordMany': 'sonderingen',
+  'common.boreholeWordOne': 'boring',
+  'common.boreholeWordMany': 'boringen',
+  'common.formationWordOne': 'formatie',
+  'common.formationWordMany': 'formaties',
+  // FLAG alt: profiel | dwarsprofiel — "dwarsprofiel" is the full glossary term;
+  // the compact spine label uses "Profiel(en)". Kept the full form in a sentence.
+  'common.sectionWordOne': 'dwarsprofiel',
+  'common.sectionWordMany': 'dwarsprofielen',
+  // FLAG alt: laaggrens | geologisch contact — the geology module renders
+  // "contact" as "laaggrens"; a "geological contact" here is a formation
+  // boundary, so "geologisch contact" was chosen literally.
+  'common.geologicalContactWordOne': 'geologisch contact',
+  'common.geologicalContactWordMany': 'geologische contacten',
+  'common.columnWordOne': 'kolom',
+  'common.columnWordMany': 'kolommen',
+  'common.groupingWordOne': 'groepering',
+  'common.groupingWordMany': 'groeperingen',
+  'common.listAnd': 'en',
+  'common.importedThisSession': '{list} geïmporteerd tijdens deze sessie.',
+
+  // -------------------------------------------------------------------------
+  // app
+  // -------------------------------------------------------------------------
+  'app.backendFailedBody':
+    'Het StrixGeo-backendproces is afgesloten voordat het klaar was. Dit wijst meestal op een probleem met de databankverbinding of een crash bij het opstarten.',
+  'app.backendUnreachableBody':
+    '— opslaan en alle andere wijzigingen zijn niet beschikbaar, en recente acties zijn mogelijk niet bewaard. Herstart de app om opnieuw verbinding te maken.',
+  'app.logFile': 'Logbestand:',
+  'app.dxfExported': 'DXF geëxporteerd.',
+  'app.dxfExportFailed': 'Kon de DXF niet exporteren.',
+  'app.pdfExported': 'PDF geëxporteerd.',
+  'app.pdfExportFailed': 'Kon de PDF niet exporteren.',
+  'app.plaxis2dExported': 'Plaxis 2D-script geëxporteerd.',
+  'app.plaxis2dExportFailed': 'Kon het Plaxis 2D-script niet exporteren.',
+
+  // -------------------------------------------------------------------------
+  // welcome — start-screen extras + recovery-prompt copy.
+  // welcome.heading translated literally ("Grondmodel"); the EN literal is the
+  // stale product name — owner reconciles against app.name "StrixGeo".
+  // -------------------------------------------------------------------------
+  'welcome.heading': 'Grondmodel',
+  'welcome.taglineFull':
+    'Open een bestaand projectbestand of maak een nieuw project aan om te beginnen met het importeren en analyseren van data.',
+  'welcome.orDivider': 'of',
+  'welcome.untitledProject': 'Naamloos project',
+  'welcome.openToRestore': 'Open het projectbestand om te herstellen',
+  'welcome.fromAge': 'van {age}',
+  'welcome.theProject': 'het project',
+  'welcome.fileNotFoundFor':
+    'Kon het bestand voor {name} niet vinden op {path}. Heb je het verplaatst of hernoemd?',
+  'welcome.openFailedNamed':
+    'Kon {name} niet openen. Het bestand is mogelijk beschadigd, of de API is niet bereikbaar.',
+  'welcome.recoveryTitle': 'Niet-opgeslagen werk herstellen in {name}?',
+  'welcome.recoveryIntro':
+    'StrixGeo werd onverwacht afgesloten{age}. Een back-up van je niet-opgeslagen werk is bewaard',
+  'welcome.recoverySavedUntouched': 'Je opgeslagen project blijft ongewijzigd.',
+  'welcome.recoveryRestore': 'Herstellen',
+  'welcome.recoveryNotNow': 'Niet nu',
+  'welcome.recoveryDeleteBackup': 'Back-up verwijderen',
+  'welcome.recoveryRestoreDesc':
+    '— zet het niet-opgeslagen werk terug. Er wordt niets naar het bestand opgeslagen tot je in de app op Opslaan klikt.',
+  'welcome.recoveryNotNowDesc':
+    '— opent het project zoals het laatst is opgeslagen. De back-up wordt bij de volgende start opnieuw aangeboden.',
+  'welcome.recoveryDeleteBackupDesc':
+    '— alsof de sessie nooit heeft plaatsgevonden: het project keert terug naar de laatste bewaaractie en het niet-opgeslagen werk wordt definitief verwijderd.',
+  // FLAG alt: Beoordeling van lithosuggesties | Lithosuggestie-triage — "triage"
+  // is a loanword; the alt spells it out. {columnWord} = kolom/kolommen.
+  'welcome.recoveryLithoTriage': 'Lithosuggestie-triage op {count} {columnWord}',
+  'welcome.recoveryMetadataEdits': 'niet-opgeslagen wijzigingen aan projectgegevens',
+  // FLAG alt: de stratigrafische samenvoegingskaart | de stratigrafie-lumpingkaart
+  // — internal jargon ("lumping map"); the chosen term translates "lumping" as
+  // "samenvoeging". {groupingWord} = groepering/groeperingen.
+  'welcome.recoveryLumpingMap': 'de stratigrafie-samenvoegingskaart ({count} {groupingWord})',
+  'welcome.recoveryUnsavedMarker': 'de markering voor niet-opgeslagen wijzigingen',
+
+  // -------------------------------------------------------------------------
+  // project — new-project blurb, metadata + close copy, discard/revert toasts.
+  // -------------------------------------------------------------------------
+  'project.newBlurb':
+    'Geef nu een naam; rijkere details (opdrachtgever, locatie, labels, standaard-CRSen…) kan je toevoegen via de metadata-editor van het project zodra die er is.',
+  'project.createEllipsis': 'Aanmaken…',
+  'project.namePlaceholderExample': 'bv. GEO-22/040 Brugge',
+  'project.metadataBlurbFull':
+    'Bewerk de hoofdgegevens van het project. Wijzigingen worden in één keer opgeslagen in de databank en het .gmproj-bestand.',
+  // FLAG alt: {tag} weghalen | {tag} verwijderen — removing a tag chip is form
+  // editing (delete), not the project-local "Weghalen" hide that common.remove
+  // covers; chose "verwijderen".
+  'project.removeTag': '{tag} verwijderen',
+  'project.closeConfirmBodyDetailed':
+    'wordt gesloten en je keert terug naar het startscherm. Het .gmproj-bestand en je opgeslagen gegevens blijven bewaard — je kan het opnieuw openen via de lijst met recente projecten.',
+  'project.closeHintGmproj':
+    'Project sluiten — je keert terug naar het startscherm. Het .gmproj-bestand en de gegevens in de databank blijven bewaard.',
+  'project.editMetadataHint': 'Klik om projectgegevens te bewerken',
+  'project.editMetadataHintWithPath': '{path} — klik om projectgegevens te bewerken',
+  'project.revertNotLatest':
+    'Kon niet terugdraaien: dit bestand is niet de laatste bewaaractie van het project. De back-up is behouden.',
+  'project.revertFailed':
+    'Kon het project niet terugdraaien naar de laatste bewaaractie — de back-up is behouden.',
+  'project.fileNotFoundToast':
+    'Kon het projectbestand niet vinden op {path}. Heb je het verplaatst of hernoemd?',
+  'project.discardLossInterpretation':
+    'Koppelingen, verplaatste grenzen, aanvaarde suggesties en verwijderingen van deze sessie, in eender welke stap — deze worden hier niet geteld.',
+  'project.discardLossMetadata':
+    'Niet-opgeslagen wijzigingen in de metadata-editor van het project.',
+  'project.discardLeadSaved':
+    'Verwerpen draait het hele project — in de databank, over alle stappen heen — terug naar de laatst bewaarde toestand.',
+  'project.discardLeadUnsaved':
+    'Dit project is nog nooit naar een bestand opgeslagen, dus Verwerpen heeft geen bewaarde toestand om naar terug te keren.',
+  'project.discardFollowSaved': 'Alles wat sinds de laatste Bestand → Opslaan is gedaan, gaat verloren',
+  'project.discardFollowUnsaved':
+    'Het verwijdert alles wat deze sessie aan het project heeft toegevoegd',
+  'project.unsavedTitle': 'Wijzigingen opslaan in {name}?',
+
+  // -------------------------------------------------------------------------
+  // shell — toolbar overflow, inspector toggle, split-button menus, theme.
+  // -------------------------------------------------------------------------
+  'shell.moreToolbarActions': 'Meer werkbalkacties',
+  'shell.more': 'Meer',
+  'shell.actionWordOne': 'actie',
+  'shell.actionWordMany': 'acties',
+  // FLAG alt: knoppenrij | werkbalkrij — "verb row" = the row of toolbar verb
+  // buttons; "smaller" is coincidentally the Dutch comparative of "smal".
+  'shell.moreActionsTitle':
+    'nog {n} {actionWord} — de werkbalk is smaller dan de volledige knoppenrij',
+  'shell.collapseInspector': 'Detailvenster inklappen',
+  'shell.expandInspector': 'Detailvenster uitklappen',
+  'shell.clickForOptionsTitle': '{label} — klik voor opties',
+  'shell.optionsAria': 'opties voor {label}',
+  'shell.themeSystem': 'Systeemthema',
+  'shell.themeLight': 'Licht thema',
+  'shell.themeDark': 'Donker thema',
+  'shell.themeToggleTitle': '{current} (klik voor {next})',
 } as const
