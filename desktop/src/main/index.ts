@@ -1,6 +1,5 @@
 import { app, BrowserWindow, crashReporter, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
-import { hostname } from 'os'
 import { pathToFileURL } from 'url'
 import { spawn, ChildProcess } from 'child_process'
 import {
@@ -65,7 +64,8 @@ import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
 import { configureActivationStore } from './activationStore'
 import { ActivationService } from './activationService'
-import { MockActivationRepository } from './mockActivationRepository'
+import { createActivationRepository } from './activationConfig'
+import { resolveDeviceIdentity } from './deviceIdentity'
 import { previewControlAllowed } from './prototypeFlags'
 import { registerPrototypeIpc } from './prototypeIpc'
 import { checkForUpdatesOnLaunch, configureUpdater } from './updaterService'
@@ -1762,14 +1762,24 @@ if (!gotSingleInstanceLock) {
     })
     configureBetaExpiryStore({ userDataDir: app.getPath('userData') })
 
-    // Prototype activation (#3). The store learns userData; the service runs the
-    // mock issuer behind the ActivationRepository seam (no network). Registered
-    // before any renderer can issue an ``activation:*`` call.
-    configureActivationStore({ userDataDir: app.getPath('userData') })
+    // Activation (#3). The store learns userData + the stable hardware-derived
+    // device id (so a reinstall re-binds the same seat); the issuer is the mock
+    // when no base URL is configured, the real HTTP client when one is
+    // (activationConfig) — the default (mock) keeps the dogfeed unchanged.
+    // Registered before any renderer can issue an ``activation:*`` call.
+    const deviceIdentity = resolveDeviceIdentity()
+    configureActivationStore({
+      userDataDir: app.getPath('userData'),
+      deviceIdSeed: deviceIdentity.deviceId,
+    })
     registerPrototypeIpc(
       new ActivationService({
-        repository: new MockActivationRepository(),
-        deviceLabel: hostname(),
+        repository: createActivationRepository({
+          env: process.env,
+          packaged: app.isPackaged,
+          appVersion: app.getVersion(),
+        }),
+        deviceLabel: deviceIdentity.deviceLabel,
       }),
       // The "Preview a state" demo control is dev-only — never registered in a
       // packaged build (senior review SHOULD-FIX 1).
