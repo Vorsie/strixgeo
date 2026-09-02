@@ -85,6 +85,7 @@ export default function DemSurfaceLine({
       strokeWidth={DEM_STROKE_WIDTH}
       strokeOpacity={0.6}
       fill="none"
+      data-testid="section-dem-line"
     >
       <title>{t('sections.dem.groundSurface')}</title>
     </path>
