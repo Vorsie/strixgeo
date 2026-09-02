@@ -19,6 +19,30 @@ export const PANELS_NL = {
   'map.editMetadata': 'Gegevens bewerken',
   'map.drawSectionLine': 'Klik twee punten op de kaart om de profiellijn te tekenen',
   'map.noValuesForAxis': 'Geen waarden voor deze as.',
+  // DOV-importvoortgangspaneel (getoond in het bbox-importvenster tijdens de
+  // SSE-stream).
+  // FLAG alt: Voortgang CPT-import | Voortgang van de sondering-import — owner
+  // ruling 9 (2026-08-31) says a CPT is "Sondering (CPT)"; compact aria form used.
+  'map.cptImportProgress': 'Voortgang sonderingimport',
+  'map.boreholeImportProgress': 'Voortgang boringimport',
+  'map.importProgressOf': '{label} {done} van {total}',
+  'map.importFinishedWithErrors': 'Import voltooid met fouten',
+  'map.importComplete': 'Import voltooid',
+  'map.imported': 'Geïmporteerd',
+  'map.alreadyExisted': 'Bestond al',
+  'map.failed': 'Mislukt',
+  // FLAG alt: {n} CPT('s) in het project — owner ruling 9 "Sondering (CPT)".
+  'map.cptsInProjectOne': '{n} sondering in het project',
+  'map.cptsInProjectMany': '{n} sonderingen in het project',
+  'map.observationsAttached': 'Observaties gekoppeld',
+  'map.samplesAttached': 'Monsters gekoppeld',
+  'map.subPhaseFailed': '{label} mislukt',
+  'map.dovMissingData': 'DOV heeft deze gegevens niet teruggegeven — de boringen zijn geïmporteerd, maar',
+  'map.dovMissingRetry':
+    ' voer de import opnieuw uit over hetzelfde gebied om de ontbrekende delen opnieuw te proberen.',
+  'map.dovMissingNoRetry':
+    ' DOV’s catalogus vermeldt deze wel, maar de eigen dienst geeft niets terug; opnieuw uitvoeren helpt niet — controleer de boringen op dov.vlaanderen.be.',
+  'map.importFailed': 'Import mislukt',
 
   // -------------------------------------------------------------------------
   // boorstaat + sondeergrafiek
@@ -74,7 +98,25 @@ export const PANELS_NL = {
   // "needs Z" state: without a collar level the log has no mTAW axis.
   'borelog.noSurfaceElevation':
     'Maaiveldpeil ontbreekt — de boorstaat wordt getekend zonder absolute peilas.',
+  // DOV Virtuele Boring-overlay + monster/grondwater-helpers op de SVG.
+  'borelog.noData': 'geen gegevens',
+  'borelog.waterMarker': '▾ water op {depth} m',
+  'borelog.labTestCountOne': '{n} labproef',
+  'borelog.labTestCountMany': '{n} labproeven',
+  'borelog.noTests': 'geen proeven',
+  'borelog.hideColumnAria': 'Kolom {title} verbergen',
   'chart.zMissing': 'Z ontbreekt',
+  // Samenvattingsregel van de sondeergrafiek, legende + recharts as-/tooltipchrome.
+  // FLAG alt: {type} · {rows} metingen · {depth} m — "rows"=data-rijen; "metingen"
+  // matches the refresh-dialog wording ("Readings"→"Metingen").
+  'chart.runSummary': '{type} · {rows} rijen · {depth} m',
+  'chart.preDrill': 'Voorboring {depth} m',
+  'chart.lengthAxis': 'Lengte (m)',
+  'chart.depthAxis': 'Diepte (m)',
+  'chart.levelAxis': 'Peil ({datum})',
+  'chart.surfaceRef': '{level} m — maaiveld',
+  'chart.tooltipDepth': 'Diepte: {depth} m',
+  'chart.tooltipLevelSuffix': '  |  Peil: {level}',
 
   // -------------------------------------------------------------------------
   // labproeven
@@ -87,6 +129,21 @@ export const PANELS_NL = {
   'lab.curveNotRecorded': 'Curve niet geregistreerd.',
   'lab.atterberg': 'Atterberg',
   'lab.cobbles': 'Keien',
+  // Labproefpaneel — monsterheader-navigatie, korrelgrafiekchrome + behandelingen.
+  'lab.unnumbered': '(ongenummerd)',
+  'lab.previousSample': 'Vorige: {name}',
+  'lab.noPreviousSample': 'Geen vorig monster',
+  'lab.nextSample': 'Volgende: {name}',
+  'lab.noNextSample': 'Geen volgend monster',
+  'lab.methodsCombined': '{n} methoden gecombineerd',
+  'lab.methodN': 'Methode {n}',
+  'lab.limeRemoved': 'kalk verwijderd',
+  'lab.organicsRemoved': 'organisch materiaal verwijderd',
+  // FLAG alt: % doorval — "% finer" is the cumulative passing curve; "% fijner"
+  // is literal, "% doorval" is the common BE grading-curve term.
+  'lab.pctFiner': '% fijner',
+  // "Diameter" is identical BE Dutch (loanword) — intentionally NL == EN.
+  'lab.diameterAxis': 'Diameter (mm)',
 
   // -------------------------------------------------------------------------
   // peileditor
@@ -100,6 +157,11 @@ export const PANELS_NL = {
   'elevation.saveEnter': 'Opslaan (Enter)',
   'elevation.cancelEsc': 'Annuleren (Esc)',
   'elevation.saveFailed': 'Opslaan mislukt',
+  'elevation.sourceTitle': 'Peilbron: {source}',
+  'elevation.sourceManual': 'handmatig',
+  'elevation.clear': 'Wissen',
+  'elevation.enterANumber': 'Voer een getal in',
+  'elevation.outOfRange': 'Buiten bereik',
 
   // -------------------------------------------------------------------------
   // samenstelling + formatiekiezers
@@ -118,6 +180,24 @@ export const PANELS_NL = {
   'composition.preview': 'Voorbeeld',
   'composition.save': 'Samenstelling opslaan',
   'composition.fixedByCorrelation': '(vastgelegd door de correlatiegroep)',
+  'composition.locally': 'plaatselijk',
+  // FLAG alt: Bijmengingen van dit lichaam bewerken — "body" = litholichaam per
+  // glossary; "dit litholichaam" is precise but long for a dialog title.
+  'composition.editAdmixturesTitle': 'Bijmengingen van dit litholichaam bewerken',
+  'composition.editSuggestionTitle': 'Samenstelling van het voorstel bewerken',
+  'composition.within': 'binnen:',
+  'composition.parentAutoResolved':
+    'De bovenliggende geologische formatie wordt automatisch bepaald wanneer de laaggrens wordt vastgelegd. Als hier geen geologie gekarteerd is, verschijnt de eenheid onder "Niet toegewezen".',
+  'composition.unassigned': 'Niet toegewezen',
+  'composition.tabExisting': 'Bestaande eenheden',
+  'composition.tabNew': 'Nieuwe eenheid',
+  'composition.noUnitsInFormation':
+    'Nog geen litho-eenheden in deze geologische formatie — gebruik het tabblad "Nieuwe eenheid" om er een aan te maken.',
+  'composition.noUnitsInModel':
+    'Nog geen litho-eenheden in dit model — gebruik het tabblad "Nieuwe eenheid" om de eerste aan te maken.',
+  'composition.under': 'onder {name}',
+  'composition.creating': 'Aanmaken…',
+  'composition.createUnit': 'Eenheid aanmaken',
   'formation.topOfWhichFormation': 'Top van welke formatie?',
   'formation.newHere': 'Hier een nieuwe formatie',
   'formation.newHereHint':
@@ -132,6 +212,21 @@ export const PANELS_NL = {
   'formation.lensCodeHint': '(optioneel — bepaalt de lenscode)',
   'formation.searchFormal': 'Zoek een formele eenheid (bv. Holoceen, QH)…',
   'formation.notInModel': ' — formatie zit niet in je model.',
+  // FormationDialog (aanmaken/bewerken) + FormationPickerDialog-chrome.
+  'formation.editTitle': 'Formatie bewerken',
+  'formation.newTitle': 'Nieuwe formatie',
+  'formation.dialogBlurb':
+    'Een formatie is een substraateenheid waarnaar je in het geologische model verwijst — bv.',
+  'formation.exampleQuaternary': 'Kwartaire afzettingen',
+  'formation.colour': 'Kleur',
+  'formation.regionalReference': 'Regionale referentie',
+  'formation.formalStratigraphy': 'Formele stratigrafie',
+  'formation.clear': 'Wissen',
+  'formation.noneDefinedPickerPre':
+    'Nog geen formaties vastgelegd — maak er een aan met de knop hieronder of gebruik',
+  // FLAG alt: in het venster Geologie — "Ground model pane" = the geology stage;
+  // "Grondmodel" keeps the product concept, "Geologie" matches the stage rail.
+  'formation.noneDefinedPickerPost': 'in het venster Grondmodel.',
 
   // -------------------------------------------------------------------------
   // gedeelde bevestigingsvensters
@@ -193,6 +288,20 @@ export const PANELS_NL = {
   'dialog.recoveryNotNow': 'Niet nu',
   'dialog.recoveryDeleteBackup': 'Back-up verwijderen',
   'dialog.recoveryUntouched': 'Je opgeslagen project blijft ongewijzigd.',
+  // Bevestigingsvenster voor CPT-refresh bij herimport. De titel is rond de
+  // vetgedrukte CPT-naam gesplitst zodat de zin in het NL kan herschikken.
+  // FLAG alt: "Vervang {name}'s gegevens door dit bestand?" — English keeps the
+  // name first with a possessive; NL reads better with "Gegevens van {name} …".
+  'dialog.cptRefreshTitlePre': 'Gegevens van',
+  // Leading space: EN renders "{name}’s data…" (no space); NL needs "{name} vervangen…".
+  'dialog.cptRefreshTitlePost': ' vervangen door dit bestand?',
+  'dialog.cptRefreshBody':
+    ' zit al in dit project. Het importeren vervangt de opgeslagen metingen. Dit kan niet ongedaan gemaakt worden, en elke interpretatie die onder de nieuwe diepte verankerd is, moet gecontroleerd worden.',
+  'dialog.cptRefreshWarningsOne': 'Het nieuwe bestand is verwerkt met {n} waarschuwing.',
+  'dialog.cptRefreshWarningsMany': 'Het nieuwe bestand is verwerkt met {n} waarschuwingen.',
+  // Gedeelde ankersubtitel van de kiezervensters (formatie- + lithokiezer).
+  'dialog.pickerAnchorPre': 'Op',
+  'dialog.pickerAnchorAt': 'op diepte {depth} m ({taw} m TAW)',
 
   // -------------------------------------------------------------------------
   // ongedaan-maken-labels
@@ -220,4 +329,7 @@ export const PANELS_NL = {
   'cheatsheet.borelogCharts': 'Boorstaat & grafieken',
   'cheatsheet.escHint':
     'Afhankelijk van de context: dialoogvenster / paneel sluiten · tekenen, slepen of selecteren annuleren · één interactielaag van het profiel afpellen · selectie wissen',
+  // FLAG alt: Zoek gebaren — bv. selectievak, alt, zoom — "marquee" = selectiekader.
+  'cheatsheet.searchPlaceholder': 'Zoek gebaren — bv. selectiekader, alt, zoom',
+  'cheatsheet.noMatch': 'Geen gebaar komt overeen met “{query}”.',
 } as const
