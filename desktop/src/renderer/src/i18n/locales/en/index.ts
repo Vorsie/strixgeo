@@ -37,6 +37,7 @@ import { OUTPUTS } from './outputs'
 import { PANELS } from './panels'
 import { SECTIONS } from './sections'
 import { SETTINGS } from './settings'
+import { SHEET } from './sheet'
 
 /** The composed English catalogue. Module order is presentation order (shell →
  *  stages in workflow sequence → shared panels); it does not affect lookup. */
@@ -47,6 +48,7 @@ export const EN = {
   ...MODELS,
   ...SECTIONS,
   ...OUTPUTS,
+  ...SHEET,
   ...PANELS,
   ...LAUNCH,
 } as const
@@ -61,6 +63,7 @@ export const EN_MODULES = {
   models: MODELS,
   sections: SECTIONS,
   outputs: OUTPUTS,
+  sheet: SHEET,
   panels: PANELS,
   launch: LAUNCH,
 } as const
