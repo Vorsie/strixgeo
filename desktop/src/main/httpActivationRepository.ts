@@ -30,12 +30,13 @@
  */
 
 import { LICENCE_TIERS, type Licence, type LicenceTier } from './activation'
-import type {
-  ActivateRequest,
-  ActivationRepository,
-  DeviceIdentity,
-  IssueFailureCode,
-  IssueResult,
+import {
+  DeactivateFailedError,
+  type ActivateRequest,
+  type ActivationRepository,
+  type DeviceIdentity,
+  type IssueFailureCode,
+  type IssueResult,
 } from './activationRepository'
 
 /** Milliseconds in a day — the wire carries grace as a whole-day count. */
@@ -159,16 +160,22 @@ export class HttpActivationRepository implements ActivationRepository {
 
   async deactivate(deviceId: string): Promise<void> {
     // Unlike activate/trial, the interface gives deactivate no way to report a
-    // failure code — so a failure THROWS rather than resolving. That is the
-    // safe shape: {@link ../activationService} clears the local licence only
-    // AFTER this resolves, so an offline deactivate leaves both the local
-    // licence and the server seat intact instead of stranding the seat.
+    // failure code — so a failure THROWS a typed {@link DeactivateFailedError}
+    // carrying the HTTP status. The orchestration layer uses that status to tell
+    // a 404 (already released server-side → clear the local licence) from a 401
+    // or a network failure (keep the local licence; never strand the seat). The
+    // local licence is cleared only on a clean 2xx here or on that 404 branch —
+    // an offline deactivate leaves both the local licence and the server seat
+    // intact.
     const transport = await this.send('deactivate', { deviceId })
     if (transport.kind === 'network-failure') {
-      throw new Error('could not reach the activation server to release this device')
+      throw new DeactivateFailedError(null, 'could not reach the activation server to release this device')
     }
     if (transport.status < 200 || transport.status >= 300) {
-      throw new Error(`activation server refused the release (HTTP ${transport.status})`)
+      throw new DeactivateFailedError(
+        transport.status,
+        `activation server refused the release (HTTP ${transport.status})`,
+      )
     }
   }
 
