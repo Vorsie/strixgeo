@@ -5,11 +5,11 @@
  * Drives the whole gesture on the GEOTECH axis (Join is geotech-only — the owner
  * would not use it on litho): right-click body A → "Join with…" (ARMS) → the hint
  * chip appears → left-click body B's region → success toast → the two bodies
- * become ONE after the debounced recompute → re-open the menu → "Un-join …" is now
+ * keep their distinct ids and form one GROUP after the debounced recompute → re-open the menu → "Un-join …" is now
  * offered → click it → the union is lifted and the bodies may split again.
  *
  * WHY SAME-SOIL SAME-CLASS, the OPPOSITE of the Separate spec's cross-soil choice:
- * a Join can only make ONE mass, so the two targets must be the SAME packing class
+ * a group lumps only ONE packing class, so the two targets must be the SAME packing class
  * (same NAD-coloured fill). A cross-soil / cross-class pick is refused 422 by the
  * write guard — exactly what this verb must NOT commit — so the spec picks two
  * regions of the SAME fill colour that resolve to DIFFERENT bodies (two disjoint
@@ -230,7 +230,7 @@ test.describe('flow_join_body_ui', () => {
         await page.getByTestId('body-ctx-join-body').dispatchEvent('click')
         await expect(page.getByTestId('join-arm-hint')).toBeVisible({ timeout: 3_000 })
         await bodyB.dispatchEvent('click', { bubbles: true })
-        await expect(page.getByText('Bodies joined', { exact: false })).toBeVisible({
+        await expect(page.getByText('Bodies grouped', { exact: false })).toBeVisible({
           timeout: 3_000,
         })
       }).toPass({ timeout: 90_000 })
@@ -238,13 +238,16 @@ test.describe('flow_join_body_ui', () => {
       // The arm clears on commit.
       await expect(page.getByTestId('join-arm-hint')).toBeHidden({ timeout: 10_000 })
 
-      // The union is durable: a body's menu now offers to Un-join. Retried because
-      // the post-commit recompute re-shuffles the region ids (and merged the two
-      // bodies into one — the ONE-body outcome).
+      // The GROUP is durable AND both bodies KEEP their distinct ids (owner ruling
+      // 2026-09-02: "all bodies that are separate keep their separate body IDs" —
+      // a Join lumps, it does NOT merge). So BOTH regions still render as distinct
+      // same-class bodies, and a body's menu now offers to Un-join. Retried
+      // because the post-commit recompute re-shuffles the region ids.
       await expect(async () => {
-        const regions = await bodyRegions(page)
-        expect(regions.length, 'the section must still render body regions').toBeGreaterThan(0)
-        await openBodyMenuOn(page, page.locator(`[data-testid="${regions[0].testid}"]`).first())
+        // Both bodies still render as DISTINCT same-class regions (the pair
+        // resolves) — the group did not collapse them into one.
+        const { a: stillA } = await twoSameClassRegions(page)
+        await openBodyMenuOn(page, stillA)
         await expect(page.locator('[data-testid^="body-ctx-unjoin-body-"]').first()).toBeVisible({
           timeout: 1_500,
         })
@@ -253,7 +256,7 @@ test.describe('flow_join_body_ui', () => {
       // UN-JOIN: lift the union, then confirm the Un-join option is gone (the two
       // bodies may split apart again).
       await page.locator('[data-testid^="body-ctx-unjoin-body-"]').first().dispatchEvent('click')
-      await expect(page.getByText('Un-joined', { exact: false })).toBeVisible({
+      await expect(page.getByText('Un-grouped', { exact: false })).toBeVisible({
         timeout: 5_000,
       })
       await expect(async () => {
