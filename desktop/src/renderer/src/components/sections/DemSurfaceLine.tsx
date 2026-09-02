@@ -14,6 +14,7 @@
 import { useMemo } from 'react'
 
 import type { DemSamplePoint } from '../../api/client'
+import { useT } from '../../i18n/translate'
 
 const DEM_STROKE = '#92400e' // amber-800 — earthy brown
 const DEM_STROKE_WIDTH = 1.5
@@ -73,6 +74,8 @@ export default function DemSurfaceLine({
     return d.trim()
   }, [samples, xToScreen, levelToScreen, plotTop, plotBottom, plotLeft, plotRight])
 
+  const t = useT()
+
   if (path === '') return <></>
 
   return (
@@ -83,7 +86,7 @@ export default function DemSurfaceLine({
       strokeOpacity={0.6}
       fill="none"
     >
-      <title>Ground surface (DHMVII DTM)</title>
+      <title>{t('sections.dem.groundSurface')}</title>
     </path>
   )
 }
