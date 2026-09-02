@@ -36,6 +36,7 @@
 import { useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 
+import { useT, type Translator } from '../../../i18n/translate'
 import type {
   GaplessBuildReport,
   GaplessClause,
@@ -99,6 +100,9 @@ const VERDICT_STYLE: Readonly<
  * ----------
  * report : GaplessBuildReport
  *     The verdict being summarised.
+ * t : Translator
+ *     The active-language translator (passed in — this is a plain function, not
+ *     a component, so it cannot call ``useT`` itself).
  *
  * Returns
  * -------
@@ -107,19 +111,19 @@ const VERDICT_STYLE: Readonly<
  *     on a clean, fully measured report — the tests pin that, because it is the
  *     phrase the owner will read as the guarantee.
  */
-function summaryOf(report: GaplessBuildReport): string {
+function summaryOf(report: GaplessBuildReport, t: Translator): string {
   const total = report.clauses.length
   const failed = report.clauses.filter(c => c.status === 'fail').length
   const unmeasured = report.clauses.filter(c => c.status === 'not-evaluated').length
 
   if (report.verdict === 'fail') {
-    const tail = unmeasured > 0 ? `, ${unmeasured} not checked` : ''
-    return `${failed} of ${total} model guarantees broken${tail}`
+    const tail = unmeasured > 0 ? t('geotech.reportNotCheckedTail', { n: unmeasured }) : ''
+    return t('geotech.reportBroken', { failed, total, tail })
   }
   if (report.verdict === 'incomplete') {
-    return `${total - unmeasured} of ${total} model guarantees held, ${unmeasured} not checked`
+    return t('geotech.reportHeld', { held: total - unmeasured, total, n: unmeasured })
   }
-  return `no gaps — all ${total} model guarantees held`
+  return t('geotech.reportClean', { total })
 }
 
 /** One named spot, with a press only where the spot is somewhere. */
@@ -130,6 +134,7 @@ function EntryRow({
   entry: GaplessClauseEntry
   onVisitSpot: (sectionId: string, gapInvestigationIds: readonly string[]) => void
 }): JSX.Element {
+  const t = useT()
   // Truthiness, not ``!== undefined``: the backend sends an absent locator as
   // an explicit ``null`` (Pydantic), and an id that is the empty string is no
   // id either. Testing the slot instead of the value put a "Show me" button on
@@ -152,10 +157,14 @@ function EntryRow({
           className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold text-accent
                      border border-accent/40 hover:bg-accent/10
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-          title={`Open ${entry.section_name ?? 'the section'} at this spot`}
-          aria-label={`Open ${entry.section_name ?? 'the section'} at this spot`}
+          title={t('geotech.reportVisitSpot', {
+            name: entry.section_name ?? t('geotech.reportSectionFallback'),
+          })}
+          aria-label={t('geotech.reportVisitSpot', {
+            name: entry.section_name ?? t('geotech.reportSectionFallback'),
+          })}
         >
-          Show me
+          {t('geotech.reportShowMe')}
         </button>
       )}
     </li>
@@ -170,6 +179,7 @@ function ClauseRow({
   clause: GaplessClause
   onVisitSpot: (sectionId: string, gapInvestigationIds: readonly string[]) => void
 }): JSX.Element {
+  const t = useT()
   const mark =
     clause.status === 'pass' ? '✓' : clause.status === 'fail' ? '✗' : '?'
   const tone =
@@ -190,7 +200,7 @@ function ClauseRow({
       </div>
       {clause.status === 'not-evaluated' && Boolean(clause.not_evaluated_reason) && (
         <p className="pl-4 py-0.5 text-text-muted italic">
-          Not checked — {clause.not_evaluated_reason}.
+          {t('geotech.reportNotChecked', { reason: clause.not_evaluated_reason ?? '' })}
         </p>
       )}
       {clause.entries.length > 0 && (
@@ -231,6 +241,7 @@ export default function GeotechBuildReportBanner({
   report,
   onVisitSpot,
 }: Props): JSX.Element | null {
+  const t = useT()
   // Above the early return — the hook order must not depend on whether a
   // verdict exists (the project's hook-order rule).
   const [open, setOpen] = useState(false)
@@ -253,8 +264,8 @@ export default function GeotechBuildReportBanner({
       <div className="flex items-start gap-2 px-3 py-1.5">
         <Icon size={13} className={`${tone} shrink-0 mt-px`} aria-hidden="true" />
         <div className="flex-1">
-          <span className={`font-semibold ${tone}`}>Model check</span>{' '}
-          <span className="text-text-primary">{summaryOf(report)}</span>
+          <span className={`font-semibold ${tone}`}>{t('geotech.reportModelCheck')}</span>{' '}
+          <span className="text-text-primary">{summaryOf(report, t)}</span>
           {/* The broken promises are named WITHOUT opening anything: the whole
               value of the report is that the engineer does not have to hunt. */}
           {broken.length > 0 && (
@@ -279,10 +290,10 @@ export default function GeotechBuildReportBanner({
           className="shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-text-secondary
                      hover:text-text-primary hover:bg-surface-sunken
                      focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-          title={open ? 'Hide the detail' : 'Show every guarantee and where it stands'}
+          title={open ? t('geotech.reportHideDetail') : t('geotech.reportShowDetail')}
         >
           {open ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-          <span>{open ? 'Less' : 'Detail'}</span>
+          <span>{open ? t('geotech.reportLess') : t('geotech.reportDetail')}</span>
         </button>
       </div>
 
