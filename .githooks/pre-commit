@@ -45,7 +45,10 @@ fi
 # "Maintaining this file"). History belongs in docs/debt.md or
 # docs/design/*.md, not here.
 if echo "$staged" | grep -qx 'CLAUDE.md'; then
-  claude_md_size="$(wc -c < CLAUDE.md)"
+  # Measure the STAGED blob (LF-normalised by autocrlf), not the working
+  # tree: the budget is content bytes, and a CRLF checkout inflates the
+  # file by one byte per line (~550 B) without adding a byte of content.
+  claude_md_size="$(git cat-file -s :CLAUDE.md)"
   budget=$((40 * 1024))
   if [ "$claude_md_size" -gt "$budget" ]; then
     echo "[pre-commit] CLAUDE.md is $((claude_md_size / 1024)) KB (> 40 KB budget)."
