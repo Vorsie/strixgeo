@@ -20,6 +20,7 @@ import { addAllToSet } from '../utils/sets'
 import { projectPointOntoLine } from '../utils/sectionProjection'
 import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 import { readSectionDefaults } from '../utils/sectionDefaults'
 import { suggestTieSections, type SuggestedTie, type TieInvestigation } from '../utils/tieAutoSuggest'
 import type { UndoCommand } from './useUndoStack'
@@ -434,7 +435,7 @@ export function useSections({
       log.debug('section', `refreshList: ${list.length} sections`)
     } catch (err) {
       log.error('section', 'refreshList failed', err)
-      toast('error', 'Failed to load cross-sections.')
+      toast('error', t('sections.toast.loadFailed'))
     }
   }, [project])
 
@@ -539,11 +540,7 @@ export function useSections({
   const handleCreateSection = useCallback(async (): Promise<CrossSectionResponse | null> => {
     if (!project) return null
     if (effectiveHorizontalEpsg == null) {
-      toast(
-        'error',
-        'No coordinate system found. Import investigations or set a ' +
-          'Default horizontal CRS in Project metadata first.',
-      )
+      toast('error', t('sections.toast.noCrs'))
       return null
     }
     // Drop any active section / CPT / borehole selection so the map is
@@ -575,7 +572,7 @@ export function useSections({
       const [ex, ey] = wgs84ToProjected(end.lat, end.lng, epsg)
       // Reject zero-length lines before hitting the backend.
       if (sx === ex && sy === ey) {
-        toast('error', 'The two endpoints landed at the same point. Try again.')
+        toast('error', t('sections.toast.sameEndpoints'))
         return
       }
       // WHY visibleSections, not sections: `sections` is the raw DB list and
@@ -633,7 +630,7 @@ export function useSections({
         })
       } catch (err) {
         log.error('section', 'create-from-draw failed', err)
-        toast('error', 'Could not create the cross-section.')
+        toast('error', t('sections.toast.createFailed'))
       }
     },
     [project, effectiveHorizontalEpsg, visibleSections.length, handleSectionCreated, pushUndo, requestBodyRecompute],
@@ -690,7 +687,7 @@ export function useSections({
         })
       } catch (err) {
         log.error('section', `delete ${id} failed`, err)
-        toast('error', 'Could not delete the cross-section.')
+        toast('error', t('sections.toast.deleteFailed'))
       }
     },
     [
@@ -725,7 +722,7 @@ export function useSections({
         log.debug('section', `patched ${selectedSectionId} → ${JSON.stringify(patch)}`)
       } catch (err) {
         log.error('section', `patch ${selectedSectionId} failed`, err)
-        toast('error', 'Could not save the section change.')
+        toast('error', t('sections.toast.saveFailed'))
       }
     },
     [project, selectedSectionId],
@@ -759,7 +756,7 @@ export function useSections({
         sectionModelAxis === 'lithostratigraphic' ? lithoContacts : contacts
       const offending = activeContacts.filter(c => contactIds.includes(c.id))
       if (offending.length === 0) {
-        toast('error', "Couldn't find the contact in the current project.")
+        toast('error', t('sections.toast.contactNotFound'))
         return
       }
       // Resolve each contact's anchor (x, y) from the loaded lists.
@@ -800,10 +797,7 @@ export function useSections({
             : sections.find(sectionContains) ?? null
       }
       if (target === null) {
-        toast(
-          'error',
-          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
-        )
+        toast('error', t('sections.inspector.noCrossSectionForContact'))
         return
       }
       if (target.id !== selectedSectionId) {
@@ -851,7 +845,7 @@ export function useSections({
       const ties = suggestTieSections(parallels, cpts, boreholes, tol)
       setSuggestedTies(ties)
       if (ties.length === 0) {
-        toast('warning', 'No clean tie-sections found — try widening the tolerance in Settings.')
+        toast('warning', t('sections.toast.noCleanTies'))
       } else {
         log.info('section', `proposed ${ties.length} tie-section(s)`)
       }
@@ -896,7 +890,7 @@ export function useSections({
         log.success('section', `accepted tie ${created.name}`)
       } catch (err) {
         log.error('section', 'accept-tie failed', err)
-        toast('error', 'Could not create the tie-section.')
+        toast('error', t('sections.toast.tieCreateFailed'))
       }
     },
     [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated],
@@ -925,7 +919,7 @@ export function useSections({
       log.success('section', `accepted all ${created.length} tie-section(s)`)
     } catch (err) {
       log.error('section', 'accept-all-ties failed', err)
-      toast('error', 'Could not create the tie-sections.')
+      toast('error', t('sections.toast.tiesCreateFailed'))
     }
   }, [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated])
 
