@@ -2,8 +2,14 @@
 
 **For:** owner. **Date:** 2026-08-27. **Decision needed:** which activation
 architecture debt #3 builds, before the first paid checkout opens.
-**Status:** nothing below is built. Tonight shipped only the *beta expiry*
-primitive (`docs/design/beta-expiry.md`), which every option here reuses.
+**Status:** the *architecture* below is still an owner decision; the beta-expiry
+primitive (`docs/design/beta-expiry.md`) shipped, and the desktop *client half*
+of Option C has since landed as a reviewable prototype — the state machine, the
+`ActivationRepository` seam + mock issuer, the HTTP client + written contract
+(`activation-api-contract.md`), and the **self-service deactivate/transfer flow**
+(ruling 15) with its irreversible-action confirmation dialog. Still MOCKED/open:
+the strixgeo.com server, Stripe, and the Ed25519 signature (§8). See
+`docs/design/onboarding-activation-updater-proto.md`.
 
 ---
 
