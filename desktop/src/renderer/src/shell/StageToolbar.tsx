@@ -25,6 +25,7 @@ import type { StageId, StageDescriptor } from './StageDescriptor'
 import { STAGE_REGISTRY } from './StageRegistry'
 import { useTheme, type ThemeChoice } from '../hooks/useTheme'
 import DirtyAsterisk from '../components/ui/DirtyAsterisk'
+import { useT } from '../i18n/translate'
 
 export interface StageToolbarProps {
   /** Currently active stage id. */
@@ -61,6 +62,7 @@ export default function StageToolbar({
   inspectorOpen,
   onToggleInspector,
 }: StageToolbarProps): JSX.Element {
+  const t = useT()
   const descriptor: StageDescriptor | undefined = STAGE_REGISTRY.get(activeStageId)
   const StageVerbs = descriptor?.ToolbarComponent ?? null
 
@@ -74,7 +76,7 @@ export default function StageToolbar({
   return (
     <div
       role="toolbar"
-      aria-label="Stage toolbar"
+      aria-label={t('shell.toolbar')}
       className="flex items-center h-10 bg-surface-card border-b border-border-subtle flex-shrink-0"
     >
       {/* Left zone — stage-specific verb buttons.
@@ -105,8 +107,8 @@ export default function StageToolbar({
           onClick={() => setMetadataEditorOpen(true)}
           title={
             projectFilePath
-              ? `${projectFilePath} — click to edit project metadata`
-              : 'Click to edit project metadata'
+              ? t('project.editMetadataHintWithPath', { path: projectFilePath })
+              : t('project.editMetadataHint')
           }
           className="flex items-center gap-1 px-2 h-7 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-spine-hover transition-colors max-w-[220px]"
         >
@@ -114,7 +116,7 @@ export default function StageToolbar({
           {projectDirty && (
             <DirtyAsterisk
               className="shrink-0"
-              title="Unsaved changes — File → Save (Ctrl+S) to commit"
+              title={t('project.unsavedHint')}
               data-testid="dirty-marker"
             />
           )}
@@ -123,8 +125,8 @@ export default function StageToolbar({
         {/* Save button — Ctrl+S affordance; also available via File menu. */}
         <button
           type="button"
-          aria-label="Save project (Ctrl+S)"
-          title="Save project (Ctrl+S)"
+          aria-label={t('project.save')}
+          title={t('project.save')}
           onClick={() => void saveProject()}
           className={[
             'flex items-center justify-center w-7 h-7 rounded',
@@ -147,8 +149,8 @@ export default function StageToolbar({
             confirm, so this button just signals intent. */}
         <button
           type="button"
-          aria-label="Close project"
-          title="Close project — returns to the welcome screen. The .gmproj file and DB data are kept."
+          aria-label={t('project.close')}
+          title={t('project.closeHintGmproj')}
           onClick={handleCloseProjectRequest}
           className={[
             'flex items-center justify-center w-7 h-7 rounded',
@@ -166,7 +168,7 @@ export default function StageToolbar({
         {/* Inspector panel toggle (panel-right icon) */}
         <button
           type="button"
-          aria-label={inspectorOpen ? 'Collapse inspector' : 'Expand inspector'}
+          aria-label={inspectorOpen ? t('shell.collapseInspector') : t('shell.expandInspector')}
           aria-pressed={inspectorOpen}
           onClick={onToggleInspector}
           className={[
@@ -206,13 +208,16 @@ const THEME_CYCLE: Record<ThemeChoice, ThemeChoice> = {
   dark: 'system',
 }
 
-const THEME_LABELS: Record<ThemeChoice, string> = {
-  system: 'System theme',
-  light: 'Light theme',
-  dark: 'Dark theme',
-}
+// ``as const`` keeps each value a literal member of MessageKey, so t() accepts
+// it without importing the type.
+const THEME_LABEL_KEYS = {
+  system: 'shell.themeSystem',
+  light: 'shell.themeLight',
+  dark: 'shell.themeDark',
+} as const
 
 function ThemeToggle(): React.ReactElement {
+  const t = useT()
   const { choice, setChoice } = useTheme()
   const next = THEME_CYCLE[choice]
   const Icon = choice === 'light' ? Sun : choice === 'dark' ? Moon : Laptop
@@ -220,7 +225,10 @@ function ThemeToggle(): React.ReactElement {
     <button
       type="button"
       onClick={() => setChoice(next)}
-      title={`${THEME_LABELS[choice]} (click for ${THEME_LABELS[next].toLowerCase()})`}
+      title={t('shell.themeToggleTitle', {
+        current: t(THEME_LABEL_KEYS[choice]),
+        next: t(THEME_LABEL_KEYS[next]).toLowerCase(),
+      })}
       className={[
         'flex items-center justify-center w-7 h-7 rounded',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
