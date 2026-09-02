@@ -38,14 +38,17 @@ import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
 import { EmptyState, LoadingState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
+import { t as tStatic, useT } from '../../../i18n/translate'
+import type { MessageKey } from '../../../i18n/locales/en'
 import CptSbtDepthPanels from './CptSbtDepthPanels'
 import UnitListPane from './UnitListPane'
 
-/** How the water-table line reads for each provenance. */
-const GWT_PROVENANCE_LABEL: Record<GwtProvenance, string> = {
-  recorded: 'recorded',
-  engineer: 'set by engineer',
-  assumed: 'assumed',
+/** How the water-table line reads for each provenance — a catalogue key so it
+ *  translates at render time. */
+const GWT_PROVENANCE_LABEL_KEY: Record<GwtProvenance, MessageKey> = {
+  recorded: 'params.gwtRecorded',
+  engineer: 'params.gwtEngineer',
+  assumed: 'params.gwtAssumed',
 }
 
 /**
@@ -67,6 +70,7 @@ export default function ParametersInspector(): JSX.Element {
     coordinator: { selectedId, markMutated, parametersActiveTab },
     toasts: { toast },
   } = useShell()
+  const t = useT()
 
   const [profile, setProfile] = useState<CptSbtProfileResponse | null>(null)
   // Plot fetched by THIS pane, used only when the shared cache does not have
@@ -139,8 +143,8 @@ export default function ParametersInspector(): JSX.Element {
         log.error('cpt', `parameters inspector fetch(${selectedId}) failed`, err)
         setError(
           err instanceof Error && err.message
-            ? `Could not load this CPT — ${err.message}`
-            : 'Could not load this CPT.',
+            ? tStatic('params.cptLoadFailedDetail', { error: err.message })
+            : tStatic('params.cptLoadFailed'),
         )
         setProfile(null)
         setLoading(false)
@@ -169,7 +173,7 @@ export default function ParametersInspector(): JSX.Element {
       // what the catch below surfaces.
       const parsed = trimmed === '' ? null : tryParseNumeric(trimmed, { allowNegative: true })
       if (trimmed !== '' && parsed === null) {
-        toast('error', 'Water table must be a number in metres — negative if the water is above the surface.')
+        toast('error', tStatic('params.waterTableInvalid'))
         return
       }
       setSaving(true)
@@ -192,8 +196,8 @@ export default function ParametersInspector(): JSX.Element {
         toast(
           'error',
           err instanceof Error && err.message
-            ? `Could not save the water table — ${err.message}`
-            : 'Could not save the water table.',
+            ? tStatic('params.waterTableSaveFailedDetail', { error: err.message })
+            : tStatic('params.waterTableSaveFailed'),
         )
       } finally {
         setSaving(false)
@@ -217,8 +221,8 @@ export default function ParametersInspector(): JSX.Element {
     return (
       <EmptyState
         icon={<Beaker />}
-        title="No test selected"
-        hint="Click a CPT row in the per-test table to plot its depth series and soil-behaviour-type profile here."
+        title={t('params.noTestSelected')}
+        hint={t('params.pickCptRow')}
       />
     )
   }
@@ -233,10 +237,12 @@ export default function ParametersInspector(): JSX.Element {
       {/* Header — name + depth. */}
       <div className="px-3 py-2 border-b border-border-subtle shrink-0">
         <div className="text-xs font-semibold text-text-primary truncate" data-testid="parameters-inspector-title">
-          {cpt?.name ?? 'CPT'}
+          {cpt?.name ?? t('params.cptFallbackName')}
         </div>
         <div className="text-[10px] text-text-muted tabular-nums">
-          {cpt?.max_depth_m != null ? `${cpt.max_depth_m.toFixed(1)} m deep` : 'depth unknown'}
+          {cpt?.max_depth_m != null
+            ? t('params.depthMDeep', { depth: cpt.max_depth_m.toFixed(1) })
+            : t('params.depthUnknown')}
           {cpt?.cpt_type ? ` · ${cpt.cpt_type}` : ''}
         </div>
       </div>
@@ -271,12 +277,12 @@ export default function ParametersInspector(): JSX.Element {
             className="px-2 py-0.5 rounded border border-border-default text-text-primary hover:bg-surface-app"
             data-testid="parameters-inspector-retry"
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       ) : loading || plot === null ? (
         <div className="flex-1 min-h-0" data-testid="parameters-inspector-loading">
-          <LoadingState label="Loading depth series…" />
+          <LoadingState label={t('params.loadingDepthSeries')} />
         </div>
       ) : (
         <CptSbtDepthPanels plot={plot} profile={profile} />
@@ -318,6 +324,7 @@ function WaterTableLine({
   onCancel: () => void
   onClear: () => void
 }): JSX.Element {
+  const t = useT()
   const editing = draft !== null
 
   return (
@@ -326,7 +333,7 @@ function WaterTableLine({
       data-testid="parameters-water-table-line"
     >
       <Droplet size={11} className="text-text-muted shrink-0" aria-hidden="true" />
-      <span className="text-text-muted shrink-0">Water table:</span>
+      <span className="text-text-muted shrink-0">{t('params.waterTable')}</span>
 
       {editing ? (
         <>
@@ -351,11 +358,11 @@ function WaterTableLine({
             // half-typed depth must not silently re-normalise the whole
             // profile. Enter is the commit gesture, and the hint says so.
             onBlur={onCancel}
-            aria-label="Depth to groundwater in metres below ground surface"
+            aria-label={t('params.waterTableHint')}
             className="w-16 bg-surface-app border border-border-default rounded px-1 py-0.5 tabular-nums text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
             data-testid="parameters-water-table-input"
           />
-          <span className="text-text-muted">m — Enter to apply, Esc to cancel</span>
+          <span className="text-text-muted">{t('params.waterTableEditHint')}</span>
         </>
       ) : profile === null ? (
         <span className="text-text-muted">—</span>
@@ -363,19 +370,19 @@ function WaterTableLine({
         <>
           <button
             onClick={onStartEdit}
-            title="Click to set the water table for this CPT"
+            title={t('params.waterTableSet')}
             className="tabular-nums text-text-primary underline decoration-dotted underline-offset-2 hover:text-accent"
             data-testid="parameters-water-table-value"
           >
             {profile.gwt_m.toFixed(2)} m
           </button>
           <span className="text-text-muted truncate" data-testid="parameters-water-table-source">
-            — {GWT_PROVENANCE_LABEL[profile.gwt_source]}
+            — {t(GWT_PROVENANCE_LABEL_KEY[profile.gwt_source])}
           </span>
           {profile.gwt_source === 'engineer' && (
             <button
               onClick={onClear}
-              title="Undo the water table you set — the file's value comes back when the file recorded one, otherwise the app's assumption"
+              title={t('params.waterTableUndo')}
               className="ml-auto shrink-0 p-0.5 rounded text-text-muted hover:text-status-danger hover:bg-surface-app"
               data-testid="parameters-water-table-clear"
             >
