@@ -23,6 +23,12 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'onboarding.back': 'Terug',
   'onboarding.next': 'Volgende',
   'onboarding.done': 'Aan de slag',
+  // Start-de-tutorial-scherm (vervangt de oude stappen-slideshow).
+  'onboarding.startTitle': 'Klaar om te bouwen?',
+  'onboarding.startBody':
+    'Een korte, praktische tutorial leidt je door de volledige workflow op je eigen project, knop per knop. Sla ze altijd over en heropen ze via Help.',
+  'onboarding.startTutorial': 'Start de tutorial',
+  'onboarding.startLater': 'Misschien later',
   'onboarding.sampleUnavailable':
     'Het voorbeeldproject zit nog niet in deze prototypebuild — er wordt een leeg project gestart.',
   'onboarding.stageImport': 'Importeren',
