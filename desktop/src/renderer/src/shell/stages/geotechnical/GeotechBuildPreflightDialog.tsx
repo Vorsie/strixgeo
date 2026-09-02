@@ -27,6 +27,7 @@ import { useEffect, useRef } from 'react'
 
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
+import { useT } from '../../../i18n/translate'
 import type { UnbandedTest } from '../../../utils/geotechBuildPreflight'
 
 /** Props: what the pre-flight found, and the three ways out of it. */
@@ -83,6 +84,7 @@ export default function GeotechBuildPreflightDialog({
   onCancel,
   busy = false,
 }: Props): JSX.Element {
+  const t = useT()
   // Focus the DEFAULT action, not Cancel — see the header: nothing here is
   // irreversible, so the Cancel-default rule does not apply and putting focus
   // on the action he wants saves the reach for the mouse.
@@ -108,15 +110,12 @@ export default function GeotechBuildPreflightDialog({
           className="mb-2 text-sm font-semibold text-text-primary"
         >
           {one
-            ? 'This test has no packing bands yet'
-            : `These ${tests.length} tests have no packing bands yet`}
+            ? t('geotech.preflightTitleOne')
+            : t('geotech.preflightTitleMany', { count: tests.length })}
         </h2>
         <div className="mb-4 text-xs text-text-secondary">
           <p className="mb-2">
-            {one ? 'It is' : 'They are'} part of the model the build is framed on, so the
-            build would draw a gap around {one ? 'it' : 'them'} with no packing data to
-            fill. Open {one ? 'it' : 'each one'} to subdivide it by hand, or choose one of
-            the two builds below.
+            {one ? t('geotech.preflightBodyOne') : t('geotech.preflightBodyMany')}
           </p>
           <ul className="space-y-1.5">
             {tests.map(test => (
@@ -130,7 +129,7 @@ export default function GeotechBuildPreflightDialog({
                   className="font-semibold text-accent underline underline-offset-2 hover:text-accent-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded disabled:pointer-events-none disabled:opacity-40"
                   disabled={busy}
                   onClick={() => onVisitTest(test)}
-                  title={`Open ${test.name} on a cross-section that carries it`}
+                  title={t('geotech.preflightVisitTitle', { name: test.name })}
                 >
                   {test.name}
                 </button>
@@ -143,9 +142,10 @@ export default function GeotechBuildPreflightDialog({
                     data-testid={`geotech-preflight-drop-${test.investigationId}`}
                     className="ml-1.5 text-status-amber"
                   >
-                    &mdash; Building without {test.name} removes{' '}
-                    {test.droppedSections.map(s => s.sectionName).join(', ')} from the build;
-                    its space fills from the neighbouring sections.
+                    {t('geotech.preflightDropWarning', {
+                      name: test.name,
+                      sections: test.droppedSections.map(s => s.sectionName).join(', '),
+                    })}
                   </span>
                 )}
               </li>
@@ -160,7 +160,7 @@ export default function GeotechBuildPreflightDialog({
             disabled={busy}
             data-testid="geotech-preflight-cancel"
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="secondary"
@@ -168,9 +168,9 @@ export default function GeotechBuildPreflightDialog({
             onClick={onBuildWithout}
             disabled={busy}
             data-testid="geotech-preflight-build-without"
-            title="Ignore them completely — the result is the model you had before they were imported"
+            title={t('geotech.preflightIgnore')}
           >
-            Build without {one ? 'it' : 'them'}
+            {one ? t('geotech.preflightBuildWithoutOne') : t('geotech.preflightBuildWithoutMany')}
           </Button>
           <Button
             ref={defaultRef}
@@ -179,9 +179,9 @@ export default function GeotechBuildPreflightDialog({
             onClick={onSubdivideAndBuild}
             disabled={busy}
             data-testid="geotech-preflight-subdivide"
-            title="Run the standard subdivide / divide steps on them, then build"
+            title={t('geotech.preflightKeep')}
           >
-            Subdivide {one ? 'it' : 'them'} &amp; build
+            {one ? t('geotech.preflightSubdivideOne') : t('geotech.preflightSubdivideMany')}
           </Button>
         </div>
       </div>
