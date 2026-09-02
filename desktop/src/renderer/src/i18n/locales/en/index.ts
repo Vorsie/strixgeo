@@ -38,6 +38,7 @@ import { PANELS } from './panels'
 import { SECTIONS } from './sections'
 import { SETTINGS } from './settings'
 import { SHEET } from './sheet'
+import { TUTORIAL } from './tutorial'
 
 /** The composed English catalogue. Module order is presentation order (shell →
  *  stages in workflow sequence → shared panels); it does not affect lookup. */
@@ -51,6 +52,7 @@ export const EN = {
   ...SHEET,
   ...PANELS,
   ...LAUNCH,
+  ...TUTORIAL,
 } as const
 
 /** The per-surface modules, kept addressable so tests can assert that no key is
@@ -66,6 +68,7 @@ export const EN_MODULES = {
   sheet: SHEET,
   panels: PANELS,
   launch: LAUNCH,
+  tutorial: TUTORIAL,
 } as const
 
 /** Every key the app can translate. Derived from EN so a typo'd key is a
