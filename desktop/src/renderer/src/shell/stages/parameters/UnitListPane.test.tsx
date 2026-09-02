@@ -258,4 +258,50 @@ describe('UnitListPane — the body tree (spec §1)', () => {
     expect(screen.queryByTestId('parameters-node-litho-unit:silt')).toBeNull()
     expect(screen.getByTestId('parameters-unit-list-loading')).toBeTruthy()
   })
+
+  it('NP12 — a single-class litho body stays openable and auto-expands so the pakkingsdichtheid label shows without an extra click (owner ruling 2026-09-02)', () => {
+    // SILT unit, one litho body lb1 with EXACTLY ONE packing class (NAD 13) —
+    // the owner's "SILT · #1" case that used to collapse to a non-openable leaf.
+    mockLithoFormations = [formation('silt', { name: 'SILT', display_order: 0 })]
+    mockGeotechFormations = [formation('silt-sf', { nad_class: 13, source_litho_formation_id: 'silt' })]
+    mockLithoLayers = [layer('L1', { formation_id: 'silt', body_id: 'lb1' })]
+    mockGeotechLayers = [
+      layer('g1', { formation_id: 'silt-sf', parent_litho_layer_id: 'L1', body_id: 'gbA' }),
+    ]
+    render(<UnitListPane />)
+
+    // Reach the body level (where the owner was) by expanding the unit.
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-unit:silt'))
+
+    // The body is openable — no more "submenu I cannot open".
+    expect(screen.getByTestId('parameters-node-expander-litho-body:silt:lb1')).toBeTruthy()
+
+    // ...and it is auto-expanded, so the class row — the pakkingsdichtheid label
+    // — is visible WITHOUT a further click on the body's expander.
+    const classLabel = screen.getByTestId('parameters-node-label-geotech-class:silt:lb1:13')
+    expect(classLabel.textContent).toBe('SILT, slightly firm')
+  })
+
+  it('NP13 — a single-class body is default-open, NOT force-open: the user can collapse it and it stays collapsed across a tree rebuild', () => {
+    mockLithoFormations = [formation('silt', { name: 'SILT', display_order: 0 })]
+    mockGeotechFormations = [formation('silt-sf', { nad_class: 13, source_litho_formation_id: 'silt' })]
+    mockLithoLayers = [layer('L1', { formation_id: 'silt', body_id: 'lb1' })]
+    mockGeotechLayers = [
+      layer('g1', { formation_id: 'silt-sf', parent_litho_layer_id: 'L1', body_id: 'gbA' }),
+    ]
+    const view = render(<UnitListPane />)
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-unit:silt'))
+    // Auto-open: the class row is visible to start with.
+    expect(screen.getByTestId('parameters-node-label-geotech-class:silt:lb1:13')).toBeTruthy()
+
+    // The collapse gesture is HONOURED (a force-open node would ignore it).
+    fireEvent.click(screen.getByTestId('parameters-node-expander-litho-body:silt:lb1'))
+    expect(screen.queryByTestId('parameters-node-label-geotech-class:silt:lb1:13')).toBeNull()
+
+    // A tree rebuild (new data reference, same shape) must NOT re-open what the
+    // user deliberately closed — the seed fires once, not on every rebuild.
+    mockLithoLayers = [...mockLithoLayers]
+    view.rerender(<UnitListPane />)
+    expect(screen.queryByTestId('parameters-node-label-geotech-class:silt:lb1:13')).toBeNull()
+  })
 })
