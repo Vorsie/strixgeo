@@ -26,6 +26,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { useT } from '../../i18n/translate'
 import type {
   CrossingPinchOut,
   FormationContactResponse,
@@ -417,6 +418,7 @@ export default function CorrelationEdgesOverlay({
   flashEdgeId = null,
   conflictEdgeKeys,
 }: Props): JSX.Element {
+  const t = useT()
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
    *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
   const rootGRef = useRef<SVGGElement>(null)
@@ -1511,10 +1513,7 @@ export default function CorrelationEdgesOverlay({
                   stroke={LENS_CANDIDATE_COLOR}
                   strokeWidth={1.6}
                 />
-                <title>
-                  Lens candidate — no correlation on either neighbour. Pinch it out
-                  rather than correlate it.
-                </title>
+                <title>{t('sections.lens.candidateEither')}</title>
               </g>
             )
           })}
@@ -1549,11 +1548,7 @@ export default function CorrelationEdgesOverlay({
                   stroke={LENS_CANDIDATE_COLOR}
                   strokeWidth={1.4}
                 />
-                <title>
-                  Pinch-out lens candidate — this layer pinches out toward the
-                  neighbour, so the crossing correlation was not drawn. Use the
-                  Bodies → Suggest pinch-outs flow to claim it as a lens.
-                </title>
+                <title>{t('sections.lens.pinchOutCandidateFull')}</title>
               </g>
             )
           })}
