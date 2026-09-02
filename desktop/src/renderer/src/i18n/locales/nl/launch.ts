@@ -65,6 +65,11 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'licensing.startTrial': 'Gratis proefperiode starten',
   'licensing.deactivate': 'Dit toestel deactiveren / overdragen',
   'licensing.deactivateHint': 'Maakt deze zetel vrij zodat je op een ander toestel kunt activeren.',
+  // Bevestigingsvenster voor het onomkeerbare deactiveren / overdragen (docs/ux.md).
+  'licensing.deactivateConfirmTitle': 'Dit toestel deactiveren?',
+  'licensing.deactivateConfirmBody':
+    'Dit maakt de zetel vrij zodat je op een ander toestel kunt activeren. De app keert terug naar het activatiescherm.',
+  'licensing.deactivateConfirmAction': 'Deactiveren',
   'licensing.demoKeysHint': 'Demosleutels voor het prototype: STRIX-SOLO-DEMO, STRIX-PRO-DEMO, STRIX-STUDIO-DEMO.',
   'licensing.previewHeading': 'Een toestand bekijken (enkel prototype)',
   'licensing.errorUnknownKey': 'Die licentiesleutel is niet herkend.',
