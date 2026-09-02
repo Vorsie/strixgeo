@@ -104,3 +104,17 @@ describe('a persisted activation licence is trusted only when its shape is sound
     }
   })
 })
+
+// The device-id seed (debt #3): index.ts feeds the hardware-derived device id so
+// a reinstall re-binds the same seat, instead of a fresh random UUID.
+describe('a configured device-id seed is used for a fresh store', () => {
+  it('a fresh read returns the seed, not a random UUID', () => {
+    configureActivationStore({ userDataDir: dir, deviceIdSeed: 'hw-fingerprint-abc' })
+    expect(readActivationState().deviceId).toBe('hw-fingerprint-abc')
+  })
+
+  it('without a seed a fresh read still mints a non-empty id (original behaviour)', () => {
+    configureActivationStore({ userDataDir: dir })
+    expect(readActivationState().deviceId).toBeTruthy()
+  })
+})
