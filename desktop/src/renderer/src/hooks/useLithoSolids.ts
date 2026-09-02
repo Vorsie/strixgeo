@@ -19,6 +19,7 @@ import { apiErrorDetail } from '../api/clients/shared'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import type { GaplessBuildReport } from '../utils/gaplessGate/types'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
 
 // ---------------------------------------------------------------------------
@@ -60,17 +61,17 @@ export function buildFailureMessage(err: unknown): string {
     const reason =
       typeof detail.message === 'string' && detail.message.length > 0
         ? detail.message
-        : 'The requested grid is too large to build.'
+        : t('litho.gridTooLargeDefault')
     const suggested = detail.suggested_horizontal_m
     // Nothing was written server-side on this path, and saying so stops the
     // engineer hunting for a half-built model before retrying.
-    const untouched = 'The stored 3-D model was not changed.'
+    const untouched = t('litho.storedModelUnchanged')
     return typeof suggested === 'number'
-      ? `${reason} Try again with a horizontal spacing of at least ${suggested} m. ${untouched}`
-      : `${reason} ${untouched}`
+      ? t('litho.gridTooLargeRetry', { reason, suggested, untouched })
+      : t('litho.gridTooLargeNoRetry', { reason, untouched })
   }
 
-  return 'Could not build body solids — check the connection.'
+  return t('litho.buildFailedGeneric')
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +293,7 @@ export function useLithoSolids(
       // canvas assembles.  Without a builder there is nothing to build (the
       // retired implicit rebuild path was deleted with #237).
       if (!voxelRequestBuilder) {
-        toast('warning', 'Nothing to build yet — open a cross-section on the litho axis first.')
+        toast('warning', t('litho.nothingToBuildYet'))
         return
       }
 
@@ -301,10 +302,7 @@ export function useLithoSolids(
       try {
         const request = await voxelRequestBuilder()
         if (!request || request.sections.length === 0) {
-          toast(
-            'warning',
-            'Nothing to build — accept litho layers on a cross-section, then Build.',
-          )
+          toast('warning', t('litho.nothingToBuild'))
           return
         }
 
@@ -351,7 +349,10 @@ export function useLithoSolids(
         // marking it dirty would make every failed attempt look like an edit.
         onMutated?.()
 
-        const builtMsg = `Built ${result.bodies_built} bod${result.bodies_built === 1 ? 'y' : 'ies'}`
+        const builtMsg = t('litho.builtBodies', {
+          n: result.bodies_built,
+          bodyWord: result.bodies_built === 1 ? t('litho.bodyWordOne') : t('litho.bodyWordMany'),
+        })
         // A build that produced NOTHING also cleared the stored 3-D model — the
         // backend's empty path orphan-deletes every solid row and commits. Its
         // counts are identical to a happy build of zero bodies, so without the
@@ -359,10 +360,7 @@ export function useLithoSolids(
         // over a model that had just been erased. Say what happened instead.
         if (result.empty_reason) {
           log.warn('useLithoSolids', `build produced nothing: ${result.empty_reason}`)
-          toast(
-            'warning',
-            `Nothing could be built — ${result.empty_reason}. The stored 3-D model was cleared.`,
-          )
+          toast('warning', t('litho.nothingCouldBeBuilt', { reason: result.empty_reason }))
           return
         }
         // Severity is DERIVED from what the build reported, not fixed at
@@ -374,9 +372,18 @@ export function useLithoSolids(
         const problems: string[] = []
         if (uncovered.length > 0) {
           const named = uncovered.slice(0, 3).join(', ')
-          const rest = uncovered.length > 3 ? `, +${uncovered.length - 3} more` : ''
+          const rest =
+            uncovered.length > 3 ? t('litho.moreCount', { n: uncovered.length - 3 }) : ''
           problems.push(
-            `${uncovered.length} investigation${uncovered.length === 1 ? '' : 's'} outside the model footprint, with NO 3-D model: ${named}${rest}`,
+            t('litho.uncoveredInvestigations', {
+              n: uncovered.length,
+              investigationWord:
+                uncovered.length === 1
+                  ? t('litho.investigationWordOne')
+                  : t('litho.investigationWordMany'),
+              named,
+              rest,
+            }),
           )
           log.warn(
             'useLithoSolids',
@@ -385,7 +392,11 @@ export function useLithoSolids(
         }
         if (result.bodies_flagged > 0) {
           problems.push(
-            `${result.bodies_flagged} under-constrained bod${result.bodies_flagged === 1 ? 'y' : 'ies'} (fewer than 3 CPT/borehole traces — slab approximation)`,
+            t('litho.underConstrainedBodies', {
+              n: result.bodies_flagged,
+              bodyWord:
+                result.bodies_flagged === 1 ? t('litho.bodyWordOne') : t('litho.bodyWordMany'),
+            }),
           )
         }
         if (problems.length > 0) {
@@ -437,7 +448,7 @@ export function useLithoSolids(
           })
           .catch(err => {
             log.error('useLithoSolids', 'failed to persist body colour', err)
-            toast('error', 'Could not save body colour — try again.')
+            toast('error', t('litho.saveBodyColourFailed'))
             // Re-fetch to restore server state after a failed persist.
             setRefetchNonce(n => n + 1)
           })
