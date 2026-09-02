@@ -27,6 +27,7 @@
 import { useSyncExternalStore } from 'react'
 
 import { isBackendUnreachable, subscribeBackendReachability } from '../api/networkHealth'
+import { useT } from '../i18n/translate'
 
 /**
  * Server snapshot for ``useSyncExternalStore``.
@@ -51,6 +52,7 @@ const NEVER_UNREACHABLE_ON_SERVER = (): boolean => false
  *     The banner while unreachable; ``null`` otherwise.
  */
 export default function BackendUnreachableBanner(): JSX.Element | null {
+  const t = useT()
   const unreachable = useSyncExternalStore(
     subscribeBackendReachability,
     isBackendUnreachable,
@@ -73,9 +75,8 @@ export default function BackendUnreachableBanner(): JSX.Element | null {
         ⚠
       </span>
       <span>
-        <span className="font-semibold text-status-danger">Backend unreachable</span> — saving and
-        every other change are unavailable, and recent actions may not have been stored. Restart
-        the app to reconnect.
+        <span className="font-semibold text-status-danger">{t('app.backendUnreachable')}</span>{' '}
+        {t('app.backendUnreachableBody')}
       </span>
     </div>
   )
