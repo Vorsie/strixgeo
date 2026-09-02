@@ -172,6 +172,16 @@ def _recompute_payload(scene: _Scene, group_size: int) -> dict:
     Varying ``group_size`` between rounds makes the recompute merge and split
     components, which is what makes the two transactions disagree about the
     body key set — the condition the race needs.
+
+    Must carry ``section_ids`` parallel to ``sections``: the coverage guard
+    (``_ids_parallel_to_sections`` + ``IncompleteRecomputeCoverageError``,
+    audit P1-3, added 2026-08-18 — three days AFTER this test) 422s a recompute
+    request whose ``section_ids`` do not name every section BEFORE the use case
+    takes the body-partition lock. Without this field the recompute arm of BP-1
+    died at request validation every round, so BP-1 stopped actually racing two
+    writers through ``_run_resolver`` and became a correlate-only smoke test that
+    stayed green even with the lock removed from recompute. Naming the one
+    section restores the race the test exists to pin.
     """
     regions = [
         {
@@ -191,6 +201,10 @@ def _recompute_payload(scene: _Scene, group_size: int) -> dict:
     ]
     group = [str(layer_id) for layer_id in scene.layer_ids[:group_size]]
     return {
+        # Parallel to ``sections`` (one entry) and equal to the project's only
+        # section, so the P1-3 coverage guard passes and the request reaches the
+        # lock + resolver instead of 422-ing at validation.
+        "section_ids": [str(scene.section_id)],
         "sections": [
             {
                 "start_x": 160_000.0,
