@@ -52,10 +52,15 @@ Strix formation id in the layer note. `projectinfo.Remarks` carries
 the datum, the axis definition and the parameters-not-exported
 disclaimer.
 
-**No design parameter is written** — cohesion, friction angle and both
-unit weights stay at GEOLib's initial **zero**, chosen over a plausible
-default precisely because a zero cannot be mistaken for a value Strix
-stood behind. No phreatic line, head line, load or reinforcement.
+**Design parameters are written only when the NAD table carries the
+unit's class** (see "NAD soil parameters" below). By default that table
+is empty, so cohesion, friction angle and both unit weights stay at
+GEOLib's initial **zero** — chosen over a plausible default precisely
+because a zero cannot be mistaken for a value Strix stood behind. When a
+class IS in the table, its γ, φ′ and c′ ride on the Mohr-Coulomb model
+D-Stability applies both above and below the phreatic level, and the
+soil's `Notes` names the source table. No phreatic line, head line, load
+or reinforcement is ever written.
 
 Regions that cannot close are dropped and counted, never repaired: a
 zero-area ring (shapely `make_valid` → `MultiLineString`) and a
@@ -78,9 +83,38 @@ profile can express neither.
 
 The ground surface IS exported (a surface elevation is a measurement).
 Everything else is an explicit TODO in `[RUN IDENTIFICATION]`, never an
-invented value.
+invented value. Soil γ / φ′ / c′ follow the same NAD-table path as
+D-Stability (below); when a soil is parameterised, line 3 of the
+`[RUN IDENTIFICATION]` block names the source table instead of the
+parameters-at-defaults TODO — a `.shi` `[SOIL]` block has no per-soil
+free-text field, so that block is the only place the provenance can go.
 
-### GEOLib quirks — verified against 2.9.1, 2026-08-26
+### NAD soil parameters — empty until filled
+
+Both D-Series exporters carry **NAD characteristic soil parameters** (unit
+weight γ, effective φ′, effective c′) per packing class, keyed by NAD class
+1–31. The values live in `domain/services/nad_soil_parameters_constants.py`
+(`NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters]`) and are transcribed by
+the owner from the private workbook **"Correlaties uit S en NAD_NEN_v2.xlsx"**
+(NEN 9997-1 Tabel 2.b). **The dict ships EMPTY** — Strix never invents a norm
+value — and the plumbing is wired so that filling the dict is the only
+remaining step: `nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
+returns a class's parameters or `None`, and each exporter writes them into the
+GEOLib `Soil` when present.
+
+* **Present** → cohesion + φ′ on the Mohr-Coulomb model (D-Stability sets it
+  above AND below the phreatic level so the strength is actually applied under
+  the water table); both unit weights; and the annotation `SOURCE_LABEL`
+  ("NAD Tabel 2.b — karakteristieke waarde") on the soil `Notes` (D-Stability)
+  or folded into `[RUN IDENTIFICATION]` (D-Sheet).
+* **Absent** (the shipped state, and any class the owner has not transcribed)
+  → **no** parameters; GEOLib's own blank initial values (D-Stability 0/0/0;
+  D-Sheet 0.01 kN/m³ unit weight, 0 cohesion/φ′). Never a plausible default.
+
+The values are characterisation, not design outputs — the boundary in CLAUDE.md
+"Core Philosophy". The engineer verifies each value against the norm.
+
+### GEOLib quirks — verified against 2.9.1, 2026-08-26 (parameters row group 2026-09-02)
 
 | Quirk | Consequence |
 |---|---|
@@ -92,6 +126,11 @@ invented value.
 | GEOLib writes a `[WATERLEVELS]` block whether or not one is added | The water level cannot be omitted, only NAMED — ours is `TODO set water level` at GEOLib's own 0.00. **Never set it to the ground surface** (the 2026-08-02 Plaxis audit: that made every exported model fully saturated) |
 | D-Sheet's GUI shows only **3** `[RUN IDENTIFICATION]` lines (`REQ_RUN_LINES = 2`) | The whole TODO message is budgeted to three lines; a fourth is in the file and invisible |
 | GEOLib ships no `py.typed` | `[[tool.mypy.overrides]] module = ["geolib.*"]` in pyproject |
+| The GEOLib `Soil` constructor **forbids a `notes` key** (pydantic `extra=forbid`), and `Soil._to_dstability` never transfers a note | To annotate a D-Stability soil, set the PERSISTED soil's `Notes` after `add_soil`: `model.soils.get_soil(code).Notes = ...`. It round-trips into `soils.json` |
+| `Soil.mohr_coulomb_parameters` cohesion/friction land in **`MohrCoulombAdvancedShearStrengthModel`**, not `...Classic` | Assert parameters against the *Advanced* model; `...Classic` stays 0 |
+| A name+code-only D-Stability soil defaults to `ShearStrengthModelTypeBelowPhreaticLevel = **Su**` with `StrengthIncreaseExponent = **1.0**` — a model choice + number nobody chose | When writing parameters, set the shear model to Mohr-Coulomb on BOTH sides (so cohesion/φ′ apply below the water table too). The empty-table path leaves the `Su`/1.0 default in place — documented, not chosen |
+| A name+code-only **D-Sheet** soil is NOT all-zero: `SoilGamDry/Wet = **0.01**`, and GEOLib forces non-zero structural defaults regardless (`SoilOCR 1.0`, `SoilEModMenard 0.01`, subgrade `SoilKb*/Ko* ≈ 1e4`, `SoilPermeabKx 1e-4`, `SoilLn/Lp 0.01`) | These are D-Sheet's own init values, not Strix's. The export only ever writes the four Mohr-Coulomb/weight fields; the rest are GEOLib defaults the engineer edits |
+| `parse()` → `serialize()` is **not byte-identical** for either target | `.stix`: only the layer-note member differs, from the cp1252-reader mojibaking our own em dash (the writer-UTF-8/reader-cp1252 quirk above); the model is structurally identical. `.shi`: differs only in the `TIME` stamp and cosmetic leading-whitespace on `Number of …` count lines. Content-stable; do not gate on byte-equality |
 
 **Plaxis is NOT a D-Series tool** — it's Bentley/PLAXIS BV, with
 its own remote-scripting API (`plxscripting`). GEOLib doesn't
