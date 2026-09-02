@@ -1,29 +1,32 @@
-"""Unit tests for the must-link (Join-with) side of the litho resolver.
+"""Unit tests for the "Join with…" GROUP relation in the litho resolver.
 
-Owner ruling 2026-08-31 (debt #278): a **"Join with…"** verb — the positive half
-of the body-identity rule — so the engineer can state *"this body IS the same as
-that body"* and have the resolver honour it. His standing rule: *"a body is only
-a body if it is geometrically connected, OR if the user says this body is the
-same as that body"* — the subtractive half (Separate / cannot-link) already
-exists; a union is the additive half only the user writes.
+Owner ruling 2026-09-02 (his words): *"I want all bodies that are separate to keep
+their separate body IDs. Grouping is just for lumping things that are similar
+together, so we have more data and maybe we have less export classes. E.g. in an
+export it then becomes group 3 (silt FF) — these parameters."* And, because a
+group can span two different litho bodies, merging would lose provenance, so *"the
+only way to group those is add a label"*.
 
-A union is a **must-link** constraint in LAYER-id space: "the body containing
-``layer_a`` IS the same body as the body containing ``layer_b``". These tests
-speak the ruling's own words — *the user says these two ARE the same body, and
-the resolver honours it* — and exercise the pure ``resolve_litho_instances``
-function only (no DB).
+So a **"Join with…"** (``body_union``) is a **GROUP** relation, NOT a merge. Body
+IDENTITY is geometry-only: every geometrically-disconnected mass keeps its own
+body id, and a union must NO LONGER change any ``body_id``. Grouping is resolved
+for display / pooling on the client (``geotechGroupOrdinals``); the pure resolver
+IGNORES ``unions`` entirely.
 
-Precedence and guards under test:
+These tests speak the ruling's own words — *a union groups two bodies, they keep
+their separate body ids, identity is geometry only* — and exercise the pure
+``resolve_litho_instances`` function only (no DB). They are the mirror of the old
+must-link tests, which pinned the now-removed MERGE behaviour.
 
-* R-JOIN-1 — cannot-link wins: a union contradicting a standing separation is
-  suppressed (the separation holds) and reported in ``suppressed_unions``.
-* R-JOIN-2 — never a mixed body: a union across two soils / packing classes is
-  INERT and reported in ``inert_unions``.
-* R-JOIN-3 — a dangling anchor makes the union inert (silently, mirroring a
-  dangling separation).
-* R-JOIN-4 — determinism / priority: user unions are processed before machine
-  edges, so a machine edge can never complete a separation through a
-  pre-applied union.
+What the resolver does under the GROUP contract:
+
+* A union never merges its two anchors — they stay two bodies (unless GEOMETRY,
+  i.e. a correlation edge or geometry fact, connects them).
+* Nothing is reported ``inert`` or ``suppressed`` — the resolver no longer judges
+  unions at all. The "never a mixed body" rule now lives ONLY in the router's
+  write-time guard (``same_mass`` on soil + NAD class); a group is still "things
+  that are similar".
+* Geometry alone decides identity, exactly as it does with no unions supplied.
 """
 
 from __future__ import annotations
@@ -86,30 +89,33 @@ def _partition(result: object) -> set[frozenset[UUID]]:
     return {frozenset(inst.member_layer_ids) for inst in result.instances}  # type: ignore[attr-defined]
 
 
-def test_the_user_says_these_two_are_the_same_body_no_edge_needed() -> None:
-    """U1 — a union merges two disconnected same-class components.
+def test_a_union_groups_two_bodies_they_keep_their_separate_body_ids() -> None:
+    """U1 — a union GROUPS two bodies; they keep their separate body ids.
 
-    The user says A and B ARE the same body. There is NO correlation edge or
-    geometry fact between them — they are two separate bodies — yet the union
-    alone merges them into one, exactly as the ruling promises.
+    The user says A and B belong to the same GROUP (lump similar things together).
+    There is NO correlation edge or geometry fact between them, so they are two
+    geometrically-disconnected masses — and under the ruling *"all bodies that are
+    separate keep their separate body IDs"* the union must NOT merge them. Identity
+    is geometry-only, so they stay two bodies with two distinct ordinals.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
     unions = [LayerUnion(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     result = resolve_litho_instances(layers=[a, b], edges=[], unions=unions)
-    assert len(result.instances) == 1
-    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
-    assert result.layer_to_ordinal[a.layer_id] == result.layer_to_ordinal[b.layer_id]
+    assert len(result.instances) == 2, "a group must never merge two separate bodies"
+    assert _partition(result) == {frozenset({a.layer_id}), frozenset({b.layer_id})}
+    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
     assert not result.inert_unions
     assert not result.suppressed_unions
 
 
-def test_the_merge_is_identical_under_shuffled_union_and_edge_input() -> None:
-    """U2 — the resolved partition is the same whatever order unions/edges arrive.
+def test_a_group_does_not_change_the_geometry_only_partition() -> None:
+    """U2 — grouping never pulls a third body in; only geometry (an edge) does.
 
-    User unions are prepended to the sorted machine edges, and both are sorted
-    canonically first, so several shuffles of the same input produce ONE
-    identical partition — the determinism guarantee.
+    A and X are one body via a correlation EDGE. The user then groups X with B.
+    Because a union is a GROUP relation and never changes identity, B stays its own
+    body — the partition is {A,X} and {B}, identical whatever order the union and
+    edge arrive in (the geometry-only partition is order-independent).
     """
     a = _layer(L_A, 3.0, INV_A)
     x = _layer(L_X, 3.1, INV_X)
@@ -126,19 +132,16 @@ def test_the_merge_is_identical_under_shuffled_union_and_edge_input() -> None:
         for uv in union_variants
     ]
     assert all(p == partitions[0] for p in partitions)
-    # A-X by the edge, X-B by the union → all three in one body, every time.
-    assert partitions[0] == {frozenset({a.layer_id, x.layer_id, b.layer_id})}
+    # A-X by the edge (geometry); the union X-B changes NOTHING, so B stays apart.
+    assert partitions[0] == {frozenset({a.layer_id, x.layer_id}), frozenset({b.layer_id})}
 
 
-def test_a_dangling_union_anchor_makes_the_union_inert() -> None:
-    """U3 — a union whose anchor is not in this model's layers is ignored.
+def test_a_dangling_union_anchor_changes_nothing() -> None:
+    """U3 — a union whose anchor is not in this model's layers is ignored (guard).
 
-    A deleted or rebuilt layer neutralises a union exactly like the dangling
-    guard neutralises a stale edge or separation: the anchor is absent from the
-    node map this run, so the must-link cannot bind and the two present layers
-    stay two bodies. It is dropped SILENTLY (mirroring a dangling separation) —
-    the re-anchor pass restores it after the rebuild, so it is not a reported
-    inert union.
+    A deleted or rebuilt layer leaves a stale union naming an absent anchor. Under
+    the GROUP contract the union changes nothing anyway, so the two present layers
+    stay two bodies — and it is dropped silently, never reported.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
@@ -147,109 +150,102 @@ def test_a_dangling_union_anchor_makes_the_union_inert() -> None:
     result = resolve_litho_instances(layers=[a, b], edges=[], unions=unions)
     assert len(result.instances) == 2
     assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
-    # Dangling → silent drop, NOT reported (unlike a cross-class inert union).
     assert not result.inert_unions
     assert not result.suppressed_unions
 
 
-def test_a_union_across_two_soils_is_inert_and_reported() -> None:
-    """U4 — a union joining two different soils is INERT, never a mixed body.
+def test_a_union_across_two_soils_does_not_merge_and_is_not_reported() -> None:
+    """U4 — a union across two soils never makes a mixed body (trivially, no merge).
 
-    A body is a single lithology. A union that would join a sand and a clay
-    fails the same soil predicate an edge does, so it does nothing — and because
-    the user explicitly asked for it, it is reported in ``inert_unions`` so the
-    use case can WARN that the classes re-derived apart.
+    A body is a single lithology. Under the GROUP contract a union never merges
+    anything, so a sand and a clay stay two bodies with no work — and the resolver
+    reports nothing inert (the "things that are similar" write guard lives in the
+    router now, not here).
     """
     sand = _layer(L_A, 3.0, INV_A, formation_id=F_SAND, soil="ZAND")
     clay = _layer(L_B, 3.2, INV_B, formation_id=F_CLAY, soil="KLEI")
     unions = [LayerUnion(layer_a_id=sand.layer_id, layer_b_id=clay.layer_id)]
     result = resolve_litho_instances(layers=[sand, clay], edges=[], unions=unions)
-    assert len(result.instances) == 2, "a cross-soil union must never make one body"
-    assert len(result.inert_unions) == 1
-    assert {result.inert_unions[0].layer_a_id, result.inert_unions[0].layer_b_id} == {
-        sand.layer_id,
-        clay.layer_id,
-    }
+    assert len(result.instances) == 2, "a cross-soil group must never make one body"
+    assert not result.inert_unions, "the resolver no longer judges unions inert (router guards)"
     assert not result.suppressed_unions
 
 
-def test_a_union_across_two_known_packing_classes_is_inert_and_reported() -> None:
-    """U5 — a union joining two KNOWN, differing NAD classes is inert + reported.
+def test_a_union_across_two_known_packing_classes_does_not_merge() -> None:
+    """U5 — a union across two KNOWN, differing NAD classes never makes one body.
 
-    A geotech body is one soil AND one packing density. Two sand bands whose NAD
-    classes are both known and differ describe two masses, so the union is inert
-    and reported — the same read the edge loop applies when it drops a tie whose
-    ends no longer share a class.
+    A geotech body is one soil AND one packing density. Under the GROUP contract a
+    union never merges, so two sand bands whose NAD classes are both known and
+    differ stay two bodies — and nothing is reported inert.
     """
     dense = _layer(L_A, 3.0, INV_A, packing_formation_id=PACK_ROW_1, packing_nad_class=6)
     denser = _layer(L_B, 3.2, INV_B, packing_formation_id=PACK_ROW_2, packing_nad_class=7)
     unions = [LayerUnion(layer_a_id=dense.layer_id, layer_b_id=denser.layer_id)]
     result = resolve_litho_instances(layers=[dense, denser], edges=[], unions=unions)
     assert len(result.instances) == 2, "differing packing classes must never be one body"
-    assert len(result.inert_unions) == 1
+    assert not result.inert_unions
     assert not result.suppressed_unions
 
 
-def test_skeleton_bands_join_only_within_one_packing_row() -> None:
-    """U6 — skeleton bands (no NAD class) merge on the same row, inert across rows.
+def test_a_union_never_merges_skeleton_bands_identity_is_geometry_only() -> None:
+    """U6 — a union no longer merges skeleton bands, same row or not.
 
-    Where either end's packing class is unknown (a skeleton band), the row
-    comparison stands: two unknowns are not known to be the same density. So a
-    union between two skeleton bands on DIFFERENT packing rows is inert, while a
-    union between two on the SAME row merges — mirroring the edge loop's
-    row-fallback exactly.
+    Before the ruling, two skeleton bands (no NAD class) on the SAME packing row
+    merged under a union and DIFFERENT rows did not. Under the GROUP contract a
+    union merges NEITHER: identity is geometry-only, so both cases stay two bodies.
+    The ``same_mass`` packing row-fallback now governs only machine edges and the
+    router's write-time group guard — never union identity.
     """
-    # Different rows, both class-None → inert.
+    # Different rows, both class-None → still two bodies (a union never merges).
     a1 = _layer(L_A, 3.0, INV_A, packing_formation_id=PACK_ROW_1, packing_nad_class=None)
     b1 = _layer(L_B, 3.2, INV_B, packing_formation_id=PACK_ROW_2, packing_nad_class=None)
-    inert = resolve_litho_instances(
+    diff_row = resolve_litho_instances(
         layers=[a1, b1],
         edges=[],
         unions=[LayerUnion(layer_a_id=a1.layer_id, layer_b_id=b1.layer_id)],
     )
-    assert len(inert.instances) == 2, "different packing rows must not merge"
-    assert len(inert.inert_unions) == 1
+    assert len(diff_row.instances) == 2, "different packing rows: a union must not merge"
+    assert not diff_row.inert_unions
 
-    # Same row, both class-None → merge.
+    # Same row, both class-None → ALSO two bodies now (the old MERGE is gone).
     a2 = _layer(L_A, 3.0, INV_A, packing_formation_id=PACK_ROW_1, packing_nad_class=None)
     b2 = _layer(L_B, 3.2, INV_B, packing_formation_id=PACK_ROW_1, packing_nad_class=None)
-    merged = resolve_litho_instances(
+    same_row = resolve_litho_instances(
         layers=[a2, b2],
         edges=[],
         unions=[LayerUnion(layer_a_id=a2.layer_id, layer_b_id=b2.layer_id)],
     )
-    assert len(merged.instances) == 1, "the same packing row must merge"
-    assert not merged.inert_unions
+    assert len(same_row.instances) == 2, "same packing row: a union still must not merge"
+    assert not same_row.inert_unions
+    assert not same_row.suppressed_unions
 
 
-def test_a_union_of_a_separated_pair_still_merges_now_separations_are_dormant() -> None:
-    """U7 — a leftover separation NO LONGER suppresses a union of the same pair.
+def test_a_union_does_not_merge_even_with_a_dormant_separation_present() -> None:
+    """U7 — a union never merges, dormant separation or not — two bodies stay two.
 
-    Owner 2026-09-01: the Separate verb was removed and ``body_separation`` is
-    dormant, so a leftover separation row must never refuse the owner's Join. A
-    union of a pair that a standing (dormant) separation names now MERGES them
-    into one body and is NOT reported as suppressed — the hard blocker this slice
-    removes, stated in the resolver's own terms. (Before the removal this pair
-    resolved to two bodies and the union was suppressed.)
+    A leftover (dormant) separation on the same pair changes nothing, and neither
+    does the union: under the GROUP contract identity is geometry-only, so A and B
+    — with no edge between them — stay two bodies. Nothing is reported suppressed
+    (separations are dormant) or inert.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
     seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     unions = [LayerUnion(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     result = resolve_litho_instances(layers=[a, b], edges=[], separations=seps, unions=unions)
-    assert len(result.instances) == 1, "the dormant separation must not block the union"
-    assert set(result.instances[0].member_layer_ids) == {a.layer_id, b.layer_id}
-    assert result.layer_to_ordinal[a.layer_id] == result.layer_to_ordinal[b.layer_id]
-    assert not result.suppressed_unions, "a dormant separation can never suppress a union"
+    assert len(result.instances) == 2, "a union must not merge — identity is geometry-only"
+    assert _partition(result) == {frozenset({a.layer_id}), frozenset({b.layer_id})}
+    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
+    assert not result.suppressed_unions
     assert not result.inert_unions
 
 
-def test_a_disjoint_union_and_separation_coexist() -> None:
-    """U8 — a union on one pair merges; an unrelated (dormant) separation is inert.
+def test_two_unions_leave_all_four_bodies_separate() -> None:
+    """U8 — grouping two disjoint pairs merges NOTHING; all four stay separate.
 
-    C and D merge into one body via their union, while A and B stay apart —
-    because nothing joins them (no edge), the dormant separation on A-B changing
-    nothing. Neither constraint reaches the other's roots.
+    The user groups C with D and (a dormant separation aside) A stays apart from B.
+    Because a union is a GROUP relation, C and D are NOT merged — every one of the
+    four geometrically-disconnected masses keeps its own body id.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
@@ -258,20 +254,24 @@ def test_a_disjoint_union_and_separation_coexist() -> None:
     seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     unions = [LayerUnion(layer_a_id=c.layer_id, layer_b_id=d.layer_id)]
     result = resolve_litho_instances(layers=[a, b, c, d], edges=[], separations=seps, unions=unions)
-    # A|B never joined (no edge, and separated anyway); C|D merged by the union.
-    assert result.layer_to_ordinal[a.layer_id] != result.layer_to_ordinal[b.layer_id]
-    assert result.layer_to_ordinal[c.layer_id] == result.layer_to_ordinal[d.layer_id]
-    assert {frozenset({c.layer_id, d.layer_id})}.issubset(_partition(result))
+    assert _partition(result) == {
+        frozenset({a.layer_id}),
+        frozenset({b.layer_id}),
+        frozenset({c.layer_id}),
+        frozenset({d.layer_id}),
+    }, "no union may merge any pair — identity is geometry-only"
+    assert result.layer_to_ordinal[c.layer_id] != result.layer_to_ordinal[d.layer_id]
     assert not result.inert_unions
     assert not result.suppressed_unions
 
 
-def test_a_union_of_already_connected_anchors_is_a_no_op() -> None:
-    """U9 — union of two anchors already in one body changes nothing.
+def test_a_union_on_an_already_connected_geometry_body_is_a_no_op() -> None:
+    """U9 — a union changes nothing on a body geometry already made one (guard).
 
-    A and B are already one body via a correlation edge. Adding a union of the
-    same pair leaves the partition exactly as it was — one body — and the union
-    is neither inert nor suppressed (it landed in one component, satisfied).
+    A and B are already ONE body via a correlation edge (geometry). Adding a union
+    of the same pair leaves the partition exactly as it was — one body — because
+    the edge, not the union, is what joined them. The union never affects identity
+    either way.
     """
     a = _layer(L_A, 3.0, INV_A)
     b = _layer(L_B, 3.2, INV_B)
@@ -286,22 +286,22 @@ def test_a_union_of_already_connected_anchors_is_a_no_op() -> None:
     assert not result.suppressed_unions
 
 
-def test_a_dormant_separation_lets_a_union_and_edge_join_the_whole_chain() -> None:
-    """U10 — with the separation dormant, union A-X and edge X-B make one body.
+def test_only_the_machine_edge_joins_the_chain_the_union_does_nothing() -> None:
+    """U10 — with a union A-X and a machine edge X-B, only the edge joins.
 
-    A leftover separation A≠B no longer cuts anything. The user union joins A-X
-    and a MACHINE edge joins X-B, so all three land in ONE body — the separation
-    that used to wall B off is inert. (Before the verb was removed this pair
-    resolved to {A,X} and {B}.)
+    The user groups A with X, and a MACHINE edge (geometry) joins X-B. Because the
+    union never affects identity, A stays its own body while X and B are one body
+    via the edge — the partition is {X,B} and {A}. Only geometry decides identity.
     """
     a = _layer(L_A, 3.0, INV_A)
     x = _layer(L_X, 3.1, INV_X)
     b = _layer(L_B, 3.2, INV_B)
-    seps = [LayerSeparation(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
     unions = [LayerUnion(layer_a_id=a.layer_id, layer_b_id=x.layer_id)]
     edges = [LayerEdge(layer_a_id=x.layer_id, layer_b_id=b.layer_id)]
-    result = resolve_litho_instances(layers=[a, x, b], edges=edges, separations=seps, unions=unions)
-    assert _partition(result) == {frozenset({a.layer_id, x.layer_id, b.layer_id})}
-    # The user's union took effect (A and X together); it is not suppressed.
+    result = resolve_litho_instances(layers=[a, x, b], edges=edges, unions=unions)
+    assert _partition(result) == {
+        frozenset({x.layer_id, b.layer_id}),
+        frozenset({a.layer_id}),
+    }, "the union A-X must not pull A into the edge-joined {X,B} body"
     assert not result.suppressed_unions
     assert not result.inert_unions
