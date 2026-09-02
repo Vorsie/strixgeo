@@ -24,6 +24,8 @@ import {
   axisTickValues,
   fitAxisMax,
 } from '../../../utils/cptAxisScales'
+import { useT } from '../../../i18n/translate'
+import type { MessageKey } from '../../../i18n/locales/en'
 import AxisTickRow from './AxisTickRow'
 import type { UnitChannelStatistics, UnitStatisticsChannel } from './unitStatistics'
 
@@ -68,25 +70,25 @@ const MAX_STRIP_DOTS = 400
 const CHANNEL_SPEC: Readonly<
   Record<
     UnitStatisticsChannel,
-    { title: string; unit: string; color: string; decimals: number; axisMax: number }
+    { titleKey: MessageKey; unit: string; color: string; decimals: number; axisMax: number }
   >
 > = {
   qc: {
-    title: 'Cone resistance',
+    titleKey: 'params.channelQc',
     unit: 'MPa',
     color: 'var(--chart-clr-qc, #111827)',
     decimals: 1,
     axisMax: QC_AXIS_MAX_MPA,
   },
   fs: {
-    title: 'Sleeve friction',
+    titleKey: 'params.channelFs',
     unit: 'MPa',
     color: 'var(--chart-clr-fs, #16a34a)',
     decimals: 3,
     axisMax: FS_AXIS_MAX_MPA,
   },
   rf: {
-    title: 'Friction ratio',
+    titleKey: 'params.channelRf',
     unit: '%',
     color: 'var(--chart-clr-rf, #b45309)',
     decimals: 2,
@@ -105,6 +107,7 @@ export default function ChannelRow({
   /** S1 — fitted axis (0 → pooled max, rounded up) instead of the fixed one. */
   fit: boolean
 }): JSX.Element {
+  const t = useT()
   const spec = CHANNEL_SPEC[channel.channel]
   const { summary, samples } = channel
 
@@ -152,9 +155,9 @@ export default function ChannelRow({
   // the notifier names what is missing and why instead of leaving a bare row.
   const droppedMarks = hasData
     ? [
-        onAxis(summary.p5 ?? lo, summary.p95 ?? hi) ? null : 'whisker',
-        onAxis(summary.q1 ?? lo, summary.q3 ?? hi) ? null : 'box',
-        onAxis(summary.median ?? lo) ? null : 'median',
+        onAxis(summary.p5 ?? lo, summary.p95 ?? hi) ? null : t('params.markWhisker'),
+        onAxis(summary.q1 ?? lo, summary.q3 ?? hi) ? null : t('params.markBox'),
+        onAxis(summary.median ?? lo) ? null : t('params.statMedian'),
       ].filter((m): m is string => m !== null)
     : []
 
@@ -171,7 +174,7 @@ export default function ChannelRow({
       {/* Title names the single series — which is why no legend is needed. */}
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[11px] font-medium text-text-primary">
-          {spec.title}{' '}
+          {t(spec.titleKey)}{' '}
           <span className="text-text-muted font-normal">({spec.unit})</span>
         </span>
         <span
@@ -187,7 +190,7 @@ export default function ChannelRow({
           className="py-2 text-[10px] text-text-muted"
           data-testid={`unit-stats-nodata-${channel.channel}`}
         >
-          Not recorded on the CPTs covering this unit.
+          {t('params.notRecordedOnCpts')}
         </div>
       ) : (
         <>
@@ -197,10 +200,12 @@ export default function ChannelRow({
             className="w-full"
             style={{ height: 52 }}
             role="img"
-            aria-label={`${spec.title} distribution over this unit: median ${fmt(
-              summary.median,
-              spec.decimals,
-            )} ${spec.unit}, ${summary.n} samples`}
+            aria-label={t('params.channelAriaLabel', {
+              title: t(spec.titleKey),
+              median: fmt(summary.median, spec.decimals),
+              unit: spec.unit,
+              n: summary.n,
+            })}
           >
             {/* S3 — tick gridlines at the labelled positions, so the labels
                 below have a mark to hang off. Interior ticks only; the two
@@ -314,7 +319,7 @@ export default function ChannelRow({
             className="text-center text-[9px] text-text-muted truncate"
             data-testid={`unit-stats-xaxis-label-${channel.channel}`}
           >
-            {spec.title} ({spec.unit})
+            {t(spec.titleKey)} ({spec.unit})
           </div>
 
           {/* S2 — the notifier: readings the axis could not place. Rendered
@@ -326,10 +331,10 @@ export default function ChannelRow({
               className="text-[10px] text-text-muted tabular-nums"
               data-testid={`unit-stats-offaxis-${channel.channel}`}
             >
-              {offAxisCount} off axis
+              {t('params.offAxis', { count: offAxisCount })}
               {droppedMarks.length > 0 && (
                 <span data-testid={`unit-stats-marksoff-${channel.channel}`}>
-                  {' '}· {droppedMarks.join(' / ')} not drawn — spanning off-axis values
+                  {' '}· {t('params.marksNotDrawn', { marks: droppedMarks.join(' / ') })}
                 </span>
               )}
             </div>
@@ -338,15 +343,15 @@ export default function ChannelRow({
           {/* The same numbers as a table — the plot is never the only way to
               read them (and it is what an engineer copies into a report). */}
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-text-secondary tabular-nums">
-            <Stat label="min" value={summary.min} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="P5" value={summary.p5} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="Q1" value={summary.q1} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="median" value={summary.median} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="Q3" value={summary.q3} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="P95" value={summary.p95} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="max" value={summary.max} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="mean" value={summary.mean} decimals={spec.decimals} channel={channel.channel} />
-            <Stat label="sd" value={summary.sd} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label={t('params.statMin')} testid="min" value={summary.min} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label="P5" testid="P5" value={summary.p5} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label="Q1" testid="Q1" value={summary.q1} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label={t('params.statMedian')} testid="median" value={summary.median} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label="Q3" testid="Q3" value={summary.q3} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label="P95" testid="P95" value={summary.p95} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label={t('params.statMax')} testid="max" value={summary.max} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label={t('params.statMean')} testid="mean" value={summary.mean} decimals={spec.decimals} channel={channel.channel} />
+            <Stat label={t('params.statSd')} testid="sd" value={summary.sd} decimals={spec.decimals} channel={channel.channel} />
           </div>
         </>
       )}
@@ -354,20 +359,23 @@ export default function ChannelRow({
   )
 }
 
-/** One labelled number in the readout row. */
+/** One labelled number in the readout row. ``testid`` stays stable (English)
+ *  across locales so the e2e selectors do not move; ``label`` is the display. */
 function Stat({
   label,
+  testid,
   value,
   decimals,
   channel,
 }: {
   label: string
+  testid: string
   value: number | null
   decimals: number
   channel: UnitStatisticsChannel
 }): JSX.Element {
   return (
-    <span data-testid={`unit-stats-${label}-${channel}`}>
+    <span data-testid={`unit-stats-${testid}-${channel}`}>
       <span className="text-text-muted">{label} </span>
       {fmt(value, decimals)}
     </span>
