@@ -16,6 +16,7 @@ import type * as Cesium from 'cesium'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 import { LoadingState } from '../../EmptyState'
+import { useT } from '../../../i18n/translate'
 import { useShell } from '../../ShellContext'
 import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
 import Geology3DViewer from '../geology/Geology3DViewer'
@@ -64,6 +65,7 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
     },
     project,
   } = useShell()
+  const t = useT()
 
   const isGeotech = parameterScopeModel(scope) === 'geotech'
   const modelId = (isGeotech ? activeGeotechModel?.id : activeLithoModel?.id) ?? null
@@ -178,8 +180,9 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
   if (modelId === null) {
     return (
       <div className="px-3 py-2 text-[10px] text-text-muted" data-testid="unit-fence-no-model">
-        No {isGeotech ? 'geotechnical' : 'lithostratigraphic'} model yet — the
-        fence cutout appears once one exists.
+        {t('params.noModelYet', {
+          kind: t(isGeotech ? 'params.kindGeotech' : 'params.kindLitho'),
+        })}
       </div>
     )
   }
@@ -187,7 +190,7 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
   if (fenceLoading || cutout === undefined) {
     return (
       <div className="h-40" data-testid="unit-fence-loading">
-        <LoadingState label="Assembling the fence…" />
+        <LoadingState label={t('params.assemblingFence')} />
       </div>
     )
   }
@@ -197,8 +200,7 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
     // wall (no accepted ties on any section yet).
     return (
       <div className="px-3 py-2 text-[10px] text-text-muted" data-testid="unit-fence-empty">
-        No fence walls for this unit yet — connect its bands across sections
-        and they will appear here.
+        {t('params.noFenceWalls')}
       </div>
     )
   }
@@ -234,10 +236,10 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
         className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-[10px] bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page shadow"
         // F4: the frame is the WHOLE fence's bounding box, so the reset
         // restores the model-wide view, not a unit close-up.
-        title="Reset the camera to frame the model"
+        title={t('params.resetCameraFrame')}
         data-testid="unit-fence-reset-camera"
       >
-        Reset view
+        {t('common.resetView')}
       </button>
     </div>
   )
