@@ -21,6 +21,7 @@ import type {
 } from '../hooks/useDovImportStream'
 import { PHASE_LABELS } from '../hooks/useDovImportStream'
 import { dovSubPhaseFailures } from '../utils/dovImportFailures'
+import { useT } from '../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -109,6 +110,8 @@ interface Props {
  * @param state - The ``DovImportState`` from ``useDovImportStream``.
  */
 export default function DovImportProgressPanel({ state }: Props) {
+  const t = useT()
+
   // ---------------------------------------------------------------------------
   // Running state
   // ---------------------------------------------------------------------------
@@ -135,7 +138,7 @@ export default function DovImportProgressPanel({ state }: Props) {
         className="flex flex-col gap-3 py-2"
         aria-live="polite"
         aria-atomic="false"
-        aria-label={`${kind === 'cpt' ? 'CPT' : 'Borehole'} import progress`}
+        aria-label={t(kind === 'cpt' ? 'map.cptImportProgress' : 'map.boreholeImportProgress')}
       >
         <div className="flex items-baseline justify-between">
           <span className="text-sm font-medium text-text-primary">{label}</span>
@@ -150,7 +153,7 @@ export default function DovImportProgressPanel({ state }: Props) {
             context than the progressbar role alone. */}
         <span className="sr-only">
           {countLabel !== null
-            ? `${label} ${done} of ${total}`
+            ? t('map.importProgressOf', { label, done, total })
             : label}
         </span>
       </div>
@@ -174,31 +177,35 @@ export default function DovImportProgressPanel({ state }: Props) {
         aria-atomic="true"
       >
         <p className="text-sm font-medium text-text-primary">
-          {subPhaseFailures.length > 0 ? 'Import finished with errors' : 'Import complete'}
+          {subPhaseFailures.length > 0
+            ? t('map.importFinishedWithErrors')
+            : t('map.importComplete')}
         </p>
 
         <div className="flex flex-col gap-1">
-          <DoneRow label="Imported" value={result.imported} />
-          <DoneRow label="Already existed" value={result.duplicates} />
+          <DoneRow label={t('map.imported')} value={result.imported} />
+          <DoneRow label={t('map.alreadyExisted')} value={result.duplicates} />
           {result.failed > 0 && (
-            <DoneRow label="Failed" value={result.failed} />
+            <DoneRow label={t('map.failed')} value={result.failed} />
           )}
         </div>
 
         {isCptDone(kind, result) && (
           <p className="text-xs text-text-muted">
-            {result.cpt_ids.length} CPT
-            {result.cpt_ids.length !== 1 ? 's' : ''} in project
+            {t(
+              result.cpt_ids.length === 1 ? 'map.cptsInProjectOne' : 'map.cptsInProjectMany',
+              { n: result.cpt_ids.length },
+            )}
           </p>
         )}
 
         {isBoreholeDone(kind, result) && (
           <div className="flex flex-col gap-1">
             {result.interpretations_attached > 0 && (
-              <DoneRow label="Observations attached" value={result.interpretations_attached} />
+              <DoneRow label={t('map.observationsAttached')} value={result.interpretations_attached} />
             )}
             {result.samples_attached > 0 && (
-              <DoneRow label="Samples attached" value={result.samples_attached} />
+              <DoneRow label={t('map.samplesAttached')} value={result.samples_attached} />
             )}
             {/* A retryable row reads "<phase> failed"; a WFS gap's label is a
                 whole phrase already ("Observations DOV lists but did not
@@ -207,7 +214,7 @@ export default function DovImportProgressPanel({ state }: Props) {
             {subPhaseFailures.map(f => (
               <DoneRow
                 key={f.label}
-                label={f.retryable ? `${f.label} failed` : f.label}
+                label={f.retryable ? t('map.subPhaseFailed', { label: f.label }) : f.label}
                 value={f.count}
               />
             ))}
@@ -216,11 +223,10 @@ export default function DovImportProgressPanel({ state }: Props) {
 
         {subPhaseFailures.length > 0 && (
           <p className="text-xs text-status-danger">
-            DOV did not return this data — the boreholes are imported, but
+            {t('map.dovMissingData')}
             {subPhaseFailures.some(f => f.retryable)
-              ? ' re-run the import over the same area to retry the missing parts.'
-              : ' DOV’s catalogue lists these and its own service returns nothing;' +
-                ' re-running will not help — check the boreholes on dov.vlaanderen.be.'}
+              ? t('map.dovMissingRetry')
+              : t('map.dovMissingNoRetry')}
           </p>
         )}
       </div>
@@ -239,7 +245,7 @@ export default function DovImportProgressPanel({ state }: Props) {
         aria-atomic="true"
         role="alert"
       >
-        <p className="text-sm font-medium text-text-primary">Import failed</p>
+        <p className="text-sm font-medium text-text-primary">{t('map.importFailed')}</p>
         <p className="text-xs text-text-muted">{state.message}</p>
       </div>
     )
