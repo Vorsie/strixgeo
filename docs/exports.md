@@ -4,7 +4,21 @@
 
 ## Export System
 
-See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `DStabilityExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4 / early Phase 5. **Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
+**Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
+
+### The exporter ABCs and the export-route contract (debt #109 / #110)
+
+The single `BaseExporter` ABC was split into **three shape-correct ABCs** by input contract (debt #109; `base_exporter.py` is deleted). Each is `class X(GroundModelLogger, ABC)` with one `export(...) -> bytes` abstractmethod:
+
+| ABC (`infrastructure/exporters/`) | Input contract | Concrete exporters |
+|---|---|---|
+| `ProjectExporter` | `GroundModelSnapshot` (project-wide) | `PlaxisExporter` (3D) |
+| `SectionExporter` | `SectionSnapshot` (formation picks) | `DxfSectionExporter`, `PlaxisSectionExporter` |
+| `SectionGeometryExporter` | `SectionPolygonSet` (closed fill) | `DStabilityExporter`, `DSheetPilingExporter` |
+
+`DxfFenceExporter` deliberately stays **outside** the hierarchy — a fence panel is pre-triangulated client geometry, not a snapshot — so it inherits `GroundModelLogger` directly and takes a `FencePanelSource` Protocol. It is one exporter of that shape, so no fourth ABC is minted (the "don't pre-abstract" counterweight).
+
+**Every export route ends the same way (debt #110).** The six download handlers — section DXF / Plaxis 2D / D-Stability / D-Sheet in `cross_section.py`, model Plaxis 3D / fence DXF in `geology/exports.py` — run their exporter, then package the bytes into an **`application/export_artifact.py` `ExportArtifact`** via `ExportArtifact.build(content, name, fallback, suffix, media_type)`, which is the single source of truth for the safe download-filename stem. The API layer turns that DTO into a `fastapi.Response` through **one converter, `export_response()` in `api/routers/_helpers.py`** — the only place the `Content-Disposition` attachment header is built. Snapshot-resolution failures map through **one `parse_error_as_404()` context manager** (also in `_helpers.py`). The application layer never imports a response class; the route-specific differences (which name, its fallback, the suffix, the media type) are parameters.
 
 **Deltares D-Series via GEOLib — SHIPPED 2026-08-26 (v1.0 gate,
 owner ballot).** `d-geolib` 2.9.1 is a hard dependency (pydantic-v2
@@ -351,4 +365,6 @@ detect by looking.
 from the DB), and a fence panel is the opposite shape — pre-triangulated
 client geometry. It takes a `FencePanelSource` Protocol instead, stated
 structurally so infrastructure never imports the API request schema.
-(Debt #109 covers splitting the ABC; this change does not attempt it.)
+(The debt-#109 ABC split is done — three ABCs by input contract; the
+fence exporter's single-instance shape does not justify a fourth, so it
+inherits `GroundModelLogger` directly. See "The exporter ABCs" above.)
