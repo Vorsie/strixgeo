@@ -209,6 +209,43 @@ tuple[tuple[UUID, UUID], ...]]
         logger.warning(f"_run_resolver: model {model_id} gone — skipping")
         return [], (), (), ()
 
+    is_geotechnical = model.kind == MODEL_KIND_GEOTECHNICAL
+
+    # For a LITHO model, take every sibling GEOTECH child's partition lock NOW —
+    # with this model's own lock already held and BEFORE the first write below.
+    # Steps 3-4 delete/re-mint litho ``body`` rows, and deleting a litho body
+    # fires the ``ON DELETE SET NULL`` action of the geotech rows'
+    # ``parent_litho_body_id`` FK (see ``body_orm.py``) — a HIDDEN WRITE that
+    # row-locks the geotech ``body`` rows. When the geotech lock was taken only at
+    # step 6 (AFTER those deletes), a concurrent geotech recompute holding the
+    # geotech advisory lock and deleting those same rows produced an ABBA deadlock:
+    # this transaction held the geotech ROW locks and waited for the geotech
+    # ADVISORY lock, while the geotech recompute held the advisory lock and waited
+    # for the rows (BP-3, 8 live victims in one e2e sweep). The child lock must be
+    # acquired BEFORE the parent's delete, not after — which is exactly the
+    # litho-parent-first order ``body_partition_lock`` already mandates. Sorted so
+    # two concurrent litho resolves acquire the sibling locks in one canonical
+    # order. Step 6 REUSES these ids and does not re-take the locks (an advisory
+    # xact lock is re-entrant, but a second take only muddies the contention log).
+    sibling_geotech_ids: list[UUID] = []
+    if not is_geotechnical:
+        sibling_geotech_ids = list(
+            (
+                await session.execute(
+                    select(GeologicalModelOrm.id).where(
+                        GeologicalModelOrm.parent_model_id == model_id,
+                        GeologicalModelOrm.kind == MODEL_KIND_GEOTECHNICAL,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for sibling_id in sorted(sibling_geotech_ids, key=str):
+            await lock_body_partition(
+                session, model_id=sibling_id, operation="restamp-parent-litho-body"
+            )
+
     # 1. Accepted layers joined to their formation for (parent, soil).
     layer_rows = (
         await session.execute(
@@ -237,7 +274,7 @@ tuple[tuple[UUID, UUID], ...]]
     # disappears and it becomes one body, in the renderer and in the database"*).
     # The band's own formation row IS its packing class, so it travels as the
     # resolver's mass filter. A litho model passes none and is untouched.
-    is_geotechnical = model.kind == MODEL_KIND_GEOTECHNICAL
+    # (``is_geotechnical`` is computed up front, next to the sibling-lock block.)
     nodes: list[LayerNode] = [
         LayerNode(
             layer_id=r.id,
@@ -619,51 +656,36 @@ tuple[tuple[UUID, UUID], ...]]
     #    geotech resolve's step-5b ORM write and this UPDATE could both write one
     #    body's FK last-commit-wins from possibly-stale snapshots — a silently
     #    WRONG non-NULL parent that persists (feeding the units pane / fence /
-    #    exports) until that geotech model next resolves. So take each sibling
-    #    geotech model's partition lock HERE, with the litho lock already held:
-    #    litho-parent-first is exactly the order ``body_partition_lock`` mandates,
-    #    so the geotech lock taken second introduces no new deadlock class. Sorted
-    #    so two litho resolves acquire the sibling locks in one canonical order.
-    if not is_geotechnical:
-        sibling_geotech_ids = (
-            (
-                await session.execute(
-                    select(GeologicalModelOrm.id).where(
-                        GeologicalModelOrm.parent_model_id == model_id,
-                        GeologicalModelOrm.kind == MODEL_KIND_GEOTECHNICAL,
-                    )
-                )
+    #    exports) until that geotech model next resolves. The sibling geotech
+    #    locks that serialise the two sides were already TAKEN UP FRONT (right
+    #    after this model's own lock, before the step-3/4 deletes), so the
+    #    ON DELETE SET NULL cascade never row-locked a geotech body before its
+    #    lock was held — the fix for the BP-3 ABBA deadlock. We therefore do NOT
+    #    re-take them here (re-entrant, but a second take muddies the contention
+    #    log); we just run the re-stamp UPDATE, reusing ``sibling_geotech_ids``.
+    if not is_geotechnical and sibling_geotech_ids:
+        geo_band = aliased(LithoLayerOrm)
+        litho_band = aliased(LithoLayerOrm)
+        parent_subq = (
+            select(
+                geo_band.body_id.label("geo_body_id"),
+                litho_band.body_id.label("litho_body_id"),
             )
-            .scalars()
-            .all()
+            .join(litho_band, litho_band.id == geo_band.parent_litho_layer_id)
+            .where(
+                geo_band.model_id.in_(sibling_geotech_ids),
+                geo_band.body_id.is_not(None),
+                geo_band.parent_litho_layer_id.is_not(None),
+            )
+            .distinct(geo_band.body_id)
+            .order_by(geo_band.body_id, geo_band.depth_top_m.asc(), geo_band.id.asc())
+            .subquery()
         )
-        if sibling_geotech_ids:
-            for sibling_id in sorted(sibling_geotech_ids, key=str):
-                await lock_body_partition(
-                    session, model_id=sibling_id, operation="restamp-parent-litho-body"
-                )
-            geo_band = aliased(LithoLayerOrm)
-            litho_band = aliased(LithoLayerOrm)
-            parent_subq = (
-                select(
-                    geo_band.body_id.label("geo_body_id"),
-                    litho_band.body_id.label("litho_body_id"),
-                )
-                .join(litho_band, litho_band.id == geo_band.parent_litho_layer_id)
-                .where(
-                    geo_band.model_id.in_(sibling_geotech_ids),
-                    geo_band.body_id.is_not(None),
-                    geo_band.parent_litho_layer_id.is_not(None),
-                )
-                .distinct(geo_band.body_id)
-                .order_by(geo_band.body_id, geo_band.depth_top_m.asc(), geo_band.id.asc())
-                .subquery()
-            )
-            await session.execute(
-                update(BodyOrm)
-                .where(BodyOrm.id == parent_subq.c.geo_body_id)
-                .values(parent_litho_body_id=parent_subq.c.litho_body_id)
-            )
+        await session.execute(
+            update(BodyOrm)
+            .where(BodyOrm.id == parent_subq.c.geo_body_id)
+            .values(parent_litho_body_id=parent_subq.c.litho_body_id)
+        )
 
     inert_pairs = tuple((u.layer_a_id, u.layer_b_id) for u in result.inert_unions)
     suppressed_pairs = tuple((u.layer_a_id, u.layer_b_id) for u in result.suppressed_unions)
