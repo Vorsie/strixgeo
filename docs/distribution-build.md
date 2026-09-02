@@ -35,6 +35,14 @@ by electron-builder `extraResources`, landing at `<install>/resources/`.
 | `python/` | `scripts/build-embedded-python.ps1` | 639 MB | `resources/python` |
 | `backend/` | `scripts/build-embedded-python.ps1` | ~28 MB | `resources/backend` — mostly source; the engine + parsers are native `.pyd` (see below) |
 
+One more `extraResources` entry, unrelated to the embedded stack: `resources/sample`
+→ `resources/sample`. It carries the worked-example onboarding project as
+`worked-example.strix` (debt #93, ruling A8). It lands OUTSIDE the asar so the
+main process can `copyFile` it — "Load sample project" copies it to a user-owned
+location rather than opening the pristine resource in place (a Save would
+overwrite it). Until the owner authors the `.strix`, the directory holds only a
+`README.md`, `sample:available` returns false, and onboarding starts empty.
+
 ### PostgreSQL + PostGIS
 
 Two official artefacts, both pinned by version **and SHA256** in the script —
