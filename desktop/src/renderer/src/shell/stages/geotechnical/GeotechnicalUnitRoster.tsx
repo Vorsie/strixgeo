@@ -25,7 +25,7 @@ import type {
   GeologicalFormationResponse,
   LithoLayerResponse,
 } from '../../../api/client'
-import { geotechGroupOrdinals } from './geotechGroupOrdinals'
+import { bodyUnionsToGroupPairs, geotechGroupOrdinals } from '../../../utils/geotechGroupOrdinals'
 import { GeotechLithoBodyGroup } from './geotechRosterRows'
 import { buildGeotechUnitTree } from './geotechUnitTree'
 
@@ -126,12 +126,7 @@ export default function GeotechnicalUnitRoster({
   // D4: the manual-group numbers, derived from the union pairs' current bodies.
   const groupByBodyId = useMemo(
     () =>
-      geotechGroupOrdinals(
-        (bodyUnions ?? []).map(u => ({
-          a: { bodyId: u.anchor_a.body_id, bodyOrdinal: u.anchor_a.body_ordinal },
-          b: { bodyId: u.anchor_b.body_id, bodyOrdinal: u.anchor_b.body_ordinal },
-        })),
-      ),
+      geotechGroupOrdinals(bodyUnionsToGroupPairs(bodyUnions)),
     [bodyUnions],
   )
 
