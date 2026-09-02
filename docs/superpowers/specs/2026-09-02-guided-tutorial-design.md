@@ -156,9 +156,16 @@ the e2e flow starts it explicitly.
   until he names it.
 * A6 — the closing "send us your formats" step names StrixGeo and no address yet.
 * A7 — (owner, same day) he will record **tutorial videos on the worked-example
-  project**. Each chapter carries an optional `videoUrl`; the coach card shows a
-  "Watch the clip" button only when one is set, opening the URL in the system
-  browser (the app is offline-first; videos are not bundled). No URLs today.
+  project**, hosted on **strixgeo.com with the YouTube channel embedded**. Each
+  chapter carries an optional `videoUrl` pointing at the strixgeo.com page (never
+  at YouTube directly, so the channel can move); the coach card shows a "Watch the
+  clip" button only when one is set, opening the URL in the system browser (the
+  app is offline-first; videos are not bundled). No URLs today.
+* A8 — (owner) **the worked example ships with the installer**: the `.strix` is an
+  installer resource; "Load sample project" imports it. Separate slice.
+* A9 — (owner) the session main drafts the **video scripts** from the tutorial's
+  per-step copy, one script per chapter (title, target length, shot list on the
+  worked example, NL narration + EN version), in `docs/tutorial-video-scripts.md`.
 
 ## Owner's words (transcribed 2026-09-02, cleaned for punctuation only)
 
