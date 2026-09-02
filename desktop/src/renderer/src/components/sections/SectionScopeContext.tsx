@@ -22,6 +22,8 @@ import { createContext, useContext } from 'react'
 import type {
   BodyBoundaryResponse,
   BodyListItem,
+  BoreholeListItem,
+  CptListItem,
   CrossingPinchOut,
   DivideBoreholePreviewColumn,
   FormationContactResponse,
@@ -36,6 +38,57 @@ import type { GeotechAxisModel } from './geotechAxisModel'
 
 /** Read-only per-section data slices provided by SectionsCanvas. */
 export interface SectionScope {
+  /** Project-level vertical EPSG used for the y-axis label.
+   * ``null`` → the axis renders without a datum suffix (just
+   * "Level (m)"). */
+  zEpsg?: number | null
+  /** All CPTs in the project. The panel filters down to those that
+   * project within the section's buffer + endpoints. */
+  cpts?: readonly CptListItem[]
+  /** All boreholes in the project. Same filter as cpts. */
+  boreholes?: readonly BoreholeListItem[]
+  /** Active geological model's formation contacts — render as the
+   * Phase 4 editor overlay (horizontal lines connecting picks per
+   * formation across the projected investigations). Filtered by the
+   * section's ``seeded_formation_contact_ids`` (the explicit-content
+   * invariant), so it's a SUBSET of the active model's contacts. */
+  contacts?: readonly FormationContactResponse[]
+  /** Formation vocabulary — used to colour each contact polyline
+   * with the formation's own colour. */
+  formations?: readonly GeologicalFormationResponse[]
+  /**
+   * Which model axis is active on this section.  Defaults to
+   * ``'geological'`` (existing behaviour — zero regression).
+   *
+   * When ``'lithostratigraphic'``, the formation-contact picker
+   * renders ``LithoCompositionPickerDialog`` instead of
+   * ``FormationPickerDialog``.  The geological + geotechnical axes
+   * use the original dialog unchanged.
+   *
+   * When ``'geotechnical'``, contact and band rendering mirrors the
+   * lithostratigraphic axis: ``PartitionFillOverlay`` renders bands
+   * coloured by ``geotechUnitColor`` (the engineer's own pick where he
+   * made one, else the NAD class colour), and the label shows the NAD
+   * class name (via ``nadClassName``).  Litho-only
+   * gestures (correlation, auto-correlate, lens detection) are
+   * excluded — the geotech axis is view-only for F3.
+   */
+  axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
+  /**
+   * Geotech axis only — when true the geotech model for this section has
+   * not yet been built, so the NAD subdivision suggestion flow is
+   * unavailable.  Forwarded to ``CanvasHints`` to surface a discoverability
+   * hint (``data-testid="geotech-not-built-hint"``).  No-op on other axes.
+   */
+  geotechNotReconciled?: boolean
+  /**
+   * Active lithostratigraphic model id.  Required for the lens-naming
+   * context-menu gesture — passed through so the action always has a
+   * valid model UUID even when no contacts have been seeded yet.
+   * When absent (or when ``axisMode !== 'lithostratigraphic'``) the
+   * lens-naming menu item is hidden.
+   */
+  activeLithoModelId?: string | null
   /** UNFILTERED active-axis contacts (NOT seeded-only). Used by the
    * crossings-banner zoom-to-detail effect to resolve focused
    * contact ids → anchor → column, because the offending crossing
