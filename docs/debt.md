@@ -5441,21 +5441,41 @@ pins it (RED confirmed the exact FK violation pre-fix). Commits 0a4afe13 /
 
 ## 200. Electron pre-distribution hardening — file:// nav (Tier B — frontend, S)
 
-**What.** One low-severity Electron finding remains (security audit 2026-06-04;
-F5 DevTools backend-log leak resolved — packaged builds now route uvicorn
+**What.** The Electron security-audit findings (2026-06-04) are now closed.
+F5 (DevTools backend-log leak) resolved — packaged builds route uvicorn
 stdout/stderr to `<logs>/backend.log` via `app.isPackaged`, not the renderer
-console):
-* **F6** — `isInAppNavigation` treats ALL `file://` URLs as in-app, so a
+console — and:
+* ~~**F6** — `isInAppNavigation` treats ALL `file://` URLs as in-app, so a
   compromised renderer issuing `window.location = 'file://C:/Windows/win.ini'`
-  would render a local file. Very low risk today — no user content renders as
-  HTML (no raw-HTML injection sink in the UI) — but it widens if free-text
-  fields ever render markup. (`desktop/src/main/security.ts:169`).
+  would render a local file.~~ **RESOLVED (audit #15).** `isInAppNavigation`
+  (`desktop/src/main/security.ts`) now confines production navigation to the
+  packaged renderer-directory `file://` prefix and normalises through the URL
+  parser first, so a `..` traversal segment collapses BEFORE the prefix check;
+  every other `file://`, the dev origin when packaged, and foreign
+  `http(s)://` are denied and (in `index.ts`'s `will-navigate`) handed to the
+  OS browser only when they look external. Pinned by the `isInAppNavigation`
+  block in `security.test.ts` (own renderer file allowed; other `file://` +
+  dotdot traversal denied; foreign `http://`/`https://` denied; dev origin
+  allowed only when not packaged). The `navigationPolicy.ts` helper the
+  hardening brief proposed was NOT created — `security.ts::isInAppNavigation`
+  is that helper under an existing name, wired and tested; a duplicate would
+  split the navigation policy across two files.
 
-**Remaining scope (merged 2026-07-12 from the CLAUDE.md prune):** besides F6,
-one more pre-distribution item rides under this number:
-* **Electron pin** — pinned at the first `42.x` patch via caret, with the
-  EOL/support window unverified; bump to latest 42.x, pin exact, and verify
-  the support window.
+**Remaining scope (merged 2026-07-12 from the CLAUDE.md prune):** one
+pre-distribution item rides under this number:
+* **Electron pin** — ~~pinned at the first `42.x` patch via caret, EOL/support
+  window unverified~~ **DONE 2026-09-02.** Pinned EXACTLY at `electron@42.11.1`
+  (the latest 42.x patch that day; `desktop/package.json`), lock refreshed via
+  `npm install --package-lock-only`. The only graph change is electron
+  42.0.1→42.11.1 plus its self-contained dep churn — newer electron vendors
+  `@electron-internal/extract-zip@1.0.5` and drops the external `extract-zip`
+  subtree (`extract-zip`, `@types/yauzl`, `buffer-crc32`, `fd-slicer`, `pend`,
+  `yauzl`); no unrelated dependency moved. **Support window (verified against
+  releases.electronjs.org/schedule, 2026-09-02):** Electron supports the latest
+  three stable majors; stable `latest` is 44, so the supported set today is
+  44 / 43 / 42. Electron 42 is the OLDEST supported and falls out of support on
+  **2026-10-20** — the scheduled stable date of Electron 45 (42.0.0 stable
+  2026-05-05, EOL 2026-10-20). Move to 43+ before 2026-10-20.
 
 ~~**Menu roles** — DevTools + Reload roles live in the *packaged* View menu.~~
 **RESOLVED 2026-08-03** (autosave design Q6, owner decision): the View submenu
@@ -5480,6 +5500,8 @@ or a shell drag onto the icon while the app is running, focuses the existing
 window and opens nothing. Making it open the file is a deep-link feature with
 its own handshake to design (what happens when the open project is dirty? does
 it replace or refuse?), so it waits for the same pre-distribution pass as F6.
+
+**Q3 exposure cuts (owner ruling 2026-09-01) — verified/completed 2026-09-02.** Packaged `/docs`+`/redoc` already off (`ENVIRONMENT=production` in the backend spawn / `buildBackendEnv`; `/openapi.json` still on; `test_docs_disabled_in_production.py`); the `codelists/data/` prune list (`scripts/build-embedded-python.ps1`) extended to drop the DOV `.xsd` schema snapshot + the three `codetabel_*.csv` code tables alongside the README + `.xlsx` sources (only the 3 runtime `.json` catalogs ship); and `STRIXGEO_DOV_FIXTURE_MODE` now gated on `settings.environment` so a packaged build ignores it (`is_fixture_mode`, pinned in `test_dov_fixture_transport.py`).
 
 **Why deferred.** Requires a renderer compromise — does not exist on the
 single-machine dogfeed. Pre-distribution concern.
