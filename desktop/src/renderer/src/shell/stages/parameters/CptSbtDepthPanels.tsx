@@ -19,6 +19,7 @@
 
 import { memo, useMemo } from 'react'
 
+import { useT } from '../../../i18n/translate'
 import type { CptPlotResponse, CptSbtProfileResponse } from '../../../api/client'
 import { IC_AXIS_MAX, sbtZoneSpec } from '../../../utils/robertsonSbt'
 import {
@@ -78,6 +79,7 @@ interface Props {
  *     The scrollable panel stack.
  */
 function CptSbtDepthPanels({ plot, profile }: Props): JSX.Element {
+  const t = useT()
   const depths = plot.depths_m
   const maxDepth = depths.length > 0 ? (depths[depths.length - 1] ?? 0) : 0
   const contentH = Math.max(MIN_CONTENT_H, Math.ceil(maxDepth) * PX_PER_METRE)
@@ -112,13 +114,18 @@ function CptSbtDepthPanels({ plot, profile }: Props): JSX.Element {
         <div style={{ width: RULER_W }} className="shrink-0">
           m
         </div>
+        {/* i18n-exempt: qc / fs / Rf / Ic are measurement symbols — domain canon */}
         <ColumnHeader label="qc" hint={`0–${qcMax.toFixed(0)} MPa`} />
+        {/* i18n-exempt: measurement symbols — domain canon */}
         <ColumnHeader label="fs / Rf" hint={`0–${fsMax.toFixed(2)} MPa · 0–${rfMax.toFixed(1)} %`} />
+        {/* i18n-exempt: measurement symbol — domain canon */}
         <ColumnHeader label="Ic" hint={`0–${IC_AXIS_MAX}`} />
-        <div style={{ width: STRIP_W }} className="shrink-0 text-center" title="Normalised Robertson 2015 SBT zone">
+        <div style={{ width: STRIP_W }} className="shrink-0 text-center" title={t('params.sbtNormalised')}>
+          {/* i18n-exempt: SBTn is a domain abbreviation (normalised SBT zone) */}
           SBTn
         </div>
-        <div style={{ width: STRIP_W }} className="shrink-0 text-center" title="Non-normalised I_SBT zone (Robertson 2010)">
+        <div style={{ width: STRIP_W }} className="shrink-0 text-center" title={t('params.sbtNonNormalised')}>
+          {/* i18n-exempt: SBT is a domain abbreviation (soil behaviour type) */}
           SBT
         </div>
       </div>
@@ -188,8 +195,18 @@ function CptSbtDepthPanels({ plot, profile }: Props): JSX.Element {
           className="px-2 pb-1 text-[9px] text-text-muted"
           data-testid="cpt-sbt-derivation-note"
         >
-          SBTn normalised at water table {profile.gwt_m.toFixed(2)} m ({profile.gwt_source}) ·
-          SBT (I_SBT) needs none
+          {t('params.sbtDerivationNote', {
+            gwt: profile.gwt_m.toFixed(2),
+            // The raw gwt-source enum, translated to the same short label the
+            // engine writes ("recorded" / "engineer" / "assumed").
+            source: t(
+              profile.gwt_source === 'engineer'
+                ? 'params.gwtEngineerShort'
+                : profile.gwt_source === 'recorded'
+                  ? 'params.gwtRecorded'
+                  : 'params.gwtAssumed',
+            ),
+          })}
         </div>
       )}
     </div>
@@ -331,6 +348,7 @@ function ZoneStrip({
   runs: readonly ZoneRun[]
   testid: string
 }): JSX.Element {
+  const t = useT()
   return (
     <div
       className="shrink-0 border border-border-subtle rounded-sm bg-surface-app"
@@ -358,7 +376,7 @@ function ZoneStrip({
             >
               <title>
                 {`${run.topM.toFixed(2)}–${run.baseM.toFixed(2)} m — ${
-                  spec ? spec.label : `zone ${run.zone}`
+                  spec ? spec.label : t('params.zoneN', { n: run.zone })
                 }`}
               </title>
             </rect>
@@ -375,6 +393,7 @@ function ZoneLegend({
 }: {
   runs: readonly (readonly ZoneRun[])[]
 }): JSX.Element | null {
+  const t = useT()
   const present = new Set<number>()
   for (const strip of runs) for (const run of strip) present.add(run.zone)
   if (present.size === 0) return null
@@ -391,7 +410,7 @@ function ZoneLegend({
             <span
               key={zone}
               className="flex items-center gap-1 text-[9px] text-text-secondary"
-              title={spec?.label ?? `zone ${zone}`}
+              title={spec?.label ?? t('params.zoneN', { n: zone })}
             >
               <span
                 className="w-2.5 h-2.5 rounded-sm border border-border-subtle shrink-0"
