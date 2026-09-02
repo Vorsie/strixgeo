@@ -89,23 +89,35 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
 
   // Geology deep-link — triggered from the Sections (litho) canvas when
   // the user picks "Edit in Geology stage" on a geological contact.
-  // Switches to the geology stage and selects the section so the user
-  // lands on the exact section + contact they want to fix.
   //
-  // AppShell is responsible for the stage switch + section select only.
-  // The payload is NOT cleared here: GeologyInspector reads the
-  // contactId from the same payload and clears it after applying the
-  // per-contact focus, so the contactId survives the stage transition
-  // and the re-render that mounts GeologyInspector on the geology stage.
+  // The geological model is edited on CROSS-SECTIONS, not on the Geology
+  // stage's 3D Cesium viewer (that stage is 3D-or-empty-state only, see
+  // GeologyCanvas). So the deep-link opens the SECTION VIEW — the Sections
+  // stage on the GEOLOGICAL axis, where the geological contact is the
+  // editable one — and pulses that contact (debt #156). Routing to the
+  // geology stage instead landed the user on the globe and fired
+  // "couldn't find the contact" twice (dogfeed 2026-05-28).
+  //
+  // The focus states the geological axis explicitly (third arg): the user
+  // fired this from the litho axis, so without the override
+  // handleFocusContacts searches lithoContacts and misses the geological
+  // contact. The axis is switched too so the amber ring paints on the
+  // geological axis. The payload is cleared here (single-fire); unlike the
+  // sections deep-link below there is no deferred timer, so a synchronous
+  // clear cannot cancel any pending work.
   useEffect(() => {
     const target = context.coordinator.geoDeepLinkTarget
     if (target == null) return
-    log.info('shell', `geo-deep-link: stage=geology section=${target.sectionId} contact=${target.contactId}`)
-    setActiveStage('geology')
+    log.info(
+      'shell',
+      `geo-deep-link: stage=sections axis=geological section=${target.sectionId} contact=${target.contactId}`,
+    )
+    setActiveStage('sections')
+    context.sections.setSectionModelAxis('geological')
     context.sections.handleSelectSection(target.sectionId)
-    // Payload is NOT cleared here — GeologyInspector consumes +
-    // clears it so the contactId reaches the geology stage.
-    // reason: setActiveStage and context.sections.handleSelectSection are
+    context.sections.handleFocusContacts([target.contactId], target.sectionId, 'geological')
+    context.coordinator.setGeoDeepLinkTarget(null)
+    // reason: setActiveStage + the sections handlers + the coord setter are
     // stable callbacks; context.coordinator.geoDeepLinkTarget is the only
     // signal that should trigger this effect. Including context itself would
     // re-fire on every unrelated shell-state change.
