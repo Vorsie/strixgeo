@@ -109,6 +109,10 @@
       {
         "from": "embedded/backend",
         "to": "backend"
+      },
+      {
+        "from": "resources/sample",
+        "to": "sample"
       }
     ],
     "compression": "normal"
