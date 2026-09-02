@@ -38,6 +38,7 @@ import { useFormalStratigraphyCatalog } from '../../hooks/useFormalStratigraphyC
 import { useG3Dv3Catalog } from '../../hooks/useG3Dv3Catalog'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
+import { useT } from '../../i18n/translate'
 
 const DEFAULT_COLOR = '#9ca3af' // gray-400 — same neutral as the backend default
 const MAX_SUGGESTIONS = 8 // bound dropdown height; "boom"-prefix typically <8 hits anyway
@@ -121,6 +122,7 @@ export default function FormationDialog({
   onSubmit,
   onCancel,
 }: Props): JSX.Element | null {
+  const t = useT()
   const [name, setName] = useState('')
   const [color, setColor] = useState(DEFAULT_COLOR)
   const [regionalRef, setRegionalRef] = useState('')
@@ -261,19 +263,19 @@ export default function FormationDialog({
           id="formation-dialog-title"
           className="text-base font-semibold text-gray-800 mb-1"
         >
-          {isEdit ? 'Edit formation' : 'New formation'}
+          {isEdit ? t('formation.editTitle') : t('formation.newTitle')}
         </h2>
         <p className="text-xs text-gray-500 mb-4">
-          A formation is a substrate unit you reference in the
-          geological model — e.g. <em>Boom Klei</em>, <em>Diest Zand</em>,
-          <em> Quaternary deposits</em>.
+          {/* i18n-exempt: Boom Klei / Diest Zand are Belgian formation proper nouns */}
+          {t('formation.dialogBlurb')} <em>Boom Klei</em>, <em>Diest Zand</em>,
+          <em> {t('formation.exampleQuaternary')}</em>.
         </p>
 
         <label
           htmlFor="formation-name"
           className="block text-xs font-medium text-gray-600 mb-1"
         >
-          Name
+          {t('common.name')}
         </label>
         <div className="relative mb-3">
           <input
@@ -293,7 +295,7 @@ export default function FormationDialog({
             }}
             onKeyDown={handleKey}
             disabled={busy}
-            placeholder="e.g. Boom Klei"
+            placeholder={t('formation.namePlaceholder')}
             autoComplete="off"
             role="combobox"
             data-testid="create-formation-name-input"
@@ -335,6 +337,7 @@ export default function FormationDialog({
                   </span>
                   {u.rank === 'member' && (
                     <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                      {/* i18n-exempt: stratigraphic rank token ("lid" = member); hardcoded Dutch, see report */}
                       lid
                     </span>
                   )}
@@ -350,7 +353,7 @@ export default function FormationDialog({
               htmlFor="formation-color"
               className="block text-xs font-medium text-gray-600 mb-1"
             >
-              Colour
+              {t('formation.colour')}
             </label>
             <input
               id="formation-color"
@@ -366,7 +369,8 @@ export default function FormationDialog({
               htmlFor="formation-regional-ref"
               className="block text-xs font-medium text-gray-600 mb-1"
             >
-              Regional reference <span className="text-gray-400">(optional)</span>
+              {t('formation.regionalReference')}{' '}
+              <span className="text-gray-400">{t('common.optional')}</span>
             </label>
             <input
               id="formation-regional-ref"
@@ -374,7 +378,7 @@ export default function FormationDialog({
               value={regionalRef}
               onChange={e => setRegionalRef(e.target.value)}
               disabled={busy}
-              placeholder="e.g. stratigraphic chart code"
+              placeholder={t('formation.codePlaceholder')}
               className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
             />
           </div>
@@ -387,8 +391,8 @@ export default function FormationDialog({
             htmlFor="formation-formal"
             className="block text-xs font-medium text-gray-600 mb-1"
           >
-            Formal stratigraphy{' '}
-            <span className="text-gray-400">(optional — sets the lens code)</span>
+            {t('formation.formalStratigraphy')}{' '}
+            <span className="text-gray-400">{t('formation.lensCodeHint')}</span>
           </label>
           {formalCode !== null && (
             <div
@@ -406,7 +410,7 @@ export default function FormationDialog({
                 data-testid="formation-formal-clear"
                 className="ml-auto text-xs text-gray-400 hover:text-red-600"
               >
-                Clear
+                {t('formation.clear')}
               </button>
             </div>
           )}
@@ -424,7 +428,7 @@ export default function FormationDialog({
               onBlur={() => setTimeout(() => setFormalOpen(false), 120)}
               onKeyDown={handleFormalKey}
               disabled={busy}
-              placeholder="Search formal unit (e.g. Holoceen, QH)…"
+              placeholder={t('formation.searchFormal')}
               autoComplete="off"
               role="combobox"
               aria-autocomplete="list"
@@ -465,7 +469,7 @@ export default function FormationDialog({
 
         <div className="flex justify-end gap-2 mt-4">
           <Button variant="secondary" size="md" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -474,7 +478,7 @@ export default function FormationDialog({
             disabled={!name.trim() || busy}
             data-testid="create-formation-submit"
           >
-            {isEdit ? 'Save' : 'Create'}
+            {isEdit ? t('common.save') : t('common.create')}
           </Button>
         </div>
       </div>
