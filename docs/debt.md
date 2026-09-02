@@ -4520,30 +4520,39 @@ ribbon-rendering feature, not a colour-token swap. It supersedes the
 NOT being done). The spec now lives on **#131** (the lens-aware ribbon
 work), which this folds into.
 
-## 156. "Edit in Geology stage" deep-link lands on the 3D viewer + "contact not found" (Tier E)
+## 156. "Edit in Geology stage" deep-link lands on the 3D viewer + "contact not found" — RESOLVED 2026-09-02
 
-**What.** Owner dogfeed 2026-05-28: right-clicking a *geological*
-(reference) contact on the litho axis → "Edit in geological stage" lands
-on the **Geology stage 3D Cesium viewer** (the globe) and fires "Couldn't
-find the contact in the current project" twice. The geological model is
-edited on **cross-sections**, not the 3D viewer, so the deep-link should
-open the section view with that contact focused — not the globe.
+**What (owner dogfeed 2026-05-28).** Right-clicking a *geological* (reference)
+contact on the litho axis → "Edit in Geology stage" landed on the **Geology
+stage 3D Cesium viewer** (the globe) and fired "Couldn't find the contact in
+the current project" twice. The geological model is edited on cross-sections,
+not the 3D viewer, so the deep-link should open the section view with that
+contact focused — not the globe.
 
-**Root-cause hypothesis.** The `onEditInGeologyStage` handler navigates to
-the Geology stage (whose default surface is the 3D viewer) and then tries
-to focus the resolved `parentGeoContactId` (from
-`refGeoContactByAnchorAndFormation` in `ContactsLayer`). The focus lookup
-misses (→ the double toast), and the landing surface is wrong. Two things
-to fix: (a) route the deep-link to the **Sections** stage with the
-relevant section open (or the Geology stage's section-editing context),
-not the 3D viewer; (b) pass a contact id the target view can actually
-resolve (the double "not found" suggests the id is unresolved or the
-target's loaded contact set doesn't include it).
+**Root cause (two independent bugs).** (a) The `geoDeepLinkTarget` consumer in
+`AppShell` did `setActiveStage('geology')`, but `GeologyCanvas` is 3D-or-empty-
+state only — it has no section-editing surface, so the user always landed on
+the globe. (b) The focus consumer lived in `GeologyInspector` (which only
+mounts on that 3D stage) and called `handleFocusContacts([contactId])` with a
+GEOLOGICAL contact id; `handleFocusContacts` is axis-gated (slice-2 #55) and,
+because the deep-link fires from the LITHO axis, searched `lithoContacts`,
+missed, and fired the "couldn't find the contact" toast.
 
-**When to revisit.** Next litho/geology navigation pass. Confirm the
-intended target with the owner (Sections stage vs a section-mode Geology
-stage) before wiring.
-Filed from dogfeed session 2026-05-28.
+**Fix.** The deep-link now opens the SECTION VIEW: `AppShell`'s effect switches
+to the **Sections** stage, selects the **geological** axis, selects the section,
+and focuses the contact via a new explicit axis override —
+`handleFocusContacts([contactId], sectionId, 'geological')` — so the geological
+contact resolves regardless of which axis the section is showing (and the
+override also sidesteps the stale-axis closure a deferred focus would capture).
+The obsolete `GeologyInspector` payload consumer + its write-only
+`deepLinkContactId` state were removed; the old GD3/GD4 tests (which pinned the
+globe-target behaviour) were deleted. New pins: `AppShell.test.tsx` (#156 —
+routes to Sections + geological axis + focus + single-fire clear),
+`useSections.axis.test.ts` (DL1 — the geological-axis focus override), with the
+slice-2 A1/A2/A3 axis-gate defaults preserved. Files: `AppShell.tsx`,
+`useSections.ts` (interface + `handleFocusContacts` body), `GeologyInspector.tsx`.
+`SectionsCanvas.onEditInGeologyStage` (the writer of `geoDeepLinkTarget`) was
+left unchanged.
 
 ## 157. Accepted litho slivers from straddle-split — RESOLVED 2026-06-04 (A2)
 
