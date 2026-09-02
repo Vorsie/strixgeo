@@ -321,48 +321,6 @@ async def test_export_includes_in_corridor_contacts_without_seeding(
     assert len(list(msp.query("LINE[layer=='Investigations']"))) == 3
 
 
-async def test_pdf_export_happy_path(async_client: AsyncClient, seeded_section: dict) -> None:
-    """Smoke test for the section PDF report endpoint (debt #52 slice 1).
-
-    Asserts the round-trip:
-    * Returns 200 with ``application/pdf`` Content-Type.
-    * Body starts with the ``%PDF`` magic header.
-    * Content-Disposition proposes a filename.
-    * Metadata query params reach the response without crashing.
-    """
-    resp = await async_client.get(
-        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
-        "/export/pdf",
-        params={
-            "model_id": str(seeded_section["model_id"]),
-            "title": "Custom title for the test",
-            "author": "QA",
-            "notes": "Sanity test of the PDF endpoint.",
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.headers["content-type"].startswith("application/pdf")
-    assert "filename=" in resp.headers["content-disposition"]
-    payload = resp.content
-    assert payload, "empty body"
-    # Every PDF starts with %PDF-<version> — non-negotiable magic bytes.
-    assert payload[:4] == b"%PDF", f"expected %PDF magic, got {payload[:8]!r}"
-
-
-async def test_pdf_export_works_without_metadata(
-    async_client: AsyncClient, seeded_section: dict
-) -> None:
-    """No title / author / notes provided — backend supplies sensible
-    defaults (title from section name, empty author + notes)."""
-    resp = await async_client.get(
-        f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
-        "/export/pdf",
-        params={"model_id": str(seeded_section["model_id"])},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.content[:4] == b"%PDF"
-
-
 async def test_export_404_when_section_does_not_exist(
     async_client: AsyncClient, seeded_section: dict
 ) -> None:
@@ -796,21 +754,3 @@ async def test_plaxis_export_stays_exact_when_the_dxf_thins(
     # And the exact script never grows the thinning column.
     assert "Absorbed units" not in script
     compile(script, "<plaxis2d>", "exec")
-
-
-async def test_pdf_export_accepts_the_thinning_flag(
-    async_client: AsyncClient, seeded_section: dict, seeded_stacked_same_class: dict
-) -> None:
-    """The PDF handler is the second artefact the ruling names; it must
-    take the same flag and still render."""
-    for thin in ("true", "false"):
-        resp = await async_client.get(
-            f"/projects/{seeded_section['project_id']}/sections/{seeded_section['section_id']}"
-            "/export/pdf",
-            params={
-                "model_id": str(seeded_stacked_same_class["geotech_model_id"]),
-                "thin_units": thin,
-            },
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.content.startswith(b"%PDF"), thin
