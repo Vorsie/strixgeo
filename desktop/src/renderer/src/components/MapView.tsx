@@ -35,6 +35,7 @@ import SectionLineDrawer from './SectionLineDrawer'
 import SectionOverlays from './SectionOverlays'
 import { TieSuggestionOverlay } from './TieSuggestionOverlay'
 import type { SuggestedTie } from '../utils/tieAutoSuggest'
+import { useT } from '../i18n/translate'
 
 // CircleMarkers are used instead of Leaflet's default pin icons because at
 // high density (200+ markers in a small bbox) pins overlap into an unreadable
@@ -463,6 +464,7 @@ export default function MapView({
   onAcceptTie,
   onRejectTie,
 }: Props) {
+  const t = useT()
   // Basemap selection — persisted in localStorage, seeded on first run
   // from the resolved theme (dark → geopunt_hybrid, light → osm).
   //
@@ -857,7 +859,7 @@ export default function MapView({
               }}
             >
               <Tooltip pane="marker-tooltips" direction="top" offset={[0, -4]} opacity={0.9}>
-                <em>Pending: {pin.name}</em>
+                <em>{t('data.map.pending', { name: pin.name })}</em>
               </Tooltip>
             </CircleMarker>
           )
@@ -875,7 +877,12 @@ export default function MapView({
         className="sr-only"
       >
         {pendingCptPins.length > 0
-          ? `${pendingCptPins.length} CPT location${pendingCptPins.length === 1 ? '' : 's'} pending import`
+          ? t(
+              pendingCptPins.length === 1
+                ? 'data.map.pendingCptLocationsOne'
+                : 'data.map.pendingCptLocationsMany',
+              { n: pendingCptPins.length },
+            )
           : ''}
       </span>
 
@@ -921,8 +928,13 @@ export default function MapView({
         disabled={visibleMarkerCount === 0}
         title={
           visibleMarkerCount === 0
-            ? 'No visible markers to fit'
-            : `Fit map to ${visibleMarkerCount} visible item${visibleMarkerCount === 1 ? '' : 's'}`
+            ? t('data.map.noMarkersToFit')
+            : t(
+                visibleMarkerCount === 1
+                  ? 'data.map.fitToDataOne'
+                  : 'data.map.fitToDataMany',
+                { n: visibleMarkerCount },
+              )
         }
         className="absolute top-[88px] left-2 z-[1000] w-[30px] h-[30px] bg-white dark:bg-slate-800 border-2 border-gray-300 dark:border-slate-600 rounded shadow flex items-center justify-center text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
       >
@@ -971,6 +983,7 @@ function LayerControl({
   basemapId: BasemapId
   onBasemapChange: (id: BasemapId) => void
 }) {
+  const t = useT()
   const cptTotal = sum(cptTypeCounts.values())
   const cptOrdered = orderedCptTypes(cptTypeCounts)
   const bhCounts = boreholeAxisCounts[boreholeAxis]
@@ -989,7 +1002,7 @@ function LayerControl({
           providers without any data needing to be loaded first. */}
       <div className="border-b border-gray-100 dark:border-slate-700">
         <CategoryHeader
-          label="Basemap"
+          label={t('map.basemap')}
           count={activeBasemap.label}
           open={openCategory === 'basemap'}
           onClick={() => onToggleCategory('basemap')}
@@ -1021,7 +1034,7 @@ function LayerControl({
       {cptTypeCounts.size > 0 && (
         <div className={openCategory === 'cpt' ? 'border-b border-gray-100 dark:border-slate-700' : ''}>
           <CategoryHeader
-            label="CPT"
+            label={t('data.map.categoryCpt')}
             count={cptTotal}
             open={openCategory === 'cpt'}
             onClick={() => onToggleCategory('cpt')}
@@ -1053,7 +1066,7 @@ function LayerControl({
       {boreholes.length > 0 && (
         <div>
           <CategoryHeader
-            label="Borehole"
+            label={t('map.borehole')}
             count={boreholes.length}
             open={openCategory === 'borehole'}
             onClick={() => onToggleCategory('borehole')}
@@ -1065,17 +1078,17 @@ function LayerControl({
                 <AxisButton
                   active={boreholeAxis === 'drill_method'}
                   onClick={() => onAxisChange('drill_method')}
-                  label="Drill method"
+                  label={t('borelog.drillMethod')}
                 />
                 <AxisButton
                   active={boreholeAxis === 'borehole_type'}
                   onClick={() => onAxisChange('borehole_type')}
-                  label="Borehole type"
+                  label={t('map.boreholeType')}
                 />
               </div>
               {bhOrdered.length === 0 ? (
                 <div className="text-[10px] text-gray-400 dark:text-slate-500 italic px-1">
-                  No values for this axis.
+                  {t('map.noValuesForAxis')}
                 </div>
               ) : (
                 bhOrdered.map(([value, count]) => {
@@ -1110,7 +1123,7 @@ function LayerControl({
       {onDemOverlayChange && demOverlay && (
         <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100 dark:border-slate-700' : ''}>
           <CategoryHeader
-            label="Terrain"
+            label={t('map.terrain')}
             // Surface the active provider name in the badge slot so the
             // user sees which source the toggle is wired to without
             // expanding the section. Empty when off / unavailable so
@@ -1146,6 +1159,7 @@ function TerrainSection({
   overlay: DemOverlayState
   onChange: (next: DemOverlayState) => void
 }) {
+  const t = useT()
   // Local mirror of the slider so dragging stays smooth — committing
   // every pixel of slider travel to the parent would round-trip
   // through PATCH /view-state and lag. We commit on release
@@ -1175,7 +1189,7 @@ function TerrainSection({
           {overlay.enabled && (
             <div className="mt-1.5 px-1">
               <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-slate-400 mb-0.5">
-                <span>Opacity</span>
+                <span>{t('map.opacity')}</span>
                 <span className="tabular-nums">{Math.round(localOpacity * 100)}%</span>
               </div>
               <input
@@ -1194,11 +1208,14 @@ function TerrainSection({
         </>
       ) : (
         <div className="px-1 pt-0.5 text-[10px] text-gray-500 dark:text-slate-400 leading-snug">
-          No hillshade source for this CRS. Set{' '}
-          <span className="font-mono">Default horizontal CRS</span>{' '}
-          to <span className="font-mono">31370</span> (Belgium) or{' '}
-          <span className="font-mono">28992</span> (Netherlands) in{' '}
-          <span className="font-medium text-gray-600 dark:text-slate-300">Edit metadata</span>.
+          {t('data.map.noHillshadeIntro')}{' '}
+          <span className="font-mono">{t('project.defaultHorizontalCrs')}</span>{' '}
+          {t('data.map.noHillshadeTo')}{' '}
+          <span className="font-mono">31370</span>{' '}
+          {t('data.map.noHillshadeBelgiumOr')}{' '}
+          <span className="font-mono">28992</span>{' '}
+          {t('data.map.noHillshadeNetherlandsIn')}{' '}
+          <span className="font-medium text-gray-600 dark:text-slate-300">{t('map.editMetadata')}</span>.
         </div>
       )}
     </div>
@@ -1322,6 +1339,7 @@ interface LegendEntry {
 }
 
 function Legend({ entries }: { entries: LegendEntry[] }) {
+  const t = useT()
   return (
     <div
       className="absolute bottom-2 right-2 z-[1000] bg-white dark:bg-slate-800 rounded shadow-lg border border-gray-200 dark:border-slate-600 text-xs select-none p-2 w-56"
@@ -1330,7 +1348,7 @@ function Legend({ entries }: { entries: LegendEntry[] }) {
       onClick={e => e.stopPropagation()}
     >
       <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-1.5">
-        Visible on map
+        {t('map.visibleOnMap')}
       </div>
       <div className="flex flex-col gap-0.5">
         {entries.map(e => (
@@ -1504,14 +1522,15 @@ function buildLegend(
 // who don't recall the key have a visible way out.
 
 function SectionDrawHint({ onCancel }: { onCancel: () => void }): JSX.Element {
+  const t = useT()
   return (
     <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1100] flex items-center gap-3 px-3 py-1.5 bg-red-600 text-white text-xs rounded shadow-lg">
-      <span className="font-medium">Click two points on the map to draw the cross-section line</span>
+      <span className="font-medium">{t('map.drawSectionLine')}</span>
       <button
         onClick={onCancel}
         className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-[10px] uppercase tracking-wide"
       >
-        Cancel (Esc)
+        {t('elevation.cancelEsc')}
       </button>
     </div>
   )
