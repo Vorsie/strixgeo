@@ -99,6 +99,16 @@ orchestration      activationService.ts      ← the only thing IPC talks to
   the bound device + masked key; lets you enter a key + Activate, Start free
   trial, and Deactivate / transfer. Inline feedback (self-contained, so it works
   in both the welcome and loaded-project branches).
+- **Deactivate / transfer is irreversible** (it frees the seat on the server), so
+  the button routes through a `ConfirmDialog` — title "Deactivate this device?",
+  a two-sentence body, Cancel default-focused, the action button named
+  "Deactivate" (docs/ux.md "Reversible vs irreversible"). The client + service
+  handle the answer per the contract: a clean release **or a `404`** (already
+  released server-side) clears the local licence and returns to the activation
+  screen; a `401` / network failure **keeps** the local licence and surfaces the
+  error, so a transfer is never half-completed with the seat stranded. The HTTP
+  client throws a typed `DeactivateFailedError` (status-carrying) that lets the
+  service branch without importing the concrete HTTP impl.
 - A **"Preview a state" row (dev builds only)** forces each state so the owner
   can SEE every screen without waiting out a clock. It is gated on
   `!launchFlags.packaged`, and the main process withholds the backing
