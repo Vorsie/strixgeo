@@ -13,8 +13,15 @@
 // without a second server round-trip and without a schema field that would have
 // to be kept in sync with the union set.
 //
+// Lives under ``utils/`` because BOTH the Geotechnical units roster and the
+// Parameters body tree read it (owner ruling 2026-09-02: the "(group N)" tag
+// rides both right panes). One copy, no duplication — see ``geotechRosterRows``
+// and ``parameterBodyTree`` / ``UnitStatisticsCanvas``.
+//
 // Deliberately NOT here: the group SUGGESTION heuristic (PSD / proximity) — a
 // Phase-5 follow-up. This module only reflects unions the engineer already made.
+
+import type { BodyUnionListItem } from '../api/client'
 
 /** One anchor of a union pair — the current body it resolves to. */
 export interface GeotechGroupAnchor {
@@ -33,6 +40,23 @@ export interface GeotechGroupPair {
 /** Ordinals are optional on an unstamped anchor; treat a missing one as "sorts
  *  last" so a real ordinal always wins the min-ordinal comparison. */
 const NO_ORDINAL = Number.MAX_SAFE_INTEGER
+
+/**
+ * Adapt the API's ``BodyUnionListItem`` rows to the pure ``GeotechGroupPair``
+ * input — the ONE place the anchor→pair shape is read, so all three consumers
+ * (the geotech roster, the Parameters unit list, the Parameters canvas) agree.
+ *
+ * @param unions  The model's unions (``GET .../body-unions``), or undefined.
+ * @returns  One pair per union, each carrying both anchors' current body.
+ */
+export function bodyUnionsToGroupPairs(
+  unions: readonly BodyUnionListItem[] | undefined,
+): GeotechGroupPair[] {
+  return (unions ?? []).map(u => ({
+    a: { bodyId: u.anchor_a.body_id, bodyOrdinal: u.anchor_a.body_ordinal },
+    b: { bodyId: u.anchor_b.body_id, bodyOrdinal: u.anchor_b.body_ordinal },
+  }))
+}
 
 /**
  * Number the manual body groups: ``body id → group number`` (1-based).
@@ -141,4 +165,42 @@ export function geotechGroupOrdinals(pairs: readonly GeotechGroupPair[]): Map<st
     for (const id of component.ids) result.set(id, index + 1)
   })
   return result
+}
+
+/**
+ * The member body ids of the group one body belongs to — the pooling set (D2).
+ *
+ * When a grouped geotech body is selected in the Parameters stage its
+ * statistics pool ALL member bodies' bands (owner ruling 2026-09-02: "grouping
+ * is just for lumping things that are similar together, so we have more data").
+ * This resolves that member set from the same ``body id → group number`` map the
+ * "(group N)" tag reads, so the tag and the pool never disagree on who is in a
+ * group.
+ *
+ * Members are returned sorted by body id — a stable, locale-independent order so
+ * the provenance list reads the same every render.
+ *
+ * Parameters
+ * ----------
+ * ordinals
+ *     The ``geotechGroupOrdinals`` map (``body id → group number``).
+ * bodyId
+ *     The selected body.
+ *
+ * Returns
+ * -------
+ * { groupNumber, memberBodyIds } | null
+ *     The group's number and every member's body id (including ``bodyId``
+ *     itself), or ``null`` when the body is in no multi-member group.
+ */
+export function geotechGroupMembers(
+  ordinals: ReadonlyMap<string, number>,
+  bodyId: string,
+): { groupNumber: number; memberBodyIds: string[] } | null {
+  const groupNumber = ordinals.get(bodyId)
+  if (groupNumber === undefined) return null
+  const memberBodyIds: string[] = []
+  for (const [id, group] of ordinals) if (group === groupNumber) memberBodyIds.push(id)
+  memberBodyIds.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  return { groupNumber, memberBodyIds }
 }
