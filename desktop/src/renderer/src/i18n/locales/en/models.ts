@@ -375,6 +375,10 @@ export const MODELS = {
   // The manual-group tag on a packing body joined into a group (debt #278 D4).
   // FLAG: owner-confirmable — "(group N)" vs "(group 1)" placement.
   'geotech.groupTag': '(group {count})',
+  // The grouped-body Parameters header (debt #278 D2). FLAG: owner-confirmable
+  // wording ("Group N — N bodies") + heading.
+  'geotech.groupHeader': 'Group {group} — {count} bodies',
+  'geotech.groupProvenanceHeading': 'Source litho bodies',
   'geotech.soilBodies': '{soil} litho bodies',
   'geotech.packingBodiesIn': 'Packing bodies in {label}',
   'geotech.bandLabel': '{count} band',
