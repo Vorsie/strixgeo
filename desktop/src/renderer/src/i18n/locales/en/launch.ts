@@ -69,6 +69,11 @@ export const LAUNCH = {
   'licensing.startTrial': 'Start free trial',
   'licensing.deactivate': 'Deactivate / transfer this device',
   'licensing.deactivateHint': 'Frees this seat so you can activate on another machine.',
+  // Confirmation dialog for the irreversible deactivate / transfer (docs/ux.md).
+  'licensing.deactivateConfirmTitle': 'Deactivate this device?',
+  'licensing.deactivateConfirmBody':
+    'This frees the seat so you can activate on another machine. The app returns to the activation screen.',
+  'licensing.deactivateConfirmAction': 'Deactivate',
   'licensing.demoKeysHint': 'Prototype demo keys: STRIX-SOLO-DEMO, STRIX-PRO-DEMO, STRIX-STUDIO-DEMO.',
   'licensing.previewHeading': 'Preview a state (prototype only)',
   'licensing.errorUnknownKey': 'That licence key was not recognised.',
