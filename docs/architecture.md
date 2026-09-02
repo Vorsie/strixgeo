@@ -55,7 +55,7 @@ Strix/
 │   │   │                          grain_size_parse_result.py
 │   │   ├── exporters/         project/section/section_geometry ABCs; plaxis 2D/3D,
 │   │   │                      dxf section/fence, dstability, dsheet_piling,
-│   │   │                      section_pdf_report (see "Exporters" below)
+│   │   │                      (the cross-section PDF is rendered client-side, see docs/exports.md)
 │   │   ├── dem/               dem_provider.py (DemProvider ABC + DemZGrid),
 │   │   │                      wcs_dem_provider.py (WcsDemProvider — shared
 │   │   │                      WCS GetCoverage + tile-cache + GeoTIFF-decode
@@ -281,5 +281,5 @@ dxf_section_exporter.py          DxfSectionExporter — DXF exporter for cross-s
 dxf_fence_exporter.py            DxfFenceExporter — DXF exporter for the 3-D fence diagram — v1.0 MVP gate (owner ballot 2026-08-26).
 dstability_exporter.py           DStabilityExporter — Export one cross-section's drawn geometry to Deltares D-Stability (``.stix``).
 dsheet_piling_exporter.py        DSheetPilingExporter — Export a 1-D soil profile through one cross-section to D-Sheet Piling (``.shi``).
-section_pdf_report_exporter.py   SectionPdfReportExporter — Cross-section PDF report exporter — debt #52 slice 1.
+(cross-section PDF)             rendered by the desktop app itself — `desktop/src/renderer/src/sheet/` + Chromium printToPDF; no backend exporter (2026-09-02, docs/exports.md)
 ```
