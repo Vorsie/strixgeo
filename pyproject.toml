@@ -54,20 +54,6 @@ dependencies = [
     # sub-millisecond, suitable for "drag a contact and see the
     # surface refresh" UX.
     "scipy>=1.13,<2",  # cap major: pin below the next breaking SciPy major (#219)
-    # ReportLab — PDF page layout + text rendering for the project
-    # report exports (debt #52). Pure Python, MIT-licensed, ships
-    # pre-built wheels. Chosen over WeasyPrint (heavy Cairo/Pango
-    # stack) and renderer print-to-PDF (couples the report to Electron
-    # + harder to test). Engineering reports are text-first with
-    # embedded figures; ReportLab + matplotlib is the standard combo.
-    "reportlab>=4.0",
-    # Matplotlib — figure rendering for the PDF report's section
-    # drawing + location-map inset (debt #52). Server-side via the
-    # Agg backend (no DISPLAY needed). Pulled in alongside ReportLab
-    # because the engineering-report convention is text+figure; the
-    # alternative would be PIL-based primitive drawing which is much
-    # more code for the same result.
-    "matplotlib>=3.8",
     "numba>=0.65.1",
     # Deltares GEOLib — the official Python wrapper for the whole D-Series.
     # Writes D-Stability ``.stix`` and D-Sheet Piling ``.shi`` in-process, so
