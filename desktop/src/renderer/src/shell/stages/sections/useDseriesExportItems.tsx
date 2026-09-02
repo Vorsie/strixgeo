@@ -22,13 +22,10 @@ import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 import type { GeologicalModelResponse } from '../../../api/clients/geology.types'
-import type {
-  InvestigationLocation,
-  SectionLike,
-} from '../../../utils/assembleLithoSectionInputs'
+import type { SectionLike } from '../../../utils/assembleLithoSectionInputs'
 import type { SectionPartitionInput } from '../../../utils/buildVoxelRequest'
-import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 import { buildSectionExportPartition } from './buildSectionExportPartition'
+import { useSectionExportInputs } from './useSectionExportInputs'
 import { downloadSectionExport } from './downloadSectionExport'
 import { useT } from '../../../i18n/translate'
 import type { MessageKey } from '../../../i18n/locales/en'
@@ -109,53 +106,23 @@ export function useDseriesExportItems(
   params: DseriesExportItemsParams,
 ): ToolbarDropdownItem[] {
   const { axisModel, selectedSection, isGeotech, axisLevelLabel } = params
+  // The investigations + packing-class map + both axes' models/layers now come
+  // from the shared ``useSectionExportInputs`` hook (the PDF sheet is the second
+  // consumer). Only the toast bus is still read straight off the shell.
   const {
     project,
-    visibleCpts,
-    visibleBoreholes,
-    geoModel: { activeLithoModel, lithoLayers, geotechLayers, geotechFormations },
+    investigations,
+    packingClassOf,
+    activeLithoModel,
+    lithoLayers,
+    geotechLayers,
+  } = useSectionExportInputs()
+  const {
     toasts: { toast },
   } = useShell()
   const t = useT()
 
   const [exporting, setExporting] = useState<DseriesKind | null>(null)
-
-  // Canonical anchor order — CPTs first, then boreholes — the same composition
-  // ``useProjectBodyRecompute`` feeds the build with, so the export's columns
-  // land in the same order the built model's do.
-  const investigations = useMemo<InvestigationLocation[]>(
-    () => [
-      ...visibleCpts.map(c => ({
-        id: c.id,
-        location_x: c.location_x,
-        location_y: c.location_y,
-        elevation_m: c.elevation_m,
-      })),
-      ...visibleBoreholes.map(b => ({
-        id: b.id,
-        location_x: b.location_x,
-        location_y: b.location_y,
-        elevation_m: b.elevation_m,
-      })),
-    ],
-    [visibleCpts, visibleBoreholes],
-  )
-
-  // Geotech mass identity (owner 2026-08-21: one mass one body). Only the
-  // framed geotech fill reads it; a litho export passes undefined.
-  const packingClassOf = useMemo(
-    () =>
-      buildPackingClassOf(
-        geotechFormations.map(
-          f =>
-            [
-              f.id,
-              { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null },
-            ] as const,
-        ),
-      ),
-    [geotechFormations],
-  )
 
   const runExport = useCallback(
     async (kind: DseriesKind): Promise<void> => {
