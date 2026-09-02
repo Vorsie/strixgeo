@@ -115,7 +115,11 @@ export function buildContentSecurityPolicy(isDev: boolean): string {
     `connect-src ${connectSrc.join(' ')}`,
     "font-src 'self' data:",
     // Locks down embedded iframes (none today) and plugin objects.
-    "frame-src 'none'",
+    // 'self' (not 'none'): the cross-section PDF sheet renders sheet.html — the
+    // app's own second renderer entry — inside a same-origin iframe for the live
+    // preview (docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md).
+    // Foreign frames stay blocked.
+    "frame-src 'self'",
     "object-src 'none'",
     // Modern UA hardening — prevent base-target hijacking and
     // form posting to other origins.
