@@ -897,7 +897,7 @@ export default function GeotechBandEditOverlay({
                   })
                 }}
               >
-                <title>Right-click to set this band's NAD class by hand</title>
+                <title>{t('sections.bands.rightClickClass')}</title>
               </rect>
             )
           })}
@@ -1020,9 +1020,7 @@ export default function GeotechBandEditOverlay({
                     })
                   }}
                 >
-                  <title>
-                    Right-click to place a new packing boundary or remove this band
-                  </title>
+                  <title>{t('sections.bands.rightClickBoundary')}</title>
                 </rect>
               )
             })}
@@ -1084,8 +1082,8 @@ export default function GeotechBandEditOverlay({
                   >
                     <title>
                       {draggable
-                        ? 'Drag to move this packing boundary · right-click to merge the bands'
-                        : 'Right-click to merge these two packing bands'}
+                        ? t('sections.bands.dragMoveHint')
+                        : t('sections.bands.rightClickMerge')}
                     </title>
                   </rect>
                   {/* NO grip glyph here. A four-dot mark beside every draggable boundary
@@ -1212,7 +1210,7 @@ export default function GeotechBandEditOverlay({
               fontSize={10}
               fill="var(--section-edit-text, #0f172a)"
             >
-              {`${placing.depthM.toFixed(2)} m — click to place, Esc to cancel`}
+              {t('sections.bands.placeReadout', { depth: placing.depthM.toFixed(2) })}
             </text>
             {placing.clampReason !== null && (
               <text
@@ -1275,8 +1273,14 @@ export default function GeotechBandEditOverlay({
             fill="var(--section-edit-text, #0f172a)"
           >
             {drag.absorb !== null
-              ? `release to merge into the band ${drag.absorb === 'upper' ? 'below' : 'above'} — class re-derived over the union`
-              : `${drag.depthM.toFixed(2)} m — release to move, Esc to cancel`}
+              ? t('sections.bands.mergeReadout', {
+                  dir: t(
+                    drag.absorb === 'upper'
+                      ? 'sections.bands.dirBelow'
+                      : 'sections.bands.dirAbove',
+                  ),
+                })
+              : t('sections.bands.moveReadout', { depth: drag.depthM.toFixed(2) })}
           </text>
         </g>
       )}
@@ -1409,7 +1413,7 @@ export default function GeotechBandEditOverlay({
                       }
                     >
                       {nadCompactLabel(cls)}
-                      {cls === menu.currentClass ? ' (current)' : ''}
+                      {cls === menu.currentClass ? t('sections.bands.currentSuffix') : ''}
                     </button>
                   ))}
                   {/* A legacy row whose class belongs to another soil. Shown so the
@@ -1427,7 +1431,9 @@ export default function GeotechBandEditOverlay({
                       style={{ ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }}
                     >
                       {nadCompactLabel(menu.foreignClass)}
-                      {` (current — a ${nadSoilFamilyName(menu.foreignClass)} class on this soil)`}
+                      {t('sections.bands.foreignClassSuffix', {
+                        family: nadSoilFamilyName(menu.foreignClass),
+                      })}
                     </button>
                   )}
                   <UnitStatisticsItem
