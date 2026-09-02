@@ -205,7 +205,7 @@ export default function GeotechnicalInspector(): JSX.Element {
               {nadClassName(selectedFormation.nad_class)}
               {selectedFormation.nad_class !== null && (
                 <span className="ml-1 font-normal text-text-muted">
-                  (NAD {selectedFormation.nad_class})
+                  {t('geotech.nadClassParen', { nad: selectedFormation.nad_class })}
                 </span>
               )}
             </div>
