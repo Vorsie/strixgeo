@@ -20,6 +20,7 @@ import type { LeafletMouseEvent } from 'leaflet'
 import ContextMenu from './ui/ContextMenu'
 import { tieToLatLngLine } from '../utils/tieToLatLngLine'
 import type { SuggestedTie } from '../utils/tieAutoSuggest'
+import { useT } from '../i18n/translate'
 
 // ---------------------------------------------------------------------------
 // TieContextMenu
@@ -83,6 +84,7 @@ export function TieContextMenu({
   onReject,
   onClose,
 }: TieContextMenuProps): JSX.Element {
+  const t = useT()
   return (
     <ContextMenu
       portal="fixed"
@@ -93,7 +95,7 @@ export function TieContextMenu({
       onClose={onClose}
       items={[
         {
-          label: 'Accept tie',
+          label: t('sections.tie.accept'),
           onClick: () => onAccept(index),
           testid: 'tie-context-accept',
         },
@@ -102,7 +104,7 @@ export function TieContextMenu({
           // in-memory suggestion list (no API/DB write) and is fully reversible
           // by clicking "Suggest tie-sections" again — unlike the correlation
           // menu's genuinely-destructive "Delete correlation".
-          label: 'Reject tie',
+          label: t('sections.tie.reject'),
           onClick: () => onReject(index),
           testid: 'tie-context-reject',
         },
@@ -159,6 +161,7 @@ export function TieSuggestionOverlay({
   onReject,
 }: TieSuggestionOverlayProps): JSX.Element {
   const [menu, setMenu] = useState<TieMenuState | null>(null)
+  const t = useT()
 
   return (
     <>
@@ -207,7 +210,7 @@ export function TieSuggestionOverlay({
               {/* Discoverability: right-click is the first right-clickable thing
                   on the map, so telegraph the gesture on hover (sticky = follows
                   the cursor along the line). */}
-              <Tooltip sticky>Proposed tie-section — right-click to Accept or Reject</Tooltip>
+              <Tooltip sticky>{t('sections.tie.proposed')}</Tooltip>
             </Polyline>
           </Fragment>
         )
