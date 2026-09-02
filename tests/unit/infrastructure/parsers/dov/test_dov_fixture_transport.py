@@ -24,12 +24,14 @@ from groundmodel.infrastructure.parsers.dov.dov_fixture_transport import (
     DOV_FIXTURE_MODE_ENV,
     DOV_FIXTURE_ROOT_ENV,
     _build_fixture_transport,
+    _fixture_mode_allowed,
     is_fixture_mode,
 )
 from groundmodel.infrastructure.parsers.dov.dov_http import (
     _HostAllowlistTransport,
     make_dov_async_client,
 )
+from groundmodel.shared.config import settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,6 +116,56 @@ def test_is_fixture_mode_false_when_env_is_zero(monkeypatch: pytest.MonkeyPatch)
     """STRIXGEO_DOV_FIXTURE_MODE=0 (any value != '1') → is_fixture_mode() returns False."""
     monkeypatch.setenv(DOV_FIXTURE_MODE_ENV, "0")
     assert is_fixture_mode() is False
+
+
+def test_is_fixture_mode_denied_in_a_packaged_production_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A packaged (production) backend must NOT honour STRIXGEO_DOV_FIXTURE_MODE=1.
+
+    The test seam is a development/e2e-only convenience. An end user who sets
+    the env var in their shell must not be able to redirect the shipped app's
+    DOV imports to on-disk synthetic fixtures. The packaged launcher runs the
+    backend with ``ENVIRONMENT=production`` (the same flag that turns the docs
+    UI off), so fixture mode is refused whenever the environment is not
+    development, even with the env var explicitly set to ``"1"``.
+    """
+    monkeypatch.setenv(DOV_FIXTURE_MODE_ENV, "1")
+    monkeypatch.setattr(settings, "environment", "production")
+    assert is_fixture_mode() is False
+
+
+def test_is_fixture_mode_honoured_in_development_when_env_is_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Development (the e2e harness's default) still honours the fixture env var.
+
+    The e2e runner sets ``STRIXGEO_DOV_FIXTURE_MODE=1`` and does not set
+    ``ENVIRONMENT``, so the backend runs as ``development`` and the offline
+    DOV cassettes must keep working.
+    """
+    monkeypatch.setenv(DOV_FIXTURE_MODE_ENV, "1")
+    monkeypatch.setattr(settings, "environment", "development")
+    assert is_fixture_mode() is True
+
+
+def test_fixture_mode_allowed_only_in_development() -> None:
+    """The pure decision: ``"1"`` is honoured in development and refused elsewhere.
+
+    Exhaustive over the two axes (env value present/absent x environment
+    dev/non-dev) so the production-refusal invariant does not depend on env or
+    settings mutation.
+    """
+    # Requested AND development -> allowed.
+    assert _fixture_mode_allowed("1", "development") is True
+    # Requested but a packaged/production backend -> refused.
+    assert _fixture_mode_allowed("1", "production") is False
+    # Requested but any other non-dev environment -> refused.
+    assert _fixture_mode_allowed("1", "staging") is False
+    # Not requested, whatever the environment -> off.
+    assert _fixture_mode_allowed(None, "development") is False
+    assert _fixture_mode_allowed("0", "development") is False
+    assert _fixture_mode_allowed(None, "production") is False
 
 
 # ---------------------------------------------------------------------------
