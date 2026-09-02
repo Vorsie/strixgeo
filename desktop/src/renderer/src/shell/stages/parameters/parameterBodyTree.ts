@@ -50,6 +50,13 @@ export interface ParameterTreeInput {
   lithoBodies: ReadonlyMap<string, BodyRosterEntry>
   /** The geotech body roster (``body id → entry``) for labels + ordinals. */
   geotechBodies: ReadonlyMap<string, BodyRosterEntry>
+  /**
+   * Geotech body id → manual-group number (debt #278 D1). A body joined into a
+   * multi-member "Join with…" group carries "(group N)" on its leaf; absent →
+   * no tag. The group SET a scope pools is carried by the ``geotech-group``
+   * scope itself (``bandsForScope``), never by this label-only map.
+   */
+  groupByBodyId?: ReadonlyMap<string, number>
 }
 
 /** One node in the Parameters body tree. */
@@ -70,6 +77,12 @@ export interface ParameterTreeNode {
    * only). ``undefined`` on every other kind.
    */
   orphanCount?: number
+  /**
+   * The manual-group number (debt #278 D1) on a GEOTECH-BODY leaf joined into a
+   * multi-member group; ``null``/``undefined`` on every other node and on an
+   * ungrouped body. Drives the "(group N)" leaf tag.
+   */
+  groupNumber?: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +169,15 @@ export function bandsForScope(
       return input.lithoLayers.filter(l => isAccepted(l) && (l.body_id ?? null) === scope.bodyId)
     case 'geotech-body':
       return input.geotechLayers.filter(l => isAccepted(l) && (l.body_id ?? null) === scope.bodyId)
+    case 'geotech-group': {
+      // The manual group pools EVERY member body's accepted bands (owner ruling
+      // 2026-09-02: grouping gives more data). Members keep their own body ids,
+      // so the pool is the union of their bands.
+      const memberIds = new Set(scope.memberBodyIds)
+      return input.geotechLayers.filter(
+        l => isAccepted(l) && l.body_id != null && memberIds.has(l.body_id),
+      )
+    }
     case 'geotech-unit':
       return input.geotechLayers.filter(l => isAccepted(l) && l.formation_id === scope.unitId)
     case 'geotech-class': {
@@ -189,6 +211,8 @@ export function scopeKey(scope: ParameterUnitScope): string {
       return `geotech-class:${scope.lithoUnitId}:${scope.lithoBodyId}:${scope.nadClass}`
     case 'geotech-body':
       return `geotech-body:${scope.unitId}:${scope.bodyId}`
+    case 'geotech-group':
+      return `geotech-group:${scope.groupNumber}:${[...scope.memberBodyIds].sort().join(',')}`
     case 'geotech-unit':
       return `geotech-unit:${scope.unitId}`
   }
@@ -363,6 +387,8 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
                 bandCount: counts.bandCount,
                 coneBandCount: counts.coneBandCount,
                 children: [],
+                // D1: the manual-group number, so a grouped leaf shows "(group N)".
+                groupNumber: input.groupByBodyId?.get(bodyId) ?? null,
               }
             })
 
@@ -378,7 +404,14 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
             label: nadClassName(nadClass),
             bandCount: counts.bandCount,
             coneBandCount: counts.coneBandCount,
-            children: collapseSingleLeafChild(geotechBodyNodes),
+            // A grouped SOLE body must NOT collapse (debt #278 D1/D2): it has to
+            // stay a selectable leaf so its "(group N)" tag shows AND selecting
+            // it pools the group. Otherwise the lone geotech-body ordinal folds
+            // into the class row exactly as before.
+            children:
+              geotechBodyNodes.length === 1 && (geotechBodyNodes[0].groupNumber ?? null) !== null
+                ? geotechBodyNodes
+                : collapseSingleLeafChild(geotechBodyNodes),
           }
         })
 
