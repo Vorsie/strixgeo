@@ -501,15 +501,11 @@ export default function SectionsCanvas(): JSX.Element {
           'section',
           `propagate-admixtures: updated ${result.updated_formations.length} formations (component size ${result.component_size})`,
         )
-        toast(
-          'success',
-          `Updated admixtures on ${result.component_size} correlated unit` +
-            `${result.component_size === 1 ? '' : 's'}.`,
-        )
+        toast('success', t('sections.canvasToast.admixturesUpdated', { n: result.component_size, word: t(result.component_size === 1 ? 'sections.canvasToast.correlatedUnitOne' : 'sections.canvasToast.correlatedUnitMany') }))
       } catch (err) {
         // Surface the failure â€” silence on a failed PATCH is worse than a toast.
         log.warn('section', 'handlePropagateAdmixtures: PATCH failed', err)
-        toast('error', 'Could not update the bodyâ€™s admixtures â€” try again.')
+        toast('error', t('sections.canvasToast.admixturesFailed'))
       }
     },
     [activeLithoModel, project.id, refetchFormations, toast],
@@ -1061,7 +1057,7 @@ export default function SectionsCanvas(): JSX.Element {
         requestBodyRecompute('litho')
       } catch (err) {
         log.warn('section', 'handleSaveLensShape: saveBodyBoundary failed', err)
-        toast('error', 'Could not save lens shape â€” see console.')
+        toast('error', t('sections.canvasToast.lensShapeFailed'))
       }
     },
     [activeLithoModel, project.id, selectedSectionId, toast, markMutated, requestBodyRecompute],
@@ -1160,7 +1156,7 @@ export default function SectionsCanvas(): JSX.Element {
             requestBodyRecompute('litho')
           },
         })
-        toast('success', 'Boundary correlation added.')
+        toast('success', t('sections.canvasToast.boundaryCorrAdded'))
         log.success(
           'section',
           `contact-correlate: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) created` +
@@ -1172,7 +1168,7 @@ export default function SectionsCanvas(): JSX.Element {
         setArmedContactId(null)
         setArmedContactSide('top')
         setLastTargetTestId(null)
-        toast('error', 'Could not create the boundary correlation â€” try again.')
+        toast('error', t('sections.canvasToast.boundaryCorrFailed'))
       }
     },
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse, markMutated, undoStack, requestBodyRecompute],
@@ -1368,7 +1364,7 @@ export default function SectionsCanvas(): JSX.Element {
         )
       } catch (err) {
         log.warn('section', `handleAcceptContactCorrelation: POST failed for edge ${edgeId}`, err)
-        toast('error', 'Could not accept the correlation. Try again or refresh.')
+        toast('error', t('sections.canvasToast.acceptCorrFailed'))
       }
     },
     [activeLithoModel, project.id, refetchContactEdges, refetchLensData, markMutated, toast, requestBodyRecompute],
@@ -1436,9 +1432,9 @@ export default function SectionsCanvas(): JSX.Element {
           name,
         })
         void refetchBodyMenuData()
-        toast('success', `Body named: ${name}`)
+        toast('success', t('sections.canvasToast.bodyNamed', { name }))
       } catch (err) {
-        toast('error', 'Failed to name body.')
+        toast('error', t('sections.canvasToast.bodyNameFailed'))
         log.warn('section', 'submitBodyName: failed', err)
       } finally {
         setNamingBody(null)
@@ -1453,14 +1449,14 @@ export default function SectionsCanvas(): JSX.Element {
   const handleDissolveBody = useCallback(
     async (bodyId: string): Promise<void> => {
       if (!bodyMenuModel) return
-      if (!window.confirm('Dissolve this body? This removes the body and its extent data.')) return
+      if (!window.confirm(t('sections.canvasToast.dissolveConfirm'))) return
       log.info('section', `dissolve-body: body=${bodyId}`)
       try {
         await api.geology.deleteBody(project.id, bodyMenuModel.id, bodyId)
         void refetchBodyMenuData()
-        toast('success', 'Body dissolved.')
+        toast('success', t('sections.canvasToast.bodyDissolved'))
       } catch (err) {
-        toast('error', 'Failed to dissolve body.')
+        toast('error', t('sections.canvasToast.bodyDissolveFailed'))
         log.warn('section', 'handleDissolveBody: failed', err)
       }
     },
@@ -2035,7 +2031,7 @@ export default function SectionsCanvas(): JSX.Element {
             `geotech contact drag refused: no litho contact within ${RESTATED_CONTACT_TOLERANCE_M} m of ` +
               `${plan.boundaryDepthM.toFixed(4)}m on ${plan.anchorId} (geotech band ${contactId})`,
           )
-          toast('error', 'This boundary has no lithostratigraphic contact to move — edit it on the litho axis.')
+          toast('error', t('sections.canvasToast.noLithoContact'))
           return
         // Everything below declines the drag, and every one of them SAYS so. The
         // complaint this feature came from was "sometimes I can't grab the contact
@@ -2049,22 +2045,14 @@ export default function SectionsCanvas(): JSX.Element {
             'section',
             `geotech contact drag ignored: ${contactId} is an internal packing boundary, not a litho contact`,
           )
-          toast(
-            'warning',
-            plan.anchorIsCpt
-              ? 'That is a packing boundary, not a lithostratigraphic contact — drag it with the handle beside the column.'
-              : 'That is a packing boundary, not a lithostratigraphic contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
-          )
+          toast('warning', plan.anchorIsCpt ? t('sections.canvasToast.packingNotLithoCpt') : t('sections.canvasToast.packingNotLithoBorehole'))
           return
         case 'no-packing-boundaries':
           log.info(
             'section',
             `geotech contact drag ignored: ${plan.anchorId} offers no packing boundary to land on`,
           )
-          toast(
-            'warning',
-            'Nothing to snap to on this column — a borehole carries no cone resistance, so there are no packing boundaries here.',
-          )
+          toast('warning', t('sections.bands.nothingToSnap'))
           return
         case 'no-boundary-crossed':
           // Since the nudge ruling (2026-08-09) this means the release had NO travel at
@@ -2871,7 +2859,7 @@ export default function SectionsCanvas(): JSX.Element {
               await refreshSectionList()
               handleSectionCreated(sectionId)
               handleSelectSection(sectionId)
-              toast('success', 'Perpendicular section created.')
+              toast('success', t('sections.canvasToast.perpCreated'))
             }}
             onClose={() => setCompanionOffer(null)}
           />
@@ -2992,12 +2980,8 @@ export default function SectionsCanvas(): JSX.Element {
               className="h-5 w-5 text-text-muted mx-auto mb-2"
               aria-hidden="true"
             />
-            <p className="text-sm font-medium text-text-primary mb-1">
-              No cross-sections yet
-            </p>
-            <p className="text-xs text-text-secondary mb-3">
-              Draw a line on the map to define a section, or create one with placeholder endpoints to start.
-            </p>
+            <p className="text-sm font-medium text-text-primary mb-1">{t('sections.none')}</p>
+            <p className="text-xs text-text-secondary mb-3">{t('sections.emptyBlurb')}</p>
             <div className="flex items-center justify-center gap-2">
               <button
                 type="button"
@@ -3013,9 +2997,7 @@ export default function SectionsCanvas(): JSX.Element {
                 title={
                   crsBlockReason !== null
                     ? crsBlockReason
-                    : ctaCreating
-                      ? 'Creatingâ€¦'
-                      : 'Create a new cross-section with placeholder endpoints'
+                    : ctaCreating ? t('sections.busy.creating') : t('sections.canvas.newSectionTitle')
                 }
               >
                 {ctaCreating ? (
@@ -3024,19 +3006,17 @@ export default function SectionsCanvas(): JSX.Element {
                       className="h-3 w-3 animate-spin"
                       aria-hidden="true"
                     />
-                    Creatingâ€¦
+                    {t('sections.busy.creating')}
                   </>
                 ) : (
-                  '+ New cross-section'
+                  t('sections.newPlus')
                 )}
               </button>
               <button
                 type="button"
                 onClick={() => setCtaDismissed(true)}
                 className="text-xs text-text-muted hover:text-text-secondary transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                Dismiss
-              </button>
+              >{t('common.dismiss')}</button>
             </div>
           </div>
         </div>
