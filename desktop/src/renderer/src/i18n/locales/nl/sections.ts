@@ -609,7 +609,7 @@ export const SECTIONS_NL = {
   'sections.join.armHint':
     'Bezig met samenvoegen van {label} — klik het andere lichaam · Esc annuleert',
   'sections.join.success':
-    'Lichamen samengevoegd — rechtsklik het lichaam → Ontkoppelen om ongedaan te maken.',
+    'Lichamen gegroepeerd — rechtsklik het lichaam → Ontkoppelen om ongedaan te maken.',
   'sections.join.blockedSeparation':
     'Samenvoegen geblokkeerd door een bestaande scheiding — verwijder die scheiding eerst.',
   // Twee boodschappen, gekozen op basis van of de GRONDSOORTEN verschillen
@@ -622,7 +622,7 @@ export const SECTIONS_NL = {
   'sections.join.failed': 'Samenvoegen van lichamen mislukt.',
   'sections.join.noticeSame': 'Dat is hetzelfde lichaam — klik een ander om samen te voegen.',
   'sections.join.noticeUnresolvable': 'Kon dat lichaam niet herkennen — klik een gevuld lichaam.',
-  'sections.unjoin.success': 'Ontkoppeld — de lichamen kunnen weer opsplitsen.',
+  'sections.unjoin.success': 'Ontkoppeld — het lichaam staat weer los.',
   'sections.unjoin.failed': 'Ontkoppelen van lichamen mislukt.',
 
   // ---------------------------------------------------------------------------
