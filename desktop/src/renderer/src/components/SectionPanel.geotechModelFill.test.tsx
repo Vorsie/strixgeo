@@ -240,15 +240,17 @@ async function paintedFills(
 ): Promise<Map<string, string>> {
   const restore = withFixedSize(900, 500)
   render(
-    <SectionScopeContext.Provider value={{ modelSolids: solids }}>
-      <SectionPanel
-        section={SECTION}
-        zEpsg={5710}
-        cpts={[CPT]}
-        contacts={[]}
-        formations={formations}
-        axisMode={axisMode}
-      />
+    <SectionScopeContext.Provider
+      value={{
+        modelSolids: solids,
+        zEpsg: 5710,
+        cpts: [CPT],
+        contacts: [],
+        formations,
+        axisMode,
+      }}
+    >
+      <SectionPanel section={SECTION} />
     </SectionScopeContext.Provider>,
   )
   await new Promise(r => setTimeout(r, 0))
