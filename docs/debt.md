@@ -239,6 +239,20 @@ hybrid) is an owner decision waiting in
 — recommendation is Option C (server issues, signed 30-day file
 authorises offline), with four questions listed at its end.
 
+**Reviewable PROTOTYPE landed 2026-09-01, senior-review remediation
+2026-09-02 (branch `onboarding-proto`, NOT merged).** REAL: the pure
+state machine (trial/active/grace/expired/clock-rollback, 30-day
+offline grace, clock-rollback guard reusing the beta anchor), the
+`ActivationRepository` seam + in-memory mock issuer, 1-device binding
++ deactivate/transfer, trial-on-the-same-path, the local
+`activation.json` store with a typed shape-check (a hand-edited
+`tier:"gold"` is rejected), and the **packaged start-screen gate**
+(owner ruling A — a blocked verdict shows the licence screen instead of
+the workspace; dev/e2e never block). MOCKED: the strixgeo.com server,
+Stripe, the **Ed25519 signature** (the local file is plain JSON — the
+biggest remaining TODO), and the device fingerprint. Design note:
+[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
+
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
 
@@ -370,6 +384,32 @@ never destroys a `pgdata` holding projects that were never saved to a
 SmartScreen still warns ("Windows protected your PC" → More info → Run
 anyway), which `memory/project_coworker_distribution` accepts for
 trusted internal testers.
+
+**AUTO-UPDATE SCAFFOLD landed as a reviewable PROTOTYPE 2026-09-01,
+senior-review remediation 2026-09-02 (branch `onboarding-proto`, NOT
+merged).** REAL: `electron-updater` wired (`updaterService.ts` +
+`updaterPolicy.ts`), every auto path gated on `app.isPackaged`
+(dev never checks), `autoDownload=false` (the renderer owns the
+Download choice), the renderer notification UX, AND the real feed —
+`package.json` `build.publish` names GitHub Releases on the public
+releases-only repo `Vorsie/strixgeo-releases`, `releaseType: draft`;
+electron-builder generates `app-update.yml` and **no token is ever
+bundled** (a `GH_TOKEN` is a publish-time env var only). A local build
+cannot publish by accident: `npm run package`/`dist` end in
+`--publish=never`; releasing is a deliberate `npm run release`
+(`--publish=always`) that creates a DRAFT a human must click Publish on.
+Design note:
+[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
+PENDING: a first PUBLISHED release, and code-signing (below).
+
+**Code-signing status (owner ruling 2026-09-02): the closed beta ships
+UNSIGNED.** An Azure Artifact Signing (renamed Trusted Signing) account
+`strixgeo-signing` exists (~$10/mo), but individual-identity validation
+is not offered for Belgium, and Organization validation needs a KBO
+number the owner does not have yet. Path once the business is
+registered: Organization validation → Public Trust certificate profile →
+electron-builder Azure signing. Until then testers see the SmartScreen
+"unknown publisher" prompt.
 
 **One OWNER DECISION is pending** before the first real install, written up
 in [distribution-build.md](distribution-build.md) → "Open decision": the
@@ -1611,6 +1651,19 @@ pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
 ## 93. First-use tutorial + per-stage "next step" hinting (Tier D — onboarding)
+
+**First-launch overlay landed as a reviewable PROTOTYPE 2026-09-01,
+senior-review remediation 2026-09-02 (branch `onboarding-proto`, NOT
+merged).** REAL: deliverable 1's skippable tour — a welcome → choose
+(sample | scratch) → six-stage tour overlay, auto-opening once on first
+launch (gated on a persisted "seen" flag AND `!launchFlags.e2e` so the
+z-max modal never covers the e2e suite), re-openable from Help → Getting
+started…, full EN+NL. e2e-pinned by `flow_onboarding_first_launch.spec.ts`.
+MOCKED: the "Load sample project" DATA — the button is wired but no sample
+`.strix` is bundled yet (it toasts and starts empty). NOT built:
+deliverable 2 (per-stage "next step" hinting) and the coach-mark
+walkthrough of deliverable 1. Design note:
+[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
 
 **What.** No onboarding exists today. A new engineer opening Strix
 for the first time sees an empty welcome screen, then a stage with
