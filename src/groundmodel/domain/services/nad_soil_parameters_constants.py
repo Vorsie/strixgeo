@@ -1,4 +1,4 @@
-"""NAD soil parameters per packing class — the export table, empty until filled.
+"""NAD soil parameters per packing class — the export table (transcribed 2026-09-02).
 
 Source
 ------
@@ -9,7 +9,7 @@ packing class 1..31, the NEN 9997-1 (Eurocode 7) **Tabel 2.b characteristic
 values**: unit weight γ, effective friction angle φ′ and effective cohesion c′.
 
 Those numbers are NOT in this repository, and this module does NOT invent
-them. It ships an **empty** :data:`NAD_SOIL_PARAMETERS`. The plumbing that
+them. It ships :data:`NAD_SOIL_PARAMETERS` filled from the owner's workbook. The plumbing that
 reads it (the D-Stability and D-Sheet Piling exporters) is wired so that the
 day the owner transcribes the workbook into this dict — one
 :class:`NadSoilParameters` per class, keyed by the NAD class number from
@@ -66,12 +66,16 @@ class NadSoilParameters:
         Effective angle of internal friction φ′, degrees.
     c_kpa : float
         Effective cohesion c′, kPa. Zero for a clean sand or gravel.
+    cu_kpa : float | None
+        Characteristic undrained shear strength, kPa; ``None`` for the granular
+        classes, where the workbook carries a dash.
     """
 
     gamma_unsat_kn_m3: float
     gamma_sat_kn_m3: float
     phi_deg: float
     c_kpa: float
+    cu_kpa: float | None
 
 
 #: NAD class number (1..31) → characteristic parameters. EMPTY on purpose —
@@ -83,4 +87,103 @@ class NadSoilParameters:
 #:         gamma_unsat_kn_m3=..., gamma_sat_kn_m3=...,
 #:         phi_deg=..., c_kpa=...,
 #:     ),
-NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters] = {}
+# Transcribed 2026-09-02 by script from the owner's workbook
+# "Correlaties uit S en NAD_NEN_v2.xlsx" (sheet NAD-NEN, columns g_k_d / g_k_n /
+# phi' / c'k / cu,k_NAD; rows per docs/reference/nad_reference_manifest.json, whose
+# sha256 the file matched), name + characteristic qc cross-checked per row. A dash
+# in the workbook (no undrained strength for a granular class) is ``None``.
+NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters] = {
+    1: NadSoilParameters(  # GRIND, matig gp
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=20, phi_deg=35, c_kpa=0, cu_kpa=None
+    ),
+    2: NadSoilParameters(  # GRIND, dicht gp
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=21, phi_deg=40, c_kpa=0, cu_kpa=None
+    ),
+    3: NadSoilParameters(  # GRIND, silt-/kleihoudend, matig gp
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=21, phi_deg=32, c_kpa=0, cu_kpa=None
+    ),
+    4: NadSoilParameters(  # GRIND, silt- of kleihoudend, dicht gp
+        gamma_unsat_kn_m3=20, gamma_sat_kn_m3=22, phi_deg=37, c_kpa=0, cu_kpa=None
+    ),
+    5: NadSoilParameters(  # ZAND, los gp
+        gamma_unsat_kn_m3=16, gamma_sat_kn_m3=18, phi_deg=27, c_kpa=0, cu_kpa=None
+    ),
+    6: NadSoilParameters(  # ZAND, matig gp
+        gamma_unsat_kn_m3=17, gamma_sat_kn_m3=19, phi_deg=30, c_kpa=0, cu_kpa=None
+    ),
+    7: NadSoilParameters(  # ZAND, dicht gp
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=20, phi_deg=32, c_kpa=0, cu_kpa=None
+    ),
+    8: NadSoilParameters(  # ZAND, zeer dicht gp
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=20, phi_deg=35, c_kpa=0, cu_kpa=None
+    ),
+    9: NadSoilParameters(  # ZAND, silt-/kleihoudend, los gp
+        gamma_unsat_kn_m3=16, gamma_sat_kn_m3=18, phi_deg=25, c_kpa=0, cu_kpa=None
+    ),
+    10: NadSoilParameters(  # ZAND, silt-/kleihoudend, matig gp
+        gamma_unsat_kn_m3=17, gamma_sat_kn_m3=19, phi_deg=27, c_kpa=0, cu_kpa=None
+    ),
+    11: NadSoilParameters(  # ZAND, silt-/kleihoudend, dicht gp
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=20, phi_deg=30, c_kpa=0, cu_kpa=None
+    ),
+    12: NadSoilParameters(  # ZAND, silt-/kleihoudend, zeer dicht gp
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=20, phi_deg=32, c_kpa=0, cu_kpa=None
+    ),
+    13: NadSoilParameters(  # SILT, weinig vast
+        gamma_unsat_kn_m3=17, gamma_sat_kn_m3=17, phi_deg=22, c_kpa=0, cu_kpa=10
+    ),
+    14: NadSoilParameters(  # SILT, matig vast
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=18, phi_deg=22, c_kpa=2, cu_kpa=25
+    ),
+    15: NadSoilParameters(  # SILT, vrij vast
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=19, phi_deg=22, c_kpa=4, cu_kpa=50
+    ),
+    16: NadSoilParameters(  # SILT, vast
+        gamma_unsat_kn_m3=20, gamma_sat_kn_m3=20, phi_deg=22, c_kpa=8, cu_kpa=100
+    ),
+    17: NadSoilParameters(  # SILT, zandhoudend, weinig vast
+        gamma_unsat_kn_m3=17, gamma_sat_kn_m3=17, phi_deg=25, c_kpa=0, cu_kpa=10
+    ),
+    18: NadSoilParameters(  # SILT, zandhoudend, matig vast
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=18, phi_deg=25, c_kpa=2, cu_kpa=25
+    ),
+    19: NadSoilParameters(  # SILT, zandhoudend, vrij vast
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=19, phi_deg=25, c_kpa=4, cu_kpa=50
+    ),
+    20: NadSoilParameters(  # SILT, zandhoudend, vast
+        gamma_unsat_kn_m3=20, gamma_sat_kn_m3=20, phi_deg=25, c_kpa=8, cu_kpa=100
+    ),
+    21: NadSoilParameters(  # KLEI, weinig vast
+        gamma_unsat_kn_m3=16, gamma_sat_kn_m3=16, phi_deg=20, c_kpa=2, cu_kpa=20
+    ),
+    22: NadSoilParameters(  # KLEI, matig vast
+        gamma_unsat_kn_m3=17, gamma_sat_kn_m3=17, phi_deg=20, c_kpa=4, cu_kpa=50
+    ),
+    23: NadSoilParameters(  # KLEI, vrij vast
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=18, phi_deg=20, c_kpa=8, cu_kpa=100
+    ),
+    24: NadSoilParameters(  # KLEI, vast
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=19, phi_deg=20, c_kpa=15, cu_kpa=200
+    ),
+    25: NadSoilParameters(  # KLEI, zandhoudend, weinig vast
+        gamma_unsat_kn_m3=16, gamma_sat_kn_m3=16, phi_deg=22, c_kpa=2, cu_kpa=20
+    ),
+    26: NadSoilParameters(  # KLEI, zandhoudend, matig vast
+        gamma_unsat_kn_m3=17, gamma_sat_kn_m3=17, phi_deg=22, c_kpa=4, cu_kpa=50
+    ),
+    27: NadSoilParameters(  # KLEI, zandhoudend, vrij vast
+        gamma_unsat_kn_m3=18, gamma_sat_kn_m3=18, phi_deg=22, c_kpa=8, cu_kpa=100
+    ),
+    28: NadSoilParameters(  # KLEI, zandhoudend, vast
+        gamma_unsat_kn_m3=19, gamma_sat_kn_m3=19, phi_deg=22, c_kpa=15, cu_kpa=200
+    ),
+    29: NadSoilParameters(  # VEEN, weinig vast
+        gamma_unsat_kn_m3=10, gamma_sat_kn_m3=10, phi_deg=15, c_kpa=2, cu_kpa=10
+    ),
+    30: NadSoilParameters(  # VEEN, matig vast
+        gamma_unsat_kn_m3=12, gamma_sat_kn_m3=12, phi_deg=15, c_kpa=5, cu_kpa=20
+    ),
+    31: NadSoilParameters(  # VEEN, vast
+        gamma_unsat_kn_m3=14, gamma_sat_kn_m3=14, phi_deg=15, c_kpa=10, cu_kpa=40
+    ),
+}
