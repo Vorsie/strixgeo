@@ -452,7 +452,6 @@ function makeCtx(o: CtxOverrides = {}): ShellContextValue {
       handleSelectBorehole: noopAsync,
       handleExportSectionDxf: noopAsync,
       handleExportSectionPlaxis2d: noopAsync,
-      handleExportSectionPdf: vi.fn(),
       outOfViewportCptIds: new Set(),
       outOfViewportBoreholeIds: new Set(),
       projectFilePath: null,
