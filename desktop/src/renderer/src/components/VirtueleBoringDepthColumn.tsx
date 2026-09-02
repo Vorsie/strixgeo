@@ -27,6 +27,7 @@ import {
   wrapLabelToLines,
 } from '../utils/labelWrap'
 import { useElementSize } from './sections/utils'
+import { useT } from '../i18n/translate'
 
 const COLUMN_WIDTH_PX = 48
 const COLUMN_GAP_PX = 4
@@ -117,6 +118,7 @@ function DepthGhost({
   topMarginPx: number
   bottomMarginPx: number
 }): JSX.Element {
+  const t = useT()
   const usableTop = topMarginPx
   const usableBottom = heightPx - bottomMarginPx
   const [dMin, dMax] = depthDomain
@@ -133,7 +135,7 @@ function DepthGhost({
   if (empty || !prediction || surfaceElevationM === null) {
     return (
       <text x={4} y={20} fontSize={9} fill="#9ca3af">
-        no data
+        {t('borelog.noData')}
       </text>
     )
   }
