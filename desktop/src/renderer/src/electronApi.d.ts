@@ -163,6 +163,11 @@ declare global {
       // packaged = app.isPackaged.
       launchFlags: { e2e: boolean; packaged: boolean }
       onMenuOpenOnboarding: (cb: () => void) => () => void
+      // "Load sample project" (#93). ``sampleAvailable`` reports whether the
+      // worked example ships in this build; ``sampleInstall`` copies it to a
+      // user-chosen location and returns that path (null = cancelled / none).
+      sampleAvailable: () => Promise<boolean>
+      sampleInstall: () => Promise<string | null>
       onMenuOpenLicensing: (cb: () => void) => () => void
       onMenuCheckUpdates: (cb: () => void) => () => void
       getActivationStatus: () => Promise<ActivationStatusDto>
