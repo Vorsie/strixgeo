@@ -183,7 +183,7 @@ class SectionSnapshot:
 
     Built by ``application/build_section_snapshot.py`` from the
     section row + active geological model + project investigations.
-    Exporters consume this through ``BaseExporter.export`` without
+    Exporters consume this through ``SectionExporter.export`` without
     ever touching the DB — keeps the infrastructure layer pure.
 
     Attributes
