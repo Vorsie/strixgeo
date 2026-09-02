@@ -32,6 +32,7 @@ import { formationsYoungestFirst } from '../../utils/formationOrder'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
 import FormationDialog from './FormationDialog'
+import { useT } from '../../i18n/translate'
 
 interface Props {
   open: boolean
@@ -63,6 +64,7 @@ export default function FormationPickerDialog({
   onCreateFormation,
   onCancel,
 }: Props): JSX.Element | null {
+  const t = useT()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
@@ -98,21 +100,25 @@ export default function FormationPickerDialog({
             id="formation-picker-title"
             className="text-base font-semibold text-text-primary mb-1"
           >
-            Top of which formation?
+            {t('formation.topOfWhichFormation')}
           </h2>
           {anchor && (
             <p className="text-xs text-text-secondary mb-4">
-              On <span className="font-medium text-text-primary">{anchor.name}</span>{' '}
-              at depth {anchor.depth_m.toFixed(2)} m ({anchor.elevationM >= 0 ? '+' : ''}
-              {anchor.elevationM.toFixed(2)} m TAW)
+              {t('dialog.pickerAnchorPre')}{' '}
+              <span className="font-medium text-text-primary">{anchor.name}</span>{' '}
+              {t('dialog.pickerAnchorAt', {
+                depth: anchor.depth_m.toFixed(2),
+                taw: `${anchor.elevationM >= 0 ? '+' : ''}${anchor.elevationM.toFixed(2)}`,
+              })}
             </p>
           )}
 
           <div className="max-h-72 overflow-y-auto -mx-2 px-2">
             {formations.length === 0 ? (
               <div className="text-xs text-text-muted italic px-1 py-3">
-                No formations defined yet — create one with the button below
-                or use <em>From boreholes</em> in the Ground model pane.
+                {t('formation.noneDefinedPickerPre')}{' '}
+                <em>{t('formation.fromBoreholes')}</em>{' '}
+                {t('formation.noneDefinedPickerPost')}
               </div>
             ) : (
               <ul className="flex flex-col gap-1">
@@ -156,10 +162,10 @@ export default function FormationPickerDialog({
               size="sm"
               onClick={() => setCreateDialogOpen(true)}
               disabled={busyId !== null}
-              title="Create a new formation and commit this contact in one step"
+              title={t('formation.newHereHint')}
             >
               <Plus size={12} className="mr-1" />
-              New formation here
+              {t('formation.newHere')}
             </Button>
             <Button
               variant="secondary"
@@ -167,7 +173,7 @@ export default function FormationPickerDialog({
               onClick={onCancel}
               disabled={busyId !== null}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
         </div>
