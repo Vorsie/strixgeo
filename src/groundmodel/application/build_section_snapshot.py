@@ -16,7 +16,7 @@ section follows the same input contract). The use case owns:
 
 Per CLAUDE.md "Architecture": this lives in the application layer
 so the infrastructure-layer DxfExporter never touches the DB. The
-exporter consumes the snapshot through ``BaseExporter.export``.
+exporter consumes the snapshot through ``SectionExporter.export``.
 """
 
 from __future__ import annotations
