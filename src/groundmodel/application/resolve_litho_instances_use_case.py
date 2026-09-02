@@ -33,7 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from uuid6 import uuid7
 
-from groundmodel.application.body_partition_lock import lock_body_partition
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.domain.services.resolve_litho_instances import (
     LayerEdge,
     LayerNode,
@@ -218,33 +221,18 @@ tuple[tuple[UUID, UUID], ...]]
     # ``parent_litho_body_id`` FK (see ``body_orm.py``) — a HIDDEN WRITE that
     # row-locks the geotech ``body`` rows. When the geotech lock was taken only at
     # step 6 (AFTER those deletes), a concurrent geotech recompute holding the
-    # geotech advisory lock and deleting those same rows produced an ABBA deadlock:
-    # this transaction held the geotech ROW locks and waited for the geotech
-    # ADVISORY lock, while the geotech recompute held the advisory lock and waited
-    # for the rows (BP-3, 8 live victims in one e2e sweep). The child lock must be
-    # acquired BEFORE the parent's delete, not after — which is exactly the
-    # litho-parent-first order ``body_partition_lock`` already mandates. Sorted so
-    # two concurrent litho resolves acquire the sibling locks in one canonical
-    # order. Step 6 REUSES these ids and does not re-take the locks (an advisory
-    # xact lock is re-entrant, but a second take only muddies the contention log).
+    # geotech advisory lock and deleting those same rows produced an ABBA deadlock
+    # (BP-3, 8 live victims in one e2e sweep). ``lock_sibling_geotech_partitions``
+    # is the shared "resolve sibling geotech ids and lock them sorted" step (also
+    # used by ``ClearLithoModel`` / ``DeleteBody``); it returns [] for a geotech
+    # model, so the guard below is belt-and-braces. Step 6 REUSES these ids and
+    # does not re-take the locks (an advisory xact lock is re-entrant, but a second
+    # take only muddies the contention log).
     sibling_geotech_ids: list[UUID] = []
     if not is_geotechnical:
-        sibling_geotech_ids = list(
-            (
-                await session.execute(
-                    select(GeologicalModelOrm.id).where(
-                        GeologicalModelOrm.parent_model_id == model_id,
-                        GeologicalModelOrm.kind == MODEL_KIND_GEOTECHNICAL,
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        sibling_geotech_ids = await lock_sibling_geotech_partitions(
+            session, litho_model_id=model_id, operation="restamp-parent-litho-body"
         )
-        for sibling_id in sorted(sibling_geotech_ids, key=str):
-            await lock_body_partition(
-                session, model_id=sibling_id, operation="restamp-parent-litho-body"
-            )
 
     # 1. Accepted layers joined to their formation for (parent, soil).
     layer_rows = (
