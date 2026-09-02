@@ -11,6 +11,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import type { ProjectResponse } from '../api/client'
 import { log } from '../utils/log'
+// Module-level t() reads the active language at call time — the right shape for
+// a toast built inside a useCallback without threading a translator into deps.
+import { t } from '../i18n/translate'
 import { noteCloseFlow } from '../utils/closeFlowNote'
 import { isProjectOpenUnreadable } from './useProject'
 import type {
@@ -697,7 +700,7 @@ export function useProjectLifecycle({
       // entirely). Owner, 2026-08-17: "if user moved it you get a toast,
       // file not found, did you change it's location".
       if (outcome === 'file-missing') {
-        toast('error', `Couldn't find the project file at ${path}. Did you move or rename it?`)
+        toast('error', t('project.fileNotFoundToast', { path }))
       } else if (isProjectOpenUnreadable(outcome)) {
         // A damaged / truncated / newer container — toast the codec's own
         // specific, honest message so the menu path names corruption plainly
