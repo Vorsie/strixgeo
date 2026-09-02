@@ -12,10 +12,11 @@
  * file from another app, a flag that is a string rather than a boolean. A
  * consent record is the one place where "fail open" is never defensible.
  *
- * There is no endpoint today (``diagnosticsTransport.ts``), so a "yes" changes
- * nothing yet. The flag exists now so the settings surface and the file format
- * are decided before the endpoint is — and so the endpoint, whenever it lands,
- * has to go through a gate that already exists.
+ * ``diagnosticsUploader.ts`` reads this flag (through {@link readTransmissionConsent})
+ * before it queues or uploads anything, so a "no" — the default, and every
+ * damaged-file case — keeps the machine silent. There is no Settings UI to flip
+ * it yet, so in practice a user cannot opt in through the app today; that toggle
+ * is the remaining piece before transmission is usable.
  */
 
 import { existsSync, mkdirSync, readFileSync } from 'fs'
