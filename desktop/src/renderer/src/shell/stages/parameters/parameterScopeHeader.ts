@@ -10,6 +10,8 @@
 
 import type { LithoLayerResponse } from '../../../api/client'
 import { geotechUnitLabel, nadClassName } from '../../../utils/nadClasses'
+import { getLanguage } from '../../../i18n/languageSelect'
+import { translate } from '../../../i18n/translate'
 import type { ParameterUnitScope } from '../../ShellContext'
 import {
   bandsForScope,
@@ -157,12 +159,115 @@ function geotechBodyPath(
 }
 
 /**
+ * The source LITHO body each group member sits under, in member order (debt
+ * #278 D2 provenance list). Resolved the SAME way the body tree homes a geotech
+ * body — live through the covering litho band's ``body_id`` — so a member's
+ * provenance bullet reads identically to the tree node it appears under. A
+ * member with no covering litho band degrades to its own geotech-body label.
+ *
+ * Parameters
+ * ----------
+ * memberBodyIds
+ *     The group's member body ids.
+ * input
+ *     The tree input (both body rosters + the layer lists).
+ *
+ * Returns
+ * -------
+ * string[]
+ *     One litho-body label per member, e.g. ``["SILT · #0", "SILT · #1"]``.
+ */
+export function groupProvenanceLithoBodies(
+  memberBodyIds: readonly string[],
+  input: ParameterTreeInput,
+): string[] {
+  const lithoById = lithoLayerIndex(input.lithoLayers)
+  // Dedup by the resolved litho body (owner: bullets are "which litho bodies"):
+  // several members can share ONE litho parent, so list it once with a count —
+  // repeating "SILT · #0" verbatim reads as a render bug (ux-reviewer 2026-09-02).
+  // An orphan member (no covering litho band) keeps its own geotech-body label,
+  // distinct per body, never merged with another.
+  const order: string[] = []
+  const byKey = new Map<string, { label: string; count: number }>()
+  for (const bodyId of memberBodyIds) {
+    const band = input.geotechLayers.find(l => isAccepted(l) && (l.body_id ?? null) === bodyId)
+    const lithoBodyId = band !== undefined ? lithoBodyOfGeotechBand(band, lithoById) : null
+    let key: string
+    let label: string
+    if (lithoBodyId === null) {
+      key = `body:${bodyId}`
+      label = bodyLabelOf(bodyId, input.geotechBodies)
+    } else {
+      key = `litho:${lithoBodyId}`
+      const unit = lithoUnitName(homeUnitOfLithoBody(lithoBodyId, input), input)
+      label = lithoBodyLabel(lithoBodyId, unit, input.lithoBodies)
+    }
+    const seen = byKey.get(key)
+    if (seen === undefined) {
+      byKey.set(key, { label, count: 1 })
+      order.push(key)
+    } else {
+      seen.count += 1
+    }
+  }
+  // Sort by label so shared parents read predictably; append "×N" for a shared
+  // litho body so the count is explicit rather than an eaten duplicate.
+  return order
+    .map(k => byKey.get(k) as { label: string; count: number })
+    .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0))
+    .map(e => (e.count > 1 ? `${e.label} ×${e.count}` : e.label))
+}
+
+/**
+ * The ``· <formations>`` suffix for a whole group — the union of the members'
+ * crossed geological formations, shallowest-first, deduped (the members may
+ * cross different formations). Each member reads its OWN geo list, falling back
+ * to its litho parent's, exactly as ``geotechGeoContextSuffix`` does for one
+ * body. Empty when no member carries any.
+ */
+function groupGeoContextSuffix(
+  memberBodyIds: readonly string[],
+  input: ParameterTreeInput,
+): string {
+  const lithoById = lithoLayerIndex(input.lithoLayers)
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (const bodyId of memberBodyIds) {
+    let label = crossedFormationLabel(input.geotechBodies.get(bodyId))
+    if (label === '') {
+      const band = input.geotechLayers.find(l => isAccepted(l) && (l.body_id ?? null) === bodyId)
+      const lithoBodyId = band !== undefined ? lithoBodyOfGeotechBand(band, lithoById) : null
+      label = lithoBodyId === null ? '' : crossedFormationLabel(input.lithoBodies.get(lithoBodyId))
+    }
+    for (const name of label.split(' + ')) {
+      if (name !== '' && !seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+  }
+  return names.length === 0 ? '' : GEO_SEP + names.join(' + ')
+}
+
+/**
+ * The NAD class a group carries — same-soil + same-class is the Join guard, so
+ * any member's class is THE class. Read from the first member that resolves one.
+ */
+function groupNadClass(memberBodyIds: readonly string[], input: ParameterTreeInput): number | null {
+  for (const bodyId of memberBodyIds) {
+    const nadClass = geotechBodyPath(bodyId, input)?.nadClass ?? null
+    if (nadClass !== null) return nadClass
+  }
+  return null
+}
+
+/**
  * The header label a scoped Parameters view shows.
  *
  * Parameters
  * ----------
  * scope
- *     Any scope in the five-kind union.
+ *     Any scope in the union.
  * input
  *     The tree input.
  * memberInvestigationIds
@@ -223,6 +328,22 @@ export function scopeHeaderLabel(
       const lithoBody = lithoBodyLabel(path.lithoBodyId, unit, input.lithoBodies)
       const cls = path.nadClass != null ? nadClassName(path.nadClass) : ''
       return [unit, lithoBody, cls, bodyLabel].filter(s => s !== '').join(PATH_SEP) + geoSuffix
+    }
+    case 'geotech-group': {
+      // The grouped aggregate (D2): a group TITLE — number, member count and the
+      // shared packing class — in place of the deep breadcrumb, with the members'
+      // crossed formations as its geological context. The per-member litho-body
+      // provenance list is rendered separately (``groupProvenanceLithoBodies``).
+      // FLAG (not owner-ruled): the "Group N — N bodies" wording.
+      const nadClass = groupNadClass(scope.memberBodyIds, input)
+      const title = translate(getLanguage(), 'geotech.groupHeader', {
+        group: scope.groupNumber,
+        count: scope.memberBodyIds.length,
+      })
+      // The class is a separator-guarded suffix — never a dangling "· " when the
+      // group resolves no class — mirroring the geo-context suffix helpers.
+      const classSuffix = nadClass !== null ? GEO_SEP + nadClassName(nadClass) : ''
+      return title + classSuffix + groupGeoContextSuffix(scope.memberBodyIds, input)
     }
     case 'geotech-unit': {
       // The jump-only fallback — no litho path. Name the formation row and say
