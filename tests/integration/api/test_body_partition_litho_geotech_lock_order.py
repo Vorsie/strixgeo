@@ -416,3 +416,140 @@ async def test_bp3_a_litho_recompute_and_a_geotech_recompute_never_deadlock(
         "NULL parent_litho_body_id after the concurrent rounds — a litho re-mint "
         "orphaned the child link instead of re-stamping it"
     )
+
+
+@pytest.mark.asyncio
+async def test_bp3_a_clear_litho_and_a_geotech_recompute_never_deadlock(
+    bp3_scene: _Scene,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """A litho-model clear and a geotech recompute at once never 500.
+
+    ``clear_litho_model`` (``DELETE .../contacts``) bulk-deletes the litho model's
+    ``body`` rows; each delete fires the ``ON DELETE SET NULL`` of the geotech
+    rows' ``parent_litho_body_id`` FK (and, via the litho_layer cascade, the
+    geotech bands' ``parent_litho_layer_id``), row-locking the geotech child rows.
+    A concurrent geotech ``bodies/recompute`` deletes/re-mints those same geotech
+    rows. Like the resolver (BP-3), clear must take the geotech child's partition
+    lock BEFORE that delete, or the two cross-model transactions can deadlock.
+
+    SINGLE-SHOT arm: the first clear empties the litho model, so a second round
+    would race an empty delete — one clear ‖ one recompute is the whole race, so
+    this arm is a lower-probability reproducer than the many-round arms.
+    """
+    clear_url = (
+        f"/projects/{bp3_scene.project_id}/geology/models/{bp3_scene.litho_model_id}/contacts"
+    )
+    geotech_url = (
+        f"/projects/{bp3_scene.project_id}/geology/"
+        f"models/{bp3_scene.geotech_model_id}/bodies/recompute"
+    )
+
+    server_errors: list[str] = []
+
+    def _check(label: str, outcome: Response | BaseException) -> None:
+        """Record a 5xx / escaped exception (the deadlock shape); tolerate 2xx/4xx."""
+        if isinstance(outcome, BaseException):
+            server_errors.append(f"{label} raised {type(outcome).__name__}: {str(outcome)[:400]}")
+        elif outcome.status_code >= 500:
+            server_errors.append(f"{label} → {outcome.status_code}: {outcome.text[:400]}")
+
+    clear_outcome, geotech_outcome = await asyncio.gather(
+        async_client.delete(clear_url),
+        async_client.post(
+            geotech_url,
+            json=_recompute_payload(
+                bp3_scene,
+                layer_ids=bp3_scene.geotech_band_ids,
+                formation_id=bp3_scene.geotech_formation_id,
+                group_size=BP3_COLUMNS // 2,
+            ),
+        ),
+        return_exceptions=True,
+    )
+    _check("clear-litho", clear_outcome)
+    _check("geotech bodies/recompute", geotech_outcome)
+
+    assert not server_errors, (
+        "BP-3 FAIL: a clear-litho and a geotech recompute produced "
+        f"{len(server_errors)} server error(s) — clear deleted litho bodies (the "
+        "SET NULL cascade onto the geotech child rows) without holding the geotech "
+        "child's partition lock, racing the concurrent geotech recompute:\n"
+        + "\n".join(server_errors[:5])
+    )
+
+
+@pytest.mark.asyncio
+async def test_bp3_a_delete_body_and_a_geotech_recompute_never_deadlock(
+    bp3_scene: _Scene,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """Deleting litho bodies while a geotech recompute runs never 500.
+
+    ``delete_body`` (``DELETE .../bodies/{id}``) removes one litho ``body`` row;
+    deleting it fires the ``ON DELETE SET NULL`` of the geotech rows'
+    ``parent_litho_body_id`` FK, row-locking the covering geotech ``body`` rows. A
+    concurrent geotech ``bodies/recompute`` deletes/re-mints those same rows. Each
+    round deletes a DIFFERENT litho body in parallel with a churning geotech
+    recompute; ``delete_body`` must take the geotech child's partition lock BEFORE
+    its delete or the two cross-model transactions can deadlock.
+    """
+    db_session.expire_all()
+    litho_body_ids = (
+        (
+            await db_session.execute(
+                select(BodyOrm.id)
+                .where(BodyOrm.model_id == bp3_scene.litho_model_id)
+                .order_by(BodyOrm.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert litho_body_ids, "the scene must start with litho bodies to delete"
+
+    geotech_url = (
+        f"/projects/{bp3_scene.project_id}/geology/"
+        f"models/{bp3_scene.geotech_model_id}/bodies/recompute"
+    )
+    rng = random.Random(2026)
+    server_errors: list[str] = []
+
+    def _check(label: str, outcome: Response | BaseException) -> None:
+        """Record a 5xx / escaped exception; tolerate 204 (deleted) and 404 (already gone)."""
+        if isinstance(outcome, BaseException):
+            server_errors.append(f"{label} raised {type(outcome).__name__}: {str(outcome)[:400]}")
+        elif outcome.status_code >= 500:
+            server_errors.append(f"{label} → {outcome.status_code}: {outcome.text[:400]}")
+
+    for body_id in litho_body_ids:
+        delete_url = (
+            f"/projects/{bp3_scene.project_id}/geology/"
+            f"models/{bp3_scene.litho_model_id}/bodies/{body_id}"
+        )
+        geotech_group = rng.randint(0, BP3_COLUMNS)
+        delete_outcome, geotech_outcome = await asyncio.gather(
+            async_client.delete(delete_url),
+            async_client.post(
+                geotech_url,
+                json=_recompute_payload(
+                    bp3_scene,
+                    layer_ids=bp3_scene.geotech_band_ids,
+                    formation_id=bp3_scene.geotech_formation_id,
+                    group_size=geotech_group,
+                ),
+            ),
+            return_exceptions=True,
+        )
+        _check("delete-body", delete_outcome)
+        _check("geotech bodies/recompute", geotech_outcome)
+
+    assert not server_errors, (
+        "BP-3 FAIL: a delete-body and a geotech recompute produced "
+        f"{len(server_errors)} server error(s) — delete_body deleted a litho body "
+        "(the SET NULL cascade onto the geotech child rows) without holding the "
+        "geotech child's partition lock, racing the concurrent geotech recompute:\n"
+        + "\n".join(server_errors[:5])
+    )
