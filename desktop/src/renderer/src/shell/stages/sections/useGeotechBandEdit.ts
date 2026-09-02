@@ -38,6 +38,7 @@ import type {
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { apiFailureMessage } from '../../../utils/apiFailureMessage'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 
 /** The edit being previewed, kept so the commit repeats it exactly. */
 type PendingEdit =
@@ -249,7 +250,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         })
         .catch((err: unknown) => {
           log.warn('section', 'band-split preview failed', err)
-          reportFailure(err, 'Could not work out what that split would do — try again.')
+          reportFailure(err, t('sections.bandEdit.splitPlanFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -269,7 +270,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         })
         .catch((err: unknown) => {
           log.warn('section', 'band-merge preview failed', err)
-          reportFailure(err, 'Could not work out what that merge would do — try again.')
+          reportFailure(err, t('sections.bandEdit.mergePlanFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -298,7 +299,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         })
         .catch((err: unknown) => {
           log.warn('section', 'boundary-move preview failed', err)
-          reportFailure(err, 'Could not work out what that move would do — try again.')
+          reportFailure(err, t('sections.bandEdit.movePlanFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -334,7 +335,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         })
         .catch((err: unknown) => {
           log.warn('section', 'lens-absorb preview failed', err)
-          reportFailure(err, 'Could not work out what that absorb would do — try again.')
+          reportFailure(err, t('sections.bandEdit.absorbPlanFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -387,13 +388,21 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
           toast(
             'success',
             flagged === 0
-              ? `Class set to NAD ${nadClass}.`
-              : `Class set to NAD ${nadClass}; ${flagged} accepted tie${flagged === 1 ? '' : 's'} flagged for review.`,
+              ? t('sections.bandEdit.classSet', { nadClass })
+              : t('sections.bandEdit.classSetFlagged', {
+                  nadClass,
+                  flagged,
+                  word: t(
+                    flagged === 1
+                      ? 'sections.bandEdit.acceptedTieOne'
+                      : 'sections.bandEdit.acceptedTieMany',
+                  ),
+                }),
           )
         })
         .catch((err: unknown) => {
           log.warn('section', 'band-set-class failed', err)
-          reportFailure(err, 'Could not set the class — try again.')
+          reportFailure(err, t('sections.bandEdit.setClassFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -421,9 +430,15 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         .then(async result => {
           toast(
             'success',
-            `Cleared ${result.deleted_band_count} band${
-              result.deleted_band_count === 1 ? '' : 's'
-            } on ${name} — press 1 (CPT) or 4 (borehole) to rebuild it.`,
+            t('sections.bandEdit.cleared', {
+              n: result.deleted_band_count,
+              word: t(
+                result.deleted_band_count === 1
+                  ? 'sections.bandEdit.bandWordOne'
+                  : 'sections.bandEdit.bandWordMany',
+              ),
+              name,
+            }),
           )
           // The full fan-out fits here (unlike set-class): the column's bands
           // are GONE, so the divide's amber prompt is the honest next step.
@@ -431,7 +446,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         })
         .catch((err: unknown) => {
           log.warn('section', 'clear-subdivision failed', err)
-          reportFailure(err, 'Could not clear the subdivision — try again.')
+          reportFailure(err, t('sections.bandEdit.clearFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -641,11 +656,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         fresh = false
       }
       if (!fresh) {
-        toast(
-          'warning',
-          'The edit was saved, but the correlations on screen could not be refreshed — ' +
-            'reopen the section before judging the ties.',
-        )
+        toast('warning', t('sections.bandEdit.savedNotRefreshed'))
       }
       // Ask about the broken correlations while the engineer still has the context of
       // the edit that broke them. After the refetch on purpose: the listener resolves
@@ -654,7 +665,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
       if (flaggedIds.length > 0) onAcceptedTiesFlagged?.(flaggedIds)
     } catch (err) {
       log.warn('section', `band-${pending.kind} commit failed`, err)
-      reportFailure(err, 'Could not apply the edit — try again.')
+      reportFailure(err, t('sections.bandEdit.applyFailed'))
     } finally {
       setBusy(false)
     }
