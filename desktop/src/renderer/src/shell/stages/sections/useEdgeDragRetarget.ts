@@ -17,6 +17,7 @@ import type {
   LithoContactCorrelationEdge,
 } from '../../../api/client'
 import { log } from '../../../utils/log'
+import { t } from '../../../i18n/translate'
 
 /** Everything the drag state machine consumes from the SectionsCanvas scope. */
 export interface UseEdgeDragRetargetDeps {
@@ -287,10 +288,10 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
           // New edges band geometry — schedule the litho identity recompute (slice 5).
           requestBodyRecompute?.('litho')
           log.success('section', 'edgeDrag: extra correlation created (anchor â†” both targets)')
-          toast('success', 'Correlation added â€” a wedge forms when it spans the layer.')
+          toast('success', t('sections.toast.correlationAdded'))
         } catch (err) {
           log.warn('section', 'edgeDrag: duplicate-create failed', err)
-          toast('error', 'Could not create the correlation â€” try again.')
+          toast('error', t('sections.toast.correlationCreateFailed'))
           void refetchContactEdges()
           void refetchLensData()
         }
@@ -332,10 +333,10 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
           'section',
           `edgeDrag: edge retargeted to ${capturedDrag.anchorContactId} â†” ${dropContactId}`,
         )
-        toast('success', 'Edge retargeted.')
+        toast('success', t('sections.toast.edgeRetargeted'))
       } catch (err) {
         log.warn('section', 'edgeDrag: retarget failed', err)
-        toast('error', 'Could not retarget the edge â€” try again.')
+        toast('error', t('sections.toast.edgeRetargetFailed'))
         // Restore edges from server on failure.
         void refetchContactEdges()
       }
