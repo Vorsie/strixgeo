@@ -6,6 +6,11 @@
  * preload (``src/preload/index.ts``) is the implementation; this file is the
  * type it must satisfy.
  */
+import type {
+  ActivationActionResultDto,
+  ActivationStatusDto,
+  UpdaterEventDto,
+} from './utils/launchPrototypeTypes'
 import type { SheetPayload, SheetReadyMessage } from './sheet/sheetPayload'
 
 interface RecentProject {
@@ -152,6 +157,23 @@ declare global {
       // ``printSheetPdf`` hands the payload to the main process, which renders
       // sheet.html in a hidden window and prints it; ``onSheetPayload`` /
       // ``sheetReady`` are the hidden window's (and print/preview page's) side.
+      // Launch prototypes (debt #93 / #3 / #6) — see
+      // docs/design/onboarding-activation-updater-proto.md.
+      // Synchronous boot flags (preload sendSync): e2e = STRIX_E2E harness run,
+      // packaged = app.isPackaged.
+      launchFlags: { e2e: boolean; packaged: boolean }
+      onMenuOpenOnboarding: (cb: () => void) => () => void
+      onMenuOpenLicensing: (cb: () => void) => () => void
+      onMenuCheckUpdates: (cb: () => void) => () => void
+      getActivationStatus: () => Promise<ActivationStatusDto>
+      activateLicence: (key: string) => Promise<ActivationActionResultDto>
+      startTrial: () => Promise<ActivationActionResultDto>
+      deactivateLicence: () => Promise<ActivationActionResultDto>
+      previewActivationState: (state: string) => Promise<ActivationStatusDto>
+      checkForUpdates: () => Promise<void>
+      downloadUpdate: () => Promise<void>
+      quitAndInstallUpdate: () => Promise<void>
+      onUpdaterEvent: (cb: (event: UpdaterEventDto) => void) => () => void
       printSheetPdf: (payload: SheetPayload) => Promise<ArrayBuffer>
       onSheetPayload: (cb: (payload: SheetPayload) => void) => () => void
       sheetReady: (msg: SheetReadyMessage) => void
