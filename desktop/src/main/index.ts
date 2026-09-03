@@ -86,7 +86,7 @@ import { configurePgdataRoot } from './embedded/embeddedPaths'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 import { registerBackendLifecycle } from './backendLifecycle'
 import { tailoredBootFailureCopy } from './bootFailureMessage'
-import { backendProbeHeaders, classifyBackendProbe, type ProbeVerdict } from './backendProbe'
+import { backendProbeHeaders, classifyBackendProbe, type ProbeVerdict, backendReadyAttempts, BACKEND_READY_POLL_MS } from './backendProbe'
 import { decideBackendRespawn, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
@@ -1519,10 +1519,13 @@ ipcMain.handle('app:set-window-visible', (_event, visible: boolean) => {
 ipcMain.handle('api:ready', async () => {
   // Poll /openapi.json — FastAPI serves it without a DB connection, so it
   // passes as soon as uvicorn is listening regardless of PostgreSQL state.
-  // 60 × 500 ms = 30 s; Python cold-start on Windows needs the extra headroom.
-  // After the first tick, if the process has already exited we bail immediately
-  // rather than waiting out the full 30 s.
-  for (let i = 0; i < 60; i++) {
+  // The deadline is packaged-aware (backendProbe.ts): 30 s in dev, three
+  // minutes for a packaged cold start — a freshly installed engine took 33 s on
+  // the owner's machine and the old 30 s deadline called it dead. After the
+  // first tick, if the process has already exited we bail immediately rather
+  // than waiting out the deadline.
+  const attempts = backendReadyAttempts(app.isPackaged)
+  for (let i = 0; i < attempts; i++) {
     if (i > 0 && apiProcess === null) return false  // process crashed
     const verdict = await probeBackendOnce()
     if (verdict === 'reachable') {
@@ -1536,7 +1539,7 @@ ipcMain.handle('api:ready', async () => {
       // — never adopt it (H3(b)); report not-ready so the failed banner shows.
       return false
     }
-    await new Promise(r => setTimeout(r, 500))
+    await new Promise(r => setTimeout(r, BACKEND_READY_POLL_MS))
   }
   return false
 })
