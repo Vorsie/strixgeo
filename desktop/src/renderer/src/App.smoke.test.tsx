@@ -19,7 +19,7 @@
 // data-loading effects stay dormant. Extending the test to cover a
 // loaded-project mount path is future work (debt #47 escalation).
 
-import { render, cleanup, waitFor } from '@testing-library/react'
+import { render, cleanup, waitFor, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -351,6 +351,31 @@ describe('App (smoke)', () => {
     // the WelcomeScreen branch anyway and look like a pass.
     // Failing on any console.error call surfaces those.
     expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  // Owner 2026-09-03 ("shouldn't i get a beta key screen before that?"): a
+  // PACKAGED build with a blocked verdict shows the licence start screen while
+  // the engine is deferred — never the "Starting StrixGeo API…" splash, which
+  // would wait forever for an engine that only starts after activation.
+  it('a packaged build with a blocked verdict shows the licence screen, not the starting splash', async () => {
+    type Status = { verdict: Record<string, unknown> }
+    type MockFn = { mockResolvedValue: (v: unknown) => void; mockReturnValue: (v: unknown) => void }
+    const electron = window.electron as unknown as {
+      launchFlags: { e2e: boolean; packaged: boolean }
+      getActivationStatus: (() => Promise<Status>) & MockFn
+      waitForApi: (() => Promise<boolean>) & MockFn
+    }
+    electron.launchFlags = { e2e: false, packaged: true }
+    const base = await electron.getActivationStatus()
+    electron.getActivationStatus.mockResolvedValue({
+      ...base,
+      verdict: { ...base.verdict, blocked: true, state: 'unactivated' },
+    })
+    // A deferred engine: readiness is never answered.
+    electron.waitForApi.mockReturnValue(new Promise(() => {}))
+    render(<App />)
+    await waitFor(() => expect(screen.getByTestId('licensing-key-input')).toBeInTheDocument())
+    expect(screen.queryByTestId('app-loading')).toBeNull()
   })
 
   it('mounts the loaded-project AppShell subtree without throwing (R1, debt #12)', async () => {
