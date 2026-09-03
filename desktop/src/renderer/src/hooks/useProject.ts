@@ -482,10 +482,28 @@ function idsFromBundle(rows: Record<string, unknown>[]): string[] {
     .filter((id): id is string => typeof id === 'string')
 }
 
-export function useProject(): UseProject {
+export function useProject(
+  {
+    toast,
+  }: {
+    // From ``useToasts``. Optional so the many hook tests that render
+    // ``useProject()`` bare keep compiling; the App always supplies it. Held in
+    // a ref below rather than closed over directly, so ``openProjectFile``'s
+    // identity stays stable (it re-registers the File-menu IPC effect on every
+    // change, and ``toast`` is a fresh closure each render).
+    toast?: (type: 'success' | 'error' | 'warning', message: string) => void
+  } = {},
+): UseProject {
   const [project, setProject] = useState<ProjectResponse | null>(null)
   const [saved, setSaved] = useState<ProjectResponse | null>(null)
   const [filePath, setFilePath] = useState<string | null>(null)
+
+  // Keep the latest ``toast`` in a ref so callbacks can reach it without
+  // listing it in their dep arrays (the same ref-stable pattern useToasts is
+  // built for). Assigning during render is safe — a ref write triggers no
+  // re-render and always reflects the current closure.
+  const toastRef = useRef(toast)
+  toastRef.current = toast
 
   // Audit L8: drop the module-level proj4 memo caches (``useWgs84``) whenever the
   // active project changes — open, switch, or close (``project?.id`` → a new id
@@ -786,15 +804,24 @@ export function useProject(): UseProject {
           try {
             const restored = await api.project.restore(parsedId, restorePayloadFrom(parsed))
             // L6: restore truncates over-cap depth-series / child arrays. The
-            // response now carries how many rows were dropped so this is no
-            // longer silent — surfaced in the log here; a toast can read the
-            // same two fields.
+            // response carries how many rows were dropped so this is no longer
+            // silent. The log is for the terminal; the WARNING toast is what
+            // reaches an engineer on a packaged build (DevTools disabled).
+            // Fired ONCE, only when something was actually dropped — a clean
+            // restore stays silent.
             if (restored.dropped_series > 0 || restored.dropped_child_rows > 0) {
               log.warn(
                 'project',
                 `restore of ${path} capped oversized data: ` +
                   `${restored.dropped_series} depth-series and ` +
                   `${restored.dropped_child_rows} child row(s) dropped`,
+              )
+              toastRef.current?.(
+                'warning',
+                t('project.restoreDroppedToast', {
+                  series: restored.dropped_series,
+                  rows: restored.dropped_child_rows,
+                }),
               )
             }
             // The database was just built FROM this file, so the file is
