@@ -48,6 +48,11 @@ export const CHROME = {
   'app.bootFailedBody': 'Check the developer console for the Python traceback.',
   'app.backendFailedTitle': 'StrixGeo failed to start',
   'app.backendUnreachable': 'Backend unreachable',
+  // Backend refusal codes an engineer can hit in normal use (api/clients/apiCodeMessages.ts).
+  'api.code.dovImportTooLarge': 'This box holds more records than one import can take. Draw a smaller box.',
+  'api.code.dovImportAlreadyRunning': 'This DOV import is already running.',
+  'api.code.bodyPartitionLocked': 'Another body operation is still running on this model. Try again in a moment.',
+  'api.code.lockTimeout': 'The database was busy for too long. Try again in a moment.',
   'app.backendRestarting': 'Reconnecting to the backend…',
   'app.quit': 'Quit StrixGeo',
   'app.reload': 'Reload StrixGeo',
