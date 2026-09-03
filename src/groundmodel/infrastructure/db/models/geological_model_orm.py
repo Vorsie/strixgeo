@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class GeologicalModelOrm(Base):
@@ -120,6 +121,7 @@ class GeologicalModelOrm(Base):
         "FormationContactOrm",
         back_populates="model",
         cascade="all, delete-orphan",
+        lazy=RELATIONSHIP_LAZY,
     )
     # Layer rows for the unified litho boundary model
     # (spec docs/superpowers/specs/2026-05-30-unified-litho-boundary-model-design.md).
@@ -129,6 +131,7 @@ class GeologicalModelOrm(Base):
         "LithoLayerOrm",
         back_populates="model",
         cascade="all, delete-orphan",
+        lazy=RELATIONSHIP_LAZY,
     )
     # Reverse relationship for the cached TIN surfaces (one row per
     # formation present in this model). The bundle serialiser nests
@@ -136,6 +139,5 @@ class GeologicalModelOrm(Base):
     # — opening a file on a fresh DB doesn't pay the recompute cost
     # up front; the next contact mutation refreshes anyway.
     surfaces: Mapped[list[FormationSurfaceOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "FormationSurfaceOrm",
-        cascade="all, delete-orphan",
+        "FormationSurfaceOrm", cascade="all, delete-orphan", lazy=RELATIONSHIP_LAZY
     )
