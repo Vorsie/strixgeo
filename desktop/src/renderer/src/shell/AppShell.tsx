@@ -31,6 +31,7 @@ import { useShellState } from './useShellState'
 import StageSpine from './StageSpine'
 import StageToolbar from './StageToolbar'
 import StageCanvas from './StageCanvas'
+import StageErrorBoundary from './StageErrorBoundary'
 import Inspector from './Inspector'
 import { sectionsRevealColumnCallback } from './stages/sections/sectionColumnRevealBridge'
 import { log } from '../utils/log'
@@ -359,8 +360,14 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
             onSelectStage={setActiveStage}
           />
 
-          {/* Center canvas — flex-1 */}
-          <StageCanvas activeStageId={activeStageId} />
+          {/* Center canvas — flex-1. Wrapped in a per-stage error boundary
+              (audit M5): a render crash inside a stage canvas shows a "reset
+              this stage" card in the stage slot while the spine, toolbar and
+              inspector keep working. ``resetKey`` is the active stage id so
+              navigating to a different stage clears a prior stage's crash. */}
+          <StageErrorBoundary resetKey={activeStageId}>
+            <StageCanvas activeStageId={activeStageId} />
+          </StageErrorBoundary>
 
           {/* Right inspector — 420 px or 0 when collapsed */}
           <Inspector activeStageId={activeStageId} open={inspectorOpen} />
