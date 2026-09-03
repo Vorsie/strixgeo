@@ -8,20 +8,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class _StrictModel(BaseModel):
-    """Base for the section view_state sub-shapes (debt #24).
-
-    ``extra='forbid'`` is the load-bearing config — without it a
-    client shipping ``snap_to_stratigrahpy`` (typo, missing the
-    'g') would silently persist junk into the JSONB column. With
-    it, Pydantic returns 422 and the typo surfaces.
-    """
-
-    model_config = ConfigDict(extra="forbid")
+# The section view_state sub-shapes reuse the shared StrictRequestModel base
+# (``extra='forbid'`` + ``allow_inf_nan=False``). Forbidding extras is the
+# load-bearing part (debt #24): a client shipping ``snap_to_stratigrahpy``
+# (typo) would otherwise silently persist junk into the JSONB column; with it,
+# Pydantic returns 422 and the typo surfaces. The former local ``_StrictModel``
+# (extra-only) was folded into that base so there is one strict-write contract.
 
 
-class CptChannels(_StrictModel):
+class CptChannels(StrictRequestModel):
     """Section CPT-channel toggles persisted into ``view_state``.
 
     Mirrors the frontend's ``CptChannels`` interface in
@@ -40,7 +37,7 @@ class CptChannels(_StrictModel):
     qTotal: bool | None = None  # noqa: N815 — JSON-contract field name
 
 
-class BoreholeChannels(_StrictModel):
+class BoreholeChannels(StrictRequestModel):
     """Section borehole-stream toggles persisted into ``view_state``."""
 
     geotech: bool | None = None
@@ -48,7 +45,7 @@ class BoreholeChannels(_StrictModel):
     informal_strat: bool | None = None
 
 
-class ReviewFlags(_StrictModel):
+class ReviewFlags(StrictRequestModel):
     """Dismissed litho review flags persisted into ``view_state``.
 
     A review flag marks an uncorrelated same-litho neighbour the safe-default
@@ -64,14 +61,14 @@ class ReviewFlags(_StrictModel):
     dismissed: list[str] | None = None
 
 
-class SheetField(_StrictModel):
+class SheetField(StrictRequestModel):
     """One free-text field of the cross-section PDF sheet's title block."""
 
     label: str = Field(max_length=80)
     value: str = Field(max_length=200)
 
 
-class SheetSettingsState(_StrictModel):
+class SheetSettingsState(StrictRequestModel):
     """The cross-section PDF sheet's per-section settings (``view_state.pdf_sheet``).
 
     Written by the desktop's sheet preview dialog on Export and on close, read back
@@ -88,7 +85,7 @@ class SheetSettingsState(_StrictModel):
     fields: list[SheetField] = Field(min_length=4, max_length=4)
 
 
-class SectionViewState(_StrictModel):
+class SectionViewState(StrictRequestModel):
     """Validated shape of the ``cross_section.view_state`` JSONB bag.
 
     Used on the PATCH body so an unknown top-level key (typo, or a
@@ -108,7 +105,7 @@ class SectionViewState(_StrictModel):
     review_flags: ReviewFlags | None = None
 
 
-class CrossSectionCreateRequest(BaseModel):
+class CrossSectionCreateRequest(StrictRequestModel):
     """Body of ``POST /projects/{id}/sections``.
 
     ``epsg`` is required; the desktop client typically passes the
@@ -163,7 +160,7 @@ class CrossSectionCreateRequest(BaseModel):
         return self
 
 
-class CrossSectionUpdateRequest(BaseModel):
+class CrossSectionUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{id}/sections/{sid}``.
 
     Every field is optional — only keys present in the body are
