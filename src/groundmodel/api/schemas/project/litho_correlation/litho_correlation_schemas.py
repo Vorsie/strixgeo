@@ -17,9 +17,10 @@ from pydantic import BaseModel
 
 from groundmodel.api.schemas.project.admixture_item import AdmixtureItem
 from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class PropagateAdmixturesRequest(BaseModel):
+class PropagateAdmixturesRequest(StrictRequestModel):
     """Body for ``PATCH /projects/{pid}/geology/models/{mid}/contact-correlations/admixtures``.
 
     Attributes
