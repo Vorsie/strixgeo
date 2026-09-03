@@ -77,7 +77,11 @@ import {
   SAMPLE_INSTALL_DEFAULT_FILE_NAME,
   resolveSampleProjectPath,
 } from './sampleProject'
-import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
+import {
+  startEmbeddedStack,
+  configureNumbaCacheRoot,
+  type EmbeddedStack,
+} from './embedded/embeddedStack'
 import { configurePgdataRoot } from './embedded/embeddedPaths'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 import { registerBackendLifecycle } from './backendLifecycle'
@@ -518,10 +522,10 @@ async function awaitRespawnedBackendReady(): Promise<void> {
  * pointed there. A failed move keeps the (intact) Roaming cluster and boots from
  * it, retrying next launch.
  *
- * The numba cache still resolves under the user profile in ``embeddedStack``;
- * moving it is a follow-on that needs a hook in that (separately owned) module —
- * see the build report. It is a rebuildable cache, so leaving it costs a
- * one-time recompile, never data.
+ * The numba compile cache moves too, via ``configureNumbaCacheRoot`` — it is a
+ * rebuildable cache, so it carries no migration, only a pointer to where the
+ * backend writes it next. Pointing it at Local keeps it off the synced Roaming
+ * profile like the cluster; on a failed pgdata move both stay Roaming together.
  */
 function relocateMachineLocalStores(): void {
   const localRoot = resolveMachineLocalStrixDir({
@@ -541,6 +545,7 @@ function relocateMachineLocalStores(): void {
   // is a fresh install (initdb will create it at Local); both want Local.
   if (result !== 'failed') {
     configurePgdataRoot(localRoot)
+    configureNumbaCacheRoot(localRoot)
   }
 }
 
