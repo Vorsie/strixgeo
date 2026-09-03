@@ -1074,13 +1074,20 @@ floor; a band entirely outside the depth window cannot be drawn at all and is
 COUNTED, surfaced by the toolbar next to the legend. Absence must never read as
 "nothing is planned at this depth".
 
-**Scope: this previews the FIRST divide of a column, not a re-divide.** A column
-carrying committed bands drops its ghosts, so pressing `Divide boreholes` a
-second time is as blind as before â€” `boreholesStale` says the bands are out of
-date, not what they would become. Deliberate: drawing a plan over the rows it
-would REPLACE needs a diff render (outline-only against the committed bands),
-which is its own design question. The backend is already ready for it (DB7).
-Tracked as a small item in `docs/debt.md`.
+**First divide vs re-divide (#269, 2026-09-03).** An undivided column shows the
+plan as a SOLID hatched ghost â€” the first divide. A column that already carries
+committed bands is a RE-DIVIDE: `Divide boreholes` re-plans the already-divided
+model (backend gate DB7) and rewrites every borehole band, so pressing it again
+is not a no-op. That column now draws the new plan as an OUTLINE-ONLY diff over
+the committed band â€” a dashed stroke in the class colour, no fill and no hatch â€”
+so the committed band shows through and the new boundaries read as a diff, never
+a solid overpaint (the invariant the old drop-it behaviour protected). The diff
+is READ-ONLY: it answers "what would change", it offers no per-column accept,
+because re-committing one already-divided column is undesigned. The
+hatched-preview legend still counts the first divide only â€” a diff is an outline,
+not a hatch. Chosen render = the debt entry's leading option (outline-only over
+the committed bands); side-by-side before/after was the alternative. Per-band
+change-flagging (bold the boundaries that moved) is a possible follow-up.
 
 **Refresh + legend.** `useGeotechBoreholePreview` fetches while the geotech axis
 is showing and a geotech model exists, keyed on `geotechLayersVersion` â€” a
@@ -1754,8 +1761,9 @@ GP9). Per COLUMN, never per band: one borehole's bands are a single plan (its
 donors, its litho extents, its ties), so accepting a band out of the middle
 would ask the planner a question it was never asked. A subset commit does NOT
 clear the `boreholesStale` amber â€” the columns it left out are still out of
-date. The committed rows then drop that column's ghosts and leave every other
-column's alone.
+date. The committed rows then turn that column's solid ghost into a read-only
+outline re-divide diff (#269, above) and leave every other column's alone. The
+accept gesture is offered on the first-divide (undivided) columns only.
 
 ### An onlap is a triangle, and its shadow may be hatch (owner ruling 2026-08-23)
 
