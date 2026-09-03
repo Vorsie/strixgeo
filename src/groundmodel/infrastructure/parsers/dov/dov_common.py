@@ -90,6 +90,29 @@ DOV_WFS_FEATURE_LIMIT = 500
 # Above that, DOV's data is too dense to be a realistic project import scope anyway.
 DOV_WFS_MAX_SPLIT_DEPTH = 5
 
+# ----------------------------------------------------------------------
+# Import-scope guards (owner may change these)
+# ----------------------------------------------------------------------
+
+# Longest bbox side we accept for one import, in kilometres. The area guard below
+# is the product 25 km x 25 km; this constant records the intent ("25 km x 25 km")
+# so the 422 message reads in the units the user drew the box in.
+DOV_MAX_BBOX_SIDE_KM = 25.0
+
+# Product (area) limit for one import bbox, in square kilometres. A user who drags
+# a box larger than this is refused BEFORE any WFS discovery: the recursive split
+# would otherwise fan out to 1024 quadrants and the download phase to thousands of
+# XMLs (see DOV_MAX_IMPORT_FEATURES). 25 km x 25 km = 625 km² is a generous single
+# project footprint while still bounding the fan-out. Owner may retune.
+DOV_MAX_BBOX_AREA_KM2 = DOV_MAX_BBOX_SIDE_KM * DOV_MAX_BBOX_SIDE_KM
+
+# Hard ceiling on the number of features one import may DISCOVER before it starts
+# downloading. DOV discovery counts features cheaply (resultType=hits); once the
+# recursive split resolves more than this many unique rows the import stops with a
+# 422-class error naming the count and this limit, so a mis-drawn continent-sized
+# box can never launch thousands of parallel XML downloads. Owner may retune.
+DOV_MAX_IMPORT_FEATURES = 2000
+
 # Match `numberMatched="123"` from the WFS hits XML response. DOV returns XML for
 # resultType=hits even when outputFormat=application/json is requested.
 DOV_WFS_NUMBER_MATCHED_RE = re.compile(r'numberMatched="(\d+)"')
@@ -102,6 +125,26 @@ DOV_WFS_NUMBER_MATCHED_RE = re.compile(r'numberMatched="(\d+)"')
 # Max concurrent XML downloads. Higher (100) sometimes triggers DOV's per-IP rate
 # limit during peak hours; 50 is the sweet spot we've measured.
 DOV_DOWNLOAD_PARALLELISM = 50
+
+# HTTP statuses that mean "DOV is throttling / briefly unavailable" — retryable
+# rather than a hard failure. 429 = per-IP rate limit; 503 = service unavailable
+# (GeoServer restart / overload). Anything else (4xx/5xx) is a genuine error we
+# surface immediately.
+DOV_RETRY_STATUS_CODES = frozenset({429, 503})
+
+# Total attempts (initial + retries) for a throttled DOV request before we give
+# up and surface the error. 3 balances riding out a brief rate-limit blip against
+# stalling an import behind a genuinely-down upstream.
+DOV_MAX_HTTP_ATTEMPTS = 3
+
+# Base delay (seconds) for the exponential back-off used when a throttled
+# response carries no ``Retry-After`` header: attempt N waits base * 2**(N-1).
+DOV_RETRY_BASE_DELAY_S = 0.5
+
+# Hard cap (seconds) on any single back-off wait, whether from ``Retry-After`` or
+# the exponential schedule — a hostile / mis-set ``Retry-After: 86400`` must not
+# freeze an import for a day.
+DOV_RETRY_MAX_DELAY_S = 30.0
 
 
 # ----------------------------------------------------------------------
@@ -136,6 +179,62 @@ def cql_bbox_predicate(x1: float, y1: float, x2: float, y2: float) -> str:
     we also need attribute filtering (parametergroep / parameter / …).
     """
     return f"BBOX({DOV_OBSERVATIE_GEOM_COLUMN},{x1},{y1},{x2},{y2},'EPSG:{DOV_HORIZONTAL_EPSG}')"
+
+
+def validate_wgs84_import_bbox(*, west: float, south: float, east: float, north: float) -> None:
+    """Validate a WGS84 import bounding box against the ordering + area guards.
+
+    The four corners arrive straight from the renderer's draw gesture and are
+    otherwise passed on to a recursive WFS split that fans out to up to 1024
+    quadrants at 50-way download parallelism. A reversed, degenerate, or
+    continent-sized box would launch that fan-out for nothing, so every import
+    request is checked here first.
+
+    Parameters
+    ----------
+    west, south, east, north : float
+        Bounding box corners in WGS84 decimal degrees. ``east`` must be strictly
+        greater than ``west`` and ``north`` strictly greater than ``south`` (a
+        reversed OR zero-extent box fails the same check).
+
+    Raises
+    ------
+    ValueError
+        When ``east <= west`` (message names east/west), when ``north <= south``
+        (message names north/south), or when the projected area exceeds
+        :data:`DOV_MAX_BBOX_AREA_KM2` (message names the limit and the computed
+        area). Raised inside the two DOV request schemas' validators, where
+        pydantic turns it into the request's ``422``.
+    """
+    # Ordering + degeneracy: a strict inequality rejects a reversed box (corners
+    # swapped) and a degenerate box (a corner shared, so zero width/height) with
+    # one check, and the message names exactly which pair is wrong.
+    if east <= west:
+        raise ValueError(
+            f"bounding box east ({east}) must be greater than west ({west}); "
+            "the eastern edge is at or west of the western edge"
+        )
+    if north <= south:
+        raise ValueError(
+            f"bounding box north ({north}) must be greater than south ({south}); "
+            "the northern edge is at or below the southern edge"
+        )
+
+    # Area: project the two diagonal corners to Lambert 72 metres so the span is a
+    # real ground distance (a degree of longitude is ~70 km at Belgian latitudes,
+    # not 111 km — a degree-space check would be wrong by cos(lat)). Belgium is
+    # near-conformal under Lambert 72 so the axis-aligned span of the two diagonal
+    # corners is an accurate footprint for a project-sized box.
+    x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
+    x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
+    area_km2 = (abs(x2 - x1) * abs(y2 - y1)) / 1_000_000.0
+    if area_km2 > DOV_MAX_BBOX_AREA_KM2:
+        raise ValueError(
+            f"bounding box is too large: {area_km2:.0f} km² exceeds the "
+            f"{DOV_MAX_BBOX_AREA_KM2:.0f} km² "
+            f"({DOV_MAX_BBOX_SIDE_KM:.0f} km x {DOV_MAX_BBOX_SIDE_KM:.0f} km) import limit; "
+            "draw a smaller area"
+        )
 
 
 # ----------------------------------------------------------------------
