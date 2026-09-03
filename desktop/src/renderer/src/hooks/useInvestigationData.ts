@@ -421,6 +421,15 @@ export function useInvestigationData({
     Map<string, BoreholeDetailResponse>
   >(new Map())
 
+  // Project-switch generation guard (Codex 3). Bumped on every project change
+  // (see the clear-on-switch effect below). Every list / detail / plot fetch
+  // snapshots this at call time and, when it resolves, refuses to write state if
+  // the generation has moved on — so a slow request for project A can never
+  // overwrite project B's data, and an in-flight A response cannot repopulate a
+  // cache after the switch. A ref, not state: it must read the LATEST value at
+  // resolution time and it never drives a render.
+  const loadGenerationRef = useRef(0)
+
   const [importing, setImporting] = useState(false)
   const [bboxImportType, setBboxImportType] = useState<'cpt' | 'borehole' | null>(null)
   const { state: dovImportState, start: startDovStream, reset: resetDovStream } =
@@ -472,14 +481,35 @@ export function useInvestigationData({
     }
   }, [project])
 
+  // Drop every project-scoped cache the instant the active project changes
+  // (Codex 3). Without this, project A's list rows, detail and plot caches
+  // lingered into project B — the map painted A's markers, and a detail lookup
+  // could hit A's cached entry. Bumping the generation here is what lets the
+  // in-flight fetch guards below discard a superseded A response. Runs on open,
+  // switch AND close (``project?.id`` → a new id or ``undefined``). Declared
+  // BEFORE the auto-load effect so the bump lands before the fresh fetch snaps
+  // the new generation.
+  useEffect(() => {
+    loadGenerationRef.current += 1
+    setCpts([])
+    setBoreholes([])
+    setDetailMap(new Map())
+    setPlotMap(new Map())
+    setBoreholeDetailMap(new Map())
+  }, [project?.id])
+
   // ---------------------------------------------------------------------------
   // Data loading
   // ---------------------------------------------------------------------------
 
   const refreshList = useCallback(async () => {
     if (!project) return
+    const generation = loadGenerationRef.current
     try {
       const list = await api.cpt.list(project.id)
+      // A project switch during the fetch supersedes this result — writing it
+      // would show project A's CPTs in project B.
+      if (generation !== loadGenerationRef.current) return
       setCpts(list)
       log.debug('cpt', `refreshList: ${list.length} CPTs`)
       // No per-CPT detail fetch here: CptListItem already carries
@@ -492,8 +522,10 @@ export function useInvestigationData({
 
   const refreshBoreholeList = useCallback(async () => {
     if (!project) return
+    const generation = loadGenerationRef.current
     try {
       const list = await api.borehole.list(project.id)
+      if (generation !== loadGenerationRef.current) return
       setBoreholes(list)
       log.debug('borehole', `refreshList: ${list.length} boreholes`)
     } catch (err) {
@@ -521,8 +553,12 @@ export function useInvestigationData({
     async (id: string) => {
       if (!project) return
       if (detailMap.has(id)) return
+      const generation = loadGenerationRef.current
       try {
         const detail = await api.cpt.get(id, project.id)
+        // A project switch during the fetch supersedes this — an A detail must
+        // not land in B's freshly-cleared cache (Codex 3).
+        if (generation !== loadGenerationRef.current) return
         setDetailMap(prev => new Map(prev).set(id, detail))
       } catch (err) {
         log.error('cpt', `loadCptDetail(${id}) failed`, err)
@@ -541,8 +577,11 @@ export function useInvestigationData({
     async (id: string) => {
       if (!project) return
       if (plotMap.has(id)) return
+      const generation = loadGenerationRef.current
       try {
         const plot = await api.cpt.plot(id, project.id)
+        // Discard an A plot that resolves after a switch to B (Codex 3).
+        if (generation !== loadGenerationRef.current) return
         setPlotMap(prev => new Map(prev).set(id, plot))
       } catch (err) {
         log.error('cpt', `loadChart(${id}) failed`, err)
@@ -560,8 +599,11 @@ export function useInvestigationData({
     async (id: string) => {
       if (!project) return
       if (boreholeDetailMap.has(id)) return
+      const generation = loadGenerationRef.current
       try {
         const detail = await api.borehole.get(id, project.id)
+        // Discard an A borehole detail that resolves after a switch (Codex 3).
+        if (generation !== loadGenerationRef.current) return
         setBoreholeDetailMap(prev => new Map(prev).set(id, detail))
       } catch (err) {
         log.error('borehole', `loadDetail(${id}) failed`, err)
