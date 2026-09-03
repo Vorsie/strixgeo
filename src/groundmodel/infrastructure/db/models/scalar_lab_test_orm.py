@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class ScalarLabTestOrm(Base):
@@ -59,5 +60,5 @@ class ScalarLabTestOrm(Base):
     detection_condition: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     sample: Mapped[SampleOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "SampleOrm", back_populates="scalar_lab_tests"
+        "SampleOrm", back_populates="scalar_lab_tests", lazy=RELATIONSHIP_LAZY
     )
