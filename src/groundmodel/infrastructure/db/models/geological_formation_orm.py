@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class GeologicalFormationOrm(Base):
@@ -174,6 +175,7 @@ class GeologicalFormationOrm(Base):
         "FormationContactOrm",
         back_populates="formation",
         cascade="all, delete-orphan",
+        lazy=RELATIONSHIP_LAZY,
     )
 
     # Layer rows for the unified litho boundary model (see
@@ -184,4 +186,5 @@ class GeologicalFormationOrm(Base):
         "LithoLayerOrm",
         back_populates="formation",
         cascade="all, delete-orphan",
+        lazy=RELATIONSHIP_LAZY,
     )
