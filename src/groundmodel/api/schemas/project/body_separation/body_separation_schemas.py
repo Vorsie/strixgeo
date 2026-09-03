@@ -22,8 +22,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class CreateBodySeparationRequest(BaseModel):
+
+class CreateBodySeparationRequest(StrictRequestModel):
     """Body for POST /body-separations.
 
     Attributes
