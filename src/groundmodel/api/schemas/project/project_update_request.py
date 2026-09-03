@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.project_create_request import (
     ProjectPhase,
     ProjectStatus,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class ProjectUpdateRequest(BaseModel):
+class ProjectUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{id}``.
 
     Every field is optional — only fields present in the request body are
