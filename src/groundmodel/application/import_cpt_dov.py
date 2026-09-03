@@ -18,8 +18,11 @@ from groundmodel.infrastructure.db.repositories.cpt_repository import CptReposit
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient, WfsIndexEntry
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import DOV_MAX_IMPORT_FEATURES
 from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.shared.config import settings
+from groundmodel.shared.exceptions import DovImportTooLargeError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.progress import ProgressCallback, fire_progress
 from groundmodel.shared.timing import ms_since
@@ -160,8 +163,11 @@ class ImportCptDov(GroundModelLogger):
         t_total = time.perf_counter()
 
         parser = DovParser()
+        # One rate-limit state per import: a 429 during WFS discovery halves the
+        # download parallelism for the rest of THIS import (see DovRateLimitState).
+        backoff = DovRateLimitState()
         async with make_dov_async_client() as http:
-            client = DovClient(http, cache=self._cache)
+            client = DovClient(http, cache=self._cache, backoff=backoff)
 
             # Phase 1 — WFS discovery: resolve the full recursive bbox-split.
             # This completes in ~1 s (a few WFS HTTP calls) and lets us emit
@@ -176,6 +182,14 @@ class ImportCptDov(GroundModelLogger):
             self.info(
                 f"DOV phase 1 (WFS index): {ms_since(t_wfs)} ms — {len(index)} CPTs discovered"
             )
+
+            # Discovery ceiling — refuse a runaway import BEFORE the download phase
+            # fans out to thousands of parallel XML GETs. The bbox area guard on the
+            # request schema stops continent-sized boxes; this second line stops a
+            # genuinely dense area under the size limit. Raised before pins so a
+            # too-large import never even paints pending markers.
+            if len(index) > DOV_MAX_IMPORT_FEATURES:
+                raise DovImportTooLargeError(len(index), DOV_MAX_IMPORT_FEATURES)
 
             # Emit the pins event immediately after WFS resolves — before any
             # XML download starts.  The SSE router wires this callback to push
