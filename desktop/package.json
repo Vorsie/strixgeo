@@ -77,7 +77,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
       "shortcutName": "StrixGeo",
       "artifactName": "StrixGeo-Setup-${version}.${ext}",
