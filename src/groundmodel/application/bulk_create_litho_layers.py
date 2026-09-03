@@ -19,6 +19,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.application.litho_layer_helpers import repopulate_layers_after_commit
 from groundmodel.application.scope_guard import load_scoped_or_raise
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -114,6 +118,22 @@ class BulkCreateLithoLayers(GroundModelLogger):
                 f"BulkCreateLithoLayers: scope guard passed for "
                 f"{len(seen_formation_ids)} unique formation(s)"
             )
+
+        # Serialise these INSERTs with a concurrent ``bodies/recompute`` on the same
+        # model: a ``litho_layer`` INSERT takes a FOR-KEY-SHARE row lock on any
+        # ``body`` its ``body_id`` references, and recompute re-stamps those same
+        # rows under the per-model advisory lock. Take the advisory lock (own litho,
+        # then the sibling geotech children — a no-op when the model has no geotech
+        # child) BEFORE the first ``session.add`` below, in the resolver's canonical
+        # order, so the write serialises with recompute rather than deadlocking
+        # (BP-2/BP-4). After the scope guard so a cross-project formation still 404s
+        # without queuing behind a live writer.
+        await lock_body_partition(
+            self._session, model_id=model_id, operation="bulk-create-litho-layers"
+        )
+        await lock_sibling_geotech_partitions(
+            self._session, litho_model_id=model_id, operation="bulk-create-litho-layers"
+        )
 
         rows: list[LithoLayerOrm] = []
         for payload in layers:
