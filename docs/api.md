@@ -289,6 +289,27 @@ request is made. A tile key that just failed upstream is suppressed for a few
 minutes and answers `502` (sample) / `503` (ground-surface) with the retry
 window, instead of re-hitting the WCS.
 
+DOV import guards refuse a runaway or duplicate import before it fans out. The
+`import-dov` request schemas reject a **reversed/degenerate bbox** (`422`, naming the
+wrong corner) and a bbox larger than **625 km²** (25 km × 25 km, `422` naming the
+limit). Discovery that resolves more than **2000** DOV records stops before any
+download: `POST /{cpt,borehole}/import-dov` answers `422` with
+`detail.code = "dov_import_too_large"`; the streaming path emits a terminal SSE
+`{"type":"error","code":"dov_import_too_large", ...}` event — both name the count
+and the limit. `POST /{cpt,borehole}/import-dov/stream` refuses a second import of
+the same scope (resource-kind + bbox + project) while the first is still running with
+`409 Conflict`, `detail.code = "dov_import_already_running"` and the running `job_id`
+(the client attaches to the existing stream). A 429/503 from DOV is retried
+(`Retry-After` honoured) rather than surfaced.
+
+Body-partition contention is a `409`, not a hung request or a `500`. Every
+body-partition write serialises on a per-model advisory lock; the session sets
+`lock_timeout` (30 s), so a writer that cannot get the lock in time aborts and the
+handler answers `409 Conflict` with `detail.code = "body_partition_locked"` naming
+the waiting operation (e.g. `bodies/recompute`). Any other Postgres lock-timeout that
+escapes a route maps to `409` with `detail.code = "lock_timeout"`. Both are
+retryable — the action was not applied.
+
 Body shape is **not** stored as lateral extents: the retired `/bodies/detect`,
 `/bodies/suggest-pinch-outs`, bulk `DELETE /bodies`, and the per-side extent
 endpoints were removed with the body-extent retirement — body shape is derived
