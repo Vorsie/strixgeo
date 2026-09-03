@@ -32,6 +32,13 @@
 #     so a PR is always fully checked).
 #   * ``workflow_dispatch`` — manual on-demand full run on any branch
 #     (e.g. before a coworker handoff).
+#   * ``schedule`` — a weekly server-side run so develop is verified even
+#     in a quiet week with no push (production-readiness audit 2026-09-02,
+#     L10: desktop-only pushes skip integration and STRIX_BATCH skips the
+#     per-commit tests, so a gap can otherwise leave develop unchecked by
+#     CI). A scheduled run executes the workflow on the repository's
+#     DEFAULT branch; make develop the default (or dispatch manually) if
+#     develop is not it.
 #   * ``paths-ignore`` on push — docs/markdown-only pushes don't spin
 #     the matrix.
 
@@ -39,6 +46,9 @@ name: CI
 
 on:
   workflow_dispatch:
+  schedule:
+    # Mondays 06:00 UTC. Jobs are unchanged — this only adds a cadence.
+    - cron: "0 6 * * 1"
   push:
     branches: [main, develop]
     paths-ignore:
