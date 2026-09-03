@@ -144,6 +144,11 @@ export const CHROME_NL = {
   // FLAG alt: Inspector | Eigenschappen — the right-hand detail pane. "Inspector"
   // is what LeapFrog/Plaxis-adjacent tools use untranslated in NL builds.
   'shell.inspector': 'Detailvenster',
+  // Per-stage crash card (audit M5).
+  'shell.stageError.title': 'Deze stap werkt niet meer',
+  'shell.stageError.body':
+    'De andere stappen en je gegevens zijn niet aangetast. Herstel deze stap om opnieuw te proberen.',
+  'shell.stageError.reset': 'Stap herstellen',
 
   // -------------------------------------------------------------------------
   // common — count words + list joiners.
