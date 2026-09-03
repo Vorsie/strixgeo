@@ -1,7 +1,7 @@
 import L from 'leaflet'
 import { describe, expect, it } from 'vitest'
 
-import { lambertToWgs84 } from '../hooks/useWgs84'
+import { lambertToWgs84, projectedToWgs84 } from '../hooks/useWgs84'
 import { idsOutsideBounds } from './viewportFilter'
 
 // Lambert-72 fixtures — three points around Ghent, Belgium. Each
@@ -49,6 +49,20 @@ describe('idsOutsideBounds', () => {
     expect(idsOutsideBounds([GHENT_CENTRE, ANTWERP, BRUGGE], bounds)).toEqual(
       new Set(['antwerp', 'brugge']),
     )
+  })
+
+  it('Codex 2 — projects a record with the PROJECT EPSG, not a hardcoded 31370', () => {
+    // A record stored in Netherlands RD-New (EPSG:28992) metres.
+    const NL_POINT = { id: 'nl', location_x: 136000, location_y: 456000 }
+    const [lat, lng] = projectedToWgs84(NL_POINT.location_x, NL_POINT.location_y, 28992)
+    // Tight bounds around the TRUE Netherlands position of the record.
+    const bounds = L.latLngBounds([lat - 0.02, lng - 0.02], [lat + 0.02, lng + 0.02])
+    // Read with the project's own CRS the record is inside → not out-of-viewport.
+    expect(idsOutsideBounds([NL_POINT], bounds, 28992)).toEqual(new Set())
+    // Read with the wrong Belgium CRS the same numbers project hundreds of km
+    // away and the record falls OUTSIDE those bounds — the viewport filter would
+    // wrongly dim it (or, symmetrically, keep a far row on screen).
+    expect(idsOutsideBounds([NL_POINT], bounds, 31370)).toEqual(new Set(['nl']))
   })
 
   it('treats records on the bounds edge as inside (Leaflet contains semantics)', () => {
