@@ -24,6 +24,7 @@ const PREVIEWABLE_STATES: ReadonlySet<LicenceState> = new Set<LicenceState>([
   'grace',
   'expired',
   'clock-rollback',
+  'device-mismatch',
 ])
 
 /** Options controlling which prototype-only handlers are registered. */
