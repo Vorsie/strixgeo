@@ -294,6 +294,7 @@ function makeLithoCtx(mockHandleUpdateContactDepth: UpdateDepthFn): ShellContext
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
+      handleToggleBoreholeInLithoModel: noopAsync,
       discardContacts: vi.fn(),
       discoverBoreholeFormations: async () => ({ candidates: [], collisions: [] }),
       applyBoreholeFormationSelection: noopAsync,
