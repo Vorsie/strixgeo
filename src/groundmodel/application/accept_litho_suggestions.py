@@ -47,6 +47,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.application.litho_geo_link_helpers import (
     load_geo_contacts_at_investigation,
     nearest_geo_contact_within_tolerance,
@@ -328,6 +332,25 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 self._session, GeologicalModelOrm, litho_model_id, project_id, label="Litho model"
             )
             geology_model_id = litho_model.parent_model_id
+
+            # Serialise this accept's writes with a concurrent ``bodies/recompute``
+            # on the same model: the formation + layer INSERTs below take FOR-KEY-
+            # SHARE row locks on the ``body`` rows recompute re-stamps under the
+            # per-model advisory lock, so without the shared lock this writer and
+            # recompute deadlock ABBA (BP-2/BP-4). Take the advisory lock (own litho,
+            # then the sibling geotech children — a no-op when the model has no
+            # geotech child) BEFORE the first write, in the resolver's canonical
+            # order. ONLY on the single-accept path: in batch mode
+            # ``BatchAcceptLithoSuggestions`` has already taken this same lock once
+            # for the whole batch (advisory xact locks are re-entrant, but taking it
+            # once keeps the contention log clean — mirrors how ``_run_resolver``
+            # reuses its sibling ids without re-locking).
+            await lock_body_partition(
+                self._session, model_id=litho_model_id, operation="accept-litho-suggestions"
+            )
+            await lock_sibling_geotech_partitions(
+                self._session, litho_model_id=litho_model_id, operation="accept-litho-suggestions"
+            )
 
         # --- Load existing geology contacts at this investigation (#162) ------
         # Used for litho↔geo coupling (#162 Task 3).
