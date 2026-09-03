@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
+
 BodyRenderStyle = Literal["straight", "blocky", "rounded"]
 
 # A real lens boundary shape has at most a handful of control nodes — a
@@ -17,7 +19,7 @@ BodyRenderStyle = Literal["straight", "blocky", "rounded"]
 _MAX_BOUNDARY_NODES = 10_000
 
 
-class BodyBoundaryNodeItem(BaseModel):
+class BodyBoundaryNodeItem(StrictRequestModel):
     """One control node on a body boundary, section-local.
 
     Attributes
@@ -32,7 +34,7 @@ class BodyBoundaryNodeItem(BaseModel):
     elevation_m: float
 
 
-class BodyBoundaryWriteRequest(BaseModel):
+class BodyBoundaryWriteRequest(StrictRequestModel):
     """Full-replace payload for a body's boundary shape.
 
     The server sorts each node list by ``along_m`` and re-indexes 0..N-1,
