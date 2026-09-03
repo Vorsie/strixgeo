@@ -34,7 +34,11 @@ describe('the beta gate runs before anything the user can touch', () => {
   it('BG1 — the expiry check precedes the window and the backend', () => {
     const gate = offsetOf('if (enforceBetaExpiry()) return')
     const window = offsetOf('createWindow()\n')
-    const backend = offsetOf('startApi()\n')
+    // Target the LAUNCH spawn specifically: the mid-session respawn path
+    // (H3(a), handleReadyBackendExit) also calls startApi() and is defined
+    // earlier in the file, so a bare 'startApi()' newline would match that
+    // instead. The launch call is the one immediately followed by createWindow().
+    const backend = offsetOf('startApi()\n    createWindow()')
 
     expect(gate).toBeLessThan(window)
     expect(gate).toBeLessThan(backend)
