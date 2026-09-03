@@ -38,6 +38,10 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
@@ -145,6 +149,25 @@ class MoveLithoLayerBoundary(GroundModelLogger):
                 f"upper.depth_top_m ({upper.depth_top_m}) and "
                 f"lower.depth_base_m ({lower.depth_base_m})"
             )
+
+        # Serialise this write with a concurrent ``bodies/recompute`` on the same
+        # model. The two UPDATEs below take a FOR-KEY-SHARE row lock on the ``body``
+        # each layer's ``body_id`` references — the SAME rows ``_run_resolver``
+        # re-stamps ``body_id`` on under the per-model advisory lock. Without taking
+        # that shared lock here first, this writer holds body-row locks while
+        # recompute holds the advisory lock and waits on those rows — the BP-2/BP-4
+        # ABBA deadlock. Taken AFTER the validation raises (a rejected move 422s
+        # without queuing behind a live writer) and BEFORE the first write, in the
+        # resolver's canonical order (own litho lock, then the sibling geotech
+        # children — a no-op when the model has no geotech child). ``upper.model_id``
+        # is the litho model both layers belong to (the anchor check proved they
+        # share it).
+        await lock_body_partition(
+            self._session, model_id=upper.model_id, operation="move-litho-layer-boundary"
+        )
+        await lock_sibling_geotech_partitions(
+            self._session, litho_model_id=upper.model_id, operation="move-litho-layer-boundary"
+        )
 
         # Apply the atomic update — same session, single flush + commit.
         upper.depth_base_m = new_depth_m
