@@ -37,8 +37,9 @@ describe('the beta gate runs before anything the user can touch', () => {
     // Target the LAUNCH spawn specifically: the mid-session respawn path
     // (H3(a), handleReadyBackendExit) also calls startApi() and is defined
     // earlier in the file, so a bare 'startApi()' newline would match that
-    // instead. The launch call is the one immediately followed by createWindow().
-    const backend = offsetOf('startApi()\n    createWindow()')
+    // instead. The launch call sits inside the licence-gate branch (audit C3d):
+    // it is the startApi() whose closing brace is followed by createWindow().
+    const backend = offsetOf('startApi()\n    }\n    createWindow()')
 
     expect(gate).toBeLessThan(window)
     expect(gate).toBeLessThan(backend)
