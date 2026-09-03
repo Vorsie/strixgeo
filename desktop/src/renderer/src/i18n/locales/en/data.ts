@@ -121,6 +121,8 @@ export const DATA = {
   // map.drawSectionLine and elevation.cancelEsc / borelog.drillMethod are reused.)
   // -------------------------------------------------------------------------
   'data.map.pending': 'Pending: {name}',
+  // Offline notice on the 2D map (audit L9) — the basemap tiles need network.
+  'data.map.offline': 'Offline — map tiles unavailable',
   'data.map.pendingCptLocationsOne': '{n} CPT location pending import',
   'data.map.pendingCptLocationsMany': '{n} CPT locations pending import',
   'data.map.noMarkersToFit': 'No visible markers to fit',
