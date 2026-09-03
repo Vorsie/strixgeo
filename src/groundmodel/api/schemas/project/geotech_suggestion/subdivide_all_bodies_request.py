@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class SubdivideAllBodiesRequest(BaseModel):
+class SubdivideAllBodiesRequest(StrictRequestModel):
     """Body of ``POST .../geotech/subdivide-all-bodies`` and ``.../subdivide-cpts``.
 
     Geotech layers are written once per investigation (section-independent);
