@@ -28,7 +28,7 @@ export const PACKAGED_PROFILE_DIR_NAME = 'StrixGeo'
 export interface ProfileApp {
   isPackaged: boolean
   getPath(name: 'appData'): string
-  setPath(name: 'userData' | 'sessionData', value: string): void
+  setPath(name: 'userData' | 'sessionData' | 'logs', value: string): void
   commandLine: { hasSwitch(name: string): boolean }
 }
 
@@ -39,10 +39,20 @@ export interface ProfileApp {
  * to follow `userData` — its default is derived, and a derived default is a
  * behaviour change away from splitting the profile in two.
  *
+ * The LARGE, machine-local stores do NOT belong in the Roaming profile (audit
+ * M1): a domain-joined consultancy syncs or redirects Roaming to a share, and a
+ * running database / big caches / churny logs must not travel. Of those, only
+ * `logs` is Electron's to relocate here (via `getPath('logs')`); `pgdata` and
+ * the numba cache move through the embedded layout. When `%LOCALAPPDATA%` is
+ * given, `logs` is pointed at `%LOCALAPPDATA%\StrixGeo\logs`.
+ *
  * Parameters
  * ----------
  * electronApp
- *     Electron's `app`, or a test double exposing the same three members.
+ *     Electron's `app`, or a test double exposing the same members.
+ * localAppDataDir
+ *     `%LOCALAPPDATA%` (`process.env.LOCALAPPDATA`). When present, `logs` moves
+ *     under it; when absent, `logs` keeps its default (derived from userData).
  *
  * Returns
  * -------
@@ -50,7 +60,10 @@ export interface ProfileApp {
  *     `true` when the profile was moved (packaged), `false` for dev or when
  *     an explicit `--user-data-dir` isolates the run.
  */
-export function applyPackagedProfile(electronApp: ProfileApp): boolean {
+export function applyPackagedProfile(
+  electronApp: ProfileApp,
+  localAppDataDir?: string | null,
+): boolean {
   if (!electronApp.isPackaged) return false
   // An explicit --user-data-dir is a deliberate isolation request (test runs,
   // docs/distribution-build.md) — overriding it here would silently point an
@@ -59,5 +72,10 @@ export function applyPackagedProfile(electronApp: ProfileApp): boolean {
   const dir = join(electronApp.getPath('appData'), PACKAGED_PROFILE_DIR_NAME)
   electronApp.setPath('userData', dir)
   electronApp.setPath('sessionData', dir)
+  // Relocate logs to the machine-local root when it is resolvable (M1). If it is
+  // not, leave logs at their derived default rather than crash.
+  if (localAppDataDir) {
+    electronApp.setPath('logs', join(localAppDataDir, PACKAGED_PROFILE_DIR_NAME, 'logs'))
+  }
   return true
 }
