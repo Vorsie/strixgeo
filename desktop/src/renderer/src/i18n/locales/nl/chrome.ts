@@ -15,9 +15,17 @@ export const CHROME_NL = {
   'common.cancel': 'Annuleren',
   'common.close': 'Sluiten',
   'common.delete': 'Verwijderen',
-  // NOTE: distinct from delete — "remove" is always project-local hiding in
-  // this app (docs/ux.md: a row X never deletes from the DB), so a softer verb.
-  'common.remove': 'Weghalen',
+  // The action button on an IRREVERSIBLE database-delete confirm. Owner
+  // 2026-09-03 renamed the reversible hide (``common.remove``) from "Weghalen"
+  // to "Verwijderen", so the irreversible confirms must read more emphatically
+  // to stay distinct (docs/ux.md reversible-vs-irreversible). "Definitief
+  // verwijderen" = permanently delete from the database.
+  'common.deletePermanently': 'Definitief verwijderen',
+  // NOTE: owner 2026-09-03 — "verwijderen is beter" for the reversible
+  // project-local hide on the data rows. It now shares the word "Verwijderen"
+  // with delete; the distinction lives in context (an inline row action + undo
+  // vs a confirm dialog that reads "Definitief verwijderen").
+  'common.remove': 'Verwijderen',
   'common.open': 'Openen',
   'common.apply': 'Toepassen',
   'common.confirm': 'Bevestigen',
@@ -249,9 +257,11 @@ export const CHROME_NL = {
   'project.namePlaceholderExample': 'bv. GEO-22/040 Brugge',
   'project.metadataBlurbFull':
     'Bewerk de hoofdgegevens van het project. Wijzigingen worden in één keer opgeslagen in de databank en het .gmproj-bestand.',
-  // FLAG alt: {tag} weghalen | {tag} verwijderen — removing a tag chip is form
-  // editing (delete), not the project-local "Weghalen" hide that common.remove
-  // covers; chose "verwijderen".
+  // Removing a tag chip is form editing; "verwijderen" reads right. Since the
+  // owner renamed the project-local hide (common.remove) to "Verwijderen" too
+  // (2026-09-03), tag removal and the row hide now share the word, which is fine
+  // — both are reversible edits; only the irreversible DB delete carries the
+  // emphatic "Definitief verwijderen".
   'project.removeTag': '{tag} verwijderen',
   'project.closeConfirmBodyDetailed':
     'wordt gesloten en je keert terug naar het startscherm. Het .gmproj-bestand en je opgeslagen gegevens blijven bewaard — je kan het opnieuw openen via de lijst met recente projecten.',
