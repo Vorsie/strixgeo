@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS licences (
   holder_name  VARCHAR(191)    NULL,                   -- who the owner issued it to (trial: the device label)
   holder_email VARCHAR(191)    NULL,
   seats        INT UNSIGNED    NOT NULL DEFAULT 1,      -- device cap; 1 = Solo/trial, >1 = Pro/Studio
-  expires_at   DATETIME        NOT NULL,               -- authoritative end of the paid period / trial (UTC)
+  duration_days INT UNSIGNED   NULL,                    -- beta-cohort key: the N-day clock runs from FIRST activation, not from mint. While set with a NULL expires_at the key is DORMANT; the server stamps expires_at = activation + duration_days at the first successful activation (owner ruling 2026-09-03). NULL here = a plain dated key whose expires_at is fixed at mint.
+  expires_at   DATETIME        NULL,                    -- authoritative end (UTC). NULL = dormant: a duration key not yet activated. Set at mint for a dated key, at first activation for a duration key, at issue for a trial. A NULL value is treated everywhere as "not expired" (dormant), never as a missing/dead licence.
   created_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   revoked_at   DATETIME        NULL,                   -- set by bin/revoke.php; a revoked key reads as key_unknown
   notes        TEXT            NULL,
@@ -138,6 +139,7 @@ SELECT
   l.holder_name,
   l.holder_email,
   l.tier,
+  l.duration_days,
   l.expires_at,
   l.revoked_at,
   d.device_id,
