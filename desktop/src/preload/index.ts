@@ -239,6 +239,15 @@ contextBridge.exposeInMainWorld('electron', {
   onAppBackendFailed: (cb: () => void): (() => void) =>
     onMenuEvent('app:backend-failed', cb),
 
+  // Mid-session backend restart (H3(a)). ``onAppBackendRestarting`` fires when
+  // a backend that had been serving died and the main process is respawning it
+  // once; ``onAppBackendReady`` fires when the respawn is serving again. One-way
+  // fires — the renderer shows a transient "reconnecting" banner between them.
+  onAppBackendRestarting: (cb: () => void): (() => void) =>
+    onMenuEvent('app:backend-restarting', cb),
+  onAppBackendReady: (cb: () => void): (() => void) =>
+    onMenuEvent('app:backend-ready', cb),
+
   // Logs directory path — used by ErrorBoundary and BackendFailedModal
   // to show the user where to find backend.log.
   getLogsPath: (): Promise<string> =>
