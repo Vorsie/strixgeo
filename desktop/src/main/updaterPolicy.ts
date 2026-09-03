@@ -54,6 +54,30 @@ export function shouldAutoCheckOnLaunch(isPackaged: boolean): boolean {
 }
 
 /**
+ * Whether an update may be installed automatically when the app quits.
+ *
+ * ``electron-updater``'s ``autoInstallOnAppQuit`` swaps the downloaded installer
+ * in on the next quit with no further prompt. For an UNSIGNED build that is a
+ * silent replacement whose only trust is TLS to GitHub plus one publishing
+ * account — so it stays off until the code-signing cert lands (audit H6, debt
+ * #6). The renderer's "Install now" (``updater:quit-and-install``) remains the
+ * explicit path in the meantime.
+ *
+ * Parameters
+ * ----------
+ * isSigned : boolean
+ *     Whether this build is code-signed.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True only for a signed build.
+ */
+export function autoInstallOnQuit(isSigned: boolean): boolean {
+  return isSigned
+}
+
+/**
  * Reduce a raw ``UpdateInfo`` to the renderer-safe notice.
  *
  * Parameters
