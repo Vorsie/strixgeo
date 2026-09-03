@@ -126,6 +126,12 @@ export const CHROME = {
   'spine.selectionFooterAbbr': 'sel.',
   'shell.toolbar': 'Stage toolbar',
   'shell.inspector': 'Stage inspector',
+  // Per-stage crash card (audit M5) — a render error in one stage is contained
+  // to that stage's slot; the rest of the workspace keeps working.
+  'shell.stageError.title': 'This stage stopped working',
+  'shell.stageError.body':
+    'The other stages and your data are unaffected. Reset this stage to try again.',
+  'shell.stageError.reset': 'Reset stage',
 
   // -------------------------------------------------------------------------
   // common — count words + list joiners (one/many selected by the caller).
