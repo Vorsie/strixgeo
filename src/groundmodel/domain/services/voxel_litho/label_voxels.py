@@ -86,8 +86,17 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     LabelReport,
     SectionPartitionInput,
 )
+from groundmodel.shared.exceptions import BuildCancelled
 
 __all__ = ["label_voxels"]
+
+#: Upper bound on the number of per-column progress ticks a single build emits.
+#: The labelling loop reports once every ``max(1, nx // PROGRESS_TICK_TARGET)``
+#: x-columns (rows) plus a final tick, so a tall grid does not flood the SSE
+#: channel while a short one still ticks smoothly.  The cancel predicate, by
+#: contrast, is checked EVERY row — it is a cheap ``Event.is_set`` and must stay
+#: responsive.
+PROGRESS_TICK_TARGET = 200
 
 # Tolerance for "zero thickness / coincident elevation".  Mirrors the loft /
 # partition pipeline's EPS; intervals thinner than this are dropped.
@@ -1783,6 +1792,8 @@ def label_voxels(
     honor_radius_m: float = 0.0,
     measured_pinch: bool = False,
     reach_to_evidence: bool = True,
+    should_cancel: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> LabelGrid:
     """Label a regular 3-D voxel grid from the 2-D section partitions.
 
@@ -1860,6 +1871,22 @@ def label_voxels(
         exact / 0 wrong, contact-error p90 moves 0.123 → 0.125 m, triangles drop
         8.2 %, and 52,602 m3 goes void → filled with NOT ONE cell going the other way.
         Pass ``False`` to rebuild the old midline behaviour for comparison.
+    should_cancel : callable of () -> bool, or None, optional
+        Cooperative-cancel predicate, checked once per x-column (row) of the
+        grid.  When it returns ``True`` the loop stops at the next column and
+        raises :class:`~groundmodel.shared.exceptions.BuildCancelled` — the
+        caller (``BuildVoxelLithoModel``) then rolls its transaction back so a
+        cancelled build writes nothing.  ``None`` (the default) never cancels
+        and is byte-identical to the pre-#282 behaviour.  Kept framework-free: a
+        plain predicate, never a ``threading.Event`` — the application layer owns
+        the event and passes its ``.is_set`` here.
+    progress : callable of (done: int, total: int) -> None, or None, optional
+        Per-column progress reporter, called with the number of x-columns
+        finished and the total (``len(gx)``), throttled to ~:data:`
+        PROGRESS_TICK_TARGET` ticks plus a final ``(total, total)``.  ``None``
+        (the default) reports nothing.  Kept framework-free: it must not block
+        (the application-layer callback marshals onto an event loop and returns
+        at once).
 
     Returns
     -------
@@ -2066,7 +2093,18 @@ def label_voxels(
         for inv in investigation_columns
         if inv.intervals and min(base for _b, _f, _t, base in inv.intervals) < zmin - SNAP_GRID_M
     )
+    # Cancel is checked EVERY row (a cheap predicate must stay responsive);
+    # progress is emitted at most ~PROGRESS_TICK_TARGET times so a tall grid
+    # never floods the SSE channel.  Both are between-column boundaries — the
+    # inner Z fill of one column is never interrupted mid-write.
+    progress_stride = max(1, nx // PROGRESS_TICK_TARGET)
     for i in range(nx):
+        if should_cancel is not None and should_cancel():
+            raise BuildCancelled(
+                f"voxel labelling cancelled at column {i}/{nx} — nothing was written"
+            )
+        if progress is not None and i % progress_stride == 0:
+            progress(i, nx)
         x = float(gx[i])
         for j in range(ny):
             y = float(gy[j])
@@ -2113,6 +2151,11 @@ def label_voxels(
             # array actually written answers "does this column carry anything at all".
             if not np.any(labels[i, j, :] >= 0):
                 tally.empty_in_footprint_columns += 1
+
+    # Final tick so a progress bar reaches 100% rather than stalling on the last
+    # strided emit (which may have been several columns short of the end).
+    if progress is not None:
+        progress(nx, nx)
 
     body_id_by_index: tuple[str, ...] = tuple(
         bid for bid, _ in sorted(body_index.items(), key=lambda kv: kv[1])
