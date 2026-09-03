@@ -57,7 +57,16 @@ export interface AssembleInput {
   investigations: readonly SheetInvestigation[]
   cptPlots: ReadonlyMap<string, CptPlotResponse>
   boreholeDetails: ReadonlyMap<string, BoreholeDetailResponse>
-  units: readonly { id: string; name: string; color: string; display_order: number }[]
+  units: readonly {
+    id: string
+    name: string
+    color: string
+    display_order: number
+    /** Geotech formations carry the packing class; litho formations leave it null. */
+    nad_class?: number | null
+    /** The engineer's colour pick on the units pane, honoured on the geotech axis. */
+    color_override?: string | null
+  }[]
   basemapId: string
   settings: SheetSettings
 }
@@ -144,6 +153,11 @@ export function assembleSheetPayload(input: AssembleInput): SheetPayload {
       name: u.name,
       colour: u.color,
       displayOrder: u.display_order,
+      // Additive: only the geotech axis reads these (the sheet colours + labels
+      // a region by its packing class there). Litho formations carry a null
+      // class, which the drawing ignores in favour of the stored colour + name.
+      nadClass: u.nad_class ?? null,
+      colorOverride: u.color_override ?? null,
     })),
     levelMaxM,
     levelMinM,
