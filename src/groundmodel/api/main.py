@@ -265,17 +265,46 @@ class BodySizeLimitMiddleware:
 # projects/")`` and exfiltrate every CPT/borehole geometry the user has
 # imported (often NDA / defence-adjacent per the privacy framing in
 # CLAUDE.md "Distribution model"). Pin to the Electron renderer's origins:
-#  * dev: vite serves the renderer on localhost:5173 (electron-vite default)
 #  * prod: BrowserWindow ``loadFile()`` serves from file://, which fetch
-#    reports as ``Origin: null`` per the file-scheme rules
-# A wildcard regex covers any random port vite picks if 5173 is taken.
+#    reports as ``Origin: null`` per the file-scheme rules — allowed in EVERY
+#    environment because it is the packaged renderer's own origin.
+#  * dev: vite serves the renderer on localhost:5173 (electron-vite default);
+#    a wildcard regex covers any random port vite picks if 5173 is taken. This
+#    is a DEVELOPMENT-ONLY allowance — a packaged build has no dev server, and
+#    echoing ``http://localhost:<port>`` there would let a local web server
+#    read the loopback API. See ``_cors_origin_regex_for``.
 #
-# ``"null"`` is NOT exclusive to our window — a sandboxed iframe or a ``data:``
-# document on any site sends it too. LocalClientTokenMiddleware makes the
-# allowance safe: a null-origin request must carry the token the Electron main
-# process minted for this launch.
+# Neither origin is trustworthy on its own — ``"null"`` is sent by any
+# sandboxed iframe / ``data:`` document, and a bare ``http://localhost:<port>``
+# by any local page. LocalClientTokenMiddleware makes both allowances safe: a
+# request carrying ANY Origin must present the token the Electron main process
+# minted for this launch (injected on both the packaged and the dev renderer's
+# requests), so a hostile page can claim an origin but cannot prove it.
 _ALLOWED_ORIGINS = ["null"]
-_ALLOWED_ORIGIN_REGEX = r"^http://localhost(?::\d+)?$"
+_DEV_ALLOWED_ORIGIN_REGEX = r"^http://localhost(?::\d+)?$"
+
+
+def _cors_origin_regex_for(environment: str) -> str | None:
+    """Return the localhost CORS origin regex in development, ``None`` otherwise.
+
+    The Vite dev-server origin only exists while ``npm run dev`` is running; a
+    packaged build (``ENVIRONMENT=production``) serves the renderer from
+    ``file://`` and never needs it. Allowing localhost in production would let
+    any local web server read the loopback API, so the regex is gated on the
+    same development check the docs and SECRET_KEY validator use.
+
+    Parameters
+    ----------
+    environment : str
+        A deployment-environment token, e.g. ``settings.environment``.
+
+    Returns
+    -------
+    str | None
+        The dev-server origin regex in development; ``None`` in any other
+        environment.
+    """
+    return _DEV_ALLOWED_ORIGIN_REGEX if environment == "development" else None
 
 
 def _docs_enabled_for(environment: str) -> bool:
@@ -332,6 +361,11 @@ def create_app(environment: str | None = None) -> FastAPI:
     """
     env = settings.environment if environment is None else environment
     docs_enabled = _docs_enabled_for(env)
+    # Localhost (the Vite dev server) is a development-only CORS allowance; in a
+    # packaged build only the renderer's ``null`` origin is accepted. The same
+    # value feeds CORSMiddleware and the 500 handler so the error path can never
+    # echo an origin the real CORS policy rejects.
+    cors_origin_regex = _cors_origin_regex_for(env)
 
     app = FastAPI(
         title="Ground Model Platform",
@@ -354,7 +388,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_ALLOWED_ORIGINS,
-        allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
+        allow_origin_regex=cors_origin_regex,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -386,7 +420,7 @@ def create_app(environment: str | None = None) -> FastAPI:
         Exception,
         make_unhandled_error_handler(
             allowed_origins=_ALLOWED_ORIGINS,
-            allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
+            allowed_origin_regex=cors_origin_regex,
         ),
     )
 
