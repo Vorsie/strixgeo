@@ -30,7 +30,11 @@ from typing import Any, TypeVar
 import httpx
 
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
-from groundmodel.infrastructure.parsers.dov.dov_common import DOV_WGS84_TO_LAMBERT72
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    DOV_DOWNLOAD_PARALLELISM,
+    DOV_WGS84_TO_LAMBERT72,
+)
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -76,6 +80,12 @@ class DovGrainSizeClient(DovWfsClientBase[GrainSizeWfsRow]):
         rooted under ``observatie/`` so permkeys never collide with
         sondering / boring / interpretation permkeys (DOV's
         ``YYYY-NNNNNN`` permkey format isn't unique across resource types).
+    backoff : DovRateLimitState | None
+        Optional per-import rate-limit state shared with the other borehole
+        sub-clients. When supplied, WFS discovery honours it (via the base
+        class) and the download phase runs at ``backoff.parallelism`` slots, so
+        a 429 seen anywhere in the import halves this phase's concurrency once.
+        ``None`` keeps the retry with a fixed ``DOV_DOWNLOAD_PARALLELISM``.
     """
 
     # Debt #15: WFS layer + label + CQL filter declared as class
@@ -86,9 +96,14 @@ class DovGrainSizeClient(DovWfsClientBase[GrainSizeWfsRow]):
     LAYER_LABEL = "grain-size"
     CQL_FILTER = _GRAIN_SIZE_PARAMETERGROEP_FILTER
 
-    def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        cache: DovXmlCache | None = None,
+        backoff: DovRateLimitState | None = None,
+    ) -> None:
         """Initialise with the shared HTTP client and optional cache."""
-        super().__init__(http)
+        super().__init__(http, backoff=backoff)
         self._cache = cache
 
     async def fetch_bbox_processed(
@@ -150,6 +165,11 @@ class DovGrainSizeClient(DovWfsClientBase[GrainSizeWfsRow]):
                 f"DOV grain-size WFS: filtered {before} → {len(rows)} rows by parent sample "
                 f"(limit set: {len(parent_permkeys)} samples)"
             )
+        # Effective parallelism reflects any 429 seen during WFS discovery
+        # (above) — a rate-limited import backs off its own concurrency.
+        effective_parallelism = (
+            self._backoff.parallelism if self._backoff is not None else DOV_DOWNLOAD_PARALLELISM
+        )
         return await parallel_download_and_process(
             http=self._http,
             cache=self._cache,
@@ -160,6 +180,8 @@ class DovGrainSizeClient(DovWfsClientBase[GrainSizeWfsRow]):
             label="DOV grain-size",
             logger=self,
             error_id_of=lambda r: f"'{r.permkey}' (sample '{r.parent_sample_permkey}')",
+            parallelism=effective_parallelism,
+            backoff=self._backoff,
         )
 
     # ------------------------------------------------------------------
