@@ -30,6 +30,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { useGeologicalModel } from './useGeologicalModel'
 import type { GeologicalModelResponse, ProjectResponse } from '../api/client'
+import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -261,5 +262,58 @@ describe('geotech build — the units-pane roster re-read (debt #278 dogfeed)', 
     })
 
     expect(result.current.geotechBodyRosterRefetchNonce ?? 0).toBe(before)
+  })
+
+  // debt #282 parity: the geotech Build now runs as a streaming background job.
+  // Its `done` handling must refresh EVERYTHING the synchronous path refreshed —
+  // including the units-pane roster re-read (GBR1) — or the healed litho-parent
+  // links stay hidden until a manual reload, exactly the bug the sync path fixed.
+  it('GBR4 — a completed STREAMING geotech build also bumps the roster nonce', async () => {
+    const encoder = new TextEncoder()
+    const sseDone = {
+      ok: true,
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: 'done',
+                bodies_built: 1,
+                bodies_flagged: 0,
+                solids: [],
+                gapless_report: null,
+              })}\n\n`,
+            ),
+          )
+          controller.close()
+        },
+      }),
+    } as unknown as Response
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ job_id: 'job-g1' }),
+      } as unknown as Response)
+      .mockResolvedValueOnce(sseDone)
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const { result } = await bootHook()
+      const before = result.current.geotechBodyRosterRefetchNonce ?? 0
+
+      await act(async () => {
+        await result.current.startGeotechBuild?.(
+          () => Promise.resolve({ sections: [{}], grid_spacing_m: 2 } as unknown as VoxelBuildRequest),
+        )
+      })
+
+      await waitFor(() =>
+        expect(result.current.geotechBodyRosterRefetchNonce ?? 0).toBe(before + 1),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
