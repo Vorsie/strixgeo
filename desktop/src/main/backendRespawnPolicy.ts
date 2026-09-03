@@ -25,6 +25,12 @@ export const BACKEND_RESPAWN_GUARD_MS = 60_000
 /** What to do about a backend exit that happened after readiness. */
 export type BackendExitAction = 'respawn' | 'give-up'
 
+/** ``BackendExitAction`` plus ``'ignore'`` — the port is still served. */
+export type ExitAfterReadyAction = BackendExitAction | 'ignore'
+
+/** The probe verdicts ``decideExitAfterReady`` understands (see backendProbe.ts). */
+export type PortVerdict = 'reachable' | 'foreign' | 'unreachable'
+
 /**
  * Decide whether to respawn the backend.
  *
@@ -53,4 +59,45 @@ export function decideBackendRespawn(
     return 'give-up'
   }
   return 'respawn'
+}
+
+/**
+ * Decide what a backend exit AFTER readiness means, given a fresh port probe.
+ *
+ * Readiness is confirmed by probing ``:8765``, not by watching our child — so
+ * when an EXTERNAL backend owns the port (the dev session's own uvicorn, the
+ * e2e harness), our child loses the bind and exits after the app already
+ * marked the backend ready. That exit is not a crash: the API is alive.
+ * Respawning would spawn a second loser, and the crash-loop guard would then
+ * give up with the fatal modal while every request still succeeds (the e2e
+ * sweep of 2026-09-03 lost 40 UI specs to exactly this).
+ *
+ * Parameters
+ * ----------
+ * verdict : PortVerdict
+ *     The probe of ``:8765`` taken right after the exit: ``'reachable'`` when a
+ *     backend still answers 2xx; ``'foreign'`` when a packaged probe was refused
+ *     (a stale token — adopting it would 403 forever); ``'unreachable'``
+ *     otherwise.
+ * lastRespawnAtMs : number | null
+ *     When the backend was last respawned this session, or ``null``.
+ * nowMs : number
+ *     The current time.
+ * guardWindowMs : number
+ *     The crash-loop window handed to :func:`decideBackendRespawn`.
+ *
+ * Returns
+ * -------
+ * ExitAfterReadyAction
+ *     ``'ignore'`` while the port still answers; otherwise the respawn policy's
+ *     ``'respawn'`` / ``'give-up'``.
+ */
+export function decideExitAfterReady(
+  verdict: PortVerdict,
+  lastRespawnAtMs: number | null,
+  nowMs: number,
+  guardWindowMs: number,
+): ExitAfterReadyAction {
+  if (verdict === 'reachable') return 'ignore'
+  return decideBackendRespawn(lastRespawnAtMs, nowMs, guardWindowMs)
 }
