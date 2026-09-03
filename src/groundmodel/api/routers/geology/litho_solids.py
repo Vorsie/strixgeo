@@ -558,7 +558,9 @@ async def _run_voxel_build_job(
                 }
             )
         except Exception as exc:  # noqa: BLE001 — a background task must report, never crash
-            logger.error(
+            # The traceback matters here: a background job has no request to
+            # surface it on, and the terminal event carries only the message.
+            logger.exception(
                 f"build_voxel_job unexpected error: project={project_id} model={model_id} — "
                 f"{type(exc).__name__}: {exc}"
             )
