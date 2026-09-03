@@ -11,6 +11,7 @@ import {
 import { computeSheetGeometry, type SheetGeometry } from './sheetGeometry'
 import type { SheetPayload } from './sheetPayload'
 import { TitleBlock } from './TitleBlock'
+import { unitLegendEntries } from './unitStyle'
 
 export function sheetGeometryOf(payload: SheetPayload): SheetGeometry {
   const s = payload.settings
@@ -31,7 +32,7 @@ export function SectionSheet({ payload, map }: { payload: SheetPayload; map: Rea
   const lang = payload.language
   const t = (key: MessageKey, params?: MessageParams): string => translate(lang, key, params)
   const g = sheetGeometryOf(payload)
-  const units = [...payload.units].filter(u => payload.regions.some(r => r.formation_id === u.formationId)).sort((a, b) => a.displayOrder - b.displayOrder)
+  const legendRows = unitLegendEntries(payload)
   const ink = '#1f2933'
   return (
     <div
@@ -45,9 +46,9 @@ export function SectionSheet({ payload, map }: { payload: SheetPayload; map: Rea
       </div>
       {/* unit legend */}
       <div data-testid="sheet-unit-legend" style={{ position: 'absolute', left: `${g.drawingLeftMm}mm`, width: `${g.drawingWidthMm}mm`, bottom: `${MARGIN_MM}mm`, height: `${UNIT_LEGEND_MM}mm`, display: 'flex', flexWrap: 'wrap', gap: '1mm 4mm', alignContent: 'center', fontSize: '8pt' }}>
-        {units.map(u => (
-          <span key={u.formationId} style={{ display: 'inline-flex', alignItems: 'center', gap: '1.5mm' }}>
-            <i style={{ width: '5mm', height: '3mm', background: u.colour, border: `0.3pt solid ${ink}` }} />{u.name}
+        {legendRows.map(e => (
+          <span key={e.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '1.5mm' }}>
+            <i style={{ width: '5mm', height: '3mm', background: e.colour, border: `0.3pt solid ${ink}` }} />{e.label}
           </span>
         ))}
       </div>
