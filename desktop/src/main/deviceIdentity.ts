@@ -50,6 +50,7 @@
  * is the thin impure reader.
  */
 
+import { execFileSync } from 'child_process'
 import { createHash } from 'crypto'
 import { arch, cpus, hostname, platform, totalmem } from 'os'
 
@@ -133,13 +134,79 @@ export function computeDeviceIdentity(inputs: DeviceIdentityInputs): DeviceIdent
 }
 
 /**
- * Read the machine facts from the current process. Impure (touches ``os``).
+ * Extract the ``MachineGuid`` value from ``reg query`` output. Pure.
+ *
+ * ``reg query HKLM\SOFTWARE\Microsoft\Cryptography /v MachineGuid`` prints, among
+ * blank lines, one line of the form ``    MachineGuid    REG_SZ    <guid>``. This
+ * pulls the value token out of that line, whitespace-tolerant, and returns
+ * ``null`` when the value is absent (a different OS, a locked-down box, an
+ * unexpected format) so the caller falls back to the hardware hash.
+ *
+ * Parameters
+ * ----------
+ * stdout : string
+ *     The captured standard output of the ``reg query`` call.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     The GUID string, or ``null`` when no ``MachineGuid`` line is present.
+ */
+export function parseMachineGuidFromRegQuery(stdout: string): string | null {
+  for (const line of stdout.split(/\r?\n/)) {
+    // REG_SZ is the value type; the GUID is the last whitespace-separated token.
+    const match = line.match(/MachineGuid\s+REG_SZ\s+(\S+)/i)
+    if (match) {
+      const guid = match[1].trim()
+      return guid || null
+    }
+  }
+  return null
+}
+
+/**
+ * Read the Windows ``MachineGuid`` from the registry, best-effort. Impure.
+ *
+ * The GUID is written once at OS install and is stable for the life of the
+ * installation — the strongest per-machine discriminator available without a
+ * native dependency, and the value that breaks the identical-hardware collision
+ * two office laptops of the same model would otherwise hit (owner ruling 15: one
+ * device per Solo seat). Reading it shells out to ``reg`` (a dependency-free path
+ * on every Windows since XP); any failure — a non-Windows OS, a policy-locked
+ * registry, a timeout — returns ``null`` and the id falls back to the hardware
+ * hash, exactly the previous behaviour.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     The machine GUID on Windows when readable; ``null`` otherwise.
+ */
+export function collectWindowsMachineGuid(): string | null {
+  if (platform() !== 'win32') return null
+  try {
+    const stdout = execFileSync(
+      'reg',
+      ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
+      // A short timeout so a wedged registry never stalls launch; hide the console
+      // window a GUI Electron app would otherwise flash.
+      { encoding: 'utf8', timeout: 2000, windowsHide: true },
+    )
+    return parseMachineGuidFromRegQuery(stdout)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read the machine facts from the current process. Impure (touches ``os`` and,
+ * on Windows, the registry via {@link collectWindowsMachineGuid}).
  *
  * Returns
  * -------
  * DeviceIdentityInputs
- *     The live machine facts. ``machineId`` is ``null`` — see the module note on
- *     wiring the OS machine GUID here for true uniqueness.
+ *     The live machine facts. ``machineId`` is the Windows ``MachineGuid`` when
+ *     readable (it dominates the hash, eliminating the identical-hardware
+ *     collision), else ``null`` (→ the hardware-only hash).
  */
 export function collectDeviceIdentityInputs(): DeviceIdentityInputs {
   return {
@@ -148,7 +215,7 @@ export function collectDeviceIdentityInputs(): DeviceIdentityInputs {
     arch: arch(),
     cpuModel: cpus()[0]?.model ?? 'unknown-cpu',
     totalMemoryBytes: totalmem(),
-    machineId: null,
+    machineId: collectWindowsMachineGuid(),
   }
 }
 
