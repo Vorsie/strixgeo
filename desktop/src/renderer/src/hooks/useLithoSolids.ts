@@ -21,6 +21,9 @@ import type { GaplessBuildReport } from '../utils/gaplessGate/types'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
+import { applyVoxelBuildResult } from './applyVoxelBuildResult'
+import { useVoxelBuildStream } from './useVoxelBuildStream'
+import type { VoxelBuildState } from './useVoxelBuildStream'
 
 // ---------------------------------------------------------------------------
 // Failure copy
@@ -120,6 +123,20 @@ export interface UseLithoSolidsResult {
     voxelRequestBuilder?: () => Promise<VoxelBuildRequest | null>,
   ) => Promise<void>
   /**
+   * Build via a BACKGROUND JOB that streams phase + per-column progress and can
+   * be cancelled (debt #282). Same payload assembly + guards as
+   * ``buildLithoSolids``; the outcome is applied identically. While it runs,
+   * ``voxelBuildState.status === 'running'`` and the toolbar shows a progress bar
+   * + Cancel in place of the Build button.
+   */
+  startLithoBuild: (
+    voxelRequestBuilder?: () => Promise<VoxelBuildRequest | null>,
+  ) => Promise<void>
+  /** Ask the running streaming build to stop; the model is left unchanged. */
+  cancelLithoBuild: () => void
+  /** Live state of the streaming build (idle / running / done / cancelled / error). */
+  voxelBuildState: VoxelBuildState
+  /**
    * Set or clear a per-body display colour.
    *
    * ``null`` resets to the formation's lithology colour.  Optimistic update
@@ -203,6 +220,20 @@ export function useLithoSolids(
   const [building, setBuilding] = useState(false)
   const [refetchNonce, setRefetchNonce] = useState(0)
   const [gaplessReport, setGaplessReport] = useState<GaplessBuildReport | null>(null)
+
+  // Streaming build (debt #282): the background-job path that reports phase +
+  // per-column progress and can be cancelled. Declared unconditionally at the
+  // top so hook order is stable across every render.
+  const {
+    state: voxelBuildState,
+    start: startVoxelBuildStream,
+    cancel: cancelVoxelBuildStream,
+    reset: resetVoxelBuildStream,
+  } = useVoxelBuildStream()
+  // Shadow ref so the build trigger can guard "already running" without listing
+  // the live state in its dep array (which would re-identify it each tick).
+  const voxelBuildStateRef = useRef(voxelBuildState)
+  voxelBuildStateRef.current = voxelBuildState
 
   // -------------------------------------------------------------------------
   // Fetch — runs whenever project / model changes, or after a build.
@@ -307,103 +338,10 @@ export function useLithoSolids(
         }
 
         const result = await api.geology.buildVoxelLithoModel(projectId, lithoModelId, request)
-        log.success(
-          'useLithoSolids',
-          `built ${result.bodies_built} voxel body solid(s), flagged=${result.bodies_flagged}`,
-        )
-        // Build response already carries the updated solids list — apply
-        // directly.  No nonce bump needed: the fetch effect re-runs only when
-        // the nonce changes, and re-fetching here would overwrite identical data
-        // with an extra round-trip.
-        setSolids(result.solids)
-        // The verdict belongs to THESE solids, so it lands with them. A
-        // response with no report clears the previous one rather than leaving
-        // it standing: a stale verdict beside a fresh model is worse than no
-        // verdict, because it reads as a guarantee about ground it never saw.
-        setGaplessReport(result.gapless_report ?? null)
-        if (result.gapless_report) {
-          const failed = result.gapless_report.clauses.filter(c => c.status === 'fail')
-          const unmeasured = result.gapless_report.clauses.filter(
-            c => c.status === 'not-evaluated',
-          )
-          const line =
-            `gapless gate: ${result.gapless_report.verdict} ` +
-            `(${failed.length} failed, ${unmeasured.length} not evaluated)`
-          // The gate fails the REPORT, never the build — so a failed verdict is
-          // a warning beside a successful build, not an error.
-          if (result.gapless_report.verdict === 'pass') log.info('useLithoSolids', line)
-          else log.warn('useLithoSolids', `${line} — ${failed.map(c => c.title).join('; ')}`)
-        } else {
-          log.warn(
-            'useLithoSolids',
-            'build returned no gapless report — the model carries no verdict for this build',
-          )
-        }
-        // A build is an unsaved change like any other. ``litho_solids`` rides in the
-        // .strix bundle, so building genuinely changes what a save would write — and
-        // the close prompt gates on the project's dirty flag. Without this the build
-        // fell out of the save story entirely: no prompt on close, and nothing to
-        // discard against (owner, 2026-08-10).
-        //
-        // AFTER the call lands, never before: a refused build changes nothing, and
-        // marking it dirty would make every failed attempt look like an edit.
-        onMutated?.()
-
-        const builtMsg = t('litho.builtBodies', {
-          n: result.bodies_built,
-          bodyWord: result.bodies_built === 1 ? t('litho.bodyWordOne') : t('litho.bodyWordMany'),
-        })
-        // A build that produced NOTHING also cleared the stored 3-D model — the
-        // backend's empty path orphan-deletes every solid row and commits. Its
-        // counts are identical to a happy build of zero bodies, so without the
-        // reason the only reading available here was a green "Built 0 bodies"
-        // over a model that had just been erased. Say what happened instead.
-        if (result.empty_reason) {
-          log.warn('useLithoSolids', `build produced nothing: ${result.empty_reason}`)
-          toast('warning', t('litho.nothingCouldBeBuilt', { reason: result.empty_reason }))
-          return
-        }
-        // Severity is DERIVED from what the build reported, not fixed at
-        // 'success': a build that modelled only part of the project succeeded
-        // technically and failed the engineer.  ``uncovered_test_ids`` is the
-        // harder of the two — those investigations have no 3-D model at all —
-        // so it leads the message.
-        const uncovered = result.uncovered_test_ids ?? []
-        const problems: string[] = []
-        if (uncovered.length > 0) {
-          const named = uncovered.slice(0, 3).join(', ')
-          const rest =
-            uncovered.length > 3 ? t('litho.moreCount', { n: uncovered.length - 3 }) : ''
-          problems.push(
-            t('litho.uncoveredInvestigations', {
-              n: uncovered.length,
-              investigationWord:
-                uncovered.length === 1
-                  ? t('litho.investigationWordOne')
-                  : t('litho.investigationWordMany'),
-              named,
-              rest,
-            }),
-          )
-          log.warn(
-            'useLithoSolids',
-            `build left ${uncovered.length} investigation(s) outside the footprint: ${uncovered.join(', ')}`,
-          )
-        }
-        if (result.bodies_flagged > 0) {
-          problems.push(
-            t('litho.underConstrainedBodies', {
-              n: result.bodies_flagged,
-              bodyWord:
-                result.bodies_flagged === 1 ? t('litho.bodyWordOne') : t('litho.bodyWordMany'),
-            }),
-          )
-        }
-        if (problems.length > 0) {
-          toast('warning', `${builtMsg} — ${problems.join('; ')}`)
-        } else {
-          toast('success', builtMsg)
-        }
+        // Refresh solids + verdict, mark dirty, and toast — the SAME apply the
+        // streaming build path (``useVoxelBuildStream``) runs on its `done`
+        // event, so both paths land identically (debt #282).
+        applyVoxelBuildResult(result, { setSolids, setGaplessReport, toast, onMutated })
       } catch (err) {
         log.error('useLithoSolids', 'build voxel solids failed', err)
         toast('error', buildFailureMessage(err))
@@ -413,6 +351,68 @@ export function useLithoSolids(
     },
     [projectId, lithoModelId, toast],
   )
+
+  // -------------------------------------------------------------------------
+  // Streaming build (debt #282): Build → background job with progress + cancel.
+  //
+  // Same assembly + guards as ``buildLithoSolids`` (nothing-to-build toasts, the
+  // canvas-assembled payload), then hand off to the SSE hook. The terminal
+  // states are applied by the effect below so the done/cancelled/error handling
+  // lives in one place regardless of which render the transition lands on.
+  // -------------------------------------------------------------------------
+
+  const startLithoBuild = useCallback(
+    async (
+      voxelRequestBuilder?: () => Promise<VoxelBuildRequest | null>,
+    ): Promise<void> => {
+      if (!projectId || !lithoModelId) return
+      if (voxelBuildStateRef.current.status === 'running') return
+
+      if (!voxelRequestBuilder) {
+        toast('warning', t('litho.nothingToBuildYet'))
+        return
+      }
+      let request: VoxelBuildRequest | null
+      try {
+        request = await voxelRequestBuilder()
+      } catch (err) {
+        // Input assembly failed (a section correlation / boundary fetch) —
+        // surface it exactly as the synchronous path does, before any job runs.
+        log.error('useLithoSolids', 'streaming build input assembly failed', err)
+        toast('error', buildFailureMessage(err))
+        return
+      }
+      if (!request || request.sections.length === 0) {
+        toast('warning', t('litho.nothingToBuild'))
+        return
+      }
+      log.info('useLithoSolids', `starting streaming build model=${lithoModelId}`)
+      startVoxelBuildStream({ projectId, modelId: lithoModelId, request })
+    },
+    [projectId, lithoModelId, toast, startVoxelBuildStream],
+  )
+
+  // Apply the terminal state once, then reset to idle so the Build button
+  // reverts. Reset → idle means this effect cannot double-apply the same result.
+  useEffect(() => {
+    if (voxelBuildState.status === 'done') {
+      applyVoxelBuildResult(voxelBuildState.result, {
+        setSolids,
+        setGaplessReport,
+        toast,
+        onMutated,
+      })
+      resetVoxelBuildStream()
+    } else if (voxelBuildState.status === 'cancelled') {
+      log.info('useLithoSolids', 'streaming build cancelled — model left unchanged')
+      toast('warning', t('litho.buildCancelled'))
+      resetVoxelBuildStream()
+    } else if (voxelBuildState.status === 'error') {
+      log.error('useLithoSolids', `streaming build failed: ${voxelBuildState.message}`)
+      toast('error', voxelBuildState.message)
+      resetVoxelBuildStream()
+    }
+  }, [voxelBuildState, resetVoxelBuildStream, toast, onMutated])
 
   // -------------------------------------------------------------------------
   // Per-body colour — optimistic + debounced
@@ -471,6 +471,9 @@ export function useLithoSolids(
     hasLithoSolids,
     hasStaleLithoSolid,
     buildLithoSolids,
+    startLithoBuild,
+    cancelLithoBuild: cancelVoxelBuildStream,
+    voxelBuildState,
     setBodyColor,
     hideMarkers,
     setHideMarkers,
