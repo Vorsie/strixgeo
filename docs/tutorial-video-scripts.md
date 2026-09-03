@@ -86,12 +86,23 @@ and model lives inside this project. It is all saved with the project."
 NL: "Klik op Project aanmaken om het te openen. Vanaf hier leeft elke sondering,
 boring, dwarsprofiel en model in dit project. Alles wordt mee opgeslagen."
 
-**Shot 3 — Set the coordinate system.**
-On screen: the horizontal-CRS field in the project metadata
+**Shot 3 — Open the project settings.**
+On screen: the project-name button in the shell toolbar (`project-metadata-open`).
+<!-- CHECK: exact project-name button + dialog title -->
+Action: click the project name at the top of the window. The project settings
+dialog opens; the coordinate system and vertical datum live inside it.
+EN: "Your coordinate system and vertical datum live in the project settings.
+Click the project name at the top of the window to open them — the same panel
+where you add the client, site and tags later."
+NL: "Je coordinatensysteem en hoogtereferentievlak vind je bij de
+projectgegevens. Klik op de projectnaam bovenaan het venster om ze te openen —
+hetzelfde paneel waar je later de opdrachtgever, locatie en labels toevoegt."
+
+**Shot 4 — Set the coordinate system.**
+On screen: the horizontal-CRS field in the project settings dialog
 (`project-crs-horizontal`).
-<!-- CHECK: exact field label and where project metadata opens -->
-Action: open the project metadata. Choose Lambert 72 (EPSG 31370) for the Brugge
-site.
+<!-- CHECK: exact field label -->
+Action: choose Lambert 72 (EPSG 31370) for the Brugge site.
 EN: "Open the project metadata and choose the horizontal coordinate system. Use
 Lambert 72, EPSG 31370, for Belgium. Use RD New, EPSG 28992, for the Netherlands.
 It must match how your data was surveyed, or every location lands in the wrong
@@ -101,7 +112,7 @@ Lambert 72, EPSG 31370, voor Belgie. Gebruik RD New, EPSG 28992, voor Nederland.
 Het moet overeenkomen met hoe je data is ingemeten, anders belandt elke locatie
 op de verkeerde plek."
 
-**Shot 4 — Set the vertical datum.**
+**Shot 5 — Set the vertical datum.**
 On screen: the vertical-datum field (`project-crs-vertical`).
 <!-- CHECK: exact field label -->
 Action: choose TAW for the Belgian site.
@@ -231,11 +242,13 @@ the section header and inspector does.
 On screen: the create-section control (`section-create`).
 <!-- CHECK: exact create-section label -->
 Action: create a section. Draw the line through the soundings you want to
-correlate.
+correlate. Then double-click a column to open its per-test detail view.
 EN: "A cross-section is where you build and edit all three models. Create your
-first one. Draw the line through the investigations you want to correlate."
+first one. Draw the line through the investigations you want to correlate. Once
+it opens, double-click any column to read that test in full detail."
 NL: "Een dwarsprofiel is waar je alle drie de modellen bouwt en bewerkt. Maak je
-eerste aan. Teken de lijn door de onderzoeken die je wilt correleren."
+eerste aan. Teken de lijn door de onderzoeken die je wilt correleren. Zodra het
+opent, dubbelklik een kolom om die proef in detail te bekijken."
 
 **Shot 2 — Projection buffer.**
 On screen: the projection-buffer control (`section-control-buffer`).
@@ -267,8 +280,8 @@ EN: "Ground is far wider than it is deep, so thin layers vanish at true scale.
 Vertical exaggeration stretches the depth axis to make them readable. Only the
 drawing is stretched. The numbers stay real."
 NL: "De ondergrond is veel breder dan diep, dus dunne lagen verdwijnen op ware
-schaal. Verticale overhoging rekt de diepteas uit om ze leesbaar te maken. Enkel
-de tekening wordt uitgerekt. De getallen blijven echt."
+schaal. Verticale overdrijving rekt de diepteas uit om ze leesbaar te maken.
+Enkel de tekening wordt uitgerekt. De getallen blijven echt."
 
 **Shot 5 — CPT data channels.**
 On screen: the channel toggles, qc first (`section-control-channel-qc`).
@@ -280,15 +293,18 @@ NL: "Schakel de CPT-curven, qc, Rf, fs, u2 en qT, om enkel te tonen wat je
 afleest. Minder kanalen geeft een overzichtelijkere kolom bij het correleren van
 lagen."
 
-**Shot 6 — Borehole streams.**
-On screen: the borehole-stream toggle (`section-control-borehole-geo`).
-<!-- CHECK: exact stream-toggle labels -->
-Action: turn a borehole stream on and off. Show the strip appear next to the CPTs.
-EN: "Boreholes can show more than one interpretation stream side by side. Turn
-each one on or off. Every enabled stream draws as its own strip next to the CPTs."
-NL: "Boringen kunnen meerdere interpretatiestromen naast elkaar tonen. Zet elke
-stroom aan of uit. Elke actieve stroom tekent als een eigen strook naast de
-sonderingen."
+**Shot 6 — Borehole interpretation streams.**
+On screen: the borehole-stream toggles, Geo first (`section-control-borehole-geotech`).
+<!-- CHECK: exact stream-toggle labels (Geo / F-Strat / I-Strat) -->
+Action: toggle Geo, F-Strat and I-Strat. Show each strip appear next to the borehole.
+EN: "A borehole can carry several interpretation streams. Toggle Geo, the
+geotechnical coding, F-Strat, the formal stratigraphy, and I-Strat, the informal
+stratigraphy, next to the CPT channels. Each stream you turn on draws as its own
+strip beside the borehole. Geo is on by default."
+NL: "Een boring kan meerdere interpretatiestromen dragen. Schakel Geo, de
+geotechnische codering, F-Strat, de formele stratigrafie, en I-Strat, de
+informele stratigrafie, naast de sondeerkanalen. Elke stroom die je aanzet,
+tekent als een eigen strook naast de boring. Geo staat standaard aan."
 
 **Shot 7 — Model axis.**
 On screen: the axis tabs, Geology first (`axis-geology`).
@@ -328,7 +344,7 @@ Action: reopen the section to show the framing returned. Then click Reset.
 EN: "Every setting here, buffer, spacing, exaggeration, channels, and snap, saves
 to this section on its own. Reopen it and the framing is exactly as you left it.
 Reset returns the default view."
-NL: "Elke instelling hier, buffer, afstand, overhoging, kanalen en snap, wordt
+NL: "Elke instelling hier, buffer, afstand, overdrijving, kanalen en snap, wordt
 vanzelf bij dit dwarsprofiel bewaard. Heropen het en de kadrering staat exact
 zoals je ze achterliet. Reset zet de standaardweergave terug."
 
@@ -356,14 +372,16 @@ NL: "Het geologisch model is de ruggengraat. Het bevat de formaties en de vlakke
 ertussen, de regionale lagen onder je hele terrein."
 <!-- DRAFT: owner to confirm -->
 
-**Shot 2 — Seed from boreholes.**
-On screen: the seed control in the section inspector (`inspector-seed`).
-<!-- CHECK: exact seed-control label -->
-Action: seed the model. Show the first formation contacts appear on the borehole
+**Shot 2 — Fill from boreholes.**
+On screen: the seed/fill control in the section inspector (`inspector-seed`).
+<!-- CHECK: the on-screen button still reads "Seed"/"Zaaien"; the tutorial names
+     the step "Fill from boreholes"/"Vullen vanuit boringen" (owner 2026-09-03).
+     Confirm whether to rename the app button too before recording. -->
+Action: fill the model. Show the first formation contacts appear on the borehole
 columns.
-EN: "Seed the model's first contacts from your boreholes. StrixGeo reads the
+EN: "Fill the model's first contacts from your boreholes. This button reads the
 formation tops the boreholes log and places a contact at each one."
-NL: "Zaai de eerste contacten van het model vanuit je boringen. StrixGeo leest de
+NL: "Vul de eerste contacten van het model vanuit je boringen. Deze knop leest de
 formatietoppen die de boringen loggen en plaatst een contact op elke top."
 <!-- DRAFT: owner to confirm -->
 
@@ -380,14 +398,27 @@ Van hieruit bereiken de afgeleide contacten ook de sonderingskolommen, zodat het
 profiel als een geheel leest."
 <!-- DRAFT: owner to confirm -->
 
-**Shot 4 — Build the surfaces.**
+**Shot 4 — Draw a second cross-section.**
+On screen: the create-section control (`section-create`).
+Action: draw a second cross-section across the site before building the surfaces.
+EN: "Before you build the surfaces, draw a second cross-section across the site.
+One line gives each surface a single profile; a second line gives it the 3-D data
+to interpolate between."
+NL: "Voor je de vlakken bouwt, teken je een tweede dwarsprofiel over het terrein.
+Een lijn geeft elk vlak maar een doorsnede; een tweede lijn geeft het de
+3D-gegevens om ertussen te interpoleren."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 5 — Build the surfaces.**
 On screen: the build control in the section inspector (`inspector-build`).
 <!-- CHECK: exact build-control label -->
-Action: rebuild the surfaces. Point out the crossing check.
-EN: "Rebuild the formation surfaces from the contacts. Then check where any two
-surfaces cross, because a valid model keeps its formations in order."
-NL: "Herbouw de formatievlakken vanuit de contacten. Controleer daarna waar twee
-vlakken elkaar kruisen, want een geldig model houdt zijn formaties op volgorde."
+Action: build the surfaces. Point out the crossing check.
+EN: "Build the formation surfaces from the contacts. StrixGeo fits one surface
+through each formation top. Then check the crossings the validator reports,
+because the formations have to stay in order for the model to be valid."
+NL: "Bouw de formatievlakken vanuit de contacten. StrixGeo legt een vlak door
+elke formatietop. Controleer daarna de kruisingen die de validatie meldt, want de
+formaties moeten op volgorde blijven om het model geldig te houden."
 <!-- DRAFT: owner to confirm -->
 
 **Closing:** "The backbone is in place. Next, we refine it into lithological
@@ -414,7 +445,27 @@ eenheden langs je profielen. Denk aan zand, klei, silt, grind en veen, met hun
 bijmengingen."
 <!-- DRAFT: owner to confirm -->
 
-**Shot 2 — Accept the suggestions.**
+**Shot 2 — Create a lithological model.**
+On screen: the model-kind picker in the lithology inspector (`model-kind-picker`).
+<!-- CHECK: exact create-model control label -->
+Action: create the litho model and give it a name.
+EN: "The litho model is a separate ground-model axis under the geological one.
+Create it first. Until it exists there is nothing to pick litho contacts onto."
+NL: "Het lithomodel is een aparte grondmodel-as onder het geologische. Maak het
+eerst aan. Zolang het niet bestaat, is er niets om litholaaggrenzen op te kiezen."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 3 — Switch to the litho axis.**
+On screen: the axis tabs, Litho (`axis-litho`).
+<!-- CHECK: exact axis-tab label -->
+Action: open a cross-section and switch its axis to Litho.
+EN: "Open a cross-section and switch its axis to Litho. The same section now
+edits the litho model instead of the geology."
+NL: "Open een dwarsprofiel en zet de as op Litho. Hetzelfde profiel bewerkt nu
+het lithomodel in plaats van de geologie."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 4 — Accept the suggestions.**
 On screen: the Lithology stage, segmenter suggestions on a column
 (`stage-tab-lithology`).
 <!-- CHECK: exact Accept control for a segmenter suggestion -->
@@ -428,14 +479,52 @@ wat je ziet. Dit is ondersteund werk, geen automatische correlatie. Jij houdt
 elke laag in de hand."
 <!-- DRAFT: owner to confirm -->
 
-**Shot 3 — Build the litho bodies.**
+**Shot 5 — Merge and adjust layers.**
+On screen: a litho layer on a column, litho axis (`axis-litho`).
+<!-- CHECK: the litho-layer canvas gestures (see sections.hints.lithoLayer) -->
+Action: drag a boundary; Shift-drag past a neighbour's midpoint to absorb it;
+Alt-drag to copy a composition; right-click a layer for "Merge layers".
+EN: "Accepted layers are yours to refine. Drag a boundary to move it. Shift-drag
+past the neighbour's midpoint to absorb it. Alt-drag copies a layer's composition
+onto another column. Right-click a layer for Merge layers and more."
+NL: "Aanvaarde lagen kan je verfijnen. Sleep een grens om ze te verplaatsen.
+Shift-slepen voorbij het midden van de buur neemt die op. Alt-slepen kopieert de
+samenstelling naar een andere kolom. Rechtsklik een laag voor Lagen samenvoegen en meer."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 6 — Correlate the layers.**
+On screen: the Correlate control at the top of the litho toolbar (`correlate-mode`).
+<!-- CHECK: exact Correlate + Auto-correlate labels -->
+Action: correlate a layer on one column to the same layer on the next; then run
+Auto-correlate.
+EN: "Before you build, correlate a layer on one column to the same layer on the
+next, so the model knows they are one body. Correlate arms the two-click gesture.
+Auto-correlate proposes the ties across the whole model for you to accept."
+NL: "Voor je bouwt, correleer een laag op de ene kolom met dezelfde laag op de
+volgende, zodat het model weet dat ze een lichaam zijn. Correleren activeert het
+gebaar met twee klikken. Automatisch correleren stelt de koppelingen over het
+hele model voor, die je dan aanvaardt."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 7 — A second section for 3-D.**
+On screen: the create-section control (`section-create`).
+Action: draw a second cross-section before building.
+EN: "As with the geology, a single section carries only one profile. Draw a
+second cross-section so the litho bodies have the 3-D data to connect between
+your sections."
+NL: "Net als bij de geologie draagt een profiel maar een doorsnede. Teken een
+tweede dwarsprofiel zodat de litholichamen de 3D-gegevens hebben om over je
+profielen heen te verbinden."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 8 — Build the litho bodies.**
 On screen: the build control in the section inspector (`inspector-build`).
 <!-- CHECK: exact build-control label -->
 Action: build. Show the connected litho bodies appear.
-EN: "Build turns the accepted layers into connected litho bodies in three
-dimensions. Each mass that connects across your sections becomes one body."
-NL: "Bouwen zet de aanvaarde lagen om in verbonden lithobodies in drie dimensies.
-Elke massa die over je profielen verbonden is, wordt een body."
+EN: "Build turns the accepted, correlated layers into connected litho bodies in
+three dimensions. Each mass that connects across your sections becomes one body."
+NL: "Bouwen zet de aanvaarde, gecorreleerde lagen om in verbonden litholichamen
+in drie dimensies. Elke massa die over je profielen verbonden is, wordt een lichaam."
 <!-- DRAFT: owner to confirm -->
 
 **Closing:** "The litho units are built. Next, we subdivide them by packing."
@@ -464,14 +553,20 @@ in je ontwerptool."
 <!-- DRAFT: owner to confirm -->
 
 **Shot 2 — Run the packing pipeline.**
-On screen: the Geotechnics stage, subdivide control (`stage-tab-geotechnical`).
-<!-- CHECK: exact subdivide / divide-boreholes control label -->
-Action: subdivide the CPTs. Show each unit split into its packing classes.
-EN: "Subdivide the CPTs to build the geotech model. Each litho unit splits into
-its packing classes, driven by the CPT qc and relative density."
-NL: "Verdeel de sonderingen om het geotechnisch model te bouwen. Elke
-lithologische eenheid splitst in haar pakkingsklassen, gestuurd door de qc en de
-relatieve dichtheid van de sondering."
+On screen: the packing pipeline dropdown on the sections toolbar's geotech axis
+(`geotech-pipeline`).
+<!-- CHECK: the pipeline lives on the sections toolbar, geotech axis — NOT the
+     geotech pane (owner 2026-09-03). Confirm the "Pakkingsstroom" label. -->
+Action: on a cross-section, switch to the Geotech axis and open the packing
+pipeline. Run its four steps; show each unit split into its packing classes.
+EN: "On a cross-section, switch to the Geotech axis and open the packing pipeline.
+It runs in four steps: subdivide the CPTs, propose and accept the packing
+correlations, then divide the boreholes. Each litho unit splits into its packing
+classes, driven by the CPT qc and relative density."
+NL: "Schakel op een dwarsprofiel naar de Geotech-as en open de Pakkingsstroom. Ze
+verloopt in vier stappen: verdeel de sonderingen onder, stel de pakkingscorrelaties
+voor en aanvaard ze, en verdeel dan de boringen. Elke lithologische eenheid splitst
+in haar pakkingsklassen, gestuurd door de qc en de relatieve dichtheid."
 <!-- DRAFT: owner to confirm -->
 
 **Shot 3 — Correlate and recompute.**
@@ -513,7 +608,22 @@ NL: "De eenhedenboom, de statistiek per eenheid en de fence-uitsnede vind je hie
 Hier rapporteert het afgewerkte model over zichzelf."
 <!-- DRAFT: owner to confirm -->
 
-**Shot 2 — Per-unit statistics.**
+**Shot 2 — Jump here from a section.**
+On screen: a body band's context menu on a cross-section, "Unit statistics…"
+(`body-ctx-unit-statistics`).
+<!-- CHECK: exact context-menu label ("Unit statistics…" / "Statistieken van deze eenheid…") -->
+Action: on a cross-section, right-click a body band and choose Unit statistics.
+Show it opening the Parameters stage with that unit selected.
+EN: "You reach this stage straight from a cross-section too. Right-click a body
+band and choose Unit statistics. It opens the Parameters stage with that unit
+already selected, so you go from a shape on the section to its numbers in one step."
+NL: "Je bereikt deze stap ook rechtstreeks vanaf een dwarsprofiel. Rechtsklik een
+lichaamsband en kies Statistieken van deze eenheid. Het opent de Parameters-stap
+met die eenheid al geselecteerd, zodat je in een stap van een vorm op het profiel
+naar haar getallen gaat."
+<!-- DRAFT: owner to confirm -->
+
+**Shot 3 — Per-unit statistics.**
 On screen: the Parameters stage, unit tree (`stage-tab-parameters`).
 <!-- CHECK: exact unit-tree control and statistics panel wording -->
 Action: pick a unit. Show its statistics, pooled across every body in the unit.
