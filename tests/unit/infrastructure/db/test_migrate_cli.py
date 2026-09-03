@@ -11,11 +11,16 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.infrastructure.db import migrate
-from groundmodel.infrastructure.db.database_migrator import DatabaseMigratorError
+from groundmodel.infrastructure.db.database_migrator import (
+    DatabaseMigratorError,
+    NewerDatabaseError,
+)
 from groundmodel.infrastructure.db.database_migrator_constants import (
     EXIT_CODE_BY_STAGE,
+    EXIT_CODE_NEWER_DATABASE,
     EXIT_CODE_UNEXPECTED,
     STAGE_ALEMBIC,
+    STAGE_BACKUP,
     STAGE_POSTGIS,
 )
 
@@ -52,7 +57,7 @@ def test_main_returns_zero_on_success(monkeypatch: pytest.MonkeyPatch):
     assert fake.migrate_calls == [("postgresql+asyncpg://u:p@h:1/db", 5.0)]
 
 
-@pytest.mark.parametrize("stage", [STAGE_POSTGIS, STAGE_ALEMBIC])
+@pytest.mark.parametrize("stage", [STAGE_POSTGIS, STAGE_ALEMBIC, STAGE_BACKUP])
 def test_main_maps_each_named_stage_to_its_exit_code(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stage: str
 ):
@@ -64,6 +69,31 @@ def test_main_maps_each_named_stage_to_its_exit_code(
 
     assert exit_code == EXIT_CODE_BY_STAGE[stage]
     assert f"failed during {stage}" in capsys.readouterr().err
+
+
+def test_main_maps_a_newer_database_to_its_own_exit_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """A newer-database failure gets its own exit code + names the cause on stderr.
+
+    The launcher branches on this code to show "install the current version;
+    your data is intact" rather than a generic migration-failed dialog (H2c/M8).
+    """
+    fake = _FakeMigrator(
+        error=NewerDatabaseError(
+            "zz99notarealrevision",
+            "This project's database was written by a newer version of StrixGeo — "
+            "your data is intact.",
+        )
+    )
+    _patch_migrator(monkeypatch, fake)
+
+    exit_code = migrate.main(["--database-url", "postgresql+asyncpg://u:p@h:1/db"])
+
+    assert exit_code == EXIT_CODE_NEWER_DATABASE
+    err = capsys.readouterr().err
+    assert "newer version of StrixGeo" in err
+    assert "intact" in err
 
 
 def test_main_returns_unexpected_code_on_a_non_migrator_error(
