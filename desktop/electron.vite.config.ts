@@ -11,6 +11,19 @@
 // not folded in here.
 import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
+import { resolveBuildSha, resolveBuildTime } from './scripts/buildProvenance.mjs'
+
+// Build provenance (production-readiness audit 2026-09-02, C4: the artifact
+// carried no git SHA). electron-vite inlines ``import.meta.env.MAIN_VITE_*`` into
+// the main bundle (its main-build envPrefix is ``MAIN_VITE_``), the SAME channel
+// the beta stamp rides. Set the two vars into the environment HERE, at config
+// load — before Vite resolves env for any build — rather than via Vite ``define``
+// (which does not reach the SSR main bundle; see src/main/buildStampGlobals.d.ts).
+// The resolvers no-op when the vars are already set, so a CI-pinned SHA wins.
+// ``require-beta-stamp.mjs post`` greps out/main/index.js for the SHA, so if this
+// injection ever silently fails the package fails instead of shipping blind.
+process.env.MAIN_VITE_STRIX_BUILD_SHA = resolveBuildSha()
+process.env.MAIN_VITE_STRIX_BUILD_TIME = resolveBuildTime()
 
 export default defineConfig({
   // main + preload: the defaults electron-vite applied when NO config was loaded.
