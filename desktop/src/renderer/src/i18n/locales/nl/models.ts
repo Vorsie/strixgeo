@@ -327,6 +327,17 @@ export const MODELS_NL = {
   'litho.buildingSolids': 'Waterdichte lichaamssolids bouwen…',
   'litho.solidsStale': 'Een of meer lichaamssolids zijn verouderd — klik om te herbouwen',
   'litho.buildSolidsTitle': 'Bouw de 3D-lichaamssolids op basis van de aanvaarde laaggrenzen',
+  // Achtergrond-3D-bouw (debt #282): fase-labels voor de voortgangsbalk + de
+  // Annuleren-knop. Fase-sleutels worden opgezocht op de backend-fasenaam.
+  'litho.building3dModel': '3D-model bouwen…',
+  'litho.buildProgressStarting': 'Bouw starten…',
+  'litho.buildProgressLabel': 'Voxels labelen…',
+  'litho.buildProgressReconcile': 'Profielen afstemmen…',
+  'litho.buildProgressExtract': 'Lichaamssolids extraheren…',
+  'litho.buildProgressPersist': 'Opslaan…',
+  'litho.buildCancel': 'Annuleren',
+  'litho.buildCancelling': 'Annuleren…',
+  'litho.buildCancelled': 'Bouw geannuleerd',
   // lithologie-detailvenster (rooster + solids-legende)
   'litho.createGeoFirst':
     'Maak eerst een geologisch model aan (geologiestap) — een lithostratigrafisch model verfijnt het.',
