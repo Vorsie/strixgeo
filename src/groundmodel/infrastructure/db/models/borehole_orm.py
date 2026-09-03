@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class BoreholeOrm(Base):
@@ -112,22 +113,26 @@ class BoreholeOrm(Base):
         back_populates="borehole",
         cascade="all, delete-orphan",
         order_by="DrillSegmentOrm.top_m",
+        lazy=RELATIONSHIP_LAZY,
     )
     field_log_intervals: Mapped[list[FieldLogIntervalOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "FieldLogIntervalOrm",
         back_populates="borehole",
         cascade="all, delete-orphan",
         order_by="FieldLogIntervalOrm.top_m",
+        lazy=RELATIONSHIP_LAZY,
     )
     observations: Mapped[list[ObservationOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "ObservationOrm",
         back_populates="borehole",
         cascade="all, delete-orphan",
         order_by="ObservationOrm.observation_date",
+        lazy=RELATIONSHIP_LAZY,
     )
     samples: Mapped[list[SampleOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "SampleOrm",
         back_populates="borehole",
         cascade="all, delete-orphan",
         order_by="SampleOrm.depth_top_m",
+        lazy=RELATIONSHIP_LAZY,
     )
