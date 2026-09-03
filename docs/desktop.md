@@ -278,6 +278,17 @@ without `parent_formation_id` fall into an "Unassigned" group at the bottom. Eac
 row shows: colour swatch + name + contact count for THIS litho model. No edit/delete —
 formation CRUD stays in GeologyInspector.
 
+### LithoExcludedBoreholes (LithologyInspector private)
+
+`shell/stages/lithology/LithoExcludedBoreholes.tsx` — surfaces the active litho model's
+`excluded_borehole_ids` (debt #65). Renders only when the model excludes something; one
+row per excluded borehole (name resolved from `visibleBoreholes`, generic fallback for a
+since-removed borehole) with a per-row "Include again" — a reversible action (fires
+immediately, Ctrl+Z undo + confirmation toast) routed through
+`geoModel.handleToggleBoreholeInLithoModel`, which shares `hooks/boreholeExclusionToggle.ts`
+with the GeologyInspector borehole checkbox. No exclude-from-UI gesture yet (remainder in
+debt #65).
+
 ### LithoCompositionPickerDialog
 
 Two-tab modal (`components/interpretation/LithoCompositionPickerDialog.tsx`) shown on
