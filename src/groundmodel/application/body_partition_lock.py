@@ -72,10 +72,13 @@ import time
 from uuid import UUID
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.lock_errors import is_lock_not_available
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
+from groundmodel.shared.exceptions import BodyPartitionContentionError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -135,6 +138,14 @@ async def lock_body_partition(
     Returns
     -------
     None
+
+    Raises
+    ------
+    BodyPartitionContentionError
+        When the blocking acquire waits past the session ``lock_timeout`` (30 s,
+        see ``session_constants.py``) — Postgres aborts the wait with SQLSTATE
+        55P03 rather than hanging, and this is re-raised as the domain error the
+        API maps to 409, naming ``operation``.
     """
     logger = _BodyPartitionLockLogger()
     key = body_partition_lock_key(model_id)
@@ -167,10 +178,25 @@ async def lock_body_partition(
     )
     started = time.monotonic()
     with session.no_autoflush:
-        await session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-            {"k": key},
-        )
+        try:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                {"k": key},
+            )
+        except DBAPIError as exc:
+            # lock_timeout (session_constants.py) aborts the wait with SQLSTATE
+            # 55P03 rather than letting the request hang forever behind a wedged
+            # holder. Translate it to the domain contention error the API maps to
+            # a 409 naming this operation; any other DB error propagates unchanged.
+            if is_lock_not_available(exc):
+                logger.warning(
+                    f"body-partition lock: {operation} gave up on model {model_id} after "
+                    f"{(time.monotonic() - started) * 1000:.0f} ms — the lock_timeout "
+                    "window elapsed while another body-partition write held it; refusing "
+                    "with 409 rather than hanging"
+                )
+                raise BodyPartitionContentionError(operation, model_id) from exc
+            raise
     logger.info(
         f"body-partition lock: {operation} acquired model {model_id} after "
         f"{(time.monotonic() - started) * 1000:.0f} ms of contention"
