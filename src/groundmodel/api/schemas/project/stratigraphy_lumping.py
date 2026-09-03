@@ -19,12 +19,11 @@ restore path (entry count, key/value lengths) protect this write path too.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 from groundmodel.api.schemas.project.project_bundle import StratigraphyLumping
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class StratigraphyLumpingStageRequest(BaseModel):
+class StratigraphyLumpingStageRequest(StrictRequestModel):
     """Body of ``PUT /projects/{pid}/stratigraphy-lumping/staged``.
 
     Attributes
