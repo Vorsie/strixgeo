@@ -114,6 +114,7 @@ from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
 )
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
 from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
+from groundmodel.shared.exceptions import BuildCancelled
 from groundmodel.shared.timing import phase_timer
 
 _BUILD_CPU_LOCK = asyncio.Lock()
@@ -447,6 +448,48 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         super().__init__(__name__)
         self._session = session
 
+    @staticmethod
+    def _raise_if_cancelled(should_cancel: Callable[[], bool] | None) -> None:
+        """Raise :class:`BuildCancelled` when a cancel has been requested.
+
+        The between-phase half of the cooperative cancel: called before each CPU
+        phase so a cancel that arrives while the previous phase runs stops the
+        build before the next one starts. The per-column half lives inside
+        ``label_voxels``. A no-op when ``should_cancel`` is ``None`` or ``False``.
+
+        Parameters
+        ----------
+        should_cancel : callable of () -> bool, or None
+            The cancel predicate, or ``None`` for an un-cancellable build.
+        """
+        if should_cancel is not None and should_cancel():
+            raise BuildCancelled("voxel build cancelled between phases — nothing was written")
+
+    @staticmethod
+    def _emit_progress(
+        progress: Callable[[str, int, int], None] | None, phase: str, done: int, total: int
+    ) -> None:
+        """Report a progress event, when a reporter is wired.
+
+        A no-op when ``progress`` is ``None`` (the synchronous endpoint). The
+        callback must not block: the background-job wiring marshals the event
+        onto the event loop and returns at once, so this is safe to call from
+        inside the ``to_thread`` worker (the ``"label"`` relay) as well as from
+        the event loop (the phase markers).
+
+        Parameters
+        ----------
+        progress : callable of (phase, done, total) -> None, or None
+            The reporter, or ``None`` when nothing consumes progress.
+        phase : str
+            Phase name (``"label"`` / ``"reconcile"`` / ``"extract"`` /
+            ``"persist"``).
+        done, total : int
+            Units finished and total for this phase.
+        """
+        if progress is not None:
+            progress(phase, done, total)
+
     async def execute(
         self,
         model_id: UUID,
@@ -456,6 +499,93 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         vertical_spacing_m: float | None = None,
         force: bool = False,
         gapless_2d: list[dict[str, Any]] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+        progress: Callable[[str, int, int], None] | None = None,
+    ) -> LithoSolidsOutcome:
+        """Build the 3-D litho solids, cancellably and with progress (see #282).
+
+        Thin wrapper over :meth:`_execute_impl` that owns the cancel contract:
+        when a cooperative cancel raises
+        :class:`~groundmodel.shared.exceptions.BuildCancelled` — from a
+        between-phase check here or from inside the labeller's column loop — it
+        ROLLS THE SESSION BACK and re-raises, so a cancelled build leaves the
+        stored model exactly as it was (owner ruling, debt #282). Every non-cancel
+        path is unchanged.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The lithostratigraphic / geotech model to (re)build.
+        sections : list of SectionPartitionInput
+            The validated 2-D section partitions (the build payload).
+        grid_spacing_m : float
+            Horizontal (X/Y) voxel edge length in metres; also Z when
+            ``vertical_spacing_m`` is ``None`` (the cubic case). Must be positive.
+        vertical_spacing_m : float or None, optional
+            Anisotropic Z spacing; ``None`` (default) → a cubic grid.
+        force : bool, default ``False``
+            Skip the model-level checksum short-circuit and always rebuild. The
+            on-click Build passes ``True``.
+        gapless_2d : list of dict, or None, optional
+            The renderer's clause 1-4 findings for the gapless gate, or ``None``.
+        should_cancel : callable of () -> bool, or None, optional
+            Cooperative-cancel predicate. Checked between phases here and once
+            per voxel column inside the labeller. When it returns ``True`` the
+            build stops, rolls back, and raises ``BuildCancelled``. ``None`` (the
+            default) never cancels — the synchronous endpoint passes none.
+        progress : callable of (phase, done, total) -> None, or None, optional
+            Progress reporter. Called with a phase name (``"label"`` /
+            ``"reconcile"`` / ``"extract"`` / ``"persist"``) at each CPU-phase
+            boundary, and relayed the labeller's per-column ``(done, total)``
+            ticks under ``"label"``. ``None`` (the default) reports nothing.
+
+        Returns
+        -------
+        LithoSolidsOutcome
+            The build outcome (see :meth:`_execute_impl`).
+
+        Raises
+        ------
+        BuildCancelled
+            When cancellation was requested; the session has been rolled back and
+            nothing was written.
+        VoxelGridTooLargeError
+            When the requested spacing exceeds the per-build voxel budget.
+        """
+        try:
+            return await self._execute_impl(
+                model_id,
+                sections,
+                grid_spacing_m=grid_spacing_m,
+                vertical_spacing_m=vertical_spacing_m,
+                force=force,
+                gapless_2d=gapless_2d,
+                should_cancel=should_cancel,
+                progress=progress,
+            )
+        except BuildCancelled:
+            # Guarantee "nothing written for a cancelled build" regardless of how
+            # far the build got: a geotech heal or a flush may already be pending
+            # on the session, so roll the whole transaction back before the
+            # background coroutine turns this into a ``build_cancelled`` event.
+            await self._session.rollback()
+            self.warning(
+                f"BuildVoxelLithoModel: model={model_id} — build cancelled; "
+                "rolled back, nothing was written"
+            )
+            raise
+
+    async def _execute_impl(
+        self,
+        model_id: UUID,
+        sections: list[SectionPartitionInput],
+        *,
+        grid_spacing_m: float,
+        vertical_spacing_m: float | None = None,
+        force: bool = False,
+        gapless_2d: list[dict[str, Any]] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+        progress: Callable[[str, int, int], None] | None = None,
     ) -> LithoSolidsOutcome:
         """Label a voxel grid from ``sections`` and upsert the watertight solids.
 
@@ -490,6 +620,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             older than the gate sends nothing at all; either way the assembled
             report answers honestly with ``not-evaluated`` for clauses 1-4
             rather than a fabricated pass.
+        should_cancel : callable of () -> bool, or None, optional
+            Cooperative-cancel predicate (see :meth:`execute`); ``None`` never
+            cancels. Checked at each CPU-phase boundary and, threaded into the
+            labeller, once per voxel column.
+        progress : callable of (phase, done, total) -> None, or None, optional
+            Progress reporter (see :meth:`execute`); ``None`` reports nothing.
 
         Returns
         -------
@@ -784,7 +920,17 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # docs/benchmarks-journal.md → "Build responsiveness (2026-08-03)".
         # ``_BUILD_CPU_LOCK`` keeps the grid budget a per-process bound (see its
         # docstring): a second Build waits here rather than competing for memory.
+        # Relay the labeller's per-column ticks onto the outer channel under the
+        # "label" phase — passed only when someone consumes progress so the pure
+        # section-blend path stays free of a per-column callback otherwise.
+        label_progress: Callable[[int, int], None] | None = (
+            (lambda done, total: self._emit_progress(progress, "label", done, total))
+            if progress is not None
+            else None
+        )
         async with _BUILD_CPU_LOCK:
+            self._raise_if_cancelled(should_cancel)
+            self._emit_progress(progress, "label", 0, 0)
             try:
                 with phase_timer(self, "BuildVoxelLithoModel phase-2 label_voxels"):
                     grid = await asyncio.to_thread(
@@ -795,6 +941,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                         vertical_spacing_m=vertical_spacing_m,
                         investigation_columns=investigation_columns,
                         honor_radius_m=honor_radius_m,
+                        should_cancel=should_cancel,
+                        progress=label_progress,
                     )
             except ValueError as err:
                 self.warning(
@@ -829,6 +977,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             # it. The gate's contract is that it fails the REPORT, never the
             # build (see ``gapless_clause_constants``), and this is where that
             # is actually enforced rather than merely stated.
+            self._raise_if_cancelled(should_cancel)
+            self._emit_progress(progress, "reconcile", 0, 1)
             reconciliations: tuple[SectionReconciliation, ...] | None = None
             reconciliation_error: str | None = None
             try:
@@ -869,6 +1019,8 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             # Phase 3: extract the greedy-meshed watertight per-body solids. Inside
             # the same lock as phase 2 — it holds the label grid AND the mesher's
             # full-grid scratch arrays, the peak the budget is sized on.
+            self._raise_if_cancelled(should_cancel)
+            self._emit_progress(progress, "extract", 0, 1)
             try:
                 with phase_timer(self, "BuildVoxelLithoModel phase-3 extract_body_solids"):
                     meshes = await asyncio.to_thread(extract_body_solids, grid)  # greedy=True
@@ -914,6 +1066,11 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # the settings only in the project's view-state at the moment the build
         # ran, and the derived body identity only in memory.  Without it no
         # diagnostic can reproduce a build after the fact (docs/debt.md #252).
+        # Last cancel gate before anything is written: past this point the
+        # transaction is committed, so a later cancel would have to roll back a
+        # completed build. Cancelling here still leaves the model as it was.
+        self._raise_if_cancelled(should_cancel)
+        self._emit_progress(progress, "persist", 0, 1)
         generation_id = uuid7()
         with phase_timer(self, "BuildVoxelLithoModel phase-4 upsert"):
             await self._write_generation(
