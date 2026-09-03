@@ -4,6 +4,9 @@
 // dependency, so vitest can exercise them in jsdom just like the
 // renderer-side helpers.
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -13,7 +16,57 @@ import {
   isValidRecentProjectEntry,
   normalizePathForCompare,
   rawBackendLogAffordanceEnabled,
+  sanitizeSaveDialogDefault,
 } from './security'
+
+describe('sanitizeSaveDialogDefault (H4 — a renderer-supplied dialog default is a bare filename only)', () => {
+  it('leaves an ordinary suggested filename untouched', () => {
+    expect(sanitizeSaveDialogDefault('MyProject.strix')).toBe('MyProject.strix')
+  })
+
+  it('strips a directory-traversal prefix, keeping only the filename', () => {
+    // The renderer names the SUGGESTED filename; it must not be able to pre-fill
+    // the dialog with a path outside the intended directory.
+    expect(sanitizeSaveDialogDefault('..\\..\\..\\Windows\\evil.strix')).toBe('evil.strix')
+    expect(sanitizeSaveDialogDefault('/etc/passwd')).toBe('passwd')
+    expect(sanitizeSaveDialogDefault('sub/dir/name.strix')).toBe('name.strix')
+  })
+
+  it('drops a Windows drive prefix', () => {
+    expect(sanitizeSaveDialogDefault('C:\\foo\\bar.strix')).toBe('bar.strix')
+    expect(sanitizeSaveDialogDefault('C:bar.strix')).toBe('bar.strix')
+  })
+
+  it('removes embedded separators and control characters (incl. NUL)', () => {
+    expect(sanitizeSaveDialogDefault('na\u0000me.strix')).toBe('name.strix')
+    expect(sanitizeSaveDialogDefault('a\\b')).toBe('b')
+  })
+
+  it('returns undefined for a missing, empty or all-stripped name (let the dialog pick its own default)', () => {
+    expect(sanitizeSaveDialogDefault(undefined)).toBeUndefined()
+    expect(sanitizeSaveDialogDefault('')).toBeUndefined()
+    expect(sanitizeSaveDialogDefault('   ')).toBeUndefined()
+    expect(sanitizeSaveDialogDefault('foo/')).toBeUndefined()
+    expect(sanitizeSaveDialogDefault(42)).toBeUndefined()
+  })
+})
+
+describe('index.ts applies the H4 path guards at the right call sites', () => {
+  const MAIN_SOURCE = readFileSync(join(__dirname, 'index.ts'), 'utf-8').replace(/\r\n/g, '\n')
+
+  it('H4a — both save dialogs sanitise the renderer-supplied default', () => {
+    // Every ``defaultPath:`` fed from a renderer name must go through the
+    // sanitiser; a raw ``defaultPath: defaultName`` is the bug.
+    expect(MAIN_SOURCE).not.toMatch(/defaultPath:\s*defaultName\b/)
+    const sanitised = MAIN_SOURCE.match(/defaultPath:\s*sanitizeSaveDialogDefault\(defaultName\)/g) ?? []
+    expect(sanitised.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('H4b — project:add-recent refuses an unauthorised path', () => {
+    const handler = MAIN_SOURCE.slice(MAIN_SOURCE.indexOf("'project:add-recent'"))
+    expect(handler.slice(0, 900)).toMatch(/if \(!pathIsAuthorised\(filePath\)\)/)
+  })
+})
 
 describe('buildContentSecurityPolicy', () => {
   it('production CSP allows wasm-unsafe-eval (Cesium WASM) but forbids general unsafe-eval + unsafe-inline on script-src', () => {
