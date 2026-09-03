@@ -259,6 +259,15 @@ export interface UseGeologicalModelResult {
   /** Build / rebuild solids for the active litho model, toast the result. */
   buildLithoSolids: UseLithoSolidsResult['buildLithoSolids']
   /**
+   * Build the litho model via a background job with phase + per-column progress
+   * and a cancel (debt #282). Same payload assembly as ``buildLithoSolids``.
+   */
+  startLithoBuild: UseLithoSolidsResult['startLithoBuild']
+  /** Ask the running streaming litho build to stop; the model is left unchanged. */
+  cancelLithoBuild: UseLithoSolidsResult['cancelLithoBuild']
+  /** Live state of the streaming litho build (idle/running/done/cancelled/error). */
+  voxelBuildState: UseLithoSolidsResult['voxelBuildState']
+  /**
    * Set or clear a per-body display colour (optimistic + debounced).
    * ``null`` resets to the formation lithology colour.
    */
