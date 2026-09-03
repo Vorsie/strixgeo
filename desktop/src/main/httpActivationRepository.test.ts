@@ -211,6 +211,23 @@ describe('HttpActivationRepository', () => {
     expect(maskLicenceKey('STRIX-SECRET-9999')).toBe('••••9999')
     expect(maskLicenceKey('ab')).toBe('••••')
   })
+
+  // audit H5 — POST /refresh re-issues the licence with a renewed expiresAt (the
+  // instant that resets the client's offline-grace clock); an offline refresh is
+  // `unreachable`, so the caller keeps the stored licence.
+  it('refresh maps the renewed wire licence, and reports unreachable when offline', async () => {
+    const renewed = now + 400 * DAY_MS
+    const ok = await makeRepo(fetchReturning(200, { licence: wireLicence({ expiresAt: renewed }) })).refresh({
+      ...DEVICE,
+      key: 'STRIX-XXXX-AB12',
+    })
+    expect(ok.ok).toBe(true)
+    if (ok.ok) expect(ok.licence.expiresAtMs).toBe(renewed)
+
+    const offline = await makeRepo(fetchThrowing()).refresh({ ...DEVICE, key: 'STRIX-XXXX-AB12' })
+    expect(offline.ok).toBe(false)
+    if (!offline.ok) expect(offline.code).toBe('unreachable')
+  })
 })
 
 // The offline consequence — reuse the activation.test.ts grace shape: with the
