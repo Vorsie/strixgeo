@@ -62,6 +62,10 @@ function layer(investigationId: string, suffix: string, isBorehole = false): Pre
 interface Stubs {
   geotechLayers: PreflightLayer[]
   buildGeotechSolids: ReturnType<typeof vi.fn>
+  // debt #282 — the streaming build start. Left undefined by default so the
+  // existing pins exercise the synchronous fallback unchanged; UP10 wires it to
+  // prove the press PREFERS the streaming path when the bus provides it.
+  startGeotechBuild?: ReturnType<typeof vi.fn>
   handleSubdivideAllBodies: ReturnType<typeof vi.fn>
   handleDivideBoreholes: ReturnType<typeof vi.fn>
   setSectionsDeepLinkTarget: ReturnType<typeof vi.fn>
@@ -89,6 +93,7 @@ function makeCtx(stubs: Stubs): ShellContextValue {
       lithoLayers: [layer('S1', 'litho'), layer('S2', 'litho'), layer('B12', 'litho', true)],
       geotechLayers: stubs.geotechLayers,
       buildGeotechSolids: stubs.buildGeotechSolids,
+      startGeotechBuild: stubs.startGeotechBuild,
       handleSubdivideAllBodies: stubs.handleSubdivideAllBodies,
       handleDivideBoreholes: stubs.handleDivideBoreholes,
     },
@@ -125,6 +130,22 @@ describe('useGeotechBuildPreflight', () => {
     // makes, so the payload cannot differ by construction.
     expect(stubs.buildGeotechSolids).toHaveBeenCalledTimes(1)
     expect(stubs.buildGeotechSolids).toHaveBeenCalledWith(voxelBuilder)
+  })
+
+  it('UP10 — with the streaming start wired, the press prefers it over the sync build', () => {
+    // debt #282 parity: the geotech Build runs as a cancellable background job,
+    // exactly like the litho Build. When the bus provides the streaming start,
+    // pressBuild routes the (unwrapped) canvas builder to IT, not to the
+    // synchronous build — so the toolbar can show progress + Cancel.
+    const startGeotechBuild = vi.fn().mockResolvedValue(undefined)
+    const stubs: Stubs = { ...makeStubs(COMPLETE), startGeotechBuild }
+    const { result } = renderPreflight(stubs)
+
+    act(() => result.current.pressBuild())
+
+    expect(startGeotechBuild).toHaveBeenCalledTimes(1)
+    expect(startGeotechBuild).toHaveBeenCalledWith(voxelBuilder)
+    expect(stubs.buildGeotechSolids).not.toHaveBeenCalled()
   })
 
   it('UP2 — a test with no packing bands stops the press and asks about it', () => {
