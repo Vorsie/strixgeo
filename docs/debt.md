@@ -92,7 +92,7 @@ subdivision is built on top of it. Priority order:
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
   * **#224 — Geotech formation find-or-create DRY pass — RESOLVED 2026-07-13 (B1 dedup batch).** Post-recount outcome: the heavy half resolved **by attrition** when the C1/C2 skeleton flow was deleted (#237.2) — `_find_or_create_classified`, `_find_or_create_skeleton`, and `_resolve_anchor_kinds` (GEOTECH-IMPORT-03) each survive as a SINGLE copy on the shared `GeotechBoreholeMaterialiser` base class, and the admixture-JSONB parse (GEOTECH-IMPORT-08) survives only in `subdivide_all_bodies._formation_admixtures`; single copies were NOT extracted. The still-multi copies were extracted: the nearest-geo-contact-within-tolerance loop ×2 + geo-contacts-at-investigation loader ×2 (GEOTECH-IMPORT-07) → `application/litho_geo_link_helpers.py` (shared by AcceptLithoSuggestions + LinkLithoToGeo); the view-state float-knob readers ×4 live sites (litho snap tolerance / geotech snap tolerance / min thickness / gradient window) → `application/view_state_helpers.py` (`read_view_state_float` + `load_project_view_state`). `_read_min_thickness_m` itself stays a 1-copy thin wrapper over the shared reader. Any future 2nd copy of the find-or-create pair belongs on the materialiser base class, not a new module.
-* **E. Lower technical debt:** #16, #17, #27, #62, #65, #68, #82, #114, #155, #156, #229, #234, #235, #236, #269 *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #234 RESOLVED 2026-07-13 in the B4 dedup batch; #237 is the owner-decision batch; #222 RESOLVED 2026-07-13 — B5 naming batch, columns renamed to companion_body_id / is_body_companion)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
+* **E. Lower technical debt:** #16, #17, #27, #62, #68, #82, #114, #155, #156, #229, #234, #235, #236, #269 *(#65 RESOLVED 2026-09-03 — litho excluded-boreholes list + the exclude gesture both shipped)* *(#229–#237 filed 2026-07-12 from the redundancy audit — full evidence in DEBT.md's dated section; #230/#231 are Tier-G/pre-gate; #232/#233 RESOLVED 2026-07-13 in the B2 dedup batch; #234 RESOLVED 2026-07-13 in the B4 dedup batch; #237 is the owner-decision batch; #222 RESOLVED 2026-07-13 — B5 naming batch, columns renamed to companion_body_id / is_body_companion)* *(#202 RESOLVED 2026-06-23 — shared Modal Tab/Shift+Tab focus trap + focus-restore-on-close + M1–M4 vitest; #41 RESOLVED 2026-06-23 — Geology3DViewer shell mount smoke via inert cesiumMock harness)* *(#210, #212 RESOLVED 2026-06-16; #211 RESOLVED except its jobs-DELETE scope guard → folded into #4; #216, #217, #218, #126 RESOLVED 2026-06-21 — dead-code sweep + lens→body naming sweep + float-equality epsilons + body.name→TEXT; #222 spun off #217 for the persisted lens-named columns; #124 MOOT 2026-06-21 — create_litho_lens.py retired with the lens entity; #125 was already a dangling number)*
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -1326,24 +1326,24 @@ Pins: `splitViewport.test.ts` (transitions + `canCompare`),
 
 ---
 
-## 65. Excluded-boreholes UI for the Lithology inspector (Tier E)
+## 65. Excluded-boreholes UI for the Lithology inspector (Tier E) — RESOLVED 2026-09-03
 
-**What.** The Lithology stage inspector has no "excluded boreholes"
-UI — the litho model's `excluded_borehole_ids` is set only via
+**What.** The Lithology stage inspector had no "excluded boreholes"
+UI — the litho model's `excluded_borehole_ids` was set only via
 the backend, never surfaced. Mirrors the geological inspector's
 toggle, which the engineer can flip when a borehole's stratigraphy
 disagrees with the rest of the corridor.
 
 **SHIPPED 2026-09-03 (list + Include-again half).** The Lithology
-inspector now surfaces the active litho model's
-`excluded_borehole_ids` as a list — one row per excluded borehole,
-resolved to its name (with a generic fallback for a since-removed
-borehole), each carrying a per-row "Include again" that fires
-immediately, is reversible (Ctrl+Z undo command + a confirmation
-toast), and PATCHes the litho model. The product call in "Why
-deferred" was resolved the simple way: **follow the geo pattern** —
-each model carries its own `excluded_borehole_ids`, so the litho
-list is per-litho-model and independent of the geological model's
+inspector surfaces the active litho model's `excluded_borehole_ids`
+as a list — one row per excluded borehole, resolved to its name
+(with a generic fallback for a since-removed borehole), each
+carrying a per-row "Include again" that fires immediately, is
+reversible (Ctrl+Z undo command + a confirmation toast), and
+PATCHes the litho model. The product call in "Why deferred" was
+resolved the simple way: **follow the geo pattern** — each model
+carries its own `excluded_borehole_ids`, so the litho list is
+per-litho-model and independent of the geological model's
 exclusions (no separate geo+litho / litho-only / geo-only UI). New
 files/wiring: `desktop/src/renderer/src/shell/stages/lithology/`
 `LithoExcludedBoreholes.tsx` (presentational) +
@@ -1353,20 +1353,28 @@ geological checkbox now delegates to as well — DRY extraction) +
 `litho.excludedBoreholes*` / `litho.includeBoreholeAgain*` /
 `litho.borehole{In,Ex}cludedToast` keys.
 
-**REMAINDER (the exclude half).** There is still no in-UI gesture to
-NEWLY EXCLUDE a borehole from the litho build — the backend remains
-the only source of new exclusions; the shipped UI only lets you
-undo one. The plumbing already supports it:
-`handleToggleBoreholeInLithoModel(id, false)` adds to the list and
-`toggleBoreholeExclusion` handles both directions, so the remaining
-work is purely a gesture — a borehole-row context action in the
-Lithology/Sections stage, or a full checkbox roster over the
-model's boreholes like `GeologyInspector`'s "Boreholes in model".
-Left for a product call because that gesture is where the litho
-inspector stops being read-over-the-list and starts being a full
-borehole-scope editor. **When to revisit:** next dogfeed where an
-engineer wants to exclude a litho-polluting borehole from inside
-the app rather than via the build.
+**SHIPPED 2026-09-03 (exclude gesture — the remaining half).** The
+product call was resolved by **mirroring the geological stage's
+existing exclude gesture** (`GeologyInspector`'s collapsible
+"Boreholes in model" checkbox roster). A new presentational sibling
+`LithoBoreholesInModel.tsx` renders the same roster in the Lithology
+inspector: a collapsible (collapsed-by-default) list of every
+visible borehole with a checkbox — checked = in the litho build,
+unchecked = excluded — plus an included/total count in the header.
+Unchecking excludes, re-checking includes; both reuse the SAME
+`handleToggleBoreholeInLithoModel` (→ `toggleBoreholeExclusion`), so
+there is no second copy of the optimistic/rollback logic, and both
+directions are reversible and fire immediately with NO confirmation
+dialog (a project-local membership change, docs/ux.md) plus the
+Ctrl+Z undo + confirmation toast (`litho.borehole{In,Ex}cludedToast`).
+The shipped Include-again callout stays as the compact undo path
+below the roster. New EN/NL copy: `litho.boreholesInModel` /
+`litho.showBoreholeScopes` / `litho.boreholesInModelHint` /
+`litho.boreholeInModel`. Red-first vitest:
+`LithoBoreholesInModel.test.tsx` (BM1–BM5) + a LithologyInspector
+integration case (exclude via roster → appears in the excluded list
+with Include again). The column gap-free invariants are untouched —
+excluding a borehole is a model-membership PATCH, not a layer edit.
 
 **Litho crossings validator carved out (was the second half of #65,
 2026-05-21):** the original entry claimed "litho surface crossings
