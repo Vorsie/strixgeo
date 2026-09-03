@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 from .contact_enums import ContactConfidence, ContactSource
 
 
-class FormationContactCreateRequest(BaseModel):
+class FormationContactCreateRequest(StrictRequestModel):
     """Body of ``POST /projects/{pid}/geology/models/{mid}/contacts``.
 
     Exactly one of ``borehole_id`` / ``cpt_id`` must be set. Per the
