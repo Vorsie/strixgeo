@@ -18,7 +18,7 @@
 
 import { spawn } from 'child_process'
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { BootSequence, type BootFailure } from './bootSequence'
 import { resolveEmbeddedLayout, type EmbeddedLayout } from './embeddedPaths'
@@ -35,8 +35,67 @@ import {
   type RunningCluster,
 } from './postgresCluster'
 
-/** How long the migration step may take before it is called failed. */
-const MIGRATION_TIMEOUT_MS = 180_000
+/**
+ * Fixed floor for how long the migration step may take before it is called
+ * failed. The real ceiling is this plus a per-gigabyte allowance (see
+ * {@link migrationTimeoutMs}) — a fixed 180 s killed a legitimately slow
+ * migration on a large store and retried it on every launch (audit M8).
+ */
+export const BASE_MIGRATION_TIMEOUT_MS = 180_000
+
+/** Extra migration headroom granted per whole gigabyte of data-directory size. */
+export const MIGRATION_TIMEOUT_PER_GB_MS = 60_000
+
+/** One gibibyte, in bytes — the unit {@link migrationTimeoutMs} scales by. */
+const BYTES_PER_GB = 1024 * 1024 * 1024
+
+/**
+ * The migration timeout for a data directory of ``dataDirBytes`` bytes.
+ *
+ * A larger store legitimately takes longer to migrate (index rebuilds, table
+ * rewrites), so the timeout is {@link BASE_MIGRATION_TIMEOUT_MS} plus
+ * {@link MIGRATION_TIMEOUT_PER_GB_MS} per whole gigabyte. Never below the base.
+ *
+ * @param dataDirBytes - Total size of the PostgreSQL data directory.
+ * @returns The timeout in milliseconds.
+ */
+export function migrationTimeoutMs(dataDirBytes: number): number {
+  const wholeGb = Math.max(0, Math.floor(dataDirBytes / BYTES_PER_GB))
+  return BASE_MIGRATION_TIMEOUT_MS + wholeGb * MIGRATION_TIMEOUT_PER_GB_MS
+}
+
+/**
+ * Total size, in bytes, of every file under ``dir`` (recursive).
+ *
+ * Best-effort and never throws: a vanished or unreadable entry contributes 0
+ * rather than aborting the walk, because this only sizes a timeout — an
+ * approximate answer is fine and a thrown error here must never block boot.
+ * Uses ``stat`` (metadata only, no reads), so it is cheap even on a multi-GB
+ * cluster.
+ *
+ * @param dir - Directory to size.
+ * @returns The summed byte size, or 0 when ``dir`` is missing/unreadable.
+ */
+export function directorySizeBytes(dir: string): number {
+  let total = 0
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return 0
+  }
+  for (const name of entries) {
+    const path = join(dir, name)
+    try {
+      const info = statSync(path)
+      if (info.isDirectory()) total += directorySizeBytes(path)
+      else total += info.size
+    } catch {
+      /* vanished/locked entry — contribute nothing */
+    }
+  }
+  return total
+}
 
 /** A booted embedded stack, ready for the backend to be started against it. */
 export interface EmbeddedStack {
@@ -245,8 +304,13 @@ function buildBackendEnv(
 /**
  * Run the schema migration to completion.
  *
+ * The timeout scales with the data-directory size (see
+ * {@link migrationTimeoutMs}) so a legitimately slow migration on a large store
+ * is not killed and retried every launch; the failure copy names the timeout
+ * actually used (audit M8).
+ *
  * @throws Error If the migrator exits non-zero, cannot be spawned, or does not
- *   finish inside {@link MIGRATION_TIMEOUT_MS}.
+ *   finish inside the scaled timeout.
  */
 function runMigrations(
   layout: EmbeddedLayout,
@@ -254,7 +318,8 @@ function runMigrations(
   log: LogLine,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    log('[migrate] bringing the database schema to head')
+    const timeoutMs = migrationTimeoutMs(directorySizeBytes(layout.dataDir))
+    log(`[migrate] bringing the database schema to head (timeout ${Math.round(timeoutMs / 1000)}s)`)
     const child = spawn(layout.pythonExe, ['-m', 'groundmodel.infrastructure.db.migrate'], {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -275,8 +340,13 @@ function runMigrations(
 
     const timer = setTimeout(() => {
       child.kill()
-      reject(new Error(`the migration did not finish within ${MIGRATION_TIMEOUT_MS / 1000}s`))
-    }, MIGRATION_TIMEOUT_MS)
+      reject(
+        new Error(
+          `the migration did not finish within ${Math.round(timeoutMs / 1000)}s ` +
+            `(scaled to the size of the database)`,
+        ),
+      )
+    }, timeoutMs)
 
     child.on('error', err => {
       clearTimeout(timer)
