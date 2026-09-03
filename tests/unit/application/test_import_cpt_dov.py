@@ -297,8 +297,11 @@ async def test_dov_client_receives_the_cache(use_case: ImportCptDov):
     captured: dict[str, object] = {}
 
     class _FakeClient:
-        def __init__(self, http: object, cache: object | None = None) -> None:
+        def __init__(
+            self, http: object, cache: object | None = None, backoff: object | None = None
+        ) -> None:
             captured["cache"] = cache
+            captured["backoff"] = backoff
 
         async def fetch_wfs_index(self, *_a: object, **_k: object) -> list:  # type: ignore[type-arg]
             """Return empty index so execute() short-circuits before fetch."""
@@ -364,6 +367,70 @@ async def test_pins_cb_receives_index_before_download(use_case: ImportCptDov):
 # ------------------------------------------------------------------
 # pins_cb = None is safe (no-op)
 # ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_discovery_over_ceiling_stops_before_download(use_case: ImportCptDov):
+    """Discovery above DOV_MAX_IMPORT_FEATURES raises before any download.
+
+    Rule (Codex row 4): a request that would discover more than the ceiling stops
+    after discovery with a too-large error naming the count and the limit, BEFORE
+    any XML download. So fetch_bbox_processed must never be awaited, and the
+    error carries both numbers.
+    """
+    from groundmodel.infrastructure.parsers.dov.dov_common import DOV_MAX_IMPORT_FEATURES
+    from groundmodel.shared.exceptions import DovImportTooLargeError
+
+    over = DOV_MAX_IMPORT_FEATURES + 1
+    index = [_index_entry(f"CPT-{i}") for i in range(over)]
+    download_mock = AsyncMock(return_value=[])
+    pins_calls: list[int] = []
+
+    async def _pins_cb(entries: list[WfsIndexEntry]) -> None:
+        pins_calls.append(len(entries))
+
+    with (
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=index),
+        ),
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
+            new=download_mock,
+        ),
+    ):
+        with pytest.raises(DovImportTooLargeError) as excinfo:
+            await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1, pins_cb=_pins_cb)
+
+    assert excinfo.value.discovered == over
+    assert excinfo.value.limit == DOV_MAX_IMPORT_FEATURES
+    assert str(over) in str(excinfo.value)
+    assert str(DOV_MAX_IMPORT_FEATURES) in str(excinfo.value)
+    download_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discovery_at_ceiling_is_allowed(use_case: ImportCptDov):
+    """Exactly DOV_MAX_IMPORT_FEATURES is allowed — the ceiling is a strict '>'."""
+    from groundmodel.infrastructure.parsers.dov.dov_common import DOV_MAX_IMPORT_FEATURES
+
+    index = [_index_entry(f"CPT-{i}") for i in range(DOV_MAX_IMPORT_FEATURES)]
+
+    with (
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=index),
+        ),
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch.object(use_case._repo, "find_existing_test_ids", new=AsyncMock(return_value={})),
+    ):
+        # No raise: at-limit imports proceed (download mock returns nothing).
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    assert result.imported == 0
 
 
 @pytest.mark.asyncio
