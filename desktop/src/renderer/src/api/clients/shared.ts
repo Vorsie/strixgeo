@@ -12,6 +12,7 @@
 import { captureDiagnostic } from '../../utils/diagnostics'
 import { log } from '../../utils/log'
 import { noteNetworkFailure, noteNetworkSuccess } from '../networkHealth'
+import { messageForDetail } from './apiCodeMessages'
 
 /** Mutable backend origin — reconfigured once at boot by `setBaseUrl`. */
 export let _base = 'http://127.0.0.1:8765'
@@ -420,9 +421,14 @@ export async function request(
         httpStatus: res.status,
       })
     }
+    // A known refusal code shows in the app's language; anything else keeps the
+    // server's own message (apiCodeMessages.ts).
     throw new ApiError(
-      detailMessage(detail.detail) ??
-        (errorLabel ? `${errorLabel} (${res.status})` : `${method} ${path} → ${res.status}`),
+      messageForDetail(
+        detail.detail,
+        detailMessage(detail.detail) ??
+          (errorLabel ? `${errorLabel} (${res.status})` : `${method} ${path} → ${res.status}`),
+      ),
       res.status,
       { detail: detail.detail, method, path },
     )
