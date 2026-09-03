@@ -378,7 +378,7 @@ export default function GeologyInspector(): JSX.Element {
               onClick={() => void handleDelete()}
               disabled={deleteBusy}
             >
-              {t('common.delete')}
+              {t('common.deletePermanently')}
             </Button>
           </div>
         </div>
