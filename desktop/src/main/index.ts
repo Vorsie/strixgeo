@@ -81,7 +81,7 @@ import { configureActivationStore, readActivationState } from './activationStore
 import { ActivationService } from './activationService'
 import { activationBaseUrl, createActivationRepository } from './activationConfig'
 import { resolveDeviceIdentity } from './deviceIdentity'
-import { previewControlAllowed } from './prototypeFlags'
+import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
 import { registerPrototypeIpc } from './prototypeIpc'
 import { checkForUpdatesOnLaunch, configureUpdater } from './updaterService'
 
@@ -995,7 +995,10 @@ ipcMain.handle('api:base-url', () => API_BASE)
 // issues its sendSync.
 ipcMain.on('launch:flags', (event) => {
   event.returnValue = {
-    e2e: process.env.STRIX_E2E === '1',
+    // STRIX_E2E is honoured ONLY in an unpackaged build — the harness never runs
+    // a package, and a packaged exe must not let STRIX_E2E=1 walk past the licence
+    // gate (audit C3(b)). The rule is pinned in prototypeFlags.test.ts.
+    e2e: e2eLaunchFlag(process.env, app.isPackaged),
     packaged: app.isPackaged,
   }
 })
