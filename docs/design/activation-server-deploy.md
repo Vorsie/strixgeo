@@ -289,3 +289,68 @@ LIMIT 50;
 * Conformance suite: 7 of 7 passed against the live server.
 * Licence id 1 (`Conformance test`, solo, expires 2027-01-01) is the suite's
   key. Do NOT give it to a tester. Licence id 2 is the trial the suite took.
+
+---
+
+## 12. 2026-09-03 late — duration keys
+
+Owner ruling 2026-09-03: "Once the users activate their key, their 30 days timer
+starts running." A beta-cohort key now carries a DURATION, not a fixed date. The
+key stays dormant (no expiry) until the tester activates it; the server then stamps
+`expires_at = activation + duration_days`. A later activation (a transfer, or a
+refresh) does NOT move the clock — it only ever starts once.
+
+**Migrate the live database FIRST (once, before you deploy the new PHP).** The
+production `licences` table predates this change, so it needs the new column and a
+nullable `expires_at`. Run the idempotent migration:
+
+* phpMyAdmin: open `ID502440_StrixGeo`, click the SQL tab, paste the whole of
+  `server/activation/migrations/002_duration_days.sql`, press Go.
+* Or over SSH on the host:
+
+  ```
+  mysql -h ID502440_StrixGeo.db.webhosting.be -u ID502440_StrixGeo -p \
+        ID502440_StrixGeo < migrations/002_duration_days.sql
+  ```
+
+It adds `licences.duration_days`, makes `expires_at` NULLable, and refreshes the
+`v_who_is_testing` view. It is safe to run more than once.
+
+**Mint a duration key** — use `--duration-days` instead of `--expires`:
+
+```
+php bin/mint.php --tier solo --holder "Jane Doe" --email jane@firm.be --seats 1 --duration-days 30
+```
+
+`--expires` and `--duration-days` are mutually exclusive; give exactly one. The key
+prints once, dormant, with no expiry line — the 30 days begin when the tester
+activates it.
+
+**Conformance for the duration rule.** The suite gains
+`test_duration_key_clock_starts_at_first_activation`, gated on its own env var. Mint
+a FRESH duration key (one never activated) and point the test at it:
+
+```powershell
+$env:STRIX_ACTIVATION_URL = "https://strixgeo.com/api/activation"
+$env:STRIX_TEST_DURATION_KEY = "STRIX-....-....-....-...."   # a FRESH --duration-days key
+$env:STRIX_TEST_DURATION_DAYS = "30"                          # optional; defaults to 30
+uv run pytest server/activation/tests/conformance -v
+```
+
+Mint it FRESH because the clock starts at the first activation: a key already
+activated no longer starts at "now", so the case's ±10-minute check would fail. With
+`STRIX_TEST_DURATION_KEY` unset the case skips and the rest of the suite runs
+unchanged.
+
+**As deployed, 2026-09-03 ~20:00 CEST.** Migration 002 applied over SSH with
+the `mysql` client (credentials read on the server by a throw-away
+`~/stage_dur/dbenv.php`, never copied off the box); `mint.php`, then
+`activation/index.php` + `src/licence.php` swapped in with `php -l` first and
+the previous files kept in `~/stage_dur/backup/`. Evidence: the new
+conformance test RED against the old handler (`expiresAt` equal to
+`issuedAt`), then 8/8 GREEN against the new one, and the conformance duration
+licence stamped `first activation + 30 d`. Note the FPM opcache revalidates
+every 2 s — a request in the first seconds after a file swap can still run the
+old code; wait before judging a red. Beta cohort 1 (18 keys, 30 d from first
+activation) minted right after; keys live only in `server/activation/dist/beta-keys.txt`.
+
