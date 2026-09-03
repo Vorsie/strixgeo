@@ -249,6 +249,17 @@ export const MODELS = {
   'litho.createThenSections':
     'Create a lithology model above, then open the Sections stage to draw contacts.',
   'litho.drawThenBuild': 'Draw contacts on Sections, then Build to update surfaces.',
+  // Debt #65: excluded-boreholes list in the Lithology inspector. Surfaces the
+  // litho model's excluded_borehole_ids so an engineer can bring a borehole
+  // back into the build without a backend edit.
+  'litho.excludedBoreholesHeading': 'Excluded from the litho build',
+  'litho.excludedBoreholesHint':
+    'These boreholes are left out of the litho build. Include one again to bring it back.',
+  'litho.includeBoreholeAgain': 'Include again',
+  'litho.includeBoreholeAgainAria': 'Include {name} in the litho build again',
+  'litho.excludedBoreholeUnknown': 'Unknown borehole',
+  'litho.boreholeIncludedToast': 'Borehole included in the litho build again',
+  'litho.boreholeExcludedToast': 'Borehole excluded from the litho build',
   'litho.buildToSeeBodies': 'Build the 3D model to see bodies.',
   'litho.allContentBlurb': 'All litho units, contacts, correlations and surfaces in this model',
   'litho.renumberBodies': 'Re-number litho bodies from their correlation graph',
