@@ -25,7 +25,7 @@ import { join } from 'path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { writeFileAtomic } from './atomicWrite'
+import { writeFileAtomic, writeFileAtomicKeepingGenerations } from './atomicWrite'
 
 let dir: string
 
@@ -132,5 +132,73 @@ describe('writeFileAtomic', () => {
     expect(tempOrphans()).toEqual([])
     // And the failed write did not leave a truncated target either.
     expect(existsSync(target)).toBe(false)
+  })
+})
+
+// The recovery-point rule (H2a): "File → Save keeps the previous three
+// generations beside the file (<name>.strix.1 … .3), rotated, so a mistaken
+// save can be undone by hand." The pins below are phrased in that rule's words.
+describe('writeFileAtomicKeepingGenerations', () => {
+  it('the current save lands at the file and no generation exists on the first save', () => {
+    // "beside the file" — the first save has no previous save to keep, so it
+    // must not conjure an empty <name>.strix.1.
+    const target = join(dir, 'project.strix')
+    writeFileAtomicKeepingGenerations(target, 'v1')
+    expect(readFileSync(target, 'utf-8')).toBe('v1')
+    expect(readdirSync(dir).sort()).toEqual(['project.strix'])
+  })
+
+  it('keeps the previous three generations beside the file, rotated newest-first', () => {
+    const target = join(dir, 'project.strix')
+    // Five saves. The rule keeps only the previous THREE beside the file; the
+    // oldest two fall off the end.
+    for (const v of ['v1', 'v2', 'v3', 'v4', 'v5']) {
+      writeFileAtomicKeepingGenerations(target, v)
+    }
+    expect(readFileSync(target, 'utf-8')).toBe('v5') // the current save
+    // .1 is the most recent PREVIOUS save; .3 the oldest kept.
+    expect(readFileSync(`${target}.1`, 'utf-8')).toBe('v4')
+    expect(readFileSync(`${target}.2`, 'utf-8')).toBe('v3')
+    expect(readFileSync(`${target}.3`, 'utf-8')).toBe('v2')
+    // v1 has fallen off the end — no .4 is kept.
+    expect(existsSync(`${target}.4`)).toBe(false)
+    expect(readdirSync(dir).sort()).toEqual([
+      'project.strix',
+      'project.strix.1',
+      'project.strix.2',
+      'project.strix.3',
+    ])
+  })
+
+  it('a rotation failure never fails the save — it is logged and the save lands', () => {
+    const target = join(dir, 'project.strix')
+    writeFileAtomicKeepingGenerations(target, 'v1')
+    // A directory sitting where <name>.strix.3 belongs makes the rotation's
+    // unlink of the oldest generation throw (unlink refuses a directory) —
+    // exactly the shape of a rotation that cannot complete. The save itself
+    // must still succeed.
+    mkdirSync(`${target}.3`, { recursive: true })
+    const logged: string[] = []
+    writeFileAtomicKeepingGenerations(target, 'v2', 3, msg => logged.push(msg))
+    expect(readFileSync(target, 'utf-8')).toBe('v2') // the save landed
+    expect(logged.length).toBeGreaterThan(0) // the rotation failure was logged
+    expect(logged.join(' ')).toContain(target)
+  })
+
+  it('binary contents round-trip byte-for-byte through a generation rotation', () => {
+    const target = join(dir, 'project.strix')
+    // Bytes no UTF-8 round-trip survives — the encoded .strix container is
+    // binary, so a stringify-by-mistake would corrupt the kept generation.
+    writeFileAtomicKeepingGenerations(target, new Uint8Array([0x00, 0x80, 0xff, 0x41]))
+    writeFileAtomicKeepingGenerations(target, new Uint8Array([0x01, 0x02]))
+    expect(Array.from(readFileSync(`${target}.1`))).toEqual([0x00, 0x80, 0xff, 0x41])
+    expect(Array.from(readFileSync(target))).toEqual([0x01, 0x02])
+  })
+
+  it('leaves no temp orphan behind after a generation-keeping save', () => {
+    const target = join(dir, 'project.strix')
+    writeFileAtomicKeepingGenerations(target, 'v1')
+    writeFileAtomicKeepingGenerations(target, 'v2')
+    expect(tempOrphans()).toEqual([])
   })
 })
