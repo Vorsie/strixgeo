@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.cross_section import CrossSectionCreateRequest
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class BatchCreateSectionsRequest(BaseModel):
+class BatchCreateSectionsRequest(StrictRequestModel):
     """A list of cross-sections to create in a single transaction.
 
     Parameters
