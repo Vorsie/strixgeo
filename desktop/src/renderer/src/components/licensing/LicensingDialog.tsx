@@ -53,6 +53,7 @@ const STATE_LABEL_KEY: Record<LicenceStateDto, MessageKey> = {
   grace: 'licensing.stateGrace',
   expired: 'licensing.stateExpired',
   'clock-rollback': 'licensing.stateClockRollback',
+  'device-mismatch': 'licensing.stateDeviceMismatch',
 }
 
 /** The i18n key for each issuer failure code. */
@@ -71,6 +72,7 @@ const STATE_PILL: Record<LicenceStateDto, string> = {
   grace: 'bg-amber-50 text-amber-900 border-amber-200',
   expired: 'bg-red-50 text-red-800 border-red-200',
   'clock-rollback': 'bg-red-50 text-red-800 border-red-200',
+  'device-mismatch': 'bg-red-50 text-red-800 border-red-200',
 }
 
 /** The states the prototype preview control can force. */
@@ -81,6 +83,7 @@ const PREVIEW_STATES: readonly LicenceStateDto[] = [
   'grace',
   'expired',
   'clock-rollback',
+  'device-mismatch',
 ]
 
 /** Format an epoch-ms instant as a local date, or an em dash when absent. */
