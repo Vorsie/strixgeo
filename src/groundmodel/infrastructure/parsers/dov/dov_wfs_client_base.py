@@ -40,6 +40,7 @@ from typing import Any, ClassVar, Generic, TypeVar
 
 import httpx
 
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
     wfs_count,
     wfs_features_json,
@@ -74,16 +75,24 @@ class DovWfsClientBase(GroundModelLogger, Generic[RowT]):
     # the CQL string when present.
     CQL_FILTER: ClassVar[str] = ""
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
+    def __init__(self, http: httpx.AsyncClient, backoff: DovRateLimitState | None = None) -> None:
         """Initialise with the shared httpx client.
 
         Parameters
         ----------
         http : httpx.AsyncClient
             Shared async HTTP client. Caller owns lifecycle.
+        backoff : DovRateLimitState | None
+            Optional per-import rate-limit state shared across every DOV
+            sub-client of one borehole import. When supplied, the inherited
+            WFS request layer threads it into ``wfs_count`` / ``wfs_features_json``
+            so a 429 seen during discovery halves the import's download
+            parallelism once (mirrors the CPT path). ``None`` keeps the retry
+            without the concurrency reduction.
         """
         super().__init__(self.__class__.__module__)
         self._http = http
+        self._backoff = backoff
 
     # ------------------------------------------------------------------
     # WFS request layer — inherited by single-layer / WFS-only clients.
@@ -100,6 +109,7 @@ class DovWfsClientBase(GroundModelLogger, Generic[RowT]):
             "x2": x2,
             "y2": y2,
             "label": self.LAYER_LABEL,
+            "backoff": self._backoff,
         }
         if self.CQL_FILTER:
             kwargs["cql_filter"] = self.CQL_FILTER
@@ -126,6 +136,7 @@ class DovWfsClientBase(GroundModelLogger, Generic[RowT]):
             "x2": x2,
             "y2": y2,
             "label": self.LAYER_LABEL,
+            "backoff": self._backoff,
         }
         if self.CQL_FILTER:
             kwargs["cql_filter"] = self.CQL_FILTER
