@@ -270,15 +270,26 @@ AFTER `effectiveBackdropModelId` declaration (TDZ guard).
 - `confidence` always shown in the SVG `<title>` tooltip.
 - Props: `acceptedIndices`/`rejectedIndices` as `ReadonlySet<number>` for state visuals.
 
-### LithoFormationRoster (LithologyInspector private)
+### LithologyInspector composition (debt #201)
 
-Read-only roster of lithostratigraphic units grouped under parent geological formations,
-ordered ascending by `display_order` (oldest first — superposition convention). Units
-without `parent_formation_id` fall into an "Unassigned" group at the bottom. Each unit
-row shows: colour swatch + name + contact count for THIS litho model. No edit/delete —
-formation CRUD stays in GeologyInspector.
+`LithologyInspector.tsx` is a thin orchestrator (~405 lines) that owns the hooks + state;
+its panel sections are presentational sibling files in the same `lithology/` folder:
+`ModelKindPicker`, `LithoConfidenceFadeToggle`, `LithoCommittedPill`, `LithoResolveAction`,
+`LithoFormationRoster` (+ its module-scope `LithoUnitRow`), `LithoSolidLegend`,
+`LithoBoreholesInModel`, `LithoExcludedBoreholes`, plus the inline clear-model `Modal` and
+`ConfirmParentDialog`. Props flow down, callbacks up — the extracted pieces hold no shared
+state (only `LithoSolidLegend` keeps its own per-group expand/collapse state).
 
-### LithoBoreholesInModel + LithoExcludedBoreholes (LithologyInspector private)
+### LithoFormationRoster (LithologyInspector sibling)
+
+Read-only FLAT roster of lithostratigraphic units, ordered ascending by `display_order`
+(oldest first — superposition convention). Under A2 litho units are geo-agnostic
+(`parent_formation_id` always null on accept), so there are no parent-group headers or an
+"Unassigned" bucket — the flat list is honest. Each unit row shows: colour swatch + name +
+contact count for THIS litho model. No edit/delete — formation CRUD stays in
+GeologyInspector.
+
+### LithoBoreholesInModel + LithoExcludedBoreholes (LithologyInspector sibling)
 
 Both surface the active litho model's `excluded_borehole_ids` (debt #65, RESOLVED
 2026-09-03) and route every write through `geoModel.handleToggleBoreholeInLithoModel`,
