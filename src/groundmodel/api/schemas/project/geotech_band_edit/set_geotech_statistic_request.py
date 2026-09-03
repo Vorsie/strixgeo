@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class SetGeotechStatisticRequest(BaseModel):
+class SetGeotechStatisticRequest(StrictRequestModel):
     """Change a geotech model's representative-qc statistic (owner ruling 7).
 
     Parameters
