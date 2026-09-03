@@ -27,6 +27,7 @@ import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
 import { ToolbarButton } from '../../ToolbarPrimitives'
 import AttentionChip from '../../../components/sections/AttentionChip'
+import VoxelBuildProgressInline from '../../../components/VoxelBuildProgressInline'
 import {
   staleGeotechChipLabel,
   staleGeotechChipTitle,
@@ -71,6 +72,10 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       // engineer sees the warning before it becomes an exportable model.
       staleLithoGeotechColumns,
       columnsNeedingRederive,
+      // Streaming build job (debt #282) — while it runs, the Build button becomes
+      // inline progress + Cancel, exactly as on the Lithology toolbar.
+      geotechVoxelBuildState,
+      cancelGeotechBuild,
     },
   } = useShell()
 
@@ -98,6 +103,11 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
         ? t('litho.buildModelStale')
         : t('litho.buildModel')
 
+  // While a background build job runs (debt #282), the Build button becomes an
+  // inline progress bar + Cancel — mirrors the Lithology toolbar exactly.
+  const geotechBuild = geotechVoxelBuildState ?? { status: 'idle' as const }
+  const geotechBuilding = geotechBuild.status === 'running'
+
   const excludedCount = preflight.excludedFromLastBuild.length
   const excludedNames = preflight.excludedFromLastBuild.map(t => t.name).join(', ')
 
@@ -112,30 +122,41 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
 
   return (
     <>
-      {/* Single "Build model" button — runs the pre-flight, which either builds
-          straight through or opens the dialog. Amber badge mirrors the litho
-          stale-count convention. Gated on geotech band presence so the button
-          is never a confusing no-op. */}
-      <ToolbarButton
-        icon={<Box size={13} />}
-        label={buildModelLabel}
-        onClick={preflight.pressBuild}
-        disabled={geotechSolidsBuilding || preflight.busy || !hasGeotechBands}
-        busy={geotechSolidsBuilding || preflight.busy}
-        amber={hasStaleGeotechSolid && hasGeotechBands}
-        testid="geotech-build-model-button"
-        title={
-          !hasGeotechBands
-            ? t('geotech.buildNoBands')
-            : preflight.busy
-              ? t('geotech.buildSubdividingTitle')
-              : geotechSolidsBuilding
-                ? t('geotech.buildingSolidsTitle')
-                : hasStaleGeotechSolid
-                  ? t('geotech.solidsStaleTitle')
-                  : t('geotech.buildSolidsTitle')
-        }
-      />
+      {geotechBuilding ? (
+        /* A background build job is running — show inline progress + Cancel in
+           place of the Build button (debt #282), the same component the litho
+           toolbar uses. */
+        <VoxelBuildProgressInline
+          state={geotechBuild}
+          onCancel={cancelGeotechBuild ?? (() => {})}
+          cancelTestid="geotech-build-cancel-button"
+        />
+      ) : (
+        /* Single "Build model" button — runs the pre-flight, which either builds
+           straight through or opens the dialog. Amber badge mirrors the litho
+           stale-count convention. Gated on geotech band presence so the button
+           is never a confusing no-op. */
+        <ToolbarButton
+          icon={<Box size={13} />}
+          label={buildModelLabel}
+          onClick={preflight.pressBuild}
+          disabled={geotechSolidsBuilding || preflight.busy || !hasGeotechBands}
+          busy={geotechSolidsBuilding || preflight.busy}
+          amber={hasStaleGeotechSolid && hasGeotechBands}
+          testid="geotech-build-model-button"
+          title={
+            !hasGeotechBands
+              ? t('geotech.buildNoBands')
+              : preflight.busy
+                ? t('geotech.buildSubdividingTitle')
+                : geotechSolidsBuilding
+                  ? t('geotech.buildingSolidsTitle')
+                  : hasStaleGeotechSolid
+                    ? t('geotech.solidsStaleTitle')
+                    : t('geotech.buildSolidsTitle')
+          }
+        />
+      )}
       {/* What the last build deliberately left out. Same chip contract as the
           pending-tie one: it is a real button because it can act, and pressing
           it walks the excluded tests one by one. */}
