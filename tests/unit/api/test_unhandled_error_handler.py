@@ -89,3 +89,81 @@ async def test_ue4_a_lookalike_origin_is_not_matched_by_prefix() -> None:
     """UE-4 — ``localhost.evil.example`` is not ``localhost``."""
     _, allow_origin = await _answer("http://localhost.evil.example")
     assert allow_origin is None, f"UE-4 FAIL: a lookalike origin was reflected ({allow_origin!r})"
+
+
+# ---------------------------------------------------------------------------
+# M3 — lock/statement-timeout errors map to a clean 409, not a raw 500
+# ---------------------------------------------------------------------------
+from uuid import uuid4  # noqa: E402
+
+from groundmodel.shared.exceptions import BodyPartitionContentionError  # noqa: E402
+
+
+class _FakeAsyncpgLockError(Exception):
+    """asyncpg-shaped error carrying the lock-timeout SQLSTATE (55P03)."""
+
+    sqlstate = "55P03"
+
+
+class _FakeDBAPIError(Exception):
+    """SQLAlchemy-shaped wrapper whose ``.orig`` is the asyncpg error."""
+
+    def __init__(self) -> None:
+        super().__init__("canceling statement due to lock timeout")
+        self.orig = _FakeAsyncpgLockError()
+
+
+async def _handle(exc: Exception, origin: str | None) -> tuple[int, dict | str, str | None]:
+    """Run the handler over *exc* and return (status, detail, allow-origin)."""
+    handler = make_unhandled_error_handler(
+        allowed_origins=_ALLOWED_ORIGINS,
+        allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
+    )
+    import json
+
+    response = await handler(_request(origin), exc)
+    body = json.loads(bytes(response.body))
+    return (
+        response.status_code,
+        body["detail"],
+        response.headers.get("access-control-allow-origin"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_ue5_lock_timeout_error_maps_to_409() -> None:
+    """A 55P03 lock-timeout surfaced through SQLAlchemy answers 409, not 500.
+
+    Rule (M3): with lock_timeout set on the session, a lock wait aborts with
+    asyncpg's LockNotAvailableError instead of hanging — the handler turns that
+    into a clean 409 with a machine-readable code.
+    """
+    status, detail, _ = await _handle(_FakeDBAPIError(), "null")
+    assert status == 409
+    assert detail["code"] == "lock_timeout"
+
+
+@pytest.mark.asyncio
+async def test_ue6_body_partition_contention_maps_to_409_naming_operation() -> None:
+    """A body-partition contention answers 409 and names the waiting operation."""
+    model_id = uuid4()
+    exc = BodyPartitionContentionError("bodies/recompute", model_id)
+    status, detail, _ = await _handle(exc, "null")
+    assert status == 409
+    assert detail["code"] == "body_partition_locked"
+    assert "bodies/recompute" in detail["message"]
+
+
+@pytest.mark.asyncio
+async def test_ue7_the_409_still_carries_cors_for_an_allowed_origin() -> None:
+    """The 409 error path keeps the CORS header so the renderer can read it."""
+    _, _, allow_origin = await _handle(_FakeDBAPIError(), "null")
+    assert allow_origin == "null"
+
+
+@pytest.mark.asyncio
+async def test_ue8_unrelated_error_still_500() -> None:
+    """A non-lock error is unchanged — still a 500 with the internal_error code."""
+    status, detail, _ = await _handle(RuntimeError("boom"), "null")
+    assert status == 500
+    assert detail["code"] == "internal_error"
