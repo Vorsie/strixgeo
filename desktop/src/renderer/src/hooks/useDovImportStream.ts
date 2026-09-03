@@ -27,6 +27,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 
+import { messageForApiCode, messageForDetail } from '../api/clients/apiCodeMessages'
 import { log } from '../utils/log'
 
 // ---------------------------------------------------------------------------
@@ -234,7 +235,9 @@ export function useDovImportStream(): UseDovImportStreamResult {
 
         if (!spawnRes.ok) {
           const detail = await spawnRes.json().catch(() => ({}))
-          const msg = (detail as { detail?: string }).detail ?? `HTTP ${spawnRes.status}`
+          // ``detail`` is a string for plain refusals and ``{ code, message }`` for
+          // the bbox guards (too large, already running) — never show "[object Object]".
+          const msg = messageForDetail((detail as { detail?: unknown }).detail, `HTTP ${spawnRes.status}`)
           log.error('dov-stream', `spawn request failed: ${msg}`)
           setState({ status: 'error', message: msg })
           return
@@ -252,7 +255,7 @@ export function useDovImportStream(): UseDovImportStreamResult {
 
         if (!res.ok) {
           const detail = await res.json().catch(() => ({}))
-          const msg = (detail as { detail?: string }).detail ?? `HTTP ${res.status}`
+          const msg = messageForDetail((detail as { detail?: unknown }).detail, `HTTP ${res.status}`)
           log.error('dov-stream', `stream connect failed: ${msg}`)
           setState({ status: 'error', message: msg })
           return
@@ -302,7 +305,11 @@ export function useDovImportStream(): UseDovImportStreamResult {
             }
 
             if (event.type === 'error') {
-              const msg = (event.message as string | undefined) ?? 'Import failed'
+              // A guard code (too large, already running) shows in the app's language.
+              const msg =
+                messageForApiCode(event.code as string | undefined) ??
+                (event.message as string | undefined) ??
+                'Import failed'
               log.error('dov-stream', `server-side error: ${msg}`)
               setState({ status: 'error', message: msg })
               return
