@@ -17,9 +17,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.gapless_build_report import GaplessClauseInputSchema
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionColumnInput,
@@ -27,7 +28,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 )
 
 
-class RegionInputSchema(BaseModel):
+class RegionInputSchema(StrictRequestModel):
     """One filled region of a 2-D section partition (mirrors ``RegionInput``).
 
     Attributes
@@ -89,7 +90,7 @@ class RegionInputSchema(BaseModel):
         )
 
 
-class SectionColumnInputSchema(BaseModel):
+class SectionColumnInputSchema(StrictRequestModel):
     """One investigation column of a section (mirrors ``SectionColumnInput``).
 
     Attributes
@@ -119,7 +120,7 @@ class SectionColumnInputSchema(BaseModel):
         )
 
 
-class SectionPartitionInputSchema(BaseModel):
+class SectionPartitionInputSchema(StrictRequestModel):
     """One section's full 2-D partition (mirrors ``SectionPartitionInput``).
 
     Attributes
@@ -151,7 +152,7 @@ class SectionPartitionInputSchema(BaseModel):
         )
 
 
-class VoxelBuildRequest(BaseModel):
+class VoxelBuildRequest(StrictRequestModel):
     """The full payload POSTed to ``.../litho-solids/build-voxel``.
 
     Mirrors the frontend ``VoxelBuildRequest`` interface: the validated
