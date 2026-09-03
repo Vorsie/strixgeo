@@ -1,5 +1,6 @@
 """Unit tests for DovXmlCache — filesystem cache for DOV XML payloads."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -91,12 +92,85 @@ def test_get_returns_none_when_dir_unreadable(tmp_path: Path, monkeypatch):
 def test_put_does_not_raise_on_write_failure(tmp_path: Path, monkeypatch):
     cache = DovXmlCache(tmp_path)
 
-    def boom(self, data):
+    # The durable-write path forces bytes to disk with os.fsync before the
+    # atomic rename; a failure anywhere in that path (here, fsync on a full
+    # disk / unsupported filesystem) must be swallowed so the caller's import
+    # continues on the network path.
+    def boom(fd):
         raise OSError("disk full")
 
-    monkeypatch.setattr(Path, "write_bytes", boom)
+    monkeypatch.setattr(os, "fsync", boom)
     # Should not raise — caller's import must continue
     cache.put("k", b"x")
+    # And the half-written temp file must not have been published as the entry.
+    assert cache.get("k") is None
+    assert list(tmp_path.glob("*.xml")) == []
+
+
+# ------------------------------------------------------------------
+# Invalidation — delete a corrupt entry so a re-fetch can replace it (M2a)
+# ------------------------------------------------------------------
+
+
+def test_delete_removes_a_cached_entry(tmp_path: Path):
+    """delete() removes the on-disk entry so the next get() misses."""
+    cache = DovXmlCache(tmp_path)
+    cache.put("2009-000089", b"<xml/>")
+    assert cache.get("2009-000089") == b"<xml/>"
+    cache.delete("2009-000089")
+    assert cache.get("2009-000089") is None
+    assert not (tmp_path / "2009-000089.xml").exists()
+
+
+def test_delete_is_a_noop_on_missing_entry(tmp_path: Path):
+    """delete() on a key with no file must not raise."""
+    cache = DovXmlCache(tmp_path)
+    cache.delete("2009-000089")  # never written — must be silent
+
+
+def test_delete_rejects_unsafe_key(tmp_path: Path):
+    """delete() reuses the permkey guard — an unsafe key touches nothing."""
+    cache = DovXmlCache(tmp_path)
+    (tmp_path / "victim.xml").write_bytes(b"keep me")
+    cache.delete("../victim")
+    assert (tmp_path / "victim.xml").exists()
+
+
+# ------------------------------------------------------------------
+# Durability — fsync the temp file BEFORE the atomic rename (M2b)
+# ------------------------------------------------------------------
+
+
+def test_put_fsyncs_before_replace(tmp_path: Path, monkeypatch):
+    """The temp file is fsync'd before the rename so a crash can't publish garbage.
+
+    Rule (M2b): a rename that publishes a not-yet-flushed temp file would, after a
+    crash, leave a cache entry pointing at zero/garbage bytes that later parses as
+    broken XML. Force the bytes to disk (fsync) BEFORE ``replace`` so the atomic
+    rename only ever publishes fully-written data.
+    """
+    order: list[str] = []
+    real_fsync = os.fsync
+
+    def spy_fsync(fd):
+        order.append("fsync")
+        return real_fsync(fd)
+
+    original_replace = Path.replace
+
+    def spy_replace(self, target):
+        order.append("replace")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(os, "fsync", spy_fsync)
+    monkeypatch.setattr(Path, "replace", spy_replace)
+
+    cache = DovXmlCache(tmp_path)
+    cache.put("2009-000089", b"<xml>durable</xml>")
+
+    assert order == ["fsync", "replace"], f"expected fsync before replace, got {order}"
+    # And the write still lands correctly.
+    assert cache.get("2009-000089") == b"<xml>durable</xml>"
 
 
 # ------------------------------------------------------------------
@@ -129,7 +203,6 @@ def test_eviction_keeps_size_under_cap(tmp_path: Path, monkeypatch):
     cache = DovXmlCache(tmp_path, max_bytes=4096)
     payload = b"x" * 1024  # 1 KiB each
     # Write 10 files, monotonically increasing mtime so order is deterministic.
-    import os
     import time
 
     for i in range(10):
