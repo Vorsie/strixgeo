@@ -275,3 +275,58 @@ strict UUID regex and resolves the path itself under `userData`. No traversal in
   rename, so every caller (recovery snapshots, `.strix` saves, binary exports) is
   durable against power loss, not just process death. Directory-entry fsync is not
   reachable from Node on Windows — file-data flush is where the hardening stops.
+
+---
+
+## 7. Recovery points before a destructive write (production-readiness audit H2)
+
+§1 covers a *crash*: Postgres outlives Electron, so nothing interpreted is lost. Two other
+events can destroy good data even without a crash — a **mistaken save** over a `.strix`, and a
+**destructive schema migration** on launch. Both now leave a recovery point.
+
+### `.strix` save generations (H2a)
+
+`File → Save` keeps the previous **three** generations beside the file, rotated:
+`<name>.strix.1` (the most recent previous save) … `<name>.strix.3` (the oldest kept). A
+mistaken save can be undone by hand by renaming a generation back.
+
+The mechanism is `writeFileAtomicKeepingGenerations(path, bytes, keep=3)` in
+`desktop/src/main/atomicWrite.ts`: it writes + fsyncs the new content to a temp file first,
+then rotates the existing file to `.1` (unlink the oldest `.keep`, shift `.i → .i+1`, then
+`<name> → .1`), then renames the temp into place. **Rotation is best-effort — a rotation
+failure never fails the save**; it is logged and the save proceeds (at worst one recovery copy
+is missing, never the save itself). Only the `.strix` project-save IPC uses it; the recents
+list, exports and the recovery snapshot keep the plain `writeFileAtomic`.
+
+### Pre-migration `pg_dump` checkpoint (H2b)
+
+The packaged app runs `alembic upgrade head` on every launch (`DatabaseMigrator`,
+`src/groundmodel/infrastructure/db/database_migrator.py`). When the database is stamped
+*behind* head (pending migrations exist), a `pg_dump -Fc` of the whole database is written to
+`<userData>/backups/pre-<from_rev>-<to_rev>-<timestamp>.dump` **before** the upgrade runs. The
+five newest dumps are kept (older pruned). A dump failure **aborts the upgrade** with a named
+error (`stage = "backup"`, migrate exit code 5) — the app never migrates a store with pending
+data-rewriting migrations without a checkpoint first.
+
+* The `pg_dump` binary path and the backup directory reach the migrator as the env vars
+  `STRIX_PG_DUMP_PATH` and `STRIX_BACKUP_DIR`, set by the packaged launcher the same way the
+  DSN is. **In dev neither is set and the dump is skipped** with an INFO line (a dev DB is not
+  the user's only copy).
+* A migration module may declare `DATA_REWRITE = True`; the migrator names which pending
+  migrations rewrite user rows in the log, so the checkpoint is visibly warranted. Declared
+  today on the geo-label twin merge (`a4b5c6d7e8f9`), the correlation-edge / formation-contact
+  / body-boundary-shape deletes, the GEF-CRS rewrite, and the `sample.geotech_body_id` FK
+  migration.
+
+### Newer-database guard (H2c / M8)
+
+An older build opened over a store a **newer** StrixGeo already migrated is stamped at a
+revision this build's migration graph does not contain. That now raises `NewerDatabaseError`
+(migrate exit code 6) — "install the current version of StrixGeo; your data is intact" —
+BEFORE any upgrade, so the launcher shows that specific copy instead of bricking with a
+generic "migration failed". Two adjacent hardenings: `initialiseCluster`
+(`embedded/postgresCluster.ts`) reads `PG_VERSION` and refuses a data directory whose
+PostgreSQL major differs from the bundled major (`EXPECTED_POSTGRES_MAJOR`), and the migration
+timeout scales with the data-directory size (`migrationTimeoutMs`, base 180 s + 60 s/GB) and is
+named in the failure copy, so a legitimately slow migration on a large store is not killed and
+retried every launch.
