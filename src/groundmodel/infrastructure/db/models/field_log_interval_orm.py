@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class FieldLogIntervalOrm(Base):
@@ -53,5 +54,5 @@ class FieldLogIntervalOrm(Base):
     value: Mapped[str] = mapped_column(String(200), nullable=False)
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "BoreholeOrm", back_populates="field_log_intervals"
+        "BoreholeOrm", back_populates="field_log_intervals", lazy=RELATIONSHIP_LAZY
     )
