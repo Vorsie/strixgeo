@@ -87,7 +87,7 @@ import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 import { registerBackendLifecycle } from './backendLifecycle'
 import { tailoredBootFailureCopy } from './bootFailureMessage'
 import { backendProbeHeaders, classifyBackendProbe, type ProbeVerdict, backendReadyAttempts, BACKEND_READY_POLL_MS } from './backendProbe'
-import { decideBackendRespawn, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
+import { decideExitAfterReady, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
 import { configureActivationStore, readActivationState } from './activationStore'
@@ -387,8 +387,11 @@ function startApi(): void {
     }
     if (backendBecameReady) {
       // The backend was serving and then died — respawn it once (H3(a)) rather
-      // than leave the app talking to a dead API.
-      handleReadyBackendExit()
+      // than leave the app talking to a dead API. Unless :8765 still answers:
+      // then readiness was confirmed against an EXTERNAL backend (the dev
+      // session's uvicorn, the e2e harness) and this exit is our child losing
+      // the port race, not a crash (decideExitAfterReady).
+      void handleReadyBackendExit()
       return
     }
 
@@ -470,8 +473,13 @@ async function probeBackendOnce(): Promise<ProbeVerdict> {
  * A second death inside the guard window is a crash loop — give up to the
  * existing backend-failed banner rather than respawn forever.
  */
-function handleReadyBackendExit(): void {
-  const action = decideBackendRespawn(lastBackendRespawnAtMs, Date.now(), BACKEND_RESPAWN_GUARD_MS)
+async function handleReadyBackendExit(): Promise<void> {
+  const verdict = await probeBackendOnce()
+  const action = decideExitAfterReady(verdict, lastBackendRespawnAtMs, Date.now(), BACKEND_RESPAWN_GUARD_MS)
+  if (action === 'ignore') {
+    writeMainLog('[main] backend child exited after readiness but :8765 still answers — an external backend owns the port, not respawning')
+    return
+  }
   if (action === 'give-up') {
     writeMainLog('[main] backend died again within the guard window — not respawning (crash loop)')
     mainWindow?.webContents.send('app:backend-failed')
