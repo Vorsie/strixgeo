@@ -45,7 +45,7 @@ export const CHROME = {
   'app.name': 'StrixGeo',
   'app.starting': 'Starting StrixGeo API…',
   'app.bootFailedTitle': 'Failed to start the StrixGeo API',
-  'app.bootFailedBody': 'Check the developer console for the Python traceback.',
+  'app.bootFailedBody': 'Help → Show log file… opens the backend log with the Python traceback.',
   'app.backendFailedTitle': 'StrixGeo failed to start',
   'app.backendUnreachable': 'Backend unreachable',
   // Backend refusal codes an engineer can hit in normal use (api/clients/apiCodeMessages.ts).
