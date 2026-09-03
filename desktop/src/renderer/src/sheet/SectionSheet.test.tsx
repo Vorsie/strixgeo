@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { nadClassColor, nadCompactLabel } from '../utils/nadClasses'
 import { SectionSheet } from './SectionSheet'
 import type { SheetPayload } from './sheetPayload'
 
@@ -63,5 +64,59 @@ describe('SectionSheet — the printed sheet is the on-screen partition', () => 
     const page = screen.getByTestId('sheet-page')
     expect(page.style.width).toBe('420mm')
     expect(page.style.height).toBe('297mm')
+  })
+})
+
+// A geotech-axis sheet subdivides each litho unit into NAD packing classes, so
+// on paper it must colour a region by its packing class (the density ramp the
+// section canvas uses), never by the litho formation colour the geotech row
+// inherited from its source litho unit. The unit ``colour`` field carries that
+// inherited litho colour — the field the old code painted with — so pinning the
+// packing colour proves the region is NOT drawn in its formation colour.
+function geotechPayload(): SheetPayload {
+  const base = payload()
+  return {
+    ...base,
+    regions: [
+      { formation_id: 'g-sand-md-a', body_id: 'b1', gap_index: 0, polygon: [[0, 5], [1, 4], [1, -2], [0, -1]] },
+      { formation_id: 'g-sand-md-b', body_id: 'b2', gap_index: 0, polygon: [[0, -1], [1, -2], [1, -8], [0, -8]] },
+      { formation_id: 'g-clay-ff', body_id: 'b3', gap_index: 0, polygon: [[0, -8], [1, -8], [1, -15], [0, -15]] },
+    ],
+    // Two SILT/SAND litho parents both subdivide into ZAND·MD (NAD 6): distinct
+    // formations, one packing class. ``colour`` here is the inherited litho hue.
+    units: [
+      { formationId: 'g-sand-md-a', name: 'ZAND (geotech)', colour: '#e8c26a', displayOrder: 1, nadClass: 6, colorOverride: null },
+      { formationId: 'g-sand-md-b', name: 'ZAND (geotech)', colour: '#e8c26a', displayOrder: 2, nadClass: 6, colorOverride: null },
+      { formationId: 'g-clay-ff', name: 'KLEI (geotech)', colour: '#9db7c9', displayOrder: 3, nadClass: 23, colorOverride: null },
+    ],
+    settings: { ...base.settings, fill: 'geotech' },
+  }
+}
+
+describe('SectionSheet — the geotech sheet colours by NAD packing class', () => {
+  it('a geotech-axis sheet colours a region by its packing class, not its formation', () => {
+    render(<SectionSheet payload={geotechPayload()} map={<div />} />)
+    const fills = screen.getAllByTestId('sheet-region').map(p => p.getAttribute('fill'))
+    expect(fills).toContain(nadClassColor(6)) // ZAND·MD packing colour
+    expect(fills).toContain(nadClassColor(23)) // KLEI·FF packing colour
+    // never the inherited litho formation colour
+    expect(fills).not.toContain('#e8c26a')
+  })
+
+  it('the legend lists each packing class present once', () => {
+    render(<SectionSheet payload={geotechPayload()} map={<div />} />)
+    const legend = screen.getByTestId('sheet-unit-legend')
+    // NAD 6 is drawn by two distinct formations; the legend states it ONCE
+    // (payload language is 'nl' → the compact NL label 'ZAND·MD').
+    expect(within(legend).getAllByText(nadCompactLabel(6, 'nl'))).toHaveLength(1)
+    expect(within(legend).getAllByText(nadCompactLabel(23, 'nl'))).toHaveLength(1)
+  })
+
+  it('a litho-axis sheet is unchanged: regions in formation colour, legend by formation name', () => {
+    render(<SectionSheet payload={payload()} map={<div />} />)
+    const fills = screen.getAllByTestId('sheet-region').map(p => p.getAttribute('fill'))
+    expect(fills[0]).toBe('#e8c26a') // the litho formation colour, verbatim
+    const legend = screen.getByTestId('sheet-unit-legend')
+    expect(within(legend).getByText('KLEI · Quartair')).toBeInTheDocument()
   })
 })
