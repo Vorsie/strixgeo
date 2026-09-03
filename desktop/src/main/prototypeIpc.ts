@@ -35,6 +35,8 @@ export interface PrototypeIpcOptions {
    * SHOULD-FIX 1); ``index.ts`` passes ``previewControlAllowed(app.isPackaged)``.
    */
   previewControl: boolean
+  /** Called once after a successful activation (main defers the backend while blocked). */
+  onActivated?: () => void
 }
 
 /**
@@ -52,14 +54,20 @@ export function registerPrototypeIpc(service: ActivationService, options: Protot
   // ---- Activation (#3) ----------------------------------------------------
   ipcMain.handle('activation:status', (): ActivationStatus => service.getStatus())
 
-  ipcMain.handle('activation:activate', (_event, key: unknown): Promise<ActivationActionResult> => {
+  ipcMain.handle('activation:activate', async (_event, key: unknown): Promise<ActivationActionResult> => {
     if (typeof key !== 'string' || key.trim() === '') {
-      return Promise.resolve({ ok: false, code: 'unknown_key', message: 'enter a licence key' })
+      return { ok: false, code: 'unknown_key', message: 'enter a licence key' }
     }
-    return service.activate(key.trim())
+    const result = await service.activate(key.trim())
+    if (result.ok) options.onActivated?.()
+    return result
   })
 
-  ipcMain.handle('activation:start-trial', (): Promise<ActivationActionResult> => service.startTrial())
+  ipcMain.handle('activation:start-trial', async (): Promise<ActivationActionResult> => {
+    const result = await service.startTrial()
+    if (result.ok) options.onActivated?.()
+    return result
+  })
 
   ipcMain.handle('activation:deactivate', async (): Promise<ActivationActionResult> => {
     // Self-service deactivate / transfer (ruling 15). The service frees the seat
