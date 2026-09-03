@@ -48,6 +48,7 @@ export const CHROME = {
   'app.bootFailedBody': 'Check the developer console for the Python traceback.',
   'app.backendFailedTitle': 'StrixGeo failed to start',
   'app.backendUnreachable': 'Backend unreachable',
+  'app.backendRestarting': 'Reconnecting to the backend…',
   'app.quit': 'Quit StrixGeo',
   'app.reload': 'Reload StrixGeo',
   'app.crashTitle': 'StrixGeo encountered an unexpected error',
@@ -166,6 +167,8 @@ export const CHROME = {
     'The StrixGeo backend process exited before it was ready. This usually means a database connection problem or a startup crash.',
   'app.backendUnreachableBody':
     '— saving and every other change are unavailable, and recent actions may not have been stored. Restart the app to reconnect.',
+  'app.backendRestartingBody':
+    'The backend restarted and the app is reconnecting. This takes a moment — your work is safe in the database.',
   'app.logFile': 'Log file:',
   'app.dxfExported': 'DXF exported.',
   'app.dxfExportFailed': 'Could not export the DXF.',
