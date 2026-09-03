@@ -27,6 +27,12 @@
  * | URL query string | ``?<query>`` | Carries names and ids as parameters |
  * | Coordinate pair (≥4 integer digits) | ``<coords>`` | Identifies the site |
  *
+ * {@link redactMessage} adds ONE more rule on top, for the ``message`` field
+ * only (a stack frame quotes nothing): any quoted string literal —
+ * ``"Boom Clay"`` / ``'Kanaal Noord'`` / `` `kb-4711` `` — has its content
+ * replaced with ``<redacted>`` (a DOV open-data URL inside quotes is kept), so
+ * a formation / project / borehole name an error interpolates never survives.
+ *
  * ## What deliberately stays
  *
  * * **UUIDs.** They carry no name, path or measurement, and they are the only
@@ -134,6 +140,20 @@ const COORDINATE_PAIR_RE = /-?\d{4,7}\.\d+\s*,\s*-?\d{4,7}\.\d+/g
 // Last dotted extension in a basename, allowing a V8 ``:line:col`` suffix.
 const EXTENSION_RE = /\.([A-Za-z0-9]{1,8})(?![A-Za-z0-9])/g
 
+// Quoted string literals inside a MESSAGE carry the names this redaction
+// exists to remove — an interpreter error names the formation "Boom Clay", the
+// project 'Kanaal Noord', the borehole `kb-4711` it failed on, in quotes.
+// redactText alone leaves those, so a message gets this extra pass. Stack
+// frames don't quote user data, so they keep using redactText alone.
+//
+// A single-quote pair is only treated as a literal when BOTH quotes sit on a
+// word boundary; otherwise an English contraction ("couldn't", "it's") would
+// be read as an opening quote and the whole message mangled. Double quotes and
+// backticks have no such ambiguity, so they match any balanced pair.
+const DOUBLE_QUOTED_RE = /"([^"\r\n]*)"/g
+const BACKTICK_QUOTED_RE = /`([^`\r\n]*)`/g
+const SINGLE_QUOTED_RE = /(^|[^A-Za-z0-9])'([^'\r\n]*)'(?=[^A-Za-z0-9]|$)/g
+
 /** Lower-cased final extension of a path, or ``null`` when it has none. */
 function finalExtension(path: string): string | null {
   const separator = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
@@ -200,4 +220,50 @@ export function redactText(text: unknown): string {
     out = out.slice(0, REDACTED_TEXT_CAP) + TRUNCATION_MARKER
   }
   return out
+}
+
+/**
+ * Replace one quoted literal's content — keeping the quote characters so the
+ * report still shows a name WAS there, and preserving an open-data (DOV) URL
+ * verbatim (owner ruling 2026-08-28: DOV data needs no redaction).
+ */
+function redactQuoted(open: string, close: string, inner: string): string {
+  if (isOpenDataUrl(inner.trim())) return `${open}${inner}${close}`
+  return `${open}<redacted>${close}`
+}
+
+/** Redact every quoted string literal in one pass (double, backtick, single). */
+function redactQuotedLiterals(text: string): string {
+  return text
+    .replace(DOUBLE_QUOTED_RE, (_m, inner: string) => redactQuoted('"', '"', inner))
+    .replace(BACKTICK_QUOTED_RE, (_m, inner: string) => redactQuoted('`', '`', inner))
+    .replace(
+      SINGLE_QUOTED_RE,
+      (_m, lead: string, inner: string) => `${lead}${redactQuoted("'", "'", inner)}`,
+    )
+}
+
+/**
+ * Redact a free-text crash/error MESSAGE.
+ *
+ * The message-only superset of {@link redactText}: it first strips quoted
+ * string literals (which carry formation / project / borehole names an error
+ * interpolates), then applies the full {@link redactText} pass. Stack frames do
+ * not quote user data, so they stay on {@link redactText} alone.
+ *
+ * Parameters
+ * ----------
+ * text : unknown
+ *     The raw message. A non-string yields ``''`` (same contract as
+ *     {@link redactText}).
+ *
+ * Returns
+ * -------
+ * string
+ *     The redacted, length-capped message.
+ */
+export function redactMessage(text: unknown): string {
+  if (typeof text !== 'string') return ''
+  if (text === '') return ''
+  return redactText(redactQuotedLiterals(text))
 }
