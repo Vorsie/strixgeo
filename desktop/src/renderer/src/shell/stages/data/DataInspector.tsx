@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react'
 
+import { VirtualRowList } from './dataInspectorVirtualList'
 import { useShell } from '../../ShellContext'
 import { EmptyState as SharedEmptyState } from '../../EmptyState'
 import { usePersistedJSON } from '../../../hooks/usePersistedJSON'
@@ -538,8 +539,10 @@ export default function DataInspector(): JSX.Element {
         </div>
       )}
 
-      {/* List — scrollable */}
-      <div className="flex-1 overflow-y-auto">
+      {/* List — the VirtualRowList owns its own scroll (react-window). The
+          container just supplies a definite height for the 100%-tall list; an
+          empty state renders short inside it. */}
+      <div className="flex-1 min-h-0">
         {activeTab === 'cpt' &&
           (visibleCpts.length === 0 ? (
             <EmptyState
@@ -559,13 +562,16 @@ export default function DataInspector(): JSX.Element {
               }
             />
           ) : (
-            <>
-              {cptVisible.map(c => (
+            <VirtualRowList
+              visible={cptVisible}
+              hidden={cptHidden}
+              rowKey={c => c.id}
+              renderSeparator={n => <HiddenSeparator count={n} />}
+              renderRow={(c, hidden) => (
                 <CptRow
-                  key={c.id}
                   cpt={c}
                   selected={c.id === selectedId}
-                  hidden={false}
+                  hidden={hidden}
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
@@ -573,23 +579,8 @@ export default function DataInspector(): JSX.Element {
                   onRemove={() => handleRemoveCpts([c.id])}
                   onHover={h => setHoveredTestId(h ? c.id : null)}
                 />
-              ))}
-              {cptHidden.length > 0 && <HiddenSeparator count={cptHidden.length} />}
-              {cptHidden.map(c => (
-                <CptRow
-                  key={c.id}
-                  cpt={c}
-                  selected={c.id === selectedId}
-                  hidden
-                  unsaved={sessionImportCptIds?.has(c.id) ?? false}
-                  checked={selectedForRemoval.has(c.id)}
-                  onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
-                  onClick={() => void handleSelect(c.id)}
-                  onRemove={() => handleRemoveCpts([c.id])}
-                  onHover={h => setHoveredTestId(h ? c.id : null)}
-                />
-              ))}
-            </>
+              )}
+            />
           ))}
 
         {activeTab === 'borehole' &&
@@ -611,13 +602,16 @@ export default function DataInspector(): JSX.Element {
               }
             />
           ) : (
-            <>
-              {bhVisible.map(b => (
+            <VirtualRowList
+              visible={bhVisible}
+              hidden={bhHidden}
+              rowKey={b => b.id}
+              renderSeparator={n => <HiddenSeparator count={n} />}
+              renderRow={(b, hidden) => (
                 <BoreholeRow
-                  key={b.id}
                   borehole={b}
                   selected={b.id === selectedBoreholeId}
-                  hidden={false}
+                  hidden={hidden}
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
@@ -625,23 +619,8 @@ export default function DataInspector(): JSX.Element {
                   onRemove={() => handleRemoveBoreholes([b.id])}
                   onHover={h => setHoveredTestId(h ? b.id : null)}
                 />
-              ))}
-              {bhHidden.length > 0 && <HiddenSeparator count={bhHidden.length} />}
-              {bhHidden.map(b => (
-                <BoreholeRow
-                  key={b.id}
-                  borehole={b}
-                  selected={b.id === selectedBoreholeId}
-                  hidden
-                  unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
-                  checked={selectedForRemoval.has(b.id)}
-                  onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
-                  onClick={() => void handleSelectBorehole(b.id)}
-                  onRemove={() => handleRemoveBoreholes([b.id])}
-                  onHover={h => setHoveredTestId(h ? b.id : null)}
-                />
-              ))}
-            </>
+              )}
+            />
           ))}
       </div>
 
