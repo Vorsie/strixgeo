@@ -6,8 +6,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class ClearGeotechColumnRequest(BaseModel):
+
+class ClearGeotechColumnRequest(StrictRequestModel):
     """Clear ONE test's subdivision (owner ask 2026-08-18).
 
     Attributes
