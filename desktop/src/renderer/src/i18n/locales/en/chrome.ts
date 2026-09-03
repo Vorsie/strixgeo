@@ -13,6 +13,13 @@ export const CHROME = {
   'common.cancel': 'Cancel',
   'common.close': 'Close',
   'common.delete': 'Delete',
+  // The action button on an IRREVERSIBLE database-delete confirm. Distinct from
+  // the reversible project-local hide (``common.remove``) — in NL both would
+  // otherwise read "Verwijderen" once the hide verb was renamed (owner
+  // 2026-09-03), collapsing the reversible/irreversible distinction docs/ux.md
+  // requires. English already distinguishes Remove vs Delete; the emphatic form
+  // keeps the confirm unambiguous in both locales.
+  'common.deletePermanently': 'Delete permanently',
   'common.remove': 'Remove',
   'common.open': 'Open',
   'common.apply': 'Apply',
