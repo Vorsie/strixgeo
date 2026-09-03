@@ -103,6 +103,77 @@ function Write-Step($message) {
     Write-Host "[embedded-python] $message"
 }
 
+# SHA-256 manifest of the staged Python tree (interpreter + site-packages) so a
+# REUSED tree (the dependency stage skipped below) is proven byte-intact BEFORE
+# the skip is trusted (production-readiness audit 2026-09-02, C4: "the reused
+# embedded/python tree is never re-verified and gets a valid sha512"). The staged
+# import check only loads ~10 of the ~145 site-packages, so a single flipped bit
+# in any of the other ~135 would otherwise ship. Bytecode caches are excluded
+# (__pycache__/*.pyc are regenerated on import, not shipped payload) so the
+# manifest stays stable across reuse; the manifest file itself is excluded too.
+$PythonManifest = Join-Path $PythonTarget 'MANIFEST.sha256'
+
+function Get-StagedPythonFiles {
+    # Every shipped file under the staged interpreter EXCEPT bytecode caches and
+    # the manifest. Returns FileInfo objects.
+    Get-ChildItem -Path $PythonTarget -Recurse -File -Force |
+        Where-Object {
+            $_.FullName -ne $PythonManifest -and
+            $_.Extension -ne '.pyc' -and
+            $_.FullName -notmatch '\\__pycache__\\'
+        }
+}
+
+function Write-PythonManifest {
+    Write-Step 'writing the staged-Python SHA-256 manifest'
+    $base = $PythonTarget.TrimEnd('\') + '\'
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($f in Get-StagedPythonFiles) {
+        $rel = $f.FullName.Substring($base.Length)
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $f.FullName).Hash
+        # sha256sum-style "<hash> *<relpath>"; the * separator survives relpaths
+        # containing spaces (some site-packages have them).
+        $lines.Add("$hash *$rel")
+    }
+    # UTF-8 no BOM so the reader parses the first line cleanly on PS 5.1.
+    [System.IO.File]::WriteAllLines($PythonManifest, $lines, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Step "  manifest lists $($lines.Count) files"
+}
+
+function Test-PythonManifest {
+    # Verify a REUSED tree against its manifest before the skip is trusted. Throws
+    # (naming the offending file) under $ErrorActionPreference='Stop', so the
+    # owner re-stages with -Force. A MISSING manifest (a tree staged by an older
+    # script, before this check existed) is NOT a corruption signal, so warn and
+    # write a baseline rather than force a 25-minute rebuild; the import check +
+    # native gate still run this build as they always do.
+    if (-not (Test-Path $PythonManifest)) {
+        Write-Warning "[embedded-python] no SHA-256 manifest at $PythonManifest (tree predates this check) - writing a baseline; future reuses are verified"
+        Write-PythonManifest
+        return
+    }
+    Write-Step 'verifying the staged Python tree against its SHA-256 manifest'
+    $expected = @{}
+    foreach ($line in [System.IO.File]::ReadAllLines($PythonManifest)) {
+        if ($line -match '^([0-9A-Fa-f]{64}) \*(.+)$') {
+            $expected[$Matches[2]] = $Matches[1].ToUpperInvariant()
+        }
+    }
+    $checked = 0
+    foreach ($rel in $expected.Keys) {
+        $full = Join-Path $PythonTarget $rel
+        if (-not (Test-Path -LiteralPath $full)) {
+            throw "staged Python file went MISSING since it was staged: $rel (re-stage with -Force)"
+        }
+        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $full).Hash.ToUpperInvariant()
+        if ($actual -ne $expected[$rel]) {
+            throw "staged Python file CHANGED since it was staged (possible bit flip): $rel (re-stage with -Force)"
+        }
+        $checked++
+    }
+    Write-Step "  verified $checked files intact"
+}
+
 # The interpreter + its ~640 MB of dependencies only change when uv.lock does,
 # so that half is skippable. The backend SOURCE is 5 MB and changes constantly
 # — it is re-copied every run, unconditionally, further down.
@@ -115,6 +186,8 @@ function Write-Step($message) {
 $dependenciesStaged = (Test-Path (Join-Path $PythonTarget 'python.exe')) -and -not $Force
 if ($dependenciesStaged) {
     Write-Step "interpreter already staged at $PythonTarget (use -Force to rebuild it)"
+    # Prove the REUSED tree is byte-intact BEFORE trusting the skip (audit C4).
+    Test-PythonManifest
 }
 
 if (-not $dependenciesStaged) {
@@ -163,8 +236,11 @@ try {
     #   It also drops the `compile` group (Nuitka) - a non-default group export
     #   never emits, so the compile toolchain cannot leak into what ships.
     # --no-emit-project: groundmodel itself ships as source, below.
+    # --frozen: export the COMMITTED uv.lock verbatim and error if it is stale,
+    #   so a shipped build can never resolve dependencies that differ from the
+    #   locked, hash-verified set the tests ran against (audit C4).
     # The export carries hashes, so the install below is pinned end to end.
-    uv export --no-dev --no-emit-project --format requirements-txt -o $requirements
+    uv export --no-dev --no-emit-project --frozen --format requirements-txt -o $requirements
     if ($LASTEXITCODE -ne 0) { throw "uv export failed with exit code $LASTEXITCODE" }
 
     Write-Step 'installing dependencies into the staged interpreter'
@@ -178,6 +254,12 @@ try {
     $ErrorActionPreference = $previousExportPreference
     Pop-Location
 }
+
+# Record the SHA-256 manifest of the freshly-staged tree so the NEXT run (which
+# reuses this interpreter) can prove it byte-intact (audit C4). Written here,
+# inside the fresh-stage block, so it covers exactly the files that get reused;
+# bytecode caches the later import check writes are excluded by the enumerator.
+Write-PythonManifest
 
 }  # end if (-not $dependenciesStaged)
 
@@ -205,6 +287,19 @@ foreach ($file in $CodelistDataDropFiles) {
         Write-Step "  dropped codelists\data\$file"
     } else {
         Write-Warning "[embedded-python] expected codelists\data\$file to prune, but it was absent"
+    }
+}
+
+# Verify the prune actually took effect on the staged tree, EVERY run — reuse
+# included (the backend above is re-staged and re-pruned unconditionally, so this
+# is what makes the prune reuse-safe rather than only fresh-stage-safe). The
+# audit found a staged tree that "still held codetabel_*.csv + the .xsd", so a
+# survivor is now a LOUD build failure rather than a silent leak into the
+# installer.
+foreach ($file in $CodelistDataDropFiles) {
+    $path = Join-Path $StagedCodelistData $file
+    if (Test-Path $path) {
+        throw "codelists\data\$file survived the prune - it must not ship (re-stage with -Force)"
     }
 }
 
