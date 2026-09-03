@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class MergeGeotechBandsRequest(BaseModel):
+class MergeGeotechBandsRequest(StrictRequestModel):
     """Body of the preview-merge and merge endpoints.
 
     Two shapes, exactly one of which must be used:
