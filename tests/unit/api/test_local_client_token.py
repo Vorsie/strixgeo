@@ -99,17 +99,62 @@ def test_a_destructive_route_is_refused_too(client: TestClient, launched_by_the_
     assert response.status_code == 403
 
 
-def test_the_dev_renderer_origin_is_untouched(
+def test_the_dev_renderer_origin_with_the_token_is_served(
     client: TestClient, launched_by_the_app: None
 ) -> None:
     """``npm run dev`` serves the renderer over http://localhost:<port>.
 
-    That origin is already pinned by the CORS allowlist and a hostile page
-    cannot forge it, so it needs no token — and requiring one there would
-    break the dev app whenever header injection is unavailable.
+    In dev the Electron main process still spawns the uvicorn child with the
+    launch token and still injects the header on every renderer request (only
+    ``ENVIRONMENT=production`` is packaged-gated — see
+    ``desktop/src/main/index.ts``), so the dev renderer carries the token and
+    is served.
+    """
+    response = client.get(
+        "/openapi.json",
+        headers={"Origin": "http://localhost:5173", LOCAL_CLIENT_TOKEN_HEADER: _TOKEN},
+    )
+    assert response.status_code == 200
+
+
+def test_a_localhost_origin_without_the_token_is_refused(
+    client: TestClient, launched_by_the_app: None
+) -> None:
+    """Every present Origin must prove the token — a bare localhost is not exempt.
+
+    The old rule trusted any localhost origin unconditionally, which let a page
+    served from another localhost port (a second dev server, a malicious local
+    app) reach the API without the token. The token is the identity signal now,
+    not the origin.
     """
     response = client.get("/openapi.json", headers={"Origin": "http://localhost:5173"})
-    assert response.status_code == 200
+    assert response.status_code == 403
+
+
+def test_a_remote_origin_without_the_token_is_refused(
+    client: TestClient, launched_by_the_app: None
+) -> None:
+    """A page on the wider web sends its own Origin; without the token it reads nothing."""
+    response = client.get("/openapi.json", headers={"Origin": "https://evil.example"})
+    assert response.status_code == 403
+
+
+def test_a_remote_origin_multipart_import_is_refused_and_writes_nothing(
+    client: TestClient, launched_by_the_app: None
+) -> None:
+    """The CSRF this guard closes: a remote page's plain multipart form.
+
+    A ``<form enctype="multipart/form-data">`` POST to ``/cpt/import`` from a
+    page on the web carries that page's Origin and no launch token. The token
+    middleware must refuse it with 403 BEFORE the import route runs, so nothing
+    is parsed and nothing is written.
+    """
+    response = client.post(
+        "/cpt/import",
+        files={"file": ("evil.gef", b"#GEFID= 1,1,0\n#EOH=\n")},
+        headers={"Origin": "https://evil.example"},
+    )
+    assert response.status_code == 403
 
 
 def test_a_request_without_an_origin_is_untouched(
