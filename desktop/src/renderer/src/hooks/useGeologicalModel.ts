@@ -952,6 +952,21 @@ export interface UseGeologicalModelResult {
   /** Build / rebuild solids for the active geotech model, toast the result. */
   buildGeotechSolids: UseLithoSolidsResult['buildLithoSolids']
   /**
+   * Build the geotech model via a background job with phase + per-column progress
+   * and a cancel (debt #282) — the same streaming machinery the litho Build uses,
+   * pointed at the geotech model. The geotech Build press (via the pre-flight)
+   * routes here; the toolbar shows inline progress + Cancel while it runs.
+   *
+   * Optional so the many hand-rolled ShellContext stubs need not set it (mirrors
+   * ``geotechBodyRosterRefetchNonce?``); the real hook always returns it, and the
+   * pre-flight falls back to ``buildGeotechSolids`` when a stub omits it.
+   */
+  startGeotechBuild?: UseLithoSolidsResult['startLithoBuild']
+  /** Ask the running streaming geotech build to stop; the model is left unchanged. */
+  cancelGeotechBuild?: UseLithoSolidsResult['cancelLithoBuild']
+  /** Live state of the streaming geotech build (idle/running/done/cancelled/error). */
+  geotechVoxelBuildState?: UseLithoSolidsResult['voxelBuildState']
+  /**
    * Bumps when a geotech ``buildGeotechSolids`` press completes — the units
    * pane's geotech body roster keys on it to RE-READ (not recompute) the
    * healed litho parent links (debt #278 dogfeed 2026-09-01).
@@ -2432,13 +2447,44 @@ export function useGeologicalModel({
     markMutated,
   )
 
+  // The units-pane geotech body roster (``useModelBodies`` in GeotechnicalInspector)
+  // groups packing bodies under their litho parent via ``parent_litho_body_id``.
+  // A geotech Build HEALS those links server-side, but the roster only re-fetched
+  // on a body-recompute nonce the Build never bumps — so the tree kept the pre-Build
+  // bodies (NULL parents) under "no litho body" until a manual reload (debt #278
+  // dogfeed 2026-09-01). This counter is the missing signal: a completed geotech
+  // build bumps it, the roster keys on it, and it re-READS the already-correct DB.
+  // NOT a recompute — the geotech stage cannot assemble the Sections partition
+  // payload a recompute needs, and the DB is already right, so a re-read is both
+  // sufficient and far lighter.
+  //
+  // Declared ABOVE the geotech useLithoSolids call because the composed
+  // ``onMutated`` below (which the streaming build path fires on ``done``) needs
+  // its setter.
+  const [geotechBodyRosterRefetchNonce, setGeotechBodyRosterRefetchNonce] = useState(0)
+
+  // The geotech "a build landed" hook: mark the project dirty (like every model
+  // mutation) AND re-read the body roster. Fires from inside ``applyVoxelBuildResult``,
+  // so it covers BOTH the synchronous build and the streaming build's ``done``
+  // event (debt #282 parity) — the roster heals its litho-parent links no matter
+  // which path ran. The synchronous wrapper below ALSO bumps for the no-op
+  // (empty-payload) case that GBR1 pins, where no result is applied and this hook
+  // never fires; a real synchronous build would bump twice, a harmless counter
+  // increment, and no longer a production path now that Build streams.
+  const markMutatedAndRereadGeotechRoster = useCallback(() => {
+    markMutated()
+    setGeotechBodyRosterRefetchNonce(n => n + 1)
+  }, [markMutated])
+
   // Geotech body solids — a SECOND useLithoSolids instance pointed at the
   // active GEOTECH model.  ``useLithoSolids`` is model-agnostic (the voxel
   // builder parameterises on ``model_id``; the geotech model id is accepted
   // by the same ``buildVoxelLithoModel`` endpoint), so the geotech 3D body
-  // solids reuse the same fetch / build / colour machinery.  Called
-  // unconditionally here (above any early return) per the hook-order rule —
-  // mirrors the litho instance directly above it.
+  // solids reuse the same fetch / build / colour machinery — INCLUDING the
+  // streaming build job (progress + cancel), which is why the geotech Build can
+  // share it without a second copy (debt #282).  Called unconditionally here
+  // (above any early return) per the hook-order rule — mirrors the litho instance
+  // directly above it.
   const geotechSolidsResult = useLithoSolids(
     project?.id ?? null,
     activeGeotechModel?.id ?? null,
@@ -2447,20 +2493,10 @@ export function useGeologicalModel({
     // bumps geotechLayersVersion, and this re-fetch is what turns the Build
     // badge amber without waiting for the next build.
     geotechLayersVersion,
-    markMutated,
+    // Dirty the project AND re-read the units-pane roster on every completed
+    // build — sync or streaming (debt #282).
+    markMutatedAndRereadGeotechRoster,
   )
-
-  // The units-pane geotech body roster (``useModelBodies`` in GeotechnicalInspector)
-  // groups packing bodies under their litho parent via ``parent_litho_body_id``.
-  // A geotech Build HEALS those links server-side, but the roster only re-fetched
-  // on a body-recompute nonce the Build never bumps — so the tree kept the pre-Build
-  // bodies (NULL parents) under "no litho body" until a manual reload (debt #278
-  // dogfeed 2026-09-01). This counter is the missing signal: ``buildGeotechSolids``
-  // bumps it, the roster keys on it, and it re-READS the already-correct DB. NOT a
-  // recompute — the geotech stage cannot assemble the Sections partition payload a
-  // recompute needs, and the DB is already right, so a re-read is both sufficient
-  // and far lighter.
-  const [geotechBodyRosterRefetchNonce, setGeotechBodyRosterRefetchNonce] = useState(0)
 
   // GEOTECH-only wrapper around the second useLithoSolids build. Awaits the
   // underlying build, then bumps the roster nonce. Finally-style on purpose: the
@@ -2469,6 +2505,10 @@ export function useGeologicalModel({
   // data — threading a success signal out of buildLithoSolids buys nothing here.
   // The LITHO build (spread from ``lithoSolidsResult`` above) is deliberately NOT
   // wrapped: it changes a different model's roster.
+  //
+  // Retained after the geotech Build moved to the streaming path (debt #282): it
+  // is still the synchronous fallback the pre-flight uses when the bus does not
+  // wire ``startGeotechBuild`` (test stubs), and GBR1-3 drive it directly.
   const buildGeotechSolids = useCallback<UseLithoSolidsResult['buildLithoSolids']>(
     async voxelRequestBuilder => {
       await geotechSolidsResult.buildLithoSolids(voxelRequestBuilder)
@@ -2918,6 +2958,11 @@ export function useGeologicalModel({
     hasGeotechSolids: geotechSolidsResult.hasLithoSolids,
     hasStaleGeotechSolid: geotechSolidsResult.hasStaleLithoSolid,
     buildGeotechSolids,
+    // Streaming build job (progress + cancel) for the geotech model — the same
+    // machinery the litho Build uses, surfaced under geotech names (debt #282).
+    startGeotechBuild: geotechSolidsResult.startLithoBuild,
+    cancelGeotechBuild: geotechSolidsResult.cancelLithoBuild,
+    geotechVoxelBuildState: geotechSolidsResult.voxelBuildState,
     geotechBodyRosterRefetchNonce,
     setGeotechBodyColor: geotechSolidsResult.setBodyColor,
     geotechHideMarkers: geotechSolidsResult.hideMarkers,
