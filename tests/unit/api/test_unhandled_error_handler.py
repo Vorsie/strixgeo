@@ -15,6 +15,8 @@ that another browser tab must not read this loopback API).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from starlette.requests import Request
 
@@ -167,3 +169,55 @@ async def test_ue8_unrelated_error_still_500() -> None:
     status, detail, _ = await _handle(RuntimeError("boom"), "null")
     assert status == 500
     assert detail["code"] == "internal_error"
+
+
+@pytest.mark.asyncio
+async def test_ue9_the_500_message_does_not_falsely_promise_the_action_was_not_applied() -> None:
+    """UE-9 (L12) — the handler runs AFTER a route may already have committed.
+
+    A raise from the response serialiser, or any error after ``session.commit``,
+    still reaches this handler; telling the user "the action was not applied" is
+    then simply false. The message must instead say it may or may not have been
+    applied and tell them to reload the project to see the true state.
+    """
+    handler = make_unhandled_error_handler(
+        allowed_origins=_ALLOWED_ORIGINS,
+        allowed_origin_regex=_ALLOWED_ORIGIN_REGEX,
+    )
+    try:
+        raise RuntimeError("commit succeeded, then the response serializer raised")
+    except RuntimeError as exc:
+        response = await handler(_request("null"), exc)
+    message = json.loads(bytes(response.body))["detail"]["message"].lower()
+    assert "reload" in message, f"UE-9 FAIL: message does not tell the user to reload: {message!r}"
+    assert "may or may not have been applied" in message, (
+        f"UE-9 FAIL: message does not admit the uncertain outcome: {message!r}"
+    )
+    assert "was not applied" not in message, (
+        f"UE-9 FAIL: the false absolute promise is still present: {message!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ue10_a_localhost_origin_is_not_reflected_when_no_regex_is_configured() -> None:
+    """UE-10 — in production the dev-server regex is ``None``; localhost is not echoed.
+
+    The production app builds ``CORSMiddleware`` with no localhost regex; the
+    500 handler is passed the same ``None`` and must not reflect a localhost
+    origin it would otherwise have matched in development.
+    """
+    handler = make_unhandled_error_handler(
+        allowed_origins=_ALLOWED_ORIGINS,
+        allowed_origin_regex=None,
+    )
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as exc:
+        response = await handler(_request("http://localhost:5173"), exc)
+    assert response.headers.get("access-control-allow-origin") is None
+    # ``null`` (the packaged renderer) is still reflected via the exact allowlist.
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as exc:
+        response = await handler(_request("null"), exc)
+    assert response.headers.get("access-control-allow-origin") == "null"
