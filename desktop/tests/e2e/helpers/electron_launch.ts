@@ -156,7 +156,11 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
     // is a side effect of Electron's app-name fallback, and a refactor that moved
     // the entry point would silently redirect a hundred-plus launches' worth of
     // recent-project entries, chrome and crash snapshots into a real session's store.
-    args: [MAIN_ENTRY, `--user-data-dir=${E2E_USER_DATA_DIR}`],
+    // ``--lang`` pins Chromium's application locale, and with it
+    // ``navigator.language``, to English. The app defaults to the SYSTEM
+    // language (languageSelect.ts, installer #5 2026-09-03), so on a Dutch
+    // machine every copy assertion in the suite would otherwise see Dutch.
+    args: [MAIN_ENTRY, `--user-data-dir=${E2E_USER_DATA_DIR}`, '--lang=en-US'],
     env: {
       ...process.env,
       // Disable GPU acceleration to avoid the 0xC0000005 renderer crash
