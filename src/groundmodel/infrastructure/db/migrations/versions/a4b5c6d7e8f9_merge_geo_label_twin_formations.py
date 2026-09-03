@@ -78,6 +78,13 @@ down_revision: str | None = "f3d0a1b2c4e5"
 branch_labels = None
 depends_on = None
 
+# Declares that ``upgrade()`` rewrites/deletes existing user rows (the geo-label
+# twin merge deletes loser formation rows and re-points their children) so the
+# migrator's pre-migration backup step names it among the pending data-rewriting
+# migrations (production-readiness audit H2b). This is the migration that
+# motivated the checkpoint: it is destructive and refuses a downgrade.
+DATA_REWRITE = True
+
 
 # The body renumber vacates ordinals into a high range no live project reaches
 # (a formation never carries a million bodies) before dense-ranking back down.
