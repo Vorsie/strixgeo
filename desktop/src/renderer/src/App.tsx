@@ -27,6 +27,7 @@ import NewProjectDialog from './components/NewProjectDialog'
 import AppBootError from './components/AppBootError'
 import BackendFailedModal from './components/BackendFailedModal'
 import BackendUnreachableBanner from './components/BackendUnreachableBanner'
+import BackendRestartingBanner from './components/BackendRestartingBanner'
 import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
@@ -1313,8 +1314,14 @@ export default function App() {
   // the engineer is told. Renders null unless the condition holds.
   const backendUnreachableBanner = <BackendUnreachableBanner />
 
-  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}<AppBootError /></>
-  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}<AppLoading /></>
+  // Mid-session backend RESTART (H3(a)) — the hopeful counterpart to the
+  // unreachable banner. Rendered wherever that one is, for the same reason: the
+  // backend can die at any moment and the branch in view must not decide whether
+  // the engineer sees the reconnect. Renders null unless a respawn is in flight.
+  const backendRestartingBanner = <BackendRestartingBanner />
+
+  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError /></>
+  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading /></>
 
   // Activation start-screen gate (owner ruling A) — a packaged build with a
   // blocked verdict shows the licence screen INSTEAD of the workspace. Never
@@ -1406,7 +1413,7 @@ export default function App() {
         <UpdateNotification />
         {/* Backend-failed modal — portal to body, safe in every branch. */}
         {backendFailedModal}
-        {backendUnreachableBanner}
+        {backendUnreachableBanner}{backendRestartingBanner}
       </>
     )
   }
@@ -1427,7 +1434,7 @@ export default function App() {
       <AppShell context={shellContextValue} />
 
       {/* Sits above the shell chrome so it is legible over any stage. */}
-      {backendUnreachableBanner}
+      {backendUnreachableBanner}{backendRestartingBanner}
 
       {/* Refresh-on-reimport consent. Only reachable with a project open (the
           import menu item is), so it lives in this branch alone. */}
