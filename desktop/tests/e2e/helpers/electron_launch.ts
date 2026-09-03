@@ -195,6 +195,28 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
   // The first window becomes available immediately after the main process
   // calls ``app.whenReady().then(() => createWindow())``.
   const page = await app.firstWindow()
+  // Renderer console + uncaught page errors go to a per-run log next to the
+  // backend logs. A stuck UI with a green backend (the 2026-09-03 Build specs)
+  // is undiagnosable without the renderer's own log lines.
+  const consoleLog = path.join(os.tmpdir(), 'strix-e2e-renderer-console.log')
+  const stamp = (): string => new Date().toISOString().slice(11, 23)
+  page.on('console', msg => {
+    try {
+      fs.appendFileSync(consoleLog, `${stamp()} [${msg.type()}] ${msg.text()}
+`)
+    } catch {
+      /* logging must never fail a spec */
+    }
+  })
+  page.on('pageerror', err => {
+    try {
+      fs.appendFileSync(consoleLog, `${stamp()} [pageerror] ${err.message}
+${err.stack ?? ''}
+`)
+    } catch {
+      /* logging must never fail a spec */
+    }
+  })
 
   // Wait for the window to be fully visible before handing off to the spec.
   await page.waitForLoadState('domcontentloaded')
