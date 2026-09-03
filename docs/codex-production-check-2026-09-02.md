@@ -78,7 +78,7 @@ Three items above were closed by a follow-up parity slice (all TDD, red-first):
 
 ## Evidence
 
-Final develop head and gate counts are appended at the end of this file after the closing e2e sweep.
+Final gates (2026-09-03 morning): backend unit 3113 passed; desktop tsc clean, full Vitest 626 files / 5435 tests; full integration suite under `STRIX_ORM_RELATIONSHIP_LAZY=raise` 951 passed / 13 skipped / 0 failed (raise is now the default); full e2e sweep 119 passed / 6 skipped with every red passing solo (22 tests, zero backend errors) — the two fixture reds were the new import limit (fixture shrunk), one was the batch-accept ‖ recompute row-lock race (closed by the litho-writers slice), the rest the known load flakes. The final develop head is recorded in CLAUDE.local.md and the morning dogfeed guide.
 
 Landed on develop overnight: activation, frontend, scaling, #47, #104, bounds, dbrecov, lifecycle, release, apisec, plus the earlier deadlock fix, sheet/tutorial fixes, sample mechanism, deactivate dialog, compile Q1, #156, exporter dedup, SectionPanel Phase B, diagnostics transmit. Each slice's own gate (unit suite / full Vitest / tsc) was re-run on the rebased tree before its fast-forward; integration files named by the builders ran through the wrapper where the DB was free. Final gates and the e2e sweep are recorded at the end of this document.
 
