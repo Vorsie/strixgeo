@@ -1526,6 +1526,13 @@ is non-trivial.
 
 ## 79. DOV Phase-2 parse-offload diagnostic + re-baseline (Tier E — performance investigation)
 
+> **Note (2026-09-03, wt-bounds slice — resilience, NOT throughput):** the DOV import
+> now has scope + resilience guards independent of this throughput work — bbox
+> ordering/area validation (625 km²), a 2000-record discovery ceiling before download,
+> a running-scope duplicate guard, 429/503 `Retry-After` retry with a one-time
+> parallelism halving, and cache fsync-before-rename + parse-fail re-fetch. The
+> Phase-2 parse-timing decomposition below is still owed.
+
 **What.** The current cold-import wall-clock for 316 deep CPTs is
 ~54 s (per `CLAUDE.local.md`). Benchmark says parse is ~170 ms per
 CPT on the event loop, so 316 × 170 ms ≈ 53.7 s — the entire wall
