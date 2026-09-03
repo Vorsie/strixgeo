@@ -328,6 +328,16 @@ packaged licence gate is real enough for a closed beta:
 Still MOCKED/pending: the strixgeo.com server, Stripe, the Ed25519 signature
 (the local file is still plain JSON), and `PACKAGED_ACTIVATION_URL` (still `null`).
 
+**Server implementation ready to deploy 2026-09-03** (branch `wt-actserver`, NOT
+merged) — the strixgeo.com MySQL + PHP service under `server/activation/` (schema,
+a PDO front controller for all five contract endpoints + an admin read-out, the
+mint/revoke/who CLIs, a Python conformance suite, and the runbook
+[design/activation-server-deploy.md](design/activation-server-deploy.md));
+awaiting the Combell DB + `PACKAGED_ACTIVATION_URL`. Ships UNSIGNED licence
+objects (contract §3 shape) with a random `STRIX-XXXX-XXXX-XXXX-XXXX` key and the
+tier stored in the DB — the §8 owner decisions (Ed25519, tier-in-key) are NOT
+pre-empted.
+
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
 
