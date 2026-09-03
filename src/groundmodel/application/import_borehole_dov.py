@@ -57,6 +57,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
 from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.progress import ProgressCallback, fire_progress
@@ -155,9 +156,15 @@ class ImportBoreholeDov(GroundModelLogger):
         # HTTP/2 connection pool warm so later phases don't pay
         # connect-handshake latency. Tuning lives in
         # ``dov_http.make_dov_async_client``.
+        # ONE rate-limit state for the whole import, threaded through every
+        # sub-client (boring + interpretation + sample + grain-size + scalar):
+        # the first 429 any of them sees halves the download parallelism for
+        # the phases that still run (mirrors the CPT path).
+        backoff = DovRateLimitState()
+
         async with make_dov_async_client() as http:
             discovered_count, parsed = await self._fetch_boreholes(
-                http, west, south, east, north, progress_cb
+                http, west, south, east, north, progress_cb, backoff
             )
 
             total = len(parsed)
@@ -275,7 +282,7 @@ class ImportBoreholeDov(GroundModelLogger):
             # boreholes (new + existing). Per-row dedup happens inside
             # the persist function based on Observation.dov_permkey.
             interp_result = await self._fetch_and_attach_interpretations(
-                http, west, south, east, north, borehole_map, wfs_row_map
+                http, west, south, east, north, borehole_map, wfs_row_map, backoff
             )
             await fire_progress(progress_cb, "interpretations", interp_result.attached, total)
 
@@ -283,7 +290,7 @@ class ImportBoreholeDov(GroundModelLogger):
             # refresh-on-duplicate flow. Per-row dedup based on
             # Sample.dov_permkey + each lab-test family's dov_permkey.
             samples_result = await self._fetch_and_attach_samples(
-                http, west, south, east, north, permkey_map
+                http, west, south, east, north, permkey_map, backoff
             )
             await fire_progress(progress_cb, "samples", samples_result.samples_attached, total)
 
@@ -368,6 +375,7 @@ class ImportBoreholeDov(GroundModelLogger):
         east: float,
         north: float,
         progress_cb: ProgressCallback | None = None,
+        backoff: DovRateLimitState | None = None,
     ) -> tuple[int, list[tuple[BoreholeWfsRow, BoreholeParseResult]]]:
         """Run Phase 1+2 — WFS discovery + parallel download + stream-parse.
 
@@ -380,6 +388,9 @@ class ImportBoreholeDov(GroundModelLogger):
         progress_cb : ProgressCallback | None
             Optional progress callback forwarded to the borehole client
             so WFS and download phase ticks surface to the UI.
+        backoff : DovRateLimitState | None
+            The import-wide rate-limit state; threaded into the boring client
+            so a 429 here halves the download parallelism for the later phases.
 
         Returns
         -------
@@ -392,7 +403,7 @@ class ImportBoreholeDov(GroundModelLogger):
         parser = DovBoringParser()
         t_fetch = time.perf_counter()
         discovered, parsed = await fetch_wfs_or_raise(
-            DovBoreholeClient(http, cache=self._boring_cache).fetch_bbox_processed(
+            DovBoreholeClient(http, cache=self._boring_cache, backoff=backoff).fetch_bbox_processed(
                 west, south, east, north, parser.parse, progress_cb=progress_cb
             ),
             label="borehole",
@@ -413,6 +424,7 @@ class ImportBoreholeDov(GroundModelLogger):
         north: float,
         borehole_map: dict[str, UUID],
         wfs_row_map: dict[str, BoreholeWfsRow],
+        backoff: DovRateLimitState | None = None,
     ) -> ImportInterpretationsDovResult:
         """Run Phase 4b — interpretation orchestrator over the same bbox.
 
@@ -427,6 +439,10 @@ class ImportBoreholeDov(GroundModelLogger):
         borehole whose Boringen row says "yes I have a formal
         stratigraphy" but whose interpretation-WFS query returns
         nothing. The orchestrator logs WARNINGs for each gap.
+
+        ``backoff`` is the import-wide rate-limit state; threaded on so a 429
+        raised in the boring phase already-halved parallelism carries into the
+        interpretation download, and a 429 here carries into the sample phase.
 
         Network errors here do NOT roll back the borehole-side persist
         queue; we degrade gracefully so a transient interpretation
@@ -446,6 +462,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 self._interpretation_cache,
                 http,
                 wfs_row_map=wfs_row_map,
+                backoff=backoff,
             )
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             # Don't propagate — keep boreholes alive even when interpretations
@@ -465,6 +482,7 @@ class ImportBoreholeDov(GroundModelLogger):
         east: float,
         north: float,
         permkey_map: dict[str, UUID],
+        backoff: DovRateLimitState | None = None,
     ) -> ImportSamplesDovResult:
         """Run Phase 4c — sample + grain-size orchestrator over the same bbox.
 
@@ -473,6 +491,10 @@ class ImportBoreholeDov(GroundModelLogger):
         orchestrator dedupes per row by ``Sample.dov_permkey`` and per
         lab-test by ``<family>.dov_permkey``, so existing samples /
         tests are not re-added.
+
+        ``backoff`` is the import-wide rate-limit state; threaded on so a 429
+        seen in any earlier phase keeps the sample / grain-size / scalar phases
+        at the already-reduced download parallelism.
 
         Same graceful-degradation contract as the interpretation
         phase: a transient lab-side outage doesn't abort the parent
@@ -494,6 +516,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 self._monster_cache,
                 self._observatie_cache,
                 http,
+                backoff=backoff,
             )
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             self.error(
