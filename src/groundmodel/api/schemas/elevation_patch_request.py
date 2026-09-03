@@ -6,10 +6,12 @@ since the payload shape is identical for both record types.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class ElevationPatchRequest(BaseModel):
+class ElevationPatchRequest(StrictRequestModel):
     """User-entered surface elevation update.
 
     Sent by the desktop frontend's ``ElevationEditor`` when the user fills in
