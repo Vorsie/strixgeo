@@ -261,8 +261,6 @@ export interface ActivationLaunchInputs {
   packaged: boolean
   /** True under the e2e harness (already gated on ``!packaged`` at its source). */
   e2e: boolean
-  /** True when this build carries a (usable) beta stamp — it runs on the stamp. */
-  betaStampPresent: boolean
   /** The evaluated activation verdict; only ``blocked`` is consulted. */
   verdict: { blocked: boolean }
 }
@@ -272,14 +270,14 @@ export interface ActivationLaunchInputs {
  * because of activation — the main-side counterpart to the renderer start-screen
  * gate (audit C3(d)).
  *
- * The rule, in the owner's own words: *"a beta build runs on its stamp; a
- * non-beta packaged build with no issuer cannot activate"*:
+ * The rule: a packaged build opens only once a licence verdict is not blocked;
+ * the beta stamp is a separate, earlier gate (expiry), not a licence:
  *
  * * a dev build NEVER blocks (the daily dogfeed is untouched);
  * * the e2e harness NEVER blocks (a licence gate would brick the suite);
- * * a BETA build NEVER blocks on activation — the beta stamp is its authority,
- *   enforced by the separate beta-expiry gate that already ran before this;
- * * only a non-beta, packaged, non-e2e build with a blocked verdict is stopped.
+ * * a BETA build blocks like any packaged build (owner 2026-09-03): the stamp
+ *   bounds its life, the key is still required before the engine starts;
+ * * only a packaged, non-e2e build with a blocked verdict is stopped.
  *
  * Pure, so vitest exercises every branch; ``index.ts`` calls it before
  * ``startApi()`` (the session main wires the one call site).
@@ -292,16 +290,16 @@ export interface ActivationLaunchInputs {
  * Returns
  * -------
  * boolean
- *     ``true`` only when a non-beta, packaged, non-e2e build has a blocked
- *     verdict.
+ *     ``true`` only when a packaged, non-e2e build has a blocked verdict.
  */
 export function activationBlocksLaunch(input: ActivationLaunchInputs): boolean {
   // Dev dogfeed is never blocked — the owner's daily flow must be untouched.
   if (!input.packaged) return false
   // The e2e harness is never blocked — a licence gate would brick the suite.
   if (input.e2e) return false
-  // A beta build runs on its STAMP, not on a licence: the beta-expiry gate is its
-  // authority and already refused an expired beta before this point.
-  if (input.betaStampPresent) return false
+  // A beta build is NOT exempt (owner 2026-09-03, "require Beta-key before
+  // API"): the stamp bounds the build's life through the beta-expiry gate that
+  // ran first, but a tester still enters a key before the engine starts — that
+  // is how the beta cohort shows up in the who-is-testing readout.
   return input.verdict.blocked
 }
