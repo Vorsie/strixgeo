@@ -67,6 +67,12 @@ down_revision = "c5b81d7a4e39"
 branch_labels = None
 depends_on = None
 
+# Declares that ``upgrade()`` rewrites existing user rows (UPDATEs the stored
+# CPT geometry SRID + epsg columns from GEF CRS codes to EPSG) so the migrator's
+# pre-migration backup step names it among the pending data-rewriting migrations
+# (production-readiness audit H2b).
+DATA_REWRITE = True
+
 # GEF codelist code → the EPSG code it means. Mirrors
 # ``gef_constants.GEF_XY_CODE_TO_EPSG``; kept literal here because a migration
 # must reproduce the mapping AS IT WAS when the migration ran, not follow a
