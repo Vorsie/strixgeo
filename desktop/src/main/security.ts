@@ -59,6 +59,45 @@ export function normalizePathForCompare(input: unknown): string | null {
 }
 
 /**
+ * Reduce a renderer-supplied save-dialog ``defaultPath`` to a bare filename
+ * (debt #37, audit H4).
+ *
+ * ``dialog.showSaveDialog`` pre-fills its filename field from ``defaultPath``.
+ * That value comes from the renderer (the project name, a section name) and is
+ * therefore untrusted: a crafted name like ``..\\..\\Windows\\evil.strix`` would
+ * pre-select a path outside the directory the user expects. Stripping every
+ * directory component — separators in either style, a Windows drive prefix — and
+ * any control characters leaves only a filename suggestion; the real target path
+ * is still whatever the user then picks in the dialog (and only that path is
+ * authorised for writing).
+ *
+ * Parameters
+ * ----------
+ * name : unknown
+ *     The renderer-supplied default name. Non-strings are treated as absent.
+ *
+ * Returns
+ * -------
+ * string | undefined
+ *     A separator-free filename, or ``undefined`` when nothing usable remains
+ *     (so the caller lets the dialog choose its own default).
+ */
+export function sanitizeSaveDialogDefault(name: unknown): string | undefined {
+  if (typeof name !== 'string') return undefined
+  // Drop a Windows drive prefix (``C:``) so ``C:bar`` / ``C:\dir\bar`` both
+  // reduce to the filename rather than a drive-relative path.
+  let base = name.replace(/^[A-Za-z]:/, '')
+  // Keep only what follows the last separator, whichever style the renderer used.
+  const lastSep = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'))
+  if (lastSep >= 0) base = base.slice(lastSep + 1)
+  // Strip any residual separators plus control characters (NUL included) that a
+  // crafted name could smuggle past the split.
+  // eslint-disable-next-line no-control-regex
+  base = base.replace(/[/\\\x00-\x1f]/g, '').trim()
+  return base.length > 0 ? base : undefined
+}
+
+/**
  * Returns the Content-Security-Policy header value the main process
  * should inject on every document response.
  *
