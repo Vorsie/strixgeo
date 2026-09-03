@@ -278,16 +278,26 @@ without `parent_formation_id` fall into an "Unassigned" group at the bottom. Eac
 row shows: colour swatch + name + contact count for THIS litho model. No edit/delete —
 formation CRUD stays in GeologyInspector.
 
-### LithoExcludedBoreholes (LithologyInspector private)
+### LithoBoreholesInModel + LithoExcludedBoreholes (LithologyInspector private)
 
-`shell/stages/lithology/LithoExcludedBoreholes.tsx` — surfaces the active litho model's
-`excluded_borehole_ids` (debt #65). Renders only when the model excludes something; one
-row per excluded borehole (name resolved from `visibleBoreholes`, generic fallback for a
-since-removed borehole) with a per-row "Include again" — a reversible action (fires
-immediately, Ctrl+Z undo + confirmation toast) routed through
-`geoModel.handleToggleBoreholeInLithoModel`, which shares `hooks/boreholeExclusionToggle.ts`
-with the GeologyInspector borehole checkbox. No exclude-from-UI gesture yet (remainder in
-debt #65).
+Both surface the active litho model's `excluded_borehole_ids` (debt #65, RESOLVED
+2026-09-03) and route every write through `geoModel.handleToggleBoreholeInLithoModel`,
+which shares `hooks/boreholeExclusionToggle.ts` (the optimistic/reversible toggle) with
+the GeologyInspector borehole checkbox — one copy of the mechanics, no second rollback
+path.
+
+`shell/stages/lithology/LithoBoreholesInModel.tsx` — the **exclude gesture**, mirroring
+GeologyInspector's collapsible "Boreholes in model" checkbox roster. Collapsed by
+default; when open it lists every `visibleBoreholes` row with a checkbox (checked = in
+the litho build, unchecked = excluded, line-through) plus an included/total count in the
+header. Unchecking excludes, re-checking includes — both reversible, fire immediately
+with NO confirm dialog (a project-local membership change), Ctrl+Z undo + a confirmation
+toast. Renders nothing when the project has no boreholes.
+
+`shell/stages/lithology/LithoExcludedBoreholes.tsx` — the compact undo callout below the
+roster. Renders only when the model excludes something; one row per excluded borehole
+(name resolved from `visibleBoreholes`, generic fallback for a since-removed borehole)
+with a per-row "Include again" — the same reversible toggle in the include direction.
 
 ### LithoCompositionPickerDialog
 
