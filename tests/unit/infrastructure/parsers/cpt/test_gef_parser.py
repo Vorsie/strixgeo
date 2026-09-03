@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
@@ -913,3 +915,51 @@ class TestElevationSourceStamping:
         result = parser.parse(_gef(header=header_without_zid))
         assert result.header.z is None
         assert result.elevation_source == ElevationSource.NONE
+
+
+class TestNonFiniteValues:
+    """A GEF line can carry ``nan`` / ``inf`` / ``-inf`` tokens (``float()`` reads
+    them straight in). A non-finite number poisons everything downstream — a NaN
+    depth sorts undefined and an inf coordinate breaks every spatial query — so
+    the parser replaces every non-finite SERIES value with null, and a non-finite
+    ``depth_m`` (an unusable anchor, not just a missing reading) is additionally
+    flagged as an ERROR.
+    """
+
+    @pytest.mark.parametrize("token", ["nan", "inf", "-inf"])
+    def test_non_finite_depth_is_nulled_and_flagged_error(
+        self, parser: GEFParser, token: str
+    ) -> None:
+        """A non-finite depth is nulled AND raises an ERROR-level issue."""
+        data = f"{token}; 1.0; 0.05\n0.40; 1.5; 0.06\n"
+        result = parser.parse(_gef(data=data))
+        depths = result.data["depth_m"].to_list()
+        assert depths[0] is None, f"non-finite depth ({token}) must be nulled, got {depths[0]!r}"
+        assert all(d is None or math.isfinite(d) for d in depths)
+        assert "NON_FINITE_DEPTH" in _error_codes(result), (
+            f"a non-finite depth ({token}) must raise an ERROR issue; "
+            f"errors were {_error_codes(result)}"
+        )
+
+    @pytest.mark.parametrize("token", ["nan", "inf", "-inf"])
+    def test_non_finite_measurement_is_nulled_and_warned_not_errored(
+        self, parser: GEFParser, token: str
+    ) -> None:
+        """A non-finite qc reading is nulled and flagged WARNING — not ERROR.
+
+        A missing reading is a hole, not a corrupt anchor: the row is still
+        placeable at its (finite) depth.
+        """
+        data = f"0.20; {token}; 0.05\n0.40; 1.5; 0.06\n"
+        result = parser.parse(_gef(data=data))
+        qc = result.data["qc_mpa"].to_list()
+        assert qc[0] is None, f"non-finite qc ({token}) must be nulled, got {qc[0]!r}"
+        assert "NON_FINITE_VALUES" in _warning_codes(result)
+        assert "NON_FINITE_DEPTH" not in _error_codes(result)
+
+    def test_finite_values_produce_no_non_finite_issue(self, parser: GEFParser) -> None:
+        """The normal case pays nothing — no non-finite issue, values intact."""
+        result = parser.parse(_gef())
+        assert "NON_FINITE_DEPTH" not in _error_codes(result)
+        assert "NON_FINITE_VALUES" not in _warning_codes(result)
+        assert result.data["depth_m"].to_list() == [0.2, 0.4, 0.6]
