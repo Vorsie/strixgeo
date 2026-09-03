@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from groundmodel.api.schemas.project.litho_layer.litho_layer_response import (
     LithoLayerConfidenceLiteral,
     LithoLayerSourceLiteral,
     LithoLayerStatusLiteral,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class LithoLayerCreateItem(BaseModel):
+class LithoLayerCreateItem(StrictRequestModel):
     """One per-layer payload in a bulk-create."""
 
     formation_id: UUID
@@ -47,7 +48,7 @@ class LithoLayerCreateItem(BaseModel):
         return self
 
 
-class LithoLayerBulkCreateRequest(BaseModel):
+class LithoLayerBulkCreateRequest(StrictRequestModel):
     """Body of ``POST /projects/{pid}/geology/models/{mid}/layers``.
 
     Inserts N rows in one transaction. Used by the suggest-litho
