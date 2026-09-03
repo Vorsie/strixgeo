@@ -284,6 +284,7 @@ export function makeShellCtx(axis: SectionModelAxis = 'geotechnical'): ShellCont
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
+      handleToggleBoreholeInLithoModel: noopAsync,
       discardContacts: vi.fn(),
       discoverBoreholeFormations: async () => ({ candidates: [], collisions: [] }),
       applyBoreholeFormationSelection: noopAsync,
