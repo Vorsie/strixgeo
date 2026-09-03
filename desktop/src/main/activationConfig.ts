@@ -32,12 +32,13 @@ export const ACTIVATION_URL_ENV = 'STRIXGEO_ACTIVATION_URL'
 /**
  * The packaged-build activation base URL.
  *
- * ``null`` today: no production server exists, so a packaged build falls back to
- * the mock. Set this to the live URL (e.g. ``https://strixgeo.com/api/activation``)
- * in the same change that ships the server — it is the ONLY edit a packaged
- * build needs to go live.
+ * The strixgeo.com activation service went live on 2026-09-03 (Combell shared
+ * hosting; runbook: docs/design/activation-server-deploy.md §11, conformance
+ * suite 7/7). A packaged build talks to it and to nothing else — the dev env
+ * var never reaches a packaged build. ``null`` would send a packaged build to
+ * the unreachable issuer (audit C3(a)), never to the mock.
  */
-export const PACKAGED_ACTIVATION_URL: string | null = null
+export const PACKAGED_ACTIVATION_URL: string | null = 'https://strixgeo.com/api/activation'
 
 /** The two facts the URL choice depends on. */
 export interface ActivationConfigInputs {
