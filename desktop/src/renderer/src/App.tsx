@@ -40,7 +40,7 @@ import { clearTutorialProgress } from './tutorial/tutorialProgress'
 import LicensingDialog from './components/licensing/LicensingDialog'
 import UpdateNotification from './components/updater/UpdateNotification'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
-import { activationGateDecision, type GateDecision } from './utils/activationGate'
+import { activationGateDecision, isBetaBuild, type GateDecision } from './utils/activationGate'
 import { t as tMsg } from './i18n/translate'
 import type {
   ActivationActionResultDto,
@@ -287,29 +287,70 @@ export default function App() {
     const flags = window.electron.launchFlags
     if (!(flags.packaged && !flags.e2e)) return // dev / e2e never block
     let cancelled = false
-    void window.electron
-      .getActivationStatus()
-      .then(status => {
+    void (async () => {
+      // A BETA build runs on its STAMP, not on a licence — it must never be
+      // stranded at the licence screen (audit C3(a)). The main-process beta gate
+      // already refused an expired beta before this window existed, so a beta
+      // build reaching the renderer is a valid one. Read beta status first; a
+      // failure to read it just means "treat as non-beta" and fall through.
+      let betaBuild = false
+      try {
+        betaBuild = isBetaBuild(await window.electron.getBetaStatus?.())
+      } catch {
+        betaBuild = false
+      }
+      if (cancelled) return
+      if (betaBuild) {
+        setActivationGate('pass')
+        return
+      }
+      try {
+        const status = await window.electron.getActivationStatus()
         if (cancelled) return
         setActivationGate(
-          activationGateDecision({ blocked: status.verdict.blocked, packaged: flags.packaged, e2e: flags.e2e }),
+          activationGateDecision({
+            packaged: flags.packaged,
+            e2e: flags.e2e,
+            betaBuild,
+            statusReadFailed: false,
+            blocked: status.verdict.blocked,
+          }),
         )
-      })
-      .catch(err => {
-        // A status read that fails must not brick the app on the boot path —
-        // fall open rather than trapping the user behind an unreadable gate.
-        log.warn('activation', 'could not read status for the start-screen gate', err)
-        if (!cancelled) setActivationGate('pass')
-      })
+      } catch (err) {
+        // FAIL CLOSED: a packaged non-beta build whose status read fails is
+        // treated as "no licence" — the licence screen, never an open workspace.
+        log.warn('activation', 'status read failed; failing closed to the licence screen', err)
+        if (!cancelled) {
+          setActivationGate(
+            activationGateDecision({
+              packaged: flags.packaged,
+              e2e: flags.e2e,
+              betaBuild,
+              statusReadFailed: true,
+              blocked: false,
+            }),
+          )
+        }
+      }
+    })()
     return () => {
       cancelled = true
     }
   }, [])
   // Re-evaluate when the start screen reports a new status; unlock once the
-  // verdict is no longer blocked (a valid key, or the trial started).
+  // verdict is no longer blocked (a valid key, or the trial started). The screen
+  // only shows for a packaged non-beta build, so betaBuild is false here.
   const handleActivationStatusChange = useCallback((status: ActivationStatusDto) => {
     const flags = window.electron.launchFlags
-    if (activationGateDecision({ blocked: status.verdict.blocked, packaged: flags.packaged, e2e: flags.e2e }) === 'pass') {
+    if (
+      activationGateDecision({
+        packaged: flags.packaged,
+        e2e: flags.e2e,
+        betaBuild: false,
+        statusReadFailed: false,
+        blocked: status.verdict.blocked,
+      }) === 'pass'
+    ) {
       setActivationGate('pass')
     }
   }, [])
