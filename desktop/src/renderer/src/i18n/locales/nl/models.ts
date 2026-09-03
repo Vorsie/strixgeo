@@ -276,6 +276,13 @@ export const MODELS_NL = {
   'litho.excludedBoreholeUnknown': 'Onbekende boring',
   'litho.boreholeIncludedToast': 'Boring opnieuw opgenomen in de lithologische opbouw',
   'litho.boreholeExcludedToast': 'Boring uitgesloten van de lithologische opbouw',
+  // Debt #65 (exclude gesture): "Boringen in het model" scope-lijst — de
+  // gebaar in de UI om een boring uit te sluiten van de lithologische opbouw
+  // (spiegelt de lijst in de geologische inspector).
+  'litho.boreholesInModel': 'Boringen in het model',
+  'litho.showBoreholeScopes': 'Toon / verberg de schakelaars per boring',
+  'litho.boreholesInModelHint': 'Vink een boring uit om ze buiten de lithologische opbouw te laten.',
+  'litho.boreholeInModel': '{name} in de lithologische opbouw',
   'litho.buildToSeeBodies': 'Bouw het 3D-model op om de lichamen te zien.',
   'litho.allContentBlurb':
     'Alle litho-eenheden, laaggrenzen, correlaties en vlakken in dit model',
