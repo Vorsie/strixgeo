@@ -44,7 +44,7 @@ function strix_cli_required(array $opts, string $name): string
     return trim($opts[$name]);
 }
 
-$opts = getopt('', ['tier:', 'holder:', 'email::', 'seats::', 'expires:', 'notes::']);
+$opts = getopt('', ['tier:', 'holder:', 'email:', 'seats:', 'expires:', 'notes:']);
 
 $tier = strix_cli_required($opts, 'tier');
 $holder = strix_cli_required($opts, 'holder');
