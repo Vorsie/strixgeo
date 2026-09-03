@@ -13,6 +13,8 @@
 import * as Cesium from 'cesium'
 import { useEffect } from 'react'
 
+import { requestSceneRender } from './sceneRender'
+
 /**
  * Publish a viewport's camera and/or mirror a sibling viewport's camera.
  *
@@ -71,9 +73,20 @@ export function useCameraLink(
       follower.right = Cesium.Cartesian3.clone(leader.right, follower.right)
     }
 
+    // Under on-demand rendering (M7c) the follower would freeze: its own camera
+    // is not what changed (the LEADER's is), so nothing requests a follower
+    // redraw, so preRender never fires, so the mirror never runs. Keep the
+    // follower drawing every frame while it follows — compare mode is exactly
+    // when continuous render is wanted — by re-requesting a render after each
+    // one. ``requestRender`` before the first frame bootstraps the loop in case
+    // the widget's initial render was already consumed before this effect ran.
+    const pump = (): void => requestSceneRender(scene)
     scene.preRender.addEventListener(mirror)
+    scene.postRender.addEventListener(pump)
+    requestSceneRender(scene)
     return () => {
       scene.preRender.removeEventListener(mirror)
+      scene.postRender.removeEventListener(pump)
     }
   }, [scene, followRef])
 }
