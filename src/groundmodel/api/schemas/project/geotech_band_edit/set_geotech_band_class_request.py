@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class SetGeotechBandClassRequest(BaseModel):
+class SetGeotechBandClassRequest(StrictRequestModel):
     """Set a BOREHOLE band's NAD packing class by hand (owner ask 2026-08-18).
 
     Attributes
