@@ -20,12 +20,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
+
 # Mirrors the repository's ALLOWED_* sets + the DB CHECK constraints.
 ReviewTargetKind = Literal["cpt", "borehole"]
 ReviewStatus = Literal["unreviewed", "in_progress", "reviewed"]
 
 
-class InvestigationReviewUpsertRequest(BaseModel):
+class InvestigationReviewUpsertRequest(StrictRequestModel):
     """Body of ``PUT /projects/{pid}/reviews/{target_kind}/{target_id}``.
 
     Upsert by target — the canonical pattern for review decisions. The
@@ -59,7 +61,7 @@ class InvestigationReviewResponse(BaseModel):
     updated_at: datetime
 
 
-class ProjectViewStatePatchRequest(BaseModel):
+class ProjectViewStatePatchRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{pid}/view-state``.
 
     **Shallow** merge semantics — each TOP-LEVEL key in the body
