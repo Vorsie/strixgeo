@@ -6,8 +6,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class NameBodyRequest(BaseModel):
+
+class NameBodyRequest(StrictRequestModel):
     """Body of ``POST .../geology/models/{model_id}/lenses``.
 
     Creates or updates a human-readable label for a body.  The body is
