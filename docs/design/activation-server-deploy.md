@@ -49,14 +49,14 @@ You need three things:
 ## 3. Make the database
 
 1. Open the Combell control panel.
-2. Create a new MySQL database. Write down the database name.
-3. Create a database user. Give it a strong password.
+2. Create a new MySQL database. Write down the database name. ID502440_StrixGeo (ID502440_StrixGeo.db.webhosting.be)
+3. Create a database user. Give it a strong password. (ID502440_StrixGeo) 
 4. Give the user all rights on the new database.
 5. Open the SQL console (phpMyAdmin, or the panel's SQL tool).
 6. Select the new database.
 7. Paste the full text of `server/activation/schema.sql`.
 8. Run it.
-9. Confirm the panel now lists five tables and one view.
+9. Confirm the panel now lists five tables and one view. confirmed
 
 The five tables are `licences`, `devices`, `activation_events`,
 `diagnostics_bundles`, and `rate_limits`. The view is `v_who_is_testing`.
@@ -70,7 +70,8 @@ the helper code stay ONE level up, so no URL can reach them.
 
 Do this:
 
-1. Find the site web root (often `httpdocs` or `www`).
+1. Find the site web root. On Combell it is `www`, under the home folder
+   `/data/sites/web/strixgeocom`. The Astro site files are already there.
 2. In the web root, make the folder `api`.
 3. In `api`, make the folder `activation`. This is the URL `/api/activation`.
 4. Copy the contents of `server/activation/public/` into
@@ -105,9 +106,11 @@ The default layout above is safe too: the `.htaccess` sends every URL to
 1. Copy `config.example.php` to `<webroot>/api/config.php`.
 2. Open `config.php`.
 3. Set `db.host`, `db.name`, `db.user`, and `db.password` to the values from
-   step 3.
+   step 3. On Combell `db.host` is the panel hostname
+   (`IDxxxxxx_name.db.webhosting.be`), not `localhost`.
 4. Set `admin_token` to a long random string. To make one, run:
-   `php -r "echo bin2hex(random_bytes(24)), PHP_EOL;"`.
+   `php -r "echo bin2hex(random_bytes(24)), PHP_EOL;"`. With no local PHP, any
+   48-character random hex string does the same job.
 5. Keep `trial_days = 30`, `grace_days = 30`, and `refresh_horizon_days = 30`
    unless you have a reason to change them.
 6. Keep `require_https = true`.
@@ -119,8 +122,11 @@ Do NOT put `config.php` inside `api/activation/`. It must stay one level up.
 
 ## 6. Mint the first key
 
-1. Open an SSH session on the hosting (or use the panel's PHP CLI).
-2. Go to `<webroot>/api`.
+1. Open an SSH session on the hosting. In the Combell panel, `SSH` in the left
+   menu must be ON. The user is `strixgeocom`, the host is `ssh.strixgeo.com`
+   (fallback `ssh080.webhosting.be`). A key is registered under `SSH-keys`; its
+   private half is `~/.ssh/strixgeo_combell_ed25519` on the owner's laptop.
+2. Go to `www/api`.
 3. Run this command. Change the holder, email, and date for the real tester:
 
    ```
@@ -258,5 +264,28 @@ LIMIT 50;
   reads as unknown, and the tester returns to the activation screen.
 * **Rate limit** is 60 requests per 10 minutes per IP. Change it in `config.php`
   if a real tester ever hits it.
+* **Combell puts an nginx edge in front of Apache.** Plain `http://` gets a 301
+  from nginx before the `.htaccess` runs. `X-Forwarded-For` is set, so the
+  rate limit keys on the real client IP.
+* **The CLI options take a space or `=`.** `--seats 1` and `--seats=1` both
+  work. (Before 2026-09-03 the optional-value spec made `--seats 1` swallow
+  every option after it, so `--expires` was reported missing.)
 * **Stripe is not wired.** You mint and revoke keys by hand for the closed beta.
   A Stripe webhook that mints on payment is the next step, after the beta.
+
+---
+
+## 11. As deployed on 2026-09-03
+
+* Files: `www/api/activation/{index.php,.htaccess}`, `www/api/src/`,
+  `www/api/bin/`, `www/api/config.php`. Owner `strixgeocom`, files 644, dirs 755.
+* PHP 8.4 (panel setting and CLI). MySQL 8 (`utf8mb4_0900_ai_ci`).
+* Database `ID502440_StrixGeo` on `ID502440_StrixGeo.db.webhosting.be`.
+* The filled `config.php` and the upload zip are kept locally in
+  `server/activation/dist/` (gitignored). The admin token is in that file.
+* Smoke checks: `/api/activation/` gives JSON 404; `/admin/who` gives 401
+  without the token and `{"rows":[]}` with it; `/api/config.php` and
+  `/api/src/db.php` give 403.
+* Conformance suite: 7 of 7 passed against the live server.
+* Licence id 1 (`Conformance test`, solo, expires 2027-01-01) is the suite's
+  key. Do NOT give it to a tester. Licence id 2 is the trial the suite took.
