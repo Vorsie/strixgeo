@@ -72,6 +72,13 @@ import { ShellContext } from './shell/ShellContext'
 type View = 'map' | 'chart'
 
 export default function App() {
+  // Toast notifications — extracted to useToasts so ``toast`` is
+  // importable by the other hooks that receive it as a dep-injection param.
+  // Declared BEFORE useProject so the open/restore flow can warn (once) when a
+  // DB-lost restore had to cap oversized rows; useToasts holds no external
+  // deps and is safe to call this early in the App body.
+  const { toasts, toast, dismissToast } = useToasts()
+
   const {
     project,
     saved: savedProject,
@@ -99,11 +106,7 @@ export default function App() {
     saveAsProject,
     closeProject,
     stageLumping,
-  } = useProject()
-
-  // Toast notifications — extracted to useToasts so ``toast`` is
-  // importable by the other hooks that receive it as a dep-injection param.
-  const { toasts, toast, dismissToast } = useToasts()
+  } = useProject({ toast })
 
   // API boot sequence — extracted to useAppBoot.
   const { ready, apiError } = useAppBoot()
