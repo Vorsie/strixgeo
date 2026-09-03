@@ -5840,6 +5840,22 @@ actual base URL (`win.webContents.getURL()` after `loadFile`).
 
 ## 201. God-component file-size split (Tier E — readability, L)
 
+**Round 2026-09-03 — `LithologyInspector.tsx` 993 → 405 lines (−59 %).** Five
+presentational siblings extracted into the `lithology/` folder, each under the 500-line
+advisory and each with a header comment naming what it renders + where it came from:
+`LithoFormationRoster.tsx` (189, carries its module-scope `LithoUnitRow`) and
+`LithoSolidLegend.tsx` (352, the largest block — moved verbatim WITH its own per-group
+expand/collapse hooks) as the two big trailing components; and three inline JSX blocks as
+pure-render siblings — `LithoCommittedPill.tsx` (102), `LithoConfidenceFadeToggle.tsx` (73),
+`LithoResolveAction.tsx` (70). The orchestrator keeps all 16 hooks in their original order
+(hook-order check clean); the clear-model confirm `Modal` stays inline because it carries a
+justified `eslint-disable jsx-a11y/no-autofocus` (the round adds no new suppression).
+**Zero existing test files changed** — 1,146 pre-existing tests pass untouched (the
+evidence behaviour is byte-identical); one new `LithologyInspector.smoke.test.tsx` (+2
+tests) mounts the orchestrator against the shared `sections/__fixtures__/shellStub` so a
+TDZ / hook-order regression surfaces at unit level. Gates: tsc web clean, 1,148 vitest
+green + 1 skipped.
+
 **Round 2026-08-28 — `SectionsToolbar.tsx` 2,917 → 902 lines (−69 %).**
 Thirteen extractions into siblings, each under the 500-line advisory:
 `SectionsAxisPill.tsx` (186) and `SectionsToolbarDialogs.tsx` (298) as
