@@ -8,7 +8,10 @@ import type { InstallSecrets } from './installSecrets'
 
 // buildBackendEnv reads only backendSrcDir off the layout and secretKey off the
 // secrets, so a minimal stub for each is enough to exercise the env it builds.
-const LAYOUT = { backendSrcDir: join('C:', 'Program Files', 'StrixGeo', 'resources', 'backend', 'src') } as EmbeddedLayout
+const LAYOUT = {
+  backendSrcDir: join('C:', 'Program Files', 'StrixGeo', 'resources', 'backend', 'src'),
+  pgsqlRoot: join('C:', 'Program Files', 'StrixGeo', 'resources', 'pgsql'),
+} as EmbeddedLayout
 const SECRETS: InstallSecrets = { user: 'u', password: 'p', database: 'd', secretKey: 'k' }
 const DSN = 'postgresql+asyncpg://u:p@127.0.0.1:5433/d'
 
