@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 # Cap on ids per batch. Guards the endpoint against a runaway caller
 # DOS-ing the API with one giant request. 500 leaves headroom for
@@ -12,7 +14,7 @@ from pydantic import BaseModel, Field
 _MAX_IDS = 500
 
 
-class CptPlotBatchRequest(BaseModel):
+class CptPlotBatchRequest(StrictRequestModel):
     """Body of ``POST /cpt/plot-batch``.
 
     ``ids`` is the list of CPT row IDs the caller wants plot data for.
