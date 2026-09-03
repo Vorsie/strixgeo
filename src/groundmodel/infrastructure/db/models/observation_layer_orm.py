@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class ObservationLayerOrm(Base):
@@ -93,11 +94,12 @@ class ObservationLayerOrm(Base):
     layer_index: Mapped[int] = mapped_column(Integer, nullable=False)
 
     observation: Mapped[ObservationOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "ObservationOrm", back_populates="layers"
+        "ObservationOrm", back_populates="layers", lazy=RELATIONSHIP_LAZY
     )
     admixtures: Mapped[list[AdmixtureOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "AdmixtureOrm",
         back_populates="layer",
         cascade="all, delete-orphan",
         order_by="AdmixtureOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
