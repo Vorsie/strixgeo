@@ -12,6 +12,13 @@ export interface MapContainerProps {
   maxZoom?: number
   zoomControl?: boolean
   attributionControl?: boolean
+  /**
+   * Render vector paths (``CircleMarker`` &c.) on a shared ``Canvas`` instead of
+   * one SVG element each. A construction-time Leaflet option — at high marker
+   * density (thousands of CPTs) canvas keeps panning smooth where per-marker SVG
+   * DOM does not. Default ``false`` (Leaflet's own default).
+   */
+  preferCanvas?: boolean
   style?: CSSProperties
   className?: string
   children?: ReactNode
@@ -32,6 +39,7 @@ export const MapContainer = forwardRef<L.Map, MapContainerProps>(function MapCon
       maxZoom: props.maxZoom,
       zoomControl: props.zoomControl ?? true,
       attributionControl: props.attributionControl ?? true,
+      preferCanvas: props.preferCanvas ?? false,
     })
     if (props.bounds) created.fitBounds(props.bounds)
     setMap(created)
