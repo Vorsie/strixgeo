@@ -32,6 +32,7 @@ from sqlalchemy.pool import NullPool
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.session import engine as module_engine
 from groundmodel.shared.config import settings
 
 # DB-name suffixes that mark a throwaway test database. The guard below
@@ -85,6 +86,24 @@ _TRUNCATE_SQL = text(
     "geological_formation, cpt, borehole, project "
     "CASCADE"
 )
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _dispose_module_engine() -> AsyncIterator[None]:
+    """Dispose the MODULE-LEVEL engine after every test.
+
+    ``db_session`` builds its own NullPool engine per test, but code paths that
+    run outside a request — the background jobs (voxel build, DOV / GEF import)
+    open ``AsyncSessionFactory()`` themselves — draw from the production pool in
+    ``groundmodel.infrastructure.db.session``. An asyncpg connection is bound to
+    the event loop that created it, and pytest-asyncio gives every test a fresh
+    loop, so the SECOND test that runs a job inherits a connection whose
+    transport is gone: ``AttributeError: 'NoneType' object has no attribute
+    'send'`` at its first statement (VBJ-2 on 2026-09-03). Disposing the pool
+    after each test makes the next checkout open a loop-fresh connection.
+    """
+    yield
+    await module_engine.dispose()
 
 
 @pytest_asyncio.fixture
