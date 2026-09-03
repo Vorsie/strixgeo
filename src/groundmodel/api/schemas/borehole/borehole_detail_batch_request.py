@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 # Cap on ids per batch. Matches CptPlotBatchRequest's ceiling — a section
 # with 500 in-buffer boreholes is well beyond the dogfeed target (typical
@@ -18,7 +20,7 @@ from pydantic import BaseModel, Field
 _MAX_IDS = 500
 
 
-class BoreholeDetailBatchRequest(BaseModel):
+class BoreholeDetailBatchRequest(StrictRequestModel):
     """Body of ``POST /borehole/detail-batch``.
 
     ``ids`` is the list of borehole row IDs the caller wants detail
