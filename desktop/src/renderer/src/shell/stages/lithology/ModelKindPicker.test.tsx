@@ -125,7 +125,9 @@ describe('ModelKindPicker (#55)', () => {
     expect(
       screen.getByText('Delete lithostratigraphic model?'),
     ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    // Irreversible confirm button reads "Delete permanently" (common.deletePermanently),
+    // distinct from the reversible project-local hide "Remove" (owner 2026-09-03).
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
     expect(handleDeleteLithoModel).toHaveBeenCalledWith('l1')
   })
 
