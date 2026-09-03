@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class GrainSizeOrm(Base):
@@ -84,5 +85,5 @@ class GrainSizeOrm(Base):
     organics_removed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     sample: Mapped[SampleOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "SampleOrm", back_populates="grain_sizes"
+        "SampleOrm", back_populates="grain_sizes", lazy=RELATIONSHIP_LAZY
     )
