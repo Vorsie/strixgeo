@@ -73,6 +73,7 @@ from groundmodel.infrastructure.db.repositories.dov_dedup import (
 from groundmodel.infrastructure.parsers.borehole.dov.dov_sample_client import DovSampleClient
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_DETECTIECONDITIE_NOT_MEASURABLE,
     DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS,
@@ -123,6 +124,7 @@ class ImportSamplesDov(GroundModelLogger):
         sample_cache: DovXmlCache,
         grain_size_cache: DovXmlCache,
         http: httpx.AsyncClient,
+        backoff: DovRateLimitState | None = None,
     ) -> ImportSamplesDovResult:
         """Fetch + persist all samples + grain-sizes in *bbox* for known boreholes.
 
@@ -147,6 +149,10 @@ class ImportSamplesDov(GroundModelLogger):
             resource types.
         http : httpx.AsyncClient
             Shared HTTP client opened by the parent orchestrator.
+        backoff : DovRateLimitState | None
+            The import-wide rate-limit state shared with the borehole +
+            interpretation phases, so a 429 seen anywhere halves the download
+            parallelism once for the sample / grain-size / scalar phases too.
 
         Returns
         -------
@@ -175,7 +181,7 @@ class ImportSamplesDov(GroundModelLogger):
         permkey_to_sample_id: dict[str, UUID] = {}
         t_samples = time.perf_counter()
         sample_rows = await fetch_wfs_or_raise(
-            DovSampleClient(http).fetch_bbox(
+            DovSampleClient(http, backoff=backoff).fetch_bbox(
                 west,
                 south,
                 east,
@@ -273,7 +279,7 @@ class ImportSamplesDov(GroundModelLogger):
             return _apply_grain_size_method_fallback(parsed, row)
 
         t_gs = time.perf_counter()
-        client = DovGrainSizeClient(http, cache=grain_size_cache)
+        client = DovGrainSizeClient(http, cache=grain_size_cache, backoff=backoff)
         parsed = await fetch_wfs_or_raise(
             client.fetch_bbox_processed(
                 west,
@@ -365,7 +371,7 @@ class ImportSamplesDov(GroundModelLogger):
         # each phase persists into the same session without committing.
         # ------------------------------------------------------------------
         await self._fetch_and_attach_scalar_lab_tests(
-            west, south, east, north, http, permkey_to_sample_id, result
+            west, south, east, north, http, permkey_to_sample_id, result, backoff
         )
 
         self.success(
@@ -393,6 +399,7 @@ class ImportSamplesDov(GroundModelLogger):
         http: httpx.AsyncClient,
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
+        backoff: DovRateLimitState | None = None,
     ) -> None:
         """Run all four scalar lab-test phases (Atterberg, CaCO3, OC, water) in parallel.
 
@@ -401,8 +408,12 @@ class ImportSamplesDov(GroundModelLogger):
         if one parameter's WFS query fails, the others still run, and the
         boreholes / samples / grain-sizes already in the session stay alive
         (the parent orchestrator commits regardless).
+
+        ``backoff`` is the import-wide rate-limit state; threaded into the
+        scalar client so a 429 in this final phase still records on the shared
+        state (and an earlier 429 keeps this phase's WFS at the reduced rate).
         """
-        client = DovScalarObservationClient(http)
+        client = DovScalarObservationClient(http, backoff=backoff)
         sample_permkeys = set(permkey_to_sample_id)
 
         # Phase C5 extras: the catch-all parameters land in one parallel query
