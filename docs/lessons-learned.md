@@ -450,3 +450,23 @@ launch boundary (`--lang=en-US` in the e2e launch args; Chromium derives
 `navigator.language` from it) rather than in the specs, and do it in the same
 commit as the default change.
 
+## 2026-09-03 — removing an exemption exposes the path the exemption was hiding
+
+**What happened.** The licence gate had a "beta builds run on their stamp"
+exemption, so every packaged build so far passed straight through. The owner
+ruled the beta must require a key. The gate change itself was test-first and
+green — and the first install showed "Kon de StrixGeo API niet starten" over
+the key page: the boot hook asked the main process for API readiness on mount,
+the main process answered "not running" because the engine was deliberately
+deferred until activation, and the App rendered the fatal boot error before
+its licence-screen branch. The audit had already called the gate "decorative";
+nothing had ever run the blocked path on real hardware.
+
+**Lesson.** When a ruling removes an exemption, the code BEHIND the exemption
+is untested by definition, however green the gate's own tests are. Before
+shipping, walk the newly reachable path end to end (here: blocked verdict →
+key page → activation → deferred engine start → workspace) and pin the
+ordering with a unit test in the rule's words ("the API wait does not start
+while the gate is closed"). A pure decision function passing is not evidence
+that the callers sequence correctly.
+
