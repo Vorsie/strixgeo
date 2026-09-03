@@ -55,6 +55,10 @@ STAGE_WAITING_FOR_SERVER: Final = "waiting"
 STAGE_CREATE_DATABASE: Final = "create-database"
 STAGE_POSTGIS: Final = "postgis"
 STAGE_ALEMBIC: Final = "alembic"
+# The pre-migration checkpoint (pg_dump) stage. A failure here ABORTS the
+# upgrade — we never migrate a store with pending data-rewriting migrations
+# without a recovery point first (production-readiness audit H2b).
+STAGE_BACKUP: Final = "backup"
 
 # Process exit codes `migrate.py` returns, keyed by stage. Distinct codes let
 # the Electron main process (or a support script) distinguish failure classes
@@ -64,8 +68,31 @@ EXIT_CODE_BY_STAGE: Final[dict[str, int]] = {
     STAGE_CREATE_DATABASE: 2,
     STAGE_POSTGIS: 3,
     STAGE_ALEMBIC: 4,
+    STAGE_BACKUP: 5,
 }
+
+# Exit code for the "database written by a newer StrixGeo" case (an older build
+# opened over a store a newer build already migrated). Distinct from the stage
+# codes because it is raised as its own ``NewerDatabaseError``, not a
+# ``DatabaseMigratorError`` — the launcher shows a specific "install the current
+# version; your data is intact" message rather than a generic failure
+# (production-readiness audit H2c / M8).
+EXIT_CODE_NEWER_DATABASE: Final = 6
 
 # Fallback exit code for a failure this module did not itself name a stage
 # for (a bug, not one of the four expected failure classes).
 EXIT_CODE_UNEXPECTED: Final = 10
+
+# Environment variables the packaged Electron launcher sets so the migrator can
+# write a pre-migration ``pg_dump`` checkpoint. Both must be present for a dump
+# to happen; in dev neither is set and the dump is skipped (a dev DB is not the
+# user's only copy). Named here (not literals in the class) so the launcher and
+# the migrator agree on one spelling.
+STRIX_PG_DUMP_PATH_ENV: Final = "STRIX_PG_DUMP_PATH"
+STRIX_BACKUP_DIR_ENV: Final = "STRIX_BACKUP_DIR"
+
+# How many pre-migration ``pre-*.dump`` checkpoints to keep in the backup
+# directory. Five is enough to recover across a run of a few bad upgrades
+# without letting the checkpoints grow without bound (a full store dump is not
+# tiny). The newest five survive; older ones are pruned after each new dump.
+BACKUP_RETENTION_COUNT: Final = 5
