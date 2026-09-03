@@ -1334,6 +1334,40 @@ the backend, never surfaced. Mirrors the geological inspector's
 toggle, which the engineer can flip when a borehole's stratigraphy
 disagrees with the rest of the corridor.
 
+**SHIPPED 2026-09-03 (list + Include-again half).** The Lithology
+inspector now surfaces the active litho model's
+`excluded_borehole_ids` as a list — one row per excluded borehole,
+resolved to its name (with a generic fallback for a since-removed
+borehole), each carrying a per-row "Include again" that fires
+immediately, is reversible (Ctrl+Z undo command + a confirmation
+toast), and PATCHes the litho model. The product call in "Why
+deferred" was resolved the simple way: **follow the geo pattern** —
+each model carries its own `excluded_borehole_ids`, so the litho
+list is per-litho-model and independent of the geological model's
+exclusions (no separate geo+litho / litho-only / geo-only UI). New
+files/wiring: `desktop/src/renderer/src/shell/stages/lithology/`
+`LithoExcludedBoreholes.tsx` (presentational) +
+`hooks/boreholeExclusionToggle.ts` (the shared toggle helper the
+geological checkbox now delegates to as well — DRY extraction) +
+`geoModel.handleToggleBoreholeInLithoModel`. EN/NL copy under the
+`litho.excludedBoreholes*` / `litho.includeBoreholeAgain*` /
+`litho.borehole{In,Ex}cludedToast` keys.
+
+**REMAINDER (the exclude half).** There is still no in-UI gesture to
+NEWLY EXCLUDE a borehole from the litho build — the backend remains
+the only source of new exclusions; the shipped UI only lets you
+undo one. The plumbing already supports it:
+`handleToggleBoreholeInLithoModel(id, false)` adds to the list and
+`toggleBoreholeExclusion` handles both directions, so the remaining
+work is purely a gesture — a borehole-row context action in the
+Lithology/Sections stage, or a full checkbox roster over the
+model's boreholes like `GeologyInspector`'s "Boreholes in model".
+Left for a product call because that gesture is where the litho
+inspector stops being read-over-the-list and starts being a full
+borehole-scope editor. **When to revisit:** next dogfeed where an
+engineer wants to exclude a litho-polluting borehole from inside
+the app rather than via the build.
+
 **Litho crossings validator carved out (was the second half of #65,
 2026-05-21):** the original entry claimed "litho surface crossings
 are silently undetected" — incorrect. `ValidateModelCrossings`
@@ -1344,20 +1378,6 @@ superposition error. The frontend wiring would always show empty
 banners (or a falsely-promising "Build to validate" pending banner
 that resolves to no issues). Closed as wontfix — the deliberate
 no-op is the correct behaviour.
-
-**Why deferred.** The litho inspector is deliberately read-only
-at v1.0 (formations are project-scoped shared vocabulary; CRUD
-stays in GeologyInspector). An exclusion toggle is the first
-mutation the litho inspector would carry, so it merits a small
-product call: does it follow the geo pattern (PATCH the model's
-`excluded_borehole_ids`, refresh, rebuild affected surfaces)? Or
-does it need extra UI for "this borehole is excluded from
-geo+litho" vs "litho-only" vs "geo-only" cases?
-
-**When to revisit.** Next dogfeed session that flags a litho
-unit polluted by a single anomalous borehole — at that moment
-the exclusion-toggle UX is concretely informed by the case the
-user wants to handle.
 
 ## 66. Admixture aggregation heuristic — RESOLVED 2026-05-21
 
