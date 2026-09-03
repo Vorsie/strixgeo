@@ -4,12 +4,23 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from groundmodel.infrastructure.db.session_constants import DB_SERVER_SETTINGS
 from groundmodel.shared.config import settings
 
 # echo is gated on the dedicated `sqlalchemy_echo` flag, NOT `debug`: SQLAlchemy
 # echo prints every statement together with the engine DSN, leaking the DB
 # password into the log on a debug run (audit #6). Off unless SQLALCHEMY_ECHO=true.
-engine = create_async_engine(settings.database_url, echo=settings.sqlalchemy_echo)
+#
+# connect_args.server_settings applies lock_timeout / statement_timeout /
+# idle_in_transaction_session_timeout to every connection (see
+# session_constants.py) so a request fails loudly (55P03 -> 409) instead of
+# hanging on a contended body-partition lock, and an abandoned transaction is
+# reaped rather than pinning a connection + its locks forever (audit M3).
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.sqlalchemy_echo,
+    connect_args={"server_settings": DB_SERVER_SETTINGS},
+)
 
 AsyncSessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 
