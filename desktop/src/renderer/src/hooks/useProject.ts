@@ -50,12 +50,15 @@ import type {
 import { isApiStatus } from '../api/clients/shared'
 import { log } from '../utils/log'
 import {
+  BUNDLE_NEWER_FORMAT_CODE,
   buildProjectFile,
   defaultProjectFileName,
+  newerBundleFormatVersion,
   parseProjectFile,
   projectIdFromFile,
   serialiseProjectFile,
 } from '../utils/projectFile'
+import { t } from '../i18n/translate'
 import type {
   ProjectFile,
   StratigraphyLumping,
@@ -706,6 +709,26 @@ export function useProject(): UseProject {
         const raw = readResult.json
         parsed = parseProjectFile(raw)
         if (parsed === null) {
+          // A file whose INNER bundle format_version is newer than this build
+          // is not corrupt — the build is simply too old. Route it down the
+          // same "unreadable" path as the container-level codec failures, with
+          // a typed reason and honest, translated copy, instead of the generic
+          // "may be corrupt, or the API isn't reachable" banner (audit L4).
+          const newerVersion = newerBundleFormatVersion(raw)
+          if (newerVersion !== null) {
+            log.warn(
+              'project',
+              `openProjectFile(${path}): saved by a newer build ` +
+                `(bundle format_version ${newerVersion})`,
+            )
+            return {
+              outcome: 'unreadable',
+              reason: {
+                code: BUNDLE_NEWER_FORMAT_CODE,
+                message: t('welcome.openNewerBuild', { version: newerVersion }),
+              },
+            }
+          }
           log.error('project', `unrecognisable .gmproj at ${path}`)
           return null
         }
@@ -762,6 +785,18 @@ export function useProject(): UseProject {
         if (parsed !== null && parsedId !== null && isApiStatus(err, 404)) {
           try {
             const restored = await api.project.restore(parsedId, restorePayloadFrom(parsed))
+            // L6: restore truncates over-cap depth-series / child arrays. The
+            // response now carries how many rows were dropped so this is no
+            // longer silent — surfaced in the log here; a toast can read the
+            // same two fields.
+            if (restored.dropped_series > 0 || restored.dropped_child_rows > 0) {
+              log.warn(
+                'project',
+                `restore of ${path} capped oversized data: ` +
+                  `${restored.dropped_series} depth-series and ` +
+                  `${restored.dropped_child_rows} child row(s) dropped`,
+              )
+            }
             // The database was just built FROM this file, so the file is
             // by definition this project's latest save.
             dbAnchorRef.current = saveAnchorOfFile(parsed)
