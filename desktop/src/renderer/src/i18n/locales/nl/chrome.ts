@@ -74,6 +74,8 @@ export const CHROME_NL = {
   'welcome.recoveryDeclined': 'Je hebt dit eerder niet hersteld',
   'welcome.openFailed':
     'Kon het gekozen projectbestand niet openen. Het bestand is mogelijk beschadigd, of de API is niet bereikbaar.',
+  'welcome.openNewerBuild':
+    'Dit project is opgeslagen met een nieuwere versie van StrixGeo (bestandsformaat {version}). Werk StrixGeo bij om het te openen — je gegevens zijn veilig.',
   'welcome.fileMoved':
     'Zet het terug, of open het op de nieuwe locatie met "Project openen uit bestand".',
 
