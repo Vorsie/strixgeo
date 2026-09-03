@@ -78,7 +78,25 @@ function strix_handle_activate(PDO $pdo, array $cfg): void
         strix_error(409, $code, 'device limit reached; deactivate a device to transfer');
     }
 
-    $device = strix_bind_device($pdo, $licenceId, $deviceId, $label);
+    // Bind the seat and, for a dormant DURATION key, start its clock — expires_at
+    // is stamped NOW()+duration_days at THIS first activation (owner ruling
+    // 2026-09-03) — atomically in one transaction, so a bound seat never lacks its
+    // clock and a stamped clock never lacks its binding. A later activation (seat
+    // moved, or a refresh via /activate) finds the clock already running and leaves
+    // it (the stamp is guarded by `expires_at IS NULL`), so the 30 days do not reset.
+    $pdo->beginTransaction();
+    try {
+        $device = strix_bind_device($pdo, $licenceId, $deviceId, $label);
+        $stamped = strix_stamp_duration_if_dormant($pdo, $licence);
+        if ($stamped !== null) {
+            $licence = $stamped; // re-read row carries the authoritative expires_at
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
     strix_log_event($pdo, $licenceId, $deviceId, 'activate', [
         'tier' => $licence['tier'],
         'idempotent' => $activeIsBound,
@@ -194,11 +212,16 @@ function strix_handle_refresh(PDO $pdo, array $cfg): void
     }
 
     // Server-side hard end: past expires_at + grace, the licence is dead even if
-    // the key still exists — the client keeps its own local verdict (§5).
-    $deadAtMs = strix_dt_to_ms((string) $licence['expires_at']) + (int) $cfg['grace_days'] * STRIX_DAY_MS;
-    if (strix_now_ms() > $deadAtMs) {
-        strix_log_event($pdo, $licenceId, $deviceId, 'refused', ['reason' => 'licence_expired']);
-        strix_error(403, 'licence_expired', 'the subscription has lapsed past its grace window');
+    // the key still exists — the client keeps its own local verdict (§5). A NULL
+    // expires_at is a DORMANT duration key: activation stamps it, so a bound device
+    // whose licence still has a NULL expiry should not occur — treat it defensively
+    // as "not expired" (there is no hard end to be past yet) and re-issue as active.
+    if ($licence['expires_at'] !== null) {
+        $deadAtMs = strix_dt_to_ms((string) $licence['expires_at']) + (int) $cfg['grace_days'] * STRIX_DAY_MS;
+        if (strix_now_ms() > $deadAtMs) {
+            strix_log_event($pdo, $licenceId, $deviceId, 'refused', ['reason' => 'licence_expired']);
+            strix_error(403, 'licence_expired', 'the subscription has lapsed past its grace window');
+        }
     }
 
     strix_touch_refresh($pdo, (int) $device['id']);
