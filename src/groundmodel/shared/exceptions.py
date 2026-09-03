@@ -355,6 +355,25 @@ class DuplicateImportJobError(GroundModelError):
         self.job_id = job_id
 
 
+class BuildCancelled(GroundModelError):
+    """Raised inside a voxel 3-D build when a cooperative cancel is requested.
+
+    The voxel build's CPU phases run in an ``asyncio.to_thread`` worker that
+    Python cannot forcibly kill, so cancellation is COOPERATIVE: a
+    :class:`threading.Event` is checked between voxel columns (in
+    :func:`~groundmodel.domain.services.voxel_litho.label_voxels.label_voxels`)
+    and between phases (in
+    :class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel`).
+    When the flag is set the worker raises this, the use case rolls its session
+    back so a cancelled build writes NOTHING, and the background-job coroutine
+    emits a terminal ``{"type": "error", "code": "build_cancelled"}`` SSE event.
+
+    Deliberately NOT a ``ValueError``: the labeller's "unbuildable model" arm
+    catches ``ValueError`` and CLEARS the stored 3-D solids, and a cancel must
+    leave the previous model exactly as it was.
+    """
+
+
 class BodyPartitionContentionError(GroundModelError):
     """Raised when a body-partition write waits past ``lock_timeout`` for its lock.
 
