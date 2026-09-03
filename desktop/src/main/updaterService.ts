@@ -145,7 +145,11 @@ export function checkForUpdates(manual: boolean): void {
   // The feed comes from electron-builder's `publish` block (app-update.yml).
   // Until a draft release is PUBLISHED on Vorsie/strixgeo-releases, this
   // resolves to `not-available` / `error`.
-  void autoUpdater.checkForUpdates()
+  // A feed with no published release (draft-only, as the closed beta ships)
+  // rejects; that is a warning for the log, never an unhandled rejection.
+  autoUpdater.checkForUpdates().catch((err: unknown) => {
+    console.warn(`[updater] check failed: ${err instanceof Error ? err.message : String(err)}`)
+  })
 }
 
 /**
