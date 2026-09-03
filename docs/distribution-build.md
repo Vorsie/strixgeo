@@ -23,6 +23,55 @@ to the underlying script to rebuild one.
 
 Output: `desktop/dist/StrixGeo-Setup-<version>.exe`.
 
+## Release integrity and provenance
+
+`dist` and `release` are gated so a publish can only ever carry a tree that was
+committed, pushed, version-bumped, and freshly built — the production-readiness
+audit (2026-09-02, C4) found `npm run release` published whatever happened to be
+on disk, with no build and no provenance.
+
+**The guard — `desktop/scripts/require-clean-release.mjs`.** Runs at the START of
+both `dist` and `release`:
+
+* refuses a **dirty tree** (`git status --porcelain` shows tracked changes) — a
+  publish must be reproducible from a commit;
+* refuses **unpushed commits** (HEAD ahead of its upstream, or no upstream at
+  all) — CI has never verified them;
+* on `release` only, refuses a **stale version** — `package.json` `version` must
+  be strictly newer (SemVer) than the latest published version (a `v<semver>`
+  git tag or `dist/latest.yml`). electron-updater offers an update only for a
+  *greater* version, so re-publishing an equal or older one is invisible to
+  every installed client.
+
+The clean/pushed checks are skippable with `STRIX_ALLOW_DIRTY_DIST=1` for a
+LOCAL test build (`dist`, never `release`); the version check has no opt-out.
+
+**`release` chains the full `dist`.** `release` = guard → `dist` (embedded
+postgres → embedded python → `package`) → `electron-builder --publish=always`,
+so it can only publish an `out/` / `embedded/` it just built — never a stale one.
+
+**Reused-Python integrity.** `build-embedded-python.ps1` skips the ~640 MB
+interpreter + dependency stage when `embedded/python/python.exe` already exists.
+It now writes a SHA-256 manifest (`embedded/python/MANIFEST.sha256`) of that tree
+when it stages it, and verifies every listed file on reuse *before* trusting the
+skip; a mismatch fails the build naming the file (re-stage with `-Force`). This
+closes the audit's "a bit flip in one of ~145 site-packages ships with a valid
+sha512" — the staged import check only loads ~10 of them. The `uv export` also
+runs `--frozen`, so a shipped build can never resolve a dependency set that
+differs from the committed, hash-pinned `uv.lock`. (The build-only codelist
+prune runs on the unconditionally re-staged backend on every build, reuse
+included, and now asserts the dropped files are gone rather than trusting the
+removal.)
+
+**Build provenance.** Every build stamps its git SHA + build time into the main
+bundle through the same electron-vite `MAIN_VITE_*` channel as the beta expiry:
+`electron.vite.config.ts` sets them from `scripts/buildProvenance.mjs`, and
+`buildStamp.ts` reads them back via `compiledBuildProvenance()`. `require-beta-stamp.mjs
+post` greps `out/main/index.js` for the SHA, so a silent injection failure fails
+the package instead of shipping a build with no provenance. `compiledBuildProvenance()`
+feeds the About dialog and a one-line boot log (the `index.ts` wiring is a
+companion change).
+
 ## What gets staged, and why
 
 `desktop/embedded/` (gitignored — ~950 MB, rebuildable from pinned upstream
