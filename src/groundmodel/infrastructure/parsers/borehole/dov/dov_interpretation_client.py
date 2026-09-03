@@ -64,6 +64,8 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row impo
     InterpretationWfsRow,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import DOV_DOWNLOAD_PARALLELISM
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -95,13 +97,25 @@ class DovInterpretationClient(GroundModelLogger):
         rooted under the ``interpretatie/`` subdirectory so permkeys never
         collide with sondering / boring / observation permkeys (DOV's
         ``YYYY-NNNNNN`` permkey format isn't unique across resource types).
+    backoff : DovRateLimitState | None
+        Optional per-import rate-limit state shared with the other borehole
+        sub-clients. When supplied, the per-stream WFS discovery honours it and
+        the download phase runs at ``backoff.parallelism`` slots, so a 429 seen
+        anywhere in the import halves this phase's concurrency once. ``None``
+        keeps the retry with a fixed ``DOV_DOWNLOAD_PARALLELISM``.
     """
 
-    def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        cache: DovXmlCache | None = None,
+        backoff: DovRateLimitState | None = None,
+    ) -> None:
         """Initialise with the shared async HTTP client and optional cache."""
         super().__init__(__name__)
         self._http = http
         self._cache = cache
+        self._backoff = backoff
 
     async def fetch_bbox_processed(
         self,
@@ -180,6 +194,11 @@ class DovInterpretationClient(GroundModelLogger):
                 f"DOV interpretation WFS: filtered {before} → {len(rows)} rows by test_id "
                 f"(limit set: {len(test_ids)} boreholes)"
             )
+        # Effective parallelism reflects any 429 seen during the 8-stream WFS
+        # discovery (above) — a rate-limited import backs off its own concurrency.
+        effective_parallelism = (
+            self._backoff.parallelism if self._backoff is not None else DOV_DOWNLOAD_PARALLELISM
+        )
         # Phase 2 — parallel download + inline process across the union
         # of streams. The shared helper owns the semaphore, cache, error
         # logging, and progress reporting.
@@ -195,6 +214,8 @@ class DovInterpretationClient(GroundModelLogger):
             error_id_of=lambda r: (
                 f"'{r.permkey}' ({r.observation_type.value}, borehole '{r.test_id}')"
             ),
+            parallelism=effective_parallelism,
+            backoff=self._backoff,
         )
 
     # ------------------------------------------------------------------
@@ -214,6 +235,7 @@ class DovInterpretationClient(GroundModelLogger):
             x2=x2,
             y2=y2,
             label=f"interpretation '{layer}'",
+            backoff=self._backoff,
         )
 
     async def _wfs_features(
@@ -235,6 +257,7 @@ class DovInterpretationClient(GroundModelLogger):
             x2=x2,
             y2=y2,
             label=f"interpretation '{layer}'",
+            backoff=self._backoff,
         )
         if features:
             first_props = list(features[0].get("properties", {}).keys())
