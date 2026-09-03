@@ -8,7 +8,7 @@
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useRef, useState } from 'react'
-import { lambertToWgs84 } from '../hooks/useWgs84'
+import { sheetMapBounds, sheetPointToLatLng } from './sheetMapProjection'
 import { basemapById } from '../utils/basemapSources'
 import { computeMapExtent, pickScaleBarM } from './mapExtent'
 import { projectColour } from './projectPalette'
@@ -57,12 +57,11 @@ export function SheetMap({ payload, offlineLabel, onReady }: {
       finish(true)
     }
     const timer = window.setTimeout(() => finish(!loaded), TILE_WAIT_MS)
-    const extent = computeMapExtent([
+    // Converted with the section's own CRS — a 28992 project is not Lambert 72.
+    const { sw, ne } = sheetMapBounds(payload.section.epsg, [
       { x: payload.section.startX, y: payload.section.startY }, { x: payload.section.endX, y: payload.section.endY },
       ...payload.map.points.filter(p => p.onProfile).map(p => ({ x: p.worldX, y: p.worldY })),
     ])
-    const sw = lambertToWgs84(extent.minX, extent.minY)
-    const ne = lambertToWgs84(extent.maxX, extent.maxY)
     map.fitBounds(L.latLngBounds(L.latLng(sw[0], sw[1]), L.latLng(ne[0], ne[1])), { padding: [0, 0], animate: false })
     map.on('move zoom resize', () => setTick(v => v + 1))
     setTick(v => v + 1)
@@ -77,7 +76,7 @@ export function SheetMap({ payload, offlineLabel, onReady }: {
   const box = boxRef.current
   const toPx = (x: number, y: number): [number, number] => {
     if (!map) return [0, 0]
-    const [lat, lng] = lambertToWgs84(x, y)
+    const [lat, lng] = sheetPointToLatLng(payload.section.epsg, x, y)
     const p = map.latLngToContainerPoint(L.latLng(lat, lng))
     return [p.x, p.y]
   }
