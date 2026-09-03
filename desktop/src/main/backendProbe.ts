@@ -72,3 +72,25 @@ export function classifyBackendProbe(packaged: boolean, status: number): ProbeVe
   if (packaged && status === 403) return 'foreign'
   return 'unreachable'
 }
+
+/** Poll interval of the readiness loop in ``api:ready`` (ms). */
+export const BACKEND_READY_POLL_MS = 500
+
+/**
+ * How long the app waits for the engine to answer its readiness probe.
+ *
+ * A packaged FIRST launch is slow: the compiled modules load from a freshly
+ * installed tree that Defender scans on first read, the DOV parse pool spawns
+ * its workers, and Postgres has just been created — installer #5 needed 33 s
+ * on the owner's machine and the old 30 s deadline declared it dead. Three
+ * minutes covers a slow laptop; the crash bail in the loop still returns early
+ * when the process dies. Dev restarts keep the short deadline.
+ */
+export function backendReadyDeadlineMs(packaged: boolean): number {
+  return packaged ? 180_000 : 30_000
+}
+
+/** Number of ``BACKEND_READY_POLL_MS`` attempts that cover the deadline. */
+export function backendReadyAttempts(packaged: boolean): number {
+  return Math.ceil(backendReadyDeadlineMs(packaged) / BACKEND_READY_POLL_MS)
+}
