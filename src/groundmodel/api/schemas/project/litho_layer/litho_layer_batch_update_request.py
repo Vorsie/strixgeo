@@ -11,16 +11,17 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from groundmodel.api.schemas.project.litho_layer.litho_layer_response import (
     LithoLayerConfidenceLiteral,
     LithoLayerSourceLiteral,
     LithoLayerStatusLiteral,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class LithoLayerBatchUpdateItem(BaseModel):
+class LithoLayerBatchUpdateItem(StrictRequestModel):
     """One per-row patch in a batch update.
 
     ``layer_id`` is the target row; every other field is optional and
@@ -76,7 +77,7 @@ class LithoLayerBatchUpdateItem(BaseModel):
         return self
 
 
-class LithoLayerBatchUpdateRequest(BaseModel):
+class LithoLayerBatchUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{pid}/geology/models/{mid}/layers/batch-update``.
 
     All-or-nothing: every layer_id must exist and belong to the URL's
