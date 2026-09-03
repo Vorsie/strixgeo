@@ -183,6 +183,12 @@ class GEFParser(GroundModelLogger):
         df = self._normalise_units(df, header)
         df, depth_from_length = self._ensure_depth_column(df)
 
+        # Null out any NaN/inf a GEF line carried BEFORE Rf is derived (an inf qc
+        # would otherwise feed the fs/qc ratio) and before validation, so the
+        # frame the checks see is already finite. A non-finite depth becomes a
+        # null anchor + an ERROR issue (see ``_check_non_finite``).
+        df, non_finite_counts = self._replace_non_finite(df)
+
         # Provenance: capture rf source BEFORE we maybe compute Rf, so we can
         # tell "the GEF file gave us Rf directly" (qty 4 → MEASURED) apart from
         # "we derived Rf from qc and fs" (COMPUTED). qt_mpa (CPTU corrected qc)
@@ -195,7 +201,9 @@ class GEFParser(GroundModelLogger):
             df = self._calculate_rf(df)
             rf_source = DerivedValueSource.COMPUTED
 
-        issues = self._validate(header, df, cpt_type, depth_from_length, skipped_rows)
+        issues = self._validate(
+            header, df, cpt_type, depth_from_length, skipped_rows, non_finite_counts
+        )
         # When the GEF file's ``#ZID=`` header provided an elevation we
         # stamp ``GEF``; when it didn't, we stamp ``NONE`` so the row
         # surfaces as "no Z known" through the same code path used by
@@ -578,6 +586,54 @@ class GEFParser(GroundModelLogger):
             return df, True
         return df, False
 
+    def _replace_non_finite(self, df: pl.DataFrame) -> tuple[pl.DataFrame, dict[str, int]]:
+        """Replace non-finite (NaN / ±inf) values in float columns with null.
+
+        A GEF data line can carry a bare ``nan`` / ``inf`` / ``-inf`` token, and
+        ``float()`` reads each straight into an IEEE-754 non-finite double
+        (``_parse_data`` does not special-case them). Left in the frame they
+        poison every consumer — a NaN depth sorts undefined, an inf coordinate
+        breaks spatial queries, and neither round-trips through strict JSON — so
+        each is set to null here, at the parse boundary.
+
+        The per-column count of non-finite values is returned rather than
+        swallowed so ``_validate`` can raise the right issue: an ERROR for a
+        non-finite ``depth_m`` (the row's anchor is unusable) and a WARNING for
+        the measurement columns (a missing reading, not a corrupt anchor).
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The post-rename, post-normalise, depth-ensured frame.
+
+        Returns
+        -------
+        tuple[pl.DataFrame, dict[str, int]]
+            The cleaned frame, and ``{column: non_finite_count}`` for every
+            column that carried at least one non-finite value (empty when the
+            frame was all-finite).
+        """
+        counts: dict[str, int] = {}
+        exprs = []
+        for col, dtype in zip(df.columns, df.dtypes, strict=True):
+            if not dtype.is_float():
+                continue
+            # A non-finite value is one that is not finite AND not null — null
+            # is a legitimately-missing reading, already handled elsewhere.
+            n = df.select((pl.col(col).is_finite().not_() & pl.col(col).is_not_null()).sum()).item()
+            if n:
+                counts[col] = int(n)
+                exprs.append(
+                    pl.when(pl.col(col).is_finite()).then(pl.col(col)).otherwise(None).alias(col)
+                )
+        if exprs:
+            df = df.with_columns(exprs)
+            self.warning(
+                f"GEF: replaced non-finite (NaN/inf) values with null in "
+                f"{', '.join(f'{c}={n}' for c, n in sorted(counts.items()))}"
+            )
+        return df, counts
+
     def _calculate_rf(self, df: pl.DataFrame) -> pl.DataFrame:
         df = df.with_columns(
             pl.when(pl.col("qc_mpa") > 0)
@@ -613,6 +669,7 @@ class GEFParser(GroundModelLogger):
         cpt_type: CPTType,
         depth_from_length: bool,
         skipped_rows: int,
+        non_finite_counts: dict[str, int],
     ) -> list[ValidationIssue]:
         checks = [
             self._check_column_count(header),
@@ -620,6 +677,7 @@ class GEFParser(GroundModelLogger):
             self._check_crs_codes(header),
             self._check_uncorrected_depth(depth_from_length),
             self._check_skipped_rows(skipped_rows, df.height),
+            self._check_non_finite(non_finite_counts),
             self._check_required_columns(df, cpt_type),
             self._check_depth_monotonic(df),
             self._check_negative_values(df),
@@ -634,6 +692,51 @@ class GEFParser(GroundModelLogger):
         issues = [issue for group in checks for issue in group]
         for issue in issues:
             self.trace(f"[{issue.level.upper()}] {issue.code}: {issue.message}")
+        return issues
+
+    def _check_non_finite(self, non_finite_counts: dict[str, int]) -> list[ValidationIssue]:
+        """Report GEF columns whose data carried non-finite (NaN / ±inf) values.
+
+        The values themselves are already nulled by ``_replace_non_finite``;
+        this turns that fact into a validation finding the engineer sees. A
+        non-finite ``depth_m`` is an ERROR — the row lost its depth anchor and
+        cannot be placed — while a non-finite measurement (qc / fs / u2 / …) is
+        a WARNING, the same class as any other missing reading.
+
+        Parameters
+        ----------
+        non_finite_counts : dict[str, int]
+            ``{column: count}`` of non-finite values found, from
+            ``_replace_non_finite``.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            An ERROR when ``depth_m`` had non-finite values, plus one WARNING
+            listing the affected measurement columns; empty when the frame was
+            all-finite.
+        """
+        issues: list[ValidationIssue] = []
+        depth_n = non_finite_counts.get("depth_m", 0)
+        if depth_n:
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.ERROR,
+                    "NON_FINITE_DEPTH",
+                    f"{depth_n} depth value(s) were NaN or infinite and have been set to "
+                    "null — those rows have no usable depth anchor",
+                )
+            )
+        other = {col: n for col, n in non_finite_counts.items() if col != "depth_m"}
+        if other:
+            detail = ", ".join(f"{col}={n}" for col, n in sorted(other.items()))
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "NON_FINITE_VALUES",
+                    f"non-finite (NaN/infinite) measurement value(s) replaced with null: {detail}",
+                )
+            )
         return issues
 
     def _check_column_count(self, header: GEFHeader) -> list[ValidationIssue]:
