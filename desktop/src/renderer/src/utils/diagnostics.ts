@@ -18,8 +18,21 @@
 
 /** What the renderer may report. Mirrors the main process's whitelist. */
 export interface RendererDiagnostic {
-  /** Which kind of problem — must be one of the main process's known kinds. */
-  kind: 'api-error' | 'renderer-error' | 'renderer-unhandled-rejection'
+  /**
+   * Which kind of problem.
+   *
+   * ⚠ The MAIN-process whitelist (``src/main/diagnosticsEvent.ts`` →
+   * ``DIAGNOSTIC_KINDS``) is the authority on what actually reaches the log:
+   * a kind it does not recognise collapses to ``unknown`` there (severity,
+   * scope, message and httpStatus still survive). ``api-refusal`` is NOT in
+   * that list yet — until it is added on the main side, a 4xx refusal is
+   * logged as ``kind:"unknown"`` (still a warning, still carrying the code in
+   * ``message``). The renderer emits the intended kind so the fix is a
+   * one-line whitelist addition, not a re-plumb.
+   */
+  kind: 'api-error' | 'api-refusal' | 'renderer-error' | 'renderer-unhandled-rejection'
+  /** How bad it was. Defaults to ``error`` on the main side when omitted. */
+  severity?: 'warning' | 'error' | 'fatal'
   /** Module label, e.g. ``api``. */
   scope?: string
   /** What went wrong. Redacted on the main side. */
