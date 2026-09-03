@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.shared.constants.auto_populate_mode import AutoPopulateMode
 
 # manual_map / selected_keys originate from a .gmproj file's lumping
@@ -18,7 +19,7 @@ _MAP_MAX_ENTRIES = 2_000
 _KEY_STR_MAX = 512
 
 
-class AutoPopulateFromStratigraphyRequest(BaseModel):
+class AutoPopulateFromStratigraphyRequest(StrictRequestModel):
     """Body of ``POST /projects/{pid}/geology/models/{mid}/contacts/auto-populate``.
 
     Seeds the model with contacts derived from each borehole's
