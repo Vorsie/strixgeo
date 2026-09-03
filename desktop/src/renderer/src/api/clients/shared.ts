@@ -33,6 +33,108 @@ export function setBaseUrl(url: string): void {
 // The thrown Error messages retain the full path for developer diagnostics.
 const stripQuery = (p: string): string => p.split('?')[0]
 
+/** HTTP verbs that change server state — the ones that must not hang the UI. */
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+/**
+ * Abort budget for a mutating request (audit M3, renderer half).
+ *
+ * A create / update / delete that never answers leaves the caller's busy state
+ * stuck forever (the delete never finishes, the button spins). 60 s is far past
+ * any healthy loopback round-trip — including a large GEF parse — so it only
+ * fires on a genuinely wedged backend, where a visible error beats a silent
+ * hang.
+ */
+const MUTATION_TIMEOUT_MS = 60_000
+
+/**
+ * Compute / build / export mutations that legitimately run FAR longer than the
+ * 60 s budget and must NOT be aborted.
+ *
+ * The on-click voxel build, the geotech subdivision, the borehole divide, an
+ * auto-correlation pass and the DXF / D-Series exports run for minutes on a
+ * large model — a 60 s guillotine on those would be a far worse regression than
+ * the hung busy state the timeout is here to fix, and each of these already has
+ * its own progress UI. Matched as URL substrings because ``fetchTracked`` only
+ * sees the URL. ⚠ A new long-running POST endpoint MUST be added here.
+ */
+const SLOW_MUTATION_HINTS = [
+  'surfaces/rebuild',
+  'build-voxel',
+  'bodies/recompute',
+  'ground-surface/build',
+  'geotech/subdivide',
+  'geotech/divide-boreholes',
+  'geotech/auto-correlate',
+  '/export/',
+  // Bundle restore, multi-file GEF import, litho auto-correlate and the build
+  // report all run for minutes on a real project as well.
+  '/restore',
+  '/cpt/import',
+  'auto-correlate',
+  'build-report',
+] as const
+
+/** Whether ``url`` is one of the long-running compute / export mutations. */
+function isSlowMutation(url: string): boolean {
+  return SLOW_MUTATION_HINTS.some(hint => url.includes(hint))
+}
+
+/**
+ * Attach a timeout abort signal to a mutating request that has none.
+ *
+ * GET/HEAD are left untouched (a read that hangs is annoying, not a stuck busy
+ * state), a caller that supplied its own ``signal`` keeps full ownership of
+ * cancellation, and the long-running compute / export endpoints
+ * ({@link SLOW_MUTATION_HINTS}) opt out so a legitimate multi-minute build is
+ * never cut off. ``AbortSignal.timeout`` rejects the fetch with a
+ * ``TimeoutError`` DOMException, which propagates as a visible error rather
+ * than an indefinite pending promise.
+ *
+ * Parameters
+ * ----------
+ * url : string
+ *     The absolute request URL (used to detect the slow-mutation carve-out).
+ * init : RequestInit, optional
+ *     The fetch init as built by the caller.
+ *
+ * Returns
+ * -------
+ * RequestInit | undefined
+ *     ``init`` unchanged for reads / caller-cancelled / slow-mutation requests,
+ *     otherwise a copy carrying a 60 s timeout signal.
+ */
+function withMutationTimeout(url: string, init?: RequestInit): RequestInit | undefined {
+  const method = (init?.method ?? 'GET').toUpperCase()
+  if (!MUTATING_METHODS.has(method) || init?.signal || isSlowMutation(url)) return init
+  return { ...init, signal: AbortSignal.timeout(MUTATION_TIMEOUT_MS) }
+}
+
+/**
+ * Read a machine-readable ``code`` off a parsed server ``detail``.
+ *
+ * ~20 refusal routes send ``detail`` as an object with a ``code`` (e.g.
+ * ``cpt_refresh_refused``). This lifts it for the diagnostics message so a 4xx
+ * refusal is greppable in the local log without the prose.
+ *
+ * Parameters
+ * ----------
+ * detail : unknown
+ *     The parsed ``detail`` field, any shape.
+ *
+ * Returns
+ * -------
+ * string | undefined
+ *     The code when present, else ``undefined``.
+ */
+function detailCode(detail: unknown): string | undefined {
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const code = (detail as { code?: unknown }).code
+    if (typeof code === 'string' && code.length > 0) return code
+  }
+  return undefined
+}
+
 /**
  * HTTP failure carrying the status code as a typed field.
  *
@@ -229,12 +331,13 @@ export function detailMessage(detail: unknown): string | null {
 export async function fetchTracked(url: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
-    res = await fetch(url, init)
+    res = await fetch(url, withMutationTimeout(url, init))
   } catch (err) {
-    // The abort branch is forward-looking: no caller passes a signal today, so
-    // it cannot fire yet. It stays because the alternative — adding it later,
-    // after the first cancelling caller lands — means shipping a build where
-    // navigating away reads as "the backend died".
+    // An abort the app asked for (unmount, superseded fetch) is not the backend
+    // dying — it never counts as a reachability failure. A timeout (our own
+    // ``AbortSignal.timeout`` below) DOES count: 60 s of silence on a mutation
+    // is exactly "the backend stopped answering", and it also stops the caller's
+    // busy state hanging forever — the rejection surfaces as a visible error.
     if (!(err instanceof DOMException && err.name === 'AbortError')) {
       noteNetworkFailure()
     }
@@ -294,15 +397,26 @@ export async function request(
     // model first" guard) instead of an opaque "→ 409".
     const detail = await res.json().catch(() => ({}))
     log.error('api', method, stripQuery(path), res.status, detail.detail)
-    // #16 — capture SERVER failures only. A 4xx is the backend refusing
-    // something the user did (a 409 refresh confirmation, a 422 validation),
-    // which is the app working; a 5xx is a bug nobody else witnesses, because
-    // the traceback stays in the backend log on the user's own machine.
+    // #16 — a 5xx is a bug nobody else witnesses (the traceback stays in the
+    // backend log on the user's own machine), captured as an error. A 4xx is
+    // the backend REFUSING something the user did (a 409 refresh confirmation,
+    // a 422 validation) — the app working, but "it refused to delete the
+    // contact" needs a file trace too (audit L2), so it is captured as a
+    // warning-severity ``api-refusal`` carrying the machine ``code``.
     if (res.status >= 500) {
       captureDiagnostic({
         kind: 'api-error',
         scope: 'api',
         message: `${method} ${stripQuery(path)} → ${res.status}`,
+        httpStatus: res.status,
+      })
+    } else if (res.status >= 400) {
+      const code = detailCode(detail.detail)
+      captureDiagnostic({
+        kind: 'api-refusal',
+        severity: 'warning',
+        scope: 'api',
+        message: `${method} ${stripQuery(path)} → ${res.status}${code ? ` (${code})` : ''}`,
         httpStatus: res.status,
       })
     }
