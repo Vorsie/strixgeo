@@ -23,6 +23,8 @@ import httpx
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
+from groundmodel.shared.exceptions import DovImportTooLargeError, DuplicateImportJobError
+
 if TYPE_CHECKING:
     from groundmodel.application.job_registry import JobRegistry
     from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -31,6 +33,76 @@ if TYPE_CHECKING:
 #: ``HTTPStatusError`` is NOT a ``RequestError`` subclass, so both are
 #: needed to cover the original four except-arms.
 DOV_UPSTREAM_ERRORS = (httpx.HTTPStatusError, httpx.RequestError)
+
+#: ``detail.code`` for the "bbox holds too many records" refusal (422 on the
+#: synchronous path, an SSE error event with the same code on the stream path).
+DOV_IMPORT_TOO_LARGE_CODE = "dov_import_too_large"
+
+#: ``detail.code`` for the "an import for this scope is already running" refusal
+#: (409 on the import-stream POST endpoints).
+DOV_IMPORT_ALREADY_RUNNING_CODE = "dov_import_already_running"
+
+
+def dov_import_job_key(
+    kind: str,
+    *,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    project_id: object | None,
+) -> str:
+    """Build the de-duplication key for a DOV import-stream job.
+
+    The key folds the resource kind, the project scope, and the bbox corners so
+    that a second identical import launched while the first is still running is
+    refused (see :meth:`JobRegistry.start`). Corners are rounded to 6 decimal
+    places (~0.1 m at Belgian latitudes) so floating-point noise in an otherwise
+    identical redraw still collides; the ``kind`` prefix keeps a CPT import and a
+    borehole import of the same box in separate scopes.
+
+    Parameters
+    ----------
+    kind : str
+        Resource kind, ``"cpt"`` or ``"borehole"``.
+    west, south, east, north : float
+        Bounding box corners in WGS84 decimal degrees.
+    project_id : object | None
+        The target project id (or ``None`` for the project-less path).
+
+    Returns
+    -------
+    str
+        A stable scope key.
+    """
+    return (
+        f"{kind}:{project_id}:{round(west, 6)},{round(south, 6)},{round(east, 6)},{round(north, 6)}"
+    )
+
+
+def map_dov_too_large_error(exc: DovImportTooLargeError) -> HTTPException:
+    """Map a discovery-ceiling refusal to the ``422`` for the synchronous path."""
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": DOV_IMPORT_TOO_LARGE_CODE, "message": str(exc)},
+    )
+
+
+def dov_too_large_event(exc: DovImportTooLargeError) -> dict[str, str]:
+    """Map a discovery-ceiling refusal to a terminal SSE ``error`` event."""
+    return {"type": "error", "code": DOV_IMPORT_TOO_LARGE_CODE, "message": str(exc)}
+
+
+def map_duplicate_import_job(exc: DuplicateImportJobError) -> HTTPException:
+    """Map a duplicate-scope refusal to the ``409`` naming the running job-id."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": DOV_IMPORT_ALREADY_RUNNING_CODE,
+            "message": str(exc),
+            "job_id": str(exc.job_id),
+        },
+    )
 
 
 def _dov_error_message(
