@@ -17,6 +17,7 @@ export type LicenceStateDto =
   | 'grace'
   | 'expired'
   | 'clock-rollback'
+  | 'device-mismatch'
 
 /** Commercial tiers — mirrors ``LicenceTier``. */
 export type LicenceTierDto = 'solo' | 'pro' | 'studio'
