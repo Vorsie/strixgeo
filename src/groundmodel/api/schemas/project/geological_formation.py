@@ -8,10 +8,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.domain.services.nad_classifier import class_belongs_to_soil, soil_family_of
 
 
-class GeologicalFormationCreateRequest(BaseModel):
+class GeologicalFormationCreateRequest(StrictRequestModel):
     """Body of ``POST /projects/{id}/geology/formations``.
 
     ``name`` is the only required field. Colour defaults at the API
@@ -107,7 +108,7 @@ class GeologicalFormationCreateRequest(BaseModel):
         return self
 
 
-class GeologicalFormationUpdateRequest(BaseModel):
+class GeologicalFormationUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{id}/geology/formations/{fid}``.
 
     Every field is optional — only keys present in the request body are
