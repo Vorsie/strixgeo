@@ -54,6 +54,7 @@ export const CHROME_NL = {
   'app.bootFailedBody': 'Bekijk de Python-traceback in de developer console.',
   'app.backendFailedTitle': 'StrixGeo kon niet starten',
   'app.backendUnreachable': 'Backend onbereikbaar',
+  'app.backendRestarting': 'Opnieuw verbinden met de backend…',
   'app.quit': 'StrixGeo afsluiten',
   'app.reload': 'StrixGeo herladen',
   'app.crashTitle': 'Er is een onverwachte fout opgetreden in StrixGeo',
@@ -184,6 +185,8 @@ export const CHROME_NL = {
     'Het StrixGeo-backendproces is afgesloten voordat het klaar was. Dit wijst meestal op een probleem met de databankverbinding of een crash bij het opstarten.',
   'app.backendUnreachableBody':
     '— opslaan en alle andere wijzigingen zijn niet beschikbaar, en recente acties zijn mogelijk niet bewaard. Herstart de app om opnieuw verbinding te maken.',
+  'app.backendRestartingBody':
+    'De backend is herstart en de app maakt opnieuw verbinding. Dit duurt even — je werk is veilig in de databank.',
   'app.logFile': 'Logbestand:',
   'app.dxfExported': 'DXF geëxporteerd.',
   'app.dxfExportFailed': 'Kon de DXF niet exporteren.',
