@@ -11,6 +11,9 @@
 //   VB7  any other `error` SSE event → error state carrying its message.
 //   VB8  reset() aborts the stream and returns to idle.
 //   VB9  cancel() POSTs to the cancel endpoint and flips cancelRequested on.
+//   VB10 a `voxel_grid_too_large` error SSE event → error state carrying the
+//        SAME actionable copy the synchronous build shows (the suggested spacing
+//        + "model unchanged"), NOT the raw server sentence (debt #282 parity).
 
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -192,6 +195,35 @@ describe('useVoxelBuildStream', () => {
     })
 
     await waitFor(() => expect(result.current.state.status).toBe('error'))
+  })
+
+  it('VB10: a grid-too-large stream error shows the suggested spacing, not the raw text', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(true, 202, { job_id: 'job-1' }))
+      .mockResolvedValueOnce(
+        sseResponse([
+          frame({
+            type: 'error',
+            code: 'voxel_grid_too_large',
+            message: 'The requested grid is too large to build.',
+            suggested_horizontal_m: 5,
+          }),
+        ]),
+      )
+    const { result } = renderHook(() => useVoxelBuildStream())
+
+    act(() => {
+      result.current.start(START)
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('error'))
+    if (result.current.state.status === 'error') {
+      // The stream path must produce the SAME actionable copy the synchronous
+      // build shows: the retry spacing the backend computed, plus "the stored
+      // model was not changed" — never the raw one-line server sentence.
+      expect(result.current.state.message).toMatch(/at least 5 m/)
+      expect(result.current.state.message).toMatch(/not changed/i)
+    }
   })
 
   it('VB8: reset() aborts an in-flight build and returns to idle', () => {
