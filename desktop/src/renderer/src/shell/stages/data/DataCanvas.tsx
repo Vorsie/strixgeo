@@ -108,6 +108,10 @@ export default function DataCanvas(): JSX.Element {
       handleSectionLineDrawn,
       cancelSectionDraw,
       handleSelectSection,
+      // The project's effective horizontal CRS — MapView projects project-owned
+      // CPT / borehole rows through it so a 28992 project's markers land in the
+      // Netherlands, not read as Belgium Lambert-72 (Codex 2).
+      effectiveHorizontalEpsg,
     },
     geoModel: {
       contacts: geoContacts,
@@ -206,6 +210,7 @@ export default function DataCanvas(): JSX.Element {
             marqueeSelectedIds={marqueeSelectedIds}
             onMarqueeSelect={setMarqueeSelectedIds}
             hoveredTestId={hoveredTestId}
+            projectEpsg={effectiveHorizontalEpsg}
             pendingCptPins={pendingCptPins}
           />
         ) : selectedBoreholeId ? (
