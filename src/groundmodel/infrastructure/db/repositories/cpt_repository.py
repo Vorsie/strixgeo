@@ -122,13 +122,21 @@ class CptRepository(GroundModelLogger):
     ) -> CptOrm | None:
         """Return the first CPT matching (project_id, test_id) within the project, or None.
 
-        Scoped to ``app_project_id`` when provided so the same GEF file may be
-        imported into different app projects without triggering a duplicate error.
-        Only called when both GEF identifiers are non-empty.
+        ALWAYS scoped to ``app_project_id``: to the given project, or — when
+        ``None`` — to the null-project scope (``app_project_id IS NULL``), never
+        "any project". The GEF ``#PROJECTID`` + ``#TESTID`` pair is public to
+        anyone holding the file, so an UNSCOPED lookup would let a
+        ``confirm_refresh=true`` import that omits ``project_id`` match, and
+        overwrite, a CPT that belongs to a different app project (audit C2). The
+        same GEF file can still be imported into different projects because each
+        import only ever sees its own project's rows. Only called when both GEF
+        identifiers are non-empty.
         """
         stmt = select(CptOrm).where(CptOrm.project_id == project_id, CptOrm.test_id == test_id)
         if app_project_id is not None:
             stmt = stmt.where(CptOrm.app_project_id == app_project_id)
+        else:
+            stmt = stmt.where(CptOrm.app_project_id.is_(None))
         result = await self._session.execute(stmt.limit(1))
         return result.scalar_one_or_none()
 
@@ -139,6 +147,12 @@ class CptRepository(GroundModelLogger):
 
         One query instead of N — used by bulk imports (e.g. DOV bbox) so a 200-CPT
         batch checks duplicates with one round-trip instead of 200.
+
+        Scoped to ``app_project_id`` the same way as ``find_by_project_test``:
+        to the given project, or the null-project scope when ``None`` — never
+        across every project (audit C2). The DOV bulk callers always pass a real
+        project, so this is a no-op for them and closes the same cross-project
+        leak by construction.
         """
         if not test_ids:
             return {}
@@ -147,6 +161,8 @@ class CptRepository(GroundModelLogger):
         )
         if app_project_id is not None:
             stmt = stmt.where(CptOrm.app_project_id == app_project_id)
+        else:
+            stmt = stmt.where(CptOrm.app_project_id.is_(None))
         result = await self._session.execute(stmt)
         return {row.test_id: row.id for row in result}
 
