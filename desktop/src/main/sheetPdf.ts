@@ -7,8 +7,11 @@
  * ``console.*`` like the rest of ``index.ts``, so ``registerSheetPdfIpc`` needs
  * no injected logger.
  */
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
+
+import { applyWindowGuards } from './windowGuards'
 
 const PRINT_TIMEOUT_MS = 30_000
 const MM_PER_INCH = 25.4
@@ -50,13 +53,30 @@ export async function printSheetToPdf(payload: unknown, log: Log = consoleLog): 
     width: 1600,
     height: 1200,
     webPreferences: {
+      // The preload IS required: the hidden page reports ``sheet:ready`` and
+      // receives ``sheet:payload`` through ``window.electron`` (contextBridge).
+      // It is the SAME preload the main window uses under ``sandbox: true``, so
+      // sandboxing the print window too costs nothing and hardens it (audit M6).
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // DevTools off in a packaged build, matching the main window (backend
+      // stdout carries the DB credentials; the reload discards session state).
+      devTools: !app.isPackaged,
     },
   })
   const wc = win.webContents
+  // The print window renders ``.strix`` content, so it gets the SAME deny-by-
+  // default window.open + pinned-navigation guards as the main window (audit M6).
+  // The sheet lives under the renderer dir, so its in-app base is that dir.
+  const rendererBase = process.env.ELECTRON_RENDERER_URL ?? null
+  const rendererFileBase = rendererBase ? null : pathToFileURL(join(__dirname, '../renderer/')).href
+  applyWindowGuards(wc, {
+    rendererBase,
+    rendererFileBase,
+    openExternal: url => void shell.openExternal(url),
+  })
   try {
     const ready = new Promise<ReadyMessage>((resolve, reject) => {
       const timer = setTimeout(() => {
