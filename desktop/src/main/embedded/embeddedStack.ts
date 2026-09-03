@@ -324,6 +324,10 @@ export function buildBackendEnv(
     // Dutch DOV tokens and project names that are not representable there.
     PYTHONUTF8: '1',
     NUMBA_CACHE_DIR: numbaCacheDir,
+    // Pre-migration checkpoint (database_migrator.py): the bundled pg_dump and a
+    // machine-local backups directory; without both the migrator skips the dump.
+    STRIX_PG_DUMP_PATH: join(layout.pgsqlRoot, 'bin', 'pg_dump.exe'),
+    STRIX_BACKUP_DIR: join(configuredNumbaCacheRoot ?? userDataPath, 'backups'),
     // matplotlib renders report figures head-less. Without this it probes for
     // an interactive backend and can pick TkAgg, which needs a display.
     MPLBACKEND: 'Agg',
