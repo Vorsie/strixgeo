@@ -193,6 +193,23 @@ The app uses a **staged-screen shell** (`shell/AppShell.tsx`):
   section, selection) lives in `ShellContext` — read by any stage without prop-drilling.
 - `useGeologicalModel` is the primary model-mutation hook; it is instantiated once in
   `useShellContextValue` and shared via context.
+- The stage canvas slot is wrapped in a **per-stage `StageErrorBoundary`** (audit M5): a
+  render crash inside a stage shows a "reset this stage" card in that slot — with a Reset
+  that remounts only that stage (key bump) and a diagnostic captured through the local
+  bridge — while the spine, toolbar, inspector and other stages keep working. Its
+  `resetKey` is the active stage id, so navigating to a different stage clears a prior
+  stage's crash. The root `ErrorBoundary` in `main.tsx` still backstops errors outside any
+  stage (spine / toolbar / inspector).
+
+**Project-scoped renderer state clears on every project change.** `useProject` clears the
+`useWgs84` proj4 memo caches (`clearProjectScopedCaches`) on project open / switch / close
+(audit L8 — the caches key by `(epsg, x, y)` and would otherwise grow across every project
+in a session). `useInvestigationData` bumps a generation counter and empties its CPT /
+borehole list + detail + plot caches on the same signal (Codex 3), and every list / detail
+/ plot fetch discards its result if the generation moved on — so a slow request for project
+A can never overwrite or repopulate project B. Map markers for project-owned CPTs / boreholes
+project through the project's effective horizontal EPSG (`MapView` `projectEpsg`, Codex 2),
+not a hardcoded Lambert-72; DOV pending pins stay explicit 31370.
 
 The old flat-component `Sidebar.tsx` was deleted during the shell overhaul (#12). The
 Data stage's `DataInspector` now hosts the CPT / borehole list with sort + multi-select
