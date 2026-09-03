@@ -62,9 +62,12 @@ describe('index.ts applies the H4 path guards at the right call sites', () => {
     expect(sanitised.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('H4b — project:add-recent refuses an unauthorised path', () => {
+  it('H4b — project:add-recent refuses an unauthorised path except for the e2e harness', () => {
     const handler = MAIN_SOURCE.slice(MAIN_SOURCE.indexOf("'project:add-recent'"))
-    expect(handler.slice(0, 900)).toMatch(/if \(!pathIsAuthorised\(filePath\)\)/)
+    // The carve-out must be the packaged-aware launch flag, never a bare env read.
+    expect(handler.slice(0, 1200)).toMatch(
+      /if \(!pathIsAuthorised\(filePath\) && !e2eLaunchFlag\(process\.env, app\.isPackaged\)\)/,
+    )
   })
 })
 
