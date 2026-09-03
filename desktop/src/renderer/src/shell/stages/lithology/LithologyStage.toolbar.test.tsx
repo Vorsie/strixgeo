@@ -11,7 +11,8 @@
 //   BM3  Clicking Build model calls buildLithoSolids (NOT handleRebuildLithoSurfaces).
 //   BM4  Build model is disabled + tooltip matches /cross-section/i when no contacts.
 //   BM5  Label shows "· stale" when hasStaleLithoSolid is true.
-//   BM6  Label shows "Building…" and button is disabled when lithoSolidsBuilding.
+//   BM3b A running build replaces the button with inline progress + Cancel.
+//   BM6  A running build shows the current phase text in the inline progress.
 //   BM7  No "Build litho" button and no element with testid litho-build-solids-button.
 //   BM8  Reset camera button gates on litho solids (absent without, present with;
 //        surfaces-only does NOT show it).
@@ -26,6 +27,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalModelResponse,
 } from '../../../api/client'
+import type { VoxelBuildState } from '../../../hooks/useVoxelBuildStream'
 
 // The LithologyToolbar is inline in LithologyStage.tsx and registered as
 // ToolbarComponent.  Import the descriptor and render ToolbarComponent
@@ -108,6 +110,9 @@ function makeCtx(overrides: {
   hasStaleLithoSolid?: boolean
   hasLithoSolids?: boolean
   buildLithoSolids?: () => Promise<void>
+  startLithoBuild?: () => Promise<void>
+  cancelLithoBuild?: () => void
+  voxelBuildState?: VoxelBuildState
 } = {}): ShellContextValue {
   return {
     project: {
@@ -290,6 +295,9 @@ function makeCtx(overrides: {
       hasLithoSolids: overrides.hasLithoSolids ?? false,
       hasStaleLithoSolid: overrides.hasStaleLithoSolid ?? false,
       buildLithoSolids: overrides.buildLithoSolids ?? noopAsync,
+      startLithoBuild: overrides.startLithoBuild ?? noopAsync,
+      cancelLithoBuild: overrides.cancelLithoBuild ?? (() => {}),
+      voxelBuildState: overrides.voxelBuildState ?? { status: 'idle' },
       setBodyColor: vi.fn(),
       hideMarkers: false,
       setHideMarkers: vi.fn(),
@@ -481,10 +489,11 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
     expect(container.firstChild).toBeNull()
   })
 
-  // BM3: Clicking Build model calls buildLithoSolids (not handleRebuildLithoSurfaces).
-  // The fixture seeds one contact so the no-contacts gate is open.
-  it('BM3 — clicking Build model calls buildLithoSolids', async () => {
-    const buildSolids = vi.fn().mockResolvedValue(undefined)
+  // BM3: Clicking Build model starts the streaming build (startLithoBuild, debt
+  // #282), NOT the old TIN-surface rebuild. The fixture seeds one contact so the
+  // no-contacts gate is open.
+  it('BM3 — clicking Build model calls startLithoBuild', async () => {
+    const startBuild = vi.fn().mockResolvedValue(undefined)
     const rebuildSurfaces = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -508,7 +517,7 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
           updated_at: '2026-01-01T00:00:00Z',
         } as FormationContactResponse,
       ],
-      buildLithoSolids: buildSolids,
+      startLithoBuild: startBuild,
       handleRebuildLithoSurfaces: rebuildSurfaces,
     })
     renderToolbar(ctx)
@@ -516,10 +525,32 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
     fireEvent.click(screen.getByTestId('litho-build-model-button'))
 
     await vi.waitFor(() => {
-      expect(buildSolids).toHaveBeenCalledOnce()
+      expect(startBuild).toHaveBeenCalledOnce()
     })
     // The old TIN-surface build must NOT be called.
     expect(rebuildSurfaces).not.toHaveBeenCalled()
+  })
+
+  // BM3b: While a build job runs, the Build button is REPLACED by an inline
+  // progress + Cancel; clicking Cancel calls cancelLithoBuild (debt #282).
+  it('BM3b — a running build shows progress + Cancel, and Cancel calls cancelLithoBuild', () => {
+    const cancelBuild = vi.fn()
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      voxelBuildState: {
+        status: 'running',
+        latest: { phase: 'label', done: 3, total: 12 },
+        highestPhaseIndex: 0,
+        cancelRequested: false,
+      },
+      cancelLithoBuild: cancelBuild,
+    })
+    renderToolbar(ctx)
+
+    // The Build button is gone while running; the Cancel button is present.
+    expect(screen.queryByTestId('litho-build-model-button')).toBeNull()
+    fireEvent.click(screen.getByTestId('litho-build-cancel-button'))
+    expect(cancelBuild).toHaveBeenCalledOnce()
   })
 
   // BM4: Build model is DISABLED + tooltip points to cross-section when no contacts.
@@ -544,16 +575,21 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
     expect(screen.getByTestId('litho-build-model-button')).toHaveTextContent(/stale/i)
   })
 
-  // BM6: Label shows “Building…” and button is disabled while lithoSolidsBuilding.
-  it('BM6 — label shows “Building…” and button is disabled while building', () => {
+  // BM6: While a build job runs, the inline progress shows the current phase
+  // text (the Build button itself is replaced — see BM3b) (debt #282).
+  it('BM6 — a running build shows the phase text in the inline progress', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
-      lithoSolidsBuilding: true,
+      voxelBuildState: {
+        status: 'running',
+        latest: { phase: 'extract', done: 1, total: 1 },
+        highestPhaseIndex: 2,
+        cancelRequested: false,
+      },
     })
     renderToolbar(ctx)
-    const btn = screen.getByTestId('litho-build-model-button') as HTMLButtonElement
-    expect(btn).toHaveTextContent(/building/i)
-    expect(btn.disabled).toBe(true)
+    // The "Extracting body solids…" phase label is shown in the status region.
+    expect(screen.getByRole('status')).toHaveTextContent(/extract/i)
   })
 
   // BM7 (negative): the old “Build litho” and “litho-build-solids-button” are gone.
