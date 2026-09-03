@@ -17,7 +17,11 @@ Exit code contract
 ``2``  — the target database could not be created.
 ``3``  — the PostGIS extension could not be ensured.
 ``4``  — the Alembic upgrade itself failed.
-``10`` — an unexpected error outside the four named stages.
+``5``  — the pre-migration backup (pg_dump checkpoint) failed; the upgrade was
+         refused rather than run without a recovery point.
+``6``  — the database was written by a NEWER StrixGeo (an unknown stamped
+         revision); the store is intact, this build is too old to open it.
+``10`` — an unexpected error outside the named stages.
 
 On any non-zero exit, exactly one human-readable line naming the failed stage
 is printed to stderr — this text is read by a non-technical tester, in a
@@ -33,10 +37,12 @@ import sys
 from groundmodel.infrastructure.db.database_migrator import (
     DatabaseMigrator,
     DatabaseMigratorError,
+    NewerDatabaseError,
 )
 from groundmodel.infrastructure.db.database_migrator_constants import (
     DEFAULT_READY_TIMEOUT_SECONDS,
     EXIT_CODE_BY_STAGE,
+    EXIT_CODE_NEWER_DATABASE,
     EXIT_CODE_UNEXPECTED,
 )
 from groundmodel.shared.config import settings
@@ -94,6 +100,13 @@ def main(argv: list[str] | None = None) -> int:
     migrator = DatabaseMigrator()
     try:
         asyncio.run(migrator.migrate(args.database_url, timeout_seconds=args.timeout))
+    except NewerDatabaseError as exc:
+        # Distinct from a migration FAILURE: the store is fine, this build is
+        # just too old to open it. Its own exit code lets the launcher show the
+        # "install the current version; your data is intact" copy (H2c / M8).
+        logger.error(f"Database written by a newer StrixGeo: {exc}")
+        print(str(exc), file=sys.stderr)
+        return EXIT_CODE_NEWER_DATABASE
     except DatabaseMigratorError as exc:
         exit_code = EXIT_CODE_BY_STAGE.get(exc.stage, EXIT_CODE_UNEXPECTED)
         logger.error(f"Database migration failed during {exc.stage}: {exc}")
