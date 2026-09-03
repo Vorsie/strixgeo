@@ -27,10 +27,12 @@ function fakeApp(isPackaged: boolean, hasUserDataDirSwitch = false) {
   return {
     isPackaged,
     getPath: vi.fn((_name: 'appData') => 'C:\\Users\\test\\AppData\\Roaming'),
-    setPath: vi.fn((_name: 'userData' | 'sessionData', _value: string) => undefined),
+    setPath: vi.fn((_name: 'userData' | 'sessionData' | 'logs', _value: string) => undefined),
     commandLine: { hasSwitch: vi.fn((_name: string) => hasUserDataDirSwitch) },
   }
 }
+
+const LOCAL_APP_DATA = 'C:\\Users\\test\\AppData\\Local'
 
 describe('the packaged app claims its own profile', () => {
   it('PP1 — packaged: userData and sessionData move to <appData>\\StrixGeo', () => {
@@ -51,6 +53,29 @@ describe('the packaged app claims its own profile', () => {
 
     expect(app.getPath).not.toHaveBeenCalled()
     expect(app.setPath).not.toHaveBeenCalled()
+  })
+
+  it('PP5 — packaged: logs move to %LOCALAPPDATA%\\StrixGeo\\logs (M1), off the Roaming share', () => {
+    const app = fakeApp(true)
+
+    expect(applyPackagedProfile(app, LOCAL_APP_DATA)).toBe(true)
+
+    // userData stays Roaming (small stores follow the user); logs — a large,
+    // machine-local, churny store — go to Local.
+    const roaming = join('C:\\Users\\test\\AppData\\Roaming', PACKAGED_PROFILE_DIR_NAME)
+    expect(app.setPath).toHaveBeenCalledWith('userData', roaming)
+    expect(app.setPath).toHaveBeenCalledWith(
+      'logs',
+      join(LOCAL_APP_DATA, PACKAGED_PROFILE_DIR_NAME, 'logs'),
+    )
+  })
+
+  it('PP6 — packaged but no %LOCALAPPDATA%: logs are left at their default (no crash)', () => {
+    const app = fakeApp(true)
+
+    expect(applyPackagedProfile(app, undefined)).toBe(true)
+
+    expect(app.setPath).not.toHaveBeenCalledWith('logs', expect.anything())
   })
 
   it('PP4 — an explicit --user-data-dir wins over the claimed profile', () => {
@@ -77,12 +102,25 @@ describe('the profile is applied before anything reads userData', () => {
   }
 
   it('PP3 — applyPackagedProfile precedes the lock and every store', () => {
-    const profile = offsetOf('applyPackagedProfile(app)')
+    const profile = offsetOf('applyPackagedProfile(app')
 
     expect(profile).toBeLessThan(offsetOf('requestSingleInstanceLock()'))
     expect(profile).toBeLessThan(offsetOf('configureRecoveryStore('))
     expect(profile).toBeLessThan(offsetOf('configureBetaExpiryStore('))
     expect(profile).toBeLessThan(offsetOf('configureDiagnosticsStore('))
     expect(profile).toBeLessThan(offsetOf('startEmbeddedStack('))
+  })
+
+  it('PP7 — logs are relocated by passing %LOCALAPPDATA% to the profile (M1)', () => {
+    expect(MAIN_SOURCE).toContain('applyPackagedProfile(app, process.env.LOCALAPPDATA)')
+  })
+
+  it('PP8 — the cluster is relocated BEFORE the database boots (M1)', () => {
+    const relocate = offsetOf('relocateMachineLocalStores()')
+    const boot = offsetOf('bootEmbeddedDatabase()')
+    // The move + configurePgdataRoot must land before Postgres starts, or the
+    // cluster would boot from the wrong directory.
+    expect(relocate).toBeLessThan(boot)
+    expect(MAIN_SOURCE).toContain('configurePgdataRoot(localRoot)')
   })
 })
