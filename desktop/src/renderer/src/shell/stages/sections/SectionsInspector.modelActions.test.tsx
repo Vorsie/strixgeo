@@ -273,6 +273,7 @@ function makeCtx(o: CtxOverrides = {}): ShellContextValue {
       handleRebuildSurfaces: o.handleRebuildSurfaces ?? noopAsync,
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
+      handleToggleBoreholeInLithoModel: noopAsync,
       discardContacts: vi.fn(),
       discoverBoreholeFormations: () =>
         Promise.resolve({ candidates: [], collisions: [] }),
