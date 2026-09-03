@@ -943,28 +943,9 @@ manual re-picking the same investigations after the carry-aware
 walk feels redundant. At that point, ship the per-stage consumer for
 THAT stage with the concrete workflow in front of you.
 
-## 47. `project_bundle.py` column auto-enumeration → silent `.gmproj` format drift (Tier B — backwards-compat re-arm trigger)
+## 47. `project_bundle` column auto-enumeration → silent `.gmproj` format drift — RESOLVED 2026-09-02
 
-**What.** `build_project_bundle` / `restore_project_bundle` enumerate
-every ORM column via `__mapper__.column_attrs` so new columns "ride
-along automatically." Convenient pre-ship; a forward-compat liability
-once backwards-compat re-arms: adding any column to any bundled ORM
-model silently changes the emitted `.strix` shape with no version
-bump, no conscious decision, no round-trip test. The manual
-`_SKIP_COLUMNS` set is the only gate.
-
-**Why deferred.** Backwards-compat is suspended pre-ship (owner
-directive 2026-05-16); the enumeration is a real time-saver during
-rapid Phase-4 work and the risk is zero while no external `.strix`
-file matters.
-
-**When to revisit.** At the backwards-compat re-arm trigger (first
-external distribution — ties to #3). Then: audit every bundled ORM
-class for columns that should NOT be portable (caches,
-server-managed timestamps) and promote them to `_SKIP_COLUMNS`; add a
-fixture test per top-level bundle array asserting its exact column
-set, so a new column forces a conscious format-version decision.
-
+The per-array column set is now pinned by `tests/unit/infrastructure/db/test_bundle_column_pins.py` against the frozen sets in `bundle_columns_expected.py`, so adding a column to any bundled ORM model turns the unit suite RED until someone updates the set on purpose — the moment to decide portability (`_SKIP_COLUMNS`) and a `format_version` bump; the audit promoted `generation_id` (the `LithoBodySolid` FK into the un-bundled `litho_build_generation`) to `_SKIP_COLUMNS` while the deliberately-carried TIN/mesh caches stay, and the rule is recorded in `docs/gmproj-format.md` (`test_bundle_skip_columns.py` pins the drop).
 ## 52. PDF report export (Tier D — Phase 5 reporting deliverable; slice 1 SUPERSEDED 2026-09-02)
 
 **Slice 1 SUPERSEDED 2026-09-02 by the client-rendered cross-section PDF
