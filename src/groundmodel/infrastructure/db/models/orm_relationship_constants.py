@@ -31,6 +31,11 @@ and is opt-in:
 Run the integration suite with it set to ``"raise"`` to surface any response
 schema missing a ``selectinload``; a green run promotes the default here to
 ``"raise"`` with confidence. The value is read once at import time.
+
+PROMOTED 2026-09-03: the full integration suite (951 passed) and the full e2e
+sweep both ran with ``"raise"`` and surfaced no lazy load, so ``"raise"`` is now
+the default; set the variable to ``"select"`` to fall back to the old behaviour
+while a missing ``selectinload`` is fixed.
 """
 
 import os
@@ -59,11 +64,11 @@ LazyStrategy = Literal[
 ]
 
 # Loader strategy for every mapped relationship. Defaults to SQLAlchemy's
-# historical ``"select"`` (current behaviour) so nothing changes for the
-# packaged app until an integration run proves ``"raise"`` safe end to end. The
+# ``"raise"`` since 2026-09-03 (see the module docstring); ``"select"`` restores
+# the historical lazy loading if a path ever turns out to be uncovered. The
 # env value is ``cast`` to the Literal — the valid values are documented above,
 # and an unknown one surfaces as a SQLAlchemy error at mapper configuration, not
 # a silent wrong strategy.
 RELATIONSHIP_LAZY: LazyStrategy = cast(
-    LazyStrategy, os.environ.get(RELATIONSHIP_LAZY_ENV_VAR, "select")
+    LazyStrategy, os.environ.get(RELATIONSHIP_LAZY_ENV_VAR, "raise")
 )
