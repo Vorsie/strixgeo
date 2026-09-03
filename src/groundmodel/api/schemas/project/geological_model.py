@@ -7,10 +7,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.shared.constants.model_kind import ModelKind
 
 
-class GeologicalModelCreateRequest(BaseModel):
+class GeologicalModelCreateRequest(StrictRequestModel):
     """Body of ``POST /projects/{id}/geology/models``.
 
     A project can have multiple interpretation models. ``is_active``
@@ -33,7 +34,7 @@ class GeologicalModelCreateRequest(BaseModel):
     parent_model_id: UUID | None = None
 
 
-class GeologicalModelUpdateRequest(BaseModel):
+class GeologicalModelUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{id}/geology/models/{mid}``.
 
     ``is_active`` is intentionally NOT updatable here — use the dedicated
