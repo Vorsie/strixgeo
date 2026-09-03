@@ -2537,6 +2537,32 @@ drag-resize one layer to absorb the other.
 
 ## 104. Three-level export gap — snapshots carry geological-level data only (Tier D — Phase-4 MVP export step)
 
+**VERIFIED RESOLVED (audit + guard-pin 2026-09-02).** The ruled v1.0-gate
+scope of #104 — *"export unit identifiers (NAD class + soil) in DXF/Plaxis"*
+(commercial-direction.md §v1.0 gate) — is complete across ALL SIX exporters ×
+all three levels. A cell-by-cell verification (truth table in the session
+report) confirmed: every exporter carries each routed level's geometry AND the
+`nad_class` + `litho_main_soil_code` identifiers where the level has them
+(geological: none, by design — the token is `None`; litho: soil; geotech:
+NAD + soil). Geometry reaches the SECTION / PROJECT exporters through
+`list_contacts(model_id)`, where a litho / geotech model's boundaries live in
+`litho_layer` and the `formation_contact` rows are materialised by the
+kind-agnostic **LL→FC mirror trigger** (`mirror_litho_layer_to_contact`, no
+`kind` guard) — pinned end-to-end for geotech by
+`tests/integration/api/test_cross_section_export_geotech.py`. The
+closed-geometry family (D-Stability, D-Sheet) and the fence DXF resolve the
+same two identifiers from the POSTed partition / panels
+(`build_section_polygons.py`, `_resolve_fence_identities`) — pinned by
+`test_cross_section_export_dseries.py` + `test_fence_export_layer_names.py`.
+The one exporter that carried the identifiers via the shared Plaxis helpers but
+had NO identifier test of its own — the 3-D `PlaxisExporter` — is now guarded
+by four pins in `test_plaxis_exporter.py`. Out of the ruled scope, and NOT
+carried (by design, not a gap): `instance_ordinal` and the compact NL code
+(a presentation-boundary label) — the mapping table already disambiguates
+instances by `formation_id`, and the machine packing identity is the raw
+`nad_class` number. No code change was needed to close the gate; the entry
+below is kept for the record.
+
 **What.** `GroundModelSnapshot` and `SectionSnapshot` carry only
 `formation_id` / `formation_name` from the geological model. Neither
 carries `litho_main_soil_code`, `nad_class`, `instance_ordinal`, or the
@@ -2586,10 +2612,20 @@ PDF legend leads with the token. Pins:
 `tests/unit/infrastructure/exporters/test_unit_identifier.py` +
 `test_export_unit_identifiers.py`.
 
-**Still open here.** Closed polygons / hatched soil bodies — the exports still
-carry contact polylines + per-column layer stacks, not filled units; the 2-D
-partition fill lives in the renderer and has no backend equivalent to export.
-*(The same-NAD thinning half of the ballot is #104b, RESOLVED 2026-08-26.)*
+**Closed polygons — addressed, not by the polyline exporters (2026-09-02
+re-audit).** The original "still open" note read: the exports carry contact
+polylines + per-column layer stacks, not filled units. That is still true of
+`DxfSectionExporter` and both PLAXIS exporters — and it is the CORRECT shape
+for those targets (a CAD section drawing is polylines; a PLAXIS model is
+borehole + global-layer stacks, not polygons). The filled / hatched fill DOES
+reach an export, through the closed-geometry family that landed 2026-08-26:
+`DStabilityExporter` (.stix) and `DSheetPilingExporter` (.shi) consume the
+renderer-POSTed partition as a `SectionPolygonSet` (`build_section_polygons.py`),
+`DxfFenceExporter` writes the 3-D filled walls, and the client-rendered PDF
+sheet draws the on-screen partition. So the 2-D partition fill has a backend
+export path after all; the polyline exporters keeping polylines is a deliberate
+per-target choice, not a gap. *(The same-NAD thinning half of the ballot is
+#104b, RESOLVED 2026-08-26.)*
 
 ## 104b. Export-level thinning of adjacent same-NAD units — RESOLVED 2026-08-26
 
