@@ -36,9 +36,11 @@
 #     in a quiet week with no push (production-readiness audit 2026-09-02,
 #     L10: desktop-only pushes skip integration and STRIX_BATCH skips the
 #     per-commit tests, so a gap can otherwise leave develop unchecked by
-#     CI). A scheduled run executes the workflow on the repository's
-#     DEFAULT branch; make develop the default (or dispatch manually) if
-#     develop is not it.
+#     CI). A scheduled run's workflow file is read from the repository's
+#     DEFAULT branch (main, which trails develop), so the checkout step
+#     pins ``ref: develop`` for scheduled runs only — the weekly run then
+#     verifies the branch we actually push to. Push/PR runs keep the ref
+#     that triggered them.
 #   * ``paths-ignore`` on push — docs/markdown-only pushes don't spin
 #     the matrix.
 
@@ -74,6 +76,12 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
+        with:
+          # A scheduled run's workflow is read from the default branch (main,
+          # which trails develop). Pin develop for the weekly run so it checks
+          # the branch we push to; push/PR runs pass an empty ref, which is
+          # actions/checkout's default (the ref/SHA that triggered the run).
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3 (SHA-pinned, #219)
@@ -105,6 +113,12 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
+        with:
+          # A scheduled run's workflow is read from the default branch (main,
+          # which trails develop). Pin develop for the weekly run so it checks
+          # the branch we push to; push/PR runs pass an empty ref, which is
+          # actions/checkout's default (the ref/SHA that triggered the run).
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
 
       - name: Set up Python 3.11
         # Needed for the eslint-reason script that runs first.
