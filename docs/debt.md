@@ -9867,7 +9867,23 @@ renderer entry (`sheet.html`). The old file's Cesium define/intro, the React plu
 the Cesium dev-server plugin were never in effect; activating them would be a deliberate,
 verified change (git history has the file). Folded into #200.
 
-## 282. Voxel Build has no progress feedback or cancel (M — Tier E)
+## 282. Voxel Build has no progress feedback or cancel (M — Tier E) — RESOLVED 2026-09-03
+
+**RESOLVED 2026-09-03.** Additive background-job path: `POST
+.../litho-solids/build-voxel/jobs` (202 + job_id, duplicate-key guard per model,
+reuses `job_registry`) runs the build under the existing CPU lock and streams
+`GET .../jobs/{job_id}` SSE events (`{type:progress, phase, done, total}` for
+label/reconcile/extract/persist, then `done`/`error`); `label_voxels` gained an
+optional `should_cancel`/`progress` (checked/emitted per column, framework-free),
+`BuildVoxelLithoModel.execute` relays per phase and rolls back + re-raises on
+`BuildCancelled`; `POST .../jobs/{job_id}/cancel` sets a `threading.Event` on the
+job entry. Renderer: `useVoxelBuildStream` (idle/running/done/cancelled/error) +
+`VoxelBuildProgressInline` reuse the DOV panel look; the Lithology Build button
+becomes a progress bar + Cancel via `useLithoSolids.startLithoBuild`. The
+synchronous `build-voxel` endpoint stays. Integration round-trip + cancel-mid-
+build tests in `tests/integration/api/test_voxel_build_job.py` (write, run with
+the DB). Geotech toolbar parity is the one deliberate follow-up (litho only for
+now). See docs/api.md + docs/performance.md.
 
 **What.** `POST /geology/models/{id}/litho-solids` (build_voxel_litho_solids →
 `BuildVoxelLithoModel.execute`) is a single blocking request: the three CPU
