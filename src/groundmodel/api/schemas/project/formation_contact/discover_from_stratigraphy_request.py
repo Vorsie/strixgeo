@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 # manual_map originates from a .gmproj file's lumping snapshot, which is
 # attacker-controlled on the restore path. Bound it so a crafted payload
@@ -15,7 +17,7 @@ _MAP_MAX_ENTRIES = 2_000
 _KEY_STR_MAX = 512
 
 
-class DiscoverFromStratigraphyRequest(BaseModel):
+class DiscoverFromStratigraphyRequest(StrictRequestModel):
     """Body of ``POST .../contacts/discover-from-stratigraphy``.
 
     Same validation shape as :class:`AutoPopulateFromStratigraphyRequest`:
