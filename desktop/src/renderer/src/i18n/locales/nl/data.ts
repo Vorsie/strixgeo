@@ -126,6 +126,8 @@ export const DATA_NL = {
   // -------------------------------------------------------------------------
   // FLAG alt: Wachtend: {name} — pin discovered by DOV but not yet imported.
   'data.map.pending': 'In afwachting: {name}',
+  // Offline notice on de 2D-kaart (audit L9).
+  'data.map.offline': 'Offline — kaarttegels niet beschikbaar',
   // FLAG alt: sonderingslocatie(s) — CPT/sondering call; sr-only announcement.
   'data.map.pendingCptLocationsOne': '{n} sonderingslocatie wacht op import',
   'data.map.pendingCptLocationsMany': '{n} sonderingslocaties wachten op import',
