@@ -1308,11 +1308,10 @@ export default function App() {
   // the engineer sees the reconnect. Renders null unless a respawn is in flight.
   const backendRestartingBanner = <BackendRestartingBanner />
 
-  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError /></>
-  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading /></>
-
   // Activation start-screen gate (owner ruling A) — a packaged build with a
-  // blocked verdict shows the licence screen INSTEAD of the workspace. Never
+  // blocked verdict shows the licence screen INSTEAD of the workspace. It comes
+  // BEFORE the boot returns: while blocked the engine is deferred, so the
+  // 'Starting StrixGeo API…' splash would wait forever (installer #8). Never
   // reached in dev / e2e (the gate stays 'pass'). Reuses LicensingDialog as a
   // full-window, non-dismissable start screen; entering a valid key or starting
   // the trial reports through onStatusChange and opens the gate.
@@ -1329,6 +1328,10 @@ export default function App() {
       </>
     )
   }
+
+  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError /></>
+  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading /></>
+
 
   if (!project) {
     return (
