@@ -232,14 +232,26 @@ regeneration would lock the user out of an intact data directory.
 ### Read-only install, writable user profile
 
 Everything shipped is read-only; everything written lives under `userData`
-(`pgdata/`, `pgcredentials.json`, `numba-cache/`, `logs/`). A unit test asserts
-no writable path in the layout resolves under the install directory — the bug
-it prevents is invisible on a developer's machine, where the app runs from a
-writable build tree.
+(`pgdata/`, `pgcredentials.json`, `numba-cache/`, `logs/`, `backups/`). A unit
+test asserts no writable path in the layout resolves under the install
+directory — the bug it prevents is invisible on a developer's machine, where the
+app runs from a writable build tree.
 
 `NUMBA_CACHE_DIR` is set for the same reason: `@njit(cache=True)` writes beside
 its source, and the 38.6× that justified taking numba as a dependency is a
 *cached*-compile win.
+
+`backups/` holds the **pre-migration `pg_dump` checkpoints** (production-readiness
+audit H2b). When a launch has pending migrations, `DatabaseMigrator` writes
+`backups/pre-<from_rev>-<to_rev>-<timestamp>.dump` (custom `-Fc` format,
+`pg_restore`-able) *before* `alembic upgrade head`, keeping the five newest. The
+launcher hands the migrator the bundled `pg_dump.exe` path and this directory
+through the env vars `STRIX_PG_DUMP_PATH` and `STRIX_BACKUP_DIR` — the same
+mechanism as the DSN. In dev neither is set and the dump is skipped (a dev DB is
+not the user's only copy). A dump failure aborts the upgrade (`migrate.py` exit
+code 5); an unknown stamped revision — the store was written by a newer
+StrixGeo — exits 6 with "install the current version; your data is intact"
+rather than bricking boot. See [design/autosave-recovery.md](design/autosave-recovery.md) §7.
 
 ---
 
