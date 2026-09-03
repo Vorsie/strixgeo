@@ -187,6 +187,9 @@ function makeCtx(overrides: {
   setBodyColor?: (bodyId: string, color: string | null) => void
   hideMarkers?: boolean
   setHideMarkers?: (value: boolean) => void
+  // Debt #65: excluded-boreholes list inputs.
+  visibleBoreholes?: ShellContextValue['visibleBoreholes']
+  handleToggleBoreholeInLithoModel?: (boreholeId: string, included: boolean) => Promise<void>
 } = {}): ShellContextValue {
   return {
     project: {
@@ -259,7 +262,7 @@ function makeCtx(overrides: {
       pendingCptPins: [],
     },
     visibleCpts: [],
-    visibleBoreholes: [],
+    visibleBoreholes: overrides.visibleBoreholes ?? [],
     geoModel: {
       activeGeologicalModel: 'activeGeologicalModel' in overrides
         ? (overrides.activeGeologicalModel ?? null)
@@ -318,6 +321,8 @@ function makeCtx(overrides: {
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
+      handleToggleBoreholeInLithoModel:
+        overrides.handleToggleBoreholeInLithoModel ?? noopAsync,
       discardContacts: vi.fn(),
       discoverBoreholeFormations: () => Promise.resolve({ candidates: [], collisions: [] }),
       applyBoreholeFormationSelection: noopAsync,
@@ -1197,3 +1202,69 @@ describe('LithoSolidLegend — hide-markers toggle (BS1–BS4)', () => {
   })
 })
 
+
+// ---------------------------------------------------------------------------
+// Debt #65 — excluded-boreholes list
+// ---------------------------------------------------------------------------
+
+/** Minimal borehole list item — only id + name are read by the inspector. */
+function makeBorehole(id: string, name: string): ShellContextValue['visibleBoreholes'][number] {
+  return {
+    id,
+    name,
+    test_id: id,
+    location_x: 0,
+    location_y: 0,
+    epsg: 31370,
+    elevation_m: null,
+    z_epsg: null,
+    elevation_source: 'none',
+    drill_method: null,
+    borehole_type: null,
+    total_depth_m: null,
+    start_date: null,
+    n_drill_segments: null,
+    n_field_log_intervals: null,
+  }
+}
+
+describe('LithologyInspector (debt #65 — excluded boreholes)', () => {
+  it('lists the boreholes excluded from the active litho model by name', () => {
+    const ctx = makeCtx({
+      activeLithoModel: { ...makeLithoModel(), excluded_borehole_ids: ['bh-1'] },
+      visibleBoreholes: [makeBorehole('bh-1', 'Borehole A'), makeBorehole('bh-2', 'Borehole B')],
+    })
+    renderInspector(ctx)
+
+    expect(screen.getByTestId('litho-excluded-boreholes')).toBeTruthy()
+    expect(screen.getByText('Borehole A')).toBeTruthy()
+    // bh-2 is not excluded, so it does not appear in this list.
+    expect(screen.queryByText('Borehole B')).toBeNull()
+    expect(screen.getByTestId('litho-include-borehole-bh-1')).toBeTruthy()
+  })
+
+  it('shows no excluded-boreholes section when the litho model excludes nothing', () => {
+    const ctx = makeCtx({
+      activeLithoModel: { ...makeLithoModel(), excluded_borehole_ids: [] },
+      visibleBoreholes: [makeBorehole('bh-1', 'Borehole A')],
+    })
+    renderInspector(ctx)
+
+    expect(screen.queryByTestId('litho-excluded-boreholes')).toBeNull()
+  })
+
+  it('Include again re-includes the borehole in the litho model (included = true)', () => {
+    const handleToggleBoreholeInLithoModel = vi.fn().mockResolvedValue(undefined)
+    const ctx = makeCtx({
+      activeLithoModel: { ...makeLithoModel(), excluded_borehole_ids: ['bh-1'] },
+      visibleBoreholes: [makeBorehole('bh-1', 'Borehole A')],
+      handleToggleBoreholeInLithoModel,
+    })
+    renderInspector(ctx)
+
+    fireEvent.click(screen.getByTestId('litho-include-borehole-bh-1'))
+
+    expect(handleToggleBoreholeInLithoModel).toHaveBeenCalledTimes(1)
+    expect(handleToggleBoreholeInLithoModel).toHaveBeenCalledWith('bh-1', true)
+  })
+})
