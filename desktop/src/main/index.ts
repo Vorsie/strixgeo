@@ -12,7 +12,7 @@ import {
 // Promise-based copy for the sample-install flow (fs.promises.copyFile).
 import { copyFile } from 'fs/promises'
 
-import { writeFileAtomic } from './atomicWrite'
+import { writeFileAtomic, writeFileAtomicKeepingGenerations } from './atomicWrite'
 import {
   decodeStrix,
   encodeStrix,
@@ -21,7 +21,7 @@ import {
 } from './strixCodec'
 import { evaluateBetaExpiry, type BetaVerdict } from './betaExpiry'
 import { configureBetaExpiryStore, recordLaunch } from './betaExpiryStore'
-import { compiledBuildStamp, readBuildStamp } from './buildStamp'
+import { compiledBuildProvenance, compiledBuildStamp, readBuildStamp } from './buildStamp'
 import { buildCrashBundle } from './crashBundle'
 import { readTransmissionConsent } from './diagnosticsConsent'
 import {
@@ -88,6 +88,7 @@ import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
 import { configureActivationStore, readActivationState } from './activationStore'
 import { ActivationService } from './activationService'
+import { activationBlocksLaunch } from './activation'
 import { activationBaseUrl, createActivationRepository } from './activationConfig'
 import { resolveDeviceIdentity } from './deviceIdentity'
 import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
@@ -1097,11 +1098,15 @@ function buildMenu(win: BrowserWindow): void {
         },
         { type: 'separator' },
         { label: 'About StrixGeo', click: () => {
+          const provenance = compiledBuildProvenance()
+          const buildLine = provenance?.sha
+            ? `\nBuild ${provenance.sha.slice(0, 12)}${provenance.builtAt ? ` · ${provenance.builtAt}` : ''}`
+            : ''
           dialog.showMessageBox(win, {
             type: 'info',
             title: 'StrixGeo',
             message: 'StrixGeo — Ground Model Platform',
-            detail: 'Version 0.1.0 — Phase 2\nGeotechnical data management for EC7 Gen2.'
+            detail: `Version ${app.getVersion()}${buildLine}\nGround model platform for geotechnical engineers.`
           })
         }}
       ]
@@ -1330,7 +1335,8 @@ ipcMain.handle(
     // in plaintext on disk. The bundle ``format_version`` lives INSIDE that
     // JSON and is untouched. Every save path (New / Save / Save As) funnels
     // through here, so this one line makes them all binary.
-    writeFileAtomic(filePath, encodeStrix(contents))
+    // Three previous saves survive beside the file (audit H2a).
+    writeFileAtomicKeepingGenerations(filePath, encodeStrix(contents))
   },
 )
 
@@ -1906,6 +1912,10 @@ const BETA_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 // Read once, at module load: the stamp is compiled into the binary and cannot
 // change while the process runs.
+{
+  const provenance = compiledBuildProvenance()
+  writeMainLog(`[boot] StrixGeo ${app.getVersion()} build ${provenance?.sha?.slice(0, 12) ?? 'dev'} (${provenance?.builtAt ?? 'unstamped'})`)
+}
 const betaBuildStamp = readBuildStamp({
   isPackaged: app.isPackaged,
   env: process.env,
@@ -2119,26 +2129,44 @@ if (!gotSingleInstanceLock) {
       userDataDir: app.getPath('userData'),
       deviceIdSeed: deviceIdentity.deviceId,
     })
-    registerPrototypeIpc(
-      new ActivationService({
-        repository: createActivationRepository({
-          env: process.env,
-          packaged: app.isPackaged,
-          appVersion: app.getVersion(),
-        }),
-        deviceLabel: deviceIdentity.deviceLabel,
+    const activationService = new ActivationService({
+      repository: createActivationRepository({
+        env: process.env,
+        packaged: app.isPackaged,
+        appVersion: app.getVersion(),
       }),
-      // The "Preview a state" demo control is dev-only — never registered in a
-      // packaged build (senior review SHOULD-FIX 1).
-      { previewControl: previewControlAllowed(app.isPackaged) },
-    )
+      deviceLabel: deviceIdentity.deviceLabel,
+    })
+    // A deferred backend (launch blocked on the licence gate below) starts the
+    // moment activation succeeds; a running backend is left alone.
+    registerPrototypeIpc(activationService, {
+      previewControl: previewControlAllowed(app.isPackaged),
+      onActivated: () => {
+        if (apiProcess === null) startApi()
+      },
+    })
 
-    // An expired beta stops here: no backend is spawned, no window is created.
     if (enforceBetaExpiry()) return
     startBetaExpiryWatch()
 
-    startApi()
+    // Licence gate (audit C3d): a packaged, non-beta build with a blocked
+    // verdict shows the window (the licensing dialog talks to main over IPC,
+    // not to the backend) but does NOT start the engine until activation
+    // succeeds. Dev, e2e and stamped beta builds never block.
+    const launchBlocked = activationBlocksLaunch({
+      packaged: app.isPackaged,
+      e2e: e2eLaunchFlag(process.env, app.isPackaged),
+      betaStampPresent: betaBuildStamp !== null && betaBuildStamp !== undefined,
+      verdict: activationService.getStatus().verdict,
+    })
+    if (launchBlocked) {
+      writeMainLog('[activation] launch blocked by the licence gate — backend deferred until activation')
+    } else {
+      startApi()
+    }
     createWindow()
+    // Renewals reach the client on the next launch (audit H5); dormant without an issuer.
+    void activationService.refreshOnLaunch()
 
     // #16 transmit half — flush any consented, captured diagnostics to the
     // activation origin. Inert unless consent is on AND an activation URL is
