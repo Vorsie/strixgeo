@@ -48,6 +48,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import DOV_MAX_IMPORT_FEATURES
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -59,6 +60,7 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_float,
 )
+from groundmodel.shared.exceptions import DovImportTooLargeError
 from groundmodel.shared.progress import ProgressCallback, fire_progress
 
 _T = TypeVar("_T")
@@ -152,6 +154,14 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
             logger=self,
         )
         self.info(f"DOV WFS: {len(rows)} unique boreholes found in bbox")
+
+        # Discovery ceiling — refuse a runaway import BEFORE the download phase
+        # fans out to thousands of parallel XML GETs (mirrors the CPT use case's
+        # guard; the CPT client separates discovery from download so its guard
+        # lives in the use case, the borehole client resolves both here).
+        if len(rows) > DOV_MAX_IMPORT_FEATURES:
+            raise DovImportTooLargeError(len(rows), DOV_MAX_IMPORT_FEATURES)
+
         # Report WFS discovery complete so the UI can show "N boreholes found".
         await fire_progress(progress_cb, "wfs", len(rows), len(rows))
 
