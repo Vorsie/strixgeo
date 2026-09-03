@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.domain.services.robertson_2015_constants import (
     DEFAULT_GUNSAT_KNM3,
     DEFAULT_GWATER_KNM3,
@@ -16,7 +17,7 @@ from groundmodel.domain.services.robertson_2015_constants import (
 )
 
 
-class LithoSuggestionRequest(BaseModel):
+class LithoSuggestionRequest(StrictRequestModel):
     """Body of ``POST .../contacts/suggest-litho``.
 
     Exactly one of ``cpt_id`` / ``borehole_id`` must be provided (XOR).
