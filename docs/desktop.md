@@ -280,6 +280,25 @@ its panel sections are presentational sibling files in the same `lithology/` fol
 `ConfirmParentDialog`. Props flow down, callbacks up — the extracted pieces hold no shared
 state (only `LithoSolidLegend` keeps its own per-group expand/collapse state).
 
+### GeologyInspector composition (debt #201)
+
+`GeologyInspector.tsx` is a thin orchestrator (~388 lines) that composes the geology stage
+inspector. Because it carried ~400 lines of undo-command formation-CRUD handlers (unlike the
+lithology round), the formation-roster CRUD + drag-reorder block moved into a custom hook
+`useGeologyFormations.ts`, with the intricate reorder logic + undo split into the pure
+`reorderFormationsCommand.ts` (file-cap). The panel sections are presentational sibling files
+in the same `geology/` folder: `GeologyInspectorHeader`, `GeologyConfidenceFadeToggle`,
+`GeologyCrossingsBanner`, `GeologyFormationList` (+ its module-scope `GeologyFormationRow`),
+and `GeologyBoreholesInModel` (owns its own collapse state); the add-formation `Button`, the
+`CrossingSectionPickerDialog`, the empty-state hint, the `FormationDialog`, and the
+delete-confirm `Modal` (which carries a justified `eslint-disable jsx-a11y/no-autofocus`)
+stay inline. Props flow down, callbacks up. Formation CRUD stays here (litho's
+`LithoFormationRoster` is read-only by design). The original
+`reorderFormations → visibleFormations` TDZ constraint is gone: the reorder derives its
+visible list inline inside the hook. `GeologyConfidenceFadeToggle` is a near-duplicate of the
+lithology `LithoConfidenceFadeToggle` (differ only in `data-testid` + hint key), kept as a
+sibling copy to keep the round inside the `geology/` folder.
+
 ### LithoFormationRoster (LithologyInspector sibling)
 
 Read-only FLAT roster of lithostratigraphic units, ordered ascending by `display_order`
