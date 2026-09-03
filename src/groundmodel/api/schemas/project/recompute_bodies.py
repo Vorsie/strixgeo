@@ -15,10 +15,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from groundmodel.api.schemas.project.voxel_build_request import SectionPartitionInputSchema
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
 
 
-class RecomputeBodiesRequest(BaseModel):
+class RecomputeBodiesRequest(StrictRequestModel):
     """The frontend's connectivity evidence for one model.
 
     Attributes
