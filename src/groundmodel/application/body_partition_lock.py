@@ -77,7 +77,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.lock_errors import is_lock_not_available
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOTECHNICAL
+from groundmodel.shared.constants.model_kind import (
+    MODEL_KIND_GEOTECHNICAL,
+    MODEL_KIND_LITHOSTRATIGRAPHIC,
+    NON_STRATIGRAPHIC_KINDS,
+)
 from groundmodel.shared.exceptions import BodyPartitionContentionError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -265,3 +269,66 @@ async def lock_sibling_geotech_partitions(
     for sibling_id in sorted(sibling_geotech_ids, key=str):
         await lock_body_partition(session, model_id=sibling_id, operation=operation)
     return sibling_geotech_ids
+
+
+async def lock_project_body_partitions(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    payload_models: list[dict[str, object]],
+    operation: str,
+) -> list[UUID]:
+    """Lock every body partition a project-wide rewrite will touch, before it writes.
+
+    A replace-restore wipes and re-inserts a project's litho + geotech rows
+    (bodies, ``body_geometry_fact``, layers) and then, still in the same
+    transaction, ``reconcile_bodies_after_restore`` resolves every model — and
+    each resolve takes that model's :func:`lock_body_partition`. Taken THERE, the
+    lock comes after thousands of row locks, so a concurrent ``bodies/recompute``
+    that already holds the partition lock and now deletes those freshly inserted
+    fact rows waits on the restore, while the restore waits on the lock: a
+    deadlock (BP-5, e2e sweep 2026-09-03). The rule every litho-row writer
+    follows since BP-4 — lock BEFORE the first write — applies to the restore as
+    a whole, and this is that up-front pass.
+
+    The set is the union of the models the project has NOW (a replace wipes
+    them) and the models the bundle carries (a fresh restore inserts them; an
+    advisory key needs no row to exist). The order is the one
+    ``reconcile_bodies_after_restore`` walks — lithostratigraphic first, then
+    geotechnical, ids ascending — so the two multi-lock passes of one restore,
+    and two restores, can never acquire in opposite orders.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        The restore transaction's session.
+    project_id : UUID
+        The project being restored.
+    payload_models : list[dict[str, object]]
+        The bundle's ``geological_models`` rows (``id`` + ``kind`` are read).
+    operation : str
+        The waiting operation's name for the lock log lines and the 409 detail.
+
+    Returns
+    -------
+    list[UUID]
+        The model ids locked, in acquisition order.
+    """
+    existing = (
+        await session.execute(
+            select(GeologicalModelOrm.id, GeologicalModelOrm.kind).where(
+                GeologicalModelOrm.app_project_id == project_id,
+                GeologicalModelOrm.kind.in_(NON_STRATIGRAPHIC_KINDS),
+            )
+        )
+    ).all()
+    kinds: dict[UUID, str] = {row.id: row.kind for row in existing}
+    for model in payload_models:
+        raw_id, kind = model.get("id"), model.get("kind")
+        if raw_id is None or kind not in NON_STRATIGRAPHIC_KINDS:
+            continue
+        kinds.setdefault(UUID(str(raw_id)), str(kind))
+    ordered = sorted(kinds, key=lambda mid: (kinds[mid] != MODEL_KIND_LITHOSTRATIGRAPHIC, str(mid)))
+    for model_id in ordered:
+        await lock_body_partition(session, model_id=model_id, operation=operation)
+    return ordered
