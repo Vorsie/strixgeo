@@ -1,9 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { join } from 'path'
-import { resolveEmbeddedLayout, writablePaths } from './embeddedPaths'
+import { resolveEmbeddedLayout, writablePaths, configurePgdataRoot } from './embeddedPaths'
 
 const RESOURCES = join('C:', 'Program Files', 'StrixGeo', 'resources')
 const USER_DATA = join('C:', 'Users', 'coworker', 'AppData', 'Roaming', 'StrixGeo')
+const LOCAL_ROOT = join('C:', 'Users', 'coworker', 'AppData', 'Local', 'StrixGeo')
+
+// The pgdata root is module state (configured once at startup by index.ts). Reset
+// after every test so a configured case never leaks into the default-behaviour
+// tests above.
+afterEach(() => configurePgdataRoot(null))
 
 describe('resolveEmbeddedLayout', () => {
   it('takes the Postgres and Python executables from the install directory', () => {
@@ -53,5 +59,26 @@ describe('resolveEmbeddedLayout', () => {
 
     expect(layout.initPasswordFile.startsWith(layout.dataDir)).toBe(false)
     expect(layout.initPasswordFile.startsWith(USER_DATA)).toBe(true)
+  })
+})
+
+describe('resolveEmbeddedLayout with a configured Local pgdata root (M1)', () => {
+  it('puts the cluster under the Local root while credentials stay in Roaming', () => {
+    // A domain-joined consultancy syncs/redirects Roaming; the live cluster must
+    // not travel, but the credentials + recents reasonably follow the user.
+    configurePgdataRoot(LOCAL_ROOT)
+    const layout = resolveEmbeddedLayout(RESOURCES, USER_DATA)
+
+    expect(layout.dataDir).toBe(join(LOCAL_ROOT, 'pgdata'))
+    expect(layout.credentialsFile).toBe(join(USER_DATA, 'pgcredentials.json'))
+    // The password file must still not sit INSIDE the (now Local) data dir.
+    expect(layout.initPasswordFile.startsWith(layout.dataDir)).toBe(false)
+  })
+
+  it('reverts to the Roaming profile when the root is cleared (dev / isolated runs)', () => {
+    configurePgdataRoot(LOCAL_ROOT)
+    configurePgdataRoot(null)
+    const layout = resolveEmbeddedLayout(RESOURCES, USER_DATA)
+    expect(layout.dataDir).toBe(join(USER_DATA, 'pgdata'))
   })
 })
