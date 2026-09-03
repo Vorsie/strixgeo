@@ -169,31 +169,32 @@ describe('activationBlocksLaunch', () => {
 
   it('a dev build never blocks, even on a blocked verdict', () => {
     expect(
-      activationBlocksLaunch({ packaged: false, e2e: false, betaStampPresent: false, verdict: blocked }),
+      activationBlocksLaunch({ packaged: false, e2e: false, verdict: blocked }),
     ).toBe(false)
   })
 
   it('the e2e harness never blocks, even packaged with a blocked verdict', () => {
     expect(
-      activationBlocksLaunch({ packaged: true, e2e: true, betaStampPresent: false, verdict: blocked }),
+      activationBlocksLaunch({ packaged: true, e2e: true, verdict: blocked }),
     ).toBe(false)
   })
 
-  it('a beta build runs on its stamp — a blocked activation verdict does NOT stop it', () => {
-    expect(
-      activationBlocksLaunch({ packaged: true, e2e: false, betaStampPresent: true, verdict: blocked }),
-    ).toBe(false)
+  it('a beta build with a blocked verdict is stopped — the key comes before the engine (owner 2026-09-03)', () => {
+    // "require Beta-key before API": the stamp still bounds the build's life
+    // (the beta-expiry gate runs first), but it no longer stands in for a
+    // licence. A tester who has not entered a key never reaches the workspace.
+    expect(activationBlocksLaunch({ packaged: true, e2e: false, verdict: blocked })).toBe(true)
   })
 
   it('a non-beta packaged build with a blocked verdict is stopped', () => {
     expect(
-      activationBlocksLaunch({ packaged: true, e2e: false, betaStampPresent: false, verdict: blocked }),
+      activationBlocksLaunch({ packaged: true, e2e: false, verdict: blocked }),
     ).toBe(true)
   })
 
   it('a non-beta packaged build with an active/grace verdict opens', () => {
     expect(
-      activationBlocksLaunch({ packaged: true, e2e: false, betaStampPresent: false, verdict: open }),
+      activationBlocksLaunch({ packaged: true, e2e: false, verdict: open }),
     ).toBe(false)
   })
 })
