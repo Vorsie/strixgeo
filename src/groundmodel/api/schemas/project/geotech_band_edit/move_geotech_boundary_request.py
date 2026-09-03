@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class MoveGeotechBoundaryRequest(BaseModel):
+class MoveGeotechBoundaryRequest(StrictRequestModel):
     """Body of the preview-move and move endpoints (the drag verb).
 
     Parameters
