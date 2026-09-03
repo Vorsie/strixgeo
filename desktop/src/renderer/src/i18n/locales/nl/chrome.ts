@@ -265,6 +265,8 @@ export const CHROME_NL = {
     'Kon het project niet terugdraaien naar de laatste bewaaractie — de back-up is behouden.',
   'project.fileNotFoundToast':
     'Kon het projectbestand niet vinden op {path}. Heb je het verplaatst of hernoemd?',
+  'project.restoreDroppedToast':
+    'Herstel heeft te grote gegevens overgeslagen: {series} diepteseries en {rows} onderliggende gegevensrijen. Zie het logboek.',
   'project.discardLossInterpretation':
     'Koppelingen, verplaatste grenzen, aanvaarde suggesties en verwijderingen van deze sessie, in eender welke stap — deze worden hier niet geteld.',
   'project.discardLossMetadata':
