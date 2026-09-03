@@ -21,7 +21,7 @@ if (PHP_SAPI !== 'cli') {
 define('STRIX_ACT', 1);
 require_once __DIR__ . '/../src/licence.php';
 
-$opts = getopt('', ['limit::']);
+$opts = getopt('', ['limit:']);
 $limit = isset($opts['limit']) && is_string($opts['limit']) ? max(1, (int) $opts['limit']) : 100;
 
 $pdo = strix_db();
