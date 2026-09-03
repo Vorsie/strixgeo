@@ -513,6 +513,15 @@ Design note:
 [design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
 PENDING: a first PUBLISHED release, and code-signing (below).
 
+**RELEASE INTEGRITY HARDENED 2026-09-02 (audit C4).** `release` now chains the
+full `dist` and both are gated by `require-clean-release.mjs` (refuses a dirty
+tree, unpushed commits, or on `release` a version not newer than the last
+published); the reused `embedded/python` tree is SHA-256-manifest-verified on
+reuse and `uv export` runs `--frozen`; every build stamps its git SHA + build
+time via `compiledBuildProvenance()`, checked present in the bundle by
+`require-beta-stamp.mjs post`. See [distribution-build.md](distribution-build.md)
+"Release integrity and provenance".
+
 **Code-signing status (owner ruling 2026-09-02): the closed beta ships
 UNSIGNED.** An Azure Artifact Signing (renamed Trusted Signing) account
 `strixgeo-signing` exists (~$10/mo), but individual-identity validation
