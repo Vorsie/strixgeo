@@ -37,8 +37,18 @@
       CreateShortCut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${PRODUCT_NAME}.exe"
     FunctionEnd
 
+    !define MUI_FINISHPAGE_SHOWREADME ""
+    !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
+    !define MUI_FINISHPAGE_SHOWREADME_TEXT "Create a desktop shortcut"
+    !define MUI_FINISHPAGE_SHOWREADME_FUNCTION StrixCreateDesktopShortcut
+    !define MUI_PAGE_CUSTOMFUNCTION_SHOW StrixFinishPageShow
+    !insertmacro MUI_PAGE_FINISH
+
     ; Set the checkbox text in the installer's language once the page is built
-    ; (1043 = Dutch; everything else reads English).
+    ; (1043 = Dutch; everything else reads English). Declared AFTER the page
+    ; insert: MUI2 declares ``$mui.FinishPage.ShowReadme`` inside MUI_PAGE_FINISH,
+    ; and NSIS resolves the function reference above at link time.
+    !include WinMessages.nsh
     Function StrixFinishPageShow
       ${if} $LANGUAGE == 1043
         SendMessage $mui.FinishPage.ShowReadme ${WM_SETTEXT} 0 "STR:Snelkoppeling op het bureaublad maken"
@@ -46,12 +56,5 @@
         SendMessage $mui.FinishPage.ShowReadme ${WM_SETTEXT} 0 "STR:Create a desktop shortcut"
       ${endif}
     FunctionEnd
-
-    !define MUI_FINISHPAGE_SHOWREADME ""
-    !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
-    !define MUI_FINISHPAGE_SHOWREADME_TEXT "Create a desktop shortcut"
-    !define MUI_FINISHPAGE_SHOWREADME_FUNCTION StrixCreateDesktopShortcut
-    !define MUI_PAGE_CUSTOMFUNCTION_SHOW StrixFinishPageShow
-    !insertmacro MUI_PAGE_FINISH
   !macroend
 !endif
