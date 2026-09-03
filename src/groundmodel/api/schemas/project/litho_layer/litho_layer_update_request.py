@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 
 from groundmodel.api.schemas.project.litho_layer.litho_layer_response import (
     LithoLayerConfidenceLiteral,
     LithoLayerSourceLiteral,
     LithoLayerStatusLiteral,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class LithoLayerUpdateRequest(BaseModel):
+class LithoLayerUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{pid}/geology/models/{mid}/layers/{lid}``.
 
     Only fields present in the body are written. The anchor pair
