@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.voxel_build_request import (
     SectionPartitionInputSchema,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class DivideBoreholesRequest(BaseModel):
+class DivideBoreholesRequest(StrictRequestModel):
     """Optional body of ``POST .../geotech/divide-boreholes``.
 
     Both fields are optional and both default to the endpoint's historic
