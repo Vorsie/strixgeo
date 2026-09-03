@@ -339,15 +339,23 @@ class BoreholeRepository(GroundModelLogger):
     ) -> BoreholeOrm | None:
         """Return the first borehole matching ``(project_id, test_id)``, or ``None``.
 
-        Used by single-borehole imports to detect duplicates before insert.
-        Scoped to ``app_project_id`` when provided so the same borehole can be
-        imported into different app projects.
+        ALWAYS scoped to ``app_project_id``: to the given project, or — when
+        ``None`` — to the null-project scope (``app_project_id IS NULL``), never
+        "any project". The DOV ``project_id`` + ``test_id`` pair is public to
+        anyone holding the record, so an UNSCOPED lookup would let an import that
+        omits ``app_project_id`` match — and, on the refresh-on-duplicate path,
+        overwrite — a borehole that belongs to a different app project (audit
+        C2b, mirroring the CPT fix). The same DOV record can still be imported
+        into different projects because each import only ever sees its own
+        project's rows.
         """
         stmt = select(BoreholeOrm).where(
             BoreholeOrm.project_id == project_id, BoreholeOrm.test_id == test_id
         )
         if app_project_id is not None:
             stmt = stmt.where(BoreholeOrm.app_project_id == app_project_id)
+        else:
+            stmt = stmt.where(BoreholeOrm.app_project_id.is_(None))
         result = await self._session.execute(stmt.limit(1))
         return result.scalar_one_or_none()
 
@@ -359,6 +367,12 @@ class BoreholeRepository(GroundModelLogger):
         One query for any number of ids — used by bulk imports (DOV bbox) so a
         500-borehole batch checks duplicates with a single round-trip instead
         of 500.
+
+        Scoped to ``app_project_id`` the same way as ``find_by_project_test``:
+        to the given project, or the null-project scope when ``None`` — never
+        across every project (audit C2b). The DOV bulk callers always pass a
+        real project, so this is a no-op for them and closes the same
+        cross-project match by construction.
         """
         if not test_ids:
             return {}
@@ -367,6 +381,8 @@ class BoreholeRepository(GroundModelLogger):
         )
         if app_project_id is not None:
             stmt = stmt.where(BoreholeOrm.app_project_id == app_project_id)
+        else:
+            stmt = stmt.where(BoreholeOrm.app_project_id.is_(None))
         result = await self._session.execute(stmt)
         return {row.test_id: row.id for row in result}
 
