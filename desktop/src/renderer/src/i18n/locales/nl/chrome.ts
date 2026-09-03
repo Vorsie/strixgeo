@@ -51,7 +51,7 @@ export const CHROME_NL = {
   'app.name': 'StrixGeo',
   'app.starting': 'StrixGeo API wordt gestart…',
   'app.bootFailedTitle': 'Kon de StrixGeo API niet starten',
-  'app.bootFailedBody': 'Bekijk de Python-traceback in de developer console.',
+  'app.bootFailedBody': 'Help → Show log file… opent het backend-logboek met de Python-traceback.',
   'app.backendFailedTitle': 'StrixGeo kon niet starten',
   'app.backendUnreachable': 'Backend onbereikbaar',
   // Weigeringscodes van de backend die een ingenieur in normaal gebruik kan zien.
