@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.litho_layer.litho_layer_response import (
     LithoLayerStatusLiteral,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class LithoLayerBatchStatusRequest(BaseModel):
+class LithoLayerBatchStatusRequest(StrictRequestModel):
     """Body of ``POST /projects/{pid}/geology/models/{mid}/layers/batch-status``.
 
     Set the same status on every listed layer id in one transaction.
