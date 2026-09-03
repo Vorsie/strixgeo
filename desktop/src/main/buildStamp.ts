@@ -134,6 +134,40 @@ export function compiledBuildStamp(): RawBuildStamp | undefined {
   return { buildId, builtAt, expiresAt }
 }
 
+/** Build provenance baked into a packaged build — the commit and the moment. */
+export interface BuildProvenance {
+  /** Full git commit SHA the build was cut from, or ``"unknown"``. */
+  sha?: string
+  /** Build timestamp, ISO-8601. */
+  builtAt?: string
+}
+
+/**
+ * Read the compiled-in build provenance (git SHA + build time), if present.
+ *
+ * Injected through the SAME electron-vite channel as {@link compiledBuildStamp}
+ * — ``import.meta.env.MAIN_VITE_STRIX_BUILD_*``, set in ``electron.vite.config.ts``
+ * from ``scripts/buildProvenance.mjs`` and replaced with string literals while
+ * the main bundle builds (production-readiness audit 2026-09-02, C4: the
+ * artifact carried no git SHA). A dev run, where the variables were never set,
+ * returns ``undefined``. ``require-beta-stamp.mjs post`` greps the built bundle
+ * for the SHA, so a silent injection failure fails the package rather than
+ * shipping a build with no provenance.
+ *
+ * Returns
+ * -------
+ * BuildProvenance | undefined
+ *     ``{ sha, builtAt }`` for a build that carries provenance, else undefined.
+ */
+export function compiledBuildProvenance(): BuildProvenance | undefined {
+  // Literal member expressions only — a computed lookup is not statically
+  // replaceable (same rule as compiledBuildStamp above).
+  const sha = import.meta.env.MAIN_VITE_STRIX_BUILD_SHA
+  const builtAt = import.meta.env.MAIN_VITE_STRIX_BUILD_TIME
+  if (sha === undefined && builtAt === undefined) return undefined
+  return { sha, builtAt }
+}
+
 /**
  * Resolve this build's expiry stamp from the highest-precedence source.
  *
