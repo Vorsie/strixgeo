@@ -2,12 +2,13 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.infrastructure.parsers.dov.dov_common import validate_wgs84_import_bbox
 
 
-class ImportDovRequest(BaseModel):
+class ImportDovRequest(StrictRequestModel):
     """WGS84 bounding box + project scope for a DOV CPT import."""
 
     west: float = Field(..., ge=-180, le=180, description="Western longitude (decimal degrees)")
