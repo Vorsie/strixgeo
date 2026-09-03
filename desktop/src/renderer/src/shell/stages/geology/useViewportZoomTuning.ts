@@ -7,6 +7,8 @@ import * as Cesium from 'cesium'
 
 import { useEffect } from 'react'
 
+import { requestSceneRender } from './sceneRender'
+
 /** The tuning shape — mirrored on ``CesiumViewportProps.zoomTuning``. */
 export interface ViewportZoomTuning {
   /** ScreenSpaceCameraController.zoomFactor (Cesium default 5). */
@@ -64,6 +66,9 @@ export function useViewportZoomTuning(
           Math.max(Math.abs(height), tuning.minimumZoomDistanceM) * tuning.fineZoomFraction
         if (delta > 0) camera.zoomIn(step)
         else camera.zoomOut(step)
+        // On-demand rendering (M7c): this programmatic zoom is not routed
+        // through the ScreenSpaceCameraController, so ask for the redraw.
+        requestSceneRender(scene)
       },
       Cesium.ScreenSpaceEventType.WHEEL,
       Cesium.KeyboardEventModifier.CTRL,
