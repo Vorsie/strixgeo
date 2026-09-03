@@ -282,6 +282,64 @@ describe('openProjectFile — the DB row is gone', () => {
   })
 })
 
+describe('openProjectFile — a DB-lost restore that capped oversized rows', () => {
+  // The rule, in its own words (codex L6 / owner): "when opening a .strix
+  // drops capped rows, the engineer is told how many and of what, once, in a
+  // warning toast; a restore that drops nothing stays silent." The restore
+  // path already logged the counts; a log a packaged build never shows is not
+  // "told".
+  it('warns the engineer once, in a warning toast naming the counts, when the restore dropped rows', async () => {
+    const { api } = await import('../api/client')
+    diskContent = JSON.stringify(
+      fileShape({ project: { id: PROJECT_ID, name: 'Ghost', status: 'active', tags: [] } }),
+    )
+    asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
+    asMock(api.project.restore).mockResolvedValue({
+      ...baseProject,
+      name: 'Ghost',
+      dropped_series: 3,
+      dropped_child_rows: 5,
+    })
+    const toast = vi.fn()
+
+    const { result } = renderHook(() => useProject({ toast }))
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/ghost.strix')
+    })
+
+    // ONCE, and a warning — not an error (the project still opened) and not a
+    // success (data was silently trimmed).
+    const warnings = toast.mock.calls.filter(([type]) => type === 'warning')
+    expect(warnings).toHaveLength(1)
+    // "how many and of what": both the depth-series count and the child-row
+    // count reach the engineer.
+    const [, message] = warnings[0] as [string, string]
+    expect(message).toContain('3')
+    expect(message).toContain('5')
+  })
+
+  it('stays silent when the restore dropped nothing', async () => {
+    const { api } = await import('../api/client')
+    asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
+    asMock(api.project.restore).mockResolvedValue({
+      ...baseProject,
+      name: 'Ghost',
+      dropped_series: 0,
+      dropped_child_rows: 0,
+    })
+    const toast = vi.fn()
+
+    const { result } = renderHook(() => useProject({ toast }))
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/ghost.strix')
+    })
+
+    // A clean restore reports nothing — the toast is for the exception, not
+    // the happy path.
+    expect(toast).not.toHaveBeenCalled()
+  })
+})
+
 describe('openProjectFile — the file is unreadable (damaged / truncated / newer)', () => {
   // The main-process codec flattens a decode failure into { ok: false, reason }
   // instead of throwing across IPC, so the open flow can show the SPECIFIC,
