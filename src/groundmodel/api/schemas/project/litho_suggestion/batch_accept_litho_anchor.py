@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from groundmodel.api.schemas.project.litho_suggestion.litho_layer_suggestion_item import (
     LithoLayerSuggestionItem,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class BatchAcceptLithoAnchor(BaseModel):
+class BatchAcceptLithoAnchor(StrictRequestModel):
     """One anchor's accepted suggestions inside a batch accept request.
 
     Mirrors the single-accept body minus ``section_id`` (the batch request
