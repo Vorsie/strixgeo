@@ -44,6 +44,7 @@ class _FakeCache:
     def __init__(self, seeded: dict[str, bytes] | None = None) -> None:
         self._store: dict[str, bytes] = dict(seeded or {})
         self.puts: list[tuple[str, bytes]] = []
+        self.deletes: list[str] = []
 
     def get(self, permkey: str) -> bytes | None:
         return self._store.get(permkey)
@@ -51,6 +52,10 @@ class _FakeCache:
     def put(self, permkey: str, payload: bytes) -> None:
         self._store[permkey] = payload
         self.puts.append((permkey, payload))
+
+    def delete(self, permkey: str) -> None:
+        self._store.pop(permkey, None)
+        self.deletes.append(permkey)
 
 
 class _FakeResponse:
@@ -297,6 +302,69 @@ async def test_default_error_id_falls_back_to_permkey(
 
     assert out == []
     assert any("permkey-A" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cached_xml_that_fails_to_parse_is_invalidated_and_refetched() -> None:
+    """A cache hit that no longer parses is unlinked and retried once from network.
+
+    Rule (M2a): a cache hit that fails to parse is never invalidated — now it is
+    unlinked and the download retried once from the network, so a corrupt cached
+    XML self-heals instead of failing every future import.
+    """
+    rows = [_Row(permkey="p1", xml_url="u1", test_id="t1")]
+    cache = _FakeCache(seeded={"p1": b"CACHED-BROKEN"})
+    http = _FakeHttp({"u1": _FakeResponse(200, b"FRESH-GOOD")})
+
+    def proc(row: _Row, xml: bytes) -> str:
+        if xml == b"CACHED-BROKEN":
+            raise ValueError("broken cached XML")
+        return xml.decode()
+
+    out = await parallel_download_and_process(
+        http=http,  # type: ignore[arg-type]
+        cache=cache,  # type: ignore[arg-type]
+        rows=rows,
+        xml_url_of=lambda r: r.xml_url,
+        permkey_of=lambda r: r.permkey,
+        process=proc,
+        label="DOV test",
+        logger=_logger(),
+    )
+
+    # The fresh (network) parse is the surviving result.
+    assert out == [(rows[0], "FRESH-GOOD")]
+    # The poisoned entry was invalidated, the network was hit, and the good
+    # bytes were re-cached.
+    assert cache.deletes == ["p1"]
+    assert http.calls == ["u1"]
+    assert ("p1", b"FRESH-GOOD") in cache.puts
+
+
+@pytest.mark.asyncio
+async def test_cached_and_network_both_unparseable_drops_row_no_loop() -> None:
+    """If the re-fetched XML also fails to parse the row is dropped — no loop."""
+    rows = [_Row(permkey="p1", xml_url="u1", test_id="t1")]
+    cache = _FakeCache(seeded={"p1": b"CACHED-BROKEN"})
+    http = _FakeHttp({"u1": _FakeResponse(200, b"ALSO-BROKEN")})
+
+    def proc(row: _Row, xml: bytes) -> str:
+        raise ValueError("both broken")
+
+    out = await parallel_download_and_process(
+        http=http,  # type: ignore[arg-type]
+        cache=cache,  # type: ignore[arg-type]
+        rows=rows,
+        xml_url_of=lambda r: r.xml_url,
+        permkey_of=lambda r: r.permkey,
+        process=proc,
+        label="DOV test",
+        logger=_logger(),
+    )
+
+    assert out == []  # dropped, not retried forever
+    assert cache.deletes == ["p1"]  # invalidated exactly once
+    assert http.calls == ["u1"]  # exactly one network re-fetch
 
 
 @pytest.mark.asyncio
