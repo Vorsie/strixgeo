@@ -7,7 +7,19 @@ flip Y direction for near-degenerate WGS84 rectangles.
 
 from __future__ import annotations
 
-from groundmodel.infrastructure.parsers.dov.dov_wfs_request import _build_params
+import httpx
+import pytest
+
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
+    _build_params,
+    wfs_count,
+)
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+def _logger() -> GroundModelLogger:
+    return GroundModelLogger("tests.dov_wfs_request")
 
 
 def test_bbox_query_param_normalised_when_y_corners_inverted():
@@ -74,3 +86,51 @@ def test_bbox_omits_query_param_when_cql_filter_present():
     )
     assert "BBOX" not in params
     assert "CQL_FILTER" in params
+
+
+# ---------------------------------------------------------------------------
+# 429/503 retry wiring (M2c) — wfs_count rides out a throttle instead of raising
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wfs_count_retries_through_a_429():
+    """A 429 (Retry-After: 0) is retried, then the count is returned — not raised.
+
+    Before M2c a 429 was a hard failure (raise_for_status). Now the WFS request
+    layer routes through the retry helper, so a transient rate-limit is survived.
+    """
+    seq = [
+        httpx.Response(429, headers={"Retry-After": "0"}),
+        httpx.Response(200, text='<wfs:FeatureCollection numberMatched="42" />'),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return seq.pop(0)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        count = await wfs_count(
+            http, _logger(), layer="dov-pub:Sonderingen", x1=0, y1=0, x2=1, y2=1
+        )
+    assert count == 42
+
+
+@pytest.mark.asyncio
+async def test_wfs_count_429_halves_backoff_parallelism():
+    """A 429 seen during discovery halves the shared import parallelism state."""
+    from groundmodel.infrastructure.parsers.dov.dov_common import DOV_DOWNLOAD_PARALLELISM
+
+    seq = [
+        httpx.Response(429, headers={"Retry-After": "0"}),
+        httpx.Response(200, text='<wfs:FeatureCollection numberMatched="1" />'),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return seq.pop(0)
+
+    state = DovRateLimitState()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await wfs_count(
+            http, _logger(), layer="dov-pub:Sonderingen", x1=0, y1=0, x2=1, y2=1, backoff=state
+        )
+    assert state.parallelism == DOV_DOWNLOAD_PARALLELISM // 2
