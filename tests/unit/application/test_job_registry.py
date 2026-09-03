@@ -6,7 +6,13 @@ import asyncio
 
 import pytest
 
-from groundmodel.application.job_registry import JobRegistry
+from groundmodel.application.job_registry import (
+    FINISHED_JOB_TTL_SECONDS,
+    MAX_JOBS,
+    JobRegistry,
+    _BoundedJobQueue,
+)
+from groundmodel.shared.exceptions import DuplicateImportJobError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -213,3 +219,166 @@ async def test_stream_does_not_hang_when_background_coro_raises() -> None:
 
     # No events were emitted before the raise, so the stream is empty.
     assert collected == []
+
+
+# ---------------------------------------------------------------------------
+# Codex 5 — bounded event queue (drop-oldest progress, never the terminal)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bounded_queue_drops_oldest_progress_keeps_terminal() -> None:
+    """A full queue drops the OLDEST progress events, never the terminal ones.
+
+    Rule (Codex 5): a job's event queue is bounded (drop-oldest progress events,
+    never the terminal event). The done dict + the None sentinel are the terminal
+    events and must survive; the oldest progress ticks are the ones sacrificed.
+    """
+    q = _BoundedJobQueue(maxsize=4)
+    for i in range(10):
+        await q.put({"phase": "download", "done": i})
+    await q.put({"type": "done", "imported": 3})
+    await q.put(None)  # terminal sentinel
+
+    drained: list = []
+    while q.qsize() > 0:
+        drained.append(await q.get())
+
+    # Terminal events survive.
+    assert None in drained
+    assert {"type": "done", "imported": 3} in drained
+    # The newest progress tick is kept, the oldest is gone.
+    assert {"phase": "download", "done": 9} in drained
+    assert {"phase": "download", "done": 0} not in drained
+    # Bounded: no more than maxsize progress + the two terminal events.
+    assert len(drained) <= 4 + 2
+
+
+@pytest.mark.asyncio
+async def test_bounded_queue_never_drops_the_sentinel_under_pressure() -> None:
+    """Even when the sentinel is enqueued early, later puts never evict it."""
+    q = _BoundedJobQueue(maxsize=2)
+    await q.put(None)  # terminal arrives, then a flood of progress
+    for i in range(10):
+        await q.put({"done": i})
+    drained: list = []
+    while q.qsize() > 0:
+        drained.append(await q.get())
+    assert None in drained
+
+
+# ---------------------------------------------------------------------------
+# Codex 5 — no-consumer expiry with an injected clock
+# ---------------------------------------------------------------------------
+
+
+async def _settle() -> None:
+    """Let a just-started task run to completion and its done-callback fire."""
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_finished_job_with_no_consumer_expires_after_ttl() -> None:
+    """A finished job nobody streamed is evicted once TTL elapses (fake clock).
+
+    Rule (Codex 5): a finished job with no consumer expires after N minutes.
+    """
+    now = {"t": 1000.0}
+    registry = JobRegistry(clock=lambda: now["t"])
+    job_id = registry.start(_immediate_factory([{"type": "done"}]))
+    await _settle()
+
+    # Still registered right after finishing — no consumer has drained it.
+    assert job_id in registry._jobs  # noqa: SLF001
+
+    # Advance past the TTL and trigger a sweep by starting another job.
+    now["t"] += FINISHED_JOB_TTL_SECONDS + 1
+    registry.start(_immediate_factory([]))
+
+    assert job_id not in registry._jobs  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_finished_job_within_ttl_is_retained() -> None:
+    """Before the TTL elapses a finished, unconsumed job is still retained."""
+    now = {"t": 1000.0}
+    registry = JobRegistry(clock=lambda: now["t"])
+    job_id = registry.start(_immediate_factory([{"type": "done"}]))
+    await _settle()
+
+    now["t"] += FINISHED_JOB_TTL_SECONDS - 1  # not yet expired
+    registry.start(_immediate_factory([]))
+
+    assert job_id in registry._jobs  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Codex 5 — the registry never grows past M jobs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_registry_never_grows_past_max_jobs() -> None:
+    """Starting far more than MAX_JOBS jobs keeps the registry size capped.
+
+    Rule (Codex 5): the registry never grows past M jobs per session.
+    """
+    registry = JobRegistry()
+    for _ in range(MAX_JOBS + 25):
+        registry.start(_immediate_factory([{"type": "done"}]))
+        # never grows past the cap at any point
+        assert len(registry) <= MAX_JOBS
+    assert len(registry) <= MAX_JOBS
+
+
+# ---------------------------------------------------------------------------
+# Codex 4 — duplicate guard: same scope while running is refused with the id
+# ---------------------------------------------------------------------------
+
+
+def _blocking_factory() -> callable:
+    """Return a factory whose coroutine emits one event then blocks forever."""
+
+    def factory(queue: asyncio.Queue) -> object:
+        async def run() -> None:
+            await queue.put({"phase": "wfs", "done": 0, "total": 1})
+            await asyncio.sleep(3600)
+
+        return run()
+
+    return factory
+
+
+@pytest.mark.asyncio
+async def test_duplicate_key_while_running_is_refused_with_job_id() -> None:
+    """A second start() with the same key while the first runs raises with its id.
+
+    Rule (Codex 4): the same bbox submitted again while its import job is still
+    running is refused with the running job id.
+    """
+    registry = JobRegistry()
+    job_id = registry.start(_blocking_factory(), key="cpt:bbox-1")
+
+    with pytest.raises(DuplicateImportJobError) as excinfo:
+        registry.start(_blocking_factory(), key="cpt:bbox-1")
+    assert excinfo.value.job_id == job_id
+
+    # A different scope key is not blocked.
+    other = registry.start(_blocking_factory(), key="cpt:bbox-2")
+    assert other != job_id
+
+    # Cleanup the blocking tasks.
+    for entry in list(registry._jobs.values()):  # noqa: SLF001
+        entry.task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_same_key_allowed_again_once_prior_job_finished() -> None:
+    """Once the first job for a key finishes, the same key may be started again."""
+    registry = JobRegistry()
+    job1 = registry.start(_immediate_factory([{"type": "done"}]), key="k")
+    await _settle()
+
+    job2 = registry.start(_immediate_factory([{"type": "done"}]), key="k")
+    assert job2 != job1
