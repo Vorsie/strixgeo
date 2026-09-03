@@ -41,10 +41,30 @@ from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.shared.constants.model_kind import NON_STRATIGRAPHIC_KINDS
 
-# Columns dropped on serialise + restore. Timestamps are server-defaults;
-# geometry is rebuilt from x/y/epsg. ``archived_at`` is by-design active
-# on restore — see the parent module docstring.
-_SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"})
+# Columns dropped on serialise + restore because their value does not travel
+# across machines / installs (debt #47 audit — the backwards-compat re-arm).
+# Every name here is genuinely non-portable, not merely a cache:
+#   * ``created_at`` / ``updated_at`` / ``archived_at`` — server clocks
+#     (``server_default=func.now()`` / ``onupdate``). ``archived_at`` is
+#     by-design active on restore, see the parent module docstring.
+#   * ``location`` — the PostGIS geometry blob, rebuilt from ``location_x`` /
+#     ``location_y`` / ``epsg`` on restore, so the WKB never rides along.
+#   * ``generation_id`` — the ``LithoBodySolid`` FK into
+#     ``litho_build_generation``, a build-history table the bundle does NOT
+#     carry as one of its collections. Serialising it makes a solid reference a
+#     row that never travels: on a fresh-DB open the FK dangles, and on a
+#     Save-As clone ``remap_ids`` leaves it pointing at the SOURCE project's
+#     build generation (only bundled rows get re-keyed). The column is nullable
+#     by design ("rows written before build generations existed remain
+#     readable"), so dropping it restores a valid ``NULL``. It is unique to
+#     ``LithoBodySolidOrm`` among the bundled classes, so a global skip is safe.
+# NOTE: the 3-D / TIN caches (``vertices`` / ``triangles`` / the ``source_*``
+# checksums on ``FormationSurface`` + ``LithoBodySolid``) are deliberately NOT
+# here — they are rebuildable but are carried on purpose (the surface restore
+# re-validates freshness against the checksum, and the meshes let a fresh-DB
+# open skip the recompute) and are portable (project-CRS coordinates). File →
+# Save drops the solid meshes separately via ``include_solids=False``.
+_SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location", "generation_id"})
 
 # Read-side bundle-key aliases: old bundle key → renamed ORM column, keyed
 # by ORM class name (string keys avoid importing every ORM model here).
