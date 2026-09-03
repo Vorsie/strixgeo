@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 from .formation_contact_batch_update_entry import FormationContactBatchUpdateEntry
 
 
-class FormationContactBatchUpdateRequest(BaseModel):
+class FormationContactBatchUpdateRequest(StrictRequestModel):
     """Body of ``PUT /projects/{pid}/geology/models/{mid}/contacts/batch``.
 
     All-or-nothing: every entry's contact must belong to the URL's
