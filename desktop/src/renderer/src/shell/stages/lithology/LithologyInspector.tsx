@@ -49,6 +49,7 @@ import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import ConfirmParentDialog from './ConfirmParentDialog'
+import LithoBoreholesInModel from './LithoBoreholesInModel'
 import LithoExcludedBoreholes from './LithoExcludedBoreholes'
 import ModelKindPicker from './ModelKindPicker'
 import { useT, type Translator } from '../../../i18n/translate'
@@ -395,9 +396,22 @@ export default function LithologyInspector(): JSX.Element {
             t={t}
           />
 
-          {/* Debt #65: boreholes the backend excluded from the litho build.
-              Renders only when the model has exclusions; "Include again" brings
-              one back immediately (reversible — Ctrl+Z undo + a toast). */}
+          {/* Debt #65: the "Boreholes in model" scope roster — the in-UI
+              gesture to EXCLUDE a borehole from the litho build (mirrors the
+              geological inspector's roster). Unchecking excludes, re-checking
+              includes; both are reversible and fire immediately (Ctrl+Z undo +
+              a toast). */}
+          <LithoBoreholesInModel
+            boreholes={visibleBoreholes}
+            excludedBoreholeIds={activeLithoModel.excluded_borehole_ids}
+            onToggle={(id, included) => void handleToggleBoreholeInLithoModel(id, included)}
+            t={t}
+          />
+
+          {/* Debt #65: boreholes excluded from the litho build, surfaced as a
+              compact callout with an "Include again" undo. Renders only when the
+              model has exclusions; the reversible include fires immediately
+              (Ctrl+Z undo + a toast). */}
           <LithoExcludedBoreholes
             excludedBoreholeIds={activeLithoModel.excluded_borehole_ids}
             boreholeNameById={boreholeNameById}
