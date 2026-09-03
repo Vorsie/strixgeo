@@ -37,7 +37,7 @@ logger = LoggerFactory.get_logger(__name__)
 def make_unhandled_error_handler(
     *,
     allowed_origins: list[str],
-    allowed_origin_regex: str,
+    allowed_origin_regex: str | None,
 ) -> Callable[[Request, Exception], Awaitable[Response]]:
     """Build the 500 handler, pinned to the same origins ``CORSMiddleware`` allows.
 
@@ -50,15 +50,17 @@ def make_unhandled_error_handler(
     ----------
     allowed_origins : list[str]
         Exact origins the API accepts (e.g. ``["null"]``).
-    allowed_origin_regex : str
-        Regex for the remaining accepted origins (the dev renderer's port).
+    allowed_origin_regex : str | None
+        Regex for the remaining accepted origins (the dev renderer's port), or
+        ``None`` in production — where the localhost dev-server origin is not
+        allowed at all, so no regex is echoed on the error path either.
 
     Returns
     -------
     Callable
         An async Starlette exception handler for ``Exception``.
     """
-    origin_pattern = re.compile(allowed_origin_regex)
+    origin_pattern = re.compile(allowed_origin_regex) if allowed_origin_regex is not None else None
 
     async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
         """Log the escaped exception and answer 500 with CORS headers intact.
@@ -80,9 +82,13 @@ def make_unhandled_error_handler(
         status_code, detail = _classify(request, exc)
         response = JSONResponse(status_code=status_code, content={"detail": detail})
         origin = request.headers.get("origin")
-        if origin is not None and (origin in allowed_origins or origin_pattern.fullmatch(origin)):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Vary"] = "Origin"
+        if origin is not None:
+            matches_regex = (
+                origin_pattern is not None and origin_pattern.fullmatch(origin) is not None
+            )
+            if origin in allowed_origins or matches_regex:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Vary"] = "Origin"
         return response
 
     return unhandled_error_handler
@@ -132,7 +138,13 @@ def _classify(request: Request, exc: Exception) -> tuple[int, dict[str, str]]:
     return status.HTTP_500_INTERNAL_SERVER_ERROR, {
         "code": "internal_error",
         "message": (
-            "The server failed to complete this request. The action was "
-            "not applied; see the backend log for the cause."
+            # The handler runs after a route may already have committed (a raise
+            # from the response serialiser, or any error after ``session.commit``),
+            # so "the action was not applied" would be a lie in exactly the cases
+            # the user most needs the truth. Say the outcome is unknown and point
+            # to reload.
+            "The server failed to complete this request. The action may or "
+            "may not have been applied — reload the project to see its current "
+            "state; see the backend log for the cause."
         ),
     }
