@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 from .contact_enums import ContactConfidence, ContactSource
 
 
-class FormationContactUpdateRequest(BaseModel):
+class FormationContactUpdateRequest(StrictRequestModel):
     """Body of ``PATCH /projects/{pid}/geology/models/{mid}/contacts/{cid}``.
 
     Only fields present in the body are written. The anchor
