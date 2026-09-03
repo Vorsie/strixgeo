@@ -54,6 +54,7 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # facade) can import it from either location; the canonical definition lives in
 # bundle_build.py.
 from .bundle_build import BundleIntegrityError
+from .bundle_restore_drops import BundleRestoreDrops
 from .bundle_restore_litho import (
     _attach_companion_body_links,
     _restore_bodies,
@@ -151,6 +152,7 @@ async def _restore_cpts(
     cpts_payload: list[dict[str, Any]],
     *,
     logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> int:
     """Insert CPT rows from the bundle, skipping ids that already exist.
 
@@ -168,6 +170,9 @@ async def _restore_cpts(
         Raw CPT dicts from the bundle.
     logger : GroundModelLogger
         Caller's logger (phase-summary + per-row debug).
+    drops : BundleRestoreDrops | None, optional
+        When provided, each dropped over-cap series adds one to
+        ``cpt_series_dropped`` so the restore response can surface it (L6).
 
     Returns
     -------
@@ -199,6 +204,8 @@ async def _restore_cpts(
                 f"[{i}/{total}] cpt {cpt_id}: series has {n_rows} rows "
                 f"(cap {_MAX_CPT_SERIES_ROWS}) — series dropped (debt #112)"
             )
+            if drops is not None:
+                drops.cpt_series_dropped += 1
             cpt_payload = {k: v for k, v in cpt_payload.items() if k != "series"}
         session.add(_build_cpt(cpt_payload, project_id))
         new_cpts += 1
@@ -215,6 +222,7 @@ async def _restore_boreholes(
     boreholes_payload: list[dict[str, Any]],
     *,
     logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> int:
     """Insert borehole rows (with full child tree) from the bundle.
 
@@ -229,6 +237,9 @@ async def _restore_boreholes(
         segments, field-log intervals, observations, and samples.
     logger : GroundModelLogger
         Caller's logger.
+    drops : BundleRestoreDrops | None, optional
+        Threaded to ``_build_borehole`` so capped child-array drops accumulate
+        into the tally (L6).
 
     Returns
     -------
@@ -258,7 +269,7 @@ async def _restore_boreholes(
             logger.debug(f"[{i}/{total}] borehole {bh_id} already present — skipped")
             skipped += 1
             continue
-        session.add(_build_borehole(bh_payload, project_id, logger=logger))
+        session.add(_build_borehole(bh_payload, project_id, logger=logger, drops=drops))
         new_boreholes += 1
         logger.debug(f"[{i}/{total}] borehole {bh_id} queued for insert")
     logger.info(
@@ -642,6 +653,7 @@ async def _restore_project_bundle_impl(
     *,
     logger: GroundModelLogger,
     replace: bool = False,
+    drops: BundleRestoreDrops | None = None,
 ) -> ProjectOrm:
     """Idempotently materialise a project + every child collection from a bundle.
 
@@ -718,6 +730,10 @@ async def _restore_project_bundle_impl(
         inserting (revert-to-last-save, debt #160) — the project ends
         up matching the bundle exactly.  When ``False`` (default),
         existing rows are skipped; the open-from-file path.
+    drops : BundleRestoreDrops | None
+        Mutable tally the caller passes in to learn how many CPT series and
+        borehole child rows the size caps dropped, so the restore response can
+        surface them (L6). Mutated in place; ``None`` to not track.
 
     Returns
     -------
@@ -810,10 +826,12 @@ async def _restore_project_bundle_impl(
         await _wipe_project_scoped_rows(session, project_id, logger=logger)
 
     # ---- Phase 1: CPTs ---------------------------------------------------
-    new_cpts = await _restore_cpts(session, project_id, cpts_payload, logger=logger)
+    new_cpts = await _restore_cpts(session, project_id, cpts_payload, logger=logger, drops=drops)
 
     # ---- Phase 2: Boreholes ----------------------------------------------
-    new_boreholes = await _restore_boreholes(session, project_id, boreholes_payload, logger=logger)
+    new_boreholes = await _restore_boreholes(
+        session, project_id, boreholes_payload, logger=logger, drops=drops
+    )
 
     # ---- Pre-phase guard: build valid_inv_ids ----------------------------
     # Built AFTER CPTs (Phase 1) and boreholes (Phase 2) so the DB query
