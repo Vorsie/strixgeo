@@ -1270,4 +1270,44 @@ describe('LithologyInspector (debt #65 — excluded boreholes)', () => {
     expect(handleToggleBoreholeInLithoModel).toHaveBeenCalledTimes(1)
     expect(handleToggleBoreholeInLithoModel).toHaveBeenCalledWith('bh-1', true)
   })
+
+  // The remaining half of #65: the in-UI EXCLUDE gesture, mirroring the
+  // geological stage's "Boreholes in model" checkbox roster. Excluding a
+  // borehole from the litho stage removes it from the model immediately (a
+  // reversible action, no confirm dialog) and it appears in the excluded list
+  // with "Include again".
+  it('excluding a borehole in "Boreholes in model" fires handleToggleBoreholeInLithoModel(id, false), then it appears in the excluded list with Include again', () => {
+    const handleToggleBoreholeInLithoModel = vi.fn().mockResolvedValue(undefined)
+    const boreholes = [makeBorehole('bh-1', 'Borehole A'), makeBorehole('bh-2', 'Borehole B')]
+    // Start: bh-1 is IN the litho model (nothing excluded).
+    const rr = renderInspector(
+      makeCtx({
+        activeLithoModel: { ...makeLithoModel(), excluded_borehole_ids: [] },
+        visibleBoreholes: boreholes,
+        handleToggleBoreholeInLithoModel,
+      }),
+    )
+
+    // The exclude gesture lives in the "Boreholes in model" roster — expand it,
+    // then uncheck bh-1 to exclude it from the litho build.
+    fireEvent.click(screen.getByTestId('litho-boreholes-in-model-toggle'))
+    fireEvent.click(screen.getByTestId('litho-borehole-in-model-bh-1'))
+    expect(handleToggleBoreholeInLithoModel).toHaveBeenCalledWith('bh-1', false)
+
+    // The real handler updates the model optimistically; simulate that state and
+    // confirm bh-1 now shows in the excluded list with an "Include again" undo.
+    rr.rerender(
+      <ShellContext.Provider
+        value={makeCtx({
+          activeLithoModel: { ...makeLithoModel(), excluded_borehole_ids: ['bh-1'] },
+          visibleBoreholes: boreholes,
+          handleToggleBoreholeInLithoModel,
+        })}
+      >
+        <LithologyInspector />
+      </ShellContext.Provider>,
+    )
+    expect(screen.getByTestId('litho-excluded-boreholes')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-include-borehole-bh-1')).toBeInTheDocument()
+  })
 })
