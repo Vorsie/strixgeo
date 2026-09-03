@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
+
 
 class FormationAbsenceItem(BaseModel):
     """One row from ``GET .../formations/{formation_id}/absences``.
@@ -41,7 +43,7 @@ class FormationAbsenceItem(BaseModel):
     updated_at: datetime
 
 
-class UpsertFormationAbsenceRequest(BaseModel):
+class UpsertFormationAbsenceRequest(StrictRequestModel):
     """Body of ``POST .../formations/{formation_id}/absences``.
 
     Records a user-intent absence for a formation at a specific investigation.
