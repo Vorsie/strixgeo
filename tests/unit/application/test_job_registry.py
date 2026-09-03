@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from uuid import uuid4
 
 import pytest
 
@@ -382,3 +384,51 @@ async def test_same_key_allowed_again_once_prior_job_finished() -> None:
 
     job2 = registry.start(_immediate_factory([{"type": "done"}]), key="k")
     assert job2 != job1
+
+
+# ---------------------------------------------------------------------------
+# Cooperative cancel (debt #282 — the voxel build's Cancel button)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_cancel_sets_the_jobs_cancel_event() -> None:
+    """A job started with a cancel_event has that event set by request_cancel().
+
+    The Cancel button (``POST .../jobs/{id}/cancel``) reaches the running worker
+    thread ONLY through this event — the CPU phases run in a thread Python cannot
+    kill, so the flag is the whole cancel mechanism. ``request_cancel`` returns
+    ``True`` to say a live job's flag was set.
+    """
+    registry = JobRegistry()
+    cancel_event = threading.Event()
+    job_id = registry.start(_blocking_factory(), cancel_event=cancel_event)
+
+    assert cancel_event.is_set() is False
+    assert registry.request_cancel(job_id) is True
+    assert cancel_event.is_set() is True
+
+    for entry in list(registry._jobs.values()):  # noqa: SLF001
+        entry.task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_request_cancel_unknown_job_returns_false() -> None:
+    """Cancelling a job id that was never registered (or already finished) is a no-op."""
+    registry = JobRegistry()
+    assert registry.request_cancel(uuid4()) is False
+
+
+@pytest.mark.asyncio
+async def test_request_cancel_job_without_a_cancel_event_returns_false() -> None:
+    """A job started without a cancel_event cannot be cancelled — returns False.
+
+    The DOV import path passes no cancel_event; asking to cancel it must report
+    honestly that there was nothing to set rather than pretending it worked.
+    """
+    registry = JobRegistry()
+    job_id = registry.start(_blocking_factory())  # no cancel_event
+    assert registry.request_cancel(job_id) is False
+
+    for entry in list(registry._jobs.values()):  # noqa: SLF001
+        entry.task.cancel()
