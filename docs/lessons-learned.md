@@ -411,3 +411,42 @@ of a wedge that is 9.9 cm thick at its other end.
   re-entrant, so take it once to keep the contention log clean). Pinned red-first by
   `tests/unit/application/test_litho_write_lock_order.py` and by BP-4 in
   `test_body_partition_litho_write_recompute_race.py`.
+
+## 2026-09-03 — readiness is confirmed against the PORT, so an exit after readiness is not always a crash
+
+**What happened.** A full e2e sweep lost 40 of 42 UI specs to one fatal
+"backend exited before it was ready" modal, on a tree whose previous sweep was
+green. The app marks the backend ready by probing `:8765`, not by watching its
+own child. In e2e (and in a dev session with an external uvicorn) the harness
+already owns the port, so the app's child loses the bind and exits — and after
+a reboot the cold child exited LATER than the renderer's first probe, so the
+exit landed in the "died after readiness" branch. That branch respawned once
+(a second loser), then the crash-loop guard gave up with the modal while every
+request still succeeded. The warm-cache morning ordered the same two events
+the other way round, which is why the morning sweep was green.
+
+**Lesson.** When readiness comes from a port probe, an exit after readiness
+must probe the port again before it is treated as a death:
+`decideExitAfterReady` returns `'ignore'` while `:8765` still answers. More
+generally: any "was ready, now died" rule needs to name WHICH process died —
+ours, or the one that answered the probe.
+
+**Two forensic traps on the way.** (1) Playwright's `line` reporter writes the
+failed count behind cursor-control sequences (`ESC[1A ESC[2K`), so a grep for
+`^\s*\d+ failed` on the raw log finds nothing and a sweep reads as "86 passed"
+— strip `\[[0-9;?]*[A-Za-z]` before counting. (2) The screenshot settled it
+in one look (the modal, in Dutch); forty identical "navigation not visible"
+timeouts are a boot-level blocker, not forty bugs.
+
+## 2026-09-03 — a system-language default silently changes every copy assertion in the suite
+
+**What happened.** The app started defaulting to the system language (English
+fallback) for the packaged beta. On the owner's Dutch machine every e2e launch
+then rendered in Dutch, and the one spec that asserts copy ("Chapter 1") failed
+while the testid-based specs still passed — a partial, confusing red.
+
+**Lesson.** A locale default is an input to the test harness. Pin it at the
+launch boundary (`--lang=en-US` in the e2e launch args; Chromium derives
+`navigator.language` from it) rather than in the specs, and do it in the same
+commit as the default change.
+
