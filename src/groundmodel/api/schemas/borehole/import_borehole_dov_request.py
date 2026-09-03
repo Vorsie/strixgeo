@@ -2,7 +2,9 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from groundmodel.infrastructure.parsers.dov.dov_common import validate_wgs84_import_bbox
 
 
 class ImportBoreholeDovRequest(BaseModel):
@@ -17,3 +19,16 @@ class ImportBoreholeDovRequest(BaseModel):
     east: float = Field(..., ge=-180, le=180, description="Eastern longitude (decimal degrees)")
     north: float = Field(..., ge=-90, le=90, description="Northern latitude (decimal degrees)")
     project_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _validate_bbox(self) -> "ImportBoreholeDovRequest":
+        """Reject a reversed / degenerate / oversized bbox at parse time (-> 422).
+
+        Shares one validator with the CPT request schema so both endpoints
+        enforce the same ordering + area guard. A ``ValueError`` here is turned
+        into the request's 422 by pydantic.
+        """
+        validate_wgs84_import_bbox(
+            west=self.west, south=self.south, east=self.east, north=self.north
+        )
+        return self
