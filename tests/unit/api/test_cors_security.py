@@ -22,7 +22,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from groundmodel.api.main import app
+from groundmodel.api.main import app, create_app
 
 
 @pytest.fixture(scope="module")
@@ -127,3 +127,46 @@ def test_trusted_host_accepts_loopback_names(client: TestClient) -> None:
     for host in ("127.0.0.1", "localhost"):
         response = client.get("/openapi.json", headers={"Host": host})
         assert response.status_code == 200, f"Host={host!r} should be accepted"
+
+
+@pytest.fixture(scope="module")
+def production_client() -> TestClient:
+    """A TestClient over an app built with ``environment='production'``.
+
+    A packaged build runs the backend with ``ENVIRONMENT=production``; the
+    localhost CORS allowance is a development-only ergonomic (the Vite dev
+    server), so it must be GONE in production. No launch token is configured
+    here, so the token middleware stays disabled and the CORS layer is what we
+    observe.
+    """
+    return TestClient(create_app("production"), base_url="http://127.0.0.1")
+
+
+def test_localhost_origin_is_not_allowed_in_production(production_client: TestClient) -> None:
+    """The dev-server origin must NOT receive an ACAO header in a packaged build.
+
+    The dev renderer only exists in development; in production the sole browser
+    origin is the packaged renderer's ``null``. A packaged build that still
+    echoed ``http://localhost:<port>`` would let a local web server read the
+    loopback API.
+    """
+    response = production_client.get(
+        "/openapi.json",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in {k.lower() for k in response.headers}
+
+
+def test_null_origin_still_allowed_in_production(production_client: TestClient) -> None:
+    """The packaged renderer (``file://`` → Origin: null) must still be served.
+
+    ``null`` stays in the allowlist in every environment — it is the packaged
+    renderer's own origin; the launch token is what makes that allowance safe.
+    """
+    response = production_client.get(
+        "/openapi.json",
+        headers={"Origin": "null"},
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "null"
