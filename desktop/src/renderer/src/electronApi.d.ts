@@ -130,6 +130,10 @@ declare global {
       onMenuOpenCheatsheet: (cb: () => void) => () => void
       // #214 — distribution robustness
       onAppBackendFailed: (cb: () => void) => () => void
+      // H3(a) — mid-session backend restart. Optional so an older preload never
+      // breaks a renderer that guards on the function being present.
+      onAppBackendRestarting?: (cb: () => void) => () => void
+      onAppBackendReady?: (cb: () => void) => () => void
       getLogsPath: () => Promise<string>
       logRendererError: (message: string, componentStack: string) => Promise<void>
       // #16 — local crash capture. The renderer states WHAT went wrong; the
