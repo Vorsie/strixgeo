@@ -20,6 +20,10 @@ engine = create_async_engine(
     settings.database_url,
     echo=settings.sqlalchemy_echo,
     connect_args={"server_settings": DB_SERVER_SETTINGS},
+    # A pooled connection whose transport died (embedded Postgres restarted, a
+    # backend terminated, a background job's connection gone stale) is replaced
+    # on checkout instead of failing the next statement with a dead protocol.
+    pool_pre_ping=True,
 )
 
 AsyncSessionFactory = async_sessionmaker(engine, expire_on_commit=False)
