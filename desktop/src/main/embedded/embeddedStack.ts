@@ -259,7 +259,33 @@ function secretsFileIo(path: string): { read: () => string | null; write: (t: st
 }
 
 /**
+ * Where the numba compile cache is rooted, when it has been moved off the
+ * Roaming profile (audit M1).
+ *
+ * ``null`` (the default) keeps it under ``userDataPath`` — the original
+ * behaviour, and what dev, e2e and isolated runs want. ``index.ts`` sets this to
+ * ``%LOCALAPPDATA%\StrixGeo`` on a packaged launch, alongside the pgdata move, so
+ * the rebuildable cache is not churn on a synced/redirected Roaming profile. Set
+ * once at startup, before the backend env is built, exactly like
+ * ``configurePgdataRoot``.
+ */
+let configuredNumbaCacheRoot: string | null = null
+
+/**
+ * Point the numba compile cache at a machine-local root (or clear the override).
+ *
+ * @param root - The directory to root ``numba-cache`` under, or ``null`` to keep
+ *   it under ``userDataPath`` (the default / dev behaviour).
+ */
+export function configureNumbaCacheRoot(root: string | null): void {
+  configuredNumbaCacheRoot = root
+}
+
+/**
  * Build the environment both Python children inherit.
+ *
+ * Exported so the numba-cache location is unit-testable without booting a
+ * cluster; it is otherwise an internal step of {@link startEmbeddedStack}.
  *
  * @param layout - Resolved install paths.
  * @param userDataPath - Per-user writable root.
@@ -267,7 +293,7 @@ function secretsFileIo(path: string): { read: () => string | null; write: (t: st
  * @param secrets - This install's generated secrets.
  * @returns The child environment.
  */
-function buildBackendEnv(
+export function buildBackendEnv(
   layout: EmbeddedLayout,
   userDataPath: string,
   databaseUrl: string,
@@ -278,7 +304,10 @@ function buildBackendEnv(
   // read-only for a normal account — so without a writable cache dir the
   // voxel mesh kernel recompiles on every single launch (the 38.6x speed-up
   // that justified taking numba as a dependency is a CACHED-compile win).
-  const numbaCacheDir = join(userDataPath, 'numba-cache')
+  // Rooted under the machine-local root when one is configured (audit M1) — a
+  // rebuildable cache is pure churn on a synced Roaming profile — else under
+  // the (Roaming) user profile, which is the dev / e2e default.
+  const numbaCacheDir = join(configuredNumbaCacheRoot ?? userDataPath, 'numba-cache')
   mkdirSync(numbaCacheDir, { recursive: true })
 
   return {
