@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class ProjectDuplicateRequest(BaseModel):
+class ProjectDuplicateRequest(StrictRequestModel):
     """Body of ``POST /projects/{id}/duplicate``.
 
     Single optional ``name`` field — the desktop client typically derives
