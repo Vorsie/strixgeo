@@ -162,6 +162,69 @@ function strix_bind_device(PDO $pdo, int $licenceId, string $deviceId, string $l
 }
 
 /**
+ * Stamp a dormant DURATION licence's expiry at its FIRST activation.
+ *
+ * A duration key is minted with `duration_days` set and `expires_at` NULL, so its
+ * N-day clock does NOT run until a tester activates it (owner ruling 2026-09-03).
+ * This stamps `expires_at = NOW() + duration_days` the first time — and only the
+ * first time: the `WHERE expires_at IS NULL` guard makes a later activation (the
+ * seat moved by deactivate + activate, or a refresh routed through /activate) a
+ * no-op, so the clock never moves once started.
+ *
+ * WHY the row is locked (`FOR UPDATE`) and then re-read: two first-activations of
+ * the same key racing would otherwise each compute their own end. Locking serialises
+ * them — the first stamps and commits, the second finds `expires_at` already set and
+ * returns it unchanged — so both callers advertise the SAME authoritative end.
+ *
+ * Must be called inside a transaction (the caller wraps it with the seat/device
+ * write so the binding and the stamp commit atomically).
+ *
+ * @param PDO                 $pdo     The database connection, inside a transaction.
+ * @param array<string,mixed> $licence The licence row as first read by the handler.
+ * @return array<string,mixed>|null The re-read licence row when this is a duration
+ *   key (carrying the authoritative, now-stamped or already-stamped expires_at), or
+ *   null when the licence is a plain dated key (nothing to do — the caller keeps its
+ *   row). A trial (duration_days NULL, expires_at already set) is also a null result.
+ */
+function strix_stamp_duration_if_dormant(PDO $pdo, array $licence): ?array
+{
+    // A dated key or a trial carries no duration_days — its expires_at is authored
+    // elsewhere (mint / trial issue) and this path leaves it untouched. The `?? null`
+    // also makes this a safe no-op if the code is ever deployed before migration 002
+    // adds the column (no PHP warning, treated as a plain dated key).
+    if (($licence['duration_days'] ?? null) === null) {
+        return null;
+    }
+
+    // Lock the licence row so a concurrent first-activation waits, then reflects
+    // whatever end actually committed.
+    $lock = $pdo->prepare('SELECT * FROM licences WHERE id = :id FOR UPDATE');
+    $lock->execute([':id' => (int) $licence['id']]);
+    $row = $lock->fetch();
+    if ($row === false) {
+        // The row vanished under us (revoked+deleted is not a path today); keep the
+        // caller's copy rather than inventing state.
+        return $licence;
+    }
+
+    if ($row['expires_at'] === null) {
+        // First activation: start the clock at NOW + duration_days, in this txn.
+        $stamp = $pdo->prepare(
+            'UPDATE licences SET expires_at = DATE_ADD(NOW(), INTERVAL duration_days DAY) WHERE id = :id'
+        );
+        $stamp->execute([':id' => (int) $row['id']]);
+
+        $reload = $pdo->prepare('SELECT * FROM licences WHERE id = :id');
+        $reload->execute([':id' => (int) $row['id']]);
+        $fresh = $reload->fetch();
+        return $fresh === false ? $row : $fresh;
+    }
+
+    // Already activated once — the clock is running; return it unchanged.
+    return $row;
+}
+
+/**
  * Bump last_refresh_at on an existing binding (the /refresh path).
  *
  * @param PDO $pdo      The database connection.
@@ -295,7 +358,11 @@ function strix_log_event(PDO $pdo, ?int $licenceId, string $deviceId, string $ki
  * The wire `expiresAt` is min(row.expires_at, now + refresh horizon): each
  * refresh rolls it forward (resetting the client's grace clock) but never past
  * the licence's own end — which caps a cancelled subscription's runway and lets
- * a trial count down to its real end. `seatId` is derived from the device row id
+ * a trial count down to its real end. A NULL `row.expires_at` means a DORMANT
+ * duration key (activation stamps it, so this is only reachable defensively — a
+ * /refresh on a key activation never stamped, which should not happen): it has no
+ * hard end yet, so the rolling horizon stands and the licence reads as active.
+ * `seatId` is derived from the device row id
  * so it is stable across refreshes. `key` is the raw key the caller supplied
  * (echoed, never stored) — for a trial, the freshly minted key.
  *
@@ -316,9 +383,13 @@ function strix_wire_licence(
     int $horizonDays
 ): array {
     $nowMs = strix_now_ms();
-    $hardEndMs = strix_dt_to_ms((string) $licenceRow['expires_at']);
     $rollingMs = $nowMs + $horizonDays * STRIX_DAY_MS;
-    $expiresAtMs = min($hardEndMs, $rollingMs);
+    // A dormant duration key (NULL expires_at) has no hard end yet — the rolling
+    // horizon is the whole wire end. A dated / stamped / trial licence caps the
+    // wire end at its own expires_at.
+    $expiresAtMs = $licenceRow['expires_at'] === null
+        ? $rollingMs
+        : min(strix_dt_to_ms((string) $licenceRow['expires_at']), $rollingMs);
 
     // The DB keeps 'trial' as a real tier (the owner's records / trial analytics),
     // but the WIRE tier MUST be one of solo|pro|studio — the client rejects any
