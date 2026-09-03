@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 
 import { activationGateDecision, isBetaBuild } from './activationGate'
 
-const BASE = { packaged: true, e2e: false, betaBuild: false, statusReadFailed: false, blocked: false }
+const BASE = { packaged: true, e2e: false, statusReadFailed: false, blocked: false }
 
 describe('activationGateDecision', () => {
   it('a packaged non-beta build with a blocked verdict shows the start screen', () => {
@@ -35,20 +35,18 @@ describe('activationGateDecision', () => {
     expect(activationGateDecision({ ...BASE, e2e: true, blocked: true })).toBe('pass')
   })
 
-  // audit C3(a): a beta build runs on its stamp — a blocked activation verdict
-  // (there is no server for the beta) must NOT strand it at the licence screen.
-  it('a beta build passes even with a blocked verdict (runs on its stamp)', () => {
-    expect(activationGateDecision({ ...BASE, betaBuild: true, blocked: true })).toBe('pass')
+  // Owner 2026-09-03, "require Beta-key before API": the beta stamp bounds the
+  // build's life (main-process expiry gate); it no longer stands in for a licence.
+  it('a beta build with a blocked verdict shows the start screen — the key comes before the app (owner 2026-09-03)', () => {
+    expect(activationGateDecision({ packaged: true, e2e: false, statusReadFailed: false, blocked: true })).toBe('block')
   })
 
-  // FAIL CLOSED: a packaged non-beta build whose status read failed is treated as
-  // "no licence" — the licence screen, not an open workspace.
   it('a packaged non-beta build fails closed when the status read failed', () => {
     expect(activationGateDecision({ ...BASE, statusReadFailed: true, blocked: false })).toBe('block')
   })
 
-  it('a beta build still passes even if the status read failed', () => {
-    expect(activationGateDecision({ ...BASE, betaBuild: true, statusReadFailed: true })).toBe('pass')
+  it('a beta build fails closed like any packaged build when the status read failed', () => {
+    expect(activationGateDecision({ packaged: true, e2e: false, statusReadFailed: true, blocked: false })).toBe('block')
   })
 })
 
