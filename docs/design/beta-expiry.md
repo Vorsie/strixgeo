@@ -34,6 +34,35 @@ The renderer gets `app:beta-status` for display only. There is no setter.
 
 ---
 
+## Relationship to activation (#3) — a beta build runs on its stamp
+
+The closed beta ships **unsigned, with a beta stamp, and no activation server**
+(`PACKAGED_ACTIVATION_URL` is `null`). So the beta gate here — NOT the activation
+gate — is the authority for a beta build. The rule, made explicit in the
+activation slice (2026-09-02, branch `wt-activation`):
+
+> **A beta build runs on its STAMP; a non-beta packaged build with no issuer
+> cannot activate.**
+
+Consequences the two gates coordinate on:
+
+* The activation start-screen gate (`activationGateDecision`, renderer) and the
+  main-side `activationBlocksLaunch` both **carve out a beta build** — a build
+  whose `app:beta-status` reports a stamped state (anything but `unstamped`).
+  Without this carve-out the closed beta would be stranded at a licence screen it
+  can never satisfy (there is no server, and the mock's demo keys are refused in a
+  packaged build — see the activation memo's "Packaged-gate hardening" note).
+* An **expired** beta never reaches that carve-out: this gate blocks it *before*
+  `startApi()` / `createWindow()`, so no window — and therefore no activation
+  gate — runs. A beta build that DOES reach the renderer is, by construction, a
+  valid (non-expired) one.
+* A real **non-beta** distributed build has no stamp, so it does not get the
+  carve-out and must activate normally — which, until `PACKAGED_ACTIVATION_URL`
+  is set, it cannot. That is intentional: do not distribute a non-beta build with
+  no activation server.
+
+---
+
 ## Threat model
 
 | Attack | Result | Why |
