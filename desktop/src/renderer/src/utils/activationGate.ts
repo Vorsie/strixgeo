@@ -29,8 +29,6 @@ export interface ActivationGateInputs {
   packaged: boolean
   /** ``window.electron.launchFlags.e2e`` — the harness never blocks. */
   e2e: boolean
-  /** True when this build carries a beta stamp — it runs on the stamp. */
-  betaBuild: boolean
   /** True when the activation status IPC could not be read (fail closed). */
   statusReadFailed: boolean
   /** ``verdict.blocked`` from the activation status; ignored when the read failed. */
@@ -49,17 +47,17 @@ export interface ActivationGateInputs {
  * Returns
  * -------
  * GateDecision
- *     ``'block'`` only for a packaged, non-e2e, non-beta build that is either
- *     blocked or whose status could not be read; ``'pass'`` otherwise.
+ *     ``'block'`` only for a packaged, non-e2e build that is either blocked or
+ *     whose status could not be read; ``'pass'`` otherwise.
  */
 export function activationGateDecision(input: ActivationGateInputs): GateDecision {
   // Dev dogfeed is never blocked — the owner's daily flow must be untouched.
   if (!input.packaged) return 'pass'
   // The e2e harness is never blocked — a licence gate would brick the suite.
   if (input.e2e) return 'pass'
-  // A beta build runs on its STAMP, not on a licence: the beta-expiry gate is its
-  // authority and already refused an expired beta before this window existed.
-  if (input.betaBuild) return 'pass'
+  // A beta build is NOT exempt (owner 2026-09-03, "require Beta-key before
+  // API"): the beta-expiry gate bounds the build's life, the key still comes
+  // before the workspace so the cohort shows up in the who-is-testing readout.
   // FAIL CLOSED: a packaged non-beta build whose status could not be read is
   // treated as "no licence" — the licence screen, never an open workspace.
   if (input.statusReadFailed) return 'block'
