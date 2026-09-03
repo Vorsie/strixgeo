@@ -43,6 +43,8 @@ export const DIAGNOSTIC_KINDS = [
   'renderer-error',
   'renderer-unhandled-rejection',
   'api-error',
+  // A 4xx refusal the renderer captured with its detail.code (audit L2).
+  'api-refusal',
   'backend-failed',
   'unknown',
 ] as const
