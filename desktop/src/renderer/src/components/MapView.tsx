@@ -20,7 +20,14 @@ import type {
   CptListItem,
   CrossSectionResponse,
 } from '../api/client'
-import { lambertToWgs84 } from '../hooks/useWgs84'
+import { lambertToWgs84, projectedToWgs84 } from '../hooks/useWgs84'
+import {
+  buildCptMarkers,
+  buildBoreholeMarkers,
+  resolveProjectEpsg,
+} from './mapMarkers'
+import { MapOfflineBanner } from './MapOfflineBanner'
+import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import type { PendingPin } from '../hooks/useDovImportStream'
 import type { DemOverlayState, DemSource } from '../utils/demSources'
 import {
@@ -140,6 +147,15 @@ interface Props {
   // marker (if rendered — only visible ones are) gets the same ring
   // highlight as a marquee selection so the list↔map link is obvious.
   hoveredTestId?: string | null
+  /**
+   * The project's effective horizontal CRS (EPSG). Project-owned rows — CPTs
+   * and boreholes — are projected to WGS84 through THIS code, so a Netherlands
+   * (28992) project's markers land at their true position instead of being read
+   * as Belgium Lambert-72 (Codex 2). ``null`` / unset / any unsupported value
+   * falls back to 31370 (see ``resolveProjectEpsg``). DOV pending pins are NOT
+   * affected — they carry explicit ``*_lambert72`` fields and stay 31370.
+   */
+  projectEpsg?: number | null
   /**
    * CPT positions discovered by the DOV WFS query that have not yet been
    * downloaded and persisted.  Emitted by the backend ``"pins"`` SSE event
@@ -274,11 +290,15 @@ function FlyToSelected({
   boreholes,
   selectedCptId,
   selectedBoreholeId,
+  epsg,
 }: {
   cpts: CptListItem[]
   boreholes: BoreholeListItem[]
   selectedCptId: string | null
   selectedBoreholeId: string | null
+  // Project horizontal EPSG — the fly-to target is a project-owned CPT /
+  // borehole, so it projects through the same CRS as its marker (Codex 2).
+  epsg: number | null
 }) {
   const map = useMap()
 
@@ -292,7 +312,7 @@ function FlyToSelected({
       if (b) target = { x: b.location_x, y: b.location_y }
     }
     if (!target) return
-    const [lat, lng] = lambertToWgs84(target.x, target.y)
+    const [lat, lng] = projectedToWgs84(target.x, target.y, resolveProjectEpsg(epsg))
     if (isFinite(lat) && isFinite(lng)) {
       // Zoom in CLOSE on selection — z=17 puts the user at site / building
       // level so the borehole's surroundings are visible. ``Math.max``
@@ -301,7 +321,7 @@ function FlyToSelected({
       // only push the zoom up when the user is currently zoomed out.
       map.flyTo([lat, lng], Math.max(map.getZoom(), 17), { duration: 0.8 })
     }
-  }, [selectedCptId, selectedBoreholeId, cpts, boreholes, map])
+  }, [selectedCptId, selectedBoreholeId, cpts, boreholes, map, epsg])
 
   return null
 }
@@ -458,6 +478,7 @@ export default function MapView({
   marqueeSelectedIds,
   onMarqueeSelect,
   hoveredTestId,
+  projectEpsg = null,
   pendingCptPins = [],
   suggestedTies = [],
   tieEpsg = null,
@@ -465,6 +486,9 @@ export default function MapView({
   onRejectTie,
 }: Props) {
   const t = useT()
+  // Offline signal for the basemap tiles (audit L9). Declared with the other
+  // top-of-body hooks so it sits above every early return path.
+  const online = useOnlineStatus()
   // Basemap selection — persisted in localStorage, seeded on first run
   // from the resolved theme (dark → geopunt_hybrid, light → osm).
   //
@@ -520,35 +544,13 @@ export default function MapView({
 
   const hiddenBhAxis = hiddenBoreholeValues[boreholeAxis]
 
-  // Filtered marker projections. Lambert72 → WGS84 is cached per call but
-  // cheap (a few hundred boreholes max for typical projects).
-  const cptMarkers = cpts
-    .filter(c => !hiddenCptTypes.has(c.cpt_type))
-    .flatMap(c => {
-      const [lat, lng] = lambertToWgs84(c.location_x, c.location_y)
-      if (!isFinite(lat) || !isFinite(lng)) return []
-      return [{ id: c.id, lat, lng, name: c.name, type: c.cpt_type, depth: c.max_depth_m }]
-    })
-
-  const boreholeMarkers = boreholes
-    .filter(b => !hiddenBhAxis.has(boreholeValue(b, boreholeAxis)))
-    .flatMap(b => {
-      const [lat, lng] = lambertToWgs84(b.location_x, b.location_y)
-      if (!isFinite(lat) || !isFinite(lng)) return []
-      const value = boreholeValue(b, boreholeAxis)
-      return [
-        {
-          id: b.id,
-          lat,
-          lng,
-          name: b.name,
-          axisValue: value,
-          drillMethod: b.drill_method,
-          boreholeType: b.borehole_type,
-          depth: b.total_depth_m,
-        },
-      ]
-    })
+  // Filtered marker projections. Project-owned rows (CPT, borehole) project
+  // through the PROJECT's horizontal CRS (Codex 2) — a 28992 project's markers
+  // land in the Netherlands, not read as Belgium Lambert-72. The (epsg, x, y)
+  // projection is memoised per call but cheap. The build logic is extracted to
+  // ``mapMarkers`` so the CRS rule is unit-testable without mounting Leaflet.
+  const cptMarkers = buildCptMarkers(cpts, hiddenCptTypes, projectEpsg)
+  const boreholeMarkers = buildBoreholeMarkers(boreholes, hiddenBhAxis, boreholeAxis, projectEpsg)
 
   // Legend — only shows values that are CURRENTLY visible on the map, so
   // the user can interpret marker colours at a glance regardless of what
@@ -709,6 +711,7 @@ export default function MapView({
           boreholes={boreholes}
           selectedCptId={selectedCptId}
           selectedBoreholeId={selectedBoreholeId}
+          epsg={projectEpsg}
         />
 
         {(onViewportChange || onCameraChange) && (
@@ -940,6 +943,11 @@ export default function MapView({
       >
         <Maximize2 size={14} />
       </button>
+
+      {/* Offline notice (audit L9) — the basemap goes grey with no signal when
+          the network drops; this mirrors the 3D viewer's banner so the blank
+          tiles read as a connectivity issue, not a broken map. */}
+      <MapOfflineBanner online={online} />
     </div>
   )
 }
@@ -1410,10 +1418,6 @@ function orderedCptTypes(counts: Map<string, number>): string[] {
     if (bi !== -1) return 1
     return a.localeCompare(b)
   })
-}
-
-function boreholeValue(b: BoreholeListItem, axis: BoreholeAxis): string {
-  return (axis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
 }
 
 /** Pick a colour for any categorical value: curated palette → hash fallback. */
