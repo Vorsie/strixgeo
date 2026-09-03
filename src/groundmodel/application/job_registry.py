@@ -47,6 +47,7 @@ coroutines on the same event loop — no locking is needed.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -160,6 +161,13 @@ class _JobEntry:
     consumed : bool
         Set once an SSE consumer attaches to ``stream()``. Only jobs that were
         never consumed are subject to the finished-job TTL sweep.
+    cancel_event : threading.Event | None
+        Cooperative-cancel flag for a job whose work runs in a worker thread
+        (the voxel build's CPU phases). ``request_cancel`` sets it; the worker
+        checks it between columns and phases. ``None`` for jobs that cannot be
+        cancelled (e.g. the DOV import path, which is stopped by disconnecting
+        the SSE stream instead). A ``threading.Event`` rather than an asyncio
+        one because the reader lives on a different thread from the setter.
     """
 
     task: asyncio.Task[None]
@@ -168,6 +176,7 @@ class _JobEntry:
     created_at: float = 0.0
     finished_at: float | None = None
     consumed: bool = field(default=False)
+    cancel_event: threading.Event | None = None
 
 
 class JobRegistry(GroundModelLogger):
@@ -208,6 +217,7 @@ class JobRegistry(GroundModelLogger):
         coro_factory: Any,  # Callable[asyncio.Queue, Coroutine]
         *,
         key: str | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> UUID:
         """Allocate a job-id, create the queue, and launch the background task.
 
@@ -224,6 +234,13 @@ class JobRegistry(GroundModelLogger):
             Optional de-duplication scope. When supplied and a job with the same
             key is still running, this raises :class:`DuplicateImportJobError`
             instead of starting a second identical import.
+        cancel_event : threading.Event | None
+            Optional cooperative-cancel flag stored on the entry so
+            :meth:`request_cancel` can set it. The caller both passes it here AND
+            wires its ``.is_set`` into the worker (e.g. the voxel build's
+            ``should_cancel``). ``None`` (the default) makes the job
+            un-cancellable — the DOV import path, which is stopped by
+            disconnecting its SSE stream, passes none.
 
         Returns
         -------
@@ -261,6 +278,7 @@ class JobRegistry(GroundModelLogger):
             queue=queue,
             key=key,
             created_at=self._clock(),
+            cancel_event=cancel_event,
         )
         if key is not None:
             self._active_keys[key] = job_id
@@ -290,6 +308,38 @@ class JobRegistry(GroundModelLogger):
 
         task.add_done_callback(_on_done)
         return job_id
+
+    def request_cancel(self, job_id: UUID) -> bool:
+        """Set a running job's cooperative-cancel flag.
+
+        The worker thread (the voxel build's CPU phases) cannot be forcibly
+        killed, so this is the ONLY way to stop it: it sets the
+        :class:`threading.Event` the worker polls between columns and phases.
+        The worker then raises ``BuildCancelled``, the use case rolls back, and
+        the background coroutine emits a terminal ``build_cancelled`` event.
+
+        Best-effort and idempotent: cancelling an unknown / already-finished job,
+        or one with no cancel flag (e.g. a DOV import), is a no-op that returns
+        ``False`` rather than raising, so a double-click on Cancel is harmless.
+
+        Parameters
+        ----------
+        job_id : UUID
+            The job to cancel (as returned by ``start()``).
+
+        Returns
+        -------
+        bool
+            ``True`` when a live job's cancel flag was set; ``False`` when no
+            such job exists or it carries no cancel flag.
+        """
+        entry = self._jobs.get(job_id)
+        if entry is None or entry.cancel_event is None:
+            self.info(f"job {job_id}: cancel requested but no cancellable job found")
+            return False
+        entry.cancel_event.set()
+        self.info(f"job {job_id}: cancel requested — cooperative flag set")
+        return True
 
     def _sweep_expired(self) -> None:
         """Evict finished, never-consumed jobs older than the TTL.
