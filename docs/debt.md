@@ -9505,6 +9505,17 @@ SELECTs under `no_autoflush` (belt and braces). Pinned red-first by
 geotech rows) without taking the geotech child's lock — lower-probability (user-initiated,
 not debounced), but the same up-front-lock fix would close it. Owner call.
 
+**2026-09-03 — the litho-layer WRITERS were the other half of the same deadlock (BP-2/BP-4).**
+Five use cases that write `litho_layer` rows — `accept_litho_suggestions`,
+`batch_accept_litho_suggestions`, `move_litho_layer_boundary`, `update_litho_layer`,
+`bulk_create_litho_layers` — took NO body-partition lock, so a fresh accept (whose rows'
+FK KEY-SHARE locks land on the `body` rows recompute re-stamps) raced `bodies/recompute` and
+deadlocked the app's own `flow_bulk_accept`. FIX: each now takes the model's partition lock
+(own litho, then sibling geotech via `lock_sibling_geotech_partitions`) before its first write,
+ONCE at the outermost use case (batch-accept takes it; the inner accept skips it in batch mode,
+re-entrant). Pinned red-first by `tests/unit/application/test_litho_write_lock_order.py` +
+BP-4 in `test_body_partition_litho_write_recompute_race.py`.
+
 **Still open on this entry:**
 * ~~R3 twins migration~~ — **EXECUTED against the dev DB 2026-09-01 with the
   owner at the keyboard** (dry-run previewed, pg_dump taken to
