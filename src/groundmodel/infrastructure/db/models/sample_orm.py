@@ -82,10 +82,18 @@ class SampleOrm(Base):
     # the nearest CPT with the same nad_class in the same litho-body group.
     # None when the band was filled by a conservative fallback (body_min /
     # absolute_min) and no same-class CPT exists in the group.
-    # NOT a hard FK: BodyOrm stores extents, not membership; the body_id is
-    # the resolver in-memory construct also persisted on LithoLayerOrm rows.
+    #
+    # FK to ``body.id`` with ON DELETE SET NULL, mirroring ``litho_layer.body_id``
+    # (the same body_id space — BodyOrm rows exist for every resolver component,
+    # which is why litho_layer already FK's it). Before this FK the column was a
+    # bare UUID, so a body deleted by ``DeleteBody`` or the resolver's orphan
+    # sweep left a DANGLING id on every sample it grouped (production-readiness
+    # audit L5). SET NULL (not CASCADE) so the sample survives a body
+    # reconciliation that drops its group — the material is still there, only its
+    # grouping label is gone.
     geotech_body_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
+        ForeignKey("body.id", ondelete="SET NULL"),
         nullable=True,
     )
     geotech_nad_class: Mapped[int | None] = mapped_column(Integer, nullable=True)
