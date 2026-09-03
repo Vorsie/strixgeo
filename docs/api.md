@@ -250,7 +250,10 @@ POST   /models/{model_id}/geotech/contact/move — Move a contact restated by a 
 
 ```
 GET    /models/{model_id}/litho-solids — Return every cached 3-D solid in this lithostratigraphic model.
-POST   /models/{model_id}/litho-solids/build-voxel — Build the 3-D litho-solid cache from the validated 2-D voxel partitions.
+POST   /models/{model_id}/litho-solids/build-voxel — Build the 3-D litho-solid cache from the validated 2-D voxel partitions (synchronous; blocks until built).
+POST   /models/{model_id}/litho-solids/build-voxel/jobs — Spawn the SAME build as a background job; answers 202 {job_id} at once. 409 (code voxel_build_already_running) if a build for this model is already running.
+GET    /models/{model_id}/litho-solids/build-voxel/jobs/{job_id} — SSE stream of the running build: {type:progress, phase, done, total} ticks (phase label/reconcile/extract/persist), then a terminal {type:done, ...RebuildLithoSolidsResponse...} or {type:error, code, message}.
+POST   /models/{model_id}/litho-solids/build-voxel/jobs/{job_id}/cancel — Set the cooperative cancel flag; the build stops between columns, rolls back (nothing written), and its stream ends {type:error, code:build_cancelled}. 404 if no cancellable job.
 GET    /models/{model_id}/litho-solids/build-report — Return the seven-clause gapless-gate report of the model's LATEST build.
 PATCH  /models/{model_id}/bodies/{body_id}/color — Update the per-body display colour override for the 3-D viewer.
 GET    /models/{model_id}/footprint — Return the model's footprint ring, re-derived from its last voxel build.
