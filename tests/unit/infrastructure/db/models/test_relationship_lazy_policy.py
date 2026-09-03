@@ -77,7 +77,7 @@ def test_every_relationship_call_sets_lazy_from_the_constant() -> None:
 def test_the_switch_defaults_to_raise_and_honours_the_env_var(
     monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: str
 ) -> None:
-    """The tripwire ships ON (``raise``, promoted 2026-09-03) and the env var can fall back to ``select``.
+    """The tripwire ships ON (``raise``, promoted 2026-09-03); the env var can fall back.
 
     Re-imports the constants module so the module-level read of the env var is
     re-evaluated, proving the documented enable path works.
