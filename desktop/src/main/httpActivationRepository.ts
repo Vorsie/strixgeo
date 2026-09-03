@@ -157,6 +157,16 @@ export class HttpActivationRepository implements ActivationRepository {
     )
   }
 
+  async refresh(request: ActivateRequest): Promise<IssueResult> {
+    // POST /refresh (contract §4): re-check the subscription for a still-bound
+    // device and re-issue its licence with a fresh expiresAt — that fresh end is
+    // what resets the client's 30-day offline-grace clock (audit H5). The wire
+    // body is { deviceId, key }; a server error / offline maps to `unreachable`
+    // like every other issue, so the caller keeps the stored licence.
+    this.onDebug?.(`refresh ${maskLicenceKey(request.key)} on ${request.deviceId}`)
+    return this.issue('refresh', { deviceId: request.deviceId, key: request.key }, request)
+  }
+
   async deactivate(deviceId: string): Promise<void> {
     // Unlike activate/trial, the interface gives deactivate no way to report a
     // failure code — so a failure THROWS a typed {@link DeactivateFailedError}
