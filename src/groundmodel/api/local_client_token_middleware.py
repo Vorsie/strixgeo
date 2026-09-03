@@ -1,4 +1,4 @@
-"""ASGI middleware that makes the ``Origin: null`` CORS allowance safe."""
+"""ASGI middleware requiring the launch token on every Origin-carrying request."""
 
 from __future__ import annotations
 
@@ -11,30 +11,34 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from groundmodel.api.local_client_token_constants import (
     LOCAL_CLIENT_TOKEN_ENV_VAR,
     LOCAL_CLIENT_TOKEN_HEADER,
-    NULL_ORIGIN,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
 class LocalClientTokenMiddleware(GroundModelLogger):
-    """Require a per-launch token on requests that claim the ``null`` origin.
+    """Require a per-launch token on every request that carries an ``Origin``.
 
     Why this exists
     ---------------
-    The API binds to loopback and has no auth, and ``"null"`` must stay in the
-    CORS allowlist because the packaged renderer runs from ``file://``.  But
-    ``Origin: null`` is not exclusive to our window: a sandboxed iframe, a
-    ``data:`` document and a redirect-laundered request all send it, and
-    Starlette's CORSMiddleware echoes it back — which makes the response body
-    readable by that page.  Any site the engineer visits while StrixGeo runs
-    could therefore read ``GET /projects/{id}/bundle`` (the complete site
-    investigation) or issue ``DELETE /geology/models/{id}``.
+    The API binds to loopback and has no auth, so the only identity a request
+    can offer is its ``Origin`` header — and a browser origin is trivially
+    reproduced by any page on the web.  ``Origin: null`` (a sandboxed iframe, a
+    ``data:`` document, a redirect-laundered request) and even a bare
+    ``http://localhost:<port>`` (a second local dev server, a malicious local
+    app) are all forgeable by a site the engineer happens to have open.  With
+    the API unauthenticated, such a page could read
+    ``GET /projects/{id}/bundle`` (the complete site investigation), POST a
+    plain multipart form to ``/cpt/import``, or issue
+    ``DELETE /geology/models/{id}``.
 
     The token replaces the origin as the identity signal.  The Electron main
     process mints a random value per launch, passes it to its uvicorn child in
     the environment, and injects it as a request header on the renderer's
-    calls.  A hostile page cannot read a value it was never given, so it can
-    claim the origin but not prove it.
+    calls (in BOTH dev and packaged builds — only ``ENVIRONMENT=production`` is
+    packaged-gated, see ``desktop/src/main/index.ts``).  A hostile page cannot
+    read a value it was never given, so it can claim any origin but not prove
+    it.  The rule is therefore simple: **any request carrying an ``Origin``
+    header must present the token.**
 
     What it deliberately does NOT guard
     -----------------------------------
@@ -42,9 +46,10 @@ class LocalClientTokenMiddleware(GroundModelLogger):
       scripts and main's own readiness probe.  The browser-borne attack this
       closes cannot arrive without an origin: a fetch/XHR that can read a
       cross-origin response always carries one, and the requests that omit it
-      (``<img>``, ``<script>``) produce responses the page cannot read.
-    * **The dev renderer's ``http://localhost:<port>`` origin** — already
-      pinned by the CORS allowlist and unforgeable by another site.
+      (``<img>``, ``<script>``) produce responses the page cannot read.  This
+      is the ONLY exemption — the packaged renderer (``Origin: null``) and the
+      dev renderer (``Origin: http://localhost:<port>``) both carry the token
+      and so are admitted by proving it, not by their origin.
     * **CORS preflights** — answered by CORSMiddleware, which is installed
       OUTSIDE this middleware precisely so an ``OPTIONS`` never reaches here.
       Blocking the preflight would stop the real request from ever being sent
@@ -64,7 +69,7 @@ class LocalClientTokenMiddleware(GroundModelLogger):
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Refuse null-origin requests that do not carry the launch token.
+        """Refuse any Origin-carrying request that does not present the launch token.
 
         Parameters
         ----------
@@ -89,8 +94,12 @@ class LocalClientTokenMiddleware(GroundModelLogger):
             return
 
         headers = {name.lower(): value for name, value in scope.get("headers", [])}
-        origin = headers.get(b"origin", b"").decode("latin-1")
-        if origin != NULL_ORIGIN:
+        # The ONE exemption: a request with no Origin header at all (curl, the
+        # readiness probe, the integration suite). Every present Origin — the
+        # packaged renderer's "null", the dev renderer's localhost, or a hostile
+        # remote page — must prove the token, because a browser origin is
+        # forgeable and is therefore no identity at all.
+        if b"origin" not in headers:
             await self.app(scope, receive, send)
             return
 
@@ -107,16 +116,17 @@ class LocalClientTokenMiddleware(GroundModelLogger):
         # broke, and the two look identical from the app's side. The engineer
         # reporting "everything says failed to fetch" and the engineer whose
         # project got read both need this line in the backend log.
+        origin = headers.get(b"origin", b"").decode("latin-1")
         path = scope.get("path", "?")
         method = scope.get("method", "?")
         self.warning(
-            f"refused {method} {path} — Origin: null without a valid "
+            f"refused {method} {path} — Origin: {origin!r} without a valid "
             f"{LOCAL_CLIENT_TOKEN_HEADER} header "
             f"(token {'present but wrong' if presented else 'absent'}). "
             "Either a web page tried to reach the local API, or this app's "
             "renderer is not injecting the launch token."
         )
         await PlainTextResponse(
-            "Origin: null requires the StrixGeo launch token",
+            "Requests carrying an Origin header require the StrixGeo launch token",
             status_code=403,
         )(scope, receive, send)
