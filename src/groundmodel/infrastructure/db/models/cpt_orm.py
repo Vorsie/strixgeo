@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class CptOrm(Base):
@@ -112,5 +113,9 @@ class CptOrm(Base):
     )
 
     series: Mapped[CptSeriesOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "CptSeriesOrm", back_populates="cpt", uselist=False, cascade="all, delete-orphan"
+        "CptSeriesOrm",
+        back_populates="cpt",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy=RELATIONSHIP_LAZY,
     )
