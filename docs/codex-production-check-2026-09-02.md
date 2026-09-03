@@ -22,7 +22,7 @@ Legend: lane = **beta** (had to be fixed before a closed beta) · **accept** (a 
 | H4 | High | beta | `project:add-recent` authorised any path; save dialogs pre-filled unsanitised names. | **FIXED** | recents refuses unauthorised paths; `sanitizeSaveDialogDefault` on both dialogs. |
 | H5 | High | launch→done early | No launch-time activation refresh. | **FIXED (dormant)** | `refreshOnLaunch()` wired after launch; inert without an issuer URL. |
 | H6 | High | beta | Unsigned auto-update installed silently on quit. | **FIXED** | `autoInstallOnQuit(APP_IS_SIGNED=false)`; explicit Install-now path retained. |
-| M1 | Medium | beta | Live Postgres cluster in the Roaming profile. | **FIXED** | `pgdata` and logs under `%LOCALAPPDATA%\StrixGeo`; one-time verified move of an existing Roaming cluster; `numba-cache` (rebuildable) still under Roaming — accepted. |
+| M1 | Medium | beta | Live Postgres cluster in the Roaming profile. | **FIXED** | `pgdata` and logs under `%LOCALAPPDATA%\StrixGeo`; one-time verified move of an existing Roaming cluster; `numba-cache` (rebuildable) also moved via `configureNumbaCacheRoot` (parity slice). |
 | M2 (4) | Medium | beta | Corrupt DOV cache hit permanent, no fsync; no 429 back-off; unbounded bbox. | **FIXED** | bounds slice: bbox order/size/area 422 (25 km side, 625 km², 2000 features), discovery ceiling before download, duplicate-job 409, cache invalidate+refetch once, fsync before rename, `Retry-After` back-off with parallelism halving (CPT path). |
 | M3 | Medium | beta | No timeouts anywhere. | **FIXED** | `lock_timeout` 30 s / `statement_timeout` 5 min / idle-in-transaction 5 min on the engine; 55P03 → 409 `lock_timeout`, `BodyPartitionContentionError` → 409 naming the holder; renderer 60 s timeout on quick mutations with a `SLOW_MUTATION_HINTS` carve-out for builds, imports, exports and restore. |
 | M4 (6) | Medium | beta | Write payloads accepted unknown fields; lazy-load-by-default. | **FIXED / tripwire** | `StrictRequestModel` (`extra=forbid`, `allow_inf_nan=False`) on 66 request models; six shared request+response schemas and the bundle intake stay lenient by documented policy; `lazy=RELATIONSHIP_LAZY` on all 35 relationships, `raise` opt-in via `STRIX_ORM_RELATIONSHIP_LAZY` for an integration tripwire run. |
@@ -41,7 +41,7 @@ Legend: lane = **beta** (had to be fixed before a closed beta) · **accept** (a 
 | L5 | Low | beta | `sample.geotech_body_id` bare UUID. | **FIXED** | migration `c6d7e8f9a0b1`: FK ON DELETE SET NULL after nulling danglers. |
 | L6 | Low | beta | Restore caps dropped rows silently. | **FIXED (counts)** | `ProjectRestoreResponse.dropped_series/dropped_child_rows`; toast wiring left (counts are logged). |
 | L8, L9 | Low | beta | Memo caches never cleared; 2D map silent offline. | **FIXED** | `clearProjectScopedCaches`; `MapOfflineBanner`. |
-| L10 | Low | beta | Gate skips compounded on one laptop. | **FIXED** | weekly CI schedule (runs the default branch — make develop the default or add `ref`). |
+| L10 | Low | beta | Gate skips compounded on one laptop. | **FIXED** | weekly CI schedule; scheduled runs pin `ref: develop` on checkout (parity slice) so the quiet-week run verifies develop, not the stale default. |
 | L11 | Low | launch | Routers reach the ORM directly (#106). | **open** | unchanged; tracked. |
 | L12 | Low | beta | 500 handler promised "not applied". | **FIXED** | truthful wording. |
 | #47 | Tier B | beta | Bundle column auto-enumeration. | **RESOLVED** | column set pinned per array; `generation_id` promoted to `_SKIP_COLUMNS`. |
@@ -54,13 +54,19 @@ Legend: lane = **beta** (had to be fixed before a closed beta) · **accept** (a 
 - Unsigned installer (SmartScreen prompt) until the KBO registration enables organisation validation (debt #6).
 - Activation is prototype-grade: no issuer URL, unsigned licence file, device binding is a deterrent not a proof; a beta build runs on its stamp (expires 2026-10-15).
 - Voxel build has no progress or cancel (debt #282).
-- `numba-cache` still under Roaming (rebuildable).
-- Borehole DOV path gets retry but not the parallelism halving; borehole repository has the same dedup shape as CPT but no overwrite route.
 - `lazy="raise"` ships off; the tripwire run is owed.
 - Six shared request+response schemas stay lenient by design.
 - `SheetMap.tsx` still converts with Lambert 72 (PDF sheet map; needs the project EPSG in the payload).
 - The four new backend error codes show the server's English message in an NL app.
 - Push of develop and a CI run have not happened (owner's call).
+
+## Closed after this audit — parity slice (2026-09-03)
+
+Three items above were closed by a follow-up parity slice (all TDD, red-first):
+
+- **Borehole DOV parity.** The borehole import now threads ONE shared `DovRateLimitState` through every sub-client (boring + interpretation + sample + grain-size + scalar), so a 429 seen by any of them halves the download parallelism once for the rest of the import — matching the CPT path. The borehole duplicate lookup (`borehole_repository.py`, both `find_by_project_test` and `find_existing_test_ids`) now always scopes `app_project_id` (project, or `IS NULL` when none), so it never crosses projects, exactly like the CPT fix.
+- **`numba-cache` under `%LOCALAPPDATA%`.** `buildBackendEnv` now roots the compile cache under an optional configured machine-local root (`configureNumbaCacheRoot`, default = `userDataPath`), wired next to `configurePgdataRoot` on a packaged launch — so the rebuildable cache leaves the synced Roaming profile with the cluster.
+- **Scheduled CI on develop.** The `ci.yml` checkout step pins `ref: develop` for scheduled runs only (`github.event_name == 'schedule'`); push/PR runs pass an empty ref and are unchanged — so the weekly run verifies develop instead of the stale default branch.
 
 ## Paid-launch gates (not beta blockers)
 
@@ -69,7 +75,6 @@ Legend: lane = **beta** (had to be fixed before a closed beta) · **accept** (a 
 3. Fail-closed activation with server-side seat authority; self-service transfer already exists.
 4. Backups: user-visible restore of a `.strix` generation and of a pre-migration dump.
 5. #106 application layer welded to the ORM; the `lazy="raise"` default once the tripwire run is clean.
-6. Make develop the default branch for the scheduled CI, or push a `ref`.
 
 ## Evidence
 
