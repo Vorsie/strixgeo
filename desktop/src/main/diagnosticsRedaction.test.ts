@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { REDACTED_TEXT_CAP, redactText } from './diagnosticsRedaction'
+import { REDACTED_TEXT_CAP, redactMessage, redactText } from './diagnosticsRedaction'
 
 describe('the engineer’s identity comes out', () => {
   it('R1 — a Windows user name is replaced wherever it appears', () => {
@@ -210,5 +210,53 @@ describe('DOV open data is exempt from redaction', () => {
     const out = redactText('GET https://tracker.example.com/collect?user=robin&site=kaai42')
     expect(out).not.toContain('robin')
     expect(out).not.toContain('kaai42')
+  })
+})
+
+// A crash MESSAGE quotes the very names this redaction exists to keep out of a
+// bundle — an interpreter error names the formation, project or borehole it
+// failed on, in quotes. redactText alone leaves those (they are not paths,
+// emails or coordinates), so a message gets an extra quoted-literal pass. The
+// hard constraint: an English contraction must not be read as an opening quote.
+describe('quoted literals in a message are redacted', () => {
+  it('M1 — a double-quoted formation name is removed, the sentence stays', () => {
+    const out = redactMessage('formation "Boom Clay" has no partition')
+    expect(out).not.toContain('Boom Clay')
+    expect(out).toContain('formation')
+    expect(out).toContain('has no partition')
+  })
+
+  it('M2 — a single-quoted project name is removed', () => {
+    const out = redactMessage("build failed for project 'Kanaal Noord Fase 2'")
+    expect(out).not.toContain('Kanaal Noord')
+  })
+
+  it('M3 — a backtick-quoted borehole id is removed', () => {
+    const out = redactMessage('borehole `kb-4711-Antwerpen` missing samples')
+    expect(out).not.toContain('kb-4711-Antwerpen')
+  })
+
+  it('M4 — an English contraction is NOT mistaken for a quoted literal', () => {
+    // The failure this pins: a naive single-quote pair eats from the apostrophe
+    // in "couldn't" to the next quote, mangling the whole message.
+    const out = redactMessage("couldn't parse the header, it's malformed")
+    expect(out).toBe("couldn't parse the header, it's malformed")
+  })
+
+  it('M5 — the base redactions still run inside a message (a path goes)', () => {
+    const out = redactMessage('cannot open D:\\Projecten\\ClientX\\site.strix')
+    expect(out).not.toContain('ClientX')
+    expect(out).toContain('<path:.strix>')
+  })
+
+  it('M6 — a quoted DOV open-data URL survives (owner ruling)', () => {
+    const url = 'https://www.dov.vlaanderen.be/geoserver/wfs?service=WFS&typeName=dov-pub:Sonderingen'
+    const out = redactMessage(`fetching "${url}"`)
+    expect(out).toContain(url)
+  })
+
+  it('M7 — a non-string message reads as empty', () => {
+    expect(redactMessage(undefined)).toBe('')
+    expect(redactMessage({} as unknown as string)).toBe('')
   })
 })
