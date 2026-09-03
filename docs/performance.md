@@ -46,6 +46,13 @@ Order roughly by solo-dev ease — pick the lowest one that fits.
    per-op dispatch) — a large, byte-identity-risky refactor, deferred until a
    real lower-spec machine proves 37.5 s is too slow. Lesson: njit pays off for
    FEW-heavy calls, not MANY-tiny ones.
+   - **The voxel Build is now cancellable + reports progress (debt #282).** The
+     labelling loop checks a `should_cancel` predicate every column and reports
+     `(done, total)` ticks; `BuildVoxelLithoModel.execute` relays them per phase
+     over a background-job SSE stream, so a slow build shows progress and a
+     `POST .../build-voxel/jobs/{id}/cancel` stops it (rolling back — nothing
+     written). Independent of the compute cost above; it makes the wait visible
+     and interruptible, not shorter.
 2. **Cython / mypyc**. Static compilation of Python-shaped code.
    Useful when the hot path is mostly Python control flow, not
    numeric loops. Adds a build step.
