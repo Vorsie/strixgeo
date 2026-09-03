@@ -6,8 +6,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class UpdateBodyColorRequest(BaseModel):
+
+class UpdateBodyColorRequest(StrictRequestModel):
     """Request body for ``PATCH .../bodies/{body_id}`` colour update.
 
     Carries only the ``display_color`` field; the endpoint extends the
