@@ -32,9 +32,10 @@
 // pattern). Recent projects are surfaced from the main-process
 // userData store; users click one to re-open.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
+import { clearProjectScopedCaches } from './useWgs84'
 import type {
   ProjectBundleResponse,
   ProjectCreatePayload,
@@ -482,6 +483,18 @@ export function useProject(): UseProject {
   const [project, setProject] = useState<ProjectResponse | null>(null)
   const [saved, setSaved] = useState<ProjectResponse | null>(null)
   const [filePath, setFilePath] = useState<string | null>(null)
+
+  // Audit L8: drop the module-level proj4 memo caches (``useWgs84``) whenever the
+  // active project changes — open, switch, or close (``project?.id`` → a new id
+  // or ``undefined``). Those caches are keyed by ``(epsg, x, y)`` and grow with
+  // the coordinate data a project touches, so without this they accumulate every
+  // project's coordinates for the life of the session. Placed here because
+  // ``useProject`` is the single owner of the project lifecycle. Clearing is
+  // pure-safe (projection recomputes on the next lookup), so there is no
+  // ordering hazard with the map re-projecting on the next render.
+  useEffect(() => {
+    clearProjectScopedCaches()
+  }, [project?.id])
 
   // Manifest: in-memory only. Seeded from the .gmproj bundle on open
   // and from the duplicate's bundle on saveAs; cleared on close /
