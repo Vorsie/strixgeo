@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from groundmodel.api.schemas.project.litho_suggestion.litho_layer_suggestion_item import (
     LithoLayerSuggestionItem,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class AcceptLithoSuggestionsRequest(BaseModel):
+class AcceptLithoSuggestionsRequest(StrictRequestModel):
     """Body of ``POST .../layers/accept-litho-suggestions``.
 
     Carries the list of suggestions to commit plus the anchor investigation.
