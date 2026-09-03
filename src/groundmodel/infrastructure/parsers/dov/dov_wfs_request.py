@@ -31,6 +31,10 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WFS_URL,
     cql_bbox_predicate,
 )
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import (
+    DovRateLimitState,
+    dov_get_with_retry,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.timing import ms_since
 
@@ -46,6 +50,7 @@ async def wfs_count(
     y2: float,
     cql_filter: str | None = None,
     label: str | None = None,
+    backoff: DovRateLimitState | None = None,
 ) -> int:
     """Issue a WFS ``resultType=hits`` request and return numberMatched.
 
@@ -82,7 +87,9 @@ async def wfs_count(
 
     t0 = time.perf_counter()
     try:
-        resp = await http.get(DOV_WFS_URL, params=params)
+        resp = await dov_get_with_retry(
+            http, DOV_WFS_URL, params=params, logger=logger, label=label, backoff=backoff
+        )
     except httpx.RequestError as exc:
         logger.error(f"DOV {label} WFS count request failed: {exc}")
         raise
@@ -127,6 +134,7 @@ async def wfs_features_json(
     cql_filter: str | None = None,
     count: int = DOV_WFS_FEATURE_LIMIT,
     label: str | None = None,
+    backoff: DovRateLimitState | None = None,
 ) -> list[dict[str, Any]]:
     """Issue a WFS GetFeature request and return the GeoJSON ``features`` list.
 
@@ -147,7 +155,9 @@ async def wfs_features_json(
 
     t0 = time.perf_counter()
     try:
-        resp = await http.get(DOV_WFS_URL, params=params)
+        resp = await dov_get_with_retry(
+            http, DOV_WFS_URL, params=params, logger=logger, label=label, backoff=backoff
+        )
     except httpx.RequestError as exc:
         logger.error(f"DOV {label} WFS features request failed: {exc}")
         raise
