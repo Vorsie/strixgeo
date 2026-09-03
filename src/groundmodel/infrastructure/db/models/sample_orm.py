@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class SampleOrm(Base):
@@ -101,7 +102,7 @@ class SampleOrm(Base):
     geotech_assignment_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "BoreholeOrm", back_populates="samples"
+        "BoreholeOrm", back_populates="samples", lazy=RELATIONSHIP_LAZY
     )
 
     # Reverse relationships per lab-test type. Loading a sample with all of
@@ -114,30 +115,35 @@ class SampleOrm(Base):
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="GrainSizeOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
     atterberg_limits_tests: Mapped[list[AtterbergLimitsOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "AtterbergLimitsOrm",
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="AtterbergLimitsOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
     caco3_content_tests: Mapped[list[CaCO3ContentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "CaCO3ContentOrm",
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="CaCO3ContentOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
     organic_content_tests: Mapped[list[OrganicContentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "OrganicContentOrm",
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="OrganicContentOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
     water_content_tests: Mapped[list[WaterContentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "WaterContentOrm",
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="WaterContentOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
     # Catch-all family for scalar tests outside the 5 typed families above
     # (grain density, ASTM classification, descriptive calcareous content,
@@ -148,4 +154,5 @@ class SampleOrm(Base):
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="ScalarLabTestOrm.id",
+        lazy=RELATIONSHIP_LAZY,
     )
