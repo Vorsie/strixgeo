@@ -184,6 +184,13 @@ export class DuplicateCptError extends Error {
 // CPT API surface — ``api.cpt``
 // ---------------------------------------------------------------------------
 
+// Backend cap on ids per ``POST /cpt/plot-batch`` — CptPlotBatchRequest.ids
+// carries ``Field(min_length=1, max_length=500)``, so a body over 500 ids is
+// rejected 422. A dense project can project up to ~5000 CPTs onto one section
+// corridor, so ``plotBatch`` splits into ≤500-id requests and merges. Kept in
+// sync with ``api/schemas/cpt/cpt_plot_batch_request.py``.
+const PLOT_BATCH_MAX_IDS = 500
+
 /** Typed wrappers for all ``/cpt/*`` endpoints. */
 export const cptClient = {
   list: (projectId?: string): Promise<CptListItem[]> =>
@@ -242,8 +249,30 @@ export const cptClient = {
   // returned CPTs to those that belong to the project, preventing
   // a leak across projects via a guessed UUID. Always pass it
   // from the section's ``app_project_id``.
-  plotBatch: (ids: string[], appProjectId: string): Promise<CptPlotResponse[]> =>
-    post(`/cpt/plot-batch`, { ids, app_project_id: appProjectId }),
+  //
+  // Chunked to the backend's 500-id cap (M7d): >500 ids in one body is a 422,
+  // so a dense corridor is split into ≤500-id requests fired in parallel and
+  // merged in chunk order — which preserves the input id order among the
+  // present rows. An empty id set makes no request (min_length=1 would 422).
+  plotBatch: async (ids: string[], appProjectId: string): Promise<CptPlotResponse[]> => {
+    if (ids.length === 0) return []
+    if (ids.length <= PLOT_BATCH_MAX_IDS) {
+      return post<CptPlotResponse[]>(`/cpt/plot-batch`, { ids, app_project_id: appProjectId })
+    }
+    const requests: Promise<CptPlotResponse[]>[] = []
+    for (let start = 0; start < ids.length; start += PLOT_BATCH_MAX_IDS) {
+      requests.push(
+        post<CptPlotResponse[]>(`/cpt/plot-batch`, {
+          ids: ids.slice(start, start + PLOT_BATCH_MAX_IDS),
+          app_project_id: appProjectId,
+        }),
+      )
+    }
+    // Promise.all resolves in array order regardless of completion order, so
+    // flattening keeps chunk 0's rows ahead of chunk 1's — input order.
+    const chunked = await Promise.all(requests)
+    return chunked.flat()
+  },
 
   // ``projectId`` is required on patch — scope guard ensures a caller
   // cannot patch a CPT from a foreign project (VULN-2/3).
