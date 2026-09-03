@@ -38,9 +38,11 @@ describe('useVoxelBuildStream — a multi-megabyte done frame', () => {
     vi.stubGlobal('fetch', fetchMock)
     try {
       const { result } = renderHook(() => useVoxelBuildStream())
-      await result.current.start('/projects/p/geology/models/m/litho-solids/build-voxel/jobs', {
-        sections: [],
-      } as never)
+      await result.current.start({
+        projectId: 'p',
+        modelId: 'm',
+        request: { sections: [], grid_spacing_m: 1 } as never,
+      })
       await waitFor(() => expect(result.current.state.status).toBe('done'), { timeout: 10_000 })
       const state = result.current.state as { status: 'done'; result: { bodies_built: number } }
       expect(state.result.bodies_built).toBe(solids.length)
