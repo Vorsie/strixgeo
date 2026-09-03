@@ -61,12 +61,29 @@ function asLanguage(raw: unknown): Language | null {
  * Language
  *     The stored language, or the default.
  */
+/**
+ * The language the operating system runs in, when it is one we ship.
+ *
+ * ``navigator.language`` is a BCP-47 tag (``nl-BE``, ``en-GB``); only the
+ * primary subtag decides. Returns ``null`` for an unsupported or unknown
+ * system language so the caller falls back to the default (owner 2026-09-03:
+ * "default to the system language, fall back to English").
+ */
+export function systemLanguage(): Language | null {
+  if (typeof navigator === 'undefined') return null
+  const tag = navigator.language
+  if (typeof tag !== 'string' || tag === '') return null
+  return asLanguage(tag.toLowerCase().split('-')[0])
+}
+
 export function getLanguage(): Language {
-  if (typeof localStorage === 'undefined') return DEFAULT_LANGUAGE
+  if (typeof localStorage === 'undefined') return systemLanguage() ?? DEFAULT_LANGUAGE
   try {
-    return asLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY)) ?? DEFAULT_LANGUAGE
+    return (
+      asLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY)) ?? systemLanguage() ?? DEFAULT_LANGUAGE
+    )
   } catch {
-    return DEFAULT_LANGUAGE
+    return systemLanguage() ?? DEFAULT_LANGUAGE
   }
 }
 
