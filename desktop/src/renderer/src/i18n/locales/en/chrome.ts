@@ -245,6 +245,12 @@ export const CHROME = {
   'project.revertFailed': 'Could not revert the project to its last save — the backup was kept.',
   'project.fileNotFoundToast':
     "Couldn't find the project file at {path}. Did you move or rename it?",
+  // Shown once when opening a .strix after a DB wipe rebuilds the project from
+  // the file and the restore had to cap oversized depth-series / borehole child
+  // arrays. Names both counts so the engineer knows how much, and of what, was
+  // trimmed; a restore that dropped nothing stays silent.
+  'project.restoreDroppedToast':
+    'Restore skipped oversized data: {series} depth series and {rows} child data rows. See the log.',
   'project.discardLossInterpretation':
     'Correlations, boundary moves, accepted suggestions and deletions made this session, in any stage — these are not counted here.',
   'project.discardLossMetadata': 'Unsaved edits in the project metadata editor.',
