@@ -203,3 +203,66 @@ describe('DataInspector (debt #115)', () => {
     expect(cptTab.getAttribute('aria-selected')).toBe('false')
   })
 })
+
+// M7b — the CPT/borehole lists are windowed (react-window). A project can hold
+// thousands of tests; only the rows in (and just around) the viewport may mount.
+function manyCpts(n: number): ShellContextValue['visibleCpts'] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `cpt-${i}`,
+    name: `GH-${i}`,
+    cpt_type: 'CPTU',
+    max_depth_m: 20.0,
+    elevation_m: 5.0,
+    start_date: null,
+    location_x: 0,
+    location_y: 0,
+    epsg: 31370,
+    z_epsg: 5710,
+    elevation_source: 'dov',
+    n_rows: 200,
+  })) as ShellContextValue['visibleCpts']
+}
+
+describe('DataInspector windowing (M7b)', () => {
+  it('W1 — a 5000-CPT list mounts only a small window of DOM rows', () => {
+    render(
+      <ShellContext.Provider value={makeCtx({ visibleCpts: manyCpts(5000) })}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    // Every row carries exactly one remove button (data-row-remove). Without
+    // virtualisation this would be 5000; windowed, it is a few dozen.
+    const rows = screen.getAllByTestId('data-row-remove')
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.length).toBeLessThan(60)
+  })
+
+  it('W2 — selecting a windowed row still fires handleSelect with its id', () => {
+    const ctx = makeCtx({ visibleCpts: manyCpts(5000) })
+    const selectSpy = vi.fn()
+    ctx.coordinator.handleSelect = selectSpy
+    render(
+      <ShellContext.Provider value={ctx}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    // The first row is in the initial window; clicking its name button selects.
+    fireEvent.click(screen.getByText('GH-0'))
+    expect(selectSpy).toHaveBeenCalledWith('cpt-0')
+  })
+
+  it('W3 — hovering a windowed row still drives the map-ring signal', () => {
+    const ctx = makeCtx({ visibleCpts: manyCpts(5000) })
+    const hoverSpy = vi.fn()
+    ctx.coordinator.setHoveredTestId = hoverSpy
+    render(
+      <ShellContext.Provider value={ctx}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    const rowRoot = screen.getByText('GH-0').closest('div.group')
+    expect(rowRoot).not.toBeNull()
+    fireEvent.mouseEnter(rowRoot!)
+    expect(hoverSpy).toHaveBeenCalledWith('cpt-0')
+  })
+})
