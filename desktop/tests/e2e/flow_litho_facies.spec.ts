@@ -114,6 +114,10 @@ test.describe('flow_litho_facies', () => {
   test(
     'Build model with facies competition produces ≥2 lithology groups and no crash',
     async () => {
+      // A voxel build on the fixture takes ~50 s as a background job (label ~41 s +
+      // extract ~8 s, measured 2026-09-03); the default 60 s test timeout killed the
+      // app mid-labelling and the old 30 s wait for the solid toggle was too short.
+      test.setTimeout(300_000)
       test.slow() // opens the shell + builds voxel solids + renders the 3D viewer
 
       const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
@@ -162,7 +166,7 @@ test.describe('flow_litho_facies', () => {
         //    Long timeout: Cesium WebGL context initialisation is slow.
         // -----------------------------------------------------------------------
         const solidBtn = page.getByTestId('litho-view-mode-solid')
-        await expect(solidBtn).toBeVisible({ timeout: 30_000 })
+        await expect(solidBtn).toBeVisible({ timeout: 150_000 })
 
         // -----------------------------------------------------------------------
         // 5. Solid mode is the default.
