@@ -27,8 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.api.routers._dov_stream_helpers import (
     DOV_UPSTREAM_ERRORS,
     dov_error_event,
+    dov_import_job_key,
     dov_sse_stream_response,
+    dov_too_large_event,
+    map_dov_too_large_error,
     map_dov_upstream_error,
+    map_duplicate_import_job,
 )
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.cpt.cpt_list_item import CptListItem
@@ -67,7 +71,9 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_client import WfsIndexEntry
 from groundmodel.shared.exceptions import (
     CptRefreshConfirmationRequiredError,
     CptRefreshRefusedError,
+    DovImportTooLargeError,
     DuplicateCptError,
+    DuplicateImportJobError,
     ParseError,
 )
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -309,6 +315,10 @@ async def import_cpt_dov(
             north=request.north,
             app_project_id=request.project_id,
         )
+    # Discovery found more records than the import ceiling — refuse with 422
+    # (before any download happened) rather than run away.
+    except DovImportTooLargeError as exc:
+        raise map_dov_too_large_error(exc) from exc
     # On upstream failure, the user-facing ``detail`` carries only the
     # category + (when safe) the upstream HTTP status. Library class
     # names + exception messages are logged server-side so debugging
@@ -402,6 +412,11 @@ def _make_cpt_dov_import_coro(
                             "cpt_ids": [str(cid) for cid in result.cpt_ids],
                         }
                     )
+                except DovImportTooLargeError as exc:
+                    # Discovery ceiling hit — the download phase never started.
+                    # Emit a terminal error event naming the count and the limit.
+                    logger.warning(f"DOV stream import refused (too large): {exc}")
+                    await queue.put(dov_too_large_event(exc))
                 except DOV_UPSTREAM_ERRORS as exc:
                     await queue.put(
                         dov_error_event(exc, logger=logger, log_prefix="DOV stream import")
@@ -457,7 +472,21 @@ async def import_cpt_dov_stream(
     # go through lifespan).
     pool: ProcessPoolExecutor | None = getattr(http_request.app.state, "parse_pool", None)
     factory = _make_cpt_dov_import_coro(request, pool=pool)
-    job_id = registry.start(factory)
+    # De-dup key: refuse a second identical import (double-click / eager retry)
+    # while the first is still running, handing back the running job-id so the
+    # client attaches to the existing stream instead of racing it.
+    key = dov_import_job_key(
+        "cpt",
+        west=request.west,
+        south=request.south,
+        east=request.east,
+        north=request.north,
+        project_id=request.project_id,
+    )
+    try:
+        job_id = registry.start(factory, key=key)
+    except DuplicateImportJobError as exc:
+        raise map_duplicate_import_job(exc) from exc
     logger.info(f"DOV CPT import job {job_id} spawned")
     return {"job_id": str(job_id)}
 
