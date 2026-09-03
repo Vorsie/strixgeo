@@ -34,6 +34,12 @@ function phaseLabelKey(phase: VoxelBuildPhase): MessageKey {
 interface Props {
   state: VoxelBuildState
   onCancel: () => void
+  /**
+   * testid for the Cancel button. Defaults to the litho id so the litho toolbar
+   * is unchanged; the geotech toolbar passes its own so the two stages' Cancel
+   * buttons are addressable independently (debt #282).
+   */
+  cancelTestid?: string
 }
 
 /**
@@ -41,8 +47,13 @@ interface Props {
  *
  * @param state - The voxel build state from ``useVoxelBuildStream``.
  * @param onCancel - Fired when the user presses Cancel.
+ * @param cancelTestid - testid for the Cancel button (default litho id).
  */
-export default function VoxelBuildProgressInline({ state, onCancel }: Props): JSX.Element | null {
+export default function VoxelBuildProgressInline({
+  state,
+  onCancel,
+  cancelTestid = 'litho-build-cancel-button',
+}: Props): JSX.Element | null {
   const t = useT()
   if (state.status !== 'running') return null
 
@@ -93,7 +104,7 @@ export default function VoxelBuildProgressInline({ state, onCancel }: Props): JS
         label={cancelRequested ? t('litho.buildCancelling') : t('litho.buildCancel')}
         onClick={onCancel}
         disabled={cancelRequested}
-        testid="litho-build-cancel-button"
+        testid={cancelTestid}
         title={t('litho.buildCancel')}
       />
     </div>
