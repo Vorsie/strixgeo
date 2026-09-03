@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class OrganicContentOrm(Base):
@@ -48,5 +49,5 @@ class OrganicContentOrm(Base):
     test_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     sample: Mapped[SampleOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "SampleOrm", back_populates="organic_content_tests"
+        "SampleOrm", back_populates="organic_content_tests", lazy=RELATIONSHIP_LAZY
     )
