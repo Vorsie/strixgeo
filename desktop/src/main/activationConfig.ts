@@ -24,6 +24,7 @@
 import type { ActivationRepository } from './activationRepository'
 import { HttpActivationRepository } from './httpActivationRepository'
 import { MockActivationRepository } from './mockActivationRepository'
+import { UnreachableActivationRepository } from './unreachableActivationRepository'
 
 /** Env var naming the activation base URL in a dev build. */
 export const ACTIVATION_URL_ENV = 'STRIXGEO_ACTIVATION_URL'
@@ -65,6 +66,43 @@ function normalizeBaseUrl(url: string | null | undefined): string | null {
   return trimmed || null
 }
 
+/** True for ``http://127.0.0.1[:port]`` or ``http://localhost[:port]``. */
+function isLoopbackHttp(url: string): boolean {
+  return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(url)
+}
+
+/**
+ * Normalise a candidate issuer URL and refuse an insecure scheme.
+ *
+ * The licence key is a credential that travels in the request body, so the
+ * activation origin MUST be ``https://`` (contract §1). The one exception is a
+ * DEV build talking to the local activation stub over ``http://127.0.0.1`` /
+ * ``http://localhost`` — a loopback link a packaged build never gets. A packaged
+ * build refuses anything but ``https://``; a dev build refuses plain ``http://``
+ * to any non-loopback host.
+ *
+ * Parameters
+ * ----------
+ * url : string | null | undefined
+ *     A candidate base URL (env var in dev, compiled constant when packaged).
+ * packaged : boolean
+ *     ``app.isPackaged`` — a packaged build allows no ``http://`` at all.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     The normalised, scheme-approved URL, or ``null`` (→ no issuer) when it is
+ *     empty or its scheme is refused.
+ */
+export function sanitizeIssuerUrl(url: string | null | undefined, packaged: boolean): string | null {
+  const normalized = normalizeBaseUrl(url)
+  if (!normalized) return null
+  if (/^https:\/\//i.test(normalized)) return normalized
+  // The only non-https exception: the dev stub on loopback, never in a package.
+  if (!packaged && isLoopbackHttp(normalized)) return normalized
+  return null
+}
+
 /**
  * The activation base URL for this build, or ``null`` to use the mock.
  *
@@ -79,8 +117,11 @@ function normalizeBaseUrl(url: string | null | undefined): string | null {
  *     A normalised base URL, or ``null`` (→ mock) when none is configured.
  */
 export function activationBaseUrl({ env, packaged }: ActivationConfigInputs): string | null {
-  if (packaged) return normalizeBaseUrl(PACKAGED_ACTIVATION_URL)
-  return normalizeBaseUrl(env[ACTIVATION_URL_ENV])
+  // A packaged build reads only the compiled constant; a dev build only the env
+  // var. Both go through the same scheme guard (https-only, dev-loopback aside),
+  // so a credential can never travel to an insecure origin.
+  const raw = packaged ? PACKAGED_ACTIVATION_URL : env[ACTIVATION_URL_ENV]
+  return sanitizeIssuerUrl(raw, packaged)
 }
 
 /** {@link ActivationConfigInputs} plus the app version the HTTP issuer sends. */
@@ -100,11 +141,20 @@ export interface ActivationRepositoryInputs extends ActivationConfigInputs {
  * Returns
  * -------
  * ActivationRepository
- *     An {@link HttpActivationRepository} when a base URL is configured, the
- *     in-memory {@link MockActivationRepository} otherwise.
+ *     An {@link HttpActivationRepository} when a base URL is configured; the
+ *     in-memory {@link MockActivationRepository} for a DEV build with none (the
+ *     dogfeed is unchanged); the {@link UnreachableActivationRepository} for a
+ *     PACKAGED build with none — never the mock, whose published demo keys would
+ *     otherwise activate it (audit C3(a)).
  */
 export function createActivationRepository(inputs: ActivationRepositoryInputs): ActivationRepository {
   const baseUrl = activationBaseUrl(inputs)
-  if (!baseUrl) return new MockActivationRepository()
-  return new HttpActivationRepository({ baseUrl, appVersion: inputs.appVersion })
+  if (baseUrl) return new HttpActivationRepository({ baseUrl, appVersion: inputs.appVersion })
+  // No issuer URL. A packaged build must NOT fall back to the mock: it accepts
+  // the published STRIX-*-DEMO keys, so a distributed build would "activate" on a
+  // key anyone can read. The explicit rule (owner beta ruling): a beta build runs
+  // on its STAMP, not on a licence; a non-beta packaged build simply cannot
+  // activate until the strixgeo.com server exists and its URL is compiled in.
+  if (inputs.packaged) return new UnreachableActivationRepository()
+  return new MockActivationRepository()
 }
