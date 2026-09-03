@@ -62,6 +62,7 @@ export const LAUNCH = {
   'licensing.stateGrace': 'Offline grace',
   'licensing.stateExpired': 'Expired',
   'licensing.stateClockRollback': 'Clock problem',
+  'licensing.stateDeviceMismatch': 'Wrong device',
   'licensing.daysRemaining': '{days} day(s) remaining',
   'licensing.graceRemaining': '{days} day(s) of offline grace left',
   'licensing.enterKey': 'Enter a licence key',
