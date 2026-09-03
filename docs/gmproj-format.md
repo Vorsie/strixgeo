@@ -141,6 +141,34 @@ a word. ``litho_solids`` is absent from both by DESIGN (a rebuildable ~10 MB
 mesh cache; see ``api/clients/project.ts`` ``includeSolids``) — the distinction
 that matters is evidence vs cache: evidence goes in the file, caches do not.
 
+## The per-array column set is pinned — a new column is a conscious format decision
+
+The bundle serialiser enumerates ORM columns via ``__mapper__.column_attrs``,
+so a column added to any bundled model would otherwise ride into the ``.strix``
+silently — no version bump, no decision. ``tests/unit/infrastructure/db/
+test_bundle_column_pins.py`` freezes the exact column set of every bundled ORM
+class (grouped per top-level array) against the hand-maintained sets in
+``tests/unit/infrastructure/db/bundle_columns_expected.py``; adding or removing a
+column turns the unit suite RED until the frozen set is updated on purpose — the
+point at which someone decides whether the column is **portable format** (rides
+along, possibly a ``format_version`` bump) or **non-portable** (dropped via
+``_SKIP_COLUMNS``, pinned by ``test_bundle_skip_columns.py``). A whole new
+collection is caught too: the pin's coverage guard requires every
+``BUNDLE_COLLECTION_KEYS`` entry to be pinned here.
+
+``_SKIP_COLUMNS`` is the list of columns whose value does not survive the trip to
+another machine / install and so is dropped on BOTH serialise and restore: the
+server clocks (``created_at`` / ``updated_at`` / ``archived_at``), the PostGIS
+``location`` blob (rebuilt from ``location_x`` / ``location_y`` / ``epsg``), and
+``generation_id`` — the ``LithoBodySolid`` FK into ``litho_build_generation``, a
+build-history table the bundle does not carry (serialising it would dangle on a
+fresh-DB open and cross-link the source project on a Save-As clone). The
+rebuildable TIN / mesh caches (``vertices`` / ``triangles`` + the ``source_*``
+checksums on ``FormationSurface`` / ``LithoBodySolid``) are deliberately NOT
+skipped — they are portable (project-CRS geometry) and carried on purpose so a
+fresh-DB open skips the recompute; File → Save drops the solid meshes separately
+via ``include_solids=False``. (debt #47)
+
 ## The bundle collection registry — one list, every copy path
 
 Four write paths used to enumerate the project's child tables by hand:
