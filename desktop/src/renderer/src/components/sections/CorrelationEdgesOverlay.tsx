@@ -716,6 +716,7 @@ export default function CorrelationEdgesOverlay({
   }, [unapprovedEdgeDrag, contactScreenMap])
 
   return (
+    <>
     <g
       ref={rootGRef}
       data-testid="correlation-edges-overlay"
@@ -1555,6 +1556,18 @@ export default function CorrelationEdgesOverlay({
         </g>
       )}
 
+    </g>
+
+      {/* Interactive layer — the context menus and the drag ghost live OUTSIDE
+          the pointer-events:none root group (debt #68). The menus are
+          <foreignObject>s: nesting them under a pointer-events:none ancestor
+          made them clickable only because the ContextMenu re-enables
+          pointer-events on the foreignObject, an SVG-spec quirk a Chromium bump
+          could regress. As a sibling group they have no pointer-events:none
+          ancestor to override, so the menu is reachable regardless of the
+          overlay's pointer-events model. The drag ghost sets its own
+          pointerEvents=none on the <line>, so its interactivity is unchanged. */}
+    <g data-testid="correlation-edges-interactive">
       {/* Body-level context menu — right-click on a body chip (debt #100). */}
       {bodyContextMenu && (
         <BodyContextMenu
@@ -1648,5 +1661,6 @@ export default function CorrelationEdgesOverlay({
         </foreignObject>
       )}
     </g>
+    </>
   )
 }
