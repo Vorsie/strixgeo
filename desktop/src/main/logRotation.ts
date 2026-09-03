@@ -115,6 +115,74 @@ export function rotateIfNeeded(
 }
 
 /**
+ * How many appended bytes to accumulate before checking the log size (M8/L1).
+ *
+ * The launch-time rotation (see ``rotateIfNeeded`` in ``openMainLog``) bounded
+ * the file only once, so a long verbose session appended past the cap until the
+ * next restart. A ``statSync`` on every append would be needless UI-thread I/O,
+ * so the size is re-checked once per this many bytes — negligible I/O, and the
+ * active log never runs more than ~this-much plus one line past the cap.
+ */
+export const DEFAULT_CHECK_EVERY_BYTES = 64 * 1024
+
+/** Filesystem operations a rotating appender needs — read-side plus ``append``. */
+export interface AppendFsOps {
+  fs: FsOps
+  /** Append ``text`` to ``path`` (creating it if absent). */
+  append: (path: string, text: string) => void
+}
+
+/**
+ * Build an appender that keeps the active log bounded DURING a session.
+ *
+ * Each call appends the line (with a trailing newline) and, once
+ * ``checkEveryBytes`` have accumulated since the last check, re-checks the file
+ * size and rotates via {@link rotateIfNeeded} when it has crossed ``maxBytes``.
+ * The rotated content lands in ``.1`` and the next append recreates a fresh
+ * primary, so nothing is lost and the primary stays bounded.
+ *
+ * Pure but for the injected fs — the same shape the rotation tests already use,
+ * so the whole thing is exercisable without touching a real disk.
+ *
+ * Parameters
+ * ----------
+ * logPath : string
+ *     Absolute path to the primary log file.
+ * maxBytes : number
+ *     Rotation threshold in bytes.
+ * maxFiles : number
+ *     Number of backup generations to keep.
+ * deps : AppendFsOps
+ *     The injected filesystem read-ops plus the append primitive.
+ * checkEveryBytes : number
+ *     Bytes to accumulate between size checks. Defaults to
+ *     {@link DEFAULT_CHECK_EVERY_BYTES}.
+ *
+ * Returns
+ * -------
+ * (line: string) => void
+ *     Appends ``line`` + ``"\n"``, rotating when the file has grown past the cap.
+ */
+export function createRotatingAppender(
+  logPath: string,
+  maxBytes: number,
+  maxFiles: number,
+  deps: AppendFsOps,
+  checkEveryBytes: number = DEFAULT_CHECK_EVERY_BYTES,
+): (line: string) => void {
+  let bytesSinceCheck = 0
+  return (line: string): void => {
+    const text = `${line}\n`
+    deps.append(logPath, text)
+    bytesSinceCheck += text.length
+    if (bytesSinceCheck >= checkEveryBytes) {
+      bytesSinceCheck = 0
+      rotateIfNeeded(logPath, maxBytes, maxFiles, deps.fs)
+    }
+  }
+}
+
+/**
  * Real filesystem implementation of FsOps using Node's ``fs`` module.
  *
  * Imported lazily so this module remains importable in a test environment
