@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class FormationContactOrm(Base):
@@ -204,8 +205,8 @@ class FormationContactOrm(Base):
     )
 
     model: Mapped[GeologicalModelOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "GeologicalModelOrm", back_populates="contacts"
+        "GeologicalModelOrm", back_populates="contacts", lazy=RELATIONSHIP_LAZY
     )
     formation: Mapped[GeologicalFormationOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "GeologicalFormationOrm", back_populates="contacts"
+        "GeologicalFormationOrm", back_populates="contacts", lazy=RELATIONSHIP_LAZY
     )
