@@ -54,6 +54,11 @@ export const CHROME_NL = {
   'app.bootFailedBody': 'Bekijk de Python-traceback in de developer console.',
   'app.backendFailedTitle': 'StrixGeo kon niet starten',
   'app.backendUnreachable': 'Backend onbereikbaar',
+  // Weigeringscodes van de backend die een ingenieur in normaal gebruik kan zien.
+  'api.code.dovImportTooLarge': 'Dit kader bevat meer records dan één import aankan. Teken een kleiner kader.',
+  'api.code.dovImportAlreadyRunning': 'Deze DOV-import loopt al.',
+  'api.code.bodyPartitionLocked': 'Een andere bewerking op de lichamen loopt nog op dit model. Probeer het zo opnieuw.',
+  'api.code.lockTimeout': 'De database was te lang bezet. Probeer het zo opnieuw.',
   'app.backendRestarting': 'Opnieuw verbinden met de backend…',
   'app.quit': 'StrixGeo afsluiten',
   'app.reload': 'StrixGeo herladen',
