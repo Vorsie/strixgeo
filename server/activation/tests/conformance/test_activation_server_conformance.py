@@ -34,6 +34,13 @@ BASE_URL = (os.environ.get("STRIX_ACTIVATION_URL") or "").rstrip("/")
 TEST_KEY = os.environ.get("STRIX_TEST_KEY") or ""
 ADMIN_TOKEN = os.environ.get("STRIX_ADMIN_TOKEN") or ""
 
+#: A FRESHLY minted DURATION key — one never activated, so its clock has not started
+#: (``php bin/mint.php --tier solo --seats 1 --duration-days 30 …``). Its own gate,
+#: like ADMIN_TOKEN's: the duration-key case skips when it is unset, the rest run.
+DURATION_KEY = os.environ.get("STRIX_TEST_DURATION_KEY") or ""
+#: The N in ``--duration-days N`` the DURATION_KEY was minted with (default 30).
+DURATION_DAYS = os.environ.get("STRIX_TEST_DURATION_DAYS") or "30"
+
 if not BASE_URL or not TEST_KEY:
     pytest.skip(
         "set STRIX_ACTIVATION_URL and STRIX_TEST_KEY to run the activation conformance suite",
@@ -289,3 +296,75 @@ def test_every_call_including_a_refusal_leaves_an_events_row() -> None:
     mine = [row for row in rows if row.get("deviceId") == device]
     assert mine, "the refusal left no activation_events row"
     assert any(row["kind"] == "refused" for row in mine), "the refusal was not logged as 'refused'"
+
+
+def test_duration_key_clock_starts_at_first_activation() -> None:
+    """A duration key's 30-day clock starts at the FIRST activation, then never moves.
+
+    Owner ruling 2026-09-03: "Once the users activate their key, their 30 days timer
+    starts running." A beta-cohort key is minted with a DURATION, not a date, and
+    stays dormant (no expiry) until a device activates it — at which point the server
+    stamps ``expiresAt = activation + duration_days``. A LATER activation on the same
+    licence (the seat moved by deactivate + activate, or a refresh) must NOT move the
+    clock.
+
+    Requires a FRESH duration key in ``STRIX_TEST_DURATION_KEY`` (one never activated,
+    so this run is its first activation); ``STRIX_TEST_DURATION_DAYS`` names the minted
+    duration and defaults to 30.
+    """
+    if not DURATION_KEY:
+        pytest.skip(
+            "set STRIX_TEST_DURATION_KEY (a FRESH duration key) to run the duration-key case"
+        )
+
+    duration_days = int(DURATION_DAYS)
+    run = _run_id()
+    device_a = f"conf-dur-{run}"
+    day_ms = 86_400_000
+    tolerance_ms = 10 * 60 * 1000  # ±10 minutes covers round-trip + minor clock skew
+
+    with _client() as client:
+        try:
+            # First activation on a fresh device: the clock starts NOW, so the wire
+            # end sits ~duration_days out from this moment.
+            now_ms = int(time.time() * 1000)
+            first = client.post(
+                "/activate",
+                json={"key": DURATION_KEY, "deviceId": device_a, "deviceLabel": "Conf Dur"},
+            )
+            assert first.status_code == 200, (
+                "expected 200; if 409, STRIX_TEST_DURATION_KEY's seat is already bound — "
+                "mint a FRESH duration key (a stamped one no longer starts its clock at now)"
+            )
+            licence_first = first.json()["licence"]
+            _assert_licence_shape(licence_first, device_id=device_a, is_trial=False)
+            assert licence_first["key"] == DURATION_KEY, "the licence echoes the activated key (§3)"
+
+            expected_ms = now_ms + duration_days * day_ms
+            drift_ms = abs(licence_first["expiresAt"] - expected_ms)
+            assert drift_ms <= tolerance_ms, (
+                f"a duration key's clock starts at first activation: expiresAt should be "
+                f"~{duration_days} days from now, off by {drift_ms / 1000:.0f}s"
+            )
+
+            # Deactivate, then re-activate the SAME device: this later activation must
+            # find the clock already running and leave it — the 30 days do not reset.
+            # (The same holds for a transferred seat — a different device — because the
+            # stamp is guarded by expires_at IS NULL, which is now false.)
+            freed = client.post("/deactivate", json={"deviceId": device_a})
+            assert freed.status_code == 200
+
+            reactivated = client.post(
+                "/activate",
+                json={"key": DURATION_KEY, "deviceId": device_a, "deviceLabel": "Conf Dur"},
+            )
+            assert reactivated.status_code == 200
+            licence_again = reactivated.json()["licence"]
+            _assert_licence_shape(licence_again, device_id=device_a, is_trial=False)
+            assert licence_again["expiresAt"] == licence_first["expiresAt"], (
+                "a later activation must NOT move the clock — the authoritative end is "
+                "fixed at the first activation (owner ruling 2026-09-03)"
+            )
+        finally:
+            # Leave the seat free (the key stays stamped — it is single-use for this test).
+            client.post("/deactivate", json={"deviceId": device_a})
