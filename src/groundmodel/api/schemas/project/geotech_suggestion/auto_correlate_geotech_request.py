@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class AutoCorrelateGeotechRequest(BaseModel):
+class AutoCorrelateGeotechRequest(StrictRequestModel):
     """Body of ``POST .../geotech/auto-correlate``.
 
     Mirrors the litho axis's ``AutoCorrelateContactRequest`` in shape; the
