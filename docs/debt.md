@@ -274,6 +274,41 @@ clears the local licence on a clean release **or a 404** (already released
 server-side) but KEEPS it on 401/network, so a transfer never strands the seat
 (contract §4/§6). EN+NL keys + main/dialog vitest added.
 
+**Packaged-gate hardening landed 2026-09-02** (branch `wt-activation`, NOT merged)
+— the production-readiness audit's C3 a–d + H5 + the HTTPS-only rule, so the
+packaged licence gate is real enough for a closed beta:
+* **C3(a) — no demo-key backdoor.** A PACKAGED build with no issuer URL no longer
+  falls back to the mock (whose `STRIX-*-DEMO` keys are public); it gets an
+  `UnreachableActivationRepository` that can activate nothing. The explicit rule
+  encoded: **a beta build runs on its STAMP, not on a licence** (the beta-expiry
+  gate is its authority); **a non-beta packaged build with no issuer cannot
+  activate.** The activation start-screen gate (renderer) + a new pure main-side
+  `activationBlocksLaunch` both carve out a beta build so the unsigned closed beta
+  is not stranded at a licence screen it can never satisfy.
+* **C3(b) — `STRIX_E2E` gated on `!isPackaged`** (`e2eLaunchFlag`), so a packaged
+  exe cannot be told to skip the gate by setting the harness env var.
+* **C3(c) — device binding enforced.** `evaluateActivation` now compares the
+  licence's `deviceId` against this installation's store id → a new
+  `device-mismatch` blocked state, so a copied `activation.json` does not run on
+  another machine; and the Windows `MachineGuid` is fed into the device id so two
+  identical office laptops differ (ruling 15).
+* **C3(d) — main-side launch block specified.** `activationBlocksLaunch` is the
+  pure decision; the ONE-line call site before `startApi()` is left for the
+  session main to wire (a beta/dev/e2e build never blocks).
+* **H5 — launch-time refresh.** `ActivationService.refreshOnLaunch()` re-checks a
+  stored licence once at launch against the issuer (contract `/refresh` on the
+  HTTP repo), persisting the renewed `expiresAt`; DORMANT while no server URL is
+  configured (only the network-backed repo carries `refresh`), and it swallows
+  `unreachable`.
+* **HTTPS-only issuer URL** (`sanitizeIssuerUrl`) — a configured issuer must be
+  `https://`; the sole exception is the dev stub on `http://127.0.0.1` /
+  `localhost`, and only when unpackaged.
+* **Fail closed** — a packaged non-beta build whose activation status read FAILS
+  is treated as "no licence" (the licence screen), never fallen open.
+
+Still MOCKED/pending: the strixgeo.com server, Stripe, the Ed25519 signature
+(the local file is still plain JSON), and `PACKAGED_ACTIVATION_URL` (still `null`).
+
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
 
@@ -336,6 +371,16 @@ check, not perpetual license keys — see #3's re-scope note.
 deactivate/transfer *required* (ruling 15) — without it a reinstall is a support
 email. That flow (confirmation dialog + 404/401/network handling) now exists; see
 #3's "Self-service deactivate/transfer" note.
+
+**Gate-hardening landed 2026-09-02** (with #3, branch `wt-activation`): the
+device-binding half of the tamper posture is now enforced client-side — a copied
+`activation.json` reads as `device-mismatch` and is blocked on any other machine
+(the Windows `MachineGuid` feeds the device id so two identical laptops differ),
+`STRIX_E2E` can no longer open the gate in a packaged exe, and a packaged build
+with no issuer no longer runs on the public demo keys. This is the deterrent
+posture debt #5 targets (not a cryptographic proof — the local licence file is
+still unsigned; the Ed25519 signature stays #3's pending TODO). See #3's
+"Packaged-gate hardening" note.
 
 **Owner ruling 2026-08-31 (SUPERSEDES the "readable source is acceptable"
 posture for the engine + parsers).** *"the underlying codebase should also be
