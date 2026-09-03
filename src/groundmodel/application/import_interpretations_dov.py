@@ -63,6 +63,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row impo
     InterpretationWfsRow,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.timing import ms_since
 
@@ -118,6 +119,7 @@ class ImportInterpretationsDov(GroundModelLogger):
         http: httpx.AsyncClient,
         *,
         wfs_row_map: dict[str, BoreholeWfsRow] | None = None,
+        backoff: DovRateLimitState | None = None,
     ) -> ImportInterpretationsDovResult:
         """Fetch + persist all interpretations in *bbox* for known boreholes.
 
@@ -138,6 +140,10 @@ class ImportInterpretationsDov(GroundModelLogger):
             Shared HTTP client opened by the parent orchestrator. Reusing
             it preserves the connection pool / HTTP/2 multiplexing benefit
             we already have for the borehole download phase.
+        backoff : DovRateLimitState | None
+            The import-wide rate-limit state shared with the parent borehole
+            phase and the sample phase, so a 429 seen anywhere halves the
+            download parallelism once for the phases that still run.
 
         Returns
         -------
@@ -179,7 +185,7 @@ class ImportInterpretationsDov(GroundModelLogger):
             )
 
         t_fetch = time.perf_counter()
-        client = DovInterpretationClient(http, cache=cache)
+        client = DovInterpretationClient(http, cache=cache, backoff=backoff)
         parsed = await fetch_wfs_or_raise(
             client.fetch_bbox_processed(
                 west,
