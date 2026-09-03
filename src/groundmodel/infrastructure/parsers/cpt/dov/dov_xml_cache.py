@@ -110,9 +110,19 @@ class DovXmlCache(GroundModelLogger):
         # Write to a temp file then rename — a half-written .xml file would later
         # parse as broken XML and confuse the import. os.replace is atomic on the
         # same filesystem on every platform we target.
+        #
+        # fsync BEFORE the rename: the rename is atomic w.r.t. directory entries,
+        # but without flushing the file's own data first a crash between write and
+        # rename (or a rename whose metadata reaches disk before the data blocks)
+        # can leave the published cache entry pointing at zero/garbage bytes that
+        # later parse as broken XML. Forcing the bytes to disk first means the
+        # atomic rename only ever publishes fully-written data.
         tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
-            tmp.write_bytes(xml_bytes)
+            with open(tmp, "wb") as f:
+                f.write(xml_bytes)
+                f.flush()
+                os.fsync(f.fileno())
             tmp.replace(path)
         except OSError as exc:
             self.warning(f"DOV cache: write failed for {permkey!r}: {exc}")
@@ -127,6 +137,24 @@ class DovXmlCache(GroundModelLogger):
         if self._max_bytes is not None and self._writes_since_check >= _EVICT_CHECK_INTERVAL:
             self._writes_since_check = 0
             self._maybe_evict()
+
+    def delete(self, permkey: str) -> None:
+        """Remove the cached entry for *permkey*. Silently no-op when absent.
+
+        Used to invalidate a cached XML that no longer parses: the download
+        helper unlinks the poisoned entry so a single network re-fetch can
+        replace it, rather than reading the same broken bytes on every future
+        import. Like every cache operation this never raises — a failed unlink
+        (permission / race) is logged and the import continues; the stale entry
+        simply survives to be retried again next time.
+        """
+        path = self._path_for(permkey)
+        if path is None:
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            self.warning(f"DOV cache: delete failed for {permkey!r}: {exc}")
 
     def _path_for(self, permkey: str) -> Path | None:
         """Return the cache file path for *permkey*, or None if the key is unsafe."""
