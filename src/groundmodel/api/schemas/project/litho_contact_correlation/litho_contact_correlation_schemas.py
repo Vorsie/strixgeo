@@ -19,8 +19,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class ContactCorrelationRequest(BaseModel):
+
+class ContactCorrelationRequest(StrictRequestModel):
     """Body for POST and DELETE /contact-correlations.
 
     Attributes
