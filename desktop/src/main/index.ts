@@ -1454,8 +1454,11 @@ ipcMain.handle(
     // inject an arbitrary path into the authorised-path set — voiding the guard
     // that ``fs:read-file`` / ``export:write-file`` rely on — by naming it here.
     // Every legitimate add-recent follows an open/save dialog (or a recents open)
-    // that already authorised the path.
-    if (!pathIsAuthorised(filePath)) {
+    // that already authorised the path. The ONE exception is the e2e harness,
+    // which seeds its fixture project into recents by this IPC with a temp path
+    // it wrote itself: the launch flag is never honoured in a packaged build
+    // (prototypeFlags.ts), so the carve-out cannot reach a customer.
+    if (!pathIsAuthorised(filePath) && !e2eLaunchFlag(process.env, app.isPackaged)) {
       throw new Error(`project:add-recent refused — path not authorised: ${filePath}`)
     }
     const updated = addRecentProject(filePath, name)
