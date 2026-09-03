@@ -33,6 +33,8 @@ import {
 } from './parameterBodyTree'
 import { useBodyUnions } from './useBodyUnions'
 import { useModelBodies } from './useModelBodies'
+import UnitGroupActionBar from './UnitGroupActionBar'
+import { useUnitGrouping } from './useUnitGrouping'
 
 /** One visible tree row after the expand state is applied. */
 interface FlatRow {
@@ -131,13 +133,16 @@ export default function UnitListPane(): JSX.Element {
       geotechLayersLoaded,
       activeLithoModel,
       activeGeotechModel,
+      requestGeotechLayersRefetch,
     },
     coordinator: {
       selectedParameterUnit,
       setSelectedParameterUnit,
       bodyRecomputeLithoNonce,
       bodyRecomputeGeotechNonce,
+      requestBodyRecompute,
     },
+    toasts: { toast },
   } = useShell()
   const t = useT()
 
@@ -166,6 +171,23 @@ export default function UnitListPane(): JSX.Element {
     () => geotechGroupOrdinals(bodyUnionsToGroupPairs(bodyUnions)),
     [bodyUnions],
   )
+
+  // The right-pane "Group" / "Ungroup" gesture (owner finding 2026-09-03): a
+  // checkbox multi-select over the geotech-body rows + a bulk bar that fires the
+  // SAME body-union client the section-canvas Join uses. Called before the early
+  // returns so its internal hooks stay unconditional.
+  const grouping = useUnitGrouping({
+    projectId: project?.id ?? null,
+    geotechModelId: activeGeotechModel?.id ?? null,
+    geotechLayers,
+    geotechFormations: geotechFormations ?? [],
+    bodyUnions,
+    groupByBodyId,
+    requestBodyRecompute,
+    requestGeotechLayersRefetch,
+    toast,
+    t,
+  })
 
   const tree = useMemo(
     () =>
@@ -258,10 +280,27 @@ export default function UnitListPane(): JSX.Element {
         <div className="text-[10px] uppercase tracking-wide text-text-muted">{t('params.unitsHeader')}</div>
       </div>
 
+      {/* The bulk bar sits at the TOP of the list when a body selection is
+          active (docs/ux.md: "N selected · Group · Clear"). */}
+      {grouping.count > 0 && (
+        <UnitGroupActionBar
+          count={grouping.count}
+          guard={grouping.guard}
+          hasGrouped={grouping.hasGroupedInSelection}
+          busy={grouping.busy}
+          onGroup={grouping.group}
+          onUngroup={grouping.ungroup}
+          onClear={grouping.clear}
+        />
+      )}
+
       <ul role="listbox" aria-label={t('params.unitsHeader')} className="flex-1 min-h-0 overflow-auto">
         {rows.map(({ node, depth }) => {
           const key = scopeKey(node.scope)
           const expandable = node.children.length > 0
+          // Only geotech bodies are groupable, so only their rows carry a
+          // multi-select checkbox (the guard + the union client are body-level).
+          const checkableBodyId = node.scope.kind === 'geotech-body' ? node.scope.bodyId : null
           return (
             <NodeRow
               key={key}
@@ -272,6 +311,9 @@ export default function UnitListPane(): JSX.Element {
               expanded={expandable && isOpen(key)}
               onSelect={() => setSelectedParameterUnit(node.scope)}
               onToggleExpand={() => toggleExpanded(key)}
+              checkableBodyId={checkableBodyId}
+              checked={checkableBodyId !== null && grouping.isChecked(checkableBodyId)}
+              onToggleCheck={checkableBodyId !== null ? () => grouping.toggle(checkableBodyId) : undefined}
             />
           )
         })}
@@ -305,6 +347,9 @@ function NodeRow({
   expanded,
   onSelect,
   onToggleExpand,
+  checkableBodyId,
+  checked,
+  onToggleCheck,
 }: {
   node: ParameterTreeNode
   depth: number
@@ -313,6 +358,12 @@ function NodeRow({
   expanded: boolean
   onSelect: () => void
   onToggleExpand: () => void
+  /** The geotech body id this row can multi-select, or ``null`` (not groupable). */
+  checkableBodyId: string | null
+  /** Current checkbox state (only meaningful when ``checkableBodyId`` is set). */
+  checked: boolean
+  /** Toggle the checkbox; absent on non-groupable rows. */
+  onToggleCheck?: () => void
 }): JSX.Element {
   const t = useT()
   const key = scopeKey(node.scope)
@@ -349,6 +400,22 @@ function NodeRow({
       data-testid={`parameters-node-${key}`}
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-primary">
+        {/* Multi-select checkbox — geotech-body rows only (docs/ux.md: always
+            visible, left of the row icon). ``tabIndex=-1`` keeps the listbox a
+            single tab stop (F11); it is a mouse-first power-user affordance, and
+            ``stopPropagation`` stops the click from also selecting the row. */}
+        {checkableBodyId !== null && (
+          <input
+            type="checkbox"
+            tabIndex={-1}
+            checked={checked}
+            aria-label={t('params.groupCheckboxAria', { label: node.label })}
+            data-testid={`parameters-node-check-${key}`}
+            onClick={e => e.stopPropagation()}
+            onChange={() => onToggleCheck?.()}
+            className="shrink-0 accent-accent cursor-pointer"
+          />
+        )}
         {expandable ? (
           // A SPAN, not a button (F11: no focusable descendant inside an
           // option). The option itself carries aria-expanded + the arrow keys,
