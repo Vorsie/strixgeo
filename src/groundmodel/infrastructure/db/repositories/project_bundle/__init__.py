@@ -72,6 +72,7 @@ from .bundle_restore_core import (
     _restore_project_bundle_impl,
     _wipe_project_scoped_rows,
 )
+from .bundle_restore_drops import BundleRestoreDrops
 from .bundle_restore_litho import (
     _attach_companion_body_links,
     _restore_bodies,
@@ -123,6 +124,7 @@ from .bundle_serialization import (
 __all__ = [
     # Public API
     "BundleIntegrityError",
+    "BundleRestoreDrops",
     "ProjectBundleService",
     "build_project_bundle",
     "restore_project_bundle",
@@ -259,6 +261,7 @@ class ProjectBundleService(GroundModelLogger):
         body_unions_payload: list[dict[str, Any]] | None = None,
         *,
         replace: bool = False,
+        drops: BundleRestoreDrops | None = None,
     ) -> ProjectOrm:
         """Idempotently materialise the project tree from a bundle.
 
@@ -306,6 +309,9 @@ class ProjectBundleService(GroundModelLogger):
             (revert-to-last-save, debt #160) so the project ends up matching
             the bundle exactly. When False (default), insert is idempotent —
             existing rows are skipped (the open-from-file path).
+        drops : BundleRestoreDrops | None
+            Mutable tally, mutated in place, of rows the size caps dropped, so
+            the caller can surface them in the restore response (L6).
 
         Returns
         -------
@@ -342,6 +348,7 @@ class ProjectBundleService(GroundModelLogger):
             body_unions_payload=body_unions_payload,
             logger=self,
             replace=replace,
+            drops=drops,
         )
 
 
@@ -397,6 +404,7 @@ async def restore_project_bundle(
     body_unions_payload: list[dict[str, Any]] | None = None,
     *,
     replace: bool = False,
+    drops: BundleRestoreDrops | None = None,
 ) -> ProjectOrm:
     """Backwards-compat wrapper — see ``ProjectBundleService.restore``.
 
@@ -442,6 +450,8 @@ async def restore_project_bundle(
         User "Join with…" rulings (owner 2026-08-31, debt #278).
     replace : bool
         When True, wipe before insert (revert-to-last-save).
+    drops : BundleRestoreDrops | None
+        Mutable tally, mutated in place, of rows the size caps dropped (L6).
 
     Returns
     -------
@@ -473,4 +483,5 @@ async def restore_project_bundle(
         body_separations_payload=body_separations_payload,
         body_unions_payload=body_unions_payload,
         replace=replace,
+        drops=drops,
     )
