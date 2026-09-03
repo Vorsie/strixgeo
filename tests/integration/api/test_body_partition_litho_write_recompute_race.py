@@ -381,3 +381,328 @@ async def test_bp2_a_boundary_move_and_a_recompute_never_500_on_the_same_model(
         f"BP-2 FAIL: {len(unstamped)} accepted layer(s) left with no body_id after "
         "the concurrent rounds"
     )
+
+
+# ===========================================================================
+# BP-4 — a batch-accept and a bodies/recompute on the same model must not collide.
+# ===========================================================================
+#
+# BP-2 (above) races the SIMPLEST member of the non-lock-taking litho-row-writer
+# class — a boundary move UPDATEing two existing rows. BP-4 races the member the
+# e2e app hits every time: ``layers/batch-accept-litho-suggestions`` INSERTing a
+# fresh multi-layer column while the app's debounced ``bodies/recompute`` for the
+# same model is in flight. That is the owner's note verbatim ("flow_bulk_accept hit
+# a PostgreSQL deadlock on POST .../bodies/recompute"): the accept path INSERTs
+# accepted ``litho_layer`` rows (and the FK KEY-SHARE locks they take on the
+# ``body`` rows recompute re-stamps) with NO body-partition lock, so it and
+# recompute are not serialised.
+#
+# The fix takes the model's partition lock at the top of ``BatchAcceptLithoSuggestions
+# .execute`` — ONCE for the whole batch, before the first per-anchor INSERT — in the
+# resolver's canonical order (own litho lock, then the sibling geotech children).
+# Expected outcome mirrors BP-2:
+#
+# * GREEN over the rounds → with the lock the batch serialises with recompute rather
+#   than deadlocking; every fresh column lands whole (the batch commit is
+#   all-or-nothing) and no engineer's accept dies on a race between two of the app's
+#   own writes.
+# * RED (a 5xx / DeadlockDetectedError on either arm, or a fresh column left
+#   non-contiguous after a mid-flight rollback tripped the litho contiguity trigger)
+#   → the hole is real and the writer still skips the lock.
+#
+# Reuses the two-layer-per-anchor SEED scene + ``_recompute_payload`` from BP-2 for
+# the recompute arm (a stable churn target), and adds a pool of FRESH boreholes — one
+# accepted per round — for the accept arm, so the accept does a REAL contiguous
+# multi-layer INSERT every round (which is what gives the contiguity check teeth).
+
+# Seed columns the recompute arm churns (mirrors BP-2's reasoning on component churn).
+BP4_SEED_COLUMNS = 6
+
+# Fresh boreholes accepted one-per-round; the accept arm INSERTs a real column each.
+BP4_ROUNDS = 20
+
+
+class _Bp4Scene:
+    """The seed ``_Scene`` (recompute arm) plus the fresh borehole pool (accept arm)."""
+
+    def __init__(self, seed: _Scene, fresh_borehole_ids: list[UUID]) -> None:
+        self.seed = seed
+        self.fresh_borehole_ids = fresh_borehole_ids
+
+    @property
+    def project_id(self) -> UUID:
+        """Project id, shared by both arms."""
+        return self.seed.project_id
+
+    @property
+    def model_id(self) -> UUID:
+        """The one litho model both arms write to."""
+        return self.seed.model_id
+
+
+@pytest_asyncio.fixture
+async def bp4_scene(db_session: AsyncSession) -> _Bp4Scene:
+    """A SEED of pre-accepted SAND/CLAY columns + a pool of fresh, unaccepted boreholes.
+
+    The seed set is built exactly like ``bp2_scene`` (SAND-over-CLAY accepted pair
+    per borehole, body_id stamped once) so ``_recompute_payload`` drives the
+    recompute arm unchanged. The fresh boreholes carry NO litho layers — each round
+    accepts one, so the accept arm INSERTs a genuine two-layer column while recompute
+    churns the seed. The project has exactly ONE section (over the seed), which is
+    all the recompute coverage guard (P1-3) checks.
+    """
+    project = ProjectOrm(id=uuid7(), name="BP4 batch-accept race project", status="active")
+    db_session.add(project)
+    await db_session.flush()
+
+    geo = GeologicalModelOrm(
+        id=uuid7(), app_project_id=project.id, name="BP4-Geo", kind="geological"
+    )
+    db_session.add(geo)
+    await db_session.flush()
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="BP4-Litho",
+        kind="lithostratigraphic",
+        parent_model_id=geo.id,
+    )
+    sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND-BP4",
+        color="#e0c068",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+        instance_ordinal=0,
+    )
+    clay = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="KLEI-BP4",
+        color="#8a6d3b",
+        display_order=1,
+        litho_main_soil_code="KLEI",
+        instance_ordinal=0,
+    )
+    section = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="BP4-Section",
+        start_x=160_000.0,
+        start_y=200_000.0,
+        end_x=160_000.0 + 25.0 * BP4_SEED_COLUMNS,
+        end_y=200_000.0,
+        epsg=31370,
+        projection_buffer_m=60.0,
+    )
+    db_session.add_all([model, sand, clay, section])
+    await db_session.flush()
+
+    # --- Seed columns (recompute arm): SAND over CLAY, accepted. ---
+    upper_layer_ids: list[UUID] = []
+    lower_layer_ids: list[UUID] = []
+    investigation_ids: list[UUID] = []
+    for i in range(BP4_SEED_COLUMNS):
+        borehole = BoreholeOrm(
+            id=uuid7(),
+            name=f"BH-BP4-seed-{i}",
+            app_project_id=project.id,
+            project_id="BP4",
+            test_id=f"BH-BP4-seed-{i}",
+            location_x=160_000.0 + i * 25.0,
+            location_y=200_000.0,
+            epsg=31370,
+            total_depth_m=20.0,
+        )
+        db_session.add(borehole)
+        await db_session.flush()
+        upper = LithoLayerOrm(
+            id=uuid7(),
+            model_id=model.id,
+            formation_id=sand.id,
+            borehole_id=borehole.id,
+            depth_top_m=_COLUMN_TOP_M,
+            depth_base_m=_SHARED_BOUNDARY_M,
+            status="accepted",
+            source="manual",
+            confidence="medium",
+        )
+        lower = LithoLayerOrm(
+            id=uuid7(),
+            model_id=model.id,
+            formation_id=clay.id,
+            borehole_id=borehole.id,
+            depth_top_m=_SHARED_BOUNDARY_M,
+            depth_base_m=_COLUMN_BASE_M,
+            status="accepted",
+            source="manual",
+            confidence="medium",
+        )
+        db_session.add_all([upper, lower])
+        upper_layer_ids.append(upper.id)
+        lower_layer_ids.append(lower.id)
+        investigation_ids.append(borehole.id)
+
+    # --- Fresh boreholes (accept arm): NO litho layers, one accepted per round. ---
+    fresh_borehole_ids: list[UUID] = []
+    for i in range(BP4_ROUNDS):
+        fresh = BoreholeOrm(
+            id=uuid7(),
+            name=f"BH-BP4-fresh-{i}",
+            app_project_id=project.id,
+            project_id="BP4",
+            test_id=f"BH-BP4-fresh-{i}",
+            # Placed clear of the seed columns; the accept arm does not need them
+            # on the section (accept is per-anchor, section_id omitted below).
+            location_x=160_000.0 + (100 + i) * 25.0,
+            location_y=200_000.0,
+            epsg=31370,
+            total_depth_m=20.0,
+        )
+        db_session.add(fresh)
+        fresh_borehole_ids.append(fresh.id)
+
+    project_id, model_id, sand_id, clay_id, section_id = (
+        project.id,
+        model.id,
+        sand.id,
+        clay.id,
+        section.id,
+    )
+    await db_session.commit()
+    # Stamp body_id once so the seed starts coherent (mirrors BP-1/BP-2).
+    await ResolveLithoInstances(db_session).execute(model_id=model_id)
+
+    seed = _Scene(
+        project_id=project_id,
+        model_id=model_id,
+        sand_formation_id=sand_id,
+        clay_formation_id=clay_id,
+        upper_layer_ids=upper_layer_ids,
+        lower_layer_ids=lower_layer_ids,
+        investigation_ids=investigation_ids,
+        section_id=section_id,
+    )
+    return _Bp4Scene(seed=seed, fresh_borehole_ids=fresh_borehole_ids)
+
+
+def _bp4_accept_body(fresh_borehole_id: UUID) -> dict:
+    """A fresh, contiguous SAND-over-CLAY column for one borehole (batch-accept shape).
+
+    Two adjacent suggestions (ZAND 0–2 m, KLEI 2–5 m) — a gap-free column the litho
+    contiguity trigger accepts. ``section_id`` is omitted: the accept arm exercises
+    the write path, not section seeding, and the fresh boreholes are off-section.
+    ``run_inference`` is False so a mid-round failure surfaces on the accept write
+    itself, not on a downstream inference pass.
+    """
+    return {
+        "anchors": [
+            {
+                "borehole_id": str(fresh_borehole_id),
+                "suggestions": [
+                    {
+                        "depth_top_m": 0.0,
+                        "depth_base_m": 2.0,
+                        "suggested_lithology": "ZAND",
+                        "confidence": "high",
+                        "source": "borehole_observation",
+                        "suggested_admixtures": [],
+                    },
+                    {
+                        "depth_top_m": 2.0,
+                        "depth_base_m": 5.0,
+                        "suggested_lithology": "KLEI",
+                        "confidence": "high",
+                        "source": "borehole_observation",
+                        "suggested_admixtures": [],
+                    },
+                ],
+            }
+        ],
+        "run_inference": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_bp4_a_batch_accept_and_a_recompute_never_500_on_the_same_model(
+    bp4_scene: _Bp4Scene,
+    db_session: AsyncSession,
+    async_client: AsyncClient,
+) -> None:
+    """BP-4 — a batch-accept and a bodies/recompute run at once without a 5xx.
+
+    ``BatchAcceptLithoSuggestions`` INSERTs a fresh accepted ``litho_layer`` column
+    (and takes the FK KEY-SHARE locks its rows imply on the ``body`` rows recompute
+    re-stamps); ``bodies/recompute`` re-stamps ``body_id`` under the per-model
+    advisory lock. With the fix the batch takes that same lock once before its first
+    INSERT, so the two serialise. A user pressing "Accept all" while the app's own
+    background recompute is running must either apply or be refused for a reason the
+    engineer can act on — never die on a race between two of the app's own writes,
+    and never leave a half-written, non-contiguous column behind.
+    """
+    batch_accept_url = (
+        f"/projects/{bp4_scene.project_id}/geology/models/{bp4_scene.model_id}"
+        "/layers/batch-accept-litho-suggestions"
+    )
+    recompute_url = (
+        f"/projects/{bp4_scene.project_id}/geology/models/{bp4_scene.model_id}/bodies/recompute"
+    )
+
+    rng = random.Random(2027)
+    server_errors: list[str] = []
+
+    def _check(label: str, outcome: Response | BaseException) -> None:
+        """Record anything that is not an answer the engineer could act on (as BP-2)."""
+        if isinstance(outcome, BaseException):
+            server_errors.append(f"{label} raised {type(outcome).__name__}: {str(outcome)[:400]}")
+        elif outcome.status_code >= 500:
+            server_errors.append(f"{label} → {outcome.status_code}: {outcome.text[:400]}")
+
+    for round_index in range(BP4_ROUNDS):
+        group_size = rng.randint(0, BP4_SEED_COLUMNS)
+        fresh_bh = bp4_scene.fresh_borehole_ids[round_index]
+
+        recompute_outcome, accept_outcome = await asyncio.gather(
+            async_client.post(recompute_url, json=_recompute_payload(bp4_scene.seed, group_size)),
+            async_client.post(batch_accept_url, json=_bp4_accept_body(fresh_bh)),
+            return_exceptions=True,
+        )
+        _check("bodies/recompute", recompute_outcome)
+        _check("layers/batch-accept-litho-suggestions", accept_outcome)
+
+    assert not server_errors, (
+        "BP-4 FAIL: a batch-accept and a bodies/recompute on the same model produced "
+        f"{len(server_errors)} server error(s) — the batch-accept path skipped the "
+        "body-partition lock and raced recompute's body_id re-stamp:\n"
+        + "\n".join(server_errors[:5])
+    )
+
+    # Every fresh column landed whole and contiguous: exactly two accepted layers
+    # (ZAND 0→2, KLEI 2→5) per borehole, gap-free. A mid-flight rollback that tripped
+    # the litho contiguity trigger would surface here as a missing or broken column.
+    db_session.expire_all()
+    for bh_id in bp4_scene.fresh_borehole_ids:
+        rows = (
+            await db_session.execute(
+                select(LithoLayerOrm.depth_top_m, LithoLayerOrm.depth_base_m)
+                .where(
+                    LithoLayerOrm.model_id == bp4_scene.model_id,
+                    LithoLayerOrm.borehole_id == bh_id,
+                    LithoLayerOrm.status == "accepted",
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        ).all()
+        assert len(rows) == 2, (
+            f"BP-4 FAIL: fresh borehole {bh_id} has {len(rows)} accepted layer(s) after "
+            "the concurrent rounds, expected a whole 2-layer column"
+        )
+        assert abs(rows[0].depth_top_m - 0.0) < 1e-6 and abs(rows[1].depth_top_m - 2.0) < 1e-6, (
+            f"BP-4 FAIL: fresh borehole {bh_id} column tops are {[r.depth_top_m for r in rows]}, "
+            "expected [0.0, 2.0]"
+        )
+        assert abs(rows[0].depth_base_m - rows[1].depth_top_m) < 1e-6, (
+            f"BP-4 FAIL: fresh borehole {bh_id} column is not contiguous — upper base "
+            f"{rows[0].depth_base_m} != lower top {rows[1].depth_top_m}"
+        )
