@@ -62,7 +62,14 @@ export type LicenceTier = (typeof LICENCE_TIERS)[number]
  * does: when the machine clock disagrees with our own high-water mark, no date
  * arithmetic based on that clock is trustworthy.
  */
-export type LicenceState = 'unactivated' | 'trial' | 'active' | 'grace' | 'expired' | 'clock-rollback'
+export type LicenceState =
+  | 'unactivated'
+  | 'trial'
+  | 'active'
+  | 'grace'
+  | 'expired'
+  | 'clock-rollback'
+  | 'device-mismatch'
 
 /**
  * The licence a device holds locally.
@@ -125,6 +132,11 @@ function isUsableInstant(value: unknown): value is number {
  * licence : Licence | null
  *     The locally-stored licence, or ``null`` when the app has never been
  *     activated.
+ * storeDeviceId : string
+ *     This installation's own device id (from ``activationStore``). A licence
+ *     whose ``deviceId`` differs was activated on another machine — a copied
+ *     ``activation.json`` — and is blocked with a ``device_mismatch`` reason
+ *     (owner ruling 15: one device per Solo seat; audit C3(c)).
  * highWaterMs : number
  *     The highest instant this installation has ever observed (the monotonic
  *     anchor's ``lastSeenMs``; see ``betaExpiryStore.ts``). Used to detect a
@@ -140,6 +152,7 @@ function isUsableInstant(value: unknown): value is number {
  */
 export function evaluateActivation(
   licence: Licence | null | undefined,
+  storeDeviceId: string,
   highWaterMs: number,
   nowMs: number,
 ): ActivationVerdict {
@@ -158,6 +171,26 @@ export function evaluateActivation(
   }
 
   const graceEndsAtMs = licence.expiresAtMs + licence.graceWindowMs
+
+  // Device binding runs before any date arithmetic (owner ruling 15, audit
+  // C3(c)): a licence carries the device it was activated on, so a copied
+  // ``activation.json`` on another machine — a store device id that differs from
+  // the licence's — is blocked outright, whatever its dates say. Only compared
+  // when both ids are present; a store that never seeded an id cannot mint a
+  // false mismatch.
+  if (storeDeviceId && licence.deviceId && licence.deviceId !== storeDeviceId) {
+    return {
+      state: 'device-mismatch',
+      blocked: true,
+      tier: licence.tier,
+      isTrial: licence.isTrial,
+      daysRemaining: null,
+      graceDaysRemaining: null,
+      expiresAtMs: licence.expiresAtMs,
+      graceEndsAtMs,
+      reason: 'licence activated on another device (device_mismatch) — activate this machine',
+    }
+  }
 
   // The clock check runs first, exactly as in the beta gate: a machine that
   // disagrees with what we have already observed cannot be trusted to date the
@@ -220,4 +253,55 @@ export function evaluateActivation(
     graceEndsAtMs,
     reason: 'licence expired and the offline grace window has closed',
   }
+}
+
+/** The facts a main-side launch gate weighs (audit C3(d)). */
+export interface ActivationLaunchInputs {
+  /** ``app.isPackaged`` — a dev build never blocks. */
+  packaged: boolean
+  /** True under the e2e harness (already gated on ``!packaged`` at its source). */
+  e2e: boolean
+  /** True when this build carries a (usable) beta stamp — it runs on the stamp. */
+  betaStampPresent: boolean
+  /** The evaluated activation verdict; only ``blocked`` is consulted. */
+  verdict: { blocked: boolean }
+}
+
+/**
+ * Whether a PACKAGED build should refuse to open (and skip spawning the backend)
+ * because of activation — the main-side counterpart to the renderer start-screen
+ * gate (audit C3(d)).
+ *
+ * The rule, in the owner's own words: *"a beta build runs on its stamp; a
+ * non-beta packaged build with no issuer cannot activate"*:
+ *
+ * * a dev build NEVER blocks (the daily dogfeed is untouched);
+ * * the e2e harness NEVER blocks (a licence gate would brick the suite);
+ * * a BETA build NEVER blocks on activation — the beta stamp is its authority,
+ *   enforced by the separate beta-expiry gate that already ran before this;
+ * * only a non-beta, packaged, non-e2e build with a blocked verdict is stopped.
+ *
+ * Pure, so vitest exercises every branch; ``index.ts`` calls it before
+ * ``startApi()`` (the session main wires the one call site).
+ *
+ * Parameters
+ * ----------
+ * input : ActivationLaunchInputs
+ *     The packaged / e2e / beta facts and the activation verdict.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` only when a non-beta, packaged, non-e2e build has a blocked
+ *     verdict.
+ */
+export function activationBlocksLaunch(input: ActivationLaunchInputs): boolean {
+  // Dev dogfeed is never blocked — the owner's daily flow must be untouched.
+  if (!input.packaged) return false
+  // The e2e harness is never blocked — a licence gate would brick the suite.
+  if (input.e2e) return false
+  // A beta build runs on its STAMP, not on a licence: the beta-expiry gate is its
+  // authority and already refused an expired beta before this point.
+  if (input.betaStampPresent) return false
+  return input.verdict.blocked
 }
