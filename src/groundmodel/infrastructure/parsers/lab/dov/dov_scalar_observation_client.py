@@ -41,6 +41,7 @@ import httpx
 from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WGS84_TO_LAMBERT72,
 )
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -93,12 +94,18 @@ class DovScalarObservationClient(GroundModelLogger):
         Shared async HTTP client. ``follow_redirects=True`` is enforced by
         the parent orchestrator but doesn't matter here — WFS returns JSON
         directly, no redirects.
+    backoff : DovRateLimitState | None
+        Optional per-import rate-limit state shared with the other borehole
+        sub-clients. Threaded into the WFS request layer so a 429 seen during
+        this (WFS-only) discovery halves the import's download parallelism once
+        for the phases that still run. ``None`` keeps the retry without it.
     """
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
+    def __init__(self, http: httpx.AsyncClient, backoff: DovRateLimitState | None = None) -> None:
         """Initialise with the shared HTTP client."""
         super().__init__(__name__)
         self._http = http
+        self._backoff = backoff
 
     async def fetch_bbox(
         self,
@@ -204,6 +211,7 @@ class DovScalarObservationClient(GroundModelLogger):
             y2=y2,
             cql_filter=cql_filter,
             label="scalar-observation",
+            backoff=self._backoff,
         )
 
     async def _wfs_features(
@@ -220,6 +228,7 @@ class DovScalarObservationClient(GroundModelLogger):
             y2=y2,
             cql_filter=cql_filter,
             label="scalar-observation",
+            backoff=self._backoff,
         )
         if features:
             first_props = list(features[0].get("properties", {}).keys())
