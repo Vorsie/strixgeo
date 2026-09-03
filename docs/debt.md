@@ -211,6 +211,25 @@ Verified end to end on this machine: `initdb` → server → `CREATE
 EXTENSION postgis` → all 96 migrations to head in 4.2 s → `ST_Transform`
 to Lambert72 → clean `pg_ctl` shutdown.
 
+**Upgrade + recovery hardening landed 2026-09-03 (production-readiness audit
+H2).** Three of the "upgrade paths across Postgres major versions" and
+unattended-migration risks are now closed. (1) A pre-migration `pg_dump -Fc`
+checkpoint is written to `<userData>/backups/pre-<from>-<to>-<ts>.dump` before
+any pending upgrade (five kept); a dump failure aborts the upgrade
+(`migrate.py` exit 5) — never migrate a store with pending data-rewriting
+migrations without a recovery point. A migration declares `DATA_REWRITE = True`
+and the migrator names which pending ones rewrite user rows. (2) An older build
+over a store a newer StrixGeo migrated (unknown stamped revision) raises
+`NewerDatabaseError` (exit 6, "install the current version; your data is
+intact") instead of bricking boot. (3) `initialiseCluster` refuses a `pgdata`
+whose `PG_VERSION` major differs from the bundled major, and the migration
+timeout scales with data-dir size (180 s + 60 s/GB) so a slow migration on a
+large store is not killed-and-retried each launch. Backend + main-process logic
+is unit-tested; the `pg_dump` subprocess and the packaged env wiring
+(`STRIX_PG_DUMP_PATH` / `STRIX_BACKUP_DIR`) still need the clean-box pass.
+Details: [distribution-build.md](distribution-build.md) and
+[design/autosave-recovery.md](design/autosave-recovery.md) §7.
+
 **When to revisit.** On the first install on a machine that is NOT the
 development box — specifically one with no Docker, a non-ASCII/spaced
 user profile, and an antivirus that has never seen these binaries. The
