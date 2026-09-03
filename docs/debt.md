@@ -9723,3 +9723,27 @@ ships the assets. Replaced by a MINIMAL dot-named config carrying only the secon
 renderer entry (`sheet.html`). The old file's Cesium define/intro, the React plugin and
 the Cesium dev-server plugin were never in effect; activating them would be a deliberate,
 verified change (git history has the file). Folded into #200.
+
+## 282. Voxel Build has no progress feedback or cancel (M — Tier E)
+
+**What.** `POST /geology/models/{id}/litho-solids` (build_voxel_litho_solids →
+`BuildVoxelLithoModel.execute`) is a single blocking request: the three CPU
+phases (`label_voxels`, `reconcile_sections`, `extract_body_solids`, each in
+`asyncio.to_thread`) run to completion before the response returns. The user
+sees a spinner with no phase-name progress and cannot cancel a long build.
+
+**Why deferred (2026-09-02 scaling slice — M7e).** It does NOT fit the existing
+request patterns without a redesign: the only streaming/SSE machinery today is
+the per-request DOV import generator (`_dov_stream_helpers.py`), which does not
+bridge a `to_thread` worker back to the client, and there is no cross-request
+job/progress registry. Adding this needs (a) a streaming build endpoint OR a
+progress registry keyed by build id, (b) a thread→event-loop channel so the CPU
+phases can emit "phase 2/3 …" from inside `to_thread`, (c) a cooperative cancel
+flag threaded into `label_voxels`' per-column loop and checked between columns
+(a domain-kernel signature change), and (d) a frontend progress consumer + a
+cancel button. Every one of those is new mechanism, so the slice stopped here
+per its own guard rather than half-building it.
+
+**When to revisit.** When a real project's Build is slow enough that the missing
+cancel/progress is a dogfeed complaint, or alongside the next job-system pass —
+whichever comes first. Effort: ~days across API + domain + frontend.
