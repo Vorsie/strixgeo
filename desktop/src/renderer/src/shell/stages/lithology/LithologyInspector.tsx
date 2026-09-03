@@ -49,6 +49,7 @@ import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import ConfirmParentDialog from './ConfirmParentDialog'
+import LithoExcludedBoreholes from './LithoExcludedBoreholes'
 import ModelKindPicker from './ModelKindPicker'
 import { useT, type Translator } from '../../../i18n/translate'
 
@@ -67,6 +68,7 @@ import { useT, type Translator } from '../../../i18n/translate'
 export default function LithologyInspector(): JSX.Element {
   const {
     project,
+    visibleBoreholes,
     geoModel: {
       activeGeologicalModel,
       activeLithoModel,
@@ -75,6 +77,7 @@ export default function LithologyInspector(): JSX.Element {
       lithoContacts,
       refetchFormations,
       handleClearLithoModel,
+      handleToggleBoreholeInLithoModel,
       lithoSolids,
       setBodyColor,
       hideMarkers,
@@ -83,6 +86,15 @@ export default function LithologyInspector(): JSX.Element {
     overlays: { showConfidenceFade, handleSetShowConfidenceFade },
   } = useShell()
   const t = useT()
+
+  // Debt #65: id → name lookup for the excluded-boreholes list. Built from the
+  // visible boreholes; a since-removed borehole falls back to a generic label
+  // in the child so it stays recoverable.
+  const boreholeNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const b of visibleBoreholes) m.set(b.id, b.name)
+    return m
+  }, [visibleBoreholes])
 
   // Debt #94 fix: clear-model confirm dialog state.
   const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
@@ -380,6 +392,16 @@ export default function LithologyInspector(): JSX.Element {
             setBodyColor={setBodyColor}
             hideMarkers={hideMarkers}
             onToggleHideMarkers={setHideMarkers}
+            t={t}
+          />
+
+          {/* Debt #65: boreholes the backend excluded from the litho build.
+              Renders only when the model has exclusions; "Include again" brings
+              one back immediately (reversible — Ctrl+Z undo + a toast). */}
+          <LithoExcludedBoreholes
+            excludedBoreholeIds={activeLithoModel.excluded_borehole_ids}
+            boreholeNameById={boreholeNameById}
+            onIncludeAgain={id => void handleToggleBoreholeInLithoModel(id, true)}
             t={t}
           />
 
