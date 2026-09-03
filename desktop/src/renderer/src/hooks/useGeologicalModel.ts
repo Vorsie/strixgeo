@@ -400,6 +400,10 @@ export interface UseGeologicalModelResult {
   handleRebuildSurfaces: () => Promise<void>
   handleExportModelPlaxis3d: () => Promise<void>
   handleToggleBoreholeInModel: (boreholeId: string, included: boolean) => Promise<void>
+  /** Include ("Include again") or exclude a borehole in the active LITHO model
+   *  (debt #65). Mirror of ``handleToggleBoreholeInModel`` for the litho
+   *  model. */
+  handleToggleBoreholeInLithoModel: (boreholeId: string, included: boolean) => Promise<void>
   // Discard bridge — removes a set of contact ids from local state
   // without a DB call (the DB deletes are the caller's responsibility).
   // Used by discardSessionImports in App.tsx (moving to
@@ -1837,6 +1841,7 @@ export function useGeologicalModel({
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,
     handleToggleBoreholeInModel,
+    handleToggleBoreholeInLithoModel,
     handleDeleteModel,
   } = useGeologicalModelOps({
     project,
@@ -1858,6 +1863,8 @@ export function useGeologicalModel({
     refetchFormations,
     refetchSurfaces,
     refetchLithoContacts,
+    activeLithoModel,
+    setActiveLithoModel,
   })
 
   // Removes a set of contact ids from local state only (no DB call).
@@ -2831,6 +2838,7 @@ export function useGeologicalModel({
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,
     handleToggleBoreholeInModel,
+    handleToggleBoreholeInLithoModel,
     discardContacts,
     discoverBoreholeFormations,
     applyBoreholeFormationSelection,
