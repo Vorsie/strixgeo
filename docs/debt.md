@@ -1429,6 +1429,19 @@ adjust — ship a real case alongside any further change.
 
 ## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness)
 
+**RESOLVED 2026-09-03.** The overlay's `BodyContextMenu` / `EdgeContextMenu`
+`<foreignObject>`s were lifted OUT of the root `<g style="pointer-events:none">`
+into a sibling `<g data-testid="correlation-edges-interactive">` (the return is
+now a Fragment), so the menus have no `pointer-events:none` ancestor to
+override — reachability no longer depends on the foreignObject re-enabling
+pointer-events, the SVG-spec quirk this item flagged. Chosen over the full lift
+to `SectionPanel` (this entry's alternative), a non-trivial state move into the
+4446-line god component that would grow it. Red-first rendering tests (`#68…` in
+`CorrelationEdgesOverlay.test.tsx`) pin that neither menu is a descendant of the
+pointer-events:none group AND that Delete correlation still fires; the drag ghost
+and admixture-editor foreignObject moved with them and are unaffected (the ghost
+sets its own `pointerEvents=none` on the `<line>`).
+
 **What.** The Slice-4 `CorrelationEdgesOverlay` owns its uncorrelate
 context-menu state and renders the menu as a `<foreignObject>` inside
 the overlay's root `<g style={{ pointerEvents: 'none' }}>`. It works
@@ -9189,6 +9202,22 @@ them one at a time, with a section screenshot of section 2 gap 3, before writing
 
 ## 269. The borehole packing preview covers the first divide, not the re-divide (S)
 
+**RESOLVED 2026-09-03.** The re-divide diff shipped, using this entry's leading
+option (outline-only over the committed bands). A column that already carries
+committed geotech bands no longer drops its ghosts; it draws the new proposed
+divide as an OUTLINE-ONLY diff over the committed band — a dashed stroke in the
+class colour, no fill, no hatch — so the committed band shows through and the new
+boundaries read as a diff, never a solid overpaint (the invariant the old
+drop-it behaviour protected). The diff is READ-ONLY: no per-column accept, since
+re-committing one already-divided column is undesigned; the accept gesture stays
+on the first-divide (undivided) columns. The "Hatched = preview" legend still
+counts the first divide only (a diff is an outline, not a hatch). Red-first tests
+RD1/RD2 (+ RD3 guard) in `GeotechBoreholePreviewGhosts.test.tsx`; GP2/GA4/GP15
+re-pinned to their real invariants under the new behaviour. No backend change (the
+preview endpoint already plans the re-divide, gate DB7). Left as possible
+follow-ups: per-band change-flagging (bold the boundaries that moved) and the
+side-by-side before/after alternative render.
+
 **What.** `GeotechBoreholePreviewGhosts` drops all ghosts for a borehole column the moment
 that column carries committed geotech bands, so the preview only ever helps BEFORE the
 first `Divide boreholes`. Pressing the verb a second time is exactly as blind as it was
@@ -9300,6 +9329,27 @@ vertical seams splitting same-class masses on CS1 (his "bug with vertical
 lines" report) and un-split every body tied across a geological boundary.
 
 ## 274. Seam strokes double on same-class edges — the pale helper lines (S)
+
+**RESOLVED 2026-09-03 (reported residual) — one narrow remainder documented.**
+The reported residual (doubled self-colour stroke on an edge shared by two
+same-class geotech regions) was already fixed 2026-08-22 by the `fillIdentityOf`
+identity collapse (`sectionFillIdentity.ts`, the B3 seam — landed AFTER this
+entry's 2026-08-21 note, which is why the entry never showed it): the seam pass
+compares `fillIdentityOf`, which maps every provenance row of one packing class
+onto one `SOIL|CLASS` identity, so the shared edge is dropped exactly like a
+same-formation litho seam. The CS1 golden (captured 2026-08-23, after that fix)
+already reflects the resolved render. This session added the missing END-TO-END
+path-count guard in `sectionSeamStrokes.test.ts` (`fillIdentityOf` →
+`computeSeamStrokePaths`, `#274 …`), the coverage FI1 + SS1 only proved
+separately; it is GREEN with NO production change, so the golden stays
+byte-identical. **Exact remainder (narrow, no dogfeed evidence):** a geotech
+band with a VALID NAD class but NULL soil code gets no `SOIL|CLASS` identity, so
+it falls back to its raw row id and double-strokes against a same-class
+(same-colour) neighbour (proved in a throwaway probe: `[true, true]`). Closing it
+needs a stroke identity keyed on the CLASS/colour, kept SEPARATE from the body
+identity (`packingClassOf` must stay `SOIL|CLASS` to avoid welding different-soil
+bodies) — and that WOULD move the CS1 golden, so it needs an owner render call.
+Left open on that basis.
 
 **What.** Owner dogfeed 2026-08-18 (B4|S13 screenshots): thin PALE lines
 inside merged same-class masses on the geotech axis. The black litho
