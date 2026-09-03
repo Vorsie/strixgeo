@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class AdmixtureOrm(Base):
@@ -53,5 +54,5 @@ class AdmixtureOrm(Base):
     locally: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     layer: Mapped[ObservationLayerOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "ObservationLayerOrm", back_populates="admixtures"
+        "ObservationLayerOrm", back_populates="admixtures", lazy=RELATIONSHIP_LAZY
     )
