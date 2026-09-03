@@ -31,8 +31,13 @@ from groundmodel.application.ground_model_snapshot import (
     LayerGeometry,
 )
 from groundmodel.infrastructure.exporters.plaxis_exporter import PlaxisExporter
+from groundmodel.infrastructure.exporters.unit_identifier_constants import (
+    MAPPING_TABLE_TITLE,
+)
 
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000001")
+SAND_ID = UUID("00000000-0000-0000-0000-0000000000aa")
+CLAY_ID = UUID("00000000-0000-0000-0000-0000000000bb")
 
 
 def _snapshot(
@@ -446,3 +451,109 @@ def test_export_does_not_set_a_water_head_at_the_ground_surface() -> None:
         "the script must state that no water table was set so the engineer "
         "knows to set one before computing stresses"
     )
+
+
+# ---------------------------------------------------------------------------
+# Unit identifiers (debt #104) — the project-wide 3-D exporter carries the
+# NAD class + soil for a geotech / litho model, just like the section
+# exporters. The v1.0 gate is "export unit identifiers (NAD class + soil) in
+# DXF/Plaxis"; this exporter shares the identifier helpers with the 2-D
+# section exporter, so these pins guard against a future divergence and
+# state the three-level contract on the 3-D artefact directly (it was
+# previously exercised only with geological formations).
+# ---------------------------------------------------------------------------
+
+
+def _geotech_formations() -> list[FormationDisplay]:
+    """Two classified geotech units, top-down, carrying NAD class + soil."""
+    return [
+        FormationDisplay(
+            name="Boom Klei (NAD 21)",
+            code=None,
+            display_order=10,
+            color="#8899aa",
+            nad_class=21,
+            litho_main_soil_code="KLEI",
+            formation_id=CLAY_ID,
+        ),
+        FormationDisplay(
+            name="Zand van Diest (NAD 6)",
+            code=None,
+            display_order=20,
+            color="#e8c86a",
+            nad_class=6,
+            litho_main_soil_code="ZAND",
+            formation_id=SAND_ID,
+        ),
+    ]
+
+
+def _geotech_snapshot() -> GroundModelSnapshot:
+    """A one-column snapshot whose two layers carry the classified units."""
+    return _snapshot(
+        layers=[
+            _layer(formation_name="Boom Klei (NAD 21)", top=0.0, base=5.0, x=0.0, y=0.0),
+            _layer(formation_name="Zand van Diest (NAD 6)", top=5.0, base=12.0, x=0.0, y=0.0),
+        ],
+        formations=_geotech_formations(),
+    )
+
+
+def test_geotech_plaxis3d_material_identity_leads_with_the_nad_identifier() -> None:
+    """A Plaxis 3D export of a geotech model names each material by its NAD
+    class + soil, so the PLAXIS material list is directly mappable."""
+    script = _decode(PlaxisExporter().export(_geotech_snapshot()))
+    assert "mat_nad_06_zand = g_i.soilmat()" in script
+    assert "mat_nad_06_zand.Identification = 'NAD-06_ZAND - Zand van Diest (NAD 6)'" in script
+    assert "mat_nad_21_klei.Identification = 'NAD-21_KLEI - Boom Klei (NAD 21)'" in script
+
+
+def test_geotech_plaxis3d_carries_the_unit_mapping_table_with_correct_triples() -> None:
+    """The script header must map each material to its class / soil / name /
+    formation id so a downstream tool can resolve the units."""
+    script = _decode(PlaxisExporter().export(_geotech_snapshot()))
+    assert MAPPING_TABLE_TITLE in script
+    header = script.split('"""')[1]
+    sand_row = next(line for line in header.splitlines() if "NAD-06_ZAND" in line)
+    assert " 6 " in f" {sand_row} "
+    assert "ZAND" in sand_row
+    assert "Zand van Diest (NAD 6)" in sand_row
+    assert str(SAND_ID) in sand_row
+
+
+def test_litho_plaxis3d_material_name_unchanged_but_soil_reaches_the_table() -> None:
+    """A litho unit carries a soil code but no NAD class: its material NAME
+    stays the display name, and the soil still reaches the mapping table."""
+    snapshot = _snapshot(
+        layers=[_layer(formation_name="Zand van Diest", top=0.0, base=8.0, x=0.0, y=0.0)],
+        formations=[
+            FormationDisplay(
+                name="Zand van Diest",
+                code=None,
+                display_order=20,
+                color="#e8c86a",
+                nad_class=None,
+                litho_main_soil_code="ZAND",
+                formation_id=SAND_ID,
+            )
+        ],
+    )
+    script = _decode(PlaxisExporter().export(snapshot))
+    assert "mat_zand_van_diest = g_i.soilmat()" in script
+    assert "mat_zand_van_diest.Identification = 'Zand van Diest'" in script
+    assert MAPPING_TABLE_TITLE in script
+    assert "ZAND" in script
+
+
+def test_geological_plaxis3d_script_carries_no_mapping_table() -> None:
+    """A geological formation carries neither identifier, so nothing about
+    its 3-D export moves — no identifier-led name, no mapping table."""
+    snapshot = _snapshot(
+        layers=[_layer(formation_name="Boom Klei", top=0.0, base=6.0, x=0.0, y=0.0, code="BmK")],
+        formations=[
+            FormationDisplay(name="Boom Klei", code="BmK", display_order=0, color="#ff8800")
+        ],
+    )
+    script = _decode(PlaxisExporter().export(snapshot))
+    assert "mat_boom_klei.Identification = 'Boom Klei'" in script
+    assert MAPPING_TABLE_TITLE not in script
