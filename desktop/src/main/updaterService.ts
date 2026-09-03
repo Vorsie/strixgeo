@@ -31,7 +31,20 @@
 import { app, type BrowserWindow } from 'electron'
 import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
 
-import { shouldAutoCheckOnLaunch, summariseUpdateInfo, type UpdateAvailableNotice } from './updaterPolicy'
+import {
+  autoInstallOnQuit,
+  shouldAutoCheckOnLaunch,
+  summariseUpdateInfo,
+  type UpdateAvailableNotice,
+} from './updaterPolicy'
+
+/**
+ * Whether this build is code-signed. FALSE until the signing cert lands (debt
+ * #6): the closed beta ships unsigned (owner ruling 2026-09-02). Flip to true in
+ * the same change that wires electron-builder's signing, so ``autoInstallOnQuit``
+ * turns the silent quit-time install back on only for a trusted binary.
+ */
+const APP_IS_SIGNED = false
 
 /** The channel the renderer subscribes to for every updater state change. */
 export const UPDATER_EVENT_CHANNEL = 'updater:event'
@@ -86,7 +99,10 @@ export function configureUpdater(win: BrowserWindow): void {
   // The renderer decides when to download (the "Download / Later" choice), so
   // the updater must not pull bytes on its own.
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  // Never silently install an unsigned update on quit (audit H6). The explicit
+  // "Install now" path (``updater:quit-and-install`` → {@link quitAndInstall})
+  // stays available. Turns back on for a signed build via APP_IS_SIGNED.
+  autoUpdater.autoInstallOnAppQuit = autoInstallOnQuit(APP_IS_SIGNED)
 
   autoUpdater.on('checking-for-update', () => emit({ phase: 'checking' }))
   autoUpdater.on('update-available', (info: UpdateInfo) =>
