@@ -110,6 +110,10 @@ export default function StageToolbar({
               ? t('project.editMetadataHintWithPath', { path: projectFilePath })
               : t('project.editMetadataHint')
           }
+          // Tutorial anchor (Chapter 1: this is WHERE the project settings live —
+          // clicking the project name opens the metadata dialog that holds the CRS
+          // fields). Owner walk 2026-09-03.
+          data-testid="project-metadata-open"
           className="flex items-center gap-1 px-2 h-7 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-spine-hover transition-colors max-w-[220px]"
         >
           <span className="truncate">{project.name}</span>
