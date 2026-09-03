@@ -45,6 +45,7 @@ from typing import TypeVar
 import httpx
 
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
+    DOV_DOWNLOAD_PARALLELISM,
     DOV_FICHE_URL_PREFIX,
     DOV_PROXY_URL_PREFIX,
     DOV_WFS_LAYER,
@@ -54,6 +55,7 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker import parse_cpt_xml
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import is_allowed_dov_url
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -116,12 +118,24 @@ class DovClient(GroundModelLogger):
     cache : DovXmlCache | None
         Optional persistent cache. When provided, downloads consult the cache
         first and store fresh downloads for next time. None disables caching.
+    backoff : DovRateLimitState | None
+        Optional per-import rate-limit state. When supplied, WFS discovery and
+        the XML download phase both honour it: a 429/503 is retried and a 429
+        halves the download parallelism once for the rest of the import. When
+        ``None`` the retry still applies (via the shared request helpers) but
+        the parallelism is fixed at ``DOV_DOWNLOAD_PARALLELISM``.
     """
 
-    def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        cache: DovXmlCache | None = None,
+        backoff: DovRateLimitState | None = None,
+    ) -> None:
         super().__init__(__name__)
         self._http = http
         self._cache = cache
+        self._backoff = backoff
 
     async def fetch_wfs_index(
         self,
@@ -279,6 +293,12 @@ class DovClient(GroundModelLogger):
             # is configured — matches the original behaviour exactly.
             return process(xml_bytes, entry.name)
 
+        # Effective parallelism reflects any 429 seen during WFS discovery (which
+        # runs before this download phase), so a rate-limited import backs off its
+        # own concurrency instead of hammering DOV into more 429s.
+        effective_parallelism = (
+            self._backoff.parallelism if self._backoff is not None else DOV_DOWNLOAD_PARALLELISM
+        )
         pairs = await parallel_download_and_process(
             http=self._http,
             cache=self._cache,
@@ -290,6 +310,8 @@ class DovClient(GroundModelLogger):
             logger=self,
             error_id_of=lambda e: f"'{e.name}'",
             progress_cb=progress_cb,
+            parallelism=effective_parallelism,
+            backoff=self._backoff,
         )
         return [(entry.name, result) for entry, result in pairs]
 
@@ -314,6 +336,7 @@ class DovClient(GroundModelLogger):
             x2=x2,
             y2=y2,
             label="sonderingen",
+            backoff=self._backoff,
         )
 
     async def _wfs_features(
@@ -342,6 +365,7 @@ class DovClient(GroundModelLogger):
             x2=x2,
             y2=y2,
             label="sonderingen",
+            backoff=self._backoff,
         )
 
         if features:
