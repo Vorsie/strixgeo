@@ -22,6 +22,9 @@ from groundmodel.api.schemas.project.project_duplicate_request import (
     ProjectDuplicateRequest,
 )
 from groundmodel.api.schemas.project.project_response import ProjectResponse
+from groundmodel.api.schemas.project.project_restore_response import (
+    ProjectRestoreResponse,
+)
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
@@ -31,6 +34,7 @@ from groundmodel.application.reconcile_bodies_after_restore import (
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
     BundleIntegrityError,
+    BundleRestoreDrops,
     build_project_bundle,
     restore_project_bundle,
 )
@@ -392,13 +396,13 @@ async def get_project_bundle(
     return bundle
 
 
-@router.post("/{project_id}/restore", response_model=ProjectResponse)
+@router.post("/{project_id}/restore", response_model=ProjectRestoreResponse)
 async def restore_project(
     project_id: UUID,
     request: ProjectBundleRequest,
     replace: bool = False,
     session: AsyncSession = Depends(get_session),
-) -> ProjectOrm:
+) -> ProjectRestoreResponse:
     """Idempotently materialise a project row + its CPTs + boreholes from a bundle.
 
     Backs the desktop client's "open from file" path when the DB no
@@ -444,9 +448,10 @@ async def restore_project(
 
     Returns
     -------
-    ProjectOrm
-        The materialised project row (serialised as ``ProjectResponse``),
-        refreshed after commit.
+    ProjectRestoreResponse
+        The materialised project (``ProjectResponse`` fields), refreshed after
+        commit, plus ``dropped_series`` / ``dropped_child_rows`` — the counts of
+        rows the restore size caps truncated, so the desktop can toast them (L6).
 
     Raises
     ------
@@ -490,6 +495,8 @@ async def restore_project(
                 f"format_version={BUNDLE_FORMAT_VERSION}."
             ),
         )
+    # Threaded into the restore so the caps report what they truncated (L6).
+    drops = BundleRestoreDrops()
     try:
         project = await restore_project_bundle(
             session,
@@ -512,6 +519,7 @@ async def restore_project(
             body_separations_payload=request.body_separations,
             body_unions_payload=request.body_unions,
             replace=replace,
+            drops=drops,
         )
     except BundleIntegrityError as err:
         # 422: the bundle parsed cleanly but is self-inconsistent (e.g.
@@ -557,11 +565,18 @@ async def restore_project(
 
     await session.commit()
     await session.refresh(project)
+    # Same ORM→schema conversion FastAPI would do for ProjectResponse, then the
+    # two additive drop counts the ORM does not carry.
+    response = ProjectRestoreResponse.model_validate(project)
+    response.dropped_series = drops.cpt_series_dropped
+    response.dropped_child_rows = drops.borehole_child_rows_dropped
     logger.info(
         f"POST /projects/{project_id}/restore → ok: "
-        f"cpts={n_cpts} boreholes={n_bh} replace={replace}"
+        f"cpts={n_cpts} boreholes={n_bh} replace={replace} "
+        f"dropped_series={drops.cpt_series_dropped} "
+        f"dropped_child_rows={drops.borehole_child_rows_dropped}"
     )
-    return project
+    return response
 
 
 @router.post(
