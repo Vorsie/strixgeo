@@ -76,3 +76,38 @@ export function wgs84ToProjected(
   FROM_WGS_CACHE.set(key, result)
   return result
 }
+
+/**
+ * Drop every cached projection (debt/audit L8).
+ *
+ * The caches are keyed by ``(epsg, x, y)`` and grow with the coordinate data a
+ * project touches, so a session that opens several projects accumulates entries
+ * that will never be looked up again. The project lifecycle calls this on
+ * project close / open (see ``useProject``) so the caches stay bounded by the
+ * ACTIVE project's dataset rather than the whole session's.
+ *
+ * Safe to call at any time: projection is pure, so the next lookup simply
+ * recomputes and re-caches. This is a memory-hygiene reset, not a correctness
+ * one — clearing never changes a projected coordinate.
+ */
+export function clearProjectScopedCaches(): void {
+  TO_WGS_CACHE.clear()
+  FROM_WGS_CACHE.clear()
+}
+
+/**
+ * Test-only view of the cache sizes.
+ *
+ * The caches are module-private (they are an implementation detail, not part of
+ * the projection contract), so a test that wants to assert "the cache filled"
+ * or "the cache emptied" needs this narrow window. Mirrors the
+ * ``resetXForTests`` convention used elsewhere in the codebase.
+ *
+ * Returns
+ * -------
+ * { to: number, from: number }
+ *     Entry counts of the forward (projected→WGS84) and inverse caches.
+ */
+export function __wgs84CacheSizesForTest(): { to: number; from: number } {
+  return { to: TO_WGS_CACHE.size, from: FROM_WGS_CACHE.size }
+}
