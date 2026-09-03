@@ -85,3 +85,37 @@ Three conditions gate switching:
 
 When (1) + (2) align before (3), revisit. Until then it's a watch
 item, not an action.
+
+## Frontend render performance (desktop)
+
+These are the desktop-side responsiveness measures for large projects
+(target: ~5000 CPTs). Unlike the backend escape hatches above they are
+not profiled hotspots — they are structural render costs that grow
+linearly with the marker / row / redraw count.
+
+- **Map markers render on a canvas, not one SVG element each.** The
+  Leaflet map is created with `preferCanvas: true` (the streaflet
+  `MapContainer` forwards it to `L.map`), so the CPT `CircleMarker`s —
+  which live in a custom pane and therefore honour `preferCanvas` via
+  Leaflet's `_getPaneRenderer` — paint onto a shared canvas. At thousands
+  of markers the per-marker SVG DOM was what made panning stutter. Marker
+  tooltips are one shared `L.tooltip` opened on hover (`showMarkerTooltip`
+  in `MapView.tsx`) rather than a `bindTooltip` per marker, so no
+  per-marker Tooltip object is allocated up front. Ring/size styling is
+  `markerRingStyle` in `mapMarkerStyle.ts`.
+- **A static 3-D scene stops redrawing.** Every `CesiumWidget` is built
+  with `requestRenderMode: true` + `maximumRenderTimeChange: Infinity`
+  (`REQUEST_RENDER_WIDGET_OPTIONS` in `sceneRender.ts`). An idle geological
+  model then burns no GPU frames. The cost is that every scene mutation
+  must explicitly `requestSceneRender(scene)` — done after each primitive
+  rebuild (`CesiumViewport`), after the fence-cutout fine-zoom
+  (`useViewportZoomTuning`), and, for compare mode, a per-frame render
+  pump keeps the FOLLOWER viewport live so it can mirror the leader
+  (`useCameraLink`) — the one case where continuous render is still wanted.
+- **The Data inspector lists are windowed.** `DataInspector`'s CPT and
+  borehole lists render through `react-window` (`dataInspectorVirtualList.tsx`)
+  so only the rows in/around the viewport mount, not one DOM row per test.
+- **`/cpt/plot-batch` is chunked client-side to the 500-id backend cap.**
+  `cptClient.plotBatch` splits a dense corridor into ≤500-id POSTs and
+  merges in order (a body over 500 ids is a 422 —
+  `CptPlotBatchRequest.ids` carries `max_length=500`).
