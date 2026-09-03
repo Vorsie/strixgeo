@@ -63,11 +63,13 @@ const FIXTURE_BBOX = {
 
 // North Sea bbox — no Belgian CPTs here; the fixture transport returns
 // empty_count.xml (numberMatched="0") for any unknown layer.
+// Kept inside the product's import limit (25 km side / 625 km2, dov_common.py):
+// a 0.1 deg box is about 6 km x 11 km. A bigger empty box is a 422, not a 200.
 const EMPTY_BBOX = {
   west: 2.0,
   south: 55.0,
-  east: 2.5,
-  north: 55.5,
+  east: 2.1,
+  north: 55.1,
 }
 
 // CPT UUIDs returned by the import — collected in beforeAll so afterAll can clean up.
