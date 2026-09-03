@@ -38,6 +38,12 @@ down_revision = "y9z0a1b2c3d4"
 branch_labels = None
 depends_on = None
 
+# Declares that ``upgrade()`` deletes existing user rows (DELETEs orphan /
+# duplicate body_boundary_shape rows) so the migrator's pre-migration backup
+# step names it among the pending data-rewriting migrations
+# (production-readiness audit H2b).
+DATA_REWRITE = True
+
 
 def upgrade() -> None:
     """Tighten body_id, add the per-body unique constraint, drop timestamp columns."""
