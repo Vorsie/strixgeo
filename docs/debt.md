@@ -5840,6 +5840,35 @@ actual base URL (`win.webContents.getURL()` after `loadFile`).
 
 ## 201. God-component file-size split (Tier E — readability, L)
 
+**Round 2026-09-03 — `GeologyInspector.tsx` 1,203 → 388 lines (−68 %).** Same round as
+the `LithologyInspector` split below, applied to the geology inspector. The presentational
+blocks became siblings in the `geology/` folder, each under the 500-line advisory with a
+header comment naming what it renders + where it came from: `GeologyFormationList.tsx` (327,
+carries its module-scope `GeologyFormationRow` — the LithoUnitRow precedent),
+`GeologyCrossingsBanner.tsx` (151, the three surface-crossing banners),
+`GeologyBoreholesInModel.tsx` (114, moved verbatim WITH its own `scopeOpen` collapse hook),
+`GeologyConfidenceFadeToggle.tsx` (77) and `GeologyInspectorHeader.tsx` (64) as pure-render
+siblings. **Deviation from the lithology round (which was presentational-only):** the
+geology orchestrator carried ~400 lines of undo-command-bearing formation-CRUD handlers, so
+a presentational-only extraction could not reach the file cap. The formation-roster CRUD +
+drag-reorder block moved into a custom hook `useGeologyFormations.ts` (402, the
+"block that owns them" per the LithoSolidLegend precedent), with the intricate reorder
+logic + undo split into a pure command module `reorderFormationsCommand.ts` (237) to keep
+the hook under the 500-line cap (it was 562 with reorder inline). The original
+`reorderFormations → visibleFormations` TDZ hazard (geology-stage-architecture.md §8.1
+Risk 3) DISSOLVES — the reorder now derives its visible list inline from
+`formations + manifestFormationIds` inside the hook, where no `visibleFormations` binding
+exists. The delete-confirm `Modal` stays inline because it carries a justified
+`eslint-disable jsx-a11y/no-autofocus` (the round adds no new suppression). Known
+follow-up: `GeologyConfidenceFadeToggle` is a near-duplicate of the lithology round's
+`LithoConfidenceFadeToggle` (differ only in `data-testid` + hint key) — kept as a sibling
+copy because folding them would touch the out-of-scope `lithology/` folder; a future round
+could parameterise one shared toggle. **Zero existing test files changed** — 1,151
+pre-existing tests pass untouched (the evidence behaviour is byte-identical); one new
+`GeologyInspector.smoke.test.tsx` (+2 tests) mounts the orchestrator against the shared
+`sections/__fixtures__/shellStub` (no-model + full-body branches). Gates: tsc web clean,
+1,153 vitest green + 1 skipped, hook-order check clean.
+
 **Round 2026-09-03 — `LithologyInspector.tsx` 993 → 405 lines (−59 %).** Five
 presentational siblings extracted into the `lithology/` folder, each under the 500-line
 advisory and each with a header comment naming what it renders + where it came from:
