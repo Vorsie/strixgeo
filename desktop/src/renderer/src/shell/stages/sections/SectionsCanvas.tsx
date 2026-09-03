@@ -2962,6 +2962,7 @@ export default function SectionsCanvas(): JSX.Element {
         initialCenter={mapCameraRef.current?.center}
         initialZoom={mapCameraRef.current?.zoom}
         onCameraChange={handleMapCameraChange}
+        projectEpsg={effectiveHorizontalEpsg}
         suggestedTies={suggestedTies}
         tieEpsg={effectiveHorizontalEpsg}
         onAcceptTie={handleAcceptTie}
