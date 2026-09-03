@@ -52,6 +52,13 @@ import type { ProjectBundleResponse, ProjectResponse } from '../api/client'
 // Bump this when the file shape changes in a backwards-incompatible way.
 export const PROJECT_FILE_FORMAT_VERSION = 3
 
+// Stable discriminator for a file whose inner bundle ``format_version`` is
+// NEWER than this build supports — see ``newerBundleFormatVersion``. A sibling
+// to the container-level ``strix-*`` codes from strixCodec.ts; the open flow
+// branches on this to show a "saved by a newer build" message instead of the
+// generic "may be corrupt" banner (production-readiness audit L4).
+export const BUNDLE_NEWER_FORMAT_CODE = 'bundle-newer-format'
+
 /**
  * Why a project file could not be decoded, as surfaced by the main-process
  * ``project:read-file`` IPC.
@@ -258,6 +265,32 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
     candidate.stratigraphy_lumping = null
   }
   return candidate
+}
+
+// Classify a rejected file as "saved by a NEWER build" vs plain corruption.
+// Returns the numeric ``format_version`` when the raw JSON is an object whose
+// version is a number GREATER than this build's supported floor; otherwise
+// ``null`` (corrupt JSON, a non-object, a missing/non-numeric version, or an
+// older/equal version — all of which are the ordinary "corrupt" path). Pure and
+// i18n-free: the caller turns a non-null result into a typed, translated
+// "update StrixGeo" reason. Split from ``parseProjectFile`` (which stays a
+// boolean-ish "is this openable") so the open flow can tell the two apart
+// without re-parsing (production-readiness audit L4).
+export function newerBundleFormatVersion(raw: string): number | null {
+  let candidate: unknown
+  try {
+    candidate = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+    return null
+  }
+  const version = (candidate as Record<string, unknown>).format_version
+  if (typeof version !== 'number' || version <= PROJECT_FILE_FORMAT_VERSION) {
+    return null
+  }
+  return version
 }
 
 function isProjectFileV3(value: unknown): value is ProjectFileV3 {
