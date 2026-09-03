@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class WaterTablePatchRequest(BaseModel):
+class WaterTablePatchRequest(StrictRequestModel):
     """Engineer-entered depth to groundwater for one CPT.
 
     Sent by the Parameters stage's per-CPT inspector when the engineer clicks
