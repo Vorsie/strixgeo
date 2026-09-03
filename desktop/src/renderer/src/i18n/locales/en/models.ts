@@ -260,6 +260,13 @@ export const MODELS = {
   'litho.excludedBoreholeUnknown': 'Unknown borehole',
   'litho.boreholeIncludedToast': 'Borehole included in the litho build again',
   'litho.boreholeExcludedToast': 'Borehole excluded from the litho build',
+  // Debt #65 (exclude gesture): the "Boreholes in model" scope roster — the
+  // in-UI gesture to exclude a borehole from the litho build (mirrors the
+  // geological inspector's roster).
+  'litho.boreholesInModel': 'Boreholes in model',
+  'litho.showBoreholeScopes': 'Show / hide the per-borehole scope toggles',
+  'litho.boreholesInModelHint': 'Uncheck a borehole to leave it out of the litho build.',
+  'litho.boreholeInModel': '{name} in the litho build',
   'litho.buildToSeeBodies': 'Build the 3D model to see bodies.',
   'litho.allContentBlurb': 'All litho units, contacts, correlations and surfaces in this model',
   'litho.renumberBodies': 'Re-number litho bodies from their correlation graph',
