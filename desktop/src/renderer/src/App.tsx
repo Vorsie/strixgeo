@@ -1143,13 +1143,13 @@ export default function App() {
   // is memoised so the per-record cost is just a dictionary lookup
   // after the first render.
   const outOfViewportCptIds = useMemo(
-    () => idsOutsideBounds(visibleCpts, viewportBounds),
-    [visibleCpts, viewportBounds],
+    () => idsOutsideBounds(visibleCpts, viewportBounds, effectiveHorizontalEpsg),
+    [visibleCpts, viewportBounds, effectiveHorizontalEpsg],
   )
 
   const outOfViewportBoreholeIds = useMemo(
-    () => idsOutsideBounds(visibleBoreholes, viewportBounds),
-    [visibleBoreholes, viewportBounds],
+    () => idsOutsideBounds(visibleBoreholes, viewportBounds, effectiveHorizontalEpsg),
+    [visibleBoreholes, viewportBounds, effectiveHorizontalEpsg],
   )
 
 
