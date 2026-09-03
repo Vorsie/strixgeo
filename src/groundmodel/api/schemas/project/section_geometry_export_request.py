@@ -16,14 +16,15 @@ outcome.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.voxel_build_request import (
     SectionPartitionInputSchema,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class SectionGeometryExportRequest(BaseModel):
+class SectionGeometryExportRequest(StrictRequestModel):
     """The drawn 2-D partition of ONE section, as the renderer produced it.
 
     Attributes
