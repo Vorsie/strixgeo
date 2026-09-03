@@ -65,6 +65,8 @@ export const CHROME = {
   'welcome.recoveryDeclined': 'You chose not to restore this earlier',
   'welcome.openFailed':
     "Couldn't open the selected project file. The file may be corrupt, or the API isn't reachable.",
+  'welcome.openNewerBuild':
+    'This project was saved by a newer version of StrixGeo (file format {version}). Update StrixGeo to open it — your data is safe.',
   'welcome.fileMoved': 'Put it back, or open it from its new location with "Open project from file".',
 
   // -------------------------------------------------------------------------
