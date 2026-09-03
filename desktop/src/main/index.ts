@@ -2175,7 +2175,6 @@ if (!gotSingleInstanceLock) {
     const launchBlocked = activationBlocksLaunch({
       packaged: app.isPackaged,
       e2e: e2eLaunchFlag(process.env, app.isPackaged),
-      betaStampPresent: betaBuildStamp !== null && betaBuildStamp !== undefined,
       verdict: activationService.getStatus().verdict,
     })
     if (launchBlocked) {
