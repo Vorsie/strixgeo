@@ -78,8 +78,12 @@ describe('GeotechBoreholePreviewGhosts', () => {
     expect(screen.getByTestId('geotech-preview-band-bh-1-0')).toHaveAttribute('height', '4')
   })
 
-  it('GP2 — drops a column ghosts the moment its committed bands land', () => {
-    render(
+  it('GP2 — a committed column never double-draws a SOLID band over the real one', () => {
+    // The invariant this has always protected (module docstring): the preview
+    // never double-draws over the real thing. Post-#269 a committed column shows
+    // a re-divide DIFF, but that diff must be outline-only — no solid fill, no
+    // hatch — so the committed band is never overpainted.
+    const { container } = render(
       <svg>
         <GeotechBoreholePreviewGhosts
           previewColumns={[previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }])]}
@@ -90,7 +94,103 @@ describe('GeotechBoreholePreviewGhosts', () => {
         />
       </svg>,
     )
-    expect(screen.queryByTestId('geotech-borehole-preview-ghosts')).not.toBeInTheDocument()
+    // No SOLID first-divide ghost and no hatch painted over the committed band.
+    expect(screen.queryByTestId('geotech-preview-band-bh-1-0')).toBeNull()
+    expect(
+      container.querySelector('rect[data-testid^="geotech-preview-hatch-bh-1"]'),
+    ).toBeNull()
+  })
+
+  // -------------------------------------------------------------------------
+  // #269 — the re-divide diff.
+  //
+  // "Divide boreholes" is an idempotent-but-destructive rebuild: pressing it a
+  // second time re-plans an ALREADY-divided model (backend gate DB7) and
+  // rewrites every borehole band. Until now the preview dropped a column the
+  // moment it carried committed bands, so the re-divide was as blind as it was
+  // before the feature existed. The owner's ask (debt #269): on a re-divide,
+  // "wants to know what will change". The chosen render (debt entry's leading
+  // option): draw the new proposed divide as an OUTLINE-ONLY diff OVER the
+  // committed band — no solid fill, no hatch — so the committed band shows
+  // through and the new boundaries read as a diff, never as a solid overpaint.
+  // -------------------------------------------------------------------------
+
+  it('RD1 — a committed column shows the re-divide as an outline-only diff, not nothing', () => {
+    const { container } = render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          // The re-divide plan DIFFERS from the committed 0–4 band: two bands now.
+          previewColumns={[
+            previewColumn('bh-1', [
+              { top: 0, base: 3, nad: 6 },
+              { top: 3, base: 7, nad: 8 },
+            ]),
+          ]}
+          geotechLayers={[committedBand('bh-1')]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    // The axis is NOT blank on a re-divide any more.
+    expect(screen.getByTestId('geotech-borehole-preview-ghosts')).toBeInTheDocument()
+    // It draws the NEW proposed boundaries as an outline-only diff…
+    const diff = screen.getByTestId('geotech-rediv-band-bh-1-0')
+    expect(diff).toBeInTheDocument()
+    expect(diff).toHaveAttribute('fill', 'none')
+    expect(diff).toHaveAttribute('stroke-dasharray', '4 2')
+    // …and never a SOLID first-divide ghost or a hatch painted over the real band.
+    expect(screen.queryByTestId('geotech-preview-band-bh-1-0')).toBeNull()
+    expect(container.querySelector('rect[data-testid^="geotech-preview-hatch-bh-1"]')).toBeNull()
+  })
+
+  it('RD2 — the re-divide diff is informational: right-click offers no accept menu', () => {
+    // Re-dividing ONE already-divided column is a commit path the owner has not
+    // ruled on; the diff answers "what would change", it does not offer to
+    // re-commit. So the read-only diff carries no per-column accept gesture.
+    const onAcceptColumn = vi.fn()
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[previewColumn('bh-1', [{ top: 0, base: 3, nad: 6 }])]}
+          geotechLayers={[committedBand('bh-1')]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          onAcceptColumn={onAcceptColumn}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-1'))
+    expect(screen.queryByTestId('geotech-preview-column-menu')).toBeNull()
+    expect(onAcceptColumn).not.toHaveBeenCalled()
+  })
+
+  it('RD3 — the outline diff does not light the "hatched = preview" legend (guard)', () => {
+    // The published summary drives the toolbar's "Hatched = preview" legend. A
+    // re-divide diff is an OUTLINE, not a hatch, so it must not be counted — the
+    // legend would otherwise explain hatching that is not on screen (the exact
+    // dishonesty geotechPreviewRenderStore was built to avoid). Guard, not a
+    // red-first pin: the summary is {0,0,0} on the old drop-it behaviour too.
+    render(
+      <svg>
+        <GeotechBoreholePreviewGhosts
+          previewColumns={[
+            previewColumn('bh-1', [
+              { top: 0, base: 3, nad: 6 },
+              { top: 3, base: 7, nad: 8 },
+            ]),
+          ]}
+          geotechLayers={[committedBand('bh-1')]}
+          placedColumns={[boreholeColumn('bh-1', 50)]}
+          {...GEOMETRY}
+        />
+      </svg>,
+    )
+    expect(getGeotechPreviewRender()).toEqual({
+      columnCount: 0,
+      bandCount: 0,
+      clampedBandCount: 0,
+    })
   })
 
   it('GP3 — a ghost reads as not-yet-committed: dashed outline plus hatching', () => {
@@ -358,13 +458,15 @@ describe('GeotechBoreholePreviewGhosts', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('GP15 — ghosts hold their ground while the committed layers are unknown', () => {
+  it('GP15 — a divided column holds its re-divide diff through a mid-refetch, never flips to a solid ghost', () => {
     // useGeologicalModel clears geotechLayers to [] before every refetch. Read
-    // literally, an empty array says "no borehole is divided", which would put
-    // ghosts back over a column that already carries committed bands. The last
-    // KNOWN answer holds until a real one arrives.
+    // literally, an empty array says "no borehole is divided", which would flip a
+    // committed column's outline diff back to a SOLID first-divide ghost painted
+    // over its committed band. The last KNOWN answer holds until a real one
+    // arrives, so the column stays an outline diff throughout.
     const props = {
-      previewColumns: [previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }])],
+      // The re-divide plan differs from the committed 0–4 band.
+      previewColumns: [previewColumn('bh-1', [{ top: 0, base: 3, nad: 6 }])],
       placedColumns: [boreholeColumn('bh-1', 50)],
       ...GEOMETRY,
     }
@@ -373,14 +475,18 @@ describe('GeotechBoreholePreviewGhosts', () => {
         <GeotechBoreholePreviewGhosts {...props} geotechLayers={[committedBand('bh-1')]} />
       </svg>,
     )
-    expect(screen.queryByTestId('geotech-borehole-preview-ghosts')).not.toBeInTheDocument()
+    // Divided: an outline diff, never a solid first-divide ghost.
+    expect(screen.getByTestId('geotech-rediv-band-bh-1-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('geotech-preview-band-bh-1-0')).toBeNull()
     // Mid-refetch: the array is empty and its contents are NOT known.
     rerender(
       <svg>
         <GeotechBoreholePreviewGhosts {...props} geotechLayers={[]} geotechLayersLoaded={false} />
       </svg>,
     )
-    expect(screen.queryByTestId('geotech-borehole-preview-ghosts')).not.toBeInTheDocument()
+    // It must NOT flip to a solid ghost over the committed band.
+    expect(screen.queryByTestId('geotech-preview-band-bh-1-0')).toBeNull()
+    expect(screen.getByTestId('geotech-rediv-band-bh-1-0')).toBeInTheDocument()
   })
 
   it('GP16 — publishes what it drew so the legend can be gated on it', () => {
@@ -588,17 +694,17 @@ describe('GeotechBoreholePreviewGhosts — donor provenance (owner ask 2026-08-0
     expect(screen.queryByTestId('geotech-preview-column-menu')).toBeNull()
   })
 
-  it('GA4 — a column whose commit landed has no ghosts left to accept', () => {
-    // The subset commit's own consequence: the committed rows arrive, the
-    // ghosts drop, and the gesture that produced them is gone with them. Pins
-    // the subset path of GP2 — a preview lingering beside the rows it predicted
-    // would be worse than no preview.
+  it('GA4 — a divided column shows a read-only re-divide diff; the accept gesture stays on the undivided one', () => {
+    // Post-#269 a committed column is no longer blank — it shows an outline
+    // re-divide diff — but that diff is READ-ONLY: re-committing one already-
+    // divided column is undesigned, so no accept menu is offered. The undivided
+    // neighbour keeps its per-column accept gesture unchanged.
     const onAcceptColumn = vi.fn()
     render(
       <svg>
         <GeotechBoreholePreviewGhosts
           previewColumns={[
-            previewColumn('bh-1', [{ top: 0, base: 4, nad: 6 }]),
+            previewColumn('bh-1', [{ top: 0, base: 3, nad: 6 }]),
             previewColumn('bh-2', [{ top: 0, base: 4, nad: 8 }]),
           ]}
           geotechLayers={[committedBand('bh-1')]}
@@ -608,8 +714,11 @@ describe('GeotechBoreholePreviewGhosts — donor provenance (owner ask 2026-08-0
         />
       </svg>,
     )
-    expect(screen.queryByTestId('geotech-preview-column-bh-1')).toBeNull()
-    // The borehole left OUT of the subset keeps its ghosts and its gesture.
+    // bh-1 is divided: it renders a diff column but offers no accept menu.
+    expect(screen.getByTestId('geotech-preview-column-bh-1')).toBeInTheDocument()
+    fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-1'))
+    expect(screen.queryByTestId('geotech-preview-column-menu')).toBeNull()
+    // The undivided borehole keeps its ghosts and its gesture.
     fireEvent.contextMenu(screen.getByTestId('geotech-preview-column-bh-2'))
     fireEvent.click(screen.getByTestId('geotech-preview-accept-column'))
     expect(onAcceptColumn).toHaveBeenCalledWith('bh-2')
