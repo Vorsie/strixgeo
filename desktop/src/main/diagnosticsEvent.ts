@@ -20,7 +20,7 @@
  * to come from a different build.
  */
 
-import { redactText } from './diagnosticsRedaction'
+import { redactMessage, redactText } from './diagnosticsRedaction'
 
 /** Which process observed the problem. Decided by the capture site. */
 export type DiagnosticSource = 'main' | 'renderer' | 'api'
@@ -158,7 +158,10 @@ export function normaliseDiagnosticEvent(
   if (typeof raw !== 'object' || raw === null) return null
   const input = raw as Record<string, unknown>
 
-  const message = redactText(input.message).trim()
+  // The message is the one field that quotes user data (an interpreter error
+  // names the formation/project/borehole it failed on), so it gets the
+  // quoted-literal superset; the stack quotes nothing, so redactText is enough.
+  const message = redactMessage(input.message).trim()
   if (message === '') return null
 
   const stack = redactText(input.stack).trim()
