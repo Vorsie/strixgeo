@@ -26,6 +26,33 @@ from groundmodel.application.bulk_create_litho_layers import (
     LithoLayerCreateRequest,
 )
 
+
+@pytest.fixture(autouse=True)
+def _neutralize_body_partition_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutralise the body-partition advisory lock for these mocked-session tests.
+
+    These predate the lock and mock the session, which has nothing to answer the
+    lock's real DB calls (``pg_advisory_xact_lock`` + the sibling-geotech SELECT).
+    The lock is infrastructure orthogonal to what they assert; its
+    order-of-acquisition invariant is pinned separately in
+    ``test_litho_write_lock_order.py`` (BP-4).
+    """
+
+    async def _noop_lock(*_a: object, **_k: object) -> None:
+        return None
+
+    async def _noop_siblings(*_a: object, **_k: object) -> list:
+        return []
+
+    monkeypatch.setattr(
+        "groundmodel.application.bulk_create_litho_layers.lock_body_partition", _noop_lock
+    )
+    monkeypatch.setattr(
+        "groundmodel.application.bulk_create_litho_layers.lock_sibling_geotech_partitions",
+        _noop_siblings,
+    )
+
+
 MODEL = uuid4()
 PROJECT = uuid4()
 OTHER_PROJECT = uuid4()
