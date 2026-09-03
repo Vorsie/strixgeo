@@ -169,6 +169,7 @@ function makeStubContext(): ShellContextValue {
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
+      handleToggleBoreholeInLithoModel: noopAsync,
       discardContacts: vi.fn(),
       // G1 additions
       discoverBoreholeFormations: noopAsyncCandidates,
