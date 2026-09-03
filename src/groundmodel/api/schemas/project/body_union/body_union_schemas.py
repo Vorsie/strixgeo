@@ -21,8 +21,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, model_validator
 
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
-class CreateBodyUnionRequest(BaseModel):
+
+class CreateBodyUnionRequest(StrictRequestModel):
     """Body for POST /body-unions.
 
     Attributes
