@@ -388,3 +388,26 @@ of a wedge that is 9.9 cm thick at its other end.
   own SELECTs under `no_autoflush` so acquiring a lock never flushes a pending write first.
   Same class still unfixed in `clear_litho_model` / `delete_body` (they delete litho bodies
   without the geotech child lock — lower-probability, user-initiated).
+
+## 2026-09-03 — a foreign-key KEY SHARE lock from a child insert is a hidden lock on the parent row
+
+* **Every writer of a child row must take the same serialising lock as the code that
+  rewrites the parent — inserting or updating a child row FOR-KEY-SHARE-locks the parent
+  row it references, and that lock is invisible in the child writer's own SQL.** A
+  `bodies/recompute` deletes/re-stamps `body` rows under a per-model advisory lock, while
+  five use cases that write `litho_layer` rows (accept / batch-accept / move-boundary /
+  update / bulk-create) took NO lock — yet each accepted `litho_layer` FK-references a
+  `body`, so their INSERT/UPDATE holds a KEY-SHARE lock on the very `body` rows recompute
+  is trying to delete. Recompute holds the advisory lock and waits on those rows; the
+  writer holds the rows and (unlike recompute) never queued on the advisory lock — an ABBA
+  deadlock the app hit every time accept + the debounced recompute overlapped
+  (`flow_bulk_accept`), and when the victim rolled back mid-column the litho contiguity
+  trigger then rejected the next accept. Rule: when one code path rewrites a parent table
+  under a lock, grep for every path that writes a CHILD of that table and make it take the
+  SAME lock before its first write — the FK KEY-SHARE is a real lock even though the child
+  writer never names the parent. Fix here: each writer takes the model's partition lock
+  (own litho, then sibling geotech) before its first write, once at the outermost use case
+  (batch-accept takes it; the inner accept skips it in batch mode — advisory xact locks are
+  re-entrant, so take it once to keep the contention log clean). Pinned red-first by
+  `tests/unit/application/test_litho_write_lock_order.py` and by BP-4 in
+  `test_body_partition_litho_write_recompute_race.py`.
