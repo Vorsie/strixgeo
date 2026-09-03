@@ -8,6 +8,11 @@ All **Geology** routes are mounted under one parent prefix `/projects/{project_i
 
 **Project-scope guard:** single-resource by-id endpoints (e.g. `GET /cpt/{cpt_id}`, `GET /borehole/{borehole_id}`, and their `PATCH` / `DELETE` siblings) require a `?project_id` query parameter and answer `404` when the id is not in that project — a cross-project id-enumeration guard (`scope_guard.load_scoped_or_raise`, #166). Every read and write goes through the SQLAlchemy ORM; there is no raw-SQL surface.
 
+**Loopback access control (launch token + CORS).** The API binds to `127.0.0.1` and is unauthenticated by design (single-seat desktop app). The threat model is a web page the engineer has open cross-origin-fetching the local API. Two layers close it:
+
+* **CORS** (`api/main.py`) allows exactly the renderer's own origins: `"null"` (the packaged `file://` renderer) in every environment, plus `http://localhost:<port>` (the Vite dev server) **only in development** (`environment == "development"`). A packaged build allows no browser origin but `null`. The 500 error handler is pinned to the same allowlist so an escaped exception never echoes an origin CORS would reject.
+* **Launch token** (`local_client_token_middleware.py`). A browser origin is forgeable, so the Electron main process mints a random token per launch, passes it to its uvicorn child as `STRIX_API_TOKEN`, and injects it as the `X-StrixGeo-Token` header on every renderer request (both the packaged and the dev renderer). **Any request carrying an `Origin` header must present a valid token** (constant-time compared); a request with **no** `Origin` header — curl, the integration suite, the main process's readiness probe — is exempt. A backend started by hand (no `STRIX_API_TOKEN`) disables the check entirely, so dev shells, `scripts/run-e2e.ps1`, and integration runs are unaffected. A CORS preflight (`OPTIONS`) is answered by CORS before the token check and needs no token.
+
 **CPT — `cpt.py`**
 
 ```
