@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class SeedLithoFromParentRequest(BaseModel):
+class SeedLithoFromParentRequest(StrictRequestModel):
     """Request body for the seed-litho-from-parent endpoint.
 
     Attributes
