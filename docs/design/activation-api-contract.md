@@ -85,6 +85,19 @@ values — any other string is rejected by the client as an unreadable licence.
 Ed25519-signed licence the client verifies offline. When that lands, the signed
 artefact is what the licence travels in; the field set above is unchanged.
 
+### Duration keys — the clock starts at first activation
+
+A beta-cohort key MAY be minted with a **duration** instead of a fixed end date
+(`php bin/mint.php --duration-days 30 …`). Such a key is **dormant** until it is
+first activated — it carries no expiry. On the **first successful `/activate`**,
+the server stamps the authoritative end as `activation time + duration_days` and
+returns it in `expiresAt` exactly as a dated key would; the client cannot tell the
+two apart on the wire. A **later** activation on the same licence (the seat moved
+by a `/deactivate` + `/activate`, or a `/refresh`) does **not** move that end — the
+clock only ever starts once (owner ruling 2026-09-03, "once the users activate
+their key, their 30 days timer starts running"). This is a server-side minting
+choice only: nothing in the request body or the licence object shape changes.
+
 ---
 
 ## 4. Requests, per endpoint
