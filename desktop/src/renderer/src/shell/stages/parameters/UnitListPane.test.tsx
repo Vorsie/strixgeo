@@ -31,6 +31,9 @@ import UnitListPane from './UnitListPane'
 const setSelectedParameterUnit = vi.fn()
 const listLenses = vi.fn()
 const listBodyUnions = vi.fn()
+const requestBodyRecompute = vi.fn()
+const requestGeotechLayersRefetch = vi.fn()
+const toast = vi.fn()
 
 vi.mock('../../../api/client', () => ({
   api: {
@@ -61,13 +64,16 @@ vi.mock('../../ShellContext', () => ({
       geotechLayersLoaded: mockGeotechLayersLoaded,
       activeLithoModel: null,
       activeGeotechModel: mockActiveGeotechModel,
+      requestGeotechLayersRefetch,
     },
     coordinator: {
       selectedParameterUnit: mockSelectedUnit,
       setSelectedParameterUnit,
       bodyRecomputeLithoNonce: 0,
       bodyRecomputeGeotechNonce: mockGeotechNonce,
+      requestBodyRecompute,
     },
+    toasts: { toast },
   }),
 }))
 
