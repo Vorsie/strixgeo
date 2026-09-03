@@ -83,6 +83,17 @@ export interface ActivationRepository {
    * (the self-service deactivate/transfer flow ruling 15 made required).
    */
   deactivate(deviceId: string): Promise<void>
+
+  /**
+   * Re-verify a still-bound device and re-issue its licence with a fresh
+   * ``expiresAtMs`` (contract ``POST /refresh``) — a subscription renewal reaches
+   * the client this way (audit H5). Its PRESENCE is deliberately OPTIONAL: only
+   * the network-backed {@link ./httpActivationRepository} implements it. The mock
+   * and the unreachable issuer omit it, which is exactly what keeps launch-time
+   * refresh DORMANT when no server URL is configured — the service skips the call
+   * when the method is absent, so the owner's dogfeed never re-checks anything.
+   */
+  refresh?(request: ActivateRequest): Promise<IssueResult>
 }
 
 /**
