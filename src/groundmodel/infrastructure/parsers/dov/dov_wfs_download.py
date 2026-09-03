@@ -47,6 +47,10 @@ import httpx
 
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_DOWNLOAD_PARALLELISM
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import (
+    DovRateLimitState,
+    dov_get_with_retry,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.progress import ProgressCallback, fire_progress
 from groundmodel.shared.timing import ms_since
@@ -102,6 +106,7 @@ async def parallel_download_and_process(
     parallelism: int = DOV_DOWNLOAD_PARALLELISM,
     error_id_of: ErrorIdFn[RowT] | None = None,
     progress_cb: ProgressCallback | None = None,
+    backoff: DovRateLimitState | None = None,
 ) -> list[tuple[RowT, ResultT]]:
     """Download every row's XML in parallel, run ``process`` on each.
 
@@ -160,6 +165,11 @@ async def parallel_download_and_process(
         Optional progress callback.  Receives ``("download", done, total)``
         every ``progress_step`` items.  Default ``None`` preserves the
         original no-callback behaviour for all callers that don't opt in.
+    backoff
+        Optional per-import rate-limit state. Threaded into each XML GET so a
+        429/503 is retried (``Retry-After`` honoured) rather than failing the
+        row, and a 429 halves the import's parallelism once. ``None`` disables
+        both (retry still applies to plain non-2xx via the caller's handling).
 
     Returns
     -------
@@ -203,6 +213,7 @@ async def parallel_download_and_process(
             progress_step=progress_step,
             error_id_of=error_id_of,
             progress_cb=progress_cb,
+            backoff=backoff,
         )
         for row in rows
     ]
@@ -245,12 +256,20 @@ async def _download_one(
     progress_step: int,
     error_id_of: ErrorIdFn[RowT] | None,
     progress_cb: ProgressCallback | None = None,
+    backoff: DovRateLimitState | None = None,
 ) -> ResultT:
     """Cache check → semaphore-bounded HTTP → write-through → process.
 
     Lives at module level (not nested in ``parallel_download_and_process``)
     so each task closes over only its own arguments; nesting would have
     every task carry the outer function's frame on its event-loop stack.
+
+    A cache hit that fails to ``process`` is treated as a poisoned entry: the
+    cache file is invalidated and the download retried ONCE from the network,
+    so a bit-rotted cached XML self-heals instead of failing every import. A
+    FRESH (network) parse failure is a genuine bad XML and is not retried — it
+    propagates so the row is dropped with a per-row error. The XML GET itself
+    rides out a 429/503 via :func:`dov_get_with_retry`.
 
     Parameters
     ----------
@@ -285,23 +304,21 @@ async def _download_one(
         Optional row identity blurb for error messages.
     progress_cb : ProgressCallback | None
         Optional callback fired on each logging tick.
+    backoff : DovRateLimitState | None
+        Optional per-import rate-limit state forwarded to the XML GET.
     """
     xml_url = xml_url_of(row)
     permkey = permkey_of(row)
     ident = (error_id_of or permkey_of)(row)
 
-    xml_bytes: bytes | None = None
-    from_cache = False
-
-    if cache is not None:
-        xml_bytes = cache.get(permkey)
-        from_cache = xml_bytes is not None
-
-    if xml_bytes is None:
+    async def _fetch_over_network() -> bytes:
+        """Semaphore-bounded GET (with 429/503 retry) + write-through to cache."""
         t0 = time.perf_counter()
         async with sem:
             try:
-                resp = await http.get(xml_url)
+                resp = await dov_get_with_retry(
+                    http, xml_url, logger=logger, label=label, backoff=backoff
+                )
             except httpx.RequestError as exc:
                 logger.error(f"{label}: network error fetching {ident} ({xml_url}): {exc}")
                 raise
@@ -311,24 +328,53 @@ async def _download_one(
                     f"url={xml_url}  body={resp.text[:200]!r}"
                 )
                 resp.raise_for_status()
-            xml_bytes = resp.content
+            fetched = resp.content
         # Per-item download size + latency — payload size is the dominant DOV
         # import cost (a typical CPT export decodes to ~0.5 MB; see
         # CLAUDE.local.md), and size + latency together point straight at a slow
         # oversized record. The timer spans the semaphore wait too, so it is the
         # total "how long did this item take" signal. TRACE (per-byte/per-row).
-        logger.trace(f"{label}: fetched {ident} — {len(xml_bytes)}B {ms_since(t0)}ms url={xml_url}")
+        logger.trace(f"{label}: fetched {ident} — {len(fetched)}B {ms_since(t0)}ms url={xml_url}")
         if cache is not None:
-            cache.put(permkey, xml_bytes)
+            cache.put(permkey, fetched)
+        return fetched
 
-    # Process runs outside the semaphore — parse blocks the event loop
-    # briefly while the freed slot starts the next download (the async
-    # variant may instead await a parse-pool worker, freeing the loop).
-    if process_async is not None:
-        result = await process_async(row, xml_bytes)
-    else:
+    async def _run_process(payload: bytes) -> ResultT:
+        # Process runs outside the semaphore — parse blocks the event loop
+        # briefly while the freed slot starts the next download (the async
+        # variant may instead await a parse-pool worker, freeing the loop).
+        if process_async is not None:
+            return await process_async(row, payload)
         assert process is not None  # caller validated exactly-one-of
-        result = process(row, xml_bytes)
+        return process(row, payload)
+
+    xml_bytes: bytes | None = None
+    from_cache = False
+    if cache is not None:
+        xml_bytes = cache.get(permkey)
+        from_cache = xml_bytes is not None
+    if xml_bytes is None:
+        xml_bytes = await _fetch_over_network()
+
+    try:
+        result = await _run_process(xml_bytes)
+    except Exception:
+        # A FRESH parse failure is a genuine bad XML — propagate so the row is
+        # dropped with a per-row error. Only a CACHED parse failure is retried:
+        # the on-disk bytes may have rotted (a flipped bit, a truncated write)
+        # while the upstream XML is fine, so invalidate and re-fetch ONCE.
+        if not (from_cache and cache is not None):
+            raise
+        logger.warning(
+            f"{label}: cached XML for {ident} failed to parse — invalidating the "
+            f"cache entry and re-fetching once from network"
+        )
+        cache.delete(permkey)
+        xml_bytes = await _fetch_over_network()
+        from_cache = False  # a network miss now, for hit/miss accounting
+        # A second failure propagates → the row is dropped (no retry loop).
+        result = await _run_process(xml_bytes)
+
     progress["done"] += 1
     if from_cache:
         progress["hits"] += 1
