@@ -34,7 +34,7 @@ import {
 import { DiagnosticsUploader } from './diagnosticsUploader'
 import { diagnosticsIdentityFor } from './diagnosticsPayload'
 import { DIAGNOSTICS_QUEUE_DIR_NAME } from './diagnosticsUploaderConstants'
-import { rotateIfNeeded, realFsOps } from './logRotation'
+import { createRotatingAppender, rotateIfNeeded, realFsOps } from './logRotation'
 import { registerSheetPdfIpc } from './sheetPdf'
 import {
   LOCAL_CLIENT_TOKEN_ENV_VAR,
@@ -68,14 +68,23 @@ import {
   isValidRecentProjectEntry,
   normalizePathForCompare,
   rawBackendLogAffordanceEnabled,
+  sanitizeSaveDialogDefault,
 } from './security'
 import { applyPackagedProfile } from './packagedProfile'
+import { resolveMachineLocalStrixDir } from './machineLocalStores'
+import { migratePgdata, realPgdataFsOps } from './pgdataMigration'
 import {
   SAMPLE_INSTALL_DEFAULT_FILE_NAME,
   resolveSampleProjectPath,
 } from './sampleProject'
 import { startEmbeddedStack, type EmbeddedStack } from './embedded/embeddedStack'
+import { configurePgdataRoot } from './embedded/embeddedPaths'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
+import { registerBackendLifecycle } from './backendLifecycle'
+import { tailoredBootFailureCopy } from './bootFailureMessage'
+import { backendProbeHeaders, classifyBackendProbe, type ProbeVerdict } from './backendProbe'
+import { decideBackendRespawn, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
+import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
 import { configureActivationStore, readActivationState } from './activationStore'
 import { ActivationService } from './activationService'
@@ -87,8 +96,10 @@ import { checkForUpdatesOnLaunch, configureUpdater } from './updaterService'
 
 // FIRST userData-affecting statement in the process, deliberately ahead of the
 // single-instance lock and every store — see packagedProfile.ts for why a
-// packaged build must not share the dev profile. Dev: no-op.
-applyPackagedProfile(app)
+// packaged build must not share the dev profile. Dev: no-op. The %LOCALAPPDATA%
+// argument moves the (large, churny) logs off the Roaming profile (M1); pgdata
+// moves via the embedded layout below.
+applyPackagedProfile(app, process.env.LOCALAPPDATA)
 
 // Authorised filesystem paths (debt #37). Populated by:
 //   * Every dialog.showOpen/showSave return value (the user just
@@ -198,6 +209,12 @@ let quitHandshake = new QuitHandshake()
 // write a timestamped crash line even when no stream is open.
 let mainLogPath: string | null = null
 
+// The size-bounded appender for the main log (M8/L1). Set alongside mainLogPath
+// in openMainLog; re-checks the file size every N appended bytes and rotates
+// mid-session, so a long verbose run no longer grows backend.log past the cap
+// until the next restart. Null in dev (writeMainLog falls back to the console).
+let mainLogAppend: ((line: string) => void) | null = null
+
 // Set by startApi after the ChildProcess is spawned. Called by the
 // api:ready handler so the exit listener knows the backend started cleanly
 // and a subsequent exit is a normal shutdown, not a startup crash.
@@ -206,6 +223,21 @@ let markBackendReady: (() => void) | null = null
 // The bundled PostgreSQL, in packaged builds only (null in dev, where Docker
 // on :5433 owns the database and none of this runs).
 let embeddedStack: EmbeddedStack | null = null
+
+// When the backend was last respawned this session (H3(a)). A death within
+// BACKEND_RESPAWN_GUARD_MS of this is a crash loop and gives up to the banner.
+let lastBackendRespawnAtMs: number | null = null
+
+// True while ``stopApi`` is deliberately killing the backend (shutdown, or the
+// uncaught-exception handler). The exit handler must NOT respawn or signal a
+// failure for a death WE caused — otherwise quitting would spawn a lingering
+// backend a second before the app exits (H3(a)). Reset when a fresh backend is
+// spawned, so its later unintentional death is respawned normally.
+let intentionalBackendStop = false
+
+// Short delay before respawning a backend that died mid-session (H3(a)) — long
+// enough to let the port free up, short enough to be invisible to the user.
+const BACKEND_RESPAWN_BACKOFF_MS = 1_000
 
 /**
  * Open the packaged build's backend log, rotating it first if it has grown
@@ -218,7 +250,17 @@ function openMainLog(): void {
   const logsDir = app.getPath('logs')
   mkdirSync(logsDir, { recursive: true })
   const logPath = join(logsDir, 'backend.log')
-  rotateIfNeeded(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, realFsOps())
+  const fs = realFsOps()
+  // Launch-time rotation: a stale over-cap file from the previous run rolls to
+  // .1 before the first line lands.
+  rotateIfNeeded(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, fs)
+  // Mid-session rotation (M8/L1): every writeMainLog goes through this appender,
+  // which re-checks the size periodically and rotates when the cap is crossed —
+  // so a long verbose session cannot grow the active log without bound.
+  mainLogAppend = createRotatingAppender(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, {
+    fs,
+    append: (p, text) => appendFileSync(p, text),
+  })
   mainLogPath = logPath
 }
 
@@ -237,12 +279,14 @@ function openMainLog(): void {
  * backend stdout — does not justify the risk.
  */
 function writeMainLog(line: string): void {
-  if (mainLogPath === null) {
+  if (mainLogAppend === null) {
     console.log(line)
     return
   }
   try {
-    appendFileSync(mainLogPath, `${line}\n`)
+    // The appender writes the trailing newline itself and rotates when the file
+    // crosses the cap (M8/L1).
+    mainLogAppend(line)
   } catch {
     // A log write must never be the thing that takes the app down.
   }
@@ -253,6 +297,9 @@ function writeMainLog(line: string): void {
 // ---------------------------------------------------------------------------
 
 function startApi(): void {
+  // A freshly spawned backend's future death is "unintentional" until stopApi
+  // says otherwise (H3(a)).
+  intentionalBackendStop = false
   // In dev: __dirname = desktop/out/main/ → 3 levels up = repo root (Strix/).
   // A packaged build has no repo and no .venv — it runs the bundled
   // interpreter against the bundled source, pointed at the database
@@ -328,7 +375,17 @@ function startApi(): void {
   apiProcess.on('exit', (code) => {
     writeLog(`[api] process exited with code ${code}`)
     apiProcess = null
-    if (backendBecameReady) return
+    if (intentionalBackendStop) {
+      // We killed it (shutdown, or the uncaught-exception handler). Do not
+      // respawn and do not signal failure — the app is on its way down (H3(a)).
+      return
+    }
+    if (backendBecameReady) {
+      // The backend was serving and then died — respawn it once (H3(a)) rather
+      // than leave the app talking to a dead API.
+      handleReadyBackendExit()
+      return
+    }
 
     // The app's spawned backend exited before we confirmed readiness — but an
     // externally-run backend may still own :8765 (the dev session's own
@@ -338,15 +395,19 @@ function startApi(): void {
     // we don't false-positive over a live external backend (#214d — fixes the
     // e2e regression where the modal blocked the welcome screen).
     void (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/openapi.json`)
-        if (res.ok) {
-          writeLog('[main] backend child exited but :8765 is reachable — not signalling failure')
-          markBackendReady?.()
-          return
-        }
-      } catch {
-        // Unreachable — fall through to the failure signal.
+      const verdict = await probeBackendOnce()
+      if (verdict === 'reachable') {
+        writeLog('[main] backend child exited but :8765 is reachable — not signalling failure')
+        markBackendReady?.()
+        return
+      }
+      if (verdict === 'foreign') {
+        // Packaged only: :8765 is held by an orphaned uvicorn from a crashed
+        // previous launch, whose token differs from ours — adopting it would
+        // 403 every request (H3(b)). Refuse rather than adopt.
+        writeLog(
+          '[main] :8765 is held by a FOREIGN backend (wrong launch token, 403) — refusing to adopt it',
+        )
       }
       writeLog('[main] backend exited before ready and :8765 unreachable — sending app:backend-failed')
       mainWindow?.webContents.send('app:backend-failed')
@@ -362,6 +423,8 @@ function startApi(): void {
 
 function stopApi(): void {
   if (apiProcess) {
+    // Mark the kill as OURS so the exit handler does not respawn it (H3(a)).
+    intentionalBackendStop = true
     apiProcess.kill()
     apiProcess = null
   }
@@ -371,6 +434,112 @@ function stopApi(): void {
   if (embeddedStack) {
     embeddedStack.stop()
     embeddedStack = null
+  }
+}
+
+/**
+ * Probe ``:8765`` once to decide whether the listener is a backend we may adopt.
+ *
+ * A packaged probe carries this launch's token + ``Origin: null`` so a foreign
+ * (orphaned previous-launch) uvicorn answers 403 and is never adopted (H3(b));
+ * a dev/e2e probe is header-free and adopts any listener. See ./backendProbe.
+ *
+ * @returns The probe verdict — reachable / foreign / unreachable.
+ */
+async function probeBackendOnce(): Promise<ProbeVerdict> {
+  try {
+    const res = await fetch(`${API_BASE}/openapi.json`, {
+      headers: backendProbeHeaders(app.isPackaged, localClientToken),
+    })
+    return classifyBackendProbe(app.isPackaged, res.status)
+  } catch {
+    return 'unreachable'
+  }
+}
+
+/**
+ * Handle a backend exit that happened AFTER it had become ready (H3(a)).
+ *
+ * Respawn once with a short backoff, telling the renderer it is reconnecting;
+ * poll the respawned backend to readiness and tell the renderer when it is back.
+ * A second death inside the guard window is a crash loop — give up to the
+ * existing backend-failed banner rather than respawn forever.
+ */
+function handleReadyBackendExit(): void {
+  const action = decideBackendRespawn(lastBackendRespawnAtMs, Date.now(), BACKEND_RESPAWN_GUARD_MS)
+  if (action === 'give-up') {
+    writeMainLog('[main] backend died again within the guard window — not respawning (crash loop)')
+    mainWindow?.webContents.send('app:backend-failed')
+    return
+  }
+  lastBackendRespawnAtMs = Date.now()
+  writeMainLog('[main] backend exited after readiness — respawning once')
+  mainWindow?.webContents.send('app:backend-restarting')
+  setTimeout(() => {
+    startApi()
+    void awaitRespawnedBackendReady()
+  }, BACKEND_RESPAWN_BACKOFF_MS)
+}
+
+/**
+ * Poll the just-respawned backend to readiness and notify the renderer (H3(a)).
+ *
+ * On success it marks the new process ready (so a later normal shutdown is not
+ * misread as a startup crash) and sends ``app:backend-ready``; if the respawn
+ * never answers — or dies again immediately — it falls back to the backend-failed
+ * banner.
+ */
+async function awaitRespawnedBackendReady(): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    if (i > 0 && apiProcess === null) break // the respawn crashed before ready
+    const verdict = await probeBackendOnce()
+    if (verdict === 'reachable') {
+      markBackendReady?.()
+      writeMainLog('[main] respawned backend is ready')
+      mainWindow?.webContents.send('app:backend-ready')
+      return
+    }
+    await new Promise(r => setTimeout(r, 500))
+  }
+  writeMainLog('[main] respawned backend never became ready — sending app:backend-failed')
+  mainWindow?.webContents.send('app:backend-failed')
+}
+
+/**
+ * Move the large, machine-local stores off the Roaming profile and point the
+ * embedded database at their new home (audit M1). Packaged builds only; a dev /
+ * e2e / isolated run keeps everything where it was.
+ *
+ * The live PostgreSQL cluster must not sit on a Roaming share a domain-joined
+ * consultancy syncs or redirects. Logs already moved in ``applyPackagedProfile``;
+ * here the cluster does: an existing Roaming ``pgdata`` is relocated to
+ * ``%LOCALAPPDATA%\StrixGeo`` BEFORE Postgres starts, and the embedded layout is
+ * pointed there. A failed move keeps the (intact) Roaming cluster and boots from
+ * it, retrying next launch.
+ *
+ * The numba cache still resolves under the user profile in ``embeddedStack``;
+ * moving it is a follow-on that needs a hook in that (separately owned) module —
+ * see the build report. It is a rebuildable cache, so leaving it costs a
+ * one-time recompile, never data.
+ */
+function relocateMachineLocalStores(): void {
+  const localRoot = resolveMachineLocalStrixDir({
+    packaged: app.isPackaged,
+    isolated: app.commandLine.hasSwitch('user-data-dir'),
+    localAppData: process.env.LOCALAPPDATA,
+  })
+  if (localRoot === null) return // dev / isolated / no %LOCALAPPDATA% → keep Roaming
+  // Open the boot log first so the relocation is recorded in backend.log.
+  if (mainLogPath === null) openMainLog()
+  const roamingPgdata = join(app.getPath('userData'), 'pgdata')
+  const localPgdata = join(localRoot, 'pgdata')
+  const result = migratePgdata(roamingPgdata, localPgdata, realPgdataFsOps(), writeMainLog)
+  // Point the cluster at Local unless the move failed — a failure keeps the
+  // intact Roaming cluster, and configuring Local would boot against an empty or
+  // half-copied directory. 'skipped' means Local already holds the cluster or it
+  // is a fresh install (initdb will create it at Local); both want Local.
+  if (result !== 'failed') {
+    configurePgdataRoot(localRoot)
   }
 }
 
@@ -397,11 +566,19 @@ async function bootEmbeddedDatabase(): Promise<boolean> {
     embeddedStack = result.stack
     return true
   }
+  // A database written by a NEWER StrixGeo gets its own message (M8): the
+  // generic stage sentence reads like corruption, when in fact the data is
+  // intact and the cure is to install the current build. Any other failure
+  // keeps the stage sentence + technical message.
+  const tailored = tailoredBootFailureCopy(result.failure)
+  const detailsPath = mainLogPath ?? app.getPath('logs')
   dialog.showErrorBox(
-    'StrixGeo could not start',
-    `${result.failure.summary}\n\n` +
-      `${result.failure.message}\n\n` +
-      `Details were written to:\n${mainLogPath ?? app.getPath('logs')}`,
+    tailored?.title ?? 'StrixGeo could not start',
+    tailored
+      ? `${tailored.detail}\n\nDetails were written to:\n${detailsPath}`
+      : `${result.failure.summary}\n\n` +
+          `${result.failure.message}\n\n` +
+          `Details were written to:\n${detailsPath}`,
   )
   app.quit()
   return false
@@ -523,6 +700,10 @@ function createWindow(): void {
   })
   mainWindow = win
   quitHandshake = new QuitHandshake()
+  // Anti-loop guard for the once-only reload after a renderer crash (H3(d)).
+  // Cleared when a document next finishes loading, so a crash that recurs before
+  // recovery cannot spin, while a later unrelated crash still gets its one reload.
+  let rendererReloadedAfterCrash = false
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -641,6 +822,16 @@ function createWindow(): void {
     // no unsaved state worth prompting about — stop intercepting closes so the
     // window doesn't become un-closable on top of the crash.
     quitHandshake.noteRendererGone()
+    // Recreate the renderer ONCE on a genuine fault (H3(d)) — a packaged build
+    // has no View → Reload / Ctrl+R to do it by hand. A deliberate teardown
+    // (killed / clean-exit) is left alone; the guard blocks a reload-crash-loop.
+    // The crash-recovery offer on the reloaded document takes over from there.
+    if (shouldReloadRendererAfterGone(details.reason, rendererReloadedAfterCrash)) {
+      rendererReloadedAfterCrash = true
+      // eslint-disable-next-line no-console
+      console.error('[main] reloading the window once after a renderer crash')
+      win.reload()
+    }
   })
   // A document finished loading — the window has a working renderer again, with
   // its own ``app:before-quit`` subscriber. Re-arm the handshake: after a crash
@@ -649,6 +840,9 @@ function createWindow(): void {
   // discard everything done since the reload.
   win.webContents.on('did-finish-load', () => {
     quitHandshake.noteRendererAlive()
+    // A working renderer again — re-arm the once-only crash reload (H3(d)) so a
+    // future, unrelated crash is also recovered.
+    rendererReloadedAfterCrash = false
     // The token-injection audit needs nothing here any more: it arms itself
     // on the first OBSERVED API request (see the onBeforeRequest listener),
     // so an idle start-screen session no longer trips a false alarm.
@@ -1064,7 +1258,9 @@ ipcMain.handle(
   async (_event, defaultName: string | undefined) => {
     const result = await dialog.showSaveDialog({
       filters: [{ name: 'StrixGeo Project', extensions: [PROJECT_FILE_EXTENSION] }],
-      defaultPath: defaultName,
+      // Renderer-supplied name → bare filename only, so a crafted default cannot
+      // pre-fill a path outside the dialog's directory (audit H4).
+      defaultPath: sanitizeSaveDialogDefault(defaultName),
     })
     if (result.canceled) return null
     const path = result.filePath ?? null
@@ -1153,7 +1349,9 @@ ipcMain.handle(
   ): Promise<string | null> => {
     const result = await dialog.showSaveDialog({
       filters,
-      defaultPath: defaultName,
+      // Renderer-supplied name → bare filename only (audit H4), same as the
+      // project save dialog above.
+      defaultPath: sanitizeSaveDialogDefault(defaultName),
     })
     if (result.canceled) return null
     const path = result.filePath ?? null
@@ -1239,6 +1437,16 @@ registerSheetPdfIpc()
 ipcMain.handle(
   'project:add-recent',
   (_event, filePath: string, name: string): RecentProject[] => {
+    // Refuse a path the user has not already authorised through a dialog or the
+    // startup recents bootstrap (audit H4, debt #37). ``addRecentProject``
+    // authorises every entry it keeps, so without this guard the renderer could
+    // inject an arbitrary path into the authorised-path set — voiding the guard
+    // that ``fs:read-file`` / ``export:write-file`` rely on — by naming it here.
+    // Every legitimate add-recent follows an open/save dialog (or a recents open)
+    // that already authorised the path.
+    if (!pathIsAuthorised(filePath)) {
+      throw new Error(`project:add-recent refused — path not authorised: ${filePath}`)
+    }
     const updated = addRecentProject(filePath, name)
     // Rebuild the native menu so the new entry appears under "Open Recent"
     // without an app restart. Single-window today; if the user closed the
@@ -1302,16 +1510,17 @@ ipcMain.handle('api:ready', async () => {
   // rather than waiting out the full 30 s.
   for (let i = 0; i < 60; i++) {
     if (i > 0 && apiProcess === null) return false  // process crashed
-    try {
-      const res = await fetch(`${API_BASE}/openapi.json`)
-      if (res.ok) {
-        // Backend is up — mark it so the exit handler knows this is a
-        // normal shutdown, not a startup crash (#214d).
-        markBackendReady?.()
-        return true
-      }
-    } catch {
-      // not ready yet
+    const verdict = await probeBackendOnce()
+    if (verdict === 'reachable') {
+      // Backend is up — mark it so the exit handler knows this is a
+      // normal shutdown, not a startup crash (#214d).
+      markBackendReady?.()
+      return true
+    }
+    if (verdict === 'foreign') {
+      // A foreign backend (orphaned previous launch, wrong token) owns the port
+      // — never adopt it (H3(b)); report not-ready so the failed banner shows.
+      return false
     }
     await new Promise(r => setTimeout(r, 500))
   }
@@ -1639,6 +1848,11 @@ process.on('uncaughtException', (err: Error): void => {
     'StrixGeo — unexpected error',
     `An unexpected error occurred in the StrixGeo main process:\n\n${err.message}\n\nStrixGeo will now exit. Check the log file for details.`,
   )
+  // Stop the backend child and the embedded Postgres BEFORE exiting (H3(c)). A
+  // bare hard exit skips before-quit/will-quit, so it would orphan the uvicorn
+  // child (leaving a foreign backend on :8765) and the Postgres cluster (leaving
+  // the data directory locked) for the next launch to trip over.
+  stopApi()
   // Exit with a non-zero code so the OS knows it was a crash.
   process.exit(1)
 })
@@ -1872,7 +2086,12 @@ if (!gotSingleInstanceLock) {
     // Packaged builds bring their own PostgreSQL up before anything else —
     // there is no Docker on a coworker's machine. A dev session skips this
     // entirely and keeps talking to :5433 (debt #2, Fork A).
-    if (app.isPackaged && !(await bootEmbeddedDatabase())) return
+    if (app.isPackaged) {
+      // Move the live cluster off the Roaming profile and point the embedded
+      // layout at Local BEFORE the database starts (M1).
+      relocateMachineLocalStores()
+      if (!(await bootEmbeddedDatabase())) return
+    }
     // The recovery store has no Electron dependency of its own (so it stays
     // unit-testable), so it learns the userData directory and app version here.
     // Must happen before any renderer can issue a ``recovery:*`` call.
@@ -1936,13 +2155,19 @@ if (!gotSingleInstanceLock) {
   })
 }
 
-app.on('window-all-closed', () => {
-  stopApi()
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('before-quit', () => {
-  stopApi()
-  // Cancel the retry timer so a pending drain cannot keep the event loop alive.
-  diagnosticsUploader?.stop()
+// H1 — the backend + database are torn down only on the events that fire AFTER
+// every window has closed (i.e. after the renderer answered the save-or-discard
+// prompt), never on ``before-quit``. Electron fires ``before-quit`` ahead of the
+// window ``close`` handler that runs the prompt, so a stop there ran the Save
+// against a dead API (docs/design/autosave-recovery.md §4). The ordering is
+// pinned in ./backendLifecycle so it is testable without Electron.
+registerBackendLifecycle(app, {
+  stopBackend: stopApi,
+  onWindowAllClosed: () => {
+    if (process.platform !== 'darwin') app.quit()
+  },
+  onWillQuit: () => {
+    // Cancel the retry timer so a pending drain cannot keep the event loop alive.
+    diagnosticsUploader?.stop()
+  },
 })
