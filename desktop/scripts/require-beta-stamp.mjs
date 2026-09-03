@@ -35,6 +35,9 @@ if (mode === 'pre') {
   if (!existsSync(bundle)) fail(`${bundle} missing after build`)
   const text = readFileSync(bundle, 'utf8')
   if (stamp && !text.includes(stamp)) fail(`the built main bundle does not contain the expiry ${stamp} — the stamp was not inlined`)
+  // A stamp is only a stamp with a built-at instant (buildStamp.ts): the config
+  // derives it from the build time, and the bundle must carry it as a literal.
+  if (stamp && !/builtAt:\s*"[0-9]{4}-[0-9]{2}-[0-9]{2}T/.test(text)) fail('the built main bundle carries an expiry but no builtAt — readBuildStamp() would return null and the app would run unstamped')
   if (!stamp && !optOut) fail('post-check reached without a stamp and without the opt-out')
   console.log(`[beta-stamp] verified: ${stamp ? `bundle carries ${stamp}` : 'unstamped local package (opt-out)'}`)
   // Provenance: resolves the SAME way as electron.vite.config.ts (env override
