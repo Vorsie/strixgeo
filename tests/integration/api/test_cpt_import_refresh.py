@@ -165,3 +165,69 @@ async def test_a_file_with_parse_errors_never_replaces_stored_data(
     plot = await async_client.get(f"/cpt/{cpt_id}/plot?project_id={project.id}")
     assert plot.status_code == 200, plot.text
     assert plot.json()["depths_m"] == [0.20, 0.40, 0.60]
+
+
+async def test_a_confirmed_refresh_never_overwrites_a_cpt_in_another_project(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """A refresh scoped to project B must not touch a CPT that lives in project A.
+
+    The GEF ``#PROJECTID`` + ``#TESTID`` are public to anyone holding the file.
+    The duplicate lookup is scoped to the request's project, so importing the
+    SAME file into a different project — even with ``confirm_refresh=true`` —
+    creates a NEW row there (201) and leaves the original project's CPT
+    untouched (audit C2). Pre-fix the unscoped lookup matched across projects
+    and the confirmed refresh overwrote the foreign row in place.
+    """
+    project_a = await make_project(db_session)
+    project_b = await make_project(db_session)
+
+    created_a = await _import(async_client, str(project_a.id), _GEF)
+    assert created_a.status_code == 201, created_a.text
+    cpt_id_a = created_a.json()["cpt_id"]
+
+    into_b = await _import(async_client, str(project_b.id), _GEF, confirm=True)
+    assert into_b.status_code == 201, into_b.text
+    body_b = into_b.json()
+    assert body_b["refreshed"] is False, (
+        "importing into another project is a NEW cpt, not a refresh"
+    )
+    assert body_b["cpt_id"] != cpt_id_a, "project B must get its own row, not project A's"
+
+    # Project A's CPT is exactly as it was written.
+    plot_a = await async_client.get(f"/cpt/{cpt_id_a}/plot?project_id={project_a.id}")
+    assert plot_a.status_code == 200, plot_a.text
+    assert plot_a.json()["depths_m"] == [0.20, 0.40, 0.60]
+
+
+async def test_a_project_less_confirmed_refresh_never_overwrites_a_project_cpt(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Omitting ``project_id`` must not overwrite a CPT that belongs to a project.
+
+    This is the raw shape of the audit-C2 attack: a caller that knows the public
+    GEF ids POSTs the file with ``confirm_refresh=true`` and NO ``project_id``.
+    The lookup for a project-less import is scoped to the null-project rows, so
+    it never matches the project's CPT — a new null-scoped row is created (201)
+    and the project's CPT is left untouched. Pre-fix the null-scope lookup was
+    unscoped and overwrote the project row in place (200, refreshed=true).
+    """
+    project = await make_project(db_session)
+
+    created = await _import(async_client, str(project.id), _GEF)
+    assert created.status_code == 201, created.text
+    cpt_id = created.json()["cpt_id"]
+
+    # No project_id form field at all, with confirmation.
+    project_less = await async_client.post(
+        "/cpt/import",
+        files={"file": ("refresh.gef", _GEF.encode(), "text/plain")},
+        data={"confirm_refresh": "true"},
+    )
+    assert project_less.status_code == 201, project_less.text
+    assert project_less.json()["refreshed"] is False
+    assert project_less.json()["cpt_id"] != cpt_id
+
+    plot = await async_client.get(f"/cpt/{cpt_id}/plot?project_id={project.id}")
+    assert plot.status_code == 200, plot.text
+    assert plot.json()["depths_m"] == [0.20, 0.40, 0.60]
