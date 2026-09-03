@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
+from groundmodel.infrastructure.db.models.orm_relationship_constants import RELATIONSHIP_LAZY
 
 
 class ObservationOrm(Base):
@@ -68,11 +69,12 @@ class ObservationOrm(Base):
     drill_method_score: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
-        "BoreholeOrm", back_populates="observations"
+        "BoreholeOrm", back_populates="observations", lazy=RELATIONSHIP_LAZY
     )
     layers: Mapped[list[ObservationLayerOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "ObservationLayerOrm",
         back_populates="observation",
         cascade="all, delete-orphan",
         order_by="ObservationLayerOrm.layer_index",
+        lazy=RELATIONSHIP_LAZY,
     )
