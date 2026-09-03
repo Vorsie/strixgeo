@@ -24,6 +24,15 @@ import { resolveBuildSha, resolveBuildTime } from './scripts/buildProvenance.mjs
 // injection ever silently fails the package fails instead of shipping blind.
 process.env.MAIN_VITE_STRIX_BUILD_SHA = resolveBuildSha()
 process.env.MAIN_VITE_STRIX_BUILD_TIME = resolveBuildTime()
+// The beta stamp needs THREE values (buildStamp.ts: a stamp without ``builtAt`` reads
+// as no stamp at all — the 07:03 installer shipped unstamped that way). The
+// packager only has to set the expiry; built-at and build id derive from the
+// build itself so the stamp can never be half-set again.
+if (process.env.MAIN_VITE_STRIX_BETA_EXPIRES_AT) {
+  process.env.MAIN_VITE_STRIX_BETA_BUILT_AT ??= process.env.MAIN_VITE_STRIX_BUILD_TIME
+  process.env.MAIN_VITE_STRIX_BETA_BUILD_ID ??=
+    `${(process.env.MAIN_VITE_STRIX_BUILD_TIME ?? '').slice(0, 10)}-beta-${(process.env.MAIN_VITE_STRIX_BUILD_SHA ?? 'nosha').slice(0, 12)}`
+}
 
 export default defineConfig({
   // main + preload: the defaults electron-vite applied when NO config was loaded.
