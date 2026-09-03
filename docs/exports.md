@@ -239,18 +239,42 @@ legend). The DXF layer name, the PLAXIS material identification and the
 PLAXIS Python variable all ask that one function, so they cannot
 disagree about which units were renamed.
 
-**What each artefact carries.**
+**What each artefact carries.** Every exporter carries the token; the six
+were verified cell-by-cell against the three levels (debt #104,
+VERIFIED RESOLVED 2026-09-02):
 
-* **DXF** — layer `GeoModel-NAD-06_ZAND - <unit name>`; layer description
-  gains `| NAD class 6 | soil ZAND`; a mapping table in model-space TEXT
-  under the title block.
+* **DXF section** — layer `GeoModel-NAD-06_ZAND - <unit name>`; layer
+  description gains `| NAD class 6 | soil ZAND`; a mapping table in
+  model-space TEXT under the title block.
 * **PLAXIS 2D + 3D** — material `Identification = "NAD-06_ZAND - <unit
   name>"`, variable `mat_nad_06_zand`, and a `UNIT MAPPING TABLE` block
   in the script's docstring header (after USAGE) listing material → NAD
-  class → soil → unit name → formation UUID.
+  class → soil → unit name → formation UUID. The 2-D and 3-D exporters
+  share `plaxis_script_helpers`, so the token reaches both identically.
+* **D-Stability (.stix) + D-Sheet Piling (.shi)** — one soil per unit,
+  named by `unit_identifier()`; the NAD class + soil code + formation id
+  ride the layer note (D-Stability) / `[RUN IDENTIFICATION]` (D-Sheet).
+  The identifiers come off the POSTed `SectionPolygonSet` units, resolved
+  in `build_section_polygons.py`.
+* **Fence DXF** — layer `Fence-NAD-06_ZAND`; the class + soil are resolved
+  per panel from its `formation_id` in `_resolve_fence_identities`, since
+  the renderer-POSTed panel carries only name + colour.
 * **Cross-section PDF sheet** — the unit legend + the labels inside the fills
   carry the on-screen unit name (client-rendered; see the sheet subsection
   above).
+
+**How each level's geometry reaches the exporter.** The section / project
+exporters read `list_contacts(model_id)` — `formation_contact` rows. A
+geological model owns those rows natively; a litho or geotech model's
+boundaries live in `litho_layer`, and the `formation_contact` rows exist
+ONLY as the LL→FC mirror the DB trigger `mirror_litho_layer_to_contact`
+maintains (no `kind` guard, so it fires for both litho and geotech accepted
+layers). Routing a section / Plaxis-3D export to a litho or geotech model
+therefore carries that level's own boundaries — pinned end-to-end for
+geotech by `tests/integration/api/test_cross_section_export_geotech.py`. The
+closed-geometry family (D-Series) and the fence DXF sidestep the mirror
+entirely: their geometry is POSTed from the renderer's partition / panels,
+so it is inherently the current axis's fill.
 
 ### Same-NAD thinning — DXF only (debt #104b)
 
