@@ -60,6 +60,22 @@ def _minimal_bundle(format_version: int) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _no_partition_locks():
+    """Neutralise the BP-5 up-front lock pass — these tests mock the session.
+
+    ``restore_project`` now takes every body-partition lock of the project
+    before its first write (``lock_project_body_partitions``, an advisory-lock
+    SELECT per model). With an ``AsyncMock`` session that pass has nothing to
+    query; it is not what these branch guards exercise, so it is patched to a
+    no-op here.
+    """
+    with patch.object(
+        project_module, "lock_project_body_partitions", new=AsyncMock(return_value=[])
+    ):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_unsupported_format_version_returns_400() -> None:
     """Bundle ``version not in SUPPORTED_BUNDLE_VERSIONS`` → 400.
