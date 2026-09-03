@@ -268,6 +268,14 @@ export const MODELS_NL = {
     'Maak hierboven een lithologiemodel aan en open daarna de profielstap om laaggrenzen te tekenen.',
   'litho.drawThenBuild':
     'Teken laaggrenzen op de profielen en bouw daarna opnieuw op om de vlakken bij te werken.',
+  'litho.excludedBoreholesHeading': 'Uitgesloten uit de lithologische opbouw',
+  'litho.excludedBoreholesHint':
+    'Deze boringen blijven buiten de lithologische opbouw. Neem er een opnieuw op om ze terug te brengen.',
+  'litho.includeBoreholeAgain': 'Opnieuw opnemen',
+  'litho.includeBoreholeAgainAria': '{name} opnieuw opnemen in de lithologische opbouw',
+  'litho.excludedBoreholeUnknown': 'Onbekende boring',
+  'litho.boreholeIncludedToast': 'Boring opnieuw opgenomen in de lithologische opbouw',
+  'litho.boreholeExcludedToast': 'Boring uitgesloten van de lithologische opbouw',
   'litho.buildToSeeBodies': 'Bouw het 3D-model op om de lichamen te zien.',
   'litho.allContentBlurb':
     'Alle litho-eenheden, laaggrenzen, correlaties en vlakken in dit model',
