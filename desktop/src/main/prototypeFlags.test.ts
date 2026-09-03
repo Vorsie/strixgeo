@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { previewControlAllowed } from './prototypeFlags'
+import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
 
 describe('previewControlAllowed', () => {
   it('allows the preview control in a dev build', () => {
@@ -17,5 +17,22 @@ describe('previewControlAllowed', () => {
 
   it('withholds the preview control in a packaged build', () => {
     expect(previewControlAllowed(true)).toBe(false)
+  })
+})
+
+// audit C3(b): STRIX_E2E must NOT open the gate in a packaged exe. The harness
+// only ever runs an unpackaged build, so the flag is honoured there and ignored
+// once packaged — a customer setting STRIX_E2E=1 cannot walk past the licence gate.
+describe('e2eLaunchFlag', () => {
+  it('is true for an unpackaged build with STRIX_E2E=1 (the harness)', () => {
+    expect(e2eLaunchFlag({ STRIX_E2E: '1' }, false)).toBe(true)
+  })
+
+  it('is FALSE in a packaged build even with STRIX_E2E=1', () => {
+    expect(e2eLaunchFlag({ STRIX_E2E: '1' }, true)).toBe(false)
+  })
+
+  it('is false when STRIX_E2E is unset', () => {
+    expect(e2eLaunchFlag({}, false)).toBe(false)
   })
 })
