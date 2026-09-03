@@ -149,6 +149,20 @@ export const OUTPUTS = {
     'φ′ · c′ · cu · E50 — design parameters populate in Phase 5, when the correlation + NAD-NEN lookup pipeline lands.',
   'params.nodeBandsOne': '{n} band · {cone} with cone',
   'params.nodeBandsMany': '{n} bands · {cone} with cone',
+  // Right-pane grouping (owner finding 2026-09-03) — the bulk bar + toasts.
+  // Reuses the section-canvas body-union verb; a group is a label over distinct
+  // bodies ("Join = GROUP, never MERGE"), so the undo path is Ungroup.
+  'params.groupNSelected': '{n} selected',
+  'params.group': 'Group',
+  'params.ungroup': 'Ungroup',
+  'params.clearSelection': 'Clear',
+  'params.groupCheckboxAria': 'Select {label} to group',
+  'params.groupNeedTwoHint': 'Select at least two bodies to group.',
+  'params.groupCrossClassHint': 'Only bodies of the same packing class can be grouped.',
+  'params.grouped': 'Grouped — select a member and press Ungroup to undo.',
+  'params.ungrouped': 'Ungrouped — the body stands on its own again.',
+  'params.groupFailed': 'Could not group the bodies.',
+  'params.ungroupFailed': 'Could not ungroup the body.',
   // unit statistics canvas
   'params.unitNoLongerExists': 'This unit no longer exists',
   'params.unitNoLongerExistsHint':
