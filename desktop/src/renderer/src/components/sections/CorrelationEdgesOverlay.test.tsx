@@ -782,6 +782,67 @@ describe('CorrelationEdgesOverlay', () => {
     expect((onRequestDeleteEdge.mock.calls[0][0] as LithoContactCorrelationEdge).id).toBe('eok')
   })
 
+  // #68 (Tier E — robustness): the overlay's context menus used to render as a
+  // <foreignObject> INSIDE the overlay's root <g style="pointer-events:none">,
+  // so they were clickable only because the foreignObject's HTML children happen
+  // not to inherit the SVG pointer-events:none — an SVG-spec oddity a Chromium
+  // bump could regress. The robust shape: the menu must be reachable regardless
+  // of the overlay's pointer-events model, i.e. it must NOT be a descendant of
+  // the pointer-events:none group.
+  it('#68: the uncorrelate (edge) menu is not nested in the pointer-events:none overlay group', () => {
+    const onRequestDeleteEdge = vi.fn()
+    const fA = { ...makeFormation('f-a', 'Zand', 1), color: '#fbbf24' }
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'ed', layer_a_id: 'ca', layer_b_id: 'cb', model_id: 'm1',
+      section_id: 's1',
+      source: 'auto', user_approved: false, created_at: '2026-01-01T00:00:00Z', layer_a_side: 'top' as const, layer_b_side: 'top' as const,
+    }
+    const { container } = renderOverlay({
+      contacts, formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      contactEdges: [edge], onRequestDeleteEdge, onUnapprovedDragStart: vi.fn(),
+    })
+    fireEvent.contextMenu(screen.getByTestId('edge-grab-a-ed'))
+    const overlayGroup = container.querySelector('[data-testid="correlation-edges-overlay"]') as SVGGElement
+    expect(overlayGroup).not.toBeNull()
+    // guard: this is the group the fix must not nest the menu inside
+    expect(overlayGroup.style.pointerEvents).toBe('none')
+    const menu = screen.getByTestId('edge-context-menu')
+    expect(overlayGroup.contains(menu)).toBe(false)
+    // and the menu is still wired: choosing Delete fires the handler
+    fireEvent.click(screen.getByText(/Delete correlation/i, { selector: 'button' }))
+    expect(onRequestDeleteEdge).toHaveBeenCalledOnce()
+  })
+
+  it('#68: the body chip menu is not nested in the pointer-events:none overlay group', () => {
+    const fA = {
+      ...makeFormation('f-a', 'Zand', 1),
+      litho_main_soil_code: 'ZAND',
+      litho_admixtures: [{ soil_code: 'KL', amount: 'M', locally: false }],
+    }
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      contacts, formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(), plotTop: 20, plotBottom: 200,
+      onPropagateAdmixtures: vi.fn(),
+    })
+    fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
+    const overlayGroup = container.querySelector('[data-testid="correlation-edges-overlay"]') as SVGGElement
+    expect(overlayGroup).not.toBeNull()
+    const menu = screen.getByTestId('body-context-menu')
+    expect(overlayGroup.contains(menu)).toBe(false)
+  })
+
   // CE-E4 (dogfeed 2026-05-31): right-clicking a pending edge shows the
   // "Accept correlation" item and choosing it fires onRequestAcceptEdge
   // with the edge.
