@@ -58,6 +58,7 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'licensing.stateGrace': 'Offline-respijt',
   'licensing.stateExpired': 'Verlopen',
   'licensing.stateClockRollback': 'Klokprobleem',
+  'licensing.stateDeviceMismatch': 'Verkeerd apparaat',
   'licensing.daysRemaining': 'nog {days} dag(en)',
   'licensing.graceRemaining': 'nog {days} dag(en) offline-respijt',
   'licensing.enterKey': 'Voer een licentiesleutel in',
