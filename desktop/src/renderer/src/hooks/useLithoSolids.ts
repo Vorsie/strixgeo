@@ -15,67 +15,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type { LithoBodySolidResponse } from '../api/client'
-import { apiErrorDetail } from '../api/clients/shared'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import type { GaplessBuildReport } from '../utils/gaplessGate/types'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
-import { VoxelBuildInputsError } from '../utils/voxelBuildInputsError'
 import { applyVoxelBuildResult } from './applyVoxelBuildResult'
+// The build-failure copy lives in its own module so the streaming build path
+// (useVoxelBuildStream) can share the grid-too-large formatter without an import
+// cycle (debt #282).
+import { buildFailureMessage } from './buildFailureMessage'
 import { useVoxelBuildStream } from './useVoxelBuildStream'
 import type { VoxelBuildState } from './useVoxelBuildStream'
-
-// ---------------------------------------------------------------------------
-// Failure copy
-// ---------------------------------------------------------------------------
-
-/**
- * The sentence shown when a build does not complete.
- *
- * Three failures are genuinely different and must not read alike:
- *
- * * **Inputs refused** (``VoxelBuildInputsError``) — the builder stopped
- *   before POSTing; its message already names the sections that failed to
- *   load, so it is shown verbatim.
- * * **Grid budget refused** (HTTP 422, ``code='voxel_grid_too_large'``) — the
- *   server declined a spacing that would not fit in memory and sent back the
- *   spacing to retry at *as a number*. Live on 2026-08-02 this arrived as
- *   "ApiError: [object Object]" and the engineer had no way to know the model
- *   was untouched or what to change. The retry spacing is stated because the
- *   backend went to the trouble of computing it.
- * * **Anything else** — an unexpected failure, where "check the connection" is
- *   still the honest guess.
- *
- * Parameters
- * ----------
- * err : unknown
- *     The caught rejection from the build attempt.
- *
- * Returns
- * -------
- * string
- *     Toast copy for the engineer.
- */
-export function buildFailureMessage(err: unknown): string {
-  if (err instanceof VoxelBuildInputsError) return err.message
-
-  const detail = apiErrorDetail(err)
-  if (detail?.code === 'voxel_grid_too_large') {
-    const reason =
-      typeof detail.message === 'string' && detail.message.length > 0
-        ? detail.message
-        : t('litho.gridTooLargeDefault')
-    const suggested = detail.suggested_horizontal_m
-    // Nothing was written server-side on this path, and saying so stops the
-    // engineer hunting for a half-built model before retrying.
-    const untouched = t('litho.storedModelUnchanged')
-    return typeof suggested === 'number'
-      ? t('litho.gridTooLargeRetry', { reason, suggested, untouched })
-      : t('litho.gridTooLargeNoRetry', { reason, untouched })
-  }
-
-  return t('litho.buildFailedGeneric')
-}
 
 // ---------------------------------------------------------------------------
 // Return type
