@@ -10,16 +10,16 @@ VBJ-1  A full round-trip: ``POST .../build-voxel/jobs`` answers 202 with a
        job-id, the SSE stream carries ``progress`` ticks (phase ``"label"``)
        then a terminal ``done`` carrying the built solids, and the rows are
        persisted in the DB.
-VBJ-2  Cancel mid-build: once the first ``label`` progress tick proves the
-       build is inside the column loop, ``POST .../jobs/{id}/cancel`` sets the
-       cooperative flag; the stream then ends with
-       ``{"type":"error","code":"build_cancelled"}`` and NO solid rows were
-       written (the model is left exactly as it was).
+VBJ-2  Cancel: ``POST .../jobs/{id}/cancel`` sets the cooperative flag; the
+       stream then ends with ``{"type":"error","code":"build_cancelled"}`` and
+       NO solid rows were written (the model is left exactly as it was).
 
-⚠ NOT RUN in the authoring session (no database was available). VBJ-2 keys its
-cancel on observing the first progress event, so it is deterministic as long as
-the labelling of the (deliberately fine) grid outlasts one cancel round-trip;
-if it proves flaky on a very fast machine, drop ``grid_spacing_m`` further.
+The cancel is sent BEFORE the stream is consumed. The in-process ASGI transport
+buffers the whole SSE body before ``stream()`` yields its first line, so a
+cancel sent "on the first progress tick" always arrives after the job has
+finished and its entry is gone (404). Cancelling between spawn and stream is
+deterministic; the mid-loop (per-column) cancel is pinned at unit level in
+``test_label_voxels_cancel_progress.py`` / ``test_build_voxel_cancel_progress.py``.
 """
 
 from __future__ import annotations
@@ -158,35 +158,32 @@ async def test_vbj1_round_trip_streams_progress_then_done_and_persists(
 
 
 @pytest.mark.asyncio
-async def test_vbj2_cancel_mid_build_ends_cancelled_and_writes_nothing(
+async def test_vbj2_cancel_ends_cancelled_and_writes_nothing(
     async_client: AsyncClient,
     db_session: AsyncSession,
     scene: dict,
 ) -> None:
-    """Cancelling after the first progress tick ends the build cancelled, unwritten."""
+    """A cancelled build ends ``build_cancelled`` and leaves the model untouched."""
     proj, litho = scene["project"], scene["litho"]
-    # A fine grid so labelling has many columns left after the first tick.
     spawn = await async_client.post(
         _jobs_url(proj.id, litho.id), json=_payload(scene, grid_spacing_m=0.5)
     )
     assert spawn.status_code == 202, spawn.text
     job_id = spawn.json()["job_id"]
 
-    cancel_sent = False
+    # The job is registered and its task scheduled; the flag is set before the
+    # build reaches its first cancel checkpoint.
+    cancel = await async_client.post(f"{_jobs_url(proj.id, litho.id)}/{job_id}/cancel")
+    assert cancel.status_code == 202, cancel.text
+    assert cancel.json()["cancelling"] is True
+
     events: list[dict] = []
     async with async_client.stream("GET", f"{_jobs_url(proj.id, litho.id)}/{job_id}") as resp:
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             ev = _sse(line)
-            if ev is None:
-                continue
-            events.append(ev)
-            # The moment the build reports it is labelling, ask it to stop.
-            if not cancel_sent and ev.get("type") == "progress":
-                cancel = await async_client.post(f"{_jobs_url(proj.id, litho.id)}/{job_id}/cancel")
-                assert cancel.status_code == 202
-                assert cancel.json()["cancelling"] is True
-                cancel_sent = True
+            if ev is not None:
+                events.append(ev)
 
     assert events[-1]["type"] == "error", events[-1]
     assert events[-1]["code"] == "build_cancelled"
