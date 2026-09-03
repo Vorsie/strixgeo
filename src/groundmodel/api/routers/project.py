@@ -28,6 +28,7 @@ from groundmodel.api.schemas.project.project_restore_response import (
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
+from groundmodel.application.body_partition_lock import lock_project_body_partitions
 from groundmodel.application.reconcile_bodies_after_restore import (
     reconcile_bodies_after_restore,
 )
@@ -497,6 +498,16 @@ async def restore_project(
         )
     # Threaded into the restore so the caps report what they truncated (L6).
     drops = BundleRestoreDrops()
+    # Lock every body partition this restore rewrites BEFORE the first write
+    # (BP-5): the reconcile below takes the same locks per model, and taking
+    # them only there — after the rows are in — deadlocks against a concurrent
+    # bodies/recompute that holds the lock and deletes those rows.
+    await lock_project_body_partitions(
+        session,
+        project_id=project_id,
+        payload_models=request.geological_models,
+        operation="restore",
+    )
     try:
         project = await restore_project_bundle(
             session,
