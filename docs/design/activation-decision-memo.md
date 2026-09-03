@@ -7,8 +7,31 @@ primitive (`docs/design/beta-expiry.md`) shipped, and the desktop *client half*
 of Option C has since landed as a reviewable prototype — the state machine, the
 `ActivationRepository` seam + mock issuer, the HTTP client + written contract
 (`activation-api-contract.md`), and the **self-service deactivate/transfer flow**
-(ruling 15) with its irreversible-action confirmation dialog. Still MOCKED/open:
-the strixgeo.com server, Stripe, and the Ed25519 signature (§8). See
+(ruling 15) with its irreversible-action confirmation dialog.
+
+**Packaged-gate hardening landed 2026-09-02** (branch `wt-activation`), making the
+gate real enough for the closed beta without inventing the issuer — the
+production-readiness audit's C3 a–d + H5 + an HTTPS-only rule:
+
+* the mock issuer (with its public `STRIX-*-DEMO` keys) is confined to DEV — a
+  PACKAGED build with no issuer URL gets an `UnreachableActivationRepository`
+  that can activate nothing;
+* the **explicit beta rule**: *a beta build runs on its STAMP, not on a licence*
+  (the beta-expiry gate is its authority), so the activation gate carves out a
+  beta build in both the renderer (`activationGateDecision`) and a new pure
+  main-side `activationBlocksLaunch`; a *non-beta* packaged build with no issuer
+  simply cannot activate until the server exists;
+* `STRIX_E2E` is honoured only when unpackaged (`e2eLaunchFlag`);
+* a licence is bound to its device — `evaluateActivation` blocks a copied
+  `activation.json` as `device-mismatch`, and the Windows `MachineGuid` feeds the
+  device id so identical hardware differs;
+* `ActivationService.refreshOnLaunch()` re-checks a stored licence once at launch
+  (contract `/refresh`), dormant while no server URL is configured;
+* a configured issuer URL must be `https://` (dev-loopback stub aside);
+* a packaged non-beta build fails CLOSED when the status read fails.
+
+Still MOCKED/open: the strixgeo.com server, Stripe, the Ed25519 signature (§8),
+and `PACKAGED_ACTIVATION_URL` (still `null`). See
 `docs/design/onboarding-activation-updater-proto.md`.
 
 ---
