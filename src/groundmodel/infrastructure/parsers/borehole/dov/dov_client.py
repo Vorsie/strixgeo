@@ -48,7 +48,11 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
-from groundmodel.infrastructure.parsers.dov.dov_common import DOV_MAX_IMPORT_FEATURES
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    DOV_DOWNLOAD_PARALLELISM,
+    DOV_MAX_IMPORT_FEATURES,
+)
+from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -82,6 +86,12 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
         rooted at the boring/ subdirectory so permkeys don't collide with
         sondering / interpretation / observation permkeys (DOV's permkey
         format YYYY-NNNNNN is shared across resource types).
+    backoff : DovRateLimitState | None
+        Optional per-import rate-limit state shared with the other borehole
+        sub-clients. When supplied, WFS discovery honours it (via the base
+        class) and the download phase runs at ``backoff.parallelism`` slots, so
+        a 429 seen anywhere in the import halves this phase's concurrency once.
+        ``None`` keeps the retry with a fixed ``DOV_DOWNLOAD_PARALLELISM``.
     """
 
     # Debt #15: layer + label declared as class constants so the base
@@ -89,8 +99,13 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
     WFS_LAYER = DOV_WFS_BORINGEN_LAYER
     LAYER_LABEL = "borehole"
 
-    def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
-        super().__init__(http)
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        cache: DovXmlCache | None = None,
+        backoff: DovRateLimitState | None = None,
+    ) -> None:
+        super().__init__(http, backoff=backoff)
         self._cache = cache
 
     async def fetch_bbox_processed(
@@ -165,6 +180,12 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
         # Report WFS discovery complete so the UI can show "N boreholes found".
         await fire_progress(progress_cb, "wfs", len(rows), len(rows))
 
+        # Effective parallelism reflects any 429 seen during WFS discovery
+        # (which ran just above), so a rate-limited import backs off its own
+        # concurrency instead of hammering DOV into more 429s.
+        effective_parallelism = (
+            self._backoff.parallelism if self._backoff is not None else DOV_DOWNLOAD_PARALLELISM
+        )
         # ``parallel_download_and_process`` expects a ``(row, xml_bytes)``
         # callback; this client's existing ``ProcessFn`` is the legacy
         # ``(xml_bytes, test_id)`` shape (kept stable because the
@@ -182,6 +203,8 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
             logger=self,
             error_id_of=lambda r: f"'{r.test_id}'",
             progress_cb=progress_cb,
+            parallelism=effective_parallelism,
+            backoff=self._backoff,
         )
         return len(rows), results
 
