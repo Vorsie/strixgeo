@@ -13,8 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.api.routers._dov_stream_helpers import (
     DOV_UPSTREAM_ERRORS,
     dov_error_event,
+    dov_import_job_key,
     dov_sse_stream_response,
+    dov_too_large_event,
+    map_dov_too_large_error,
     map_dov_upstream_error,
+    map_duplicate_import_job,
 )
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.borehole.borehole_detail_batch_request import (
@@ -39,6 +43,7 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
+from groundmodel.shared.exceptions import DovImportTooLargeError, DuplicateImportJobError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Friendly URL aliases for the ``?include=`` query param. The URL form
@@ -105,6 +110,10 @@ async def import_borehole_dov(
             north=request.north,
             app_project_id=request.project_id,
         )
+    # Discovery found more records than the import ceiling — refuse with 422
+    # (before any download happened) rather than run away.
+    except DovImportTooLargeError as exc:
+        raise map_dov_too_large_error(exc) from exc
     # Same hardening as the CPT DOV path — library class names +
     # exception messages stay server-side; user-facing detail carries
     # only the category + (when safe) the upstream HTTP status.
@@ -199,6 +208,9 @@ def _make_borehole_dov_import_coro(
                             "scalar_lab_tests_failed": result.scalar_lab_tests_failed,
                         }
                     )
+                except DovImportTooLargeError as exc:
+                    logger.warning(f"DOV borehole stream refused (too large): {exc}")
+                    await queue.put(dov_too_large_event(exc))
                 except DOV_UPSTREAM_ERRORS as exc:
                     await queue.put(
                         dov_error_event(exc, logger=logger, log_prefix="DOV borehole stream")
@@ -241,7 +253,20 @@ async def import_borehole_dov_stream(
         ``{"job_id": "<uuid>"}``
     """
     factory = _make_borehole_dov_import_coro(request)
-    job_id = registry.start(factory)
+    # De-dup key: refuse a second identical import while the first still runs,
+    # handing back the running job-id so the client attaches to it.
+    key = dov_import_job_key(
+        "borehole",
+        west=request.west,
+        south=request.south,
+        east=request.east,
+        north=request.north,
+        project_id=request.project_id,
+    )
+    try:
+        job_id = registry.start(factory, key=key)
+    except DuplicateImportJobError as exc:
+        raise map_duplicate_import_job(exc) from exc
     logger.info(f"DOV borehole import job {job_id} spawned")
     return {"job_id": str(job_id)}
 
