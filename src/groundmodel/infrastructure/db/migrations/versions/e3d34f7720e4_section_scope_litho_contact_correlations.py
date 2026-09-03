@@ -17,6 +17,11 @@ down_revision = "e1c2d3a4b5f6"
 branch_labels = None
 depends_on = None
 
+# Declares that ``upgrade()`` deletes existing user rows (DELETEs every litho
+# contact correlation edge) so the migrator's pre-migration backup step names
+# it among the pending data-rewriting migrations (production-readiness audit H2b).
+DATA_REWRITE = True
+
 
 def upgrade() -> None:
     """Section-scope correlation edges: clean slate + section_id NOT NULL.
