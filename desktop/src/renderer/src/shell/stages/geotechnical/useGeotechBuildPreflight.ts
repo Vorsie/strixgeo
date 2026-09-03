@@ -90,6 +90,7 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
       lithoLayers,
       geotechLayers,
       buildGeotechSolids,
+      startGeotechBuild,
       handleSubdivideAllBodies,
       handleDivideBoreholes,
     },
@@ -147,14 +148,21 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
   const inputsRef = useRef(inputs)
   inputsRef.current = inputs
 
+  // Prefer the STREAMING build (background job with progress + cancel, debt #282)
+  // — the same treatment the litho Build got. The synchronous ``buildGeotechSolids``
+  // is the fallback for bus stubs that do not wire the streaming start; the real
+  // bus always provides ``startGeotechBuild``, so production always streams. Both
+  // take the same ``(voxelRequestBuilder?) => Promise<void>`` shape, so the pre-flight's
+  // wrapping (unwrapped whole-model vs exclusion-carrying) is identical either way.
   const runBuild = useCallback(
     (excludedInvestigationIds?: ReadonlySet<string>) => {
       const builder = geotechVoxelRequestCallback.current
+      const build = startGeotechBuild ?? buildGeotechSolids
       if (builder === null || excludedInvestigationIds === undefined) {
         // Today's call site, verbatim — the ordinary build must not become a
         // different call just because a pre-flight now stands in front of it.
         log.info('geotech-voxel', 'build press: whole model')
-        void buildGeotechSolids(builder ?? undefined)
+        void build(builder ?? undefined)
         return
       }
       log.info(
@@ -162,11 +170,11 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
         `build press: ignoring ${excludedInvestigationIds.size} investigation(s) — ` +
           `${[...excludedInvestigationIds].join(', ')}`,
       )
-      // Wrapped, because ``buildGeotechSolids`` takes a zero-argument builder
-      // and the exclusion set has to travel with this one build only.
-      void buildGeotechSolids(() => builder(excludedInvestigationIds))
+      // Wrapped, because the build takes a zero-argument builder and the
+      // exclusion set has to travel with this one build only.
+      void build(() => builder(excludedInvestigationIds))
     },
-    [buildGeotechSolids],
+    [startGeotechBuild, buildGeotechSolids],
   )
 
   const pressBuild = useCallback(() => {
