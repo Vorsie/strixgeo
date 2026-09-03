@@ -23,6 +23,26 @@ afterEach(() => {
 })
 
 describe('languageSelect', () => {
+  // Rule (owner 2026-09-03): with no stored choice the app follows the system
+  // language, English when the system language is not one we ship.
+  it('LS7 — a Dutch system gets Dutch when nothing is stored', () => {
+    localStorage.clear()
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('nl-BE')
+    expect(getLanguage()).toBe('nl')
+  })
+
+  it('LS8 — an unsupported system language falls back to English', () => {
+    localStorage.clear()
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('de-DE')
+    expect(getLanguage()).toBe('en')
+  })
+
+  it('LS9 — a stored choice wins over the system language', () => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('nl-NL')
+    setLanguage('en')
+    expect(getLanguage()).toBe('en')
+  })
+
   it('LS1 — defaults to English when nothing is stored', () => {
     localStorage.clear()
     expect(getLanguage()).toBe('en')
