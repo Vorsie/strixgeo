@@ -1,5 +1,7 @@
 # Production-readiness audit — 2026-09-02
 
+> **Superseded for status by [codex-production-check-2026-09-02.md](codex-production-check-2026-09-02.md)** — the synthesized final of both audits with every finding's resolution (2026-09-03). This file keeps the original evidence and ranking.
+
 Thirteen layers ("full-stack production reality"), translated to what each means for
 StrixGeo: a single-seat desktop app (Electron + React) over a LOCAL FastAPI backend and a
 bundled PostgreSQL, shipped as an unsigned NSIS installer with a natively compiled engine.
