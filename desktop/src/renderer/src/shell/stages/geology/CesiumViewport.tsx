@@ -25,6 +25,7 @@ import {
 } from './geology3DPrimitives'
 import { useCameraLink } from './useCameraLink'
 import { useViewportZoomTuning, type ViewportZoomTuning } from './useViewportZoomTuning'
+import { REQUEST_RENDER_WIDGET_OPTIONS, requestSceneRender } from './sceneRender'
 
 // Single-viewport Cesium widget
 // ---------------------------------------------------------------------------
@@ -223,6 +224,9 @@ export function CesiumViewport({
     // subsequent effects guard via `if (!widget) return`, so no explicit
     // double-init guard is needed — the null checks are sufficient.
     const widget = new Cesium.CesiumWidget(container, {
+      // On-demand rendering (M7c): a static geological model must not redraw
+      // every frame. Every scene mutation below explicitly requestSceneRender()s.
+      ...REQUEST_RENDER_WIDGET_OPTIONS,
       // Flat globe — no Cesium ion terrain. The project elevations are used
       // directly as ellipsoidal heights (the ~45 m geoid offset is shared by
       // all surfaces so relative geometry is correct — see §4.2 of the spec).
@@ -401,6 +405,13 @@ export function CesiumViewport({
         flyToBounds(widget.scene.camera, frameTargets, projectEpsg)
       }
     }
+
+    // On-demand rendering (M7c): the primitives were just rebuilt, so ask for a
+    // redraw. Camera flights above animate on their own (Cesium keeps rendering
+    // while a flight or a user-driven camera change is in progress), but the
+    // static rebuild needs this or the new geometry is invisible until the next
+    // interaction.
+    requestSceneRender(widget.scene)
     // reason: clippingPlane/invertClip/splitLine drive the per-half
     // clip + cut-face caps + camera; the refs gate re-framing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
