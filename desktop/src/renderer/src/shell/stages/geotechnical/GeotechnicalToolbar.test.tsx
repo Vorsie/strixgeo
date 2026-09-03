@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type { GeologicalModelResponse } from '../../../api/client'
+import type { VoxelBuildState } from '../../../hooks/useVoxelBuildStream'
 
 // Mock GeotechnicalCanvas — importing it pulls Cesium/WebGL via Geology3DViewer.
 // The toolbar only needs the three module-ref bridges it exports; the voxel
@@ -96,6 +97,10 @@ function makeCtx(overrides: {
   hasGeotechSolids?: boolean
   staleLithoGeotechColumns?: { investigation_id: string; label: string }[]
   columnsNeedingRederive?: string[]
+  // debt #282 — the geotech streaming-build state + cancel the toolbar reads to
+  // swap the Build button for inline progress while a job runs.
+  geotechVoxelBuildState?: VoxelBuildState
+  cancelGeotechBuild?: () => void
 } = {}): ShellContextValue {
   return {
     visibleCpts: CTX_INVESTIGATIONS,
@@ -112,6 +117,8 @@ function makeCtx(overrides: {
       hasStaleGeotechSolid: overrides.hasStaleGeotechSolid ?? false,
       hasGeotechSolids: overrides.hasGeotechSolids ?? false,
       buildGeotechSolids: overrides.buildGeotechSolids ?? noopAsync,
+      geotechVoxelBuildState: overrides.geotechVoxelBuildState ?? { status: 'idle' },
+      cancelGeotechBuild: overrides.cancelGeotechBuild ?? (() => {}),
       handleSubdivideAllBodies: noopAsync,
       handleDivideBoreholes: noopAsync,
       // Debt #266 — the two "these bands are out of date" signals the toolbar
@@ -219,6 +226,43 @@ describe('GeotechnicalToolbar (Task 4 — geotech 3D Build verb)', () => {
     renderToolbar(makeCtx())
 
     expect(screen.queryByTestId('geotech-stale-litho-chip')).toBeNull()
+  })
+
+  // debt #282 — the geotech Build gets the same treatment the litho Build got:
+  // while a background build job runs, the Build button is REPLACED by inline
+  // progress + a Cancel, and Cancel asks the streaming build to stop.
+  it('GT10 — a running build replaces Build with inline progress + Cancel', () => {
+    const cancelGeotechBuild = vi.fn()
+    renderToolbar(
+      makeCtx({
+        geotechVoxelBuildState: {
+          status: 'running',
+          latest: { phase: 'label', done: 3, total: 12 },
+          highestPhaseIndex: 0,
+          cancelRequested: false,
+        },
+        cancelGeotechBuild,
+      }),
+    )
+
+    // The Build button is gone while running; the Cancel button is present.
+    expect(screen.queryByTestId('geotech-build-model-button')).toBeNull()
+    fireEvent.click(screen.getByTestId('geotech-build-cancel-button'))
+    expect(cancelGeotechBuild).toHaveBeenCalledOnce()
+  })
+
+  it('GT11 — a running build shows the current phase text in the inline progress', () => {
+    renderToolbar(
+      makeCtx({
+        geotechVoxelBuildState: {
+          status: 'running',
+          latest: { phase: 'extract', done: 1, total: 1 },
+          highestPhaseIndex: 2,
+          cancelRequested: false,
+        },
+      }),
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(/extract/i)
   })
 
   it('GT9 — the geometric and provenance signals make ONE count, not two', () => {
