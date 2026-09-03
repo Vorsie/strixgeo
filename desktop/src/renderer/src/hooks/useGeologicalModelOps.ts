@@ -39,6 +39,7 @@ import type { StratigraphyLumping } from '../utils/projectFile'
 import type { UndoCommand } from './useUndoStack'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
+import { toggleBoreholeExclusion } from './boreholeExclusionToggle'
 
 /** Inputs for {@link useGeologicalModelOps}. */
 export interface UseGeologicalModelOpsParams {
@@ -80,6 +81,11 @@ export interface UseGeologicalModelOpsParams {
   refetchSurfaces: () => void
   /** Resync the litho layers (and derived litho contacts) from the server. */
   refetchLithoContacts: () => void
+  /** The active lithostratigraphic model, or null. Its own
+   *  ``excluded_borehole_ids`` is what the Lithology inspector edits (#65). */
+  activeLithoModel: GeologicalModelResponse | null
+  /** Setter for the active litho model. Stable — omitted from dep arrays. */
+  setActiveLithoModel: Dispatch<SetStateAction<GeologicalModelResponse | null>>
 }
 
 /** Handlers returned by {@link useGeologicalModelOps}. */
@@ -93,6 +99,10 @@ export interface UseGeologicalModelOpsResult {
   handleRebuildSurfaces: () => Promise<void>
   handleExportModelPlaxis3d: () => Promise<void>
   handleToggleBoreholeInModel: (boreholeId: string, included: boolean) => Promise<void>
+  /** Include ("Include again") or exclude a borehole in the active LITHO
+   *  model (debt #65). Mirror of ``handleToggleBoreholeInModel`` for the litho
+   *  model, and confirms with a toast (the geo checkbox is silent). */
+  handleToggleBoreholeInLithoModel: (boreholeId: string, included: boolean) => Promise<void>
   handleDeleteModel: () => Promise<void>
 }
 
@@ -130,6 +140,8 @@ export function useGeologicalModelOps({
   refetchFormations,
   refetchSurfaces,
   refetchLithoContacts,
+  activeLithoModel,
+  setActiveLithoModel,
 }: UseGeologicalModelOpsParams): UseGeologicalModelOpsResult {
   // Auto-populate the active model with contacts derived from
   // each section borehole's stratigraphy observation (formal
@@ -528,65 +540,53 @@ export function useGeologicalModelOps({
   const handleToggleBoreholeInModel = useCallback(
     async (boreholeId: string, included: boolean): Promise<void> => {
       if (!project || !activeGeologicalModel) return
-      const previousExcluded = activeGeologicalModel.excluded_borehole_ids
-      const current = new Set(previousExcluded)
-      // ``included = true`` means the user wants this borehole IN
-      // the model → remove from exclusion. ``false`` adds it.
-      if (included) current.delete(boreholeId)
-      else current.add(boreholeId)
-      const nextExcluded = Array.from(current)
-      // Optimistic update first, then PATCH. On failure we log
-      // and let the next project-change effect reconcile.
-      setActiveGeologicalModel(prev =>
-        prev === null ? null : { ...prev, excluded_borehole_ids: nextExcluded },
-      )
-      try {
-        await api.geology.updateModel(project.id, activeGeologicalModel.id, {
-          excluded_borehole_ids: nextExcluded,
-        })
-        // Model membership changed — mark dirty so it reverts on close.
-        markMutated()
-        const projectId = project.id
-        const modelId = activeGeologicalModel.id
-        const beforeList = previousExcluded.slice()
-        const afterList = nextExcluded.slice()
-        pushUndo({
-          description: included
-            ? 'Include borehole in model'
-            : 'Exclude borehole from model',
-          revert: async () => {
-            await api.geology.updateModel(projectId, modelId, {
-              excluded_borehole_ids: beforeList,
-            })
-            setActiveGeologicalModel(prev =>
-              prev === null
-                ? null
-                : { ...prev, excluded_borehole_ids: beforeList },
-            )
-          },
-          reapply: async () => {
-            await api.geology.updateModel(projectId, modelId, {
-              excluded_borehole_ids: afterList,
-            })
-            setActiveGeologicalModel(prev =>
-              prev === null
-                ? null
-                : { ...prev, excluded_borehole_ids: afterList },
-            )
-          },
-        })
-      } catch (err) {
-        log.error('geology', `updateModel exclude-borehole failed for ${boreholeId}`, err)
-        // Roll back optimistic state on failure so the toggle
-        // visually reflects server truth.
-        setActiveGeologicalModel(prev =>
-          prev === null
-            ? null
-            : { ...prev, excluded_borehole_ids: previousExcluded },
-        )
-      }
+      // The geological checkbox toggles silently — no ``onSuccessToast``.
+      await toggleBoreholeExclusion({
+        projectId: project.id,
+        model: activeGeologicalModel,
+        setModel: setActiveGeologicalModel,
+        boreholeId,
+        included,
+        pushUndo,
+        markMutated,
+        includeDescription: 'Include borehole in model',
+        excludeDescription: 'Exclude borehole from model',
+        logLabel: 'updateModel',
+      })
     },
     [project, activeGeologicalModel, pushUndo, markMutated],
+  )
+
+  // Debt #65: the Lithology inspector's "Include again" list. The active LITHO
+  // model carries its OWN ``excluded_borehole_ids`` (set by the backend during
+  // the litho build when a borehole disagrees with its corridor); this surfaces
+  // the toggle for it. Same optimistic + reversible mechanics as the geological
+  // toggle, and a confirmation toast — the include is a reversible action that
+  // fires immediately (docs/ux.md), and its undo path is the Ctrl+Z stack.
+  const handleToggleBoreholeInLithoModel = useCallback(
+    async (boreholeId: string, included: boolean): Promise<void> => {
+      if (!project || !activeLithoModel) return
+      await toggleBoreholeExclusion({
+        projectId: project.id,
+        model: activeLithoModel,
+        setModel: setActiveLithoModel,
+        boreholeId,
+        included,
+        pushUndo,
+        markMutated,
+        includeDescription: 'Include borehole in litho model',
+        excludeDescription: 'Exclude borehole from litho model',
+        logLabel: 'updateLithoModel',
+        onSuccessToast: () =>
+          toast(
+            'success',
+            t(
+              included ? 'litho.boreholeIncludedToast' : 'litho.boreholeExcludedToast',
+            ),
+          ),
+      })
+    },
+    [project, activeLithoModel, pushUndo, markMutated],
   )
 
   // Delete the active geological model (irreversible). Clears all
@@ -628,6 +628,7 @@ export function useGeologicalModelOps({
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,
     handleToggleBoreholeInModel,
+    handleToggleBoreholeInLithoModel,
     handleDeleteModel,
   }
 }
