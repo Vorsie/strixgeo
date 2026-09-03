@@ -268,7 +268,7 @@ export default function ModelKindPicker(): JSX.Element | null {
             onClick={() => void confirmDelete()}
             disabled={deleting}
           >
-            {t('common.delete')}
+            {t('common.deletePermanently')}
           </Button>
         </div>
       </div>
