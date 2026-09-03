@@ -73,12 +73,18 @@ Important schema quirk: only the `<dov-schema>` root is in the DOV namespace —
 
 **Units in DOV XML:** `qc`, `Qt` are MPa; `fs` and `u` are kPa (DovParser divides by 1000). Depth: prefer `<diepte>` (vertical) over `<lengte>` (penetration distance).
 
-**`DovXmlCache`** — filesystem cache at `~/.groundmodel/dov_cache/` (overridable via `DOV_CACHE_DIR` env var). One file per permkey, valid forever (DOV measurements are historical). Atomic writes (tempfile + rename). Cache failures are logged but never block the import — every operation falls through to the network path on disk error. Hit/miss rate is logged per import.
+**`DovXmlCache`** — filesystem cache at `~/.groundmodel/dov_cache/` (overridable via `DOV_CACHE_DIR` env var). One file per permkey, valid forever (DOV measurements are historical). Durable atomic writes: the temp file is **fsync'd before the rename**, so a crash between write and rename cannot publish a cache entry that points at unflushed (zero/garbage) bytes. A cached XML that fails to parse is treated as a poisoned entry — `delete()` unlinks it and the row is re-fetched **once** from the network (a fresh, network-side parse failure is a genuine bad XML and is not retried). Cache failures are logged but never block the import — every operation falls through to the network path on disk error. Hit/miss rate is logged per import.
 
 **API error mapping** — `POST /cpt/import-dov` translates httpx errors:
 - `ConnectError` → 503 "Cannot reach DOV"
 - `TimeoutException` → 504
 - `HTTPStatusError` / other `RequestError` → 502 with upstream details
+
+**Import-scope guards + rate-limit back-off (current state).** Every DOV import request is bounded before it fans out:
+- **Bbox validation** (shared `validate_wgs84_import_bbox`, applied by both the CPT and borehole `import-dov` request schemas): a reversed/degenerate box (`east<=west` or `north<=south`) → `422` naming the wrong corner; a box whose projected area exceeds `DOV_MAX_BBOX_AREA_KM2` (25 km × 25 km = **625 km²**, owner-tunable in `dov_common.py`) → `422` naming the limit.
+- **Discovery ceiling**: after WFS discovery resolves the unique-feature count and **before any XML download**, an import that would discover more than `DOV_MAX_IMPORT_FEATURES` (**2000**, owner-tunable) is refused with `DovImportTooLargeError` → `422` (sync) / terminal SSE `error` event (`code="dov_import_too_large"`), naming the count and the limit. Enforced in `ImportCptDov.execute` (CPT) and `DovBoreholeClient.fetch_bbox_processed` (borehole).
+- **Duplicate guard**: the import-stream POST refuses a second import of the same scope (resource-kind + bbox + project) while the first job is still running → `409` (`code="dov_import_already_running"`) echoing the running `job_id` so the client attaches to the existing stream. Keyed in the `JobRegistry`.
+- **429/503 back-off**: WFS discovery and XML downloads route through `dov_get_with_retry`, which honours `Retry-After` and otherwise uses a bounded exponential back-off (`DOV_MAX_HTTP_ATTEMPTS` = 3, capped at `DOV_RETRY_MAX_DELAY_S` = 30 s) — a 429/503 is ridden out, not a hard failure. The first 429 also **halves the download parallelism** for the rest of that import (one-time, floored at 1) via a per-import `DovRateLimitState`, logged at WARNING. The parallelism-halving is wired end-to-end on the **CPT** path today; the retry + `Retry-After` applies to both CPT and borehole via the shared request/download helpers.
 
 **Module layout** under `infrastructure/parsers/`:
 
@@ -88,6 +94,8 @@ parsers/
 │   ├── dov_http.py                   make_dov_async_client() — single factory for
 │   │                                 all DOV callers; fixture-mode toggle
 │   ├── dov_common.py                 Shared DOV-domain constants (base URLs, etc.)
+│   ├── dov_http_retry.py             429/503 retry (honours Retry-After) +
+│   │                                 DovRateLimitState (halves parallelism on 429)
 │   ├── dov_fixture_transport.py      In-process httpx mock for integration tests
 │   ├── dov_wfs_bbox.py               WFS bbox-split logic (recursive quadrant)
 │   ├── dov_wfs_client_base.py        Async WFS base client
