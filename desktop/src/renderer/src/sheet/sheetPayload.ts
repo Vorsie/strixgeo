@@ -53,8 +53,23 @@ export interface SheetColumn {
 export interface SheetUnit {
   formationId: string
   name: string
+  /**
+   * The stored formation colour. On the litho / geological axes this is what the
+   * region is drawn in; on the geotech axis it is the litho hue the geotech row
+   * inherited from its source litho unit, which is NOT its display colour — that
+   * comes from the packing class (``nadClass`` / ``colorOverride`` below).
+   */
   colour: string
   displayOrder: number
+  /**
+   * NAD packing class (1..31) on the geotech axis — the identity that decides
+   * both the region fill colour and the compact legend label. ``null`` = a
+   * geotech unit not yet classified; ABSENT on the litho / geological axes,
+   * where the drawing falls back to ``colour`` and the stored ``name``.
+   */
+  nadClass?: number | null
+  /** The engineer's colour pick on the units pane; honoured over the NAD ramp on the geotech axis. */
+  colorOverride?: string | null
 }
 
 export interface SheetMapPoint {
