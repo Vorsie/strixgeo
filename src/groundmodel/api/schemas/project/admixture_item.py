@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class AdmixtureItem(BaseModel):
+class AdmixtureItem(StrictRequestModel):
     """Secondary soil component within a litho layer or formation.
 
     The single API-boundary mirror of
