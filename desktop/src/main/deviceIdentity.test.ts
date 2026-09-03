@@ -16,7 +16,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { computeDeviceIdentity, type DeviceIdentityInputs } from './deviceIdentity'
+import {
+  computeDeviceIdentity,
+  parseMachineGuidFromRegQuery,
+  type DeviceIdentityInputs,
+} from './deviceIdentity'
 
 const BASE: DeviceIdentityInputs = {
   hostname: 'WORKSTATION-7',
@@ -76,5 +80,26 @@ describe('computeDeviceIdentity', () => {
 
   it('produces a compact hex id', () => {
     expect(computeDeviceIdentity(BASE).deviceId).toMatch(/^[0-9a-f]{32}$/)
+  })
+})
+
+// The Windows MachineGuid — fed in as ``machineId`` so it dominates the id and
+// two identical office laptops differ (owner ruling 15). The impure reader shells
+// out; the extraction of the value from ``reg query`` output is pure and pinned
+// here (the domination behaviour itself is pinned in the GUID case above).
+describe('parseMachineGuidFromRegQuery', () => {
+  it('pulls the GUID out of real reg query output', () => {
+    const output = [
+      '',
+      'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography',
+      '    MachineGuid    REG_SZ    a1b2c3d4-1234-5678-9abc-def012345678',
+      '',
+    ].join('\r\n')
+    expect(parseMachineGuidFromRegQuery(output)).toBe('a1b2c3d4-1234-5678-9abc-def012345678')
+  })
+
+  it('returns null when there is no MachineGuid line', () => {
+    expect(parseMachineGuidFromRegQuery('ERROR: The system was unable to find the specified key')).toBeNull()
+    expect(parseMachineGuidFromRegQuery('')).toBeNull()
   })
 })
