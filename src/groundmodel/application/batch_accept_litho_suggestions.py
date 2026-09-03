@@ -27,6 +27,10 @@ from groundmodel.application.accept_litho_suggestions import (
     AcceptLithoResult,
     AcceptLithoSuggestions,
 )
+from groundmodel.application.body_partition_lock import (
+    lock_body_partition,
+    lock_sibling_geotech_partitions,
+)
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -163,6 +167,25 @@ class BatchAcceptLithoSuggestions(GroundModelLogger):
         # existence SELECTs are pure waste at batch scale.
         batch_ctx = await accept_uc.build_batch_context(
             project_id=project_id, litho_model_id=litho_model_id
+        )
+
+        # Take the model's body-partition lock ONCE for the whole batch — after the
+        # read-only ``build_batch_context`` (scope guard + lookups) and BEFORE the
+        # per-anchor accept loop's first write. Every anchor's INSERTs then serialise
+        # with a concurrent ``bodies/recompute`` under one advisory-lock take rather
+        # than deadlocking ABBA on the ``body`` rows recompute re-stamps (BP-2/BP-4).
+        # Own litho lock then the sibling geotech children (a no-op when the model
+        # has no geotech child), in the resolver's canonical order. The inner
+        # ``AcceptLithoSuggestions.execute`` runs in batch mode (``batch_ctx`` set)
+        # and takes NO lock of its own — advisory xact locks are re-entrant, but
+        # taking it once keeps the contention log clean.
+        await lock_body_partition(
+            self._session, model_id=litho_model_id, operation="batch-accept-litho-suggestions"
+        )
+        await lock_sibling_geotech_partitions(
+            self._session,
+            litho_model_id=litho_model_id,
+            operation="batch-accept-litho-suggestions",
         )
 
         # Tracks whether ANY anchor produced new state that can change the
