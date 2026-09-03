@@ -37,6 +37,7 @@ from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
+from .bundle_restore_drops import BundleRestoreDrops
 from .bundle_serialization import (
     _MAX_BOREHOLE_DRILL_SEGMENTS,
     _MAX_BOREHOLE_FIELD_LOG_INTERVALS,
@@ -202,6 +203,7 @@ def _cap(
     cap: int,
     label: str,
     logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> list[Any]:
     """Truncate an oversized child array to ``cap``, warning what was dropped.
 
@@ -219,6 +221,11 @@ def _cap(
         Human label for the warning (e.g. ``"observations on borehole X"``).
     logger : GroundModelLogger
         Caller's logger.
+    drops : BundleRestoreDrops | None, optional
+        When provided, the number of dropped rows (``len - cap``) is added to
+        its ``borehole_child_rows_dropped`` counter so the restore response can
+        surface it (production-readiness audit L6). ``None`` for callers that
+        do not track drops.
 
     Returns
     -------
@@ -227,6 +234,8 @@ def _cap(
     """
     if len(items) > cap:
         logger.warning(f"restore: {label} has {len(items)} entries — capping to {cap} (debt #112)")
+        if drops is not None:
+            drops.borehole_child_rows_dropped += len(items) - cap
         return items[:cap]
     return items
 
@@ -260,7 +269,11 @@ def _build_cpt(data: dict[str, Any], app_project_id: UUID) -> CptOrm:
 
 
 def _build_borehole(
-    data: dict[str, Any], app_project_id: UUID, *, logger: GroundModelLogger
+    data: dict[str, Any],
+    app_project_id: UUID,
+    *,
+    logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> BoreholeOrm:
     """Construct a ``BoreholeOrm`` with its full child tree from a bundle dict.
 
@@ -277,6 +290,9 @@ def _build_borehole(
         Owning project id.
     logger : GroundModelLogger
         Caller's logger (cap warnings).
+    drops : BundleRestoreDrops | None, optional
+        Threaded to every ``_cap`` call so dropped-row counts across the whole
+        child tree accumulate into one tally (production-readiness audit L6).
 
     Returns
     -------
@@ -289,24 +305,28 @@ def _build_borehole(
         _MAX_BOREHOLE_DRILL_SEGMENTS,
         f"drill_segments on borehole {bh_label}",
         logger,
+        drops,
     )
     field_log_intervals = _cap(
         data.get("field_log_intervals") or [],
         _MAX_BOREHOLE_FIELD_LOG_INTERVALS,
         f"field_log_intervals on borehole {bh_label}",
         logger,
+        drops,
     )
     observations = _cap(
         data.get("observations") or [],
         _MAX_BOREHOLE_OBSERVATIONS,
         f"observations on borehole {bh_label}",
         logger,
+        drops,
     )
     samples = _cap(
         data.get("samples") or [],
         _MAX_BOREHOLE_SAMPLES,
         f"samples on borehole {bh_label}",
         logger,
+        drops,
     )
 
     bh_kwargs = _apply_json_to_kwargs(BoreholeOrm, data)
@@ -331,14 +351,19 @@ def _build_borehole(
         for d in field_log_intervals
     ]
     bh.observations = [
-        _build_observation(obs_data, AdmixtureOrm, logger=logger) for obs_data in observations
+        _build_observation(obs_data, AdmixtureOrm, logger=logger, drops=drops)
+        for obs_data in observations
     ]
-    bh.samples = [_build_sample(sample_data, logger=logger) for sample_data in samples]
+    bh.samples = [_build_sample(sample_data, logger=logger, drops=drops) for sample_data in samples]
     return bh
 
 
 def _build_observation(
-    data: dict[str, Any], admixture_cls: type[Any], *, logger: GroundModelLogger
+    data: dict[str, Any],
+    admixture_cls: type[Any],
+    *,
+    logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> ObservationOrm:
     """Construct an ``ObservationOrm`` with its layer children.
 
@@ -352,6 +377,8 @@ def _build_observation(
         import cycle at module load time).
     logger : GroundModelLogger
         Caller's logger (cap warnings).
+    drops : BundleRestoreDrops | None, optional
+        Threaded to the layer cap so dropped rows accumulate into the tally (L6).
 
     Returns
     -------
@@ -363,16 +390,22 @@ def _build_observation(
         _MAX_OBSERVATION_LAYERS,
         f"layers on observation {data.get('id', '?')}",
         logger,
+        drops,
     )
     obs = ObservationOrm(**_apply_json_to_kwargs(ObservationOrm, data))
     obs.layers = [
-        _build_layer(layer_data, admixture_cls, logger=logger) for layer_data in layers_payload
+        _build_layer(layer_data, admixture_cls, logger=logger, drops=drops)
+        for layer_data in layers_payload
     ]
     return obs
 
 
 def _build_layer(
-    data: dict[str, Any], admixture_cls: type[Any], *, logger: GroundModelLogger
+    data: dict[str, Any],
+    admixture_cls: type[Any],
+    *,
+    logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> ObservationLayerOrm:
     """Construct an ``ObservationLayerOrm`` with its admixture children.
 
@@ -385,6 +418,8 @@ def _build_layer(
         ORM class for admixture rows.
     logger : GroundModelLogger
         Caller's logger (cap warnings).
+    drops : BundleRestoreDrops | None, optional
+        Threaded to the admixture cap so dropped rows accumulate into the tally (L6).
 
     Returns
     -------
@@ -396,6 +431,7 @@ def _build_layer(
         _MAX_LAYER_ADMIXTURES,
         f"admixtures on layer {data.get('id', '?')}",
         logger,
+        drops,
     )
     layer = ObservationLayerOrm(**_apply_json_to_kwargs(ObservationLayerOrm, data))
     layer.admixtures = [
@@ -408,6 +444,7 @@ def _build_sample(
     data: dict[str, Any],
     *,
     logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
 ) -> SampleOrm:
     """Construct a ``SampleOrm`` with all six lab-test family children.
 
@@ -423,6 +460,9 @@ def _build_sample(
         each lab-test family.
     logger : GroundModelLogger
         Caller's logger (cap warnings).
+    drops : BundleRestoreDrops | None, optional
+        Threaded to each lab-test-family cap so dropped rows accumulate into the
+        tally (L6).
 
     Returns
     -------
@@ -442,6 +482,7 @@ def _build_sample(
                     _MAX_SAMPLE_LAB_TESTS,
                     f"{rel_name} on sample {sample_label}",
                     logger,
+                    drops,
                 )
             ],
         )
