@@ -30,6 +30,9 @@ import type { RebuildLithoSolidsResponse } from '../api/client'
 import { messageForApiCode, messageForDetail } from '../api/clients/apiCodeMessages'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import { log } from '../utils/log'
+// Shared with the synchronous build path so a grid-too-large refusal shows the
+// SAME actionable copy (retry spacing + "model unchanged") on both (debt #282).
+import { gridTooLargeMessage } from './buildFailureMessage'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -238,7 +241,11 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
                 setState({ status: 'cancelled' })
                 return
               }
+              // A grid-too-large refusal carries the retry spacing + a "model
+              // unchanged" note; format it with the SAME helper the synchronous
+              // build uses (debt #282) rather than dropping to the raw sentence.
               const msg =
+                gridTooLargeMessage(event) ??
                 messageForApiCode(event.code as string | undefined) ??
                 (event.message as string | undefined) ??
                 'Build failed'
