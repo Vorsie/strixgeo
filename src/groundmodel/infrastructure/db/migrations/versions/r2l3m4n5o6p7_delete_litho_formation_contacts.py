@@ -46,6 +46,11 @@ down_revision = "q1k2l3m4n5o6"
 branch_labels = None
 depends_on = None
 
+# Declares that ``upgrade()`` deletes existing user rows (DELETEs the litho
+# formation-contact rows) so the migrator's pre-migration backup step names it
+# among the pending data-rewriting migrations (production-readiness audit H2b).
+DATA_REWRITE = True
+
 
 # Each step is its own statement — asyncpg rejects multi-statement
 # strings (PostgresSyntaxError: "cannot insert multiple commands
