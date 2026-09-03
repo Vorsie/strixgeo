@@ -89,7 +89,10 @@ export class ActivationService {
   /** Evaluate the given state and wrap it as the renderer's status DTO. */
   private toStatus(state: ActivationState, nowMs: number = this.now()): ActivationStatus {
     const highWater = state.anchor?.lastSeenMs ?? 0
-    const verdict = evaluateActivation(state.licence, highWater, nowMs)
+    // The store's own device id is compared against the licence's inside the
+    // evaluator: a copied activation.json (a licence bound to another machine)
+    // reads as ``device-mismatch`` and blocks (audit C3(c), owner ruling 15).
+    const verdict = evaluateActivation(state.licence, state.deviceId, highWater, nowMs)
     return {
       verdict,
       deviceLabel: this.deviceLabel,
@@ -107,6 +110,41 @@ export class ActivationService {
     // "record this launch" step and the state it is judged against agree.
     const nowMs = this.now()
     return this.toStatus(recordActivationLaunch(nowMs), nowMs)
+  }
+
+  /**
+   * Re-verify the stored licence against the issuer once at launch (audit H5).
+   *
+   * A paid renewal only reaches the client if it re-checks: without this a
+   * renewed subscription's later ``expiresAtMs`` never arrives and the gate
+   * blocks a paying user at day 395. So on launch, when there IS a stored licence
+   * AND the issuer supports ``refresh`` (only the network-backed one does — the
+   * mock/unreachable omit it, which keeps this DORMANT with no server URL), the
+   * client refreshes ONCE and persists the fresh licence. Any failure —
+   * ``unreachable``, a lapsed subscription, a rejected key — is SWALLOWED: the
+   * stored licence stays the authority and the 30-day offline grace still opens
+   * the app (owner ruling 14). Never throws.
+   */
+  async refreshOnLaunch(): Promise<void> {
+    const state = readActivationState()
+    // Nothing to renew, or no configured issuer (only the network-backed
+    // repository carries a refresh method) → dormant, exactly as the mock/offline
+    // build wants.
+    if (!state.licence || !this.repository.refresh) return
+    try {
+      const result = await this.repository.refresh({
+        key: state.licence.key,
+        deviceId: state.deviceId,
+        deviceLabel: this.deviceLabel,
+      })
+      // A fresh licence carries the renewed expiresAt that resets the offline
+      // grace clock. A failure (unreachable / lapsed / rejected) is swallowed —
+      // the stored licence stays the authority.
+      if (result.ok) this.persistLicence(result.licence)
+    } catch {
+      // Defensive: a repository that throws must not brick launch — the stored
+      // licence and its 30-day grace already decide THIS launch.
+    }
   }
 
   /** Persist a freshly-issued licence, keeping the device id and anchor. */
@@ -228,6 +266,14 @@ export class ActivationService {
           ...current,
           licence: current.licence ?? base('pro', false, now + 200 * DAY_MS),
           anchor: { firstSeenMs: now, lastSeenMs: now + 30 * DAY_MS },
+        }
+        break
+      case 'device-mismatch':
+        // An in-date licence bound to ANOTHER machine — a copied activation.json.
+        // The evaluator blocks it because the stored device id differs.
+        next = {
+          ...current,
+          licence: { ...base('pro', false, now + 200 * DAY_MS), deviceId: `${current.deviceId}-other-device` },
         }
         break
       default:
