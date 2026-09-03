@@ -135,3 +135,70 @@ describe('ActivationService.deactivate', () => {
     expect(readActivationState().licence).not.toBeNull()
   })
 })
+
+// Launch-time refresh (audit H5): "on launch with a licence and a configured
+// issuer, the client refreshes once and swallows unreachable" — and it is DORMANT
+// while no server URL is configured (the mock/unreachable issuer omits refresh).
+describe('ActivationService.refreshOnLaunch', () => {
+  /** A repository whose refresh returns whatever the constructor was told. */
+  class FakeRefreshRepository implements ActivationRepository {
+    calls = 0
+    constructor(private readonly onRefresh: (request: ActivateRequest) => Promise<IssueResult>) {}
+    activate(): Promise<IssueResult> {
+      return Promise.resolve({ ok: false, code: 'unreachable', message: 'unused' })
+    }
+    startTrial(): Promise<IssueResult> {
+      return Promise.resolve({ ok: false, code: 'unreachable', message: 'unused' })
+    }
+    deactivate(): Promise<void> {
+      return Promise.resolve()
+    }
+    refresh(request: ActivateRequest): Promise<IssueResult> {
+      this.calls += 1
+      return this.onRefresh(request)
+    }
+  }
+
+  const RENEWED_END = now + 500 * 24 * 60 * 60 * 1000
+
+  it('refreshes once and persists the renewed expiresAt when the issuer supports refresh', async () => {
+    const repo = new FakeRefreshRepository(request =>
+      Promise.resolve({ ok: true, licence: { ...activeLicence(request.deviceId), expiresAtMs: RENEWED_END } }),
+    )
+    const service = new ActivationService({ repository: repo, deviceLabel: 'Laptop A', now: () => now })
+
+    await service.refreshOnLaunch()
+
+    expect(repo.calls).toBe(1)
+    // The renewal reached the client — the stored end moved forward.
+    expect(readActivationState().licence?.expiresAtMs).toBe(RENEWED_END)
+  })
+
+  it('is dormant when the issuer has no refresh (no server URL) — licence unchanged', async () => {
+    // FakeRepository (the deactivate fake) implements NO refresh.
+    const before = readActivationState().licence?.expiresAtMs
+    const service = makeService(() => Promise.resolve())
+    await service.refreshOnLaunch()
+    expect(readActivationState().licence?.expiresAtMs).toBe(before)
+  })
+
+  it('swallows an unreachable refresh — keeps the stored licence, never throws', async () => {
+    const before = readActivationState().licence?.expiresAtMs
+    const repo = new FakeRefreshRepository(() =>
+      Promise.resolve({ ok: false, code: 'unreachable', message: 'offline' }),
+    )
+    const service = new ActivationService({ repository: repo, deviceLabel: 'Laptop A', now: () => now })
+    await expect(service.refreshOnLaunch()).resolves.toBeUndefined()
+    expect(readActivationState().licence?.expiresAtMs).toBe(before)
+  })
+
+  it('does not call refresh when there is no stored licence', async () => {
+    writeActivationState({ licence: null, anchor: null, deviceId: 'device-A' })
+    const repo = new FakeRefreshRepository(request =>
+      Promise.resolve({ ok: true, licence: activeLicence(request.deviceId) }),
+    )
+    const service = new ActivationService({ repository: repo, deviceLabel: 'Laptop A', now: () => now })
+    await service.refreshOnLaunch()
+    expect(repo.calls).toBe(0)
+  })
+})
