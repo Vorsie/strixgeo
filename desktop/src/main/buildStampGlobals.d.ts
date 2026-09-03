@@ -22,6 +22,10 @@ interface ImportMetaEnv {
   readonly MAIN_VITE_STRIX_BETA_BUILT_AT?: string
   /** Expiry timestamp, ISO-8601. */
   readonly MAIN_VITE_STRIX_BETA_EXPIRES_AT?: string
+  /** Git commit SHA the build was cut from (build provenance, audit C4). */
+  readonly MAIN_VITE_STRIX_BUILD_SHA?: string
+  /** Build timestamp, ISO-8601 (build provenance, audit C4). */
+  readonly MAIN_VITE_STRIX_BUILD_TIME?: string
 }
 
 interface ImportMeta {
