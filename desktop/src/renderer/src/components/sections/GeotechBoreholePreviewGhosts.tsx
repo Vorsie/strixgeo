@@ -15,18 +15,21 @@
  * drawn here is what the button writes; the backend parity gate (integration
  * DB5, and DB7 for a re-divide) asserts that band for band.
  *
- * SCOPE — this previews the FIRST divide of a column, not a re-divide
- * ------------------------------------------------------------------
- * A column that already carries committed geotech bands drops its ghosts
- * entirely (see the ``committedBoreholeIds`` filter below), so once
- * ``Divide boreholes`` has run, pressing it again is as blind as it ever was:
- * the ``boreholesStale`` amber says the bands are out of date, not what they
- * would become. That is a deliberate limit of this slice, not an oversight —
- * drawing a plan over the committed rows it would REPLACE needs a diff render
- * (outline-only against the existing bands), which is its own design question.
- * Tracked in ``docs/debt.md`` (stale re-divide preview) and stated in
- * ``docs/design/geotech-stage.md`` §6. The backend already supports it: the
- * preview endpoint plans an already-divided model correctly (gate DB7).
+ * FIRST divide vs RE-DIVIDE (debt #269)
+ * -------------------------------------
+ * An undivided column shows the plan as a SOLID hatched ghost — the first
+ * divide. A column that already carries committed geotech bands is a
+ * RE-DIVIDE: ``Divide boreholes`` re-plans the already-divided model (backend
+ * gate DB7) and rewrites every borehole band, so pressing it again is not a
+ * no-op. That column now draws the new plan as an OUTLINE-ONLY diff OVER the
+ * committed band — a dashed stroke in the class colour, no fill and no hatch —
+ * so the committed band shows through and the new boundaries read as a diff,
+ * never a solid overpaint (the invariant the old drop-it behaviour protected).
+ * The diff is READ-ONLY: it answers "what would change", it offers no per-column
+ * accept, because re-committing one already-divided column is undesigned. The
+ * hatched-preview summary (``geotechPreviewRenderStore``) still counts the first
+ * divide only — a diff is an outline, not a hatch, and must not light the
+ * "Hatched = preview" legend. See ``docs/design/geotech-stage.md`` §6.
  *
  * Visual convention is the litho axis's pending-suggestion one
  * (``LithoSuggestionGhostColumns`` / ``LithoSuggestionLayer``): a translucent
@@ -173,8 +176,9 @@ export interface Props {
   previewColumns: readonly DivideBoreholePreviewColumn[]
   /**
    * Committed geotech ``litho_layer`` rows. A borehole that already has bands
-   * here is DIVIDED: its ghosts are dropped immediately, so the preview never
-   * double-draws over the real thing.
+   * here is DIVIDED: its solid first-divide ghost gives way to an outline-only
+   * re-divide diff (debt #269), so the preview never double-draws a solid band
+   * over the real thing.
    */
   geotechLayers: readonly LithoLayerResponse[]
   /**
@@ -227,6 +231,13 @@ interface GhostColumn {
   x0: number
   width: number
   bands: readonly GhostBand[]
+  /**
+   * True when this column already carries committed geotech bands — i.e. this is
+   * a RE-DIVIDE, not the first divide (debt #269). A re-divide column is drawn as
+   * an outline-only diff OVER the committed band (no solid fill, no hatch) and
+   * carries no accept gesture; the first divide keeps the solid hatched ghost.
+   */
+  isRedivide: boolean
 }
 
 /** An open right-click menu over one ghosted column. */
@@ -251,11 +262,13 @@ const NOTHING: Resolved = {
 }
 
 /**
- * Borehole ids that carry at least one committed geotech band.
+ * Borehole ids that carry at least one committed geotech band — i.e. the
+ * already-DIVIDED columns, drawn as an outline re-divide diff rather than a
+ * solid first-divide ghost (debt #269).
  *
- * Falls back to the last known set while ``loaded`` is false, so the ghosts on
- * screen hold their ground through the mid-refetch window instead of flickering
- * back over already-divided columns (see ``Props.geotechLayersLoaded``).
+ * Falls back to the last known set while ``loaded`` is false, so a divided
+ * column holds its diff through the mid-refetch window instead of flickering
+ * back to a solid ghost over its committed band (see ``Props.geotechLayersLoaded``).
  *
  * Parameters
  * ----------
@@ -267,7 +280,7 @@ const NOTHING: Resolved = {
  * Returns
  * -------
  * ReadonlySet<string>
- *     Investigation ids to suppress ghosts for.
+ *     Investigation ids that are already divided (drawn as a re-divide diff).
  */
 function useCommittedBoreholeIds(
   layers: readonly LithoLayerResponse[],
@@ -329,6 +342,11 @@ export default function GeotechBoreholePreviewGhosts({
     if (previewColumns.length === 0) return NOTHING
     const previewById = new Map(previewColumns.map(c => [c.borehole_id, c]))
     const out: GhostColumn[] = []
+    // The published summary drives the toolbar's "Hatched = preview" legend, so
+    // it counts the FIRST divide only. A re-divide diff is an outline, not a
+    // hatch, and counting it would light that legend for hatching that is not on
+    // screen (the dishonesty geotechPreviewRenderStore was built to avoid).
+    let firstDivideColumnCount = 0
     let bandCount = 0
     let clampedBandCount = 0
 
@@ -337,8 +355,12 @@ export default function GeotechBoreholePreviewGhosts({
       const item = col.proj.item as { id: string }
       const preview = previewById.get(item.id)
       if (preview === undefined || preview.bands.length === 0) continue
-      // The commit has landed for this column — the real bands own it now.
-      if (committedBoreholeIds.has(item.id)) continue
+      // A column that already carries committed bands is a RE-DIVIDE (backend
+      // gate DB7 re-plans the already-divided model): draw the new plan as an
+      // outline-only diff OVER the committed band (debt #269) instead of
+      // dropping it and leaving the re-divide blind. The committed band is never
+      // overpainted — the diff is stroke-only.
+      const isRedivide = committedBoreholeIds.has(item.id)
       const surface = surfaceYForColumn(col, levelToScreen)
       if (surface.surfaceElevationM === null || surface.pxPerMetre === 0) continue
 
@@ -348,9 +370,10 @@ export default function GeotechBoreholePreviewGhosts({
         const rawBase = surface.surfaceY + band.depth_base_m * surface.pxPerMetre
         // Wholly outside the visible depth window: there is no pixel to draw
         // it at. Counted so the toolbar can say so rather than let the silence
-        // read as "nothing planned down there".
+        // read as "nothing planned down there" — first-divide only, for the
+        // same reason the band/column counts are.
         if (rawBase <= plotTop || rawTop >= plotBottom) {
-          clampedBandCount += 1
+          if (!isRedivide) clampedBandCount += 1
           continue
         }
         const y = Math.max(plotTop, Math.min(plotBottom, rawTop))
@@ -359,6 +382,9 @@ export default function GeotechBoreholePreviewGhosts({
         const tier: Tier = band.confidence === 'high' ? 'strong' : 'weak'
         const provenance =
           donorProse(band) ?? PROVENANCE_PROSE[band.source] ?? band.source
+        const range =
+          `${preview.name} · ${nadClassName(band.nad_class)} · ` +
+          `${band.depth_top_m.toFixed(2)}–${band.depth_base_m.toFixed(2)} m\n`
         bands.push({
           depthTopM: band.depth_top_m,
           y,
@@ -366,27 +392,33 @@ export default function GeotechBoreholePreviewGhosts({
           fill: nadClassColor(band.nad_class),
           tier,
           label: nadCompactLabel(band.nad_class),
-          title:
-            `${preview.name} · ${nadClassName(band.nad_class)} · ` +
-            `${band.depth_top_m.toFixed(2)}–${band.depth_base_m.toFixed(2)} m\n` +
-            `Preview — ${provenance} (${band.confidence} confidence).\n` +
-            'Press "Divide boreholes" to commit.',
+          title: isRedivide
+            ? range +
+              `Re-divide preview — ${provenance} (${band.confidence} confidence).\n` +
+              'Outline over the committed band; press "Divide boreholes" to apply.'
+            : range +
+              `Preview — ${provenance} (${band.confidence} confidence).\n` +
+              'Press "Divide boreholes" to commit.',
         })
       }
       if (bands.length === 0) continue
-      bandCount += bands.length
+      if (!isRedivide) {
+        firstDivideColumnCount += 1
+        bandCount += bands.length
+      }
       out.push({
         investigationId: item.id,
         name: preview.name,
         x0: col.nudgedX - col.width / 2,
         width: col.width,
         bands,
+        isRedivide,
       })
     }
 
     return {
       columns: out,
-      summary: { columnCount: out.length, bandCount, clampedBandCount },
+      summary: { columnCount: firstDivideColumnCount, bandCount, clampedBandCount },
     }
   }, [
     previewColumns,
@@ -442,8 +474,11 @@ export default function GeotechBoreholePreviewGhosts({
         <g
           key={`gbp-${column.investigationId}`}
           data-testid={`geotech-preview-column-${column.investigationId}`}
+          data-rediv={column.isRedivide ? 'true' : undefined}
           onContextMenu={
-            onAcceptColumn
+            // A re-divide diff is informational (debt #269): it shows what would
+            // change, it does not offer to re-commit one already-divided column.
+            onAcceptColumn && !column.isRedivide
               ? e => {
                   e.preventDefault()
                   e.stopPropagation()
@@ -461,33 +496,58 @@ export default function GeotechBoreholePreviewGhosts({
         >
           {column.bands.map(band => (
             <g key={`gbp-band-${column.investigationId}-${band.depthTopM}`}>
-              <rect
-                data-testid={`geotech-preview-band-${column.investigationId}-${band.depthTopM}`}
-                x={column.x0}
-                y={band.y}
-                width={column.width}
-                height={band.height}
-                fill={band.fill}
-                fillOpacity={TIERS[band.tier].fillOpacity}
-                stroke={band.fill}
-                strokeOpacity={0.85}
-                strokeWidth={1.2}
-                strokeDasharray="4 2"
-              >
-                {/* The only channel naming the evidence behind the class, so
-                    the rect deliberately stays hit-testable — see the module
-                    docstring on the click trade-off. */}
-                <title>{band.title}</title>
-              </rect>
-              <rect
-                data-testid={`geotech-preview-hatch-${column.investigationId}-${band.depthTopM}`}
-                x={column.x0}
-                y={band.y}
-                width={column.width}
-                height={band.height}
-                fill={`url(#${patternIdFor(band.tier)})`}
-                pointerEvents="none"
-              />
+              {column.isRedivide ? (
+                // Re-divide diff (debt #269): outline ONLY — no fill, no hatch —
+                // so the committed band shows through and the new boundary reads
+                // as a diff over the existing one, never a solid overpaint. Left
+                // fill:none deliberately, so the interior hover falls through to
+                // the real committed band beneath rather than being stolen by
+                // this informational overlay; the outline carries the tooltip.
+                <rect
+                  data-testid={`geotech-rediv-band-${column.investigationId}-${band.depthTopM}`}
+                  x={column.x0}
+                  y={band.y}
+                  width={column.width}
+                  height={band.height}
+                  fill="none"
+                  stroke={band.fill}
+                  strokeOpacity={0.95}
+                  strokeWidth={1.4}
+                  strokeDasharray="4 2"
+                >
+                  <title>{band.title}</title>
+                </rect>
+              ) : (
+                <>
+                  <rect
+                    data-testid={`geotech-preview-band-${column.investigationId}-${band.depthTopM}`}
+                    x={column.x0}
+                    y={band.y}
+                    width={column.width}
+                    height={band.height}
+                    fill={band.fill}
+                    fillOpacity={TIERS[band.tier].fillOpacity}
+                    stroke={band.fill}
+                    strokeOpacity={0.85}
+                    strokeWidth={1.2}
+                    strokeDasharray="4 2"
+                  >
+                    {/* The only channel naming the evidence behind the class, so
+                        the rect deliberately stays hit-testable — see the module
+                        docstring on the click trade-off. */}
+                    <title>{band.title}</title>
+                  </rect>
+                  <rect
+                    data-testid={`geotech-preview-hatch-${column.investigationId}-${band.depthTopM}`}
+                    x={column.x0}
+                    y={band.y}
+                    width={column.width}
+                    height={band.height}
+                    fill={`url(#${patternIdFor(band.tier)})`}
+                    pointerEvents="none"
+                  />
+                </>
+              )}
               {band.height >= LABEL_MIN_HEIGHT_PX && (
                 <text
                   x={column.x0 + column.width / 2}
