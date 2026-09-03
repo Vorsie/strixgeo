@@ -296,3 +296,94 @@ class EmptyRecomputePayloadError(GroundModelError):
     maps this to 422; the frontend gates its triggers on data-loaded and
     treats the 422 as a bug signal, not a user error.
     """
+
+
+class DovImportTooLargeError(GroundModelError):
+    """Raised when a DOV import would discover more features than the ceiling.
+
+    DOV discovery counts features cheaply (``resultType=hits``) BEFORE any XML
+    is downloaded. When the recursive bbox-split resolves more than
+    ``DOV_MAX_IMPORT_FEATURES`` unique rows the import stops here — before the
+    download phase fans out to thousands of parallel HTTP GETs — so a mis-drawn
+    box can never launch a runaway import. The bbox area guard on the request
+    schema already refuses continent-sized boxes; this is the second line, for a
+    genuinely dense area under the size limit.
+
+    The synchronous import endpoints map this to HTTP 422; the SSE background
+    path emits a terminal ``{"type": "error", "code": "dov_import_too_large"}``
+    event carrying the same message.
+
+    Parameters
+    ----------
+    discovered : int
+        Number of features the discovery phase found.
+    limit : int
+        The ceiling that was exceeded (``DOV_MAX_IMPORT_FEATURES``).
+    """
+
+    def __init__(self, discovered: int, limit: int) -> None:
+        """Initialise with the discovered count and the exceeded ceiling."""
+        super().__init__(
+            f"this area holds {discovered} DOV records, above the {limit}-record import "
+            f"limit; draw a smaller area or split the import"
+        )
+        self.discovered = discovered
+        self.limit = limit
+
+
+class DuplicateImportJobError(GroundModelError):
+    """Raised when an import for the same scope is already running.
+
+    The job registry refuses a second ``start()`` that carries the same
+    de-duplication ``key`` (built from the resource kind + bbox + project) while
+    the first job's task is still running. Without this a double-click or an
+    over-eager retry would launch a second identical DOV import that races the
+    first on the same cache directory and DB rows.
+
+    The import-stream endpoints map this to HTTP 409, echoing the running job's
+    id so the client can attach to the existing SSE stream instead.
+
+    Parameters
+    ----------
+    job_id : UUID
+        The id of the already-running job for this scope.
+    """
+
+    def __init__(self, job_id: UUID) -> None:
+        """Initialise with the id of the job already running for this scope."""
+        super().__init__(f"an import for this area is already running (job {job_id})")
+        self.job_id = job_id
+
+
+class BodyPartitionContentionError(GroundModelError):
+    """Raised when a body-partition write waits past ``lock_timeout`` for its lock.
+
+    ``lock_body_partition`` serialises every body-partition rewrite for one
+    model on a transaction-scoped advisory lock. Under ``lock_timeout`` (set on
+    the session), the blocking acquire aborts rather than hanging forever if
+    another writer holds the lock for the whole window. That abort surfaces as
+    asyncpg's ``LockNotAvailableError``; the helper catches it and raises this
+    so the API answers a clean 409 that names the operation instead of a raw
+    500 (or, worse, a hung request).
+
+    The router maps this exception to HTTP 409 with ``code =
+    "body_partition_locked"``.
+
+    Parameters
+    ----------
+    operation : str
+        Human name of the caller that gave up waiting, e.g.
+        ``"bodies/recompute"``.
+    model_id : UUID
+        The model whose partition lock could not be acquired.
+    """
+
+    def __init__(self, operation: str, model_id: UUID) -> None:
+        """Initialise, naming the waiting operation and the contended model."""
+        super().__init__(
+            f"the body model {model_id} is busy: {operation!r} waited past the lock timeout "
+            "for another body-partition write (correlate / accept / band edit / subdivide / "
+            "bodies/recompute) to finish. Try again in a moment"
+        )
+        self.operation = operation
+        self.model_id = model_id
