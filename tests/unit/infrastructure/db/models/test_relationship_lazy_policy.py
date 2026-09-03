@@ -6,7 +6,7 @@ every relationship's ``lazy=`` through ``RELATIONSHIP_LAZY`` (audit M4) makes
 that a single, flippable switch — set ``STRIX_ORM_RELATIONSHIP_LAZY=raise`` and
 the same mistake becomes an immediate, legible error an integration test catches.
 
-This guard is source-level on purpose: the switch defaults to ``"select"``, which
+This guard is source-level on purpose: the switch defaults to ``"raise"`` (since 2026-09-03), which
 is also SQLAlchemy's default, so a runtime check of ``rel.lazy`` could not tell a
 relationship wired to the constant apart from one that simply forgot ``lazy=``.
 The AST scan asserts the keyword is literally present and references the constant,
@@ -72,12 +72,12 @@ def test_every_relationship_call_sets_lazy_from_the_constant() -> None:
 
 @pytest.mark.parametrize(
     ("env_value", "expected"),
-    [(None, "select"), ("raise", "raise"), ("select", "select")],
+    [(None, "raise"), ("raise", "raise"), ("select", "select")],
 )
-def test_the_switch_defaults_to_select_and_honours_the_env_var(
+def test_the_switch_defaults_to_raise_and_honours_the_env_var(
     monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: str
 ) -> None:
-    """The tripwire ships OFF (``select``) and is enabled via the env var.
+    """The tripwire ships ON (``raise``, promoted 2026-09-03) and the env var can fall back to ``select``.
 
     Re-imports the constants module so the module-level read of the env var is
     re-evaluated, proving the documented enable path works.
