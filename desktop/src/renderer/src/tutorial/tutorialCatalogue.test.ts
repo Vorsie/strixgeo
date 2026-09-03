@@ -105,3 +105,63 @@ describe('tutorialCatalogue integrity', () => {
     expect(TUTORIAL_CHAPTERS.every(c => c.videoUrl === undefined)).toBe(true)
   })
 })
+
+// --- owner-walk rulings (dogfeed 2026-09-03) ------------------------------
+// Pins for the specific fixes the owner asked for after walking the Dutch
+// tutorial on the packaged build. Each is phrased in his words. The generic
+// integrity block above cannot catch these: a template-prefix anchor
+// (`section-control-borehole-${key}`) passes `anchorExists` for ANY suffix,
+// so the phantom `-geo` (which renders no element and docks the card
+// bottom-right) looks valid to it — these fix the SUFFIX to the value the
+// control actually renders.
+const stepById = (id: string) => TUTORIAL_STEPS.find(s => s.id === id)
+const indexOf = (id: string) => TUTORIAL_STEPS.findIndex(s => s.id === id)
+
+describe('tutorialCatalogue owner-walk rulings', () => {
+  it('finding 5: the borehole-stream step spotlights the real toggle, not a phantom key', () => {
+    // Owner: the card "sits bottom-right and it is not clear how you change it".
+    // The toggle renders `section-control-borehole-${key}` with key `geotech`
+    // (SectionHeader BOREHOLE_CHANNEL_BUTTONS), so `-geo` matched nothing and the
+    // spotlight fell back to the (already-active) sections tab → docked card.
+    expect(stepById('section-boreholes')?.anchor).toBe('section-control-borehole-geotech')
+  })
+
+  it('finding 10: the packing flow lives on the sections toolbar geotech axis, not the geotech pane', () => {
+    // Owner: "dit hoort bij geotech stage in cross section niet in geotech pane".
+    // The pipeline dropdown is `geotech-pipeline` in sectionsGeotechToolbarItems.
+    const step = stepById('geotech-subdivide')
+    expect(step?.stage).toBe('sections')
+    expect(step?.anchor).toBe('geotech-pipeline')
+  })
+
+  it('finding 6: the seed step points at the real fill-from-boreholes button (guard)', () => {
+    // Owner renamed it "Vullen vanuit boringen"; the anchor must stay on the real
+    // seed/fill button in the section inspector (SectionsInspector inspector-seed).
+    expect(stepById('geo-seed')?.anchor).toBe('inspector-seed')
+  })
+
+  it('finding 1: chapter 1 shows WHERE the project settings live before the CRS field', () => {
+    // Owner: "doesn't highlight where projectgegevens are". A step opens the
+    // metadata dialog (its button carries project-metadata-open) before the CRS.
+    const lead = stepById('project-metadata')
+    expect(lead?.anchor).toBe('project-metadata-open')
+    expect(indexOf('project-metadata')).toBeLessThan(indexOf('project-crs'))
+  })
+
+  it('finding 8: chapter 5 creates a litho model and switches to the litho axis', () => {
+    expect(stepById('litho-create')?.anchor).toBe('model-kind-picker')
+    expect(stepById('litho-axis')?.anchor).toBe('axis-litho')
+  })
+
+  it('finding 9: chapter 5 points at Correlate before Build', () => {
+    // Owner: "dit moet wijzen naar correleren bovenaan. bouwen is nog iets te snel".
+    expect(stepById('litho-correlate')?.anchor).toBe('correlate-mode')
+    expect(indexOf('litho-correlate')).toBeLessThan(indexOf('litho-build'))
+  })
+
+  it('finding 11: chapter 7 shows the path from a cross-section to the Parameters stage', () => {
+    // Owner: "je laat ook niet zien hoe je de parameter stage kan bereiken vanaf de CS".
+    expect(stepById('params-jump')?.anchor).toBe('body-ctx-unit-statistics')
+    expect(indexOf('params-jump')).toBeLessThan(indexOf('params-stats'))
+  })
+})
