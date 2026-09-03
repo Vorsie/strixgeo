@@ -109,7 +109,12 @@ export default function App() {
   } = useProject({ toast })
 
   // API boot sequence — extracted to useAppBoot.
-  const { ready, apiError } = useAppBoot()
+  // The activation START-SCREEN gate state lives above the boot hook: the API
+  // wait must not start while a packaged build is blocked at the licence page.
+  const [activationGate, setActivationGate] = useState<GateDecision | 'unknown'>(() =>
+    window.electron.launchFlags.packaged && !window.electron.launchFlags.e2e ? 'unknown' : 'pass',
+  )
+  const { ready, apiError } = useAppBoot(activationGate === 'pass')
 
   // Initialise the theme system. The hook itself owns the class on
   // <html>. ``choice`` + ``setChoice`` feed the Settings dialog's
@@ -284,9 +289,6 @@ export default function App() {
   // seeds to 'pass' for them and the status is never even fetched, so the owner's
   // dogfeed and the smoke suite are untouched. Once activation succeeds the
   // LicensingDialog reports the new status and the gate opens.
-  const [activationGate, setActivationGate] = useState<GateDecision | 'unknown'>(() =>
-    window.electron.launchFlags.packaged && !window.electron.launchFlags.e2e ? 'unknown' : 'pass',
-  )
   useEffect(() => {
     const flags = window.electron.launchFlags
     if (!(flags.packaged && !flags.e2e)) return // dev / e2e never block
