@@ -7,12 +7,20 @@ import {
   Pane,
   Rectangle,
   TileLayer,
-  Tooltip,
   WMSTileLayer,
   useMap,
 } from '../lib/streaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+
+import {
+  RADIUS,
+  boreholeTooltipLines,
+  cptTooltipLines,
+  markerRingStyle,
+  markerTooltipElement,
+  type TooltipLines,
+} from './mapMarkerStyle'
 
 import type {
   BoreholeAxis,
@@ -47,9 +55,7 @@ import { useT } from '../i18n/translate'
 // CircleMarkers are used instead of Leaflet's default pin icons because at
 // high density (200+ markers in a small bbox) pins overlap into an unreadable
 // stack. Circles stay compact, are colored by type/method, and grow when
-// selected.
-const RADIUS = 4
-const RADIUS_SELECTED = 7
+// selected. RADIUS / RADIUS_SELECTED + the ring style live in ./mapMarkerStyle.
 
 // Curated colours for the small set of well-known categorical values we
 // expect from the backend. Anything outside this map falls through to a
@@ -573,6 +579,37 @@ export default function MapView({
   // needs the ref bridge instead of useMap().
   const mapRef = useRef<L.Map | null>(null)
 
+  // One shared tooltip for ALL markers (M7a). Binding a Leaflet Tooltip to each
+  // of thousands of markers allocates thousands of objects + event listeners up
+  // front; instead each marker's mouseover opens this single tooltip on demand
+  // and mouseout closes it. Imperative (not React state) so a hover never
+  // re-renders the marker layer.
+  const sharedTooltipRef = useRef<L.Tooltip | null>(null)
+  const showMarkerTooltip = useCallback(
+    (lat: number, lng: number, lines: TooltipLines): void => {
+      const map = mapRef.current
+      if (!map) return
+      let tooltip = sharedTooltipRef.current
+      if (!tooltip) {
+        tooltip = L.tooltip({
+          pane: 'marker-tooltips',
+          direction: 'top',
+          offset: [0, -6],
+          opacity: 0.95,
+        })
+        sharedTooltipRef.current = tooltip
+      }
+      tooltip.setLatLng([lat, lng]).setContent(markerTooltipElement(lines))
+      map.openTooltip(tooltip)
+    },
+    [],
+  )
+  const hideMarkerTooltip = useCallback((): void => {
+    const map = mapRef.current
+    const tooltip = sharedTooltipRef.current
+    if (map && tooltip) map.closeTooltip(tooltip)
+  }, [])
+
   const visibleMarkerCount = cptMarkers.length + boreholeMarkers.length
   function handleFitToData(): void {
     const map = mapRef.current
@@ -603,6 +640,10 @@ export default function MapView({
         ref={mapRef}
         center={startCenter}
         zoom={startZoom}
+        // Render the CPT dots (and every other CircleMarker) onto one shared
+        // canvas rather than an SVG element each — at thousands of markers the
+        // per-marker SVG DOM is what makes panning stutter (M7a).
+        preferCanvas
         className="h-full w-full"
         // Background shown while tiles load. Matches the shell surface
         // tone so the blank canvas is less jarring before tiles arrive.
@@ -772,32 +813,26 @@ export default function MapView({
           // radius as a marquee pick, so the list↔map link is obvious.
           const hovered = m.id === hoveredTestId
           const ringed = marqueeSelected || hovered
+          const ring = markerRingStyle({ selected, ringed, enlarged: selected || hovered })
           const color = KNOWN_COLORS[m.type] ?? hashColor(m.type)
           return (
             <CircleMarker
               key={`cpt-${m.id}`}
               pane="investigation-markers"
               center={[m.lat, m.lng]}
-              radius={selected || hovered ? RADIUS_SELECTED : RADIUS}
+              radius={ring.radius}
               style={{
-                color: selected ? '#1e3a8a' : ringed ? '#2563eb' : '#1f2937',
-                weight: selected ? 2 : ringed ? 2 : 1,
+                color: ring.color,
+                weight: ring.weight,
                 fillColor: color,
                 fillOpacity: 0.85,
               }}
               onClick={() => onSelectCpt(m.id)}
-            >
-              <Tooltip
-                pane="marker-tooltips"
-                direction="top"
-                offset={[0, -4]}
-                opacity={0.95}
-              >
-                <strong>{m.name}</strong>
-                <br />
-                {m.type} · {m.depth != null ? `${m.depth.toFixed(1)} m` : '—'}
-              </Tooltip>
-            </CircleMarker>
+              // Tooltip bound lazily via the shared tooltip (M7a) — no per-marker
+              // Tooltip object.
+              onMouseOver={() => showMarkerTooltip(m.lat, m.lng, cptTooltipLines(m))}
+              onMouseOut={hideMarkerTooltip}
+            />
           )
         })}
 
@@ -822,19 +857,9 @@ export default function MapView({
               position={[m.lat, m.lng]}
               icon={squareDivIcon(color, selected, marqueeSelected || hovered)}
               onClick={() => onSelectBorehole(m.id)}
-            >
-              <Tooltip
-                pane="marker-tooltips"
-                direction="top"
-                offset={[0, -8]}
-                opacity={0.95}
-              >
-                <strong>{m.name}</strong>
-                <br />
-                {m.drillMethod ?? '—'} ·{' '}
-                {m.depth != null ? `${m.depth.toFixed(1)} m` : '—'}
-              </Tooltip>
-            </Marker>
+              onMouseOver={() => showMarkerTooltip(m.lat, m.lng, boreholeTooltipLines(m))}
+              onMouseOut={hideMarkerTooltip}
+            />
           )
         })}
 
@@ -860,11 +885,14 @@ export default function MapView({
                 fillColor: '#f59e0b',
                 fillOpacity: 0.55,
               }}
-            >
-              <Tooltip pane="marker-tooltips" direction="top" offset={[0, -4]} opacity={0.9}>
-                <em>{t('data.map.pending', { name: pin.name })}</em>
-              </Tooltip>
-            </CircleMarker>
+              onMouseOver={() =>
+                showMarkerTooltip(lat, lng, {
+                  title: t('data.map.pending', { name: pin.name }),
+                  subtitle: '',
+                })
+              }
+              onMouseOut={hideMarkerTooltip}
+            />
           )
         })}
       </MapContainer>
