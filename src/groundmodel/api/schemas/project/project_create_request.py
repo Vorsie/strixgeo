@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 # Lifecycle vocabularies. Stored as plain VARCHAR in the DB so adding a
 # bucket here doesn't need a migration; the Pydantic layer is the only
@@ -13,7 +15,7 @@ ProjectPhase = Literal["feasibility", "design", "construction", "monitoring"]
 ProjectStatus = Literal["active", "on_hold", "completed"]
 
 
-class ProjectCreateRequest(BaseModel):
+class ProjectCreateRequest(StrictRequestModel):
     """Body of ``POST /projects``.
 
     ``name`` is the only required field — every other piece of metadata is
