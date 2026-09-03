@@ -14,6 +14,7 @@ import {
 } from './sheetConstants'
 import type { SheetGeometry } from './sheetGeometry'
 import type { SheetPayload } from './sheetPayload'
+import { unitFillColour, unitLabel } from './unitStyle'
 
 const INK = '#1f2933'
 
@@ -33,6 +34,7 @@ export function ProfileDrawing({ payload, geometry, mTawLabel }: {
   const halfWidthPx = COLUMN_HALF_WIDTH_MM * PX_PER_MM
   const cptChannels = readCptChannels(payload.section.viewState)
   const boreholeChannels = readBoreholeChannels(payload.section.viewState)
+  const fill = payload.settings.fill
 
   // Level ticks every 1, 2, 5, 10 or 20 m so there are at most 14 of them.
   const range = payload.levelMaxM - payload.levelMinM
@@ -47,7 +49,7 @@ export function ProfileDrawing({ payload, geometry, mTawLabel }: {
       {payload.regions.map((r, i) => {
         const unit = unitById.get(r.formation_id)
         return (
-          <path key={i} data-testid="sheet-region" d={regionPathD(r, columnX, levelToY)} fill={unit?.colour ?? '#dddddd'} stroke={INK} strokeWidth={0.6} strokeLinejoin="round" />
+          <path key={i} data-testid="sheet-region" d={regionPathD(r, columnX, levelToY)} fill={unit ? unitFillColour(unit, fill) : '#dddddd'} stroke={INK} strokeWidth={0.6} strokeLinejoin="round" />
         )
       })}
       {/* unit names inside big-enough regions */}
@@ -57,7 +59,7 @@ export function ProfileDrawing({ payload, geometry, mTawLabel }: {
         const unit = unitById.get(r.formation_id)
         return (
           <text key={`l${i}`} x={(b.minX + b.maxX) / 2} y={(b.minY + b.maxY) / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fill={INK} opacity={0.85}>
-            {unit?.name ?? ''}
+            {unit ? unitLabel(unit, fill, payload.language) : ''}
           </text>
         )
       })}
