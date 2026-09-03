@@ -150,6 +150,20 @@ export const OUTPUTS_NL = {
     'φ′ · c′ · cu · E50 — ontwerpparameters verschijnen in fase 5, zodra de correlatie- en NAD-NEN-opzoekpijplijn landt.',
   'params.nodeBandsOne': '{n} band · {cone} met conus',
   'params.nodeBandsMany': '{n} banden · {cone} met conus',
+  // Groeperen in het rechterpaneel (eigenaar 2026-09-03) — dezelfde
+  // lichaam-samenvoeg-verb als op de doorsnede; een groep is een label over
+  // losse lichamen, dus de ongedaan-maken-weg is Ontkoppelen.
+  'params.groupNSelected': '{n} geselecteerd',
+  'params.group': 'Groeperen',
+  'params.ungroup': 'Ontkoppelen',
+  'params.clearSelection': 'Wissen',
+  'params.groupCheckboxAria': 'Selecteer {label} om te groeperen',
+  'params.groupNeedTwoHint': 'Selecteer minstens twee lichamen om te groeperen.',
+  'params.groupCrossClassHint': 'Alleen lichamen met dezelfde pakkingsklasse kunnen worden gegroepeerd.',
+  'params.grouped': 'Gegroepeerd — selecteer een lid en klik Ontkoppelen om ongedaan te maken.',
+  'params.ungrouped': 'Ontkoppeld — het lichaam staat weer los.',
+  'params.groupFailed': 'Kon de lichamen niet groeperen.',
+  'params.ungroupFailed': 'Kon het lichaam niet ontkoppelen.',
   'params.unitNoLongerExists': 'Deze eenheid bestaat niet meer',
   'params.unitNoLongerExistsHint':
     'Ze werd verwijderd of herbouwd sinds ze geselecteerd werd — kies een andere eenheid in de lijst.',
