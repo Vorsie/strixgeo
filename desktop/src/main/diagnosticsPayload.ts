@@ -12,6 +12,8 @@
  * ``diagnosticsUploaderConstants.ts``.
  */
 
+import { randomUUID } from 'node:crypto'
+
 import { ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS, DIAGNOSTICS_MAX_PAYLOAD_BYTES } from './diagnosticsUploaderConstants'
 
 /** Build facts stamped on every bundle (same shape as ``diagnosticsBuildFacts``). */
@@ -128,10 +130,17 @@ export function buildDiagnosticsPayload(input: {
 }): { payload: DiagnosticsPayload; truncated: boolean } {
   const maxBytes = input.maxBytes ?? DIAGNOSTICS_MAX_PAYLOAD_BYTES
 
+  // A random UUID, not ``createdAt-appVersion``: two bundles assembled in the
+  // same millisecond on the same build (a crash storm, a batch flush) would
+  // otherwise collide, defeating server-side dedup and support-thread naming.
+  // Resolved ONCE here so the full and trimmed ``make`` calls return the same
+  // id (only one payload is returned, but a stable id is the correct contract).
+  const bundleId = input.bundleId ?? randomUUID()
+
   const make = (ndjson: string, truncated: boolean): DiagnosticsPayload => {
     const lineCount = ndjson === '' ? 0 : ndjson.split('\n').filter(line => line.trim() !== '').length
     return {
-      bundleId: input.bundleId ?? `${input.createdAt}-${input.facts.appVersion}`,
+      bundleId,
       createdAt: input.createdAt,
       appVersion: input.facts.appVersion,
       platform: input.facts.platform,
