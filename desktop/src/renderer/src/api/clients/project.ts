@@ -187,6 +187,17 @@ export interface InvestigationReviewUpsertPayload {
   is_hidden?: boolean | null
 }
 
+/**
+ * Restore response — a ``ProjectResponse`` plus the counts of rows the restore
+ * size caps truncated (production-readiness audit L6). Both are 0 when nothing
+ * was dropped; a non-zero count is worth a toast ("some depth-series / child
+ * rows were too large and were capped on open").
+ */
+export interface ProjectRestoreResponse extends ProjectResponse {
+  dropped_series: number
+  dropped_child_rows: number
+}
+
 // ---------------------------------------------------------------------------
 // Project API surface — ``api.project``
 // ---------------------------------------------------------------------------
@@ -228,7 +239,7 @@ export const projectClient = {
     id: string,
     body: ProjectBundleResponse,
     replace = false,
-  ): Promise<ProjectResponse> =>
+  ): Promise<ProjectRestoreResponse> =>
     post(`/projects/${id}/restore${replace ? '?replace=true' : ''}`, body),
 
   // Shallow-merge a patch into ``project.view_state``. Each TOP-LEVEL
