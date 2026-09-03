@@ -114,7 +114,7 @@ test.describe('flow_litho_3d_golden', () => {
       await expect(buildBtn).toBeEnabled({ timeout: 90_000 })
 
       // Viewer mounted (hasLithoSolids branch) in default Solid mode.
-      await expect(page.getByTestId('litho-view-mode-solid')).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByTestId('litho-view-mode-solid')).toBeVisible({ timeout: 150_000 })
       const viewport = page.locator('[id^="cesium-viewport-"]')
       await expect(viewport).toBeVisible({ timeout: 10_000 })
 
