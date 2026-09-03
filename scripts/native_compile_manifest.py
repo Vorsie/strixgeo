@@ -234,6 +234,7 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.dov.dov_fixture_transport",
     "groundmodel.infrastructure.parsers.dov.dov_gml_location",
     "groundmodel.infrastructure.parsers.dov.dov_http",
+    "groundmodel.infrastructure.parsers.dov.dov_http_retry",
     "groundmodel.infrastructure.parsers.dov.dov_wfs_bbox",
     "groundmodel.infrastructure.parsers.dov.dov_wfs_client_base",
     "groundmodel.infrastructure.parsers.dov.dov_wfs_download",
