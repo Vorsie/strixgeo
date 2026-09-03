@@ -305,6 +305,17 @@ export const MODELS = {
   'litho.buildingSolids': 'Building watertight body solids…',
   'litho.solidsStale': 'One or more body solids are stale — click to rebuild',
   'litho.buildSolidsTitle': 'Build the 3-D body solids from accepted contacts',
+  // Background 3-D build (debt #282): phase labels for the progress bar + the
+  // Cancel affordances. Phase keys are looked up by the backend phase name.
+  'litho.building3dModel': 'Building 3-D model…',
+  'litho.buildProgressStarting': 'Starting build…',
+  'litho.buildProgressLabel': 'Labelling voxels…',
+  'litho.buildProgressReconcile': 'Reconciling sections…',
+  'litho.buildProgressExtract': 'Extracting body solids…',
+  'litho.buildProgressPersist': 'Saving…',
+  'litho.buildCancel': 'Cancel',
+  'litho.buildCancelling': 'Cancelling…',
+  'litho.buildCancelled': 'Build cancelled',
   // Lithology inspector (roster + solids legend).
   'litho.createGeoFirst':
     'Create a geological model first (Geology stage) — a lithostratigraphic model refines it.',
