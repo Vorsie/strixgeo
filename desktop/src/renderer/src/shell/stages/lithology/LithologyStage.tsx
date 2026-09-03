@@ -31,6 +31,7 @@ import LithologyCanvas, {
 } from './LithologyCanvas'
 import LithologyInspector from './LithologyInspector'
 import { ToolbarButton } from '../../ToolbarPrimitives'
+import VoxelBuildProgressInline from '../../../components/VoxelBuildProgressInline'
 import { useT } from '../../../i18n/translate'
 
 /**
@@ -54,10 +55,11 @@ function LithologyToolbar(): JSX.Element | null {
     geoModel: {
       activeLithoModel,
       lithoContacts,
-      lithoSolidsBuilding,
       hasStaleLithoSolid,
       hasLithoSolids,
-      buildLithoSolids,
+      startLithoBuild,
+      cancelLithoBuild,
+      voxelBuildState,
     },
   } = useShell()
   // Unconditional hook — above the ``!activeLithoModel`` early return.
@@ -70,38 +72,38 @@ function LithologyToolbar(): JSX.Element | null {
   // cross-section view as the place to accept contacts first.
   const hasLithoContacts = lithoContacts.length > 0
 
-  const buildModelLabel = lithoSolidsBuilding
-    ? t('litho.building')
-    : hasStaleLithoSolid
-      ? t('litho.buildModelStale')
-      : t('litho.buildModel')
+  // While a background build job runs, the Build button becomes an inline
+  // progress bar with a Cancel (debt #282).
+  const building = voxelBuildState.status === 'running'
+  const buildModelLabel = hasStaleLithoSolid ? t('litho.buildModelStale') : t('litho.buildModel')
 
   return (
     <>
-      {/* Single "Build model" button — calls buildLithoSolids directly.
-          Amber badge mirrors GeologyToolbar stale-count convention (debt #55).
-          Gated on contact presence so the button is never a confusing no-op. */}
-      <ToolbarButton
-        icon={<Box size={13} />}
-        label={buildModelLabel}
-        // Route Build through the VOXEL path: the canvas-populated module ref
-        // assembles the per-section partition payload (the source of truth);
-        // buildLithoSolids POSTs it to buildVoxelLithoModel.
-        onClick={() => void buildLithoSolids(lithoVoxelRequestCallback.current ?? undefined)}
-        disabled={lithoSolidsBuilding || !hasLithoContacts}
-        busy={lithoSolidsBuilding}
-        amber={hasStaleLithoSolid && hasLithoContacts}
-        testid="litho-build-model-button"
-        title={
-          !hasLithoContacts
-            ? t('litho.buildNoContacts')
-            : lithoSolidsBuilding
-              ? t('litho.buildingSolids')
+      {building ? (
+        <VoxelBuildProgressInline state={voxelBuildState} onCancel={cancelLithoBuild} />
+      ) : (
+        /* Single "Build model" button — starts the streaming build job.
+           Amber badge mirrors GeologyToolbar stale-count convention (debt #55).
+           Gated on contact presence so the button is never a confusing no-op. */
+        <ToolbarButton
+          icon={<Box size={13} />}
+          label={buildModelLabel}
+          // Route Build through the VOXEL streaming path: the canvas-populated
+          // module ref assembles the per-section partition payload (the source of
+          // truth); startLithoBuild runs it as a cancellable background job.
+          onClick={() => void startLithoBuild(lithoVoxelRequestCallback.current ?? undefined)}
+          disabled={!hasLithoContacts}
+          amber={hasStaleLithoSolid && hasLithoContacts}
+          testid="litho-build-model-button"
+          title={
+            !hasLithoContacts
+              ? t('litho.buildNoContacts')
               : hasStaleLithoSolid
                 ? t('litho.solidsStale')
                 : t('litho.buildSolidsTitle')
-        }
-      />
+          }
+        />
+      )}
       {/* Fence diagram -> DXF. Only offered once solids exist (the fence needs
           a built model); the action itself refuses with a warning when the view
           is not in Fence mode, because a silently empty DXF would read as a
