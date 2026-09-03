@@ -22,6 +22,9 @@ import {
   PACKAGED_ACTIVATION_URL,
   sanitizeIssuerUrl,
 } from './activationConfig'
+
+/** The production activation service (runbook: docs/design/activation-server-deploy.md §11). */
+const LIVE_ACTIVATION_URL = 'https://strixgeo.com/api/activation'
 import { HttpActivationRepository } from './httpActivationRepository'
 import { MockActivationRepository } from './mockActivationRepository'
 import { UnreachableActivationRepository } from './unreachableActivationRepository'
@@ -41,13 +44,13 @@ describe('activationBaseUrl', () => {
     expect(activationBaseUrl({ env: { [ACTIVATION_URL_ENV]: '   ' }, packaged: false })).toBeNull()
   })
 
-  it('packaged ignores the dev env var and uses the packaged constant', () => {
-    // The constant is null today (no server), so a packaged build falls back to
-    // the mock even if the env var is set — the env var cannot leak into it.
-    expect(PACKAGED_ACTIVATION_URL).toBeNull()
+  it('packaged ignores the dev env var and uses the live strixgeo.com server', () => {
+    // The activation service went live on 2026-09-03; a packaged build talks to
+    // it and to nothing else — the dev env var cannot leak into a packaged build.
+    expect(PACKAGED_ACTIVATION_URL).toBe(LIVE_ACTIVATION_URL)
     expect(
       activationBaseUrl({ env: { [ACTIVATION_URL_ENV]: 'https://leak.test' }, packaged: true }),
-    ).toBeNull()
+    ).toBe(LIVE_ACTIVATION_URL)
   })
 
   // HTTPS-only, through the resolver: a dev http:// URL to a NON-loopback host is
@@ -98,10 +101,14 @@ describe('createActivationRepository', () => {
 
   // audit C3(a): a packaged build with no server must NOT get the mock (its demo
   // keys would activate it) — it gets an issuer that can activate nothing.
-  it('PACKAGED with no URL builds the unreachable issuer, never the mock', () => {
+  it('PACKAGED builds the HTTP client for the live server, never the mock', () => {
+    // audit C3(a) stands: a packaged build never gets the mock (its demo keys
+    // would activate it). With the live server configured it gets the HTTP
+    // client; the unreachable issuer remains the fallback for a null constant.
     const repo = createActivationRepository({ env: {}, packaged: true })
-    expect(repo).toBeInstanceOf(UnreachableActivationRepository)
+    expect(repo).toBeInstanceOf(HttpActivationRepository)
     expect(repo).not.toBeInstanceOf(MockActivationRepository)
+    expect(repo).not.toBeInstanceOf(UnreachableActivationRepository)
   })
 
   it('builds the HTTP client when an https base URL is configured', () => {
