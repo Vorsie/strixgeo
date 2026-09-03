@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from groundmodel.api.schemas.project.litho_suggestion.batch_accept_litho_anchor import (
     BatchAcceptLithoAnchor,
 )
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class BatchAcceptLithoSuggestionsRequest(BaseModel):
+class BatchAcceptLithoSuggestionsRequest(StrictRequestModel):
     """Body of ``POST .../layers/batch-accept-litho-suggestions``.
 
     Accepts the suggestions for many anchors in a single request so the whole
