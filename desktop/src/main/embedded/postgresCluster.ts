@@ -10,7 +10,7 @@
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'child_process'
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { EmbeddedLayout } from './embeddedPaths'
 import type { InstallSecrets } from './installSecrets'
@@ -20,6 +20,44 @@ const READY_TIMEOUT_MS = 60_000
 
 /** Gap between readiness probes, in milliseconds. */
 const READY_POLL_MS = 250
+
+/**
+ * The PostgreSQL MAJOR version this build bundles.
+ *
+ * The installer ships PostgreSQL 16.x (``scripts/build-embedded-postgres.ps1``
+ * pins 16.10). A ``postgres.exe`` of one major cannot open a data directory
+ * ``initdb``'d by another major — the on-disk format is version-specific — so a
+ * bundle upgrade that raised this must not silently reuse the old cluster.
+ * Kept as a string because ``PG_VERSION`` is compared as text.
+ */
+export const EXPECTED_POSTGRES_MAJOR = '16'
+
+/**
+ * Compare a cluster's ``PG_VERSION`` file content against the bundled major.
+ *
+ * ``PG_VERSION`` holds just the major for PostgreSQL 10+ (``"16"``) and a
+ * two-part ``major.minor`` for the pre-10 era (``"9.6"``); either way the first
+ * dot-separated token is the compatibility major. A trailing newline is
+ * trimmed.
+ *
+ * @param pgVersionContent - Raw text of the cluster's ``PG_VERSION`` file.
+ * @param expectedMajor - The bundled major (``EXPECTED_POSTGRES_MAJOR``).
+ * @returns ``null`` when the majors match; otherwise a self-contained,
+ *   user-facing message naming both majors.
+ */
+export function clusterVersionMismatchMessage(
+  pgVersionContent: string,
+  expectedMajor: string,
+): string | null {
+  const foundMajor = pgVersionContent.trim().split('.')[0]
+  if (foundMajor === expectedMajor) return null
+  return (
+    `This project's database was created by PostgreSQL ${foundMajor}, but this ` +
+    `installation of StrixGeo bundles PostgreSQL ${expectedMajor}. A PostgreSQL ` +
+    `${expectedMajor} server cannot open a PostgreSQL ${foundMajor} data directory. ` +
+    `Install the StrixGeo version that matches your data, or start a fresh project.`
+  )
+}
 
 /**
  * A running server.
@@ -69,8 +107,19 @@ export function initialiseCluster(
   log: LogLine,
 ): ClusterInitOutcome {
   // PG_VERSION is written last by initdb, so its presence means the previous
-  // run finished.
-  if (existsSync(join(layout.dataDir, 'PG_VERSION'))) return 'reused'
+  // run finished. Reading it (not just checking it exists) catches the one case
+  // that would otherwise brick boot with an undecodable server error: a bundle
+  // upgrade that raised the PostgreSQL major, leaving the new server pointed at
+  // an old-major data directory it cannot open (production-readiness audit M8).
+  const pgVersionFile = join(layout.dataDir, 'PG_VERSION')
+  if (existsSync(pgVersionFile)) {
+    const mismatch = clusterVersionMismatchMessage(
+      readFileSync(pgVersionFile, 'utf8'),
+      EXPECTED_POSTGRES_MAJOR,
+    )
+    if (mismatch !== null) throw new Error(mismatch)
+    return 'reused'
+  }
 
   let outcome: ClusterInitOutcome = 'created'
   if (existsSync(layout.dataDir)) {
