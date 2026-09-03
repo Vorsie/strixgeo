@@ -8,10 +8,12 @@ module — the same approved exception to "one class per file" that
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
+
+from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
 
-class FenceExportPanel(BaseModel):
+class FenceExportPanel(StrictRequestModel):
     """One filled wall panel of the 3-D fence diagram, built client-side.
 
     Mirrors the desktop's ``FencePanel`` interface
@@ -53,7 +55,7 @@ class FenceExportPanel(BaseModel):
     triangles: list[tuple[int, int, int]] = Field(default_factory=list)
 
 
-class FenceExportRequest(BaseModel):
+class FenceExportRequest(StrictRequestModel):
     """Body of ``POST .../geology/models/{model_id}/export/fence-dxf``.
 
     The full set of fence wall panels the renderer built for the current
