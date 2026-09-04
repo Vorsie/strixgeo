@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.lab.dov.dov_grain_size_parser
 ================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/lab/dov/dov_grain_size_parser.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/lab/dov/dov_grain_size_parser.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/lab/dov/dov_grain_size_parser.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A long docstring giving a real annotated example of a grain-size observation XML and its quirks, then the imports.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring pins the schema from a verified live example and flags the traps: each curve row lists its percentage before its diameter (counter-intuitive, but the parser reads by tag name so order does not matter); the filter string really has a trailing space; and the pre-treatment blocks are doubly nested with a same-named inner element. It also records what the parser leaves alone — it does not reorder the curve, does not re-validate the filter the orchestrator already applied, and does not re-read the sample metadata.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DovGrainSizeParser`` — header
 
 .. CG-EXPLANATION-START id=class:DovGrainSizeParser
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the grain-size parser class, whose job is to turn one observation XML — plus the caller's sample id — into a structured grain-size result.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Like the other parsers it raises only on unreadable XML or a missing observation element; every other problem becomes a finding so a malformed observation can be skipped without dropping the rest of the import.
 
 .. CG-EXPLANATION-END id=class:DovGrainSizeParser
 
@@ -65,13 +57,9 @@ Method ``DovGrainSizeParser``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:DovGrainSizeParser.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Registers the logger under this module's name.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Each parse is self-contained, so there is nothing else to set up.
 
 .. CG-EXPLANATION-END id=method:DovGrainSizeParser.__init__
 
@@ -87,13 +75,9 @@ Method ``DovGrainSizeParser``. ``def parse``
 
 .. CG-EXPLANATION-START id=method:DovGrainSizeParser.parse
 
-.. CG-PLACEHOLDER
+**What this does.** The entry point. It reads the XML, finds the observation element, sanity-checks that the test type matches grain-size (a warning, not a refusal), reads the method and date, extracts the curve and the pre-treatment flags, then builds the grain-size entity. If the domain type rejects the curve it records an error finding and builds an empty entity instead.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The sample id is a required keyword argument so a caller cannot forget it and silently link the curve to no sample. The domain type validates the curve strictly — matching array lengths, percentages in range, strictly increasing diameters — and rather than letting a violation crash, the parser turns it into a finding and still returns a (empty) result so the import continues.
 
 .. CG-EXPLANATION-END id=method:DovGrainSizeParser.parse
 
@@ -109,13 +93,9 @@ Method ``DovGrainSizeParser``. ``def _parse_curve``
 
 .. CG-EXPLANATION-START id=method:DovGrainSizeParser._parse_curve
 
-.. CG-PLACEHOLDER
+**What this does.** Pulls the two parallel lists — diameters and percentage-larger — out of the value series, in source order. Rows missing or non-numeric in either value are skipped with a warning, and a missing or empty series produces a warning and two empty lists.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It reads each value by tag name, so DOV's counter-intuitive ordering of the two values within a row does not matter. Returning empty lists rather than crashing keeps the result constructible, with the empty curve later flagged as an error.
 
 .. CG-EXPLANATION-END id=method:DovGrainSizeParser._parse_curve
 
@@ -131,13 +111,9 @@ Method ``DovGrainSizeParser``. ``def _parse_treatments``
 
 .. CG-EXPLANATION-START id=method:DovGrainSizeParser._parse_treatments
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the pre-treatment blocks and maps them to two flags: whether lime was removed and whether organic matter was removed, each true, false, or unknown.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These pre-treatments change what a grain-size curve means, so they are captured as typed flags. An unrecognised treatment or an unrecognised yes/no value is logged rather than crashing, because DOV could add a new pre-treatment kind and it should be visible for a follow-up, not fatal.
 
 .. CG-EXPLANATION-END id=method:DovGrainSizeParser._parse_treatments
 

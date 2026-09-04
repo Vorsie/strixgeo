@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.borehole.dov.dov_constants
 =============================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/dov/dov_constants.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/dov/dov_constants.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/borehole/dov/dov_constants.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Holds the fixed values the borehole DOV code reads against. It re-exports the shared DOV values and defines the borehole-specific ones: the WFS layer names for boreholes and samples, the map from interpretation kind to its WFS layer, the URL prefixes for the redirect-skipping trick, the WFS property names for samples and interpretations, and the many element-name tags of the borehole and interpretation XML.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeping every fixed value in one place, with a comment on why it was chosen, is the project convention, and the comments here carry hard-won facts. Several record the exact WFS property name DOV really uses versus the name the documentation suggested — using the wrong one once caused every interpretation row to be skipped, and two sample fields turned out to be named differently from the docs. These are the store-what-the-API-really-returns lessons captured next to the values they fixed.
 
 .. CG-EXPLANATION-END id=module-header
 

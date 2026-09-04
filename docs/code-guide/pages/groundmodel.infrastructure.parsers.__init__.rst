@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers
 ==================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file just marks the folder as a Python *package* — a folder Python is allowed to import from. The single line of text in triple quotes is the folder's one-sentence description.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Every folder of Python code needs one of these ``__init__.py`` files, even an empty one, or the code inside cannot be imported by the rest of the program. This is the top of the parsers tree: everything that reads an outside file format — GEF, DOV, borehole, lab — lives under here.
 
 .. CG-EXPLANATION-END id=module-header
 

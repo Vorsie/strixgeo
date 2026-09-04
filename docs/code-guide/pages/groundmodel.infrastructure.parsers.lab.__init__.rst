@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.lab
 ======================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/lab/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/lab/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/lab/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the lab-test parsers folder as a package, with a note of what belongs here.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Laboratory tests on soil samples — grain-size (particle-size distribution), Atterberg limits, carbonate content, organic content, water content — are the third kind of investigation data this platform reads. DOV publishes them all through one shared observations layer, filtered by test type; today only the grain-size parser is built, and the others will follow the same shape.
 
 .. CG-EXPLANATION-END id=module-header
 

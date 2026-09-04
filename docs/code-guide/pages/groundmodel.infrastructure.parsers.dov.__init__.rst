@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.dov
 ======================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/dov/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/dov/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/dov/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the shared-DOV folder as a package, with a one-paragraph note of what belongs in it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Everything under this folder is shared by every kind of DOV import — CPTs, boreholes, samples, lab observations: the web endpoint, the coordinate translator, the retry logic, the XML helpers. The per-kind pieces live in their own folders and lean on these.
 
 .. CG-EXPLANATION-END id=module-header
 

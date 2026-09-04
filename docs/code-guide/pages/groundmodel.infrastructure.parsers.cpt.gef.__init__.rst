@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.cpt.gef
 ==========================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/cpt/gef/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/cpt/gef/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/cpt/gef/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the GEF sub-folder as a package and re-exports its four public names: the CPT-type label, the parsed header, the parse result, and the parser.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** GEF is the Dutch/Belgian text file format a CPT is delivered in (a ``.gef`` file is plain text: a header of ``#`` lines then a block of numbers). Grouping the four names here lets a caller import them from one place without caring which file each sits in.
 
 .. CG-EXPLANATION-END id=module-header
 

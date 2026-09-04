@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.borehole.dov.interpretation_parse_result
 ===========================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/dov/interpretation_parse_result.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/dov/interpretation_parse_result.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/borehole/dov/interpretation_parse_result.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the observation domain type and the shared validation types.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A finished interpretation parse produces one observation with its layers, plus findings; the next block bundles those together, reusing the same validation types as everywhere else so the screen shows one merged problem list.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``InterpretationParseResult`` — header
 
 .. CG-EXPLANATION-START id=class:InterpretationParseResult
 
-.. CG-PLACEHOLDER
+**What this does.** The object an interpretation parse hands back: one observation (with its layers, each with its admixtures) plus the list of findings.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It mirrors the borehole and CPT results so all three feed one uniform validation view. The parent borehole id is supplied by the caller, not read from the XML, because the orchestrator already knows which borehole this interpretation belongs to.
 
 .. CG-EXPLANATION-END id=class:InterpretationParseResult
 
@@ -65,13 +57,9 @@ Method ``InterpretationParseResult``. ``def has_errors``
 
 .. CG-EXPLANATION-START id=method:InterpretationParseResult.has_errors
 
-.. CG-PLACEHOLDER
+**What this does.** A read-only shortcut answering whether any finding is error-level.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So a caller can ask the one yes/no question without looping the list.
 
 .. CG-EXPLANATION-END id=method:InterpretationParseResult.has_errors
 
@@ -87,13 +75,9 @@ Method ``InterpretationParseResult``. ``def warnings``
 
 .. CG-EXPLANATION-START id=method:InterpretationParseResult.warnings
 
-.. CG-PLACEHOLDER
+**What this does.** A read-only shortcut returning just the warnings.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So warnings can be listed on their own.
 
 .. CG-EXPLANATION-END id=method:InterpretationParseResult.warnings
 

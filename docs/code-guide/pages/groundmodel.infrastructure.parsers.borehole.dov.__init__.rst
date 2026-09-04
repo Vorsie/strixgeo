@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.borehole.dov
 ===============================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/dov/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/dov/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/borehole/dov/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the borehole DOV sub-folder as a package and names the two parsers inside it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One parser reads a borehole's own XML (its header, drill segments, and the driller's field notes) and another reads the separate interpretation XMLs (the layer readings a specialist added). The docstring points the reader at both.
 
 .. CG-EXPLANATION-END id=module-header
 

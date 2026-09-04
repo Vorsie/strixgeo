@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.borehole
 ===========================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/borehole/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/borehole/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the borehole-parsers folder as a package.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A borehole (a drilled hole with a logged soil profile) is the second main kind of ground investigation this platform reads. Today only DOV boreholes are imported; the one-line note flags that other formats may join later.
 
 .. CG-EXPLANATION-END id=module-header
 

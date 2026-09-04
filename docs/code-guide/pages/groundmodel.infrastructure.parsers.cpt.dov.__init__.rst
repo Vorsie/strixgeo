@@ -1,7 +1,7 @@
 groundmodel.infrastructure.parsers.cpt.dov
 ==========================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/parsers/cpt/dov/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/parsers/cpt/dov/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/parsers/cpt/dov/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the CPT DOV sub-folder as a package. The docstring also notes why this empty-ish file is kept rather than left out.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** DOV (Databank Ondergrond Vlaanderen) is the public Flemish subsurface database this platform pulls CPTs from over the internet. Having a real ``__init__.py`` here (rather than relying on Python's folder-without-a-file trick) keeps the build tools, the type checker, and the test runner happy — the docstring records exactly that reasoning.
 
 .. CG-EXPLANATION-END id=module-header
 
