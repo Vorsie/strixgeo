@@ -1410,7 +1410,6 @@ export default function App() {
           onClose={handleCloseOnboarding}
           onLoadSample={handleLoadSample}
         sampleAvailable={sampleAvailable}
-          sampleAvailable={sampleAvailable}
           onStartTutorial={() => setTutorialActive(true)}
         />
         {/* Guided tutorial (#93). Wrapped in the shell provider so useShell()
