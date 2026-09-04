@@ -6,17 +6,60 @@
  */
 import BoreholeColumn from '../components/sections/BoreholeColumn'
 import CptDataColumn from '../components/sections/CptDataColumn'
-import { readBoreholeChannels, readCptChannels } from '../components/sections/cptChannels'
+import {
+  RF_FULL_SCALE_PCT, pickQcFullScaleMpa, readBoreholeChannels, readCptChannels,
+} from '../components/sections/cptChannels'
 import { projectColour } from './projectPalette'
 import { regionBounds, regionPathD } from './regionPath'
 import {
-  ALONG_BAND_MM, COLUMN_HALF_WIDTH_MM, LABEL_MIN_HEIGHT_PX, LABEL_MIN_WIDTH_PX, PX_PER_MM, TOP_BAND_MM,
+  ALONG_BAND_MM, COLUMN_HEADER_MIN_HALF_WIDTH_MM, LABEL_MIN_HEIGHT_PX, LABEL_MIN_WIDTH_PX,
+  PX_PER_MM, TOP_BAND_MM,
 } from './sheetConstants'
 import type { SheetGeometry } from './sheetGeometry'
 import type { SheetPayload } from './sheetPayload'
 import { unitFillColour, unitLabel } from './unitStyle'
 
 const INK = '#1f2933'
+
+/**
+ * The per-column scale header printed above a CPT column, so the sheet says
+ * "what is what" (owner finding 2026-09-04). Same tick values and reading
+ * direction as the on-screen section header (``CptDataColumn``): qc reads
+ * rightward — the interior 2 / 10 MPa references and the section-wide full
+ * scale at the right edge — and Rf reads mirrored leftward at 2 % / 4 %. Drawn
+ * in the sheet's ink at the small label size so it stays legible on white.
+ *
+ * @param x  Column axis x in px.
+ * @param y  Baseline y for the header labels in px.
+ * @param halfWidth  Drawn column half-width in px (the qc/Rf reach).
+ * @param qcFullScale  Section-wide qc full scale in MPa.
+ * @param showQc  Whether the qc channel is drawn (so its ticks belong here).
+ * @param showRf  Whether the Rf channel is drawn (so its ticks belong here).
+ * @returns  The header ``<g>``.
+ */
+function ColumnScaleHeader({ x, y, halfWidth, qcFullScale, showQc, showRf }: {
+  x: number; y: number; halfWidth: number; qcFullScale: number; showQc: boolean; showRf: boolean
+}): JSX.Element {
+  return (
+    <g pointerEvents="none">
+      {showQc && qcFullScale > 2 && (
+        <text x={x + (2 / qcFullScale) * halfWidth} y={y} textAnchor="middle" fontSize={6.5} fill={INK}>2</text>
+      )}
+      {showQc && qcFullScale > 10 && (
+        <text x={x + (10 / qcFullScale) * halfWidth} y={y} textAnchor="middle" fontSize={6.5} fill={INK}>10</text>
+      )}
+      {showQc && (
+        <text x={x + halfWidth} y={y} textAnchor="end" fontSize={6.5} fill={INK}>{qcFullScale} MPa</text>
+      )}
+      {showRf && (
+        <>
+          <text x={x - (2 / RF_FULL_SCALE_PCT) * halfWidth} y={y} textAnchor="middle" fontSize={6.5} fill={INK}>2%</text>
+          <text x={x - (4 / RF_FULL_SCALE_PCT) * halfWidth} y={y} textAnchor="middle" fontSize={6.5} fill={INK}>4%</text>
+        </>
+      )}
+    </g>
+  )
+}
 
 export function ProfileDrawing({ payload, geometry, mTawLabel }: {
   payload: SheetPayload; geometry: SheetGeometry; mTawLabel: string
@@ -31,10 +74,22 @@ export function ProfileDrawing({ payload, geometry, mTawLabel }: {
   const unitById = new Map(payload.units.map(u => [u.formationId, u]))
   const axisX = g.drawingLeftMm * PX_PER_MM
   const bottomY = levelToY(payload.levelMinM)
-  const halfWidthPx = COLUMN_HALF_WIDTH_MM * PX_PER_MM
+  // The drawn column half-width scales with the on-paper spacing (sheetGeometry);
+  // a fixed paper width made every column a tall hairline on a wide sheet.
+  const halfWidthPx = g.columnHalfWidthMm * PX_PER_MM
+  // The scale header prints only when the column is wide enough to hold its
+  // labels without them overrunning each other (tightly-packed columns drop it,
+  // as the on-screen panel drops its scale labels for crowded columns).
+  const showColumnHeaders = g.columnHalfWidthMm >= COLUMN_HEADER_MIN_HALF_WIDTH_MM
   const cptChannels = readCptChannels(payload.section.viewState)
   const boreholeChannels = readBoreholeChannels(payload.section.viewState)
   const fill = payload.settings.fill
+  // One section-wide qc full scale for every CPT column, exactly as the on-screen
+  // panel does (``pickQcFullScaleMpa``), so the printed header and the qc traces
+  // read on the same axis.
+  const qcFullScale = pickQcFullScaleMpa(
+    payload.columns.flatMap(c => (c.kind === 'cpt' && c.plot ? [{ qc_mpa: c.plot.qc_mpa }] : [])),
+  )
 
   // Level ticks every 1, 2, 5, 10 or 20 m so there are at most 14 of them.
   const range = payload.levelMaxM - payload.levelMinM
@@ -72,10 +127,23 @@ export function ProfileDrawing({ payload, geometry, mTawLabel }: {
           <g key={c.investigationId}>
             <line x1={x} y1={y0} x2={x} y2={y1} stroke={INK} strokeWidth={0.5} opacity={0.55} />
             {c.kind === 'cpt' && c.plot && (
-              <CptDataColumn plot={c.plot} cptType={c.cptType ?? 'CPT'} channels={cptChannels} halfWidth={halfWidthPx} screenX={x} surfaceElevationM={c.collarElevationM} plotTop={topPx} plotBottom={bottomY} levelToScreen={levelToY} showLabels={false} cardVeilOpacity={0} />
+              <CptDataColumn plot={c.plot} cptType={c.cptType ?? 'CPT'} channels={cptChannels} halfWidth={halfWidthPx} screenX={x} surfaceElevationM={c.collarElevationM} plotTop={topPx} plotBottom={bottomY} levelToScreen={levelToY} showLabels={false} qcFullScaleMpa={qcFullScale} cardVeilOpacity={0} />
             )}
             {c.kind === 'borehole' && c.detail && (
               <BoreholeColumn detail={c.detail} channels={boreholeChannels} screenX={x} halfWidth={halfWidthPx} surfaceElevationM={c.collarElevationM} plotTop={topPx} plotBottom={bottomY} levelToScreen={levelToY} />
+            )}
+            {/* Per-column scale header — the qc / Rf ticks, printed just above the
+                column's surface so the sheet says what each track is (the on-screen
+                labels are suppressed on the sheet to avoid clutter). */}
+            {showColumnHeaders && c.kind === 'cpt' && c.plot && (
+              <ColumnScaleHeader
+                x={x}
+                y={Math.max(topPx + 7, y0 - 3)}
+                halfWidth={halfWidthPx}
+                qcFullScale={qcFullScale}
+                showQc={cptChannels.qc}
+                showRf={cptChannels.rf && c.plot.rf_pct !== null}
+              />
             )}
             <text x={x} y={topPx - 4} textAnchor="middle" fontSize={9} fontWeight={500} fill={projectColour(c.colourIndex)}>{c.code}</text>
           </g>
