@@ -6,7 +6,8 @@
  * ground truth (ruling 8k). The 8m same-litho onlap suppression + the formation-global ``bandFids``
  * seam suppression could combine to flood a drilled unit with a FOREIGN litho (TS7-g0 clay → silt:
  * data loss). ``computeSectionFillV2`` now runs the fill, ``detectFloodedUnits`` finds such units,
- * and re-emits their onlaps (``forceOnlapUnits``) so the drilled litho survives.
+ * and re-runs with them demoted to corr-0 (``forceLensUnits``) so the drilled litho survives as a
+ * LENS (owner 2026-09-04 "zero ties = lens"), never a forced onlap.
  *
  * This gate does NOT pin onlap-vs-merge geometry (the clean-case merge engine is unchanged) — it
  * asserts the invariant the repair protects: a drilled unit is never painted a different litho at
@@ -23,7 +24,7 @@ import { type CorrelationEdge, type PartitionColumn, type PartitionPoint, type S
 import { computeSectionFillV2 } from './partitionFillV2'
 import { computeSectionFillV2WithConflicts } from './partitionFillV2/computeSectionFillV2'
 import { detectFloodedUnits } from './partitionFillV2/detectFloodedUnits'
-import { forceOnlapKey } from './partitionFillV2/forceOnlapUnits'
+import { forceLensKey } from './partitionFillV2/forceLensUnits'
 import { type ColumnGeom } from './partitionFillV2/sectionGeom'
 import { setTwoSidedTerminations } from './partitionFillV2/tileFlags'
 
@@ -87,13 +88,13 @@ describe('detectFloodedUnits flags a foreign-painted drilled unit', () => {
   it('flags the left KLEI painted SILT full-width', () => {
     const regions = [box(0, 1, -8, 10, SILT)] // one SILT box floods the whole gap
     const flagged = detectFloodedUnits(regions, columns)
-    expect(flagged.has(forceOnlapKey('lk', 0, 'left')), 'left KLEI flooded by SILT is flagged').toBe(true)
+    expect(flagged.has(forceLensKey('lk', 0, 'left')), 'left KLEI flooded by SILT is flagged').toBe(true)
   })
 
   it('does NOT flag a KLEI correctly rendered as KLEI at its column', () => {
     const regions = [box(0, 1, 3, 6, KLEI), box(0, 1, -8, 3, SILT)] // KLEI band renders KLEI
     const flagged = detectFloodedUnits(regions, columns)
-    expect(flagged.has(forceOnlapKey('lk', 0, 'left')), 'correctly-rendered KLEI is not flagged').toBe(false)
+    expect(flagged.has(forceLensKey('lk', 0, 'left')), 'correctly-rendered KLEI is not flagged').toBe(false)
   })
 })
 
