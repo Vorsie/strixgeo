@@ -38,8 +38,31 @@ export const MAP_LEGEND_GAP_MM = 3
 export const TITLE_BLOCK_MM = 40
 export const SCALE_LINE_MM = 6
 
-/** Half the drawn width of a column on paper (qc trace reach, log strip). */
+/**
+ * Minimum half of the drawn width of a column on paper (qc trace reach, log
+ * strip). The actual drawn half-width scales up with the on-paper column
+ * spacing — see ``COLUMN_WIDTH_SPACING_FRACTION`` — so widely-spaced columns
+ * read as legible strips instead of tall hairlines; this stays the floor.
+ */
 export const COLUMN_HALF_WIDTH_MM = 5
+/** Cap on the drawn column half-width so a very wide sheet never balloons a
+ *  column into a slab. Chosen below half the smallest spacing the cap can
+ *  apply at, so adjacent columns never overlap. */
+export const COLUMN_HALF_WIDTH_MAX_MM = 18
+/**
+ * The drawn column half-width is this fraction of the nearest-neighbour
+ * on-paper spacing, clamped to [``COLUMN_HALF_WIDTH_MM``,
+ * ``COLUMN_HALF_WIDTH_MAX_MM``]; kept below 0.5 so two adjacent columns
+ * (each reaching ± half-width) can never overlap.
+ */
+export const COLUMN_WIDTH_SPACING_FRACTION = 0.42
+/**
+ * The per-column qc/Rf scale header prints only once the drawn column is at
+ * least this wide (half-width, mm); narrower than this the right-anchored
+ * "{scale} MPa" label would overrun the interior 2/10 ticks. Mirrors the
+ * on-screen behaviour of dropping the scale labels for tightly-packed columns.
+ */
+export const COLUMN_HEADER_MIN_HALF_WIDTH_MM = 8
 /** Edge gap the nudge keeps between neighbouring columns. */
 export const COLUMN_EDGE_GAP_MM = 2
 /** Trailing space after the last column before the gutter. */
