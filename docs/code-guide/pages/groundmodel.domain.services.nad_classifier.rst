@@ -12,11 +12,11 @@ groundmodel.domain.services.nad_classifier
 Module header — docstring, imports and constants
 ------------------------------------------------
 
-.. CG-BLOCK id=module-header lines=1-29
+.. CG-BLOCK id=module-header lines=1-30
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 1-29
+   :lines: 1-30
    :lineno-match:
 
 .. CG-EXPLANATION-START id=module-header
@@ -38,11 +38,11 @@ network — exactly the kind of knowledge the domain layer holds (see
 Function ``def _variant_for``
 -----------------------------
 
-.. CG-BLOCK id=function:_variant_for lines=30-54
+.. CG-BLOCK id=function:_variant_for lines=31-55
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 30-54
+   :lines: 31-55
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:_variant_for
@@ -61,11 +61,11 @@ admixture — which the norm does not treat as a variant — stays clean.
 Function ``def classify_nad``
 -----------------------------
 
-.. CG-BLOCK id=function:classify_nad lines=55-135
+.. CG-BLOCK id=function:classify_nad lines=56-136
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 55-135
+   :lines: 56-136
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:classify_nad
@@ -91,11 +91,11 @@ is the norm's own stated method for this table.
 Function ``def loosest_class_for``
 ----------------------------------
 
-.. CG-BLOCK id=function:loosest_class_for lines=136-176
+.. CG-BLOCK id=function:loosest_class_for lines=137-177
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 136-176
+   :lines: 137-177
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:loosest_class_for
@@ -114,11 +114,11 @@ floor, the right packing in the wrong column (audit F19).
 Function ``def soil_family_of``
 -------------------------------
 
-.. CG-BLOCK id=function:soil_family_of lines=177-200
+.. CG-BLOCK id=function:soil_family_of lines=178-201
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 177-200
+   :lines: 178-201
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:soil_family_of
@@ -137,11 +137,11 @@ below.
 Function ``def class_belongs_to_soil``
 --------------------------------------
 
-.. CG-BLOCK id=function:class_belongs_to_soil lines=201-243
+.. CG-BLOCK id=function:class_belongs_to_soil lines=202-244
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 201-243
+   :lines: 202-244
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:class_belongs_to_soil
@@ -162,11 +162,11 @@ set by hand on an unusual unit.
 Function ``def clamp_class_to_soil``
 ------------------------------------
 
-.. CG-BLOCK id=function:clamp_class_to_soil lines=244-271
+.. CG-BLOCK id=function:clamp_class_to_soil lines=245-272
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 244-271
+   :lines: 245-272
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:clamp_class_to_soil
@@ -186,11 +186,11 @@ forbids.
 Function ``def hand_settable_classes_for``
 ------------------------------------------
 
-.. CG-BLOCK id=function:hand_settable_classes_for lines=272-295
+.. CG-BLOCK id=function:hand_settable_classes_for lines=273-296
 
 .. literalinclude:: ../../../src/groundmodel/domain/services/nad_classifier.py
    :language: python
-   :lines: 272-295
+   :lines: 273-296
    :lineno-match:
 
 .. CG-EXPLANATION-START id=function:hand_settable_classes_for

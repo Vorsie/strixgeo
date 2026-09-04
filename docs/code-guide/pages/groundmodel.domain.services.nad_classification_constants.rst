@@ -28,8 +28,8 @@ variant it lists ascending ``(upper-cut-off, class)`` bands; the classifier pick
 the first band the reading falls under.
 
 **Why it is here.** This is the heart of the geotech stage — the production
-thresholds, ported from NEN 9997-1 (the Dutch national annex to Eurocode 7),
-table 2.b. The docstring records a subtle but important point verified against the
+thresholds, ported from NBN EN 1997-1 ANB (the Belgian national annex to Eurocode 7),
+table 2.1. The docstring records a subtle but important point verified against the
 norm: the classification is done on *raw* cone resistance with no normalisation,
 because that is the norm's own stated method for this table ("where no
 normalisation is applied"); the normalisation warning in the norm belongs to a
