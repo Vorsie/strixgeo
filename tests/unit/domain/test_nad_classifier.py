@@ -243,3 +243,31 @@ class TestOpenBottomsOwnerRuling:
         # And a zero reading is data, not a sentinel (owner rule 2026-07-25):
         # the loosest class again, never an error.
         assert classify_nad("ZAND", (), 0.0) == 5
+
+
+class TestVariantOverride:
+    """The admixture prompt (owner ruling 2026-09-04) forces the NAD family: a
+    'pure' answer classifies a silty sand into the clean column, a
+    'with_admixture' answer into the secondary column — regardless of what
+    admixtures the unit carries."""
+
+    def test_override_clean_classifies_a_silty_sand_as_pure_sand(self):
+        """A silty sand at qc 8 auto-derives NAD 10 (secondary); with
+        variant_override='clean' the engineer's 'pure sand' answer wins → NAD 6."""
+        admx = (Admixture(soil_code="KL", amount="M"),)
+        assert classify_nad("ZAND", admx, 8.0) == 10  # auto = secondary
+        assert classify_nad("ZAND", admx, 8.0, variant_override="clean") == 6
+
+    def test_override_secondary_classifies_a_clean_looking_unit_as_with_admixture(self):
+        """A unit the engineer marks 'with admixture' takes the secondary column
+        even when its stored admixtures would not have triggered it."""
+        assert classify_nad("ZAND", (), 8.0) == 6  # auto = clean
+        assert classify_nad("ZAND", (), 8.0, variant_override="secondary") == 10
+
+    def test_loosest_class_override_uses_the_forced_column(self):
+        """The borehole floor honours the forced variant: a 'pure' silty sand
+        floors to clean's loosest (5), 'with_admixture' to secondary's (9)."""
+        admx = (Admixture(soil_code="KL", amount="M"),)
+        assert loosest_class_for("ZAND", admx) == 9  # auto = secondary floor
+        assert loosest_class_for("ZAND", admx, variant_override="clean") == 5
+        assert loosest_class_for("ZAND", (), variant_override="secondary") == 9
