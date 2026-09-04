@@ -60,6 +60,7 @@ export default function OnboardingOverlay({
   onClose,
   onLoadSample,
   onStartTutorial,
+  sampleAvailable = false,
 }: Props): JSX.Element {
   const t = useT()
 
@@ -148,6 +149,7 @@ export default function OnboardingOverlay({
                 {t('onboarding.chooseTitle')}
               </h2>
               <div className="flex flex-col gap-3">
+                {sampleAvailable && (
                 <button
                   type="button"
                   onClick={() => chooseAndStart('sample')}
@@ -164,6 +166,7 @@ export default function OnboardingOverlay({
                     </span>
                   </span>
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => chooseAndStart('scratch')}
