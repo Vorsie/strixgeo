@@ -239,6 +239,22 @@ export default function App() {
   // install a user-owned COPY — the bundled resource is never opened in place,
   // because a Save from the app rewrites the .strix at its own path — then open
   // that copy exactly as onOpenRecent does.
+  // Whether a worked example is bundled — decides if onboarding offers it at all.
+  const [sampleAvailable, setSampleAvailable] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const available = (await window.electron.sampleAvailable?.()) === true
+        if (!cancelled) setSampleAvailable(available)
+      } catch {
+        if (!cancelled) setSampleAvailable(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const handleLoadSample = useCallback(async () => {
     if (!(await window.electron.sampleAvailable())) {
       log.info('onboarding', 'load-sample requested — no bundled sample; starting empty')
@@ -1393,6 +1409,8 @@ export default function App() {
           open={onboardingOpen}
           onClose={handleCloseOnboarding}
           onLoadSample={handleLoadSample}
+        sampleAvailable={sampleAvailable}
+          sampleAvailable={sampleAvailable}
           onStartTutorial={() => setTutorialActive(true)}
         />
         {/* Guided tutorial (#93). Wrapped in the shell provider so useShell()
@@ -1504,6 +1522,7 @@ export default function App() {
         open={onboardingOpen}
         onClose={handleCloseOnboarding}
         onLoadSample={handleLoadSample}
+        sampleAvailable={sampleAvailable}
         onStartTutorial={() => setTutorialActive(true)}
       />
       {/* Guided tutorial (#93). Wrapped in the shell provider so useShell()
