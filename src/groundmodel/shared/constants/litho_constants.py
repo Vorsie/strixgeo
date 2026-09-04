@@ -2,8 +2,8 @@
 
 Curated reference data (NOT ingested upstream data — the data-integrity
 "store raw upstream tokens" rule does not apply here). Source: the
-NAD table of NEN 9997-1 (the Dutch national annex to Eurocode 7, table
-2.b), transcribed from a working sheet that has data-entry artefacts ("KLEi", double
+NAD table of NBN EN 1997-1 ANB (the Belgian national annex to Eurocode 7, table 2.1),
+transcribed from a working sheet that has data-entry artefacts ("KLEi", double
 spaces, inconsistent "zandh.,"/"zandh,"); those are normalised here
 because these strings are shown to engineers and round-tripped — the
 NAD **class number** (1..31, == ``laagnr``) is the stable key, the
