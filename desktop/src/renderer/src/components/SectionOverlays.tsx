@@ -23,6 +23,8 @@
  */
 
 import { Fragment, useMemo } from 'react'
+import L from 'leaflet'
+import { LEADER_PANE_Z, SECTION_PANE_Z } from './mapPanes'
 import { Pane, Polygon, Polyline, Tooltip } from '../lib/streaflet'
 
 import type {
@@ -60,13 +62,11 @@ const MAX_OVERLAYS = 200
 // Sits below investigation-markers (z=640) and tooltipPane (z=650) so
 // marker clicks and hover tooltips still win on the z-stack.
 const SECTION_PANE = 'section-overlays'
-const SECTION_PANE_Z = 420
 
 // Leader-line pane z-index. Slots between the basemap tile pane
 // (z=200) and the section overlay pane (z=420) so leaders render
 // BELOW the section line itself and BELOW CPT/borehole markers.
 const LEADER_PANE = 'section-leaders'
-const LEADER_PANE_Z = 350
 
 export default function SectionOverlays({
   sections,
@@ -75,6 +75,11 @@ export default function SectionOverlays({
   cpts = [],
   boreholes = [],
 }: Props): JSX.Element {
+  // SVG renderer for the section vectors: the map prefers canvas for the
+  // markers (a6696974b), but a canvas takes clicks over its whole area, so the
+  // section line + hit-band draw as SVG paths, which only take the click on
+  // their painted stroke (owner 2026-09-04: section lines were unclickable).
+  const svgRenderer = useMemo(() => L.svg({ pane: SECTION_PANE }), [])
   const items = useMemo(
     () =>
       sections
@@ -203,7 +208,7 @@ export default function SectionOverlays({
               // opacity 0.01, not 0: SVG ``pointer-events: visiblePainted`` only
               // fires on a painted stroke, so a zero-opacity band would not be
               // clickable. 0.01 is invisible yet painted → selection works.
-              style={{ color: '#ffffff', weight: 14, opacity: 0.01 }}
+              style={{ renderer: svgRenderer, color: '#ffffff', weight: 14, opacity: 0.01 }}
               onClick={() => onSelect(item.id)}
             >
               <Tooltip pane="marker-tooltips" sticky direction="top" opacity={0.95}>
