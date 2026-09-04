@@ -29,12 +29,19 @@ test.describe('flow_map_section_click', () => {
       const bands = page.locator('svg path[stroke="#ffffff"]')
       const nb = await bands.count()
       expect(nb, 'the section hit-bands must be SVG paths (canvas swallowed the click)').toBeGreaterThan(0)
-      const box = await bands.first().boundingBox()
-      expect(box).not.toBeNull()
-      await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2)
-      await page.waitForTimeout(2500)
-      const inSections = await page.getByTestId('section-view-reset').isVisible().catch(() => false)
-      expect(inSections).toBe(true)
+      // Click the first band that has on-screen geometry (a band can be clipped
+      // by the map viewport after the fit-to-data camera move).
+      let clicked = false
+      for (let i = 0; i < nb && !clicked; i += 1) {
+        const box = await bands.nth(i).boundingBox()
+        if (box && box.width > 4 && box.height > 4) {
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+          clicked = true
+        }
+      }
+      expect(clicked, 'no section hit-band with on-screen geometry').toBe(true)
+      // The deep link switches the stage and mounts the section panel; poll for it.
+      await expect(page.getByTestId('section-view-reset')).toBeVisible({ timeout: 20_000 })
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
