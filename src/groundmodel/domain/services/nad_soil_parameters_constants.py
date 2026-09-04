@@ -2,8 +2,8 @@
 
 Source
 ------
-The values are the NEN 9997-1 (the Dutch national annex to Eurocode 7)
-**Tabel 2.b characteristic values** per packing class 1..31 — the same table
+The values are the NBN EN 1997-1 ANB (the Belgian national annex to Eurocode 7)
+**Tabel 2.1 characteristic values** per packing class 1..31 — the same table
 the qc thresholds in ``nad_classification_constants.py`` come from: unit
 weight γ, effective friction angle φ′ and effective cohesion c′.
 
@@ -40,9 +40,9 @@ from dataclasses import dataclass
 # Export annotation naming the norm table the values come from. Rides on every
 # soil that carries parameters (the D-Stability soil ``Notes`` field; folded
 # into the D-Sheet Piling ``[RUN IDENTIFICATION]`` block, which has no per-soil
-# free-text slot). "Tabel 2.b" is the NEN 9997-1 characteristic-value table;
+# free-text slot). "Tabel 2.1" is the NBN EN 1997-1 ANB characteristic-value table;
 # "karakteristieke waarde" (characteristic value) is what the engineer verifies.
-SOURCE_LABEL = "NAD Tabel 2.b — karakteristieke waarde"
+SOURCE_LABEL = "NAD Tabel 2.1 — karakteristieke waarde"
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,7 @@ class NadSoilParameters:
 #:         gamma_unsat_kn_m3=..., gamma_sat_kn_m3=...,
 #:         phi_deg=..., c_kpa=...,
 #:     ),
-# Transcribed 2026-09-02 by script from a working sheet of NEN 9997-1 Tabel 2.b
+# Transcribed 2026-09-02 by script from a working sheet of NBN EN 1997-1 ANB Tabel 2.1
 # (columns g_k_d / g_k_n / phi' / c'k / cu,k_NAD; rows per
 # docs/reference/nad_reference_manifest.json, whose sha256 the sheet matched),
 # name + characteristic qc cross-checked per row. A dash in the table (no
