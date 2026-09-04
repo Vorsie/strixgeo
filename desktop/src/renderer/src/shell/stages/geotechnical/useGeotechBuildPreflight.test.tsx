@@ -29,6 +29,7 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import { useGeotechBuildPreflight } from './useGeotechBuildPreflight'
 import type { PreflightLayer } from '../../../utils/geotechBuildPreflight'
+import type { GeologicalFormationResponse } from '../../../api/clients/geology.types'
 
 const SECTION = {
   id: 'cs1',
@@ -61,6 +62,9 @@ function layer(investigationId: string, suffix: string, isBorehole = false): Pre
 
 interface Stubs {
   geotechLayers: PreflightLayer[]
+  // Project formations — empty by default so the admixture gate is a no-op and
+  // every pre-existing pin behaves exactly as before (owner ruling 2026-09-04).
+  formations: GeologicalFormationResponse[]
   buildGeotechSolids: ReturnType<typeof vi.fn>
   // debt #282 — the streaming build start. Left undefined by default so the
   // existing pins exercise the synchronous fallback unchanged; UP10 wires it to
@@ -68,18 +72,54 @@ interface Stubs {
   startGeotechBuild?: ReturnType<typeof vi.fn>
   handleSubdivideAllBodies: ReturnType<typeof vi.fn>
   handleDivideBoreholes: ReturnType<typeof vi.fn>
+  handleSetNadAdmixtureChoices: ReturnType<typeof vi.fn>
   setSectionsDeepLinkTarget: ReturnType<typeof vi.fn>
   toast: ReturnType<typeof vi.fn>
 }
 
-function makeStubs(geotechLayers: PreflightLayer[]): Stubs {
+function makeStubs(
+  geotechLayers: PreflightLayer[],
+  formations: GeologicalFormationResponse[] = [],
+): Stubs {
   return {
     geotechLayers,
+    formations,
     buildGeotechSolids: vi.fn().mockResolvedValue(undefined),
     handleSubdivideAllBodies: vi.fn().mockResolvedValue(undefined),
     handleDivideBoreholes: vi.fn().mockResolvedValue(undefined),
+    handleSetNadAdmixtureChoices: vi.fn().mockResolvedValue(undefined),
     setSectionsDeepLinkTarget: vi.fn(),
     toast: vi.fn(),
+  }
+}
+
+/** A litho unit stub carrying only the fields the admixture detection reads. */
+function lithoUnit(over: Partial<GeologicalFormationResponse>): GeologicalFormationResponse {
+  return {
+    id: 'f-litho',
+    app_project_id: 'p',
+    name: 'Unit',
+    color: '#000',
+    code: null,
+    display_order: 0,
+    pinned_order: false,
+    regional_ref: null,
+    description: null,
+    lithology: null,
+    nad_class: null,
+    parent_formation_id: null,
+    litho_main_soil_code: null,
+    litho_admixtures: null,
+    nad_admixture_choice: null,
+    instance_ordinal: null,
+    instance_ordinal_locked: false,
+    parent_formation_name: null,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
+    parent_extrapolated: false,
+    created_at: '',
+    updated_at: '',
+    ...over,
   }
 }
 
@@ -92,10 +132,12 @@ function makeCtx(stubs: Stubs): ShellContextValue {
     geoModel: {
       lithoLayers: [layer('S1', 'litho'), layer('S2', 'litho'), layer('B12', 'litho', true)],
       geotechLayers: stubs.geotechLayers,
+      formations: stubs.formations,
       buildGeotechSolids: stubs.buildGeotechSolids,
       startGeotechBuild: stubs.startGeotechBuild,
       handleSubdivideAllBodies: stubs.handleSubdivideAllBodies,
       handleDivideBoreholes: stubs.handleDivideBoreholes,
+      handleSetNadAdmixtureChoices: stubs.handleSetNadAdmixtureChoices,
     },
     coordinator: { setSectionsDeepLinkTarget: stubs.setSectionsDeepLinkTarget },
     toasts: { toast: stubs.toast },
@@ -296,5 +338,66 @@ describe('useGeotechBuildPreflight', () => {
       c => (c[0] as { revealInvestigationIds: readonly string[] }).revealInvestigationIds,
     )
     expect(visited).toEqual([['S2'], ['B12'], ['S2']])
+  })
+
+  // Admixture NAD-family prompt (owner ruling 2026-09-04). The scope is the
+  // accepted litho layers' formation ids — all three fixtures use suffix
+  // 'litho', so the litho unit id must be 'f-litho' to be in scope.
+  const SILTY_SAND = lithoUnit({
+    id: 'f-litho',
+    name: 'Silty Zand',
+    litho_main_soil_code: 'ZAND',
+    litho_admixtures: [{ soil_code: 'KL', amount: 'M', locally: false }],
+  })
+
+  it('AD1 — an UNANSWERED admixture unit stops the Build press and asks, before building', () => {
+    // A complete model (no unbanded tests) would normally build straight
+    // through, but the unanswered silty sand must be asked first.
+    const stubs = makeStubs(COMPLETE, [SILTY_SAND])
+    const { result } = renderPreflight(stubs)
+
+    act(() => result.current.pressBuild())
+
+    expect(result.current.askingAdmixtures?.map(u => u.formationId)).toEqual(['f-litho'])
+    expect(stubs.buildGeotechSolids).not.toHaveBeenCalled()
+  })
+
+  it('AD2 — Divide persists the answer, then the build proceeds', async () => {
+    const stubs = makeStubs(COMPLETE, [SILTY_SAND])
+    const { result } = renderPreflight(stubs)
+
+    act(() => result.current.pressBuild())
+    act(() => result.current.selectAdmixture('f-litho', 'with_admixture'))
+    await act(async () => {
+      await result.current.confirmAdmixtures()
+    })
+
+    expect(stubs.handleSetNadAdmixtureChoices).toHaveBeenCalledWith([
+      { formationId: 'f-litho', choice: 'with_admixture' },
+    ])
+    // The prompt is closed and, with a complete model, the build ran.
+    expect(result.current.askingAdmixtures).toBeNull()
+    expect(stubs.buildGeotechSolids).toHaveBeenCalledTimes(1)
+  })
+
+  it('AD3 — an already-ANSWERED admixture unit builds straight through (no prompt)', () => {
+    const stubs = makeStubs(COMPLETE, [{ ...SILTY_SAND, nad_admixture_choice: 'pure' }])
+    const { result } = renderPreflight(stubs)
+
+    act(() => result.current.pressBuild())
+
+    expect(result.current.askingAdmixtures).toBeNull()
+    expect(stubs.buildGeotechSolids).toHaveBeenCalledTimes(1)
+  })
+
+  it('AD4 — the re-open path shows all ambiguous units with their stored answer', () => {
+    const stubs = makeStubs(COMPLETE, [{ ...SILTY_SAND, nad_admixture_choice: 'pure' }])
+    const { result } = renderPreflight(stubs)
+
+    expect(result.current.hasAmbiguousAdmixtureUnits).toBe(true)
+    act(() => result.current.openAdmixtureChoices())
+
+    expect(result.current.askingAdmixtures?.map(u => u.formationId)).toEqual(['f-litho'])
+    expect(result.current.admixtureSelections['f-litho']).toBe('pure')
   })
 })
