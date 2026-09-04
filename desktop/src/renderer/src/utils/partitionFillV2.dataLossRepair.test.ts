@@ -2,15 +2,15 @@
  * partitionFillV2.dataLossRepair.test.ts — REAL-SECTION data-loss gate (owner 2026-07-26).
  *
  * THE INVARIANT (ruling 8k, "columns are ground truth"). A drilled unit must render its OWN litho
- * at its OWN column edge. The safe-default post-pass (detectFloodedUnits → forceOnlapUnits) already
- * catches units painted a FOREIGN litho, but only corr-1 onlaps were wired through — a flooded
- * corr-2 BAND MEMBER is skipped by the sweep (`if (c === 2) continue`) before the force bypass, so
- * its band failing to render leaves the drilled litho replaced by a foreign flood: HIDDEN DATA LOSS
- * the holes gate cannot see (the space is filled, just with the wrong litho).
+ * at its OWN column edge. The safe-default post-pass (detectFloodedUnits → forceLensUnits) catches
+ * units the enclosing flood would paint a FOREIGN litho and re-runs with them demoted to corr-0 so
+ * each draws its own LENS (owner 2026-09-04 "zero ties = lens"; the pre-2026-09-04 form re-emitted an
+ * onlap instead). This gate does NOT pin lens-vs-onlap shape — it pins the 8k invariant: the drilled
+ * litho survives at its own column, which a lens satisfies. The onlap→lens shape flip is pinned by
+ * `partitionFillV2.floodedUnitLensNotOnlap.test.ts`.
  *
  * These 5 real-section units were flooded on the flag-ON engine (region evidence: own column edge
- * rendered a different formation, the unit's own regions absent). RED before the corr-2 wire-through,
- * GREEN after. Flag-ON path.
+ * rendered a different formation, the unit's own regions absent). Flag-ON path.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
