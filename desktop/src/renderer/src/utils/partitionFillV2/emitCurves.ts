@@ -592,7 +592,7 @@ interface TieEndpoint {
   baseElev: number
 }
 
-function resolveTies(section: SectionInput): ResolvedTie[] {
+export function resolveTies(section: SectionInput): ResolvedTie[] {
   const { columns, rawLayerContacts } = section
   const out: ResolvedTie[] = []
   // layerId → {colIndex, unitIndex} for the NORMALISED stack.
