@@ -11,6 +11,12 @@ export interface UnitGroupActionBarProps {
   count: number
   /** Whether/why the checked set can be grouped (disables + explains Group). */
   guard: GroupGuardStatus
+  /**
+   * The distinct packing-class names in the selection — so a ``cross-class``
+   * refusal names the offending classes in words. Empty falls back to the
+   * generic hint.
+   */
+  selectedClassNames: string[]
   /** True when ≥ 1 checked body is already in a group — reveals Ungroup. */
   hasGrouped: boolean
   /** True while a group/ungroup round-trip is in flight — disables both actions. */
@@ -40,6 +46,7 @@ export interface UnitGroupActionBarProps {
 export default function UnitGroupActionBar({
   count,
   guard,
+  selectedClassNames,
   hasGrouped,
   busy,
   onGroup,
@@ -48,10 +55,13 @@ export default function UnitGroupActionBar({
 }: UnitGroupActionBarProps): JSX.Element {
   const t = useT()
   // The disabled-Group hint tells the engineer WHY, so a greyed button never
-  // reads as broken (docs/ux.md: never a dead affordance without a reason).
+  // reads as broken (docs/ux.md: never a dead affordance without a reason). The
+  // cross-class hint NAMES the offending classes in words when it knows them.
   const groupHint =
     guard === 'cross-class'
-      ? t('params.groupCrossClassHint')
+      ? selectedClassNames.length > 0
+        ? t('params.groupCrossClassHintNamed', { classes: selectedClassNames.join(', ') })
+        : t('params.groupCrossClassHint')
       : guard === 'need-two'
         ? t('params.groupNeedTwoHint')
         : undefined
