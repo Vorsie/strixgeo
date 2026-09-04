@@ -1,24 +1,34 @@
 /**
- * Boot the packaged app's own database — the whole of it, in order.
+ * Boot the packaged app's own database — the fast preparation and the cluster.
  *
- * A dev session finds PostgreSQL already running in Docker on :5433. A
- * packaged build finds nothing, so before the window can open it has to pick a
- * free port, create a database cluster (first launch only), start the server,
- * wait for it, and bring an empty schema to head. Six steps, each of which can
- * fail on a machine with no terminal in front of someone who cannot read a
- * stack trace — which is why every one of them is recorded through
- * {@link BootSequence} and a failure names the step.
+ * A dev session finds PostgreSQL already running in Docker on :5433. A packaged
+ * build finds nothing, so before the engine can talk to a database it has to
+ * pick a free port, create a database cluster (first launch only), start the
+ * server, and wait for it. Each of those can fail on a machine with no terminal
+ * in front of someone who cannot read a stack trace — which is why every step is
+ * recorded through {@link BootSequence} and a failure names the step.
+ *
+ * The boot is split into two phases so the engine's cold import can OVERLAP the
+ * database coming up (owner report, installer #13 — the two ran in series):
+ *
+ *  * {@link prepareEmbeddedStack} — the fast part (resolve paths, secrets, port,
+ *    backend env). Returns as soon as the port is known, so the engine can be
+ *    spawned against it.
+ *  * {@link startEmbeddedCluster} — init-cluster, start-postgres,
+ *    await-postgres-ready. Runs CONCURRENTLY with the engine's cold import.
  *
  * **This module runs in the packaged app only.** ``index.ts`` calls it behind
- * ``app.isPackaged``; a dev session never reaches it and keeps talking to
- * Docker exactly as before.
+ * ``app.isPackaged``; a dev session never reaches it and keeps talking to Docker.
+ * The schema migration is no longer run here — the engine brings the database to
+ * head in its own process at the start of the FastAPI lifespan (see
+ * ``groundmodel/api/boot_migration.py``), gated on the ``STRIX_ENGINE_MIGRATE``
+ * env this module sets in {@link buildBackendEnv}.
  *
  * @module main/embedded/embeddedStack
  */
 
-import { spawn } from 'child_process'
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { BootSequence, type BootFailure } from './bootSequence'
 import { resolveEmbeddedLayout, type EmbeddedLayout } from './embeddedPaths'
@@ -35,68 +45,6 @@ import {
   type RunningCluster,
 } from './postgresCluster'
 
-/**
- * Fixed floor for how long the migration step may take before it is called
- * failed. The real ceiling is this plus a per-gigabyte allowance (see
- * {@link migrationTimeoutMs}) — a fixed 180 s killed a legitimately slow
- * migration on a large store and retried it on every launch (audit M8).
- */
-export const BASE_MIGRATION_TIMEOUT_MS = 180_000
-
-/** Extra migration headroom granted per whole gigabyte of data-directory size. */
-export const MIGRATION_TIMEOUT_PER_GB_MS = 60_000
-
-/** One gibibyte, in bytes — the unit {@link migrationTimeoutMs} scales by. */
-const BYTES_PER_GB = 1024 * 1024 * 1024
-
-/**
- * The migration timeout for a data directory of ``dataDirBytes`` bytes.
- *
- * A larger store legitimately takes longer to migrate (index rebuilds, table
- * rewrites), so the timeout is {@link BASE_MIGRATION_TIMEOUT_MS} plus
- * {@link MIGRATION_TIMEOUT_PER_GB_MS} per whole gigabyte. Never below the base.
- *
- * @param dataDirBytes - Total size of the PostgreSQL data directory.
- * @returns The timeout in milliseconds.
- */
-export function migrationTimeoutMs(dataDirBytes: number): number {
-  const wholeGb = Math.max(0, Math.floor(dataDirBytes / BYTES_PER_GB))
-  return BASE_MIGRATION_TIMEOUT_MS + wholeGb * MIGRATION_TIMEOUT_PER_GB_MS
-}
-
-/**
- * Total size, in bytes, of every file under ``dir`` (recursive).
- *
- * Best-effort and never throws: a vanished or unreadable entry contributes 0
- * rather than aborting the walk, because this only sizes a timeout — an
- * approximate answer is fine and a thrown error here must never block boot.
- * Uses ``stat`` (metadata only, no reads), so it is cheap even on a multi-GB
- * cluster.
- *
- * @param dir - Directory to size.
- * @returns The summed byte size, or 0 when ``dir`` is missing/unreadable.
- */
-export function directorySizeBytes(dir: string): number {
-  let total = 0
-  let entries: string[]
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return 0
-  }
-  for (const name of entries) {
-    const path = join(dir, name)
-    try {
-      const info = statSync(path)
-      if (info.isDirectory()) total += directorySizeBytes(path)
-      else total += info.size
-    } catch {
-      /* vanished/locked entry — contribute nothing */
-    }
-  }
-  return total
-}
-
 /** A booted embedded stack, ready for the backend to be started against it. */
 export interface EmbeddedStack {
   /** The port PostgreSQL ended up on. */
@@ -109,33 +57,57 @@ export interface EmbeddedStack {
   stop: () => void
 }
 
-/** Either a booted stack or the step that stopped it. */
-export type EmbeddedStartResult =
-  | { ok: true; stack: EmbeddedStack; bootLog: string }
+/**
+ * The fast-phase result: everything needed to spawn the engine, plus the
+ * in-progress boot log so {@link startEmbeddedCluster} can continue it.
+ */
+export interface EmbeddedStackPrep {
+  /** Resolved install layout (paths to the bundled trees + the data dir). */
+  layout: EmbeddedLayout
+  /** This install's generated secrets. */
+  secrets: InstallSecrets
+  /** The free TCP port PostgreSQL will bind. */
+  port: number
+  /** The SQLAlchemy-form DSN for the freshly picked port. */
+  databaseUrl: string
+  /** The environment both Python children inherit (incl. ``STRIX_ENGINE_MIGRATE``). */
+  backendEnv: NodeJS.ProcessEnv
+  /** The boot log recorder, carried through into the cluster phase. */
+  boot: BootSequence
+}
+
+/** Either a prepared stack or the step that stopped it. */
+export type PrepareEmbeddedResult =
+  | { ok: true; prep: EmbeddedStackPrep }
+  | { ok: false; failure: BootFailure }
+
+/** Either a running cluster (plus the full boot log) or the step that stopped it. */
+export type EmbeddedClusterResult =
+  | { ok: true; cluster: RunningCluster; bootLog: string }
   | { ok: false; failure: BootFailure }
 
 /**
- * Start the bundled database and bring its schema to head.
+ * Fast phase — resolve the install, read secrets, pick a port, build the env.
+ *
+ * Returns as soon as the port is known and the backend env is built, so the
+ * engine can be spawned against the DSN while {@link startEmbeddedCluster} is
+ * still bringing PostgreSQL up.
  *
  * @param resourcesPath - Electron's ``process.resourcesPath``.
  * @param userDataPath - Electron's ``app.getPath('userData')``.
  * @param log - Log sink; in a packaged build this is the backend log file.
- * @returns The booted stack plus its boot log, or the failure that stopped it.
- *   Failures are returned rather than thrown so the caller cannot accidentally
- *   lose the stage attribution that makes them useful.
+ * @returns The prepared stack, or the failure that stopped it. Failures are
+ *   returned rather than thrown so the caller cannot lose the stage attribution.
  */
-export async function startEmbeddedStack(
+export async function prepareEmbeddedStack(
   resourcesPath: string,
   userDataPath: string,
   log: LogLine,
-): Promise<EmbeddedStartResult> {
+): Promise<PrepareEmbeddedResult> {
   const boot = new BootSequence()
-  let cluster: RunningCluster | null = null
-  let layout: EmbeddedLayout | null = null
-
   try {
     boot.begin('resolve-paths')
-    layout = resolveEmbeddedLayout(resourcesPath, userDataPath)
+    const layout = resolveEmbeddedLayout(resourcesPath, userDataPath)
     assertBundledFilesPresent(layout)
     boot.succeed(layout.pgsqlRoot)
 
@@ -154,6 +126,46 @@ export async function startEmbeddedStack(
     const port = await acquireFreePort(probeEphemeralPort, new Set())
     boot.succeed(`port ${port}`)
 
+    const databaseUrl = buildSqlAlchemyDsn({
+      host: '127.0.0.1',
+      port,
+      user: secrets.user,
+      password: secrets.password,
+      database: secrets.database,
+    })
+    const backendEnv = buildBackendEnv(layout, userDataPath, databaseUrl, secrets)
+
+    return { ok: true, prep: { layout, secrets, port, databaseUrl, backendEnv, boot } }
+  } catch (error) {
+    const failure = boot.fail(
+      redactPasswords(error instanceof Error ? error.message : String(error)),
+    )
+    log(failure.log)
+    return { ok: false, failure }
+  }
+}
+
+/**
+ * Cluster phase — initialise (first launch), start PostgreSQL, wait for it.
+ *
+ * Runs CONCURRENTLY with the engine's cold import: the engine has already been
+ * spawned against ``prep.databaseUrl`` and is importing while this brings the
+ * server up. The engine waits for and migrates the database itself, so no
+ * migration runs here.
+ *
+ * @param prep - The prepared stack from {@link prepareEmbeddedStack}.
+ * @param log - Log sink.
+ * @returns The running cluster + the full boot log, or the failure that stopped
+ *   it. A cluster started before a later failure is stopped so it does not lock
+ *   the data directory against the next launch.
+ */
+export async function startEmbeddedCluster(
+  prep: EmbeddedStackPrep,
+  log: LogLine,
+): Promise<EmbeddedClusterResult> {
+  const { layout, secrets, port, boot } = prep
+  let cluster: RunningCluster | null = null
+  try {
     boot.begin('init-cluster')
     const outcome = initialiseCluster(layout, secrets, log)
     if (outcome === 'reused') boot.skip('data directory already initialised')
@@ -169,45 +181,16 @@ export async function startEmbeddedStack(
     await awaitClusterReady(layout, cluster, log)
     boot.succeed()
 
-    boot.begin('run-migrations')
-    const databaseUrl = buildSqlAlchemyDsn({
-      host: '127.0.0.1',
-      port,
-      user: secrets.user,
-      password: secrets.password,
-      database: secrets.database,
-    })
-    const backendEnv = buildBackendEnv(layout, userDataPath, databaseUrl, secrets)
-    await runMigrations(layout, backendEnv, log)
-    boot.succeed()
-
     log(boot.format())
-    // Re-bound to consts so the shutdown closure captures values TypeScript
-    // has already narrowed, rather than the mutable outer bindings the catch
-    // block needs (which are, and must stay, nullable).
-    const started = cluster
-    const resolved = layout
-    return {
-      ok: true,
-      bootLog: boot.format(),
-      stack: {
-        port,
-        pythonExe: layout.pythonExe,
-        backendEnv,
-        stop: () => stopCluster(resolved, started, log),
-      },
-    }
+    return { ok: true, cluster, bootLog: boot.format() }
   } catch (error) {
-    // Redacted here, at the single point where a message becomes user-facing:
-    // the text below is shown in a dialog and written to a log the user is
-    // asked to send back.
     const failure = boot.fail(
       redactPasswords(error instanceof Error ? error.message : String(error)),
     )
     log(failure.log)
-    // A cluster started before the failing step keeps the data directory
-    // locked and would block the next launch too.
-    if (layout && cluster) stopCluster(layout, cluster, log)
+    // A cluster started before the failing step keeps the data directory locked
+    // and would block the next launch too.
+    if (cluster) stopCluster(layout, cluster, log)
     return { ok: false, failure }
   }
 }
@@ -285,7 +268,7 @@ export function configureNumbaCacheRoot(root: string | null): void {
  * Build the environment both Python children inherit.
  *
  * Exported so the numba-cache location is unit-testable without booting a
- * cluster; it is otherwise an internal step of {@link startEmbeddedStack}.
+ * cluster; it is otherwise an internal step of {@link prepareEmbeddedStack}.
  *
  * @param layout - Resolved install paths.
  * @param userDataPath - Per-user writable root.
@@ -324,6 +307,11 @@ export function buildBackendEnv(
     // Dutch DOV tokens and project names that are not representable there.
     PYTHONUTF8: '1',
     NUMBA_CACHE_DIR: numbaCacheDir,
+    // The engine brings the schema to head IN ITS OWN PROCESS at the start of
+    // the lifespan (api/boot_migration.py) — the packaged app no longer spawns a
+    // separate migrate.py child. This flag is what turns that on; it is set only
+    // here (the packaged/embedded path), so dev/CI/e2e keep external migrations.
+    STRIX_ENGINE_MIGRATE: '1',
     // Pre-migration checkpoint (database_migrator.py): the bundled pg_dump and a
     // machine-local backups directory; without both the migrator skips the dump.
     STRIX_PG_DUMP_PATH: join(layout.pgsqlRoot, 'bin', 'pg_dump.exe'),
@@ -332,66 +320,4 @@ export function buildBackendEnv(
     // an interactive backend and can pick TkAgg, which needs a display.
     MPLBACKEND: 'Agg',
   }
-}
-
-/**
- * Run the schema migration to completion.
- *
- * The timeout scales with the data-directory size (see
- * {@link migrationTimeoutMs}) so a legitimately slow migration on a large store
- * is not killed and retried every launch; the failure copy names the timeout
- * actually used (audit M8).
- *
- * @throws Error If the migrator exits non-zero, cannot be spawned, or does not
- *   finish inside the scaled timeout.
- */
-function runMigrations(
-  layout: EmbeddedLayout,
-  env: NodeJS.ProcessEnv,
-  log: LogLine,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timeoutMs = migrationTimeoutMs(directorySizeBytes(layout.dataDir))
-    log(`[migrate] bringing the database schema to head (timeout ${Math.round(timeoutMs / 1000)}s)`)
-    const child = spawn(layout.pythonExe, ['-m', 'groundmodel.infrastructure.db.migrate'], {
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
-    // The migrator's own last line is what a failure report needs to quote,
-    // so keep the tail rather than only streaming it to the log.
-    let tail = ''
-    const capture = (d: Buffer): void => {
-      // The migrator logs its resolved DSN; SQLAlchemy quotes the whole URL on
-      // a parse error. Both land in the log and the second lands in a dialog.
-      const text = redactPasswords(d.toString())
-      log(`[migrate] ${text.trimEnd()}`)
-      tail = `${tail}${text}`.slice(-2000)
-    }
-    child.stdout?.on('data', capture)
-    child.stderr?.on('data', capture)
-
-    const timer = setTimeout(() => {
-      child.kill()
-      reject(
-        new Error(
-          `the migration did not finish within ${Math.round(timeoutMs / 1000)}s ` +
-            `(scaled to the size of the database)`,
-        ),
-      )
-    }, timeoutMs)
-
-    child.on('error', err => {
-      clearTimeout(timer)
-      reject(new Error(`could not run the migrator: ${err.message}`))
-    })
-    child.on('exit', code => {
-      clearTimeout(timer)
-      if (code === 0) {
-        resolve()
-        return
-      }
-      reject(new Error(`the migrator exited with code ${code}: ${tail.trim().slice(-500)}`))
-    })
-  })
 }
