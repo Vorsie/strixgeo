@@ -9,10 +9,10 @@ packing band; the band's upper bound is the next (denser) class's qc, so e.g.
 parameters (γ, φ′, c′, cu, m) — those are the Phase-5 table, NOT used here.
 
 Classification is on RAW qc (MPa), no Dr, no σ′v — and that is the SOURCE'S own
-method, not a shortcut: the workbook's notes state the NAD soil-type assignment
+method, not a shortcut: the table's notes state the NAD soil-type assignment
 is made "waar geen normalisatie wordt toegepast" (where NO normalisation is
-applied). Verified against the workbook 2026-08-11 (audit F06 closed). The
-normalisation the sheet warns about belongs to the NEN TABLE ENTRY — converting
+applied). Verified against the printed table 2026-08-11 (audit F06 closed). The
+normalisation the table warns about belongs to the NEN TABLE ENTRY — converting
 field qc via ``qc;tabel = qc;terrein × Cqc`` with ``Cqc = (100/σ′v)^0.67``
 before pulling PARAMETERS (E100, φ′, C′p, Cc/(1+e0), Csw/(1+e0); grind/zand and
 to a limited degree leem and sterk zandige klei) — plus the sheet's own
