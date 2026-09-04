@@ -1188,6 +1188,55 @@ describe('PartitionFillOverlay', () => {
   })
 
   // --------------------------------------------------------------------------
+  // EDGELENS — owner ruling 2026-09-04 ("zero ties = lens"). A unit on the
+  // section's OUTER column with zero ties pinches out toward the edge as a
+  // lens (a closed triangle), never an open band to the boundary. A unit that
+  // DOES have a tie inward (here the top sand, top-band tied) keeps extending
+  // outward to the boundary as a full rect stub.
+  //
+  // Base fixture: L = sand(0-5)/clay(5-10), R = sand(0-6)/clay(6-10), NO edges.
+  // Both bottom clays are corr-0 (zero ties); both top sands are corr-1 (top
+  // band). So each outer column pinches its clay and rects its sand.
+  // --------------------------------------------------------------------------
+  it('EDGELENS — a zero-tie outer-column unit pinches out as a lens; a tied unit stays a full rect stub', () => {
+    renderOverlay()
+    // The bottom clay (ui=1) on the FIRST column (edgeIdx 0, inv L) is zero-tie:
+    // it must render as a CLOSED pinch triangle, NOT a rect to the boundary.
+    const clayPinch = document.querySelector(
+      '[data-testid="partition-edge-lens-0-L-1"]',
+    ) as SVGPolygonElement | null
+    expect(clayPinch, 'zero-tie clay renders an outer lens pinch').toBeTruthy()
+    expect(clayPinch?.tagName.toLowerCase()).toBe('polygon')
+    // A closed pinch is a triangle: two points on the column edge + one apex.
+    const pts = (clayPinch?.getAttribute('points') ?? '')
+      .trim()
+      .split(/\s+/)
+      .map((p) => p.split(',').map(Number))
+    expect(pts.length, 'the pinch is a 3-vertex triangle').toBe(3)
+    // The apex is the single vertex OFF the column edge (leftX = -20). It sits
+    // strictly inside the open-end margin — past the edge, short of the far end
+    // (edgeX -20, outerX -84) — so the unit closes rather than reaching the edge.
+    const edgeX = -20
+    const outerX = -84
+    const apexes = pts.filter(([x]) => Math.abs(x - edgeX) > 0.5)
+    expect(apexes.length, 'exactly one apex off the column edge').toBe(1)
+    const apexX = apexes[0][0]
+    expect(apexX).toBeLessThan(edgeX)
+    expect(apexX).toBeGreaterThan(outerX)
+
+    // The clay must NOT also render the old full rect stub (no open band).
+    expect(
+      document.querySelector('[data-testid="partition-edge-0-L-1"]'),
+      'the zero-tie clay no longer draws an open band rect',
+    ).toBeNull()
+
+    // The top sand (ui=0) HAS a tie (top band) → it keeps its full rect stub.
+    const sandStub = document.querySelector('[data-testid="partition-edge-0-L-0"]')
+    expect(sandStub, 'tied sand keeps its full rect stub').toBeTruthy()
+    expect(sandStub?.tagName.toLowerCase()).toBe('rect')
+  })
+
+  // --------------------------------------------------------------------------
   // FG-OVERLAY — the dissolved fill wired end-to-end (S61, owner clause 5).
   //
   //   FG-O1  an interrupted body (two clay regions abutting mid-gap along the
