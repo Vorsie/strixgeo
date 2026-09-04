@@ -26,6 +26,7 @@ import {
 } from '../sectionPartition'
 import { closeColumnGaps } from '../sectionPartition/columnReduce'
 import { enforceMinimumColumnSeparation } from './columnSeparation'
+import { extractPerGapEnclosedLenses } from './edgedEnclosedLens'
 import { buildTieContactElevs, interbedContactTied } from './tieContacts'
 import { twoSidedTerminationsEnabled } from './tileFlags'
 
@@ -133,6 +134,18 @@ export interface ColumnGeom {
 export interface EnclosedLens {
   lens: UnitGeom
   matrixFormationId: string
+  /**
+   * PER-GAP EMISSION RESTRICTION (ruling 8v — "0 ties is ALWAYS a lens", the edged-enclosed
+   * minority, design partition-engine-v2.md §4 FINAL-SHAPES / §8 8v). ``undefined`` (the ordinary
+   * un-edged enclosed lens) means "emit into BOTH adjacent gaps" — byte-identical to the pre-8v
+   * behaviour. A minority that is TIED (edged) toward one neighbour and UN-TIED toward the other —
+   * the S22 lower sand: 0 ties toward the shallow left column, a top tie to the right band column —
+   * sets this to ONLY the UNTIED adjacent gap indices: the lens flank + its band-contour detour are
+   * emitted there (0 ties → a lens by 8v), while the TIED gap keeps its normal band (the flank is
+   * suppressed, so the ties + the ``col:lens`` seed close a band by construction). Consumed by
+   * ``emitEnclosedLensCurves`` and ``collectEnclosedLensDiamonds``.
+   */
+  emitGaps?: ReadonlySet<number>
 }
 
 /**
@@ -368,6 +381,15 @@ export function buildSectionInput(
     survivor++
   }
   enforceMinimumColumnSeparation(geom) // paired CPT+borehole share one along-metre
+  // RULING 8v (flag-ON only) — the EDGED same-formation-enclosed minority (the S22 lower sand: 0
+  // ties toward the shallow left column → a lens there, a top tie to the right band column → a band
+  // there). The section-wide ``extractEnclosedLenses`` above skips it (edged section-wide), so it is
+  // absorbed by the enclosing flood. This per-gap pass extracts it as an enclosed lens emitted ONLY
+  // into its UN-TIED gap(s); the tied gap keeps its band. Additive: a section with no such minority
+  // is byte-identical (the pass finds nothing to extract). See ``edgedEnclosedLens.ts``.
+  if (twoSidedTerminationsEnabled()) {
+    extractPerGapEnclosedLenses(geom, edges, rawLayerContacts)
+  }
   return { columns: geom, edges, lensApexOverrides, rawLayerContacts }
 }
 
