@@ -83,6 +83,9 @@ test.describe('flow_tutorial_first_chapters', () => {
       await expect(card).toContainText('Step 3', { timeout: 15_000 })
 
       // 6. Step through the CRS + datum explanations into chapter 2 (Import).
+      // Chapter 1 gained the project-settings step (owner walk 2026-09-04):
+      // Step 3 is now "where the project settings live", then CRS, then datum.
+      await page.getByTestId('tutorial-next').click() // metadata → crs
       await page.getByTestId('tutorial-next').click() // crs → datum
       await page.getByTestId('tutorial-next').click() // datum → import-open
       await expect(card).toContainText('Chapter 2', { timeout: 5_000 })
