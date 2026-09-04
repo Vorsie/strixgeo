@@ -57,6 +57,7 @@ from .bundle_build import BundleIntegrityError
 from .bundle_restore_drops import BundleRestoreDrops
 from .bundle_restore_litho import (
     _attach_companion_body_links,
+    _attach_sample_body_links,
     _restore_bodies,
     _restore_body_separations,
     _restore_body_unions,
@@ -223,7 +224,7 @@ async def _restore_boreholes(
     *,
     logger: GroundModelLogger,
     drops: BundleRestoreDrops | None = None,
-) -> int:
+) -> tuple[int, dict[UUID, UUID]]:
     """Insert borehole rows (with full child tree) from the bundle.
 
     Parameters
@@ -246,6 +247,8 @@ async def _restore_boreholes(
     int
         Number of borehole rows newly inserted.
     """
+    # ``{sample.id: body.id}`` stamps stripped on insert; Phase 8c re-attaches them.
+    deferred_sample_body_links: dict[UUID, UUID] = {}
     existing = set(
         (
             await session.execute(
@@ -269,13 +272,21 @@ async def _restore_boreholes(
             logger.debug(f"[{i}/{total}] borehole {bh_id} already present — skipped")
             skipped += 1
             continue
-        session.add(_build_borehole(bh_payload, project_id, logger=logger, drops=drops))
+        session.add(
+            _build_borehole(
+                bh_payload,
+                project_id,
+                logger=logger,
+                drops=drops,
+                deferred_sample_body_links=deferred_sample_body_links,
+            )
+        )
         new_boreholes += 1
         logger.debug(f"[{i}/{total}] borehole {bh_id} queued for insert")
     logger.info(
         f"borehole restore: {new_boreholes} new, {skipped} skipped (of {total}) for project {project_id}"  # noqa: E501
     )
-    return new_boreholes
+    return new_boreholes, deferred_sample_body_links
 
 
 async def _restore_formations(
@@ -829,7 +840,7 @@ async def _restore_project_bundle_impl(
     new_cpts = await _restore_cpts(session, project_id, cpts_payload, logger=logger, drops=drops)
 
     # ---- Phase 2: Boreholes ----------------------------------------------
-    new_boreholes = await _restore_boreholes(
+    new_boreholes, deferred_sample_body_links = await _restore_boreholes(
         session, project_id, boreholes_payload, logger=logger, drops=drops
     )
 
@@ -894,6 +905,18 @@ async def _restore_project_bundle_impl(
     # Phase 6 stripped to avoid the cold-restore FK violation.
     reattached_companions = await _attach_companion_body_links(
         session, project_id, deferred_companion_links, logger=logger
+    )
+    # ---- Phase 8c: Re-attach deferred sample body stamps ------------------
+    # ``sample.geotech_body_id`` (Divide boreholes) is an FK → body; Phase 2
+    # stripped it. A stamp whose body is not in the restored project is a stale
+    # window left by a re-minted body id: dropped to NULL and counted.
+    reattached_sample_stamps = await _attach_sample_body_links(
+        session, project_id, deferred_sample_body_links, logger=logger, drops=drops
+    )
+    logger.info(
+        f"restore_project_bundle({project_id}): {reattached_sample_stamps} sample body "
+        f"stamp(s) re-attached, "
+        f"{len(deferred_sample_body_links) - reattached_sample_stamps} dropped"
     )
 
     # ---- Phase 9: Formation absences -------------------------------------
