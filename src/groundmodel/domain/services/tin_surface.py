@@ -49,7 +49,6 @@ import struct
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
 from groundmodel.domain.services.tin_surface_constants import CONCAVE_HULL_ALPHA_FACTOR
 
@@ -164,6 +163,10 @@ def compute_tin(
         points = points[kept_idx]
     if len(points) < 3:
         return TinSurface(vertices=vertices, triangles=[])
+
+    # deferred: keeps scipy off the boot path — only a real triangulation
+    # needs it, and the API import (which registers routers) must not pay it.
+    from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
     try:
         tri = Delaunay(points)
