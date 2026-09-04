@@ -274,6 +274,7 @@ def _build_borehole(
     *,
     logger: GroundModelLogger,
     drops: BundleRestoreDrops | None = None,
+    deferred_sample_body_links: dict[UUID, UUID] | None = None,
 ) -> BoreholeOrm:
     """Construct a ``BoreholeOrm`` with its full child tree from a bundle dict.
 
@@ -354,7 +355,15 @@ def _build_borehole(
         _build_observation(obs_data, AdmixtureOrm, logger=logger, drops=drops)
         for obs_data in observations
     ]
-    bh.samples = [_build_sample(sample_data, logger=logger, drops=drops) for sample_data in samples]
+    bh.samples = [
+        _build_sample(
+            sample_data,
+            logger=logger,
+            drops=drops,
+            deferred_sample_body_links=deferred_sample_body_links,
+        )
+        for sample_data in samples
+    ]
     return bh
 
 
@@ -445,6 +454,7 @@ def _build_sample(
     *,
     logger: GroundModelLogger,
     drops: BundleRestoreDrops | None = None,
+    deferred_sample_body_links: dict[UUID, UUID] | None = None,
 ) -> SampleOrm:
     """Construct a ``SampleOrm`` with all six lab-test family children.
 
@@ -469,7 +479,18 @@ def _build_sample(
     SampleOrm
         Constructed ORM instance with all lab-test children attached.
     """
-    sample = SampleOrm(**_apply_json_to_kwargs(SampleOrm, data))
+    kwargs = _apply_json_to_kwargs(SampleOrm, data)
+    # Defer the body FK (the cross_section.companion_body_id rule): bodies restore
+    # in Phase 8, samples in Phase 2, and a saved file may carry a stamp whose
+    # body was re-minted since. The core re-attaches valid stamps after Phase 8.
+    stamp = kwargs.pop("geotech_body_id", None)
+    if (
+        stamp is not None
+        and deferred_sample_body_links is not None
+        and kwargs.get("id") is not None
+    ):
+        deferred_sample_body_links[UUID(str(kwargs["id"]))] = UUID(str(stamp))
+    sample = SampleOrm(**kwargs)
     sample_label = data.get("id", "?")
     for rel_name, orm_cls in LAB_TEST_FAMILIES:
         setattr(
