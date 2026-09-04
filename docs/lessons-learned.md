@@ -470,3 +470,24 @@ ordering with a unit test in the rule's words ("the API wait does not start
 while the gate is closed"). A pure decision function passing is not evidence
 that the callers sequence correctly.
 
+## 2026-09-04 — a file the app wrote must restore into a fresh backend; only a real file proves it
+
+**What happened.** Looking for something else (a lens rule on the owner's own
+data), the harness tried to open his `test3.strix`, saved by the packaged
+app that morning, into a fresh backend: `POST /restore` answered 500.
+`sample.geotech_body_id`, the stamp Divide boreholes writes, is a foreign key
+to `body`; samples restore in Phase 2 with their boreholes, bodies only in
+Phase 8, so the first query-invoked autoflush raised
+`ForeignKeyViolationError`. A stale stamp (a body id re-minted after the last
+Divide) fails the same way. Every bundle test was green: none carried a
+stamped sample.
+
+**Lesson.** Restore order is a contract with every FK in the bundle. When a
+column that points at a later-phase table is added (the stamp landed with the
+#278 work), the restore needs the same deferred-link treatment the
+cross-section companion FK already has — strip on insert, re-attach after
+the target phase, drop and COUNT what no longer resolves. And the gate that
+catches it is a real file from the shipped app, not a fixture: keep one
+recent owner-saved `.strix` in the dogfeed loop and open it in the harness
+after any schema-bearing slice.
+
