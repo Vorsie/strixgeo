@@ -65,29 +65,36 @@ re-introduce T-junctions with the perpendicular faces — verified empirically),
 it is deferred as a quality refinement, not a correctness fix.
 
 Pure domain module — numpy + a Numba-JIT'd hot kernel
-(:func:`_maximal_rectangles_njit`), no I/O, no logging, no framework imports.
-The functions compute; they do not act, so nothing inherits ``GroundModelLogger``.
+(:func:`_maximal_rectangles_kernel`, compiled lazily by
+:func:`_maximal_rectangles_compiled` so Numba stays off the API boot path), no
+I/O, no logging, no framework imports.  The functions compute; they do not act,
+so nothing inherits ``GroundModelLogger``.
 """
 
 from __future__ import annotations
 
+import functools
+from typing import TYPE_CHECKING
+
 import numpy as np
-from numba import njit
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 __all__ = ["maximal_rectangles", "subdivision_nodes", "triangulate_subdivided_rect"]
 
 
-@njit(cache=True)  # type: ignore[untyped-decorator]
-def _maximal_rectangles_njit(mask: np.ndarray) -> np.ndarray:  # pragma: no cover - njit kernel
+def _maximal_rectangles_kernel(mask: np.ndarray) -> np.ndarray:  # pragma: no cover - njit kernel
     """Native greedy maximal-rectangle cover — returns an ``(N, 4)`` int64 array.
 
     Identical raster-scan greedy semantics to the scalar reference (pinned
     byte-identical by ``test_greedy_mesh``), compiled to native code with Numba
-    because this is the voxel build's dominant hotspot — mesh extraction was
-    93.6 % ``maximal_rectangles`` (measured 38.6x faster than the pure-numpy
-    version over the real ``test.strix`` workload, 0 rectangle mismatches over
-    113,796 masks).  ``cache=True`` persists the compiled kernel so only the
-    first call of a session pays the ~0.6 s JIT warm-up.
+    (see :func:`_maximal_rectangles_compiled`) because this is the voxel build's
+    dominant hotspot — mesh extraction was 93.6 % ``maximal_rectangles`` (measured
+    38.6x faster than the pure-numpy version over the real ``test.strix``
+    workload, 0 rectangle mismatches over 113,796 masks).  ``cache=True`` on the
+    compiled dispatcher persists the kernel so only the first call of a session
+    pays the ~0.6 s JIT warm-up.
 
     The public :func:`maximal_rectangles` wraps this: it supplies a contiguous
     ``bool`` array and converts the ``(N, 4)`` result to the list-of-tuples the
@@ -144,6 +151,29 @@ def _maximal_rectangles_njit(mask: np.ndarray) -> np.ndarray:  # pragma: no cove
     return out[:count]
 
 
+@functools.lru_cache(maxsize=1)
+def _maximal_rectangles_compiled() -> Callable[[np.ndarray], np.ndarray]:
+    """Numba-compile :func:`_maximal_rectangles_kernel` on first use, cached.
+
+    deferred: keeps numba/llvmlite off the boot path.  Importing this module —
+    which the API does at boot to register the routers — must NOT import Numba:
+    its llvmlite/LLVM load is a large slice of the packaged cold-start budget
+    (+119 MB of shared libraries scanned off disk on first touch), and boot never
+    meshes anything.  The first voxel Build pays the Numba import plus the ~0.6 s
+    JIT warm-up; boot pays nothing.  ``cache=True`` persists the compiled kernel
+    across sessions exactly as the old module-level ``@njit`` decorator did, so
+    the mesh output stays byte-identical to the pre-deferral build.
+
+    Returns
+    -------
+    Callable[[numpy.ndarray], numpy.ndarray]
+        The compiled Numba dispatcher for the greedy raster-scan kernel.
+    """
+    from numba import njit  # deferred: keeps numba/llvmlite off the boot path
+
+    return njit(cache=True)(_maximal_rectangles_kernel)  # type: ignore[no-any-return]
+
+
 def maximal_rectangles(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
     """Cover the ``True`` cells of a 2-D boolean mask with maximal axis-aligned rectangles.
 
@@ -172,13 +202,15 @@ def maximal_rectangles(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
         covers cells ``u in [u0, u1)`` and ``v in [v0, v1)``.  Empty list for an
         all-``False`` mask.  Raster-scan deterministic order.
     """
-    # The greedy raster-scan runs in the Numba-JIT'd ``_maximal_rectangles_njit``
-    # (the build's dominant hotspot — 38.6x faster than the pure-numpy version on
-    # the real workload, byte-identical rectangles).  Supply a CONTIGUOUS ``bool``
-    # array (the mesher passes strided 2-D slices of the 3-D boundary mask) and
-    # convert the ``(N, 4)`` result to the list-of-tuples the callers consume.
+    # The greedy raster-scan runs in the Numba-JIT'd kernel (the build's dominant
+    # hotspot — 38.6x faster than the pure-numpy version on the real workload,
+    # byte-identical rectangles), compiled lazily on first use by
+    # ``_maximal_rectangles_compiled`` so Numba stays off the API boot path.
+    # Supply a CONTIGUOUS ``bool`` array (the mesher passes strided 2-D slices of
+    # the 3-D boundary mask) and convert the ``(N, 4)`` result to the
+    # list-of-tuples the callers consume.
     contiguous = np.ascontiguousarray(mask, dtype=np.bool_)
-    rects = _maximal_rectangles_njit(contiguous)
+    rects = _maximal_rectangles_compiled()(contiguous)
     return [(int(r[0]), int(r[1]), int(r[2]), int(r[3])) for r in rects]
 
 
