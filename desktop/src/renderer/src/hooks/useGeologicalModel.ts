@@ -40,6 +40,7 @@ import type {
   DivideBoreholeResponse,
   LithoLayerResponse,
   LithoLayerSuggestion,
+  NadAdmixtureChoice,
   ProjectResponse,
   SubdivideAllBodiesResponse,
 } from '../api/client'
@@ -933,6 +934,29 @@ export interface UseGeologicalModelResult {
     /** First subdivision wins: import already-divided boreholes as-is. */
     skipExisting?: boolean
   }) => Promise<void>
+  /**
+   * Persist the engineer's NAD-family answer for admixture-ambiguous litho
+   * units (owner ruling 2026-09-04). PATCHes ``nad_admixture_choice`` on each
+   * formation and updates the local ``formations`` state so the geotech
+   * pre-flight's derived "needs an answer" list reflects the new choices
+   * immediately. Used by the pre-flight admixture prompt and (change-my-answer)
+   * the geotech inspector.
+   *
+   * Parameters
+   * ----------
+   * entries : readonly {formationId, choice}[]
+   *     The units answered this round and the family chosen for each.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   *
+   * Optional so the many hand-rolled ShellContext stubs need not set it (mirrors
+   * ``startGeotechBuild?``); the real hook always returns it.
+   */
+  handleSetNadAdmixtureChoices?: (
+    entries: readonly { formationId: string; choice: NadAdmixtureChoice }[],
+  ) => Promise<void>
   // ---- Geotech body solids (second useLithoSolids on the geotech model) ----
   // A parallel ``useLithoSolids`` instance pointed at the GEOTECH model.  The
   // hook is model-agnostic (the voxel builder parameterises on ``model_id``),
@@ -2845,6 +2869,46 @@ export function useGeologicalModel({
     [project, activeGeotechModel, addToSessionImports, markMutated, toast],
   )
 
+  const handleSetNadAdmixtureChoices = useCallback(
+    async (entries: readonly { formationId: string; choice: NadAdmixtureChoice }[]) => {
+      if (!project || entries.length === 0) return
+      log.info(
+        'geology',
+        `set nad_admixture_choice on ${entries.length} unit(s): ` +
+          entries.map(e => `${e.formationId}=${e.choice}`).join(', '),
+      )
+      try {
+        // PATCH each answered unit. Parallel because they are independent rows.
+        await Promise.all(
+          entries.map(({ formationId, choice }) =>
+            api.geology.updateFormation(project.id, formationId, {
+              nad_admixture_choice: choice,
+            }),
+          ),
+        )
+      } catch (err) {
+        log.error('geology', 'set nad_admixture_choice failed', err)
+        toast('error', t('geotech.admixtureChoiceSaveFailed'))
+        // Re-throw so the caller (the pre-flight) keeps the dialog open and does
+        // NOT proceed to divide on a half-saved answer set.
+        throw err
+      }
+      // Reflect the writes in local state so the pre-flight's derived
+      // "needs an answer" list updates without a round-trip refetch.
+      const byId = new Map(entries.map(e => [e.formationId, e.choice]))
+      setFormations(prev =>
+        prev.map(f =>
+          byId.has(f.id) ? { ...f, nad_admixture_choice: byId.get(f.id) ?? null } : f,
+        ),
+      )
+      markMutated()
+    },
+    // reason: ``t`` is a module-level import and ``setFormations`` a stable state
+    // setter; neither belongs in the dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, markMutated, toast],
+  )
+
   return {
     activeGeologicalModel,
     models,
@@ -2948,6 +3012,8 @@ export function useGeologicalModel({
     handleSubdivideAllBodies,
     // "Divide boreholes" toolbar verb (post-SAB, geotech axis only).
     handleDivideBoreholes,
+    // Persist the admixture NAD-family answer (owner ruling 2026-09-04).
+    handleSetNadAdmixtureChoices,
     // Geotech body solids — second useLithoSolids instance (geotech model).
     // Keys are renamed (the litho solids set is already spread above) so both
     // 3D surfaces coexist on the bus.  The geotech 3D pane (GeotechnicalCanvas)
