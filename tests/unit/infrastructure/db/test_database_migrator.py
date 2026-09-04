@@ -23,6 +23,8 @@ from groundmodel.infrastructure.db.database_migrator import (
     strip_asyncpg_driver_marker,
 )
 from groundmodel.infrastructure.db.database_migrator_constants import (
+    HEAD_REVISION,
+    MIGRATIONS_DIR_NAME,
     STAGE_ALEMBIC,
     STAGE_CREATE_DATABASE,
     STAGE_POSTGIS,
@@ -30,6 +32,10 @@ from groundmodel.infrastructure.db.database_migrator_constants import (
 )
 
 _DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel"
+
+# A real revision one step behind head (the direct down_revision of HEAD). Used
+# to prove the fast path does NOT skip a database that is genuinely behind head.
+_ONE_BEHIND_HEAD_REVISION = "c6d7e8f9a0b1"
 
 
 class FakeConnection:
@@ -209,6 +215,75 @@ async def test_migrate_happy_path_carries_a_percent_encoded_password_through_ale
     await migrator.migrate(url, timeout_seconds=1.0, poll_interval_seconds=0.01)
 
     assert upgrade_calls[0].get_main_option("sqlalchemy.url") == url
+
+
+# ---------------------------------------------------------------------------
+# Fast path — a database already at head skips Alembic entirely
+# ---------------------------------------------------------------------------
+
+
+def test_head_revision_constant_matches_script_directory():
+    """``HEAD_REVISION`` must equal the real Alembic head — a drift fails HERE, not in prod.
+
+    The fast path (see ``DatabaseMigrator.upgrade_to_head``) trusts
+    ``HEAD_REVISION`` as this build's schema head so it can decide "already at
+    head" from one cheap DB read, WITHOUT loading the ScriptDirectory. This
+    guard pins the constant to ``ScriptDirectory.get_current_head()`` so a new
+    migration that forgets to bump the constant turns THIS unit test red
+    (pre-commit), never a store that silently skips a needed migration.
+    """
+    from pathlib import Path
+
+    from alembic.script import ScriptDirectory
+
+    import groundmodel.infrastructure.db.database_migrator as dm
+
+    migrations_dir = Path(dm.__file__).resolve().parent / MIGRATIONS_DIR_NAME
+    config = Config()
+    config.set_main_option("script_location", str(migrations_dir))
+    script = ScriptDirectory.from_config(config)
+
+    assert HEAD_REVISION == script.get_current_head()
+
+
+@pytest.mark.asyncio
+async def test_a_database_already_at_head_skips_the_alembic_upgrade():
+    """A store already stamped at this build's head runs NO Alembic upgrade (fast path).
+
+    The whole point of the fast path: on a store already at head there is
+    nothing to migrate, so building the ScriptDirectory and running
+    ``alembic upgrade head`` is ~30s of packaged-Python work with no effect
+    (owner report, installer #12). The upgrade runner must not be called.
+    """
+    connection = FakeConnection(stamped_revision_before=HEAD_REVISION)
+    upgrade_calls: list[Config] = []
+    migrator = DatabaseMigrator(
+        connect=_fake_connector(connection, []),
+        run_upgrade=_fake_upgrade_runner(upgrade_calls),
+    )
+
+    await migrator.upgrade_to_head(_DATABASE_URL)
+
+    assert upgrade_calls == [], "a database already at head must skip the Alembic upgrade"
+
+
+@pytest.mark.asyncio
+async def test_a_database_behind_head_still_runs_the_upgrade():
+    """A store stamped BEHIND head still runs the Alembic upgrade (no wrongful skip).
+
+    The counterweight to the fast path: only an exact-head match may skip.
+    A database one revision behind head must fall through to the real upgrade.
+    """
+    connection = FakeConnection(stamped_revision_before=_ONE_BEHIND_HEAD_REVISION)
+    upgrade_calls: list[Config] = []
+    migrator = DatabaseMigrator(
+        connect=_fake_connector(connection, []),
+        run_upgrade=_fake_upgrade_runner(upgrade_calls),
+    )
+
+    await migrator.upgrade_to_head(_DATABASE_URL)
+
+    assert len(upgrade_calls) == 1, "a database behind head must run the upgrade"
 
 
 # ---------------------------------------------------------------------------
