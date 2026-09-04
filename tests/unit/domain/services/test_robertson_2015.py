@@ -121,7 +121,7 @@ def test_sbt_zone_clay_vs_clean_sand_vs_peat() -> None:
     assert zones[2] in (1, 2, 3), f"organic/peat → {zones[2]}"
 
 
-def test_relative_density_matches_the_verastegui_formula() -> None:
+def test_relative_density_matches_the_jamiolkowski_formula() -> None:
     """Dr = 100*(0.268*ln((qc/0.1)/(seff/100)**0.5) - cf)."""
     qc, seff = 15.0, 100.0
     ratio = (qc / 0.1) / (seff / 100.0) ** 0.5
