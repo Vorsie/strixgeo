@@ -157,8 +157,12 @@ export const OUTPUTS = {
   'params.ungroup': 'Ungroup',
   'params.clearSelection': 'Clear',
   'params.groupCheckboxAria': 'Select {label} to group',
+  'params.groupCheckboxAriaWithParent': 'Select {label} ({parent}) to group',
+  'params.checkedInside': '{n} checked inside',
   'params.groupNeedTwoHint': 'Select at least two bodies to group.',
   'params.groupCrossClassHint': 'Only bodies of the same packing class can be grouped.',
+  'params.groupCrossClassHintNamed':
+    'Only bodies of the same packing class can be grouped — you selected {classes}.',
   'params.grouped': 'Grouped — select a member and press Ungroup to undo.',
   'params.ungrouped': 'Ungrouped — the body stands on its own again.',
   'params.groupFailed': 'Could not group the bodies.',
