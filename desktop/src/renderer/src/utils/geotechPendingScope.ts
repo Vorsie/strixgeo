@@ -30,6 +30,13 @@ export interface PendingTieCounts {
   pendingBySection: Readonly<Record<string, number>> | undefined
   /** The section the engineer has open; ``null`` when none is selected. */
   activeSectionId: string | null
+  /**
+   * Section names by id, so the tooltip can NAME the other sections carrying
+   * pending ties (owner 2026-09-04: a chip that says "elsewhere" without
+   * saying where reads as a flag with no reason). Optional: without it the
+   * sentence falls back to the count.
+   */
+  sectionNames?: Readonly<Record<string, string>>
 }
 
 /** The three numbers every sentence below is phrased from. */
@@ -44,6 +51,12 @@ export interface PendingTieScope {
   sectionPending: number | null
   /** Sections carrying at least one pending tie; ``null`` when not knowable. */
   sectionsWithPending: number | null
+  /**
+   * Names of the OTHER sections (not the open one) carrying pending ties, in
+   * the order the counts came; ``null`` when names were not supplied or the
+   * per-section counts are unknown.
+   */
+  sectionNamesWithPending: readonly string[] | null
 }
 
 /**
@@ -57,13 +70,20 @@ export function summarisePendingTies(counts: PendingTieCounts): PendingTieScope 
   if (pendingBySection === undefined) {
     // Unknown, not empty. Claiming "0 sections pending" next to a disabled
     // button would read as "nothing is blocking you".
-    return { modelPending, sectionPending: null, sectionsWithPending: null }
+    return { modelPending, sectionPending: null, sectionsWithPending: null, sectionNamesWithPending: null }
   }
   const sectionsWithPending = Object.values(pendingBySection).filter(count => count > 0).length
+  const sectionNamesWithPending =
+    counts.sectionNames === undefined
+      ? null
+      : Object.entries(pendingBySection)
+          .filter(([id, count]) => count > 0 && id !== activeSectionId)
+          .map(([id]) => counts.sectionNames?.[id] ?? id)
   return {
     modelPending,
     sectionPending: activeSectionId === null ? null : (pendingBySection[activeSectionId] ?? 0),
     sectionsWithPending,
+    sectionNamesWithPending,
   }
 }
 
@@ -116,10 +136,12 @@ export function pendingChipTitle(
     elsewhere > 0
       ? t('sections.geotech.pendingElsewhere', {
           elsewhere,
-          sections: sectionsPhrase(
-            t,
-            scope.sectionsWithPending - (scope.sectionPending > 0 ? 1 : 0),
-          ),
+          // Name the sections when the caller supplied names (owner 2026-09-04);
+          // the count phrase is the fallback.
+          sections:
+            scope.sectionNamesWithPending && scope.sectionNamesWithPending.length > 0
+              ? scope.sectionNamesWithPending.join(', ')
+              : sectionsPhrase(t, scope.sectionsWithPending - (scope.sectionPending > 0 ? 1 : 0)),
         })
       : t('sections.geotech.pendingNowhereElse')
   return t('sections.geotech.pendingTitleSection', {
