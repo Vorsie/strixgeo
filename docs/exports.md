@@ -126,7 +126,7 @@ weight γ, effective φ′, effective c′) per packing class, keyed by NAD clas
 1–31. The values live in `domain/services/nad_soil_parameters_constants.py`
 (`NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters]`) and are transcribed by
 the owner from the private workbook **"Correlaties uit S en NAD_NEN_v2.xlsx"**
-(NEN 9997-1 Tabel 2.b). **The dict ships EMPTY** — Strix never invents a norm
+(NBN EN 1997-1 ANB Tabel 2.1). **The dict ships EMPTY** — Strix never invents a norm
 value — and the plumbing is wired so that filling the dict is the only
 remaining step: `nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
 returns a class's parameters or `None`, and each exporter writes them into the
@@ -135,7 +135,7 @@ GEOLib `Soil` when present.
 * **Present** → cohesion + φ′ on the Mohr-Coulomb model (D-Stability sets it
   above AND below the phreatic level so the strength is actually applied under
   the water table); both unit weights; and the annotation `SOURCE_LABEL`
-  ("NAD Tabel 2.b — karakteristieke waarde") on the soil `Notes` (D-Stability)
+  ("NAD Tabel 2.1 — karakteristieke waarde") on the soil `Notes` (D-Stability)
   or folded into `[RUN IDENTIFICATION]` (D-Sheet).
 * **Absent** (a class without a row in the table — none today, all 31 are transcribed)
   → **no** parameters; GEOLib's own blank initial values (D-Stability 0/0/0;
