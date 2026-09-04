@@ -15,6 +15,10 @@ from groundmodel.domain.services.nad_classification_constants import (
     NAD_QC_BANDS,
     Variant,
 )
+
+# NOTE: ``nad_admixture_choice.resolve_admixture_variant`` maps the persisted
+# engineer answer to the ``variant_override`` these functions accept — kept in a
+# sibling module so this classifier stays free of the stored-choice vocabulary.
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import (
     BASE_LITHOLOGIES,
@@ -52,6 +56,8 @@ def classify_nad(
     soil: BaseLithology,
     admixtures: tuple[Admixture, ...],
     qc_mpa: float | None,
+    *,
+    variant_override: Variant | None = None,
 ) -> int:
     """Classify one (soil, admixture, qc) triple into a NAD packing class 1–31.
 
@@ -81,6 +87,11 @@ def classify_nad(
         (→ loosest class) and stays accepted; it is NOT a "no data" sentinel —
         a caller with no qc to classify must produce ``nad_class=None`` (needs
         review) instead of calling this function.
+    variant_override : Variant | None, optional
+        The engineer's persisted NAD-family answer (owner ruling 2026-09-04),
+        already resolved to a column: ``"clean"`` forces the pure column,
+        ``"secondary"`` the with-admixture column, regardless of ``admixtures``.
+        ``None`` (default) keeps the auto-from-admixtures behaviour.
 
     Returns
     -------
@@ -98,7 +109,7 @@ def classify_nad(
             f"invalid qc_mpa {qc_mpa!r}: NAD classification needs a finite, "
             "non-negative cone resistance (MPa)."
         )
-    variant = _variant_for(soil, admixtures)
+    variant = variant_override if variant_override is not None else _variant_for(soil, admixtures)
     bands = NAD_QC_BANDS.get((soil, variant))
     if bands is None:
         raise ValueError(
@@ -125,6 +136,8 @@ def classify_nad(
 def loosest_class_for(
     soil: BaseLithology | str,
     admixtures: tuple[Admixture, ...],
+    *,
+    variant_override: Variant | None = None,
 ) -> int | None:
     """The loosest NAD class of the soil's OWN column — variant included.
 
@@ -142,6 +155,10 @@ def loosest_class_for(
     admixtures : tuple[Admixture, ...]
         The unit's admixtures — picks clean vs secondary, via the classifier's
         own :func:`_variant_for`.
+    variant_override : Variant | None, optional
+        The engineer's persisted NAD-family answer, resolved to a column; forces
+        the clean/secondary floor regardless of ``admixtures``. ``None`` (default)
+        keeps the auto-from-admixtures behaviour.
 
     Returns
     -------
@@ -150,7 +167,8 @@ def loosest_class_for(
         for a soil the table does not know — the caller skips rather than
         guesses a family.
     """
-    bands = NAD_QC_BANDS.get((soil, _variant_for(soil, admixtures)))  # type: ignore[arg-type]
+    variant = variant_override if variant_override is not None else _variant_for(soil, admixtures)  # type: ignore[arg-type]
+    bands = NAD_QC_BANDS.get((soil, variant))  # type: ignore[arg-type]
     if bands is None:
         return None
     return bands[0][1]
