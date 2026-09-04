@@ -288,6 +288,75 @@ describe('openProjectFile — a DB-lost restore that capped oversized rows', () 
   // warning toast; a restore that drops nothing stays silent." The restore
   // path already logged the counts; a log a packaged build never shows is not
   // "told".
+  // Owner ruling 2026-09-04 ("yeah just add a small toast"): a restore that is
+  // still running after a moment tells the engineer WHY it may be waiting — a
+  // body recompute can hold the partition lock for up to 30 s — instead of an
+  // open dialog that sits there silently. A restore that finishes quickly says
+  // nothing.
+  it('tells the engineer a recompute may be holding the lock when the restore is still running after 2 s', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api } = await import('../api/client')
+      diskContent = JSON.stringify(
+        fileShape({ project: { id: PROJECT_ID, name: 'Slow', status: 'active', tags: [] } }),
+      )
+      asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
+      let finish: (v: unknown) => void = () => {}
+      asMock(api.project.restore).mockImplementation(
+        () => new Promise((resolve) => { finish = resolve }),
+      )
+      const toast = vi.fn()
+      const { result } = renderHook(() => useProject({ toast }))
+      let opening: Promise<unknown> = Promise.resolve()
+      await act(async () => {
+        opening = result.current.openProjectFile('C:/path/slow.strix')
+        await vi.advanceTimersByTimeAsync(1_900)
+      })
+      expect(toast).not.toHaveBeenCalled()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200)
+      })
+      const waits = toast.mock.calls.filter(([type]) => type === 'warning')
+      expect(waits).toHaveLength(1)
+      expect((waits[0] as [string, string])[1].toLowerCase()).toContain('recompute')
+      await act(async () => {
+        finish({ ...baseProject, name: 'Slow', dropped_series: 0, dropped_child_rows: 0 })
+        await opening
+      })
+      expect(toast.mock.calls.filter(([type]) => type === 'warning')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says nothing about the lock when the restore finishes within 2 s', async () => {
+    vi.useFakeTimers()
+    try {
+      const { api } = await import('../api/client')
+      diskContent = JSON.stringify(
+        fileShape({ project: { id: PROJECT_ID, name: 'Quick', status: 'active', tags: [] } }),
+      )
+      asMock(api.project.get).mockRejectedValue(new ApiError('Project not found', 404))
+      asMock(api.project.restore).mockResolvedValue({
+        ...baseProject,
+        name: 'Quick',
+        dropped_series: 0,
+        dropped_child_rows: 0,
+      })
+      const toast = vi.fn()
+      const { result } = renderHook(() => useProject({ toast }))
+      await act(async () => {
+        await result.current.openProjectFile('C:/path/quick.strix')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+      expect(toast.mock.calls.filter(([type]) => type === 'warning')).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('warns the engineer once, in a warning toast naming the counts, when the restore dropped rows', async () => {
     const { api } = await import('../api/client')
     diskContent = JSON.stringify(
