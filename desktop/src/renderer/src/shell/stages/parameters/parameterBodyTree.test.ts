@@ -357,4 +357,53 @@ describe('parameterBodyTree — manual groups (debt #278 D1/D2)', () => {
       .sort()
     expect(ids).toEqual(['g1', 'g4'])
   })
+
+  it('PT-G4 — a collapsed SOLE-body class row exposes groupableBodyId so it is checkable across parents (owner finding 2026-09-04)', () => {
+    // lb2 has ONE geotech body (gb2), so its class row collapses (PT2). The
+    // collapsed row must still expose the sole body id, so the owner can tick it
+    // and group it with a same-class body under ANOTHER litho parent — "i can't
+    // group loose sand in Zand #0 with loose Zand in Zand #2".
+    const tree = buildParameterTree(makeScene())
+    const lb2Class = tree[0].children[1].children[0]
+    expect(lb2Class.children).toEqual([]) // still collapsed — the row IS the body
+    expect(lb2Class.groupableBodyId).toBe('gb2')
+  })
+
+  it('PT-G5 — a geotech-body leaf exposes its own id; a multi-body class row exposes none', () => {
+    const tree = buildParameterTree(makeScene())
+    const class13 = tree[0].children[0].children[0] // lb1 ▸ NAD 13 (two bodies)
+    expect(class13.children.map(c => c.groupableBodyId)).toEqual(['gbA', 'gbB'])
+    // A multi-body class row is a plain expandable parent — no own checkbox.
+    expect(class13.groupableBodyId).toBeUndefined()
+  })
+
+  it('PT-G6 — a collapsed SOLE-body class row carries its litho-parent label so its checkbox name is unambiguous across parents (ux-reviewer 2026-09-04)', () => {
+    // A collapsed class row's own label is just the packing class ("SILT,
+    // slightly firm") — identical for the same class under two litho bodies. The
+    // checkbox must be disambiguated by the owning litho body, or two rows under
+    // "Zand #0" and "Zand #2" read the same to AT and to a scrolled user.
+    const tree = buildParameterTree(makeScene())
+    const lb2Class = tree[0].children[1].children[0]
+    expect(lb2Class.groupableBodyId).toBe('gb2')
+    expect(lb2Class.groupableBodyParentLabel).toBe('SILT · #1')
+    // A geotech-body LEAF needs no parent qualifier (its own label is unique).
+    const gbALeaf = tree[0].children[0].children[0].children[0]
+    expect(gbALeaf.groupableBodyParentLabel).toBeUndefined()
+  })
+
+  it('PT-G7 — a group spanning TWO litho parents tags BOTH members under their own parents (owner finding 2026-09-04)', () => {
+    // gbA sits under litho body lb1, gb2 under lb2 — the exact "loose sand in
+    // Zand #0 grouped with loose sand in Zand #2" case. Each member must keep its
+    // own body id AND render "(group 1)" under its OWN litho parent (the header's
+    // both-litho-bodies provenance is pinned separately by HG2).
+    const tree = buildParameterTree({ ...makeScene(), groupByBodyId: new Map([['gbA', 1], ['gb2', 1]]) })
+    const gbAUnderLb1 = tree[0].children[0].children[0].children.find(
+      c => (c.scope as { bodyId?: string }).bodyId === 'gbA',
+    )
+    const gb2UnderLb2 = tree[0].children[1].children[0].children.find(
+      c => (c.scope as { bodyId?: string }).bodyId === 'gb2',
+    )
+    expect(gbAUnderLb1?.groupNumber).toBe(1)
+    expect(gb2UnderLb2?.groupNumber).toBe(1)
+  })
 })
