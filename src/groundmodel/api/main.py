@@ -15,6 +15,7 @@ from sqlalchemy import select, text
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from groundmodel.api.heavy_library_warmup import start_background_warmup
 from groundmodel.api.local_client_token_middleware import LocalClientTokenMiddleware
 from groundmodel.api.routers import (
     borehole,
@@ -204,6 +205,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         f"engine READY — /openapi.json answers now "
         f"(+{engine_uptime_ms()}ms since interpreter import)"
     )
+
+    # READY is logged FIRST, above — the warm-up must never delay readiness. Now
+    # that the app is serving, warm the heavy export/compute libraries (numba +
+    # llvmlite, geolib, ezdxf, scipy) and compile the greedy-mesh Numba kernel on
+    # a background daemon thread, so the FIRST export / voxel Build pays neither
+    # their import nor the JIT (owner, 2026-09-04). Skipped when
+    # STRIXGEO_SKIP_WARMUP=1 (the test suite + the e2e harness). Boot itself still
+    # imports none of them — the imports live inside the warm-up steps.
+    start_background_warmup()
+
     try:
         yield
     finally:
