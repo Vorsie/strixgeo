@@ -49,6 +49,7 @@ import type {
 // still compile.
 import { isApiStatus } from '../api/clients/shared'
 import { log } from '../utils/log'
+import { withSlowRestoreHint } from '../utils/slowRestoreHint'
 import {
   BUNDLE_NEWER_FORMAT_CODE,
   buildProjectFile,
@@ -802,7 +803,10 @@ export function useProject(
         // reported "could not be opened".
         if (parsed !== null && parsedId !== null && isApiStatus(err, 404)) {
           try {
-            const restored = await api.project.restore(parsedId, restorePayloadFrom(parsed))
+            const restored = await withSlowRestoreHint(
+              api.project.restore(parsedId, restorePayloadFrom(parsed)),
+              () => toastRef.current?.('warning', t('project.restoreWaitingToast')),
+            )
             // L6: restore truncates over-cap depth-series / child arrays. The
             // response carries how many rows were dropped so this is no longer
             // silent. The log is for the terminal; the WARNING toast is what
@@ -1361,7 +1365,10 @@ export function useProject(
       }
       // Pass the full v3 collection set through the shared enumeration —
       // the same one the DB-lost restore uses, so the two cannot drift.
-      await api.project.restore(project.id, restorePayloadFrom(parsed), true)
+      await withSlowRestoreHint(
+        api.project.restore(project.id, restorePayloadFrom(parsed), true),
+        () => toastRef.current?.('warning', t('project.restoreWaitingToast')),
+      )
       // The anchor is deliberately NOT touched here. ``replace=true``
       // rewinds the project's CHILDREN but leaves the project row's own
       // metadata alone ("project already exists — leaving metadata
