@@ -1,9 +1,9 @@
 """Robertson (2015) SBT chart boundary polylines + hydraulic-conductivity correlation.
 
-Source: Daniel Verastegui, ``CPTE_2025.sce`` (Scilab), committed to the
-project asset archive ``info Daniel voor app.zip``, 2025. The X/Y arrays
-below are VERBATIM copies of the polyline knots in that .sce; do not
-approximate or simplify them.
+Source: the soil-behaviour-type chart boundaries of Robertson (2009, 2015)
+with the organic/peat boundary of Lengkeek & Brinkgreve (2022). The X/Y
+arrays below are the chart's polyline knots; do not approximate or simplify
+them.
 
 The Robertson (2009) chart zones are the NINE-zone Q_tn / F boundary
 definition described in:
@@ -62,7 +62,7 @@ DEFAULT_GWT_DEPTH_M: float = 0.0
 # else entirely. Settings -> Litho segmenter writes the value; every consumer
 # defaults and bounds it HERE, so the two cannot drift apart.
 #
-# Defaults are the .sce prompt defaults (Verastegui, CPTE_2025.sce). The bounds
+# Defaults are the segmenter's standing defaults. The bounds
 # are physical plausibility, not preference: 8 kN/m3 is soft peat, 25 is dense
 # gravel, and water is 9.0-10.5 (fresh to brine).
 DEFAULT_GUNSAT_KNM3: float = 16.0
