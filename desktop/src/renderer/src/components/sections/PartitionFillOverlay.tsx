@@ -114,8 +114,6 @@ import {
 import type { PlacedColumn } from './utils'
 import CrossingTieWarningChip from './CrossingTieWarningChip'
 import { nextVisitIndex } from './tieVisitNav'
-import ReviewFlagLayer, { type ReviewFlagMarker } from './ReviewFlagLayer'
-import { reviewFlagId } from '../../utils/reviewFlagPrefs'
 import { type ReviewFlag } from '../../utils/partitionFillV2'
 import {
   baseContactEdge,
@@ -372,21 +370,8 @@ export interface Props {
    * the 2-D litho-paint seam is a follow-up). Absent / empty leaves the fill unchanged.
    */
   separatedPairs?: ReadonlySet<string>
-  /**
-   * Current section axis. The REVIEW-FLAG markers (uncorrelated same-litho neighbours the
-   * safe-default repair re-emitted) render on the LITHO axis only — hidden on geology / geotech.
-   */
+  /** Current section axis (geology / litho / geotech) — gates axis-specific overlays. */
   axisMode?: 'geological' | 'lithostratigraphic' | 'geotechnical'
-  /** Dismissed review-flag ids (``reviewFlagId``) from ``project.view_state.review_flags``. */
-  dismissedReviewFlags?: ReadonlySet<string>
-  /** "Keep separate": dismiss a review flag (persisted in the bundle). Absent = markers read-only. */
-  onDismissReviewFlag?: (flagId: string) => void
-  /**
-   * "Correlate": create the correlation between the flooded unit and its facing same-litho neighbour
-   * (→ they band next build). Distinct from ``onCorrelateBoundary`` (a free-draw drag persist gated
-   * on FREEDRAW_EDIT_ENABLED) — this action is always available. Absent = the Correlate row is inert.
-   */
-  onCorrelateReviewFlag?: (flagLayerId: string, facingLayerId: string) => void
   /**
    * Centre the gap holding the next crossing-tie conflict (owner ask
    * 2026-08-23: *"make that clickable so it zooms to the first one, and then
@@ -569,9 +554,6 @@ export default function PartitionFillOverlay({
   lithoFrame,
   separatedPairs,
   axisMode,
-  dismissedReviewFlags,
-  onDismissReviewFlag,
-  onCorrelateReviewFlag,
   onJumpToConflictGap,
   onConflictEdgeKeysChange,
   onShowGeotechUnitStatistics,
@@ -1809,54 +1791,10 @@ export default function PartitionFillOverlay({
     onConflictEdgeKeysChange(new Set(keys))
   }, [conflicts, onConflictEdgeKeysChange])
 
-  // REVIEW-FLAG markers (owner 2026-07-26; design §10). The safe-default repair re-emits the onlap
-  // for an uncorrelated same-litho neighbour that would otherwise render a foreign litho; each such
-  // drilled unit gets an amber marker inviting an OPTIONAL correlation. LITHO axis only. Positioned
-  // at the unit's gap-facing column edge, at its mid-elevation; the facing same-formation unit is the
-  // correlate target. Dismissed flags are filtered out. Elevation → screen-y (``levelToScreen``) is
-  // intentionally a dep here (unlike the fill memo) since these markers are pure projection.
-  const reviewFlagMarkers = useMemo((): ReviewFlagMarker[] => {
-    if (axisMode !== undefined && axisMode !== 'lithostratigraphic') return []
-    const { orderedColumns } = sectionFillData
-    // Defensive: a partial test mock of the selector may omit reviewFlags (the real engine always
-    // returns it). Default to [] so a mock never crashes the overlay.
-    const reviewFlags = sectionFillData.reviewFlags ?? []
-    if (reviewFlags.length === 0) return []
-    const dismissed = dismissedReviewFlags ?? new Set<string>()
-    const out: ReviewFlagMarker[] = []
-    for (const f of reviewFlags) {
-      const id = reviewFlagId(f)
-      if (dismissed.has(id)) continue
-      const colIdx = f.side === 'left' ? f.gapIndex : f.gapIndex + 1
-      const facingIdx = f.side === 'left' ? f.gapIndex + 1 : f.gapIndex
-      const col = orderedColumns[colIdx]
-      if (!col) continue
-      const unit = col.units.find((u) => u.layerId === f.layerId)
-      const scr = screenByInv.get(col.investigationId)
-      if (!unit || !scr) continue
-      const topElev = col.surfaceElevM - unit.topDepthM
-      const baseElev = col.surfaceElevM - unit.baseDepthM
-      // Marker at the gap-facing edge of the drilled column (where the re-emitted onlap sits).
-      const x = f.side === 'left' ? scr.rightX : scr.leftX
-      const y = levelToScreen((topElev + baseElev) / 2)
-      // Correlate target: the same-formation unit on the facing column overlapping this band.
-      let facingLayerId: string | null = null
-      const facingCol = orderedColumns[facingIdx]
-      if (facingCol) {
-        for (const fu of facingCol.units) {
-          if (fu.formationId !== unit.formationId) continue
-          const fTop = facingCol.surfaceElevM - fu.topDepthM
-          const fBase = facingCol.surfaceElevM - fu.baseDepthM
-          if (Math.min(fTop, topElev) - Math.max(fBase, baseElev) > 1e-6) {
-            facingLayerId = fu.layerId
-            break
-          }
-        }
-      }
-      out.push({ id, x, y, flagLayerId: f.layerId, facingLayerId })
-    }
-    return out
-  }, [axisMode, sectionFillData, dismissedReviewFlags, screenByInv, levelToScreen])
+  // REVIEW-FLAG "!" markers REMOVED (owner ruling 2026-09-04 "I don't know why the attention marker is
+  // there" — the "correlate?" invitation over a repaired unit confused the user). The safe-default
+  // repair still runs and its ``reviewFlags`` data still rides ``sectionFillData`` for any other
+  // consumer, but the litho axis no longer draws a marker for them (nor mounts ``ReviewFlagLayer``).
 
   // ---- UNSAFE-DRAG UX (owner S80 "red handle and snapback"; §87 exact identity). ------------
   // The EXACT editable target whose in-progress drag reached a REFUSED reach this frame (engine
@@ -4030,19 +3968,8 @@ export default function PartitionFillOverlay({
         />
       )}
 
-      {/* REVIEW-FLAG markers (owner 2026-07-26; design §10): amber "correlate me?" markers over the
-          uncorrelated same-litho neighbours the safe-default repair re-emitted. Litho axis only
-          (gated in ``reviewFlagMarkers``); "Correlate" reuses the drag-correlate persist path, "Keep
-          separate" dismisses via ``onDismissReviewFlag`` (persisted in the bundle). Mounts only when
-          the dismiss handler is wired (read-only otherwise). */}
-      {onDismissReviewFlag && (
-        <ReviewFlagLayer
-          markers={reviewFlagMarkers}
-          onCorrelate={(a, b) => onCorrelateReviewFlag?.(a, b)}
-          onDismiss={onDismissReviewFlag}
-          interactivePtr={interactivePtr}
-        />
-      )}
+      {/* REVIEW-FLAG "!" markers removed (owner 2026-09-04 — see the removal note above the fill
+          memo). The safe-default repair no longer surfaces an amber marker on the litho axis. */}
 
       {/* R2 / S7b — the fill-region statistics menu, shared with the model
           fill (``UnitStatisticsPortalMenu``): portalled to document.body so
