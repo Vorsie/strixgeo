@@ -27,7 +27,7 @@ Usage
 The polylines define log10(F) → log10(Qtn) mappings for each of the seven
 physical boundaries between the nine Robertson zones. Evaluate via
 numpy.interp on the log10-scaled X and Y arrays, then raise 10**result.
-X arrays are sorted ascending (required by numpy.interp — verified in .sce,
+X arrays are sorted ascending (required by numpy.interp — verified,
 confirmed by inspection below).
 """
 
@@ -74,7 +74,7 @@ GWATER_KNM3_MAX: float = 10.5
 
 # ---------------------------------------------------------------------------
 # Zone boundary polylines — X = log10(F [%]), Y = log10(Qtn [-])
-# Values copied VERBATIM from CPTE_2025.sce lines 249-262.
+# Values are the chart's polyline knots (Robertson 2015).
 # Boundary semantics: a data point at (F, Qtn) lies ABOVE boundary i when
 # Qtn > 10**interp(X_i, Y_i, log10(F)).
 # ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ ZONE_Y7: list[float] = [
 # ---------------------------------------------------------------------------
 # Hydraulic-conductivity correlation (Robertson 2010 + Lunne 1997)
 # KIC = Ic breakpoints, KK = corresponding k [m/s] values
-# Used by CPTE_2025.sce but NOT exposed in the segmenter (Phase 5 scope).
+# Not exposed in the segmenter (Phase 5 scope).
 # Included for completeness per the "verbatim source" directive.
 # ---------------------------------------------------------------------------
 KIC: list[float] = [0.0, 1.0, 1.31, 2.05, 2.6, 2.95, 3.6, 3.61]
