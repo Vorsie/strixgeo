@@ -424,7 +424,7 @@ synthetic and representative series); the Dr formula it calls is the
 hand-worked pin of section 6.
 
 
-8. NAD packing classes 1–31 (NEN 9997-1 Tabel 2.b)
+8. NAD packing classes 1–31 (NBN EN 1997-1 ANB Tabel 2.1)
 --------------------------------------------------
 
 The geotechnical stage assigns each unit a **Belgian NAD packing class** by
@@ -512,8 +512,8 @@ clay at a sand-like qc stays a clay and takes the densest *clay* class. A packin
 class from the wrong soil column is dropped, never rank-mapped into another
 family.
 
-**Reference.** The NAD packing-class table of **NEN 9997-1** (the Dutch national
-annex to Eurocode 7), **Tabel 2.b**. (The class *names* and *thresholds* are
+**Reference.** The NAD packing-class table of **NBN EN 1997-1 ANB** (the Dutch national
+annex to Eurocode 7), **Tabel 2.1**. (The class *names* and *thresholds* are
 frozen in a committed reference manifest, ``docs/reference/nad_reference_manifest.json``.)
 
 **Validity gate.** A missing, NaN, infinite or negative qc is **rejected** with
@@ -694,7 +694,7 @@ share the identifier, so a downstream tool sees one material for the group. The
 class is zero-padded so text-sorting material lists keep the classes in order,
 and it leads the token so a wildcard selects every instance of a class. The
 D-Series exporters attach the class's characteristic γ / φ′ / c′ *only* where the
-NEN 9997-1 Tabel 2.b table has a row for the class, and write no other design
+NBN EN 1997-1 ANB Tabel 2.1 table has a row for the class, and write no other design
 parameter.
 
 
@@ -712,23 +712,18 @@ engineer's eye.
   :math:`q_c` in all of them, and does not substitute :math:`q_t` even when a
   CPTU records the pore pressure u2 needed to compute it. For sands and for CPTs
   without reliable pore pressure this is immaterial; in soft, low-permeability
-  soils with high excess pore pressure it is a real difference.
+  soils with high excess pore pressure it is a real difference. Owner ruling
+  (2026-09-04): keep :math:`q_c` as is for now.
 
-* **The NAD table is cited under two names in the code.** The classifier module's
-  own comments name the source both as the Belgian **NBN EN 1997-1 ANB Tabel
-  2.1** and as the Dutch **NEN 9997-1 Tabel 2.b**. These are the national annexes
-  of two countries to the same Eurocode 7. This manual cites **NEN 9997-1 Tabel
-  2.b** (per the instruction to reference the standard NAD table of EC7). An
-  engineer applying the table in Belgium should confirm the thresholds against
-  the NBN EN 1997-1 ANB edition they work to.
+* **The NAD table's source.** The packing-class thresholds were verified against
+  the printed Belgian **NBN EN 1997-1 ANB Tabel 2.1** (owner ruling 2026-09-04:
+  cite the Belgian NAD). The Dutch NEN 9997-1 Tabel 2.b is the analogous table
+  of the Netherlands' annex to the same Eurocode 7 and is not the source.
 
-* **The relative-density verification test's function name.** The Dr numeric pin
-  in ``test_robertson_2015.py`` is a genuine independent re-derivation of the
-  Jamiolkowski et al. (2003) formula and is fully valid; its *function name*
-  refers to the author of the original numerical port rather than to the
-  published correlation. The name is a code-level artefact only — this manual
-  cites the published reference (Jamiolkowski, Lo Presti & Manassero 2003), which
-  is what the formula implements.
+* **The relative-density verification test.** The Dr numeric pin in
+  ``test_robertson_2015.py`` (``test_relative_density_matches_the_jamiolkowski_formula``)
+  is an independent re-derivation of the Jamiolkowski et al. (2003) formula; the
+  code and the published correlation agree to numerical precision.
 
 * **Default assumptions, not measurements.** Where a CPT records no water table,
   the pipeline assumes water at the ground surface (0.0 m); where a reading has no
