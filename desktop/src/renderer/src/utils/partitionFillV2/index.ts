@@ -40,6 +40,7 @@ export {
   type OverrideOutcome,
 } from './computeSectionFillV2'
 export { type TieConflict, type ResolvedTie } from './emitCurves'
+export { outerColumnZeroTieLayerIds } from './outerEdgeTerminations'
 export { type ReviewFlag } from './forceLensUnits'
 export {
   detectCrossingConflicts,
