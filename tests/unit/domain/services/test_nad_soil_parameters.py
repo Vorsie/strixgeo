@@ -2,7 +2,7 @@
 
 These tests guard the SHAPE of the parameter table, not its size — they
 pass on the empty table the repository ships and keep passing as the owner
-fills rows from the workbook "Correlaties uit S en NAD_NEN_v2.xlsx"
+fills rows from the NEN 9997-1 Tabel 2.b transcription sheet
 (NEN 9997-1 Tabel 2.b characteristic values). What they refuse is a row
 that is not a real NAD class, or a value that is not physically possible
 for ground — so a transcription slip (a decimal misplaced, γ_sat below
@@ -58,7 +58,7 @@ def test_every_value_lies_in_a_physically_sane_range() -> None:
 def test_the_table_covers_every_nad_class_once() -> None:
     """The transcription is complete: one row per NAD class 1..31, no extras.
 
-    Transcribed 2026-09-02 from the owner's workbook (sheet NAD-NEN, rows per the
+    Transcribed 2026-09-02 from the NEN 9997-1 Tabel 2.b transcription sheet (rows per the
     reference manifest); a missing or surplus class here means the transcript
     and the classifier drifted apart.
     """
@@ -68,7 +68,7 @@ def test_the_table_covers_every_nad_class_once() -> None:
 
 
 def test_undrained_strength_is_absent_for_granular_and_present_for_cohesive() -> None:
-    """The workbook carries a dash for cu on every GRIND / ZAND row (classes
+    """The table carries a dash for cu on every GRIND / ZAND row (classes
     1..12) and a value on every SILT / KLEI / VEEN row (13..31)."""
     for class_id, params in NAD_SOIL_PARAMETERS.items():
         if class_id <= 12:
