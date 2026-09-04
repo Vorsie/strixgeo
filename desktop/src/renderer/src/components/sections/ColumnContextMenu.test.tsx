@@ -192,7 +192,7 @@ describe('ColumnContextMenu — Dutch mode', () => {
     expect(screen.getByText('Focus op deze proef')).toBeInTheDocument()
     expect(screen.getByText('Details openen')).toBeInTheDocument()
     expect(screen.getByText('Onderverdeling wissen')).toBeInTheDocument()
-    expect(screen.getByText('Uit dit profiel weghalen')).toBeInTheDocument()
+    expect(screen.getByText('Uit dit profiel verwijderen')).toBeInTheDocument()
     // The English label must be gone — proof the flip took.
     expect(screen.queryByText('Focus this test')).toBeNull()
   })
