@@ -35,8 +35,15 @@ class BundleRestoreDrops:
 
     cpt_series_dropped: int = 0
     borehole_child_rows_dropped: int = 0
+    #: ``sample.geotech_body_id`` stamps whose body is not in the restored project
+    #: (a re-minted body id left a stale stamp in the saved file): set to NULL.
+    sample_body_stamps_dropped: int = 0
 
     @property
     def total(self) -> int:
         """Total rows dropped across every capped category."""
-        return self.cpt_series_dropped + self.borehole_child_rows_dropped
+        return (
+            self.cpt_series_dropped
+            + self.borehole_child_rows_dropped
+            + self.sample_body_stamps_dropped
+        )
