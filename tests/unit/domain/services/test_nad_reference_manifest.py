@@ -60,11 +60,11 @@ def test_manifest_thresholds_match_nad_qc_bands() -> None:
 
 
 def test_every_workbook_characteristic_qc_classifies_to_its_own_class() -> None:
-    """WB1 — the classifier against WORKBOOK data, never code against code.
+    """WB1 — the classifier against the TRANSCRIBED TABLE, never code against code.
 
     Audit F30's finding was that the strongest classifier test compared the
     implementation to a transcription OF the implementation. The manifest now
-    carries each class's characteristic qc as read from the owner's workbook
+    carries each class's characteristic qc as read from the NEN 9997-1 transcription sheet
     (``Correlaties uit S en NAD_NEN_v2.xlsx``, NAD-NEN sheet, sha256 in _meta) —
     values the code never contained — and every one must classify back to its
     own class. A mis-typed threshold that shifts any band edge past a
@@ -102,7 +102,7 @@ def test_every_workbook_characteristic_qc_classifies_to_its_own_class() -> None:
 def test_open_band_boundaries_are_inclusive_as_the_norm_prints_them() -> None:
     """WB2 — the norm writes ``qc >= X`` for every open band; so does the code.
 
-    Audit F20 asked whether the workbook's ``>`` shorthand meant the boundary
+    Audit F20 asked whether the table's ``>`` shorthand meant the boundary
     value belongs to the looser class. The printed ANB Tabel 2.1 answers: the
     norm's own marker is ``>=`` (zand zeer dicht ``qc >= 15``, grind dicht
     ``qc >= 20``, leem/klei vast ``qc >= 4``, veen vast ``qc >= 1``), so a qc
