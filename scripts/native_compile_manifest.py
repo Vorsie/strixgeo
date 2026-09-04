@@ -137,6 +137,10 @@ _ENGINE_DOMAIN_SERVICES = [
     # exports carry — the same class of IP as the qc thresholds, so it compiles.
     "groundmodel.domain.services.nad_classification_constants",
     "groundmodel.domain.services.nad_classifier",
+    # Admixture → NAD-family detection + variant resolver (owner ruling
+    # 2026-09-04): decides which units the geotech prompt asks about and how the
+    # answer selects the clean/secondary column — same engine IP as the classifier.
+    "groundmodel.domain.services.nad_admixture_choice",
     "groundmodel.domain.services.nad_soil_parameters_constants",
     "groundmodel.domain.services.representative_statistic",
     # Voxel-builder domain deps the compiled voxel_litho package is built on.
