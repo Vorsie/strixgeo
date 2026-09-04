@@ -6,11 +6,25 @@
  */
 import { layoutColumnsHorizontally } from '../components/sections/wheelZoomAnchor'
 import {
-  AXIS_GUTTER_MM, COLUMN_EDGE_GAP_MM, COLUMN_HALF_WIDTH_MM, DRAWING_HEIGHT_FIT_MM,
+  AXIS_GUTTER_MM, COLUMN_EDGE_GAP_MM, COLUMN_HALF_WIDTH_MAX_MM, COLUMN_HALF_WIDTH_MM,
+  COLUMN_WIDTH_SPACING_FRACTION, DRAWING_HEIGHT_FIT_MM,
   GUTTER_MM, MARGIN_MM, MIN_DRAWING_HEIGHT_MM, PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM,
   PAPER_MIN_WIDTH_MM, PROFILE_TRAILING_MM, RIGHT_COLUMN_MM, TOP_BAND_MM, VERTICAL_CHROME_MM,
 } from './sheetConstants'
 import type { SheetScaleMode } from './sheetPayload'
+
+/** Smallest gap between two adjacent column centres on paper, or ``null`` when
+ *  there are fewer than two columns (nothing to measure a spacing against). */
+function minAdjacentGapMm(xsMm: readonly number[]): number | null {
+  if (xsMm.length < 2) return null
+  const sorted = [...xsMm].sort((a, b) => a - b)
+  let smallest = Infinity
+  for (let i = 1; i < sorted.length; i += 1) {
+    const gap = sorted[i] - sorted[i - 1]
+    if (gap < smallest) smallest = gap
+  }
+  return Number.isFinite(smallest) ? smallest : null
+}
 
 export interface SheetGeometryInput {
   levelMaxM: number
@@ -40,6 +54,8 @@ export interface SheetGeometry {
   vexEffective: number
   /** One entry per input column, same order, mm from the paper's left edge. */
   columnXmm: number[]
+  /** Half the drawn width of a column on paper — scales with the on-paper spacing. */
+  columnHalfWidthMm: number
   overCap: boolean
 }
 
@@ -58,21 +74,39 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     drawingHeightMm = DRAWING_HEIGHT_FIT_MM
   }
   const drawingLeftMm = MARGIN_MM + AXIS_GUTTER_MM
-  const placements = layoutColumnsHorizontally({
-    columns: input.columns.map(c => ({
-      id: c.id, along: c.alongM, fixedWidthPx: 0, halfWidthMultiple: 2,
-    })),
-    xMin: input.columns[0]?.alongM ?? 0,
-    scaleH,
-    bandHalfWidth: COLUMN_HALF_WIDTH_MM,
-    columnSpacing: input.spacing,
-    marginLeft: drawingLeftMm + COLUMN_HALF_WIDTH_MM,
-    edgeGapPx: COLUMN_EDGE_GAP_MM,
-  })
-  const byId = new Map(placements.map(p => [p.id, p.nudgedX]))
-  const columnXmm = input.columns.map(c => byId.get(c.id) ?? drawingLeftMm)
+  const layoutColumns = input.columns.map(c => ({
+    id: c.id, along: c.alongM, fixedWidthPx: 0, halfWidthMultiple: 2,
+  }))
+  const xMin = input.columns[0]?.alongM ?? 0
+  // Lay the columns out at a given drawn half-width and return their mm x in
+  // input order. ``marginLeft`` includes the half-width so the leftmost
+  // column's mirrored (leftward) reach lands exactly on the elevation axis.
+  const layoutAt = (bandHalfWidth: number): number[] => {
+    const placements = layoutColumnsHorizontally({
+      columns: layoutColumns, xMin, scaleH, bandHalfWidth,
+      columnSpacing: input.spacing,
+      marginLeft: drawingLeftMm + bandHalfWidth,
+      edgeGapPx: COLUMN_EDGE_GAP_MM,
+    })
+    const byId = new Map(placements.map(p => [p.id, p.nudgedX]))
+    return input.columns.map(c => byId.get(c.id) ?? drawingLeftMm)
+  }
+  // Pass 1 seeds the layout at the minimum width to read the on-paper column
+  // spacing; the drawn width is then a fixed fraction of the nearest-neighbour
+  // spacing (clamped), so widely-spaced columns read as legible strips rather
+  // than tall hairlines. Pass 2 re-lays at that width so the packing, the
+  // first-column offset and the trailing edge all use the real drawn width.
+  const seedXmm = layoutAt(COLUMN_HALF_WIDTH_MM)
+  const nearestGapMm = minAdjacentGapMm(seedXmm)
+  const columnHalfWidthMm = nearestGapMm === null
+    ? COLUMN_HALF_WIDTH_MM
+    : Math.max(
+        COLUMN_HALF_WIDTH_MM,
+        Math.min(COLUMN_HALF_WIDTH_MAX_MM, COLUMN_WIDTH_SPACING_FRACTION * nearestGapMm),
+      )
+  const columnXmm = layoutAt(columnHalfWidthMm)
   const lastX = columnXmm.length > 0 ? Math.max(...columnXmm) : drawingLeftMm
-  const drawingRightMm = lastX + COLUMN_HALF_WIDTH_MM + PROFILE_TRAILING_MM
+  const drawingRightMm = lastX + columnHalfWidthMm + PROFILE_TRAILING_MM
   const naturalWidth = drawingRightMm + GUTTER_MM + RIGHT_COLUMN_MM + MARGIN_MM
   const paperWidthMm = Math.max(PAPER_MIN_WIDTH_MM, Math.ceil(naturalWidth))
   const rightColumnLeftMm = paperWidthMm - MARGIN_MM - RIGHT_COLUMN_MM
@@ -90,6 +124,7 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     printedV: Math.round(1000 / scaleV),
     vexEffective: scaleV / scaleH,
     columnXmm,
+    columnHalfWidthMm,
     overCap: paperWidthMm > PAPER_MAX_WIDTH_MM,
   }
 }
