@@ -2,14 +2,13 @@
 
 Source
 ------
-The values belong to the owner's private workbook **"Correlaties uit S en
-NAD_NEN_v2.xlsx"** — the same ``NAD-NEN`` sheet the qc thresholds in
-``nad_classification_constants.py`` were ported from — which carries, per
-packing class 1..31, the NEN 9997-1 (Eurocode 7) **Tabel 2.b characteristic
-values**: unit weight γ, effective friction angle φ′ and effective cohesion c′.
+The values are the NEN 9997-1 (the Dutch national annex to Eurocode 7)
+**Tabel 2.b characteristic values** per packing class 1..31 — the same table
+the qc thresholds in ``nad_classification_constants.py`` come from: unit
+weight γ, effective friction angle φ′ and effective cohesion c′.
 
 Those numbers are NOT in this repository, and this module does NOT invent
-them. It ships :data:`NAD_SOIL_PARAMETERS` filled from the owner's workbook. The plumbing that
+them. It ships :data:`NAD_SOIL_PARAMETERS` transcribed from that table. The plumbing that
 reads it (the D-Stability and D-Sheet Piling exporters) is wired so that the
 day the owner transcribes the workbook into this dict — one
 :class:`NadSoilParameters` per class, keyed by the NAD class number from
@@ -87,11 +86,11 @@ class NadSoilParameters:
 #:         gamma_unsat_kn_m3=..., gamma_sat_kn_m3=...,
 #:         phi_deg=..., c_kpa=...,
 #:     ),
-# Transcribed 2026-09-02 by script from the owner's workbook
-# "Correlaties uit S en NAD_NEN_v2.xlsx" (sheet NAD-NEN, columns g_k_d / g_k_n /
-# phi' / c'k / cu,k_NAD; rows per docs/reference/nad_reference_manifest.json, whose
-# sha256 the file matched), name + characteristic qc cross-checked per row. A dash
-# in the workbook (no undrained strength for a granular class) is ``None``.
+# Transcribed 2026-09-02 by script from a working sheet of NEN 9997-1 Tabel 2.b
+# (columns g_k_d / g_k_n / phi' / c'k / cu,k_NAD; rows per
+# docs/reference/nad_reference_manifest.json, whose sha256 the sheet matched),
+# name + characteristic qc cross-checked per row. A dash in the table (no
+# undrained strength for a granular class) is ``None``.
 NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters] = {
     1: NadSoilParameters(  # GRIND, matig gp
         gamma_unsat_kn_m3=18, gamma_sat_kn_m3=20, phi_deg=35, c_kpa=0, cu_kpa=None
