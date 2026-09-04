@@ -132,3 +132,17 @@ describe('summarisePendingTies', () => {
     expect(pendingChipLabel(t, scope)).toContain('12')
   })
 })
+
+// Owner 2026-09-04 ("the attention flag was there, but couldn't see why"): when
+// the other pending ties sit on OTHER sections, the tooltip names them.
+it('PS7: the tooltip names the sections carrying the other pending ties', () => {
+  const scope = summarisePendingTies({
+    modelPending: 5,
+    pendingBySection: { a: 2, b: 3 },
+    activeSectionId: 'a',
+    sectionNames: { a: 'Section A', b: 'Section B' },
+  })
+  expect(scope.sectionNamesWithPending).toEqual(['Section B'])
+  expect(pendingChipTitle(t, scope, 0)).toContain('Section B')
+})
+
