@@ -20,12 +20,14 @@ import type {
 } from '../../../api/client'
 import type { Translator } from '../../../i18n/translate'
 import { log } from '../../../utils/log'
+import { nadClassName } from '../../../utils/nadClasses'
 import { joinErrorToastKey } from '../sections/joinErrorToastKey'
 import {
   anchorLayersForBodies,
   bodyNadClassMap,
   groupGuardStatus,
   groupUnionPairs,
+  selectedNadClasses,
   unionIdsAnchoringBody,
   type GroupGuardStatus,
 } from './unitGrouping'
@@ -69,6 +71,12 @@ export interface UseUnitGroupingResult {
   count: number
   /** Whether/why the checked set can be grouped (drives the Group button). */
   guard: GroupGuardStatus
+  /**
+   * The distinct packing-class NAMES in the selection (English/Dutch per the
+   * active language) — so the ``cross-class`` refusal hint names the offending
+   * classes in words. Empty while the selection has no known class.
+   */
+  selectedClassNames: string[]
   /** True when at least one checked body is already in a group (drives Ungroup). */
   hasGroupedInSelection: boolean
   /** True while a group/ungroup round-trip is in flight (buttons disable). */
@@ -116,6 +124,13 @@ export function useUnitGrouping(args: UseUnitGroupingArgs): UseUnitGroupingResul
 
   const checkedIds = useMemo(() => [...checked], [checked])
   const guard = useMemo(() => groupGuardStatus(checkedIds, classByBody), [checkedIds, classByBody])
+  // The class NAMES in the selection, for the cross-class refusal hint —
+  // translated at the presentation boundary (``nadClassName`` reads the active
+  // language). Sorted ascending by class number (``selectedNadClasses``).
+  const selectedClassNames = useMemo(
+    () => selectedNadClasses(checkedIds, classByBody).map(nad => nadClassName(nad)),
+    [checkedIds, classByBody],
+  )
   const hasGroupedInSelection = useMemo(
     () => checkedIds.some(id => groupByBodyId.has(id)),
     [checkedIds, groupByBodyId],
@@ -220,6 +235,7 @@ export function useUnitGrouping(args: UseUnitGroupingArgs): UseUnitGroupingResul
     clear,
     count: checked.size,
     guard,
+    selectedClassNames,
     hasGroupedInSelection,
     busy,
     group,
