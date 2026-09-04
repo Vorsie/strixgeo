@@ -59,7 +59,8 @@ from groundmodel.shared.constants.suggestion_confidence import SuggestionConfide
 
 # ---------------------------------------------------------------------------
 # NAD packing classes for SAND (CPT-derived Dr → NAD class)
-# Clean sand only (Ic < 2.45 AND FR < 1.2 per .sce).
+# Clean sand only (Ic < 2.45 AND FR < 1.2 — the clean-sand gate of the
+# Jamiolkowski et al. 2003 relative-density correlation).
 # Classes 5-8 from litho_constants.NAD_CLASSES:
 #   5: ZAND los gp, 6: ZAND matig gp, 7: ZAND dicht gp, 8: ZAND zeer dicht gp
 # Thresholds from memory/project_litho_geotech_three_level_model.md:
@@ -153,10 +154,9 @@ def _rolling_median_zones(zones: list[int | None], half_window: int) -> list[int
     number of rows above and below the current row included in the median;
     total window = 2*half_window + 1.
 
-    Rows within ``half_window`` of the ends use a shortened window (mirror of
-    the .sce's handling of the top/bottom edge effect — the .sce clips the
-    mean-over-10cm intervals at the ends with ``MM = MM(1+delt:lenM-delt,:)``
-    but we keep all rows and use a variable-length window instead).
+    Rows within ``half_window`` of the ends use a shortened window: the
+    top/bottom edge effect is handled by keeping every row and shrinking the
+    window there, rather than clipping the end rows away.
 
     ``None`` elements (undefined points) are excluded from the median sample
     but kept as ``None`` in the output.
@@ -391,17 +391,16 @@ def segment_cpt(
         raw_qcs = [qc_mpa[k] for k in range(s, e) if qc_mpa[k] > 0]
         mean_qc: float | None = sum(raw_qcs) / len(raw_qcs) if raw_qcs else None
 
-        # Relative density + NAD class (sand zones only, per CPTE_2025.sce
-        # criterion). Only available in the normalised pipeline — Dr needs the
+        # Relative density + NAD class (sand zones only, the clean-sand gate of
+        # the Dr correlation). Only available in the normalised pipeline — Dr needs the
         # effective-stress profile, which non-normalised mode never builds.
         dr_pct: float | None = None
         nad_class: int | None = None
         if lithology == "ZAND" and qtn_results is not None and stress is not None:
             # Compute per-point Dr for points satisfying Ic<2.45 AND
             # FR<1.2, then average. ``FR`` here is the RAW friction
-            # ratio ``fs/qc*100`` (CPTE_2025.sce M-matrix column 4),
-            # NOT the Robertson-normalised ``F`` (= fs*100000/net_qc).
-            # The .sce sand gate (line ~375) is ``Ic<2.45 & FR(i)<1.2``
+            # ratio ``fs/qc*100``, NOT the Robertson-normalised ``F``
+            # (= fs*100000/net_qc). The clean-sand gate is ``Ic<2.45 & FR<1.2``
             # on raw FR; using normalised F (which is ≥ raw FR) would
             # wrongly exclude deep loose sands — exactly the NAD case
             # that matters most. (Senior-review B1, 2026-05-17.)
