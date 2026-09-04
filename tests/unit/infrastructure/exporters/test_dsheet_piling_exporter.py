@@ -221,7 +221,7 @@ def test_dp15_the_run_identification_fits_the_three_lines_dsheet_shows() -> None
     assert len(lines) == 3
     assert lines[0].startswith("StrixGeo export")
     assert "TODO" in lines[1]
-    assert "NAD Tabel 2.b" in lines[2], (
+    assert "NAD Tabel 2.1" in lines[2], (
         "line 3 names the parameter source once soils carry NAD values"
     )
 
