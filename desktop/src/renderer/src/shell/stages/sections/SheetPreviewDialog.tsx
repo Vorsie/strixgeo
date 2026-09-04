@@ -22,6 +22,20 @@ import { log } from '../../../utils/log'
 import { useShell } from '../../ShellContext'
 import { useSheetPayload } from './useSheetPayload'
 
+// One shared class for every editable control in the aside, so a control reads
+// in BOTH themes (owner finding 2026-09-04: the free-text fields were
+// black-on-black in dark mode). The dialog is styled with raw neutral tokens
+// (its root is ``dark:bg-neutral-900``); these match rather than introduce a
+// third input style.
+// ``border-neutral-500`` unconditionally (NOT a lighter dark override): a
+// lighter border failed the 3:1 non-text-contrast floor (WCAG 2.2 SC 1.4.11)
+// against both the white and the neutral-800/900 surfaces the aside sits on, so
+// the field's edge was near-invisible. neutral-500 clears 3:1 in both themes.
+const CONTROL_CLASS =
+  'rounded border border-neutral-500 bg-white px-1.5 py-1.5 text-neutral-900 ' +
+  'focus:outline-none focus:ring-1 focus:ring-blue-500 ' +
+  'dark:bg-neutral-800 dark:text-neutral-100'
+
 export interface SheetPreviewDialogProps {
   open: boolean
   onClose: () => void
@@ -232,14 +246,14 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
           <div
             data-testid="sheet-paper-size"
             data-busy={busy !== null || !settings}
-            className={`px-4 py-2 text-sm ${overCap ? 'text-amber-700' : 'text-neutral-600 dark:text-neutral-300'}`}
+            className={`px-4 py-2 text-sm ${overCap ? 'text-amber-700 dark:text-amber-400' : 'text-neutral-600 dark:text-neutral-300'}`}
           >
             {geometry ? t('sheet.paperSize', { w: geometry.paperWidthMm, h: geometry.paperHeightMm }) : ''}
             {overCap && geometry ? ` — ${t('sheet.tooWide', { w: geometry.paperWidthMm })}` : ''}
             {noFill ? ` — ${t('sheet.noFill')}` : ''}
           </div>
         </div>
-        <aside className="flex w-80 flex-none flex-col gap-4 overflow-y-auto border-l border-neutral-200 p-4 text-sm dark:border-neutral-700">
+        <aside className="flex w-80 flex-none flex-col gap-4 overflow-y-auto border-l border-neutral-200 p-4 text-sm text-neutral-800 dark:border-neutral-700 dark:text-neutral-100">
           <h2 className="text-base font-semibold">{t('sheet.title')}</h2>
           <fieldset className="flex flex-col gap-1">
             <legend className="font-medium">{t('sheet.fill')}</legend>
@@ -249,6 +263,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                 name="sheet-fill"
                 checked={settings.fill === 'litho'}
                 onChange={() => set({ fill: 'litho' })}
+                className="accent-blue-500 dark:accent-blue-400"
               />{' '}
               {t('sheet.fill.litho')}
             </label>
@@ -259,6 +274,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                 checked={settings.fill === 'geotech'}
                 disabled={!p.hasGeotechModel}
                 onChange={() => set({ fill: 'geotech' })}
+                className="accent-blue-500 dark:accent-blue-400"
               />{' '}
               {t('sheet.fill.geotech')}
             </label>
@@ -271,6 +287,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                 name="sheet-scale"
                 checked={settings.scaleMode === 'fit'}
                 onChange={() => set({ scaleMode: 'fit' })}
+                className="accent-blue-500 dark:accent-blue-400"
               />{' '}
               {t('sheet.scaleMode.fit')}
             </label>
@@ -286,6 +303,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                     vScale: settings.vScale ?? geometry?.printedV ?? 200,
                   })
                 }
+                className="accent-blue-500 dark:accent-blue-400"
               />{' '}
               {t('sheet.scaleMode.explicit')}
             </label>
@@ -298,7 +316,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                     min={1}
                     value={settings.hScale ?? ''}
                     onChange={e => set({ hScale: Number(e.target.value) || null })}
-                    className="w-full"
+                    className={`w-full ${CONTROL_CLASS}`}
                     data-testid="sheet-h-scale"
                   />
                 </label>
@@ -309,10 +327,25 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                     min={1}
                     value={settings.vScale ?? ''}
                     onChange={e => set({ vScale: Number(e.target.value) || null })}
-                    className="w-full"
+                    className={`w-full ${CONTROL_CLASS}`}
                     data-testid="sheet-v-scale"
                   />
                 </label>
+              </div>
+            )}
+            {/* Live page size + printed scales, so fit mode's growth in width and
+                the explicit scales are both visible before export (owner finding
+                2026-09-04: explicit mode was undiscoverable, the width surprise
+                invisible). */}
+            {geometry && (
+              <div
+                data-testid="sheet-scale-readout"
+                aria-live="polite"
+                className="mt-1 text-xs text-neutral-600 dark:text-neutral-300"
+              >
+                {t('sheet.paperSize', { w: geometry.paperWidthMm, h: geometry.paperHeightMm })}
+                {' · '}
+                {t('sheet.scaleReadout', { hs: geometry.printedH, vs: geometry.printedV })}
               </div>
             )}
           </fieldset>
@@ -334,6 +367,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
               value={settings.vex}
               disabled={settings.scaleMode === 'explicit'}
               onChange={e => set({ vex: Number(e.target.value) })}
+              className="accent-blue-500 dark:accent-blue-400"
               data-testid="sheet-vex"
             />
           </label>
@@ -346,6 +380,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
               step={0.05}
               value={settings.spacing}
               onChange={e => set({ spacing: Number(e.target.value) })}
+              className="accent-blue-500 dark:accent-blue-400"
               data-testid="sheet-spacing"
             />
           </label>
@@ -356,13 +391,13 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                 <input
                   value={f.label}
                   onChange={e => setField(i, { label: e.target.value })}
-                  className="min-w-0 text-xs uppercase tracking-wide"
+                  className={`min-w-0 text-xs uppercase tracking-wide ${CONTROL_CLASS}`}
                   aria-label={t('sheet.fieldLabelAria', { n: i + 1 })}
                 />
                 <input
                   value={f.value}
                   onChange={e => setField(i, { value: e.target.value })}
-                  className="min-w-0"
+                  className={`min-w-0 ${CONTROL_CLASS}`}
                   aria-label={f.label}
                   data-testid={`sheet-field-${i}`}
                 />
