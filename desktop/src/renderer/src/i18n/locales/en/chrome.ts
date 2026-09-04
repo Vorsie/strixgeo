@@ -256,6 +256,8 @@ export const CHROME = {
   // the file and the restore had to cap oversized depth-series / borehole child
   // arrays. Names both counts so the engineer knows how much, and of what, was
   // trimmed; a restore that dropped nothing stays silent.
+  'project.restoreWaitingToast':
+    'Still restoring… a running body recompute may be holding the project lock (up to 30 s).',
   'project.restoreDroppedToast':
     'Restore skipped oversized data: {series} depth series and {rows} child data rows. See the log.',
   'project.discardLossInterpretation':
