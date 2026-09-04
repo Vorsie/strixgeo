@@ -20,6 +20,34 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Protocol
 
+# Perf-counter anchor captured the first time this module is imported — the
+# single source of truth for "how long has this process been alive". It lives
+# HERE, not in an entrypoint module, on purpose: ``python -m groundmodel.api.serve``
+# loads the entrypoint TWICE under two identities (``__main__`` and the qualified
+# ``groundmodel.api.serve``), so an anchor stored in that module gives the
+# lifespan a different, later reference than ``serve.main`` — the startup
+# timeline then understates its own total. ``shared.timing`` has ONE identity in
+# ``sys.modules`` regardless, and is imported by the entrypoint's own top-level
+# imports, so it is set once, early. Used only for the INFO startup timeline.
+_PROCESS_START_PERF = time.perf_counter()
+
+
+def process_uptime_ms() -> int:
+    """Return milliseconds since this process first imported ``groundmodel.shared.timing``.
+
+    A single per-process clock every module can share for a startup timeline —
+    see :data:`_PROCESS_START_PERF` for why the anchor lives here rather than in
+    an entrypoint module. It is not a wall-clock of interpreter bootstrap (the
+    tiny pre-import cost cannot be observed from Python), only of everything from
+    the first ``shared.timing`` import onward.
+
+    Returns
+    -------
+    int
+        Elapsed milliseconds since the anchor was captured.
+    """
+    return ms_since(_PROCESS_START_PERF)
+
 
 class _InfoLogger(Protocol):
     """Minimal structural protocol for a logger: ``info`` + ``warning``."""
