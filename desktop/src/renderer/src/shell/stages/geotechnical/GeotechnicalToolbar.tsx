@@ -21,7 +21,7 @@
 // with nothing to fill it. On a finished model the pre-flight finds nothing and
 // the press is exactly what it always was.
 
-import { Box, Download, RefreshCw } from 'lucide-react'
+import { Box, Download, Layers, RefreshCw } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
@@ -34,6 +34,7 @@ import {
   unionStaleGeotechColumns,
 } from '../../../utils/staleGeotechColumns'
 import GeotechBuildPreflightDialog from './GeotechBuildPreflightDialog'
+import GeotechAdmixtureChoiceDialog from './GeotechAdmixtureChoiceDialog'
 import { useGeotechBuildPreflight } from './useGeotechBuildPreflight'
 import {
   geotechFenceExportCallback,
@@ -217,6 +218,20 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           title={t('litho.resetCameraHint')}
         />
       )}
+      {/* Change-my-answer path (owner ruling 2026-09-04): re-open the admixture
+          NAD-family prompt whenever the model has an admixture-ambiguous unit,
+          even once every one is answered. Auto-prompting on Build only fires
+          while something is unanswered, so this is the way back in. */}
+      {preflight.hasAmbiguousAdmixtureUnits && (
+        <ToolbarButton
+          icon={<Layers size={13} />}
+          label={t('geotech.admixtureChoiceReopen')}
+          onClick={preflight.openAdmixtureChoices}
+          disabled={preflight.busy || preflight.admixtureBusy}
+          testid="geotech-admixture-choices-button"
+          title={t('geotech.admixtureChoiceReopenTitle')}
+        />
+      )}
       <GeotechBuildPreflightDialog
         open={preflight.askingAbout !== null}
         tests={preflight.askingAbout ?? []}
@@ -225,6 +240,15 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
         onBuildWithout={preflight.buildWithout}
         onCancel={preflight.cancel}
         busy={preflight.busy}
+      />
+      <GeotechAdmixtureChoiceDialog
+        open={preflight.askingAdmixtures !== null}
+        units={preflight.askingAdmixtures ?? []}
+        selections={preflight.admixtureSelections}
+        onSelect={preflight.selectAdmixture}
+        onConfirm={() => void preflight.confirmAdmixtures()}
+        onCancel={preflight.cancel}
+        busy={preflight.admixtureBusy}
       />
     </>
   )
