@@ -59,7 +59,6 @@ import { type TieRef } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
 import { emitOverriddenLensClosing, sweepLensOverrideApex } from './emitLensOverride'
 import { facingMatrixLabel } from './facingMatrix'
-import { isForcedOnlap } from './forceOnlapUnits'
 import { detourFlankAroundEnclosedLenses } from './detourEnclosedLens'
 import { interiorLensReachToTies } from './lensReach'
 import { type LensLabel } from './emitLenses'
@@ -345,15 +344,11 @@ export function drawTermination(
   // a hole — measured on real CS1 (gap-0 019ea170 dragged to 0.3 → 1.98 m hole). The user's handle on
   // such a tip is a FLOOD-convergence vertex of a continuous band, not a real lateral termination;
   // reshaping it is an APP-suppression concern (S76 un-routable cleanup), NOT a safe engine reshape.
-  // SAFE-DEFAULT REPAIR (owner 2026-07-26): the 8m same-litho skip is BYPASSED for a unit the
-  // post-pass flagged as flooded — its onlap was "deleted" by 8m but the enclosing flood then
-  // painted the DRILLED unit a foreign litho (TS7-g0 clay → silt). Re-emitting the onlap bounds the
-  // unit's own face so its litho survives. Only flooded units are forced (the clean same-litho merges
-  // never lose data → never flagged → this stays false → byte-identical default). See forceOnlapUnits.
-  if (
-    matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing) &&
-    !isForcedOnlap(u.layerId, gapIndex, side)
-  ) {
+  // SAFE-DEFAULT REPAIR (owner 2026-07-26, RE-RULED 2026-09-04 "zero ties = lens"): a FLOODED unit is
+  // now demoted to corr-0 in the sweep (``emitTerminationSweep`` ``isForcedLens``) so it draws a LENS
+  // and NEVER reaches this corr-1 draw. The 8m same-litho skip is therefore UNCONDITIONAL again — no
+  // flooded corr-1 unit gets here to be rescued by an onlap (the old ``forceOnlapUnits`` bypass).
+  if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) {
     return false
   }
   // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent). A
