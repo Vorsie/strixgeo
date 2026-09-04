@@ -275,6 +275,8 @@ export const CHROME_NL = {
     'Kon het project niet terugdraaien naar de laatste bewaaractie — de back-up is behouden.',
   'project.fileNotFoundToast':
     'Kon het projectbestand niet vinden op {path}. Heb je het verplaatst of hernoemd?',
+  'project.restoreWaitingToast':
+    'Nog bezig met herstellen… een lopende herberekening van de lichamen kan het project vergrendeld houden (tot 30 s).',
   'project.restoreDroppedToast':
     'Herstel heeft te grote gegevens overgeslagen: {series} diepteseries en {rows} onderliggende gegevensrijen. Zie het logboek.',
   'project.discardLossInterpretation':
