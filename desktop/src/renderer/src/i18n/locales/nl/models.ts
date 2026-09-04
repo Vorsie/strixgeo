@@ -637,4 +637,20 @@ export const MODELS_NL = {
   'geotech.reportShowDetail': 'Toon elke garantie en waar ze staat',
   'geotech.reportLess': 'Minder',
   'geotech.reportDetail': 'Details',
+  // Bijmenging → NAD-familie prompt (eigenaarsbeslissing 2026-09-04). Gevraagd
+  // vóór het onderverdelen voor eenheden waarvan de NAD-tabel de bijmenging op
+  // twee manieren kan lezen.
+  'geotech.admixtureChoiceTitle': 'Welke NAD-klassen voor deze bijmengingen?',
+  'geotech.admixtureChoiceBody':
+    'Deze eenheden bevatten een bijmenging die de NAD-tabel op twee manieren kan classificeren. Kies per eenheid of je ze als de zuivere grondsoort of met bijmenging classificeert voordat je onderverdeelt.',
+  'geotech.admixturePureOption': 'Zuiver {soil}',
+  'geotech.admixtureWithOption': '{soil} met bijmenging',
+  'geotech.admixtureChoiceConfirm': 'Onderverdelen',
+  'geotech.admixtureChoiceCancel': 'Annuleren',
+  'geotech.admixtureChoiceGate': 'Kies voor elke eenheid een klasse om verder te gaan.',
+  'geotech.admixtureChoiceReopen': 'NAD-keuzes bijmenging',
+  'geotech.admixtureChoiceReopenTitle':
+    'Bekijk of wijzig in welke NAD-familie elke bijmengingseenheid wordt geclassificeerd.',
+  'geotech.admixtureChoiceSaveFailed':
+    'Kon de NAD-keuzes voor de bijmenging niet opslaan — er is niets onderverdeeld.',
 } as const
