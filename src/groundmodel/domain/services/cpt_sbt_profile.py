@@ -1,15 +1,15 @@
 """Per-depth soil-behaviour-type profile for one CPT — BOTH classifiers.
 
 Owner ruling (dogfeed 2026-08-03): a per-CPT plot surface shows the full
-normalised Robertson-2015 pipeline's zone-per-depth strip (which carries Daniel
-Verastegui's extended organic/peat boundary, Lengkeek & Brinkgreve 2022) AND the
+normalised Robertson-2015 pipeline's zone-per-depth strip (which carries the
+extended organic/peat boundary of Lengkeek & Brinkgreve 2022) AND the
 non-normalised ``I_SBT`` strip alongside it.  Showing one alone hides the
 disagreement, and it is exactly the disagreement — shallow, or where the
 effective-stress profile is unreliable — that the engineer needs to see.
 
 This module is a THIN DRIVER.  It owns no soil mechanics of its own:
 
-* ``robertson_2015`` — the frozen faithful port of ``CPTE_2025.sce``.  Driven
+* ``robertson_2015`` — the frozen normalised Robertson (2009/2015) method.  Driven
   here exactly as the litho segmenter drives it (stress profile → iterative
   Qtn/F/Ic convergence → zone ladder) and under the SAME inputs — water table
   AND unit weights — so the zones the engineer reads and the ghost boundaries
