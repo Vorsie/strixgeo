@@ -143,6 +143,13 @@ class GeologicalFormationOrm(Base):
     # Ordered admixture list: [{"soil_code": str, "amount": str, "locally": bool}].
     # NULL on geological rows; [] on a litho unit with no admixtures.
     litho_admixtures: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # The engineer's NAD-family answer for a litho unit whose admixture the NAD
+    # table can express as either a pure or a with-admixture class (owner ruling
+    # 2026-09-04). 'pure' → classify into the clean NAD column; 'with_admixture'
+    # → the secondary (silt-/klei- or zandhoudend) column; NULL → not answered,
+    # so the classifier decides from the admixtures (today's behaviour). Only
+    # meaningful on a litho unit; NULL everywhere else.
+    nad_admixture_choice: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Phase 2: ordinal for same-composition instances within a parent formation.
     # NULL throughout Phase 1 — Accept leaves it unassigned.
     # Phase 2: assigned by resolve_litho_instances from the correlation
