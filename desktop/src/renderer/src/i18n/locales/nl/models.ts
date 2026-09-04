@@ -203,14 +203,14 @@ export const MODELS_NL = {
   'geology.nothingCreated':
     'Niets aangemaakt — {n} laag/lagen al ingevuld. Gebruik Ontdubbelen of Model verwijderen om te resetten en probeer opnieuw.',
   'geology.removedNotInSelection': 'Verwijderd: {n} {unit} die niet in je selectie zaten: {names}.',
-  'geology.seededContacts': '{created} laaggrenzen gezaaid.',
-  'geology.seededContactsSkipped': '{created} laaggrenzen gezaaid. {skipped}',
+  'geology.seededContacts': '{created} laaggrenzen gevuld.',
+  'geology.seededContactsSkipped': '{created} laaggrenzen gevuld. {skipped}',
   'geology.seedSkippedFragmentOne': '{n} laag overgeslagen — formatie niet in je model.',
   'geology.seedSkippedFragmentMany': '{n} lagen overgeslagen — formatie niet in je model.',
   'geology.nothingSeeded':
     'Niets gezaaid — {skipped} Voeg ze toe in de geologiestap om ze hier te plaatsen.',
   'geology.alreadyInSyncNothingToAdd': 'Al gesynchroniseerd — niets toe te voegen.',
-  'geology.seedContactsFailed': 'Kon geen laaggrenzen zaaien vanuit de stratigrafie.',
+  'geology.seedContactsFailed': 'Kon geen laaggrenzen vullen vanuit de stratigrafie.',
   'geology.dedupeAlreadyClean': 'Al opgeschoond — geen duplicaten gevonden.',
   'geology.dedupeRemoved':
     'Verwijderd: {d} dubbele {contactWord} over {g} (anker, formatie)-{pairWord}.',
