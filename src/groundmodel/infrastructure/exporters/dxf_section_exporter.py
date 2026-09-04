@@ -76,10 +76,17 @@ from __future__ import annotations
 
 import io
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-import ezdxf
-from ezdxf.colors import RGB
+if TYPE_CHECKING:
+    # deferred: ezdxf is imported lazily inside the methods that build the drawing
+    # (see ``export`` and ``_parse_hex_color``) so importing this exporter at API
+    # boot (a router pulls it in to register a route) does not pay ezdxf's import
+    # cost.  ``ezdxf`` stays importable here for the ``ezdxf.document.Drawing``
+    # annotations.
+    import ezdxf
+    from ezdxf.colors import RGB
 
 from groundmodel.application.section_snapshot import SectionFormation, SectionSnapshot
 from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
@@ -136,6 +143,9 @@ class DxfSectionExporter(SectionExporter):
             UTF-8 because ezdxf's R2018 output uses Unicode for
             text entities.
         """
+        # deferred: keeps ezdxf off the API boot path (see the module imports).
+        import ezdxf
+
         doc = ezdxf.new(dxfversion="R2018", setup=True)
         msp = doc.modelspace()
 
@@ -652,4 +662,7 @@ def _parse_hex_color(hex_str: str) -> RGB | None:
             return None
     except ValueError:
         return None
+    # deferred: keeps ezdxf off the API boot path (see the module imports).
+    from ezdxf.colors import RGB
+
     return RGB(r, g, b)
