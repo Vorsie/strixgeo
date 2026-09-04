@@ -20,10 +20,13 @@ footprint and vertical extent.
 
 Domain-layer purity
 -------------------
-Only scipy + numpy are imported — both are already used by ``compute_tin``,
+Only scipy + numpy are used — both are already used by ``compute_tin``,
 which lives in this same domain-services package.  No infrastructure or
-application imports.  ``ModelDomain`` is a plain class (computes, does not
-act) so it does not inherit ``GroundModelLogger``.
+application imports.  scipy is imported lazily inside ``alpha_hull_polygon``
+(the one function that triangulates) so importing this module — which the API
+does at boot to register routers — does not pull scipy onto the start-up path.
+``ModelDomain`` is a plain class (computes, does not act) so it does not
+inherit ``GroundModelLogger``.
 """
 
 from __future__ import annotations
@@ -33,7 +36,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
 from groundmodel.domain.services.tin_surface import (
     ContactPoint3D,
@@ -130,6 +132,10 @@ def alpha_hull_polygon(
         raise ValueError(f"alpha_hull_polygon requires at least 3 points; got {len(points)}")
 
     pts = np.array(points, dtype=float)
+
+    # deferred: keeps scipy off the boot path — only a real triangulation
+    # needs it, and the API import (which registers routers) must not pay it.
+    from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
     try:
         tri = Delaunay(pts)
