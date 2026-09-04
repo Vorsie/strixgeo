@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from groundmodel.api.schemas.strict_request_model import StrictRequestModel
+from groundmodel.domain.services.nad_admixture_choice import NadAdmixtureChoice
 from groundmodel.domain.services.nad_classifier import class_belongs_to_soil, soil_family_of
 
 
@@ -145,6 +146,12 @@ class GeologicalFormationUpdateRequest(StrictRequestModel):
     # Allow Detach to explicitly clear parent_formation_id alongside the
     # extrapolated flag. Sent as null to clear; omitted to leave unchanged.
     parent_formation_id: UUID | None = None
+    # Owner ruling 2026-09-04: the engineer's NAD-family answer for a litho unit
+    # whose admixture the NAD table can classify either way — 'pure' → the clean
+    # NAD column, 'with_admixture' → the secondary ((f)/(s)) column. Sent by the
+    # geotech-stage admixture prompt; null clears it back to auto. Omitting the
+    # key leaves the stored answer untouched (exclude_unset in the router).
+    nad_admixture_choice: NadAdmixtureChoice | None = None
 
 
 class GeologicalFormationResponse(BaseModel):
@@ -206,6 +213,10 @@ class GeologicalFormationResponse(BaseModel):
     # JSONB list of {"soil_code": str, "amount": str, "locally": bool} dicts.
     # NULL on geological rows; [] on a litho unit with no admixtures.
     litho_admixtures: list[Any] | None = None
+    # The engineer's persisted NAD-family answer (owner ruling 2026-09-04):
+    # 'pure' | 'with_admixture' | None. NULL = not answered (auto). The client
+    # derives which units still need an answer from this + the soil + admixtures.
+    nad_admixture_choice: str | None = None
     instance_ordinal: int | None = None
     instance_ordinal_locked: bool = False
     # Slice 5 / debt #67: server-resolved display name of the parent geological
