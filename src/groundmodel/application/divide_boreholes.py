@@ -197,6 +197,7 @@ from groundmodel.domain.services.geotech_unit_boundaries import (
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import mark_and_truncate_shallow_tests
+from groundmodel.domain.services.nad_admixture_choice import resolve_admixture_variant
 from groundmodel.domain.services.nad_classifier import (
     clamp_class_to_soil,
     loosest_class_for,
@@ -2174,8 +2175,19 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             unit_admixtures = (
                 _parse_admixtures(source_litho_orm) if source_litho_orm is not None else ()
             )
+            # Owner ruling 2026-09-04: the engineer's persisted NAD-family answer
+            # forces the floor's column too, so a borehole floor lands in the
+            # same family the CPT bands do. NULL → no override (unchanged).
+            admixture_choice = (
+                source_litho_orm.nad_admixture_choice if source_litho_orm is not None else None
+            )
+            variant_override = resolve_admixture_variant(
+                soil_code, unit_admixtures, admixture_choice
+            )
             litho_abs_min_class = (
-                loosest_class_for(soil_code, unit_admixtures) if soil_code else None
+                loosest_class_for(soil_code, unit_admixtures, variant_override=variant_override)
+                if soil_code
+                else None
             )
             if litho_abs_min_class is None:
                 # Cannot determine the lithology floor for an unknown soil code.
