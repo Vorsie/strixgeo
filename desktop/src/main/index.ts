@@ -78,11 +78,16 @@ import {
   resolveSampleProjectPath,
 } from './sampleProject'
 import {
-  startEmbeddedStack,
+  prepareEmbeddedStack,
+  startEmbeddedCluster,
   configureNumbaCacheRoot,
   type EmbeddedStack,
+  type EmbeddedStackPrep,
 } from './embedded/embeddedStack'
+import { coordinatePackagedBoot } from './embedded/packagedBootCoordinator'
+import { stopCluster, type RunningCluster } from './embedded/postgresCluster'
 import { configurePgdataRoot } from './embedded/embeddedPaths'
+import type { BootFailure } from './embedded/bootSequence'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 import { registerBackendLifecycle } from './backendLifecycle'
 import { tailoredBootFailureCopy } from './bootFailureMessage'
@@ -229,6 +234,12 @@ let markBackendReady: (() => void) | null = null
 // on :5433 owns the database and none of this runs).
 let embeddedStack: EmbeddedStack | null = null
 
+// The running embedded cluster handle (packaged only). Set asynchronously by the
+// cluster-boot phase, which runs CONCURRENTLY with the engine's cold import — so
+// this can still be null while the engine is starting. ``embeddedStack.stop``
+// closes over it, so a shutdown that races the boot stops whatever is up.
+let embeddedCluster: RunningCluster | null = null
+
 // When the backend was last respawned this session (H3(a)). A death within
 // BACKEND_RESPAWN_GUARD_MS of this is a crash loop and gives up to the banner.
 let lastBackendRespawnAtMs: number | null = null
@@ -307,8 +318,9 @@ function startApi(): void {
   intentionalBackendStop = false
   // In dev: __dirname = desktop/out/main/ → 3 levels up = repo root (Strix/).
   // A packaged build has no repo and no .venv — it runs the bundled
-  // interpreter against the bundled source, pointed at the database
-  // startEmbeddedStack just brought up (see ./embedded/embeddedStack).
+  // interpreter against the bundled source, pointed at the database the
+  // embedded stack is bringing up (see ./embedded/embeddedStack). The engine
+  // waits for + migrates that database itself at the start of its lifespan.
   const repoRoot = join(__dirname, '..', '..', '..')
   // The backend is started through its own entrypoint module rather than
   // `uvicorn.exe`, because the event loop has to be pinned through uvicorn's
@@ -558,44 +570,91 @@ function relocateMachineLocalStores(): void {
 }
 
 /**
- * Bring the bundled database up before the window opens (packaged only).
+ * Show the native "could not start" dialog for a boot-stage failure, then quit.
  *
- * On failure the app cannot function at all — there is no database and no
- * backend — so it reports and quits rather than showing an empty window. The
- * report is a native dialog because no renderer exists yet, and it names the
- * step that failed plus the log file, which is the only thing a non-technical
- * tester can usefully send back.
+ * A native dialog because at prepare-time there is no renderer yet; the cluster
+ * phase may fail once a window exists, in which case the dialog layers over the
+ * splash. Either way it names the step that failed plus the log file — the only
+ * thing a non-technical tester can usefully send back.
  *
- * @returns True when the database is up and migrated; false when the app is
- *   quitting.
+ * @param failure - The boot failure (stage + summary + technical message).
  */
-async function bootEmbeddedDatabase(): Promise<boolean> {
-  if (mainLogPath === null) openMainLog()
-  const result = await startEmbeddedStack(
-    process.resourcesPath,
-    app.getPath('userData'),
-    writeMainLog,
-  )
-  if (result.ok) {
-    embeddedStack = result.stack
-    return true
-  }
+function showBootFailureAndQuit(failure: BootFailure): void {
   // A database written by a NEWER StrixGeo gets its own message (M8): the
   // generic stage sentence reads like corruption, when in fact the data is
   // intact and the cure is to install the current build. Any other failure
   // keeps the stage sentence + technical message.
-  const tailored = tailoredBootFailureCopy(result.failure)
+  const tailored = tailoredBootFailureCopy(failure)
   const detailsPath = mainLogPath ?? app.getPath('logs')
   dialog.showErrorBox(
     tailored?.title ?? 'StrixGeo could not start',
     tailored
       ? `${tailored.detail}\n\nDetails were written to:\n${detailsPath}`
-      : `${result.failure.summary}\n\n` +
-          `${result.failure.message}\n\n` +
-          `Details were written to:\n${detailsPath}`,
+      : `${failure.summary}\n\n${failure.message}\n\nDetails were written to:\n${detailsPath}`,
   )
+  // Kill any engine already spawned against the (now-failed) cluster, stop the
+  // cluster, and quit — there is no database, so the app cannot function.
+  stopApi()
   app.quit()
-  return false
+}
+
+/**
+ * Bring the bundled database up (packaged only), spawning the engine CONCURRENTLY.
+ *
+ * The fast preparation (paths, secrets, port, env) is awaited so the engine can
+ * be spawned against the DSN; the cluster boot (init-cluster → start-postgres →
+ * await-postgres-ready) runs in the background so the engine's ~48 s cold import
+ * overlaps it instead of running after it (owner report, installer #13). The
+ * engine waits for + migrates the database itself (api/boot_migration.py); no
+ * migrate.py child runs here.
+ *
+ * No engine before the licence gate passes: ``gateAllowsEngine`` gates only the
+ * spawn — the DB boots regardless, so a licence-deferred build still has a
+ * database ready for the engine that activation starts later.
+ *
+ * @param gateAllowsEngine - Whether the licence gate permits the engine now.
+ * @returns True when preparation succeeded (the app continues to a window);
+ *   false when preparation failed and the app is quitting.
+ */
+async function bootEmbeddedDatabase(gateAllowsEngine: () => boolean): Promise<boolean> {
+  if (mainLogPath === null) openMainLog()
+  const outcome = await coordinatePackagedBoot<EmbeddedStackPrep>({
+    prepare: () =>
+      prepareEmbeddedStack(process.resourcesPath, app.getPath('userData'), writeMainLog),
+    onPrepared: prep => {
+      embeddedStack = {
+        port: prep.port,
+        pythonExe: prep.layout.pythonExe,
+        backendEnv: prep.backendEnv,
+        // The cluster is set asynchronously by startCluster below; the closure
+        // reads the module-level handle so a shutdown that races the boot stops
+        // whatever is up.
+        stop: () => {
+          if (embeddedCluster) {
+            stopCluster(prep.layout, embeddedCluster, writeMainLog)
+            embeddedCluster = null
+          }
+        },
+      }
+    },
+    startCluster: prep =>
+      startEmbeddedCluster(prep, writeMainLog).then(result => {
+        if (result.ok) {
+          embeddedCluster = result.cluster
+          return
+        }
+        // A background cluster failure (init/start/await-ready) surfaces after
+        // the window may already exist — show the native dialog and quit.
+        showBootFailureAndQuit(result.failure)
+      }),
+    gateAllowsEngine,
+    spawnEngine: startApi,
+  })
+  if (!outcome.ok && outcome.failure) {
+    showBootFailureAndQuit(outcome.failure)
+    return false
+  }
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -2112,14 +2171,14 @@ if (!gotSingleInstanceLock) {
     // this the first "Open Recent" click after launch would hit the
     // path-validation in project:read-file and get refused (debt #37).
     bootstrapAuthorisedPaths()
-    // Packaged builds bring their own PostgreSQL up before anything else —
-    // there is no Docker on a coworker's machine. A dev session skips this
-    // entirely and keeps talking to :5433 (debt #2, Fork A).
+    // Packaged builds move the live cluster off the Roaming profile and point
+    // the embedded layout at Local BEFORE the database starts (M1). The DB boot
+    // itself is deferred to just below, after the licence gate is known, so the
+    // engine can be spawned CONCURRENTLY with the cluster coming up (installer
+    // #13: the two ran in series). A dev session has no embedded stack and keeps
+    // talking to Docker on :5433 (debt #2, Fork A).
     if (app.isPackaged) {
-      // Move the live cluster off the Roaming profile and point the embedded
-      // layout at Local BEFORE the database starts (M1).
       relocateMachineLocalStores()
-      if (!(await bootEmbeddedDatabase())) return
     }
     // The recovery store has no Electron dependency of its own (so it stays
     // unit-testable), so it learns the userData directory and app version here.
@@ -2177,9 +2236,19 @@ if (!gotSingleInstanceLock) {
       e2e: e2eLaunchFlag(process.env, app.isPackaged),
       verdict: activationService.getStatus().verdict,
     })
-    if (launchBlocked) {
-      writeMainLog('[activation] launch blocked by the licence gate — backend deferred until activation')
-    } else {
+    // Packaged: boot the embedded DB and — if the gate allows — spawn the engine
+    // CONCURRENTLY with the cluster coming up (no engine before the gate passes;
+    // the DB boots regardless so a deferred build has a database ready for the
+    // engine that activation starts later). Dev: no embedded DB, so start the
+    // backend directly unless the gate blocks (it never does in dev).
+    if (app.isPackaged) {
+      if (!(await bootEmbeddedDatabase(() => !launchBlocked))) return
+      if (launchBlocked) {
+        writeMainLog(
+          '[activation] launch blocked by the licence gate — backend deferred until activation',
+        )
+      }
+    } else if (!launchBlocked) {
       startApi()
     }
     createWindow()
