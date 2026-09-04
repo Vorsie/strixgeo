@@ -97,6 +97,11 @@ dev = [
 # capped below 5 so a `uv lock --upgrade` cannot pull a breaking major that
 # changes the module-mode CLI the driver depends on.
 compile = ["nuitka>=4.2,<5"]
+docs = [
+    "furo>=2025.12.19",
+    "sphinx>=9.0.4",
+    "sphinx-copybutton>=0.5.2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
