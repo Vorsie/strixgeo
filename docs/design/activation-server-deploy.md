@@ -292,6 +292,8 @@ LIMIT 50;
 
 ---
 
+**SSH host (2026-09-04 11:30):** `ssh.strixgeo.com` is a live CNAME to `ssh080.webhosting.be` (same host key, verified with ssh-keyscan on both names); use the friendly name, and fall back to `ssh080.webhosting.be` only if the CNAME ever lapses.
+
 ## 12. 2026-09-03 late — duration keys
 
 Owner ruling 2026-09-03: "Once the users activate their key, their 30 days timer
