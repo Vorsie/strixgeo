@@ -97,7 +97,7 @@ def test_sand_layer_carries_a_dr_and_nad_class() -> None:
 
 def test_deep_loose_sand_still_gets_dr_nad_raw_fr_gate() -> None:
     """Senior-review B1 regression: the sand Dr/NAD gate is on RAW
-    FR=fs/qc*100 (as in CPTE_2025.sce), not the Robertson-normalised F.
+    FR=fs/qc*100 (the clean-sand gate's raw friction ratio), not the Robertson-normalised F.
 
     A deep, loose, low-friction sand has raw FR < 1.2 but, under high
     overburden, normalised F ≥ 1.2. Gating on normalised F (the bug)
