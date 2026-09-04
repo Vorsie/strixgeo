@@ -39,6 +39,13 @@ interface Props {
   onLoadSample: () => void
   /** Activate the guided tutorial (App owns the tutorial-active flag). */
   onStartTutorial: () => void
+  /**
+   * Whether a worked example is bundled with this build. The sample card is
+   * offered only then (owner 2026-09-04: with no file behind it the card led
+   * straight into the tutorial on an empty project). Default false: never
+   * offer what cannot be loaded.
+   */
+  sampleAvailable?: boolean
 }
 
 /**
