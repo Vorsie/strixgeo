@@ -2858,3 +2858,58 @@ async def _create_contact(
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+async def test_patch_persists_nad_admixture_choice_round_trip(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Owner ruling 2026-09-04: the geotech admixture prompt PATCHes the engineer's
+    'pure' / 'with_admixture' answer onto the litho unit, and it is read back on
+    the formation — so a re-divide does not re-ask.
+
+    Also covers the change-my-answer path (PATCH null clears it) and the
+    validator (an unknown answer is refused 422).
+    """
+    project, _borehole = project_with_borehole
+    # A litho unit whose silt/clay admixture the NAD table can classify either way.
+    create = await async_client.post(
+        f"/projects/{project.id}/geology/formations",
+        json={
+            "name": "Antropogeen — silty Zand",
+            "litho_main_soil_code": "ZAND",
+            "litho_admixtures": [{"soil_code": "KL", "amount": "M", "locally": False}],
+        },
+    )
+    assert create.status_code == 201, create.text
+    fid = create.json()["id"]
+    # Default: no answer yet.
+    assert create.json()["nad_admixture_choice"] is None
+
+    # The prompt persists 'with_admixture'.
+    patched = await async_client.patch(
+        f"/projects/{project.id}/geology/formations/{fid}",
+        json={"nad_admixture_choice": "with_admixture"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["nad_admixture_choice"] == "with_admixture"
+
+    # Read back on the formation list — it persisted.
+    listed = await async_client.get(f"/projects/{project.id}/geology/formations")
+    by_id = {f["id"]: f for f in listed.json()}
+    assert by_id[fid]["nad_admixture_choice"] == "with_admixture"
+
+    # Change-my-answer: null clears it back to auto.
+    cleared = await async_client.patch(
+        f"/projects/{project.id}/geology/formations/{fid}",
+        json={"nad_admixture_choice": None},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["nad_admixture_choice"] is None
+
+    # An unknown answer is refused, not stored.
+    bad = await async_client.patch(
+        f"/projects/{project.id}/geology/formations/{fid}",
+        json={"nad_admixture_choice": "sandy"},
+    )
+    assert bad.status_code == 422, bad.text
