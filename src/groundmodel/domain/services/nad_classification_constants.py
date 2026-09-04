@@ -1,8 +1,7 @@
 """NAD packing-class lookup: ``(soil, admixture-variant, qc) → class 1–31``.
 
-Production thresholds ported from the Belgian NAD table (Task T0): the
-``NAD-NEN`` sheet of ``Correlaties uit S en NAD_NEN_v2.xlsx`` (Daniel Verastegui,
-CPTE_2025), == the table on page 2 of ``NO26043_BepalingTabelGrond­
+Production thresholds ported from the NAD table of NEN 9997-1 (the Dutch
+national annex to Eurocode 7, table 2.b), as tabulated on page 2 of ``NO26043_BepalingTabelGrond­
 karakteristieken_v1.0``. Each class's tabulated qc is the LOWER bound of its
 packing band; the band's upper bound is the next (denser) class's qc, so e.g.
 ``ZAND, matig gp`` is ``4 ≤ qc < 10`` and ``zeer dicht`` is ``qc ≥ 15`` (the
