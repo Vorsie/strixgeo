@@ -87,7 +87,7 @@ For both D-Series targets:
 * **Design parameters are written only where the published NAD table carries the
   unit's class.** StrixGeo carries the NAD characteristic soil parameters — unit
   weight γ, effective friction angle φ′, effective cohesion c′ — per packing
-  class, transcribed from the NAD table of NEN 9997-1 (Tabel 2.b). When a class
+  class, transcribed from the NAD table of NBN EN 1997-1 ANB (Tabel 2.1). When a class
   is in that table, its γ, φ′ and c′ ride on the Mohr-Coulomb soil, and the
   soil's note names the source table. When a class is not in the table, the
   parameters stay at GEOLib's own blank initial values — chosen over a plausible
