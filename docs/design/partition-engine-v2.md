@@ -796,36 +796,41 @@ framing.
 1. run the fill once (unchanged);
 2. `detectFloodedUnits` scans for any drilled unit painted a foreign litho at its
    OWN column edge (samples the near-column band interior above the shallow TD);
-3. if any, re-run with those units' onlaps FORCED ON (`forceOnlapUnits` bypasses
-   the 8m skip for exactly them), accumulating over ≤3 iterations to a fixed
-   point.
+3. if any, re-run with those units DEMOTED TO CORR-0 (`forceLensUnits` — the sweep
+   reads `isForcedLens` and forces the effective corr to 0), so each flooded unit
+   draws its own-elevation LENS, accumulating over ≤3 iterations to a fixed point.
 
 Clean cases flood nothing → detect nothing → never re-run → **byte-identical** to
-the pre-repair engine (verified: full v2 suite unchanged, conformance 10, holes
-0/0/0). Only the failing cases are repaired. This deliberately does NOT change the
-merge engine's default — the reason two earlier upfront discriminators
-(body-identity, `facingCoversSpan`) were rejected: both perturbed clean merges.
+the pre-repair engine. Only the failing cases are repaired. This deliberately does
+NOT change the merge engine's default — the reason two earlier upfront
+discriminators (body-identity, `facingCoversSpan`) were rejected: both perturbed
+clean merges.
 
-**Review flags (the UX call, owner "give the ux call").** The repaired units ARE
-the uncorrelated same-litho neighbours worth surfacing. `computeSectionFillV2WithConflicts`
-returns `reviewFlags: {layerId, gapIndex, side}[]`, surfaced through
-`computeSectionFillActiveWithDiagnostics`. **SHIPPED** as `ReviewFlagLayer`
-(rendered by `PartitionFillOverlay`; dismissal persisted via `reviewFlagPrefs` →
-`view_state.review_flags`; positioned at the drilled unit's gap-facing column
-edge via `screenByInv`, nudge-aware). Owner dogfeed pending (live marker render +
-correlate/dismiss round-trip can only be verified in the running app). The surface is:
-* **Advisory, not an error** — the engine already preserved the data; the flag
-  invites an *optional* correlation. Never a modal/confirm/build-blocker
-  (assisted-manual, explicit-content model).
-* **Amber, low-emphasis** — not red (red is for conflicts/errors); amber is the
-  project's "attention, not error" colour (dirty-marker convention).
-* **Litho axis only** — a small marker on the repaired region; hidden on the
-  geology/geotech axes.
-* **Interaction** — click → popover "These units aren't correlated. [Correlate]
-  [Keep separate]". Correlate draws the edge (→ they band next build); Keep
-  separate dismisses and persists the dismissal in the `.gmproj` bundle so it
-  does not re-nag.
-* **Always-on** (soft coupling → always-on), Settings → Litho toggle if noisy.
+**A flooded unit is re-drawn as a LENS, never an onlap (owner ruling 2026-09-04).**
+Looking at the packaged build — a SAND unit at the bottom of a column with no
+correlation on either side that rendered as a half-band onlap with an amber "!" —
+the owner ruled: *"I can't correlate to left. zero ties = lens."* A drilled unit
+the repair rescues renders as a LENS — a closed pinch-out inside the column's
+reach, apex at the unit's own elevation, exactly what a 0-tie unit gets when
+nothing floods it — never as a forced onlap. So the repair demotes a flagged unit
+to corr-0 (`forceLensUnits`), not to a corr-1 onlap. This SUPERSEDES the original
+2026-07-26 form ("re-emit the onlaps that were deleted", `forceOnlapUnits`, which
+demoted a forced corr-2 to corr-1 and bypassed the corr-1 8m skip — both onlap
+shapes). Ruling 8k still holds: the column edge shows the unit's own litho, and a
+lens satisfies it. Pinned by `partitionFillV2.floodedUnitLensNotOnlap.test.ts`
+(a force-flagged corr-1 onlap unit draws a lens flank, never an `oflank`) and the
+real-data ground-truth gates (`.drilledLithoSurvives` / `.dataLossRepair`).
+
+**Review-flag DATA is kept; the amber marker is GONE (owner ruling 2026-09-04).**
+The repaired units are still returned as `reviewFlags: {layerId, gapIndex, side}[]`
+by `computeSectionFillV2WithConflicts` (data other code may read), but the
+litho-axis amber "!" marker is REMOVED — the owner: *"I don't know why the
+attention marker is there."* The "correlate?" invitation confused rather than
+helped, so `ReviewFlagLayer` and its marker memo/mount in `PartitionFillOverlay`,
+and the `useSessionReviewFlagDismissals` glue in `SectionPanel`, were deleted. The
+persisted `view_state.review_flags` field and its `reviewFlagPrefs` read/write
+helpers are LEFT INTACT (backwards-compat — an old `.gmproj` carrying dismissals
+still loads cleanly); nothing renders from them now.
 
 ## 11. Ground-truth overpaint gate + enclosed-lens floor clamp + conformance → 0 (owner ruling 2026-07-26, cont.)
 
