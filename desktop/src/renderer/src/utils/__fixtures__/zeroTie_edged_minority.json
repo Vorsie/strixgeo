@@ -1,0 +1,226 @@
+{
+ "provenance": "Anonymised 3-column extract (S1/S22/S2) of Cross-section 1 from the owner test3.strix dev project. Geometry verbatim; ids anonymised. Reproduces the zero-tie edged same-formation-enclosed minority (the S22 lower sand): 0 ties toward the shallow facing column, a top tie to the right band column. See partitionFillV2.zeroTieLens.invariant.test.ts.",
+ "lithoSoil": {
+  "formation-sand": "ZAND",
+  "formation-silt": "SILT",
+  "formation-siltclay": "SILT"
+ },
+ "alongM": [
+  374.101,
+  407.692,
+  414.35
+ ],
+ "sandLayerId": "lay-010",
+ "owningColumnIndex": 1,
+ "untiedGapIndex": 0,
+ "tiedGapIndex": 1,
+ "columns": [
+  {
+   "investigationId": "col-3",
+   "surfaceElevM": 9.76,
+   "units": [
+    {
+     "layerId": "lay-001",
+     "topDepthM": 0.02,
+     "baseDepthM": 4.250929943782259,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-001"
+    },
+    {
+     "layerId": "lay-002",
+     "topDepthM": 4.250929943782259,
+     "baseDepthM": 9.74,
+     "formationId": "formation-siltclay",
+     "bodyId": "body-lay-002"
+    },
+    {
+     "layerId": "lay-003",
+     "topDepthM": 9.74,
+     "baseDepthM": 14.08,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-003"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-4",
+   "surfaceElevM": 7.66,
+   "units": [
+    {
+     "layerId": "lay-004",
+     "topDepthM": 0.02,
+     "baseDepthM": 1.96,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-004"
+    },
+    {
+     "layerId": "lay-005",
+     "topDepthM": 1.96,
+     "baseDepthM": 2.2630311151308105,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-005"
+    },
+    {
+     "layerId": "lay-006",
+     "topDepthM": 2.2630311151308105,
+     "baseDepthM": 2.7,
+     "formationId": "formation-siltclay",
+     "bodyId": "body-lay-006"
+    },
+    {
+     "layerId": "lay-007",
+     "topDepthM": 2.7,
+     "baseDepthM": 3.72,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-007"
+    },
+    {
+     "layerId": "lay-008",
+     "topDepthM": 3.72,
+     "baseDepthM": 6.74,
+     "formationId": "formation-siltclay",
+     "bodyId": "body-lay-008"
+    },
+    {
+     "layerId": "lay-009",
+     "topDepthM": 6.74,
+     "baseDepthM": 9.45,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-009"
+    },
+    {
+     "layerId": "lay-010",
+     "topDepthM": 9.45,
+     "baseDepthM": 12.77,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-010"
+    },
+    {
+     "layerId": "lay-011",
+     "topDepthM": 12.77,
+     "baseDepthM": 18.478782194084324,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-011"
+    },
+    {
+     "layerId": "lay-012",
+     "topDepthM": 18.478782194084324,
+     "baseDepthM": 18.7,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-012"
+    }
+   ]
+  },
+  {
+   "investigationId": "col-5",
+   "surfaceElevM": 8.62,
+   "units": [
+    {
+     "layerId": "lay-013",
+     "topDepthM": 0.02,
+     "baseDepthM": 1.4206223026162164,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-013"
+    },
+    {
+     "layerId": "lay-014",
+     "topDepthM": 1.4206223026162164,
+     "baseDepthM": 4.1,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-014"
+    },
+    {
+     "layerId": "lay-015",
+     "topDepthM": 4.1,
+     "baseDepthM": 4.76,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-015"
+    },
+    {
+     "layerId": "lay-016",
+     "topDepthM": 4.76,
+     "baseDepthM": 5.854431296017296,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-016"
+    },
+    {
+     "layerId": "lay-017",
+     "topDepthM": 5.854431296017296,
+     "baseDepthM": 8.575493526278917,
+     "formationId": "formation-siltclay",
+     "bodyId": "body-lay-017"
+    },
+    {
+     "layerId": "lay-018",
+     "topDepthM": 8.575493526278917,
+     "baseDepthM": 9.849120144709188,
+     "formationId": "formation-silt",
+     "bodyId": "body-lay-018"
+    },
+    {
+     "layerId": "lay-019",
+     "topDepthM": 9.849120144709188,
+     "baseDepthM": 12.01,
+     "formationId": "formation-sand",
+     "bodyId": "body-lay-019"
+    }
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "a": "lay-003",
+   "b": "lay-009",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-019",
+   "b": "lay-011",
+   "aSide": "base",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-018",
+   "b": "lay-009",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-017",
+   "b": "lay-008",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-013",
+   "b": "lay-004",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-019",
+   "b": "lay-010",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-001",
+   "b": "lay-004",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-014",
+   "b": "lay-005",
+   "aSide": "top",
+   "bSide": "top"
+  },
+  {
+   "a": "lay-002",
+   "b": "lay-008",
+   "aSide": "top",
+   "bSide": "top"
+  }
+ ]
+}
