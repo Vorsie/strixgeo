@@ -10,14 +10,14 @@ weight γ, effective friction angle φ′ and effective cohesion c′.
 Those numbers are NOT in this repository, and this module does NOT invent
 them. It ships :data:`NAD_SOIL_PARAMETERS` transcribed from that table. The plumbing that
 reads it (the D-Stability and D-Sheet Piling exporters) is wired so that the
-day the owner transcribes the workbook into this dict — one
+day the owner transcribes the table into this dict — one
 :class:`NadSoilParameters` per class, keyed by the NAD class number from
 ``litho_constants.NAD_CLASSES`` — the exports carry the parameters with no
 further code change. Filling the table is the only remaining step.
 
 Discipline
 ----------
-* **Transcribe, never infer.** Every value is read from the workbook. A
+* **Transcribe, never infer.** Every value is read from the table. A
   correlation Strix computes itself would be a design output, which the
   product deliberately does not ship (CLAUDE.md "Core Philosophy"); a value
   the owner reads from a published norm table is a characterisation input the
@@ -52,7 +52,7 @@ class NadSoilParameters:
     A frozen value object — it holds data and does not act, so it does not
     inherit ``GroundModelLogger`` (CLAUDE.md "Logging via inheritance").
     Every field is a characteristic value transcribed from the NAD-NEN
-    workbook, in the unit named by its suffix.
+    table, in the unit named by its suffix.
 
     Attributes
     ----------
@@ -67,7 +67,7 @@ class NadSoilParameters:
         Effective cohesion c′, kPa. Zero for a clean sand or gravel.
     cu_kpa : float | None
         Characteristic undrained shear strength, kPa; ``None`` for the granular
-        classes, where the workbook carries a dash.
+        classes, where the table carries a dash.
     """
 
     gamma_unsat_kn_m3: float
@@ -78,9 +78,9 @@ class NadSoilParameters:
 
 
 #: NAD class number (1..31) → characteristic parameters. EMPTY on purpose —
-#: the owner transcribes the workbook here (see the module docstring). Every
+#: the owner transcribes the table here (see the module docstring). Every
 #: key MUST be a class from ``NAD_CLASSES``; every value MUST be read from the
-#: workbook, never inferred. Example of one filled row (illustrative shape
+#: table, never inferred. Example of one filled row (illustrative shape
 #: only — NOT a real value):
 #:     6: NadSoilParameters(
 #:         gamma_unsat_kn_m3=..., gamma_sat_kn_m3=...,
