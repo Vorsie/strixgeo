@@ -2,7 +2,7 @@
   "_meta": {
     "purpose": "Committed audit reference for the Belgian NAD packing-class table (1-31). The classifier constants are validated against this snapshot by tests/unit/domain/services/test_nad_reference_manifest.py, so any change to the qc thresholds or class names is a deliberate, reviewed edit (must update this file too) rather than a silent drift.",
     "code_source": "src/groundmodel/domain/services/nad_classification_constants.py (NAD_QC_BANDS) + src/groundmodel/shared/constants/litho_constants.py (NAD_CLASSES)",
-    "workbook_filename": "Correlaties uit S en NAD_NEN_v2.xlsx",
+    "workbook_filename": "NEN 9997-1 Tabel 2.b transcription sheet (sha256 below)",
     "workbook_sha256": "77d4811f48b655c87a8c0749090764919f2221b85096c87bb4a86add7bc134f2",
     "workbook_sheet": "NAD-NEN",
     "verified_against_workbook": true,
