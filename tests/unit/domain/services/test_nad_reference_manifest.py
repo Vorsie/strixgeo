@@ -65,7 +65,7 @@ def test_every_workbook_characteristic_qc_classifies_to_its_own_class() -> None:
     Audit F30's finding was that the strongest classifier test compared the
     implementation to a transcription OF the implementation. The manifest now
     carries each class's characteristic qc as read from the NEN 9997-1 transcription sheet
-    (``Correlaties uit S en NAD_NEN_v2.xlsx``, NAD-NEN sheet, sha256 in _meta) —
+    (the NEN 9997-1 Tabel 2.b transcription sheet, sha256 in _meta) —
     values the code never contained — and every one must classify back to its
     own class. A mis-typed threshold that shifts any band edge past a
     characteristic value goes RED here, whichever copy drifted.
