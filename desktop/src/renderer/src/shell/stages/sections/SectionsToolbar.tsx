@@ -575,8 +575,11 @@ export default function SectionsToolbar(): JSX.Element {
         modelPending: tieStatus.pending,
         pendingBySection: tieStatus.pendingBySection,
         activeSectionId: selectedSectionId,
+        // Names, so the chip tooltip can say WHICH other sections still carry
+        // pending ties (owner 2026-09-04: a flag with no visible reason).
+        sectionNames: Object.fromEntries(sections.map(s => [s.id, s.name])),
       }),
-    [tieStatus.pending, tieStatus.pendingBySection, selectedSectionId],
+    [tieStatus.pending, tieStatus.pendingBySection, selectedSectionId, sections],
   )
 
   // Step 4's gate, on the ties of the section it divides (owner ruling
