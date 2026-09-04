@@ -48,12 +48,12 @@ CPT correlations
 Classification table
 --------------------
 
-* **NEN 9997-1 — Geotechnical design of structures — Part 1: General rules**
-  (the Dutch national annex to Eurocode 7, NEN 9997-1+C2), **Tabel 2.b** — the
-  NAD packing-class table (classes 1–31: los / matig / dicht / zeer dicht for
-  sand and gravel; weinig-vast → vast for the fine soils; per soil and admixture
-  variant). (Chapter 3, section 8.) The equivalent Belgian national annex is
-  **NBN EN 1997-1 ANB**; see the discrepancy note in chapter 3.
+* **NBN EN 1997-1 ANB — Eurocode 7: Geotechnical design — Part 1: General rules —
+  Belgian national annex**, **Tabel 2.1** — the NAD packing-class table
+  (classes 1–31: los / matig / dicht / zeer dicht for sand and gravel;
+  weinig-vast → vast for the fine soils; per soil and admixture variant).
+  (Chapter 3, section 8.) The Dutch annex NEN 9997-1 carries the analogous
+  Tabel 2.b; it is not the source (owner ruling 2026-09-04).
 
 Data-format specifications
 --------------------------
