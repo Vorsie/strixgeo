@@ -256,7 +256,7 @@ class DStabilityExporter(SectionGeometryExporter):
                 self.debug(
                     f"D-Stability soil added: code='{code}' name='{unit.name}' "
                     f"nad_class={unit.nad_class} soil={unit.litho_main_soil_code} "
-                    f"parameters=NAD Tabel 2.b (gamma_unsat={params.gamma_unsat_kn_m3} "
+                    f"parameters=NAD Tabel 2.1 (gamma_unsat={params.gamma_unsat_kn_m3} "
                     f"gamma_sat={params.gamma_sat_kn_m3} phi={params.phi_deg} "
                     f"c={params.c_kpa})"
                 )
@@ -269,7 +269,7 @@ class DStabilityExporter(SectionGeometryExporter):
             emitted += 1
         self.info(
             f"D-Stability soil parameters: {parameterised}/{emitted} soil(s) carried "
-            f"NAD Tabel 2.b characteristic values, {emitted - parameterised} left at "
+            f"NAD Tabel 2.1 characteristic values, {emitted - parameterised} left at "
             "GEOLib's blank defaults"
         )
         if skipped:
