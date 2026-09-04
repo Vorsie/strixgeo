@@ -20,7 +20,7 @@
 // renders it and owns only the expand state + the listbox a11y.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Layers } from 'lucide-react'
 
 import { useT } from '../../../i18n/translate'
 import { bodyUnionsToGroupPairs, geotechGroupOrdinals } from '../../../utils/geotechGroupOrdinals'
@@ -31,84 +31,16 @@ import {
   scopeKey,
   type ParameterTreeNode,
 } from './parameterBodyTree'
+import {
+  ancestorsOfSelection,
+  checkedDescendantCount,
+  defaultOpenLithoBodyKeys,
+  flattenVisible,
+} from './unitTreeView'
 import { useBodyUnions } from './useBodyUnions'
 import { useModelBodies } from './useModelBodies'
 import UnitGroupActionBar from './UnitGroupActionBar'
 import { useUnitGrouping } from './useUnitGrouping'
-
-/** One visible tree row after the expand state is applied. */
-interface FlatRow {
-  node: ParameterTreeNode
-  depth: number
-}
-
-/**
- * The keys of every ancestor of the selected node (not the node itself), so a
- * jump-arrived selection expands its whole path (PU17 precedent).
- */
-function ancestorsOfSelection(
-  nodes: readonly ParameterTreeNode[],
-  selectedKey: string | null,
-): ReadonlySet<string> {
-  const out = new Set<string>()
-  if (selectedKey === null) return out
-  const walk = (node: ParameterTreeNode, ancestors: string[]): boolean => {
-    if (scopeKey(node.scope) === selectedKey) {
-      for (const a of ancestors) out.add(a)
-      return true
-    }
-    const nextAncestors = [...ancestors, scopeKey(node.scope)]
-    return node.children.some(child => walk(child, nextAncestors))
-  }
-  nodes.forEach(node => walk(node, []))
-  return out
-}
-
-/**
- * The keys of litho-body nodes that open by DEFAULT — a litho body whose only
- * child is its single packing class.
- *
- * Owner ruling 2026-09-02 (verbatim: "i see some litho bodies whose submenus i
- * cannot open ... only one packing class ... don't collapse because the
- * pakkingsdichtheid label disappears"): a single-class litho body must show
- * that class row — the pakkingsdichtheid label — without an extra click. Each
- * such key is SEEDED open once, into the real expand state (see the effect in
- * ``UnitListPane``), so the row stays a normal, fully collapsible tree node
- * rather than a force-open one with an inert chevron.
- */
-function defaultOpenLithoBodyKeys(
-  nodes: readonly ParameterTreeNode[],
-): ReadonlySet<string> {
-  const out = new Set<string>()
-  const walk = (node: ParameterTreeNode): void => {
-    if (
-      node.scope.kind === 'litho-body' &&
-      node.children.length === 1 &&
-      node.children[0].scope.kind === 'geotech-class'
-    ) {
-      out.add(scopeKey(node.scope))
-    }
-    node.children.forEach(walk)
-  }
-  nodes.forEach(walk)
-  return out
-}
-
-/** Flatten the tree to the rows currently visible, in display order. */
-function flattenVisible(
-  nodes: readonly ParameterTreeNode[],
-  isOpen: (key: string) => boolean,
-  depth: number,
-): FlatRow[] {
-  const rows: FlatRow[] = []
-  for (const node of nodes) {
-    rows.push({ node, depth })
-    if (node.children.length > 0 && isOpen(scopeKey(node.scope))) {
-      rows.push(...flattenVisible(node.children, isOpen, depth + 1))
-    }
-  }
-  return rows
-}
 
 /**
  * Unit roster (the body tree) for the Parameters inspector.
@@ -286,6 +218,7 @@ export default function UnitListPane(): JSX.Element {
         <UnitGroupActionBar
           count={grouping.count}
           guard={grouping.guard}
+          selectedClassNames={grouping.selectedClassNames}
           hasGrouped={grouping.hasGroupedInSelection}
           busy={grouping.busy}
           onGroup={grouping.group}
@@ -298,9 +231,19 @@ export default function UnitListPane(): JSX.Element {
         {rows.map(({ node, depth }) => {
           const key = scopeKey(node.scope)
           const expandable = node.children.length > 0
-          // Only geotech bodies are groupable, so only their rows carry a
-          // multi-select checkbox (the guard + the union client are body-level).
-          const checkableBodyId = node.scope.kind === 'geotech-body' ? node.scope.bodyId : null
+          // A row carries a grouping checkbox when the tree gave it a
+          // ``groupableBodyId`` — a geotech-body leaf, OR a class row that
+          // collapsed its lone geotech body into itself. The latter is what lets
+          // the owner tick a single-body class row under one litho parent and a
+          // same-class one under ANOTHER, then Group across them (owner finding
+          // 2026-09-04). The checked-set is pane-wide, so collapsing a parent
+          // never loses a tick.
+          const checkableBodyId = node.groupableBodyId ?? null
+          // A COLLAPSED expandable row surfaces how many of its hidden
+          // descendants are checked, so a tick made then hidden is not invisible
+          // (ux-reviewer 2026-09-04). Open rows show the ticks themselves.
+          const hiddenCheckedCount =
+            expandable && !isOpen(key) ? checkedDescendantCount(node, grouping.isChecked) : 0
           return (
             <NodeRow
               key={key}
@@ -314,6 +257,7 @@ export default function UnitListPane(): JSX.Element {
               checkableBodyId={checkableBodyId}
               checked={checkableBodyId !== null && grouping.isChecked(checkableBodyId)}
               onToggleCheck={checkableBodyId !== null ? () => grouping.toggle(checkableBodyId) : undefined}
+              hiddenCheckedCount={hiddenCheckedCount}
             />
           )
         })}
@@ -350,6 +294,7 @@ function NodeRow({
   checkableBodyId,
   checked,
   onToggleCheck,
+  hiddenCheckedCount,
 }: {
   node: ParameterTreeNode
   depth: number
@@ -364,6 +309,8 @@ function NodeRow({
   checked: boolean
   /** Toggle the checkbox; absent on non-groupable rows. */
   onToggleCheck?: () => void
+  /** Checked groupable bodies hidden inside this COLLAPSED row; 0 hides the flag. */
+  hiddenCheckedCount: number
 }): JSX.Element {
   const t = useT()
   const key = scopeKey(node.scope)
@@ -400,16 +347,25 @@ function NodeRow({
       data-testid={`parameters-node-${key}`}
     >
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-primary">
-        {/* Multi-select checkbox — geotech-body rows only (docs/ux.md: always
+        {/* Multi-select checkbox — groupable rows only (docs/ux.md: always
             visible, left of the row icon). ``tabIndex=-1`` keeps the listbox a
             single tab stop (F11); it is a mouse-first power-user affordance, and
-            ``stopPropagation`` stops the click from also selecting the row. */}
+            ``stopPropagation`` stops the click from also selecting the row. A
+            COLLAPSED class row's label is only the packing class, so its checkbox
+            name adds the litho parent (ux-reviewer 2026-09-04). */}
         {checkableBodyId !== null && (
           <input
             type="checkbox"
             tabIndex={-1}
             checked={checked}
-            aria-label={t('params.groupCheckboxAria', { label: node.label })}
+            aria-label={
+              node.groupableBodyParentLabel !== undefined
+                ? t('params.groupCheckboxAriaWithParent', {
+                    label: node.label,
+                    parent: node.groupableBodyParentLabel,
+                  })
+                : t('params.groupCheckboxAria', { label: node.label })
+            }
             data-testid={`parameters-node-check-${key}`}
             onClick={e => e.stopPropagation()}
             onChange={() => onToggleCheck?.()}
@@ -446,6 +402,20 @@ function NodeRow({
             data-testid={`parameters-node-group-${key}`}
           >
             {t('geotech.groupTag', { count: node.groupNumber })}
+          </span>
+        )}
+        {/* A collapsed row surfaces how many checked bodies are hidden inside it
+            (ux-reviewer 2026-09-04) — accent, never amber (amber = unsaved). The
+            title/aria carries the full sentence for AT. */}
+        {hiddenCheckedCount > 0 && (
+          <span
+            className="ml-1 shrink-0 inline-flex items-center gap-0.5 text-accent tabular-nums"
+            title={t('params.checkedInside', { n: hiddenCheckedCount })}
+            aria-label={t('params.checkedInside', { n: hiddenCheckedCount })}
+            data-testid={`parameters-node-checked-inside-${key}`}
+          >
+            <Check size={10} aria-hidden="true" />
+            {hiddenCheckedCount}
           </span>
         )}
         <span
