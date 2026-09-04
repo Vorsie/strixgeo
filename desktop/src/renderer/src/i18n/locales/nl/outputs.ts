@@ -158,8 +158,12 @@ export const OUTPUTS_NL = {
   'params.ungroup': 'Ontkoppelen',
   'params.clearSelection': 'Wissen',
   'params.groupCheckboxAria': 'Selecteer {label} om te groeperen',
+  'params.groupCheckboxAriaWithParent': 'Selecteer {label} ({parent}) om te groeperen',
+  'params.checkedInside': '{n} aangevinkt hierin',
   'params.groupNeedTwoHint': 'Selecteer minstens twee lichamen om te groeperen.',
   'params.groupCrossClassHint': 'Alleen lichamen met dezelfde pakkingsklasse kunnen worden gegroepeerd.',
+  'params.groupCrossClassHintNamed':
+    'Alleen lichamen met dezelfde pakkingsklasse kunnen worden gegroepeerd — je selecteerde {classes}.',
   'params.grouped': 'Gegroepeerd — selecteer een lid en klik Ontkoppelen om ongedaan te maken.',
   'params.ungrouped': 'Ontkoppeld — het lichaam staat weer los.',
   'params.groupFailed': 'Kon de lichamen niet groeperen.',
