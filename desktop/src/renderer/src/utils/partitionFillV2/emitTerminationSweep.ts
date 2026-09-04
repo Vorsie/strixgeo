@@ -51,7 +51,7 @@ import { type Corr0Diamond } from './detourBandContour'
 import { drawTermination } from './drawTermination'
 import { emitBoundaryLens, emitSurfaceOnlapFlank } from './emitBoundaryLens'
 import { emitContinuation, terminationRun } from './emitContinuation'
-import { isForcedOnlap } from './forceOnlapUnits'
+import { isForcedLens } from './forceLensUnits'
 import { type ResolvedTie } from './emitCurves'
 import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
 import { emitLensClosing, type IntervalUnit } from './emitIntervalLenses'
@@ -269,15 +269,16 @@ function emitSideSweep(
     const isSplit = pieces.length > 1
     const plan = isSplit ? undefined : planAt.get(`${gapIndex}|${side}|${ui}`)
     const rawCorr = plan ? plan.corr : eff.corr
-    // SAFE-DEFAULT REPAIR (owner 2026-07-26): a FORCED-flooded corr-2 BAND MEMBER — its band failed
-    // to render, so the enclosing flood painted the DRILLED unit a FOREIGN litho (hidden data loss
-    // the holes gate can't see: the space is filled, just with the wrong litho) — is WIRED THROUGH
-    // the termination path instead of being skipped. Demote it to a corr-1 ONLAP so its own litho
-    // survives at its column. Only a ``detectFloodedUnits``-flagged unit is forced, so the clean
-    // corr-2 bands are never demoted (byte-identical). corr-1 flooded units already flow through the
-    // ``drawTermination`` 8m bypass; this covers the corr-2 class the sweep used to drop.
+    // SAFE-DEFAULT REPAIR (owner 2026-07-26, RE-RULED 2026-09-04 "zero ties = lens"): a FLOODED
+    // drilled unit — the enclosing flood painted its OWN column a FOREIGN litho (hidden data loss the
+    // holes gate can't see: the space is filled, just with the wrong litho) — is DEMOTED TO CORR-0 so
+    // the sweep draws its own-elevation LENS (a closed pinch-out inside the column's reach), never a
+    // forced onlap. This ONE site covers every flooded class: a corr-2 band member whose band failed
+    // to render AND a corr-1 unit whose 8m same-litho onlap was suppressed both lens here. Only a
+    // ``detectFloodedUnits``-flagged unit is forced, so clean bands/onlaps are never demoted
+    // (byte-identical to the no-repair pass).
     const c: 0 | 1 | 2 =
-      rawCorr === 2 && isForcedOnlap(piece.unit.layerId, gapIndex, side) ? 1 : rawCorr
+      isForcedLens(piece.unit.layerId, gapIndex, side) ? 0 : rawCorr
     if (c === 2) continue // band member / first-unit band — given line art (bandc), no termination
     // RULING 8l (CORR IS THE LITERAL COUNT — audit item 2, S34): the HIDDEN BAND PROMOTION
     // ``if (isBandMember) continue`` is DELETED. A ``collectGapBands`` matched-pair member is a
