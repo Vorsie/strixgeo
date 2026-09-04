@@ -108,7 +108,7 @@ describe('the profile is applied before anything reads userData', () => {
     expect(profile).toBeLessThan(offsetOf('configureRecoveryStore('))
     expect(profile).toBeLessThan(offsetOf('configureBetaExpiryStore('))
     expect(profile).toBeLessThan(offsetOf('configureDiagnosticsStore('))
-    expect(profile).toBeLessThan(offsetOf('startEmbeddedStack('))
+    expect(profile).toBeLessThan(offsetOf('prepareEmbeddedStack('))
   })
 
   it('PP7 — logs are relocated by passing %LOCALAPPDATA% to the profile (M1)', () => {
@@ -117,7 +117,7 @@ describe('the profile is applied before anything reads userData', () => {
 
   it('PP8 — the cluster is relocated BEFORE the database boots (M1)', () => {
     const relocate = offsetOf('relocateMachineLocalStores()')
-    const boot = offsetOf('bootEmbeddedDatabase()')
+    const boot = offsetOf('bootEmbeddedDatabase(')
     // The move + configurePgdataRoot must land before Postgres starts, or the
     // cluster would boot from the wrong directory.
     expect(relocate).toBeLessThan(boot)
