@@ -186,6 +186,7 @@ from groundmodel.domain.services.geotech_subdivision import (
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import mark_and_truncate_shallow_tests
+from groundmodel.domain.services.nad_admixture_choice import resolve_admixture_variant
 from groundmodel.domain.services.representative_statistic import REPRESENTATIVE_STATISTICS
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
@@ -912,6 +913,17 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             # Hoist formation attributes (constant for the whole group).
             soil_code = await self._formation_soil_code(source_litho_fid)
             admixtures = await self._formation_admixtures(source_litho_fid)
+            # Owner ruling 2026-09-04: the engineer's persisted answer for an
+            # admixture-ambiguous unit forces the NAD family. NULL → no override,
+            # so an un-answered unit classifies exactly as before.
+            admixture_choice = await self._formation_admixture_choice(source_litho_fid)
+            variant_override = resolve_admixture_variant(soil_code, admixtures, admixture_choice)
+            if variant_override is not None:
+                self.debug(
+                    f"SubdivideAllBodies: formation={source_litho_fid} "
+                    f"nad_admixture_choice={admixture_choice!r} → "
+                    f"variant_override={variant_override!r}"
+                )
 
             # Build a BandProfile per CPT member.
             # ``profile_by_seg_key`` is keyed by ``(investigation_id, top_depth_m)``
@@ -956,6 +968,7 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                     gradient_snap=gradient_snap,
                     gradient_snap_window_m=gradient_snap_window_m,
                     statistic=statistic,
+                    variant_override=variant_override,
                 )
                 bp = BandProfile(investigation_id=seg.investigation_id, splits=splits)
                 profiles.append(bp)
@@ -1642,3 +1655,24 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
             for entry in row.litho_admixtures
             if isinstance(entry, dict)
         )
+
+    async def _formation_admixture_choice(self, formation_id: UUID) -> str | None:
+        """Load the persisted NAD-family answer from a formation row.
+
+        Owner ruling 2026-09-04: an admixture-ambiguous litho unit stores the
+        engineer's ``'pure'`` / ``'with_admixture'`` answer, honoured by the
+        classifier. ``None`` means unanswered — the classifier keeps its
+        auto-from-admixtures behaviour.
+
+        Parameters
+        ----------
+        formation_id : UUID
+            The litho formation id.
+
+        Returns
+        -------
+        str | None
+            ``'pure'`` / ``'with_admixture'`` / ``None``.
+        """
+        row = await self._session.get(GeologicalFormationOrm, formation_id)
+        return row.nad_admixture_choice if row is not None else None
