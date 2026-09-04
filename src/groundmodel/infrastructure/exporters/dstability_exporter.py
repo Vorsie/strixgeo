@@ -44,16 +44,16 @@ GEOLib quirks this exporter works around
 from __future__ import annotations
 
 from io import BytesIO
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from geolib.geometry.one import Point
-from geolib.models import DStabilityModel
-from geolib.soils import (
-    MohrCoulombParameters,
-    ShearStrengthModelTypePhreaticLevel,
-    Soil,
-    SoilWeightParameters,
-)
+if TYPE_CHECKING:
+    # deferred: geolib (and its matplotlib/scipy/shapely deps) is imported lazily
+    # inside the methods that build the model — see ``export`` / ``_emit_layers`` /
+    # ``_build_soil``.  Importing this exporter at API boot (a router pulls it in
+    # to register a route) must not pay geolib's large import cost.
+    from geolib.models import DStabilityModel
+    from geolib.soils import Soil
 
 from groundmodel.application.section_polygon_set import (
     SectionPolygon,
@@ -133,6 +133,9 @@ class DStabilityExporter(SectionGeometryExporter):
                 "export. Draw the section fill (the three-level partition) before "
                 "exporting to D-Stability."
             )
+
+        # deferred: keeps geolib off the API boot path (see the module imports).
+        from geolib.models import DStabilityModel
 
         model = DStabilityModel()
         self._stamp_project_info(model, polygons)
@@ -281,6 +284,9 @@ class DStabilityExporter(SectionGeometryExporter):
         labels: dict[UUID, str],
     ) -> int:
         """Add one D-Stability layer per drawable region. Returns the count."""
+        # deferred: keeps geolib off the API boot path (see the module imports).
+        from geolib.geometry.one import Point
+
         emitted = 0
         total = len(drawable)
         for index, polygon in enumerate(drawable, start=1):
@@ -340,6 +346,14 @@ def _build_soil(
         phreatic level (so the strength is used below the water table, not
         GEOLib's default Su model), and both unit weights are set.
     """
+    # deferred: keeps geolib off the API boot path (see the module imports).
+    from geolib.soils import (
+        MohrCoulombParameters,
+        ShearStrengthModelTypePhreaticLevel,
+        Soil,
+        SoilWeightParameters,
+    )
+
     if params is None:
         return Soil(name=unit.name, code=code)
     return Soil(
