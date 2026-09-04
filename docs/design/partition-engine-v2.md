@@ -821,6 +821,24 @@ lens satisfies it. Pinned by `partitionFillV2.floodedUnitLensNotOnlap.test.ts`
 (a force-flagged corr-1 onlap unit draws a lens flank, never an `oflank`) and the
 real-data ground-truth gates (`.drilledLithoSurvives` / `.dataLossRepair`).
 
+**The section's OUTER EDGE obeys the same rule (owner ruling 2026-09-04, "S22 is still
+an open end").** The first and last column's units are extended OUTWARD to the section
+boundary by the overlay's open-end stub (`PartitionFillOverlay`) — the section edge is
+NOT a gap, so the arrangement emits nothing there and the stub is the only drawer. A
+unit with a tie inward keeps that flat rect extension; a unit with ZERO ties instead
+PINCHES OUT toward the edge as a closed lens triangle (full thickness on the column
+face, one apex in the open-end margin at `LENS_PINCH_FRACTION`), never an open band to
+the boundary. The engine hands the render its own 2/1/0 verdict for the two outward
+sides — the first column's rightward look and the last column's leftward look — via
+`outerEdgeTerminations.outerColumnZeroTieLayerIds` (`effectiveCorrForSide` corr 0), so
+the classification is not re-invented and the stub reuses the interior lens apex rather
+than a second lens drawer. The engine's per-gap regions are UNCHANGED (this is a
+render-only edge fix): the CS1 golden's engine half and its geotech-axis screen half —
+which does not capture `partition-edge-*` stubs — both stay byte-identical. Pinned by
+`outerEdgeTerminations.test.ts` (the classifier) and the overlay's `EDGELENS` case (the
+pinch shape); the light direct-tie path does not fold the rare crossing-tie suspension
+or jump-tie bridge anchor at an outer column.
+
 **Review-flag DATA is kept; the amber marker is GONE (owner ruling 2026-09-04).**
 The repaired units are still returned as `reviewFlags: {layerId, gapIndex, side}[]`
 by `computeSectionFillV2WithConflicts` (data other code may read), but the
