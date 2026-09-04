@@ -848,7 +848,7 @@ def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
     # 1990 preview in ``cpt_interpretation.calculate_ic_series``.  The
     # litho segmenter has used the 2015 method since slice 3; switching
     # the chart's plot endpoint to the same path keeps the whole app
-    # consistent on Daniel Verastegui's method (no more two-method
+    # consistent on the Robertson 2015/2009 method (no more two-method
     # divergence at zone boundaries).  Response shape unchanged.
     ic = (
         ic_series_2015(
