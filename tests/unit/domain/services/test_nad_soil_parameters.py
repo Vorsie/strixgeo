@@ -2,8 +2,8 @@
 
 These tests guard the SHAPE of the parameter table, not its size — they
 pass on the empty table the repository ships and keep passing as the owner
-fills rows from the NEN 9997-1 Tabel 2.b transcription sheet
-(NEN 9997-1 Tabel 2.b characteristic values). What they refuse is a row
+fills rows from the NBN EN 1997-1 ANB Tabel 2.1 transcription sheet
+(NBN EN 1997-1 ANB Tabel 2.1 characteristic values). What they refuse is a row
 that is not a real NAD class, or a value that is not physically possible
 for ground — so a transcription slip (a decimal misplaced, γ_sat below
 γ_unsat) fails the suite instead of shipping into a D-Series export.
@@ -58,7 +58,7 @@ def test_every_value_lies_in_a_physically_sane_range() -> None:
 def test_the_table_covers_every_nad_class_once() -> None:
     """The transcription is complete: one row per NAD class 1..31, no extras.
 
-    Transcribed 2026-09-02 from the NEN 9997-1 Tabel 2.b transcription sheet (rows per the
+    Transcribed 2026-09-02 from the NBN EN 1997-1 ANB Tabel 2.1 transcription sheet (rows per the
     reference manifest); a missing or surplus class here means the transcript
     and the classifier drifted apart.
     """
@@ -91,4 +91,4 @@ def test_the_parameter_record_is_a_frozen_value_object() -> None:
 def test_the_source_label_names_the_norm_table() -> None:
     """The export annotation names the table the values come from."""
     assert isinstance(SOURCE_LABEL, str) and SOURCE_LABEL.strip()
-    assert "NAD" in SOURCE_LABEL and "2.b" in SOURCE_LABEL
+    assert "NAD" in SOURCE_LABEL and "2.1" in SOURCE_LABEL
