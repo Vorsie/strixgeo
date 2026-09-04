@@ -25,7 +25,7 @@ export const SECTIONS_NL = {
   'sections.modelActions': 'Modelacties',
   'sections.moreActions': 'Meer profielacties',
   'sections.geoVerbHint':
-    'Schakel naar de geologie-as — Bouwen / Zaaien / Ontdubbelen / Plaxis-3D werken op het geologisch model',
+    'Schakel naar de geologie-as — Bouwen / Vullen / Ontdubbelen / Plaxis-3D werken op het geologisch model',
   'sections.undoTitle': 'Maak de laatste modelbewerking ongedaan (Ctrl+Z)',
   'sections.undoNothing': 'Niets om ongedaan te maken',
   'sections.recomputeUnavailable': 'Lichamen herberekenen is niet beschikbaar — heropen het project.',
@@ -103,7 +103,7 @@ export const SECTIONS_NL = {
   'sections.inspector.syncing': 'Synchroniseren…',
   'sections.inspector.syncGeology': 'Geologie synchroniseren',
   'sections.inspector.seedDefineFirst':
-    'Definieer eerst formaties in de geologiestap — Zaaien plaatst laaggrenzen voor reeds gedefinieerde lagen',
+    'Definieer eerst formaties in de geologiestap — Vullen plaatst laaggrenzen voor reeds gedefinieerde lagen',
   'sections.inspector.seedingContacts': 'Laaggrenzen vullen uit de boorstratigrafie…',
   'sections.inspector.seedTitle':
     'Plaats laaggrenzen uit boorwaarnemingen voor formaties die al in het model gedefinieerd zijn — voer Ontdubbelen uit als er dubbels verschijnen',
@@ -802,8 +802,8 @@ export const SECTIONS_NL = {
   'sections.header.scaleV': 'V: {scale} px/m',
   'sections.inspector.lengthEpsg': '{length} m · EPSG:{epsg}',
   'sections.focusLabel': 'Focus op {name}',
-  'sections.emptyContacts.hintSeed': 'Klik op \'Zaaien\' in de werkbalk om te vullen vanuit het actieve model, of teken de laaggrenzen handmatig.',
-  'sections.emptyContacts.hintDefine': 'Definieer eerst formaties in de geologiestap, kom dan hier terug om te zaaien of laaggrenzen handmatig te tekenen.',
+  'sections.emptyContacts.hintSeed': 'Klik op \'Vullen\' in de werkbalk om te vullen vanuit het actieve model, of teken de laaggrenzen handmatig.',
+  'sections.emptyContacts.hintDefine': 'Definieer eerst formaties in de geologiestap, kom dan hier terug om te vullen of laaggrenzen handmatig te tekenen.',
   'sections.hiddenFooter.count': '{n} verborgen op dit profiel',
   'sections.hiddenFooter.restoreAll': 'alles herstellen',
   'sections.scrub.showing': 'Toont {shown} m van {total} m (databereik)',
