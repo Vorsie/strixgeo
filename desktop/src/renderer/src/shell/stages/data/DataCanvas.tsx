@@ -8,7 +8,7 @@
 // Borehole log. When a section is selected the canvas intentionally does
 // nothing special — SectionsCanvas (S5) owns that branch.
 
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import { Map as MapIcon, BarChart2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -57,6 +57,7 @@ export default function DataCanvas(): JSX.Element {
       pendingCptPins,
     },
     coordinator: {
+      setSectionsDeepLinkTarget,
       selectedId,
       selectedBoreholeId,
       view,
@@ -153,6 +154,13 @@ export default function DataCanvas(): JSX.Element {
   }, [selectedBoreholeId, geoContacts, geoFormations, lithoContacts, lithoFormations])
   const drawingBbox = bboxImportType !== null
   const hasSelection = selectedId !== null || selectedBoreholeId !== null
+  const handleOpenSectionFromMap = useCallback(
+    (sectionId: string): void => {
+      handleSelectSection(sectionId)
+      setSectionsDeepLinkTarget({ sectionId, contactIds: [] })
+    },
+    [handleSelectSection, setSectionsDeepLinkTarget],
+  )
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -203,7 +211,10 @@ export default function DataCanvas(): JSX.Element {
             onCancelSectionDraw={cancelSectionDraw}
             sections={visibleSections}
             selectedSectionId={selectedSectionId}
-            onSelectSection={handleSelectSection}
+            // A click on a section line OPENS the section (owner 2026-09-04):
+            // select it here, and ask the shell for the Sections stage through
+            // the deep link AppShell already consumes (stage switch + select).
+            onSelectSection={handleOpenSectionFromMap}
             initialCenter={mapCameraRef.current?.center}
             initialZoom={mapCameraRef.current?.zoom}
             onCameraChange={handleMapCameraChange}
