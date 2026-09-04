@@ -70,16 +70,28 @@ export function emitEnclosedLensCurves(
     // Into the gap to the RIGHT (this column is the gap's LEFT column).
     if (ci + 1 < columns.length) {
       for (const el of col.enclosedLenses)
-        if (shouldEmitLens(col, columns[ci + 1], el))
+        if (emitGapAllowed(el, ci) && shouldEmitLens(col, columns[ci + 1], el))
           emitOne(el.lens, col, columns, ci, ci, 'left', section, ties, nextId, out, labels)
     }
     // Into the gap to the LEFT (this column is the gap's RIGHT column).
     if (ci - 1 >= 0) {
       for (const el of col.enclosedLenses)
-        if (shouldEmitLens(col, columns[ci - 1], el))
+        if (emitGapAllowed(el, ci - 1) && shouldEmitLens(col, columns[ci - 1], el))
           emitOne(el.lens, col, columns, ci, ci - 1, 'right', section, ties, nextId, out, labels)
     }
   }
+}
+
+/**
+ * Whether an enclosed lens may emit its flank into gap ``gapIndex`` (ruling 8v — the edged minority).
+ *
+ * ``el.emitGaps === undefined`` is the ordinary un-edged enclosed lens: emit into BOTH adjacent gaps
+ * (byte-identical to the pre-8v behaviour). A per-gap-restricted lens (the S22 sand) emits its flank
+ * ONLY into its UN-TIED gap(s); in its TIED gap the flank is suppressed so the ties + the ``col:lens``
+ * seed close a band by construction.
+ */
+export function emitGapAllowed(el: EnclosedLens, gapIndex: number): boolean {
+  return el.emitGaps === undefined || el.emitGaps.has(gapIndex)
 }
 
 /**
