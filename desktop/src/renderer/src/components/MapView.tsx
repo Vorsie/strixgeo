@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { INVESTIGATION_MARKERS_PANE_Z } from './mapPanes'
 import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react'
 import {
   CircleMarker,
@@ -720,7 +721,7 @@ export default function MapView({
             and every basemap/DEM overlay, below popupPane (700) so
             popups still win. Both <Tooltip> elements set pane to this. */}
         <Pane name="marker-tooltips" zIndex={660} />
-        <Pane name="investigation-markers" zIndex={640} />
+        <Pane name="investigation-markers" zIndex={INVESTIGATION_MARKERS_PANE_Z} />
         {/* Bbox / section draw rectangle. Same documented problem as the
             markers above: Leaflet's default overlayPane (z=400) renders
             UNDER the Geopunt GRB-selectie overlay, so the import draw box
