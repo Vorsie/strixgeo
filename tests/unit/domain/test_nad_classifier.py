@@ -199,18 +199,22 @@ class TestLoosestClassFor:
     """
 
     def test_alc1_secondary_sand_floors_to_the_secondary_column(self) -> None:
+        """Alc1 secondary sand floors to the secondary column."""
         silty = (Admixture(soil_code="SI", amount=None, locally=False),)
         assert loosest_class_for("ZAND", silty) == 9
 
     def test_alc2_clean_sand_floors_to_the_clean_column(self) -> None:
+        """Alc2 clean sand floors to the clean column."""
         assert loosest_class_for("ZAND", ()) == 5
 
     def test_alc3_an_unknown_soil_floors_to_nothing(self) -> None:
+        """Alc3 an unknown soil floors to nothing."""
         # The caller SKIPS the group rather than guessing a family — same rule
         # the old constant enforced with its None get().
         assert loosest_class_for("MYSTERY", ()) is None
 
     def test_alc4_veen_has_no_secondary_column_so_both_floor_the_same(self) -> None:
+        """Alc4 veen has no secondary column so both floor the same."""
         sandy = (Admixture(soil_code="ZN", amount=None, locally=False),)
         assert loosest_class_for("VEEN", sandy) == loosest_class_for("VEEN", ()) == 29
 
@@ -229,6 +233,7 @@ class TestOpenBottomsOwnerRuling:
     """
 
     def test_wb3_below_floor_readings_take_the_loosest_class(self) -> None:
+        """Wb3 below floor readings take the loosest class."""
         silty = (Admixture(soil_code="SI", amount=None, locally=False),)
         sandy = (Admixture(soil_code="ZN", amount=None, locally=False),)
         assert classify_nad("GRIND", (), 3.0) == 1  # below the 10 MPa floor
