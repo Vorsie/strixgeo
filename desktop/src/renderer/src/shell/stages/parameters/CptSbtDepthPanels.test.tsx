@@ -12,7 +12,7 @@
 //        given a colour: an unclassifiable point is an absence, and painting it
 //        reads as a soil.
 //
-// DP4 — Zone 2 (organic / peat — the zone Daniel's extended Lengkeek &
+// DP4 — Zone 2 (organic / peat — the zone the extended Lengkeek &
 //        Brinkgreve boundary feeds) is visibly distinct from every other zone.
 //
 // DP5 — A gap in a curve breaks the line instead of being bridged: connecting
