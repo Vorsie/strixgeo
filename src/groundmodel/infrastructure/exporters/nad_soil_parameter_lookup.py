@@ -7,7 +7,7 @@ repeat logic"). It reads :data:`NAD_SOIL_PARAMETERS` through its module so a
 test can swap the table with ``monkeypatch.setattr`` and the resolution follows.
 
 Absent only when the class is unknown or missing from the table; this returns ``None`` for
-every class until the owner transcribes the workbook. A ``None`` tells the
+every class until the owner transcribes the table. A ``None`` tells the
 exporter to write the soil with no parameters — GEOLib's blank initial values —
 never an invented default.
 """
