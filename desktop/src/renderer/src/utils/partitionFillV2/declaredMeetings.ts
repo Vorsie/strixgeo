@@ -12,7 +12,7 @@
  * two masses meet at the fence and keep their own classes, so a tie the engineer DELETED is never
  * resurrected as a class band.
  *
- * Process-global, like ``forceOnlapUnits``: the v2 engine takes columns/edges/alongM and has no
+ * Process-global, like ``forceLensUnits``: the v2 engine takes columns/edges/alongM and has no
  * channel for a caller's extra context. A caller MUST clear in a ``finally`` so it cannot leak
  * into the next run. Empty by default, so every existing path is byte-identical.
  *
