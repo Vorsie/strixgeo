@@ -218,6 +218,18 @@ DRM.
 stage machine) are unit-tested; `postgresCluster.ts` and `embeddedStack.ts` are
 the I/O and are covered by actually installing and booting.
 
+The launcher's boot is split into a fast preparation phase and the cluster
+phase so the engine's cold import can OVERLAP the database coming up (owner
+report, installer #13 — a cold first launch ran ~60 s of DB boot, then a whole
+second ~17 s Python interpreter just to answer "already at head", then the
+engine's own ~48 s cold import, all in series). Preparation (`prepareEmbeddedStack`)
+resolves paths, reads secrets and picks a port, then the launcher spawns the
+engine against that DSN as soon as the licence gate passes, and the cluster
+phase (`startEmbeddedCluster`) brings PostgreSQL up CONCURRENTLY with the
+engine's import. The schema migration is **no longer run by the launcher** —
+the engine brings the database to head in its own process (see the maintenance
+note below).
+
 Stages, in order, recorded by `BootSequence` and written to the backend log:
 
 1. `resolve-paths` — locate the bundled trees; fail by name if one is missing.
@@ -232,12 +244,10 @@ Stages, in order, recorded by `BootSequence` and written to the backend log:
 5. `start-postgres` — `listen_addresses=127.0.0.1` only.
 6. `await-postgres-ready` — poll the bundled `pg_isready`, aborting early if
    the server process reported a spawn failure or already exited.
-7. `run-migrations` — `python -m groundmodel.infrastructure.db.migrate`, which
-   waits for the server, creates the database, `CREATE EXTENSION postgis`, then
-   `alembic upgrade head`.
 
-Measured on the development machine: **first boot 13.4 s** (of which `initdb`
-is 9.8 s), **subsequent boots 2.1 s**.
+Stages 1–3 are awaited (they produce the port the engine is spawned against);
+stages 4–6 run in the background while the engine imports. A failure in stages
+4–6 stops the engine and shows the native "could not start" dialog.
 
 ```
 [boot] resolve-paths        ok       0ms — ...\embedded\pgsql
@@ -246,9 +256,12 @@ is 9.8 s), **subsequent boots 2.1 s**.
 [boot] init-cluster         ok       9777ms — created
 [boot] start-postgres       ok       11ms
 [boot] await-postgres-ready ok       589ms
-[boot] run-migrations       ok       2971ms
-[boot] total 13355ms
+[boot] total 10384ms
 ```
+
+The engine then logs its own phases to the same backend log — including
+`[engine-boot 2/6] engine-side DB migration …` with its elapsed ms — so a
+launch reads as one timeline across the two processes.
 
 The log is written with `appendFileSync`, not a buffered stream. The first
 time a packaged build failed to start, the log the dialog told the user to
@@ -256,12 +269,29 @@ send back was **zero bytes** — every line was still in the stream's buffer
 when the process died. A startup log that survives only a graceful exit is
 worthless exactly when it is needed.
 
-Then the existing `startApi()` spawns the backend against the resolved
-`DATABASE_URL` and the renderer's `api:ready` poll takes over unchanged.
+`startApi()` spawns the backend against the resolved `DATABASE_URL` as soon as
+the licence gate passes — concurrently with stages 4–6 — and the renderer's
+`api:ready` poll (three-minute packaged deadline) takes over unchanged.
 
-A failure at any stage shows a native dialog naming **what the app was doing**
-in plain language, plus the underlying error and the log path — then quits.
-There is no window yet and no backend, so there is nothing else to show.
+A failure in the awaited preparation stages shows a native dialog naming **what
+the app was doing** in plain language, plus the underlying error and the log
+path — then quits, before any window exists. A failure in the concurrent cluster
+stages (4–6) does the same once a window is up (the dialog layers over the
+splash). A failure inside the engine — the wait for Postgres, the in-process
+migration, or the engine import — is logged by the engine and surfaces as the
+renderer's "could not start the data service" message pointing at the same log.
+
+> **Maintenance note — the packaged boot runs migrations IN THE ENGINE.** There
+> is no `migrate.py` child in the packaged boot path any more. At the start of
+> the FastAPI lifespan the engine runs `groundmodel.api.boot_migration.run_boot_migration`,
+> which delegates to the same `DatabaseMigrator` (bounded wait for the server,
+> create-database, `CREATE EXTENSION postgis`, the `HEAD_REVISION` fast path, the
+> pre-migration `pg_dump` checkpoint, the newer-database guard). It is gated on
+> the `STRIX_ENGINE_MIGRATE` env the launcher sets in `buildBackendEnv`, so dev /
+> CI / e2e keep running migrations externally (`alembic upgrade head` / the
+> wrapper script). The `migrate.py` CLI is kept for dev/CI and the embedded
+> integration test. If you change the migrator's env contract, change both the
+> launcher's `buildBackendEnv` and `boot_migration.run_boot_migration`.
 
 ### Per-install generated secrets
 
@@ -295,12 +325,16 @@ audit H2b). When a launch has pending migrations, `DatabaseMigrator` writes
 `backups/pre-<from_rev>-<to_rev>-<timestamp>.dump` (custom `-Fc` format,
 `pg_restore`-able) *before* `alembic upgrade head`, keeping the five newest. The
 launcher hands the migrator the bundled `pg_dump.exe` path and this directory
-through the env vars `STRIX_PG_DUMP_PATH` and `STRIX_BACKUP_DIR` — the same
-mechanism as the DSN. In dev neither is set and the dump is skipped (a dev DB is
-not the user's only copy). A dump failure aborts the upgrade (`migrate.py` exit
-code 5); an unknown stamped revision — the store was written by a newer
-StrixGeo — exits 6 with "install the current version; your data is intact"
-rather than bricking boot. See [design/autosave-recovery.md](design/autosave-recovery.md) §7.
+through the env vars `STRIX_PG_DUMP_PATH` and `STRIX_BACKUP_DIR` (set in
+`buildBackendEnv`, the same mechanism as the DSN and `STRIX_ENGINE_MIGRATE`). In
+dev neither is set and the dump is skipped (a dev DB is not the user's only
+copy). Because the migration now runs inside the engine, a dump failure or an
+unknown stamped revision — the store was written by a newer StrixGeo — fails the
+engine's lifespan startup with the migrator's own message logged
+(`DatabaseMigrator` raises `DatabaseMigratorError` / `NewerDatabaseError` with
+"install the current version; your data is intact"); the launcher's own
+`bootFailureMessage.ts` newer-database dialog now covers only the dev/CI
+`migrate.py` path. See [design/autosave-recovery.md](design/autosave-recovery.md) §7.
 
 ---
 
