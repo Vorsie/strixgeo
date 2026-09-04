@@ -55,6 +55,10 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.repositories.project_bundle.bundle_restore_drops import (
+    BundleRestoreDrops,
+)
 from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOLOGICAL, MODEL_KINDS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -440,6 +444,75 @@ async def _restore_geological_models(
             )
 
     return new_models, new_contacts
+
+
+async def _attach_sample_body_links(
+    session: AsyncSession,
+    project_id: UUID,
+    deferred: dict[UUID, UUID],
+    *,
+    logger: GroundModelLogger,
+    drops: BundleRestoreDrops | None = None,
+) -> int:
+    """Re-attach deferred ``sample.geotech_body_id`` stamps once bodies exist.
+
+    The stamp Divide boreholes writes on a sample is an FK to ``body``. Samples
+    restore in Phase 2 with their boreholes and bodies only in Phase 8, so the
+    row builder strips the stamp and records it; this pass writes it back for
+    every body that IS in the restored project. A stamp whose body is not there
+    (a body id re-minted after the last Divide, the stale window) stays NULL, is
+    counted in ``drops.sample_body_stamps_dropped`` and logged: the next Divide
+    re-stamps it. Before this pass such a file could not be restored at all
+    (owner's ``test3.strix``, 2026-09-04: ``ForeignKeyViolationError`` on the
+    first autoflush, answered as a 500).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project.
+    deferred : dict[UUID, UUID]
+        ``{sample.id: body.id}`` collected by the Phase 2 row builders.
+    logger : GroundModelLogger
+        Caller's logger.
+    drops : BundleRestoreDrops | None, optional
+        Tally the dropped (dangling) stamps land in.
+
+    Returns
+    -------
+    int
+        Number of stamps re-attached.
+    """
+    if not deferred:
+        return 0
+    valid_body_ids = set(
+        (await session.execute(select(BodyOrm.id).where(BodyOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    attached = 0
+    dropped = 0
+    for sample_id, body_id in deferred.items():
+        if body_id not in valid_body_ids:
+            dropped += 1
+            logger.debug(
+                f"restore_project_bundle({project_id}): sample {sample_id} -> body {body_id} "
+                "not present after restore; geotech_body_id left NULL until the next Divide"
+            )
+            continue
+        await session.execute(
+            update(SampleOrm).where(SampleOrm.id == sample_id).values(geotech_body_id=body_id)
+        )
+        attached += 1
+    if dropped and drops is not None:
+        drops.sample_body_stamps_dropped += dropped
+    if dropped:
+        logger.warning(
+            f"restore_project_bundle({project_id}): {dropped} sample body stamp(s) pointed at "
+            f"bodies not in the restored project; dropped to NULL ({attached} re-attached)"
+        )
+    return attached
 
 
 async def _attach_companion_body_links(
