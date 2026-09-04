@@ -76,12 +76,16 @@ import io
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import ezdxf
-from ezdxf.colors import RGB
-from ezdxf.document import Drawing
-from ezdxf.layouts.layout import Modelspace
-from ezdxf.units import M as INSUNITS_METRES
+if TYPE_CHECKING:
+    # deferred: ezdxf is imported lazily inside the methods that build the drawing
+    # (see ``export`` and ``_parse_hex_color``) so importing this exporter at API
+    # boot (a router pulls it in to register a route) does not pay ezdxf's import
+    # cost.
+    from ezdxf.colors import RGB
+    from ezdxf.document import Drawing
+    from ezdxf.layouts.layout import Modelspace
 
 from groundmodel.infrastructure.exporters.dxf_fence_exporter_constants import (
     DEFAULT_LAYER_RGB,
@@ -184,6 +188,10 @@ class DxfFenceExporter(GroundModelLogger):
             f"panels={len(panels)} crs_epsg={crs_epsg} "
             f"identities={len(identities)}"
         )
+        # deferred: keeps ezdxf off the API boot path (see the module imports).
+        import ezdxf
+        from ezdxf.units import M as INSUNITS_METRES
+
         doc = ezdxf.new(dxfversion="R2018", setup=True)
         msp = doc.modelspace()
 
@@ -615,4 +623,7 @@ def _parse_hex_color(hex_str: str) -> RGB | None:
             return None
     except ValueError:
         return None
+    # deferred: keeps ezdxf off the API boot path (see the module imports).
+    from ezdxf.colors import RGB
+
     return RGB(r, g, b)
