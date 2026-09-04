@@ -77,6 +77,7 @@ import {
   computeSectionFillActiveWithDiagnostics,
 } from '../../utils/partitionEngineSelect'
 import { topologyKey, usePartitionGhostHandles } from './usePartitionGhostHandles'
+import { outerColumnZeroTieLayerIds } from '../../utils/partitionFillV2'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import { nearerLensEdge } from '../../utils/lensEdgePick'
 import {
@@ -1096,6 +1097,26 @@ export default function PartitionFillOverlay({
       approvedEdges: partitionTopology.edges,
     }
   }, [partitionTopology])
+
+  // ZERO-TIE OUTER-COLUMN UNITS (owner ruling 2026-09-04 "zero ties = lens"). The open-end
+  // stubs below extend the first/last column's units OUTWARD to the section boundary. A unit
+  // with a tie inward keeps that flat extension; a unit with ZERO ties must instead pinch out
+  // toward the edge as a lens — the same closed shape it gets between two columns. The section
+  // edge is not a gap, so the engine emits nothing there; ``outerColumnZeroTieLayerIds`` hands
+  // the render the engine's OWN 2/1/0 verdict for each outer-column unit (``effectiveCorrForSide``,
+  // the single zero-tie source) so no classification is re-invented here. Light (direct-tie) path,
+  // so it stays cheap on every pan/zoom.
+  const edgeLensLayerIds = useMemo(
+    () =>
+      showBands
+        ? outerColumnZeroTieLayerIds(
+            partitionTopology.orderedColumns,
+            partitionTopology.edges,
+            partitionTopology.alongM,
+          )
+        : new Set<string>(),
+    [partitionTopology, showBands],
+  )
 
   // ---- DATA MEMO: call computeSectionFill only when partition inputs change. --
   //
@@ -3903,8 +3924,11 @@ export default function PartitionFillOverlay({
       })}
 
       {/* Open-end stubs: the first / last column's PARTITION continues
-          off-section as a short ~5 m parallel strip, one rect per unit so the
-          edge stays a partition (no envelope overlap). */}
+          off-section. A unit with a tie inward runs out as a short ~5 m parallel
+          strip (one rect per unit so the edge stays a partition). A ZERO-TIE unit
+          (owner ruling 2026-09-04 "zero ties = lens") instead PINCHES OUT toward
+          the edge as a closed lens triangle — the same shape it gets between two
+          columns — rather than an open band to the boundary. */}
       {showBands &&
         (
           [
@@ -3925,6 +3949,33 @@ export default function PartitionFillOverlay({
             const color = formationColorById.get(u.formationId) ?? FALLBACK_COLOR
             const yT = clampY(levelToScreen(col.surfaceElevM - u.topDepthM))
             const yB = clampY(levelToScreen(col.surfaceElevM - u.baseDepthM))
+            // Self-colour seam stroke at the fill opacity (2026-07-13) — closes the
+            // antialiasing hairline where the open-end stub abuts the section-edge
+            // column. Shared by both the rect and the pinch below.
+            const seam = {
+              fill: color,
+              fillOpacity: FILL_OPACITY,
+              stroke: color,
+              strokeOpacity: FILL_OPACITY,
+              strokeWidth: 0.75,
+              strokeLinejoin: 'round' as const,
+            }
+            // ZERO-TIE ⇒ a closed pinch toward the edge. Full thickness on the column
+            // face, tapering to a single apex in the open-end margin at the same
+            // ``LENS_PINCH_FRACTION`` the interior lens uses (reuse, not a second
+            // drawer) — so the unit closes rather than reaching the section boundary.
+            if (edgeLensLayerIds.has(u.layerId)) {
+              const apexX = edgeX + dir * openEndPx * LENS_PINCH_FRACTION
+              const yMid = (yT + yB) / 2
+              return (
+                <polygon
+                  key={`pf-edge-lens-${edgeIdx}-${ui}`}
+                  data-testid={`partition-edge-lens-${edgeIdx}-${id}-${ui}`}
+                  points={`${edgeX},${yT} ${edgeX},${yB} ${apexX},${yMid}`}
+                  {...seam}
+                />
+              )
+            }
             return (
               <rect
                 key={`pf-edge-${edgeIdx}-${ui}`}
@@ -3933,15 +3984,7 @@ export default function PartitionFillOverlay({
                 y={yT}
                 width={w}
                 height={Math.max(0.5, yB - yT)}
-                fill={color}
-                fillOpacity={FILL_OPACITY}
-                // Self-colour seam stroke at the fill opacity (2026-07-13) — closes
-                // the antialiasing hairline where the open-end stub abuts the
-                // section-edge column. See the region-fill note above.
-                stroke={color}
-                strokeOpacity={FILL_OPACITY}
-                strokeWidth={0.75}
-                strokeLinejoin="round"
+                {...seam}
               />
             )
           })
