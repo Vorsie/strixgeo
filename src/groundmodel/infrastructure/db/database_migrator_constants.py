@@ -41,6 +41,27 @@ MIGRATIONS_DIR_NAME: Final = "migrations"
 # Alembic upgrade target — always the tip of the migration chain.
 ALEMBIC_UPGRADE_TARGET: Final = "head"
 
+# The Alembic head revision THIS build ships, as a plain constant.
+#
+# It lets :meth:`DatabaseMigrator.upgrade_to_head` take a FAST PATH: when the
+# database is already stamped exactly here, the migrator returns after one cheap
+# ``SELECT version_num`` read, WITHOUT building the ScriptDirectory (which loads
+# all ~104 migration modules) or spinning up ``env.py``'s async engine to run a
+# no-op ``alembic upgrade head``. On the packaged interpreter that machinery
+# costs ~30s with nothing to migrate (owner report, installer #12: "Preparing
+# Alembic upgrade to head" +10s -> "already at head" +13s -> "upgrade complete"
+# +6s), every single launch.
+#
+# The value MUST equal ``ScriptDirectory.get_current_head()``. Two safety nets
+# keep it honest: (1) ``test_head_revision_constant_matches_script_directory``
+# turns RED in the pre-commit unit suite if a new migration lands without
+# bumping this — so a stale constant is caught at test time, never in a user's
+# store; (2) at runtime ANY value other than an exact match (a fresh DB with no
+# table, a behind-head revision, an unknown newer one) falls through to the full
+# Alembic path, which behaves exactly as before — slow, never wrong. Bump this
+# in the SAME commit as any new migration.
+HEAD_REVISION: Final = "f1a2b3c4d5e6"
+
 # SQLAlchemy async driver marker. `DATABASE_URL` / `Settings.database_url` are
 # expressed as `postgresql+asyncpg://...` (the form SQLAlchemy's async engine
 # and Alembic's `env.py` expect); raw `asyncpg.connect()` wants a plain
