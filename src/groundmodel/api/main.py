@@ -15,6 +15,7 @@ from sqlalchemy import select, text
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from groundmodel.api.boot_migration import run_boot_migration
 from groundmodel.api.heavy_library_warmup import start_background_warmup
 from groundmodel.api.local_client_token_middleware import LocalClientTokenMiddleware
 from groundmodel.api.routers import (
@@ -164,16 +165,30 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # installer #12). Each line carries the phase's own elapsed ms plus the
     # running total since the engine module was imported (see api/serve.py).
     logger.info(
-        f"[engine-boot 1/5] lifespan begin (+{engine_uptime_ms()}ms since interpreter import)"
+        f"[engine-boot 1/6] lifespan begin (+{engine_uptime_ms()}ms since interpreter import)"
     )
     install_accept_failure_diagnostics(asyncio.get_running_loop())
+
+    # Bring the database to schema head IN THIS PROCESS before anything touches
+    # it. In the packaged app the launcher no longer runs a separate migrate.py
+    # child — the engine's cold import overlapped the Postgres boot, and now the
+    # engine waits for the server and migrates itself here (see
+    # ``api/boot_migration.py``). A no-op in dev / CI / e2e (the env flag is
+    # absent), where migrations run externally. Must precede the boot DB probe
+    # below — the first lifespan DB connect — so the schema is at head first.
+    _t = time.perf_counter()
+    migrated = await run_boot_migration()
+    logger.info(
+        f"[engine-boot 2/6] engine-side DB migration "
+        f"{'complete' if migrated else 'skipped (external/dev)'} [{ms_since(_t)}ms]"
+    )
 
     # Pre-import the worker module in the main process so the worker function
     # reference resolves by module path when the child processes start.
     _t = time.perf_counter()
     import groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker  # noqa: F401
 
-    logger.info(f"[engine-boot 2/5] DOV parse worker module imported [{ms_since(_t)}ms]")
+    logger.info(f"[engine-boot 3/6] DOV parse worker module imported [{ms_since(_t)}ms]")
 
     # Explicit spawn context: on Linux the default is fork, and forking a
     # threaded parent (uvicorn runs worker threads; polars/numba hold module
@@ -190,16 +205,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     pool = ProcessPoolExecutor(max_workers=4, mp_context=multiprocessing.get_context("spawn"))
     _app.state.parse_pool = pool
     logger.info(
-        f"[engine-boot 3/5] DOV parse pool created (max_workers=4, spawn, lazy) [{ms_since(_t)}ms]"
+        f"[engine-boot 4/6] DOV parse pool created (max_workers=4, spawn, lazy) [{ms_since(_t)}ms]"
     )
 
     _t = time.perf_counter()
     await _probe_database()
-    logger.info(f"[engine-boot 4/5] first DB connect (probe) [{ms_since(_t)}ms]")
+    logger.info(f"[engine-boot 5/6] first DB connect (probe) [{ms_since(_t)}ms]")
 
     _t = time.perf_counter()
     await _sweep_stale_bodies()
-    logger.info(f"[engine-boot 5/5] startup body sweep [{ms_since(_t)}ms]")
+    logger.info(f"[engine-boot 6/6] startup body sweep [{ms_since(_t)}ms]")
 
     logger.success(
         f"engine READY — /openapi.json answers now "
