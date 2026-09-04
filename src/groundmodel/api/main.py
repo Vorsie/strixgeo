@@ -2,6 +2,7 @@
 
 import asyncio
 import multiprocessing
+import time
 from collections.abc import AsyncIterator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
@@ -27,7 +28,7 @@ from groundmodel.api.routers import (
     stratigraphy_lumping,
     virtuele_boring,
 )
-from groundmodel.api.serve import install_accept_failure_diagnostics
+from groundmodel.api.serve import engine_uptime_ms, install_accept_failure_diagnostics
 from groundmodel.api.unhandled_error_handler import make_unhandled_error_handler
 from groundmodel.api.validation_error_handler import validation_error_handler
 from groundmodel.application.resolve_litho_instances_use_case import (
@@ -38,6 +39,7 @@ from groundmodel.infrastructure.db.session import AsyncSessionFactory, engine
 from groundmodel.shared.config import settings
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
+from groundmodel.shared.timing import ms_since
 
 logger = LoggerFactory.get_logger(__name__)
 
@@ -156,11 +158,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     (``uvicorn.exe``, the e2e harness, a dev shell) never runs ``serve.main``
     and would otherwise lose its listener silently.
     """
+    # Phase-timed so a packaged boot log shows where the seconds go between the
+    # engine import finishing and /openapi.json answering (owner report,
+    # installer #12). Each line carries the phase's own elapsed ms plus the
+    # running total since the engine module was imported (see api/serve.py).
+    logger.info(
+        f"[engine-boot 1/5] lifespan begin (+{engine_uptime_ms()}ms since interpreter import)"
+    )
     install_accept_failure_diagnostics(asyncio.get_running_loop())
 
-    # Pre-import the worker module in the main process so the pickled
-    # function reference is resolvable when the child processes start.
+    # Pre-import the worker module in the main process so the worker function
+    # reference resolves by module path when the child processes start.
+    _t = time.perf_counter()
     import groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker  # noqa: F401
+
+    logger.info(f"[engine-boot 2/5] DOV parse worker module imported [{ms_since(_t)}ms]")
 
     # Explicit spawn context: on Linux the default is fork, and forking a
     # threaded parent (uvicorn runs worker threads; polars/numba hold module
@@ -168,12 +180,30 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # exist post-fork — the child deadlocks and pool.shutdown() joins
     # forever. Observed on the first Linux CI run (faulthandler dump, run
     # 33115778146). Windows only has spawn, so behaviour there is unchanged.
+    #
+    # ProcessPoolExecutor is LAZY: constructing it spawns NO worker processes
+    # (measured ~1ms, 0 children) — the four workers warm up only on the first
+    # parse task submitted (the first DOV import). So this is not a boot cost,
+    # and there is no eager-spawn win to be had here.
+    _t = time.perf_counter()
     pool = ProcessPoolExecutor(max_workers=4, mp_context=multiprocessing.get_context("spawn"))
     _app.state.parse_pool = pool
-    logger.info("DOV parse pool started (max_workers=4, spawn)")
+    logger.info(
+        f"[engine-boot 3/5] DOV parse pool created (max_workers=4, spawn, lazy) [{ms_since(_t)}ms]"
+    )
 
+    _t = time.perf_counter()
     await _probe_database()
+    logger.info(f"[engine-boot 4/5] first DB connect (probe) [{ms_since(_t)}ms]")
+
+    _t = time.perf_counter()
     await _sweep_stale_bodies()
+    logger.info(f"[engine-boot 5/5] startup body sweep [{ms_since(_t)}ms]")
+
+    logger.success(
+        f"engine READY — /openapi.json answers now "
+        f"(+{engine_uptime_ms()}ms since interpreter import)"
+    )
     try:
         yield
     finally:
@@ -207,6 +237,17 @@ class BodySizeLimitMiddleware:
         self.max_bytes = max_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """ASGI entry: pass non-HTTP scopes through, cap the body of HTTP ones.
+
+        Parameters
+        ----------
+        scope : Scope
+            ASGI connection scope.
+        receive : Receive
+            ASGI receive callable, wrapped to count body bytes.
+        send : Send
+            ASGI send callable.
+        """
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
