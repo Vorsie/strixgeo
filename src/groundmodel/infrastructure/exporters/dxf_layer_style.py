@@ -27,13 +27,19 @@ untouched.
 
 from __future__ import annotations
 
-from ezdxf.colors import DXF_DEFAULT_COLORS, RGB, int2rgb
-from ezdxf.entities.layer import Layer
+from typing import TYPE_CHECKING
 
-# The colour a caller may hand us: ezdxf's ``RGB`` named tuple, or the plain
-# 3-tuple the exporters' own default constants are written as. Both are read
-# by index, so widening the parameter is honest rather than a cast.
-RgbLike = RGB | tuple[int, int, int]
+if TYPE_CHECKING:
+    # deferred: ezdxf is imported lazily inside ``nearest_aci`` so importing this
+    # styling helper at API boot (the DXF exporters pull it in for route
+    # registration) does not pay ezdxf's import cost.
+    from ezdxf.colors import RGB
+    from ezdxf.entities.layer import Layer
+
+    # The colour a caller may hand us: ezdxf's ``RGB`` named tuple, or the plain
+    # 3-tuple the exporters' own default constants are written as. Both are read
+    # by index, so widening the parameter is honest rather than a cast.
+    RgbLike = RGB | tuple[int, int, int]
 
 # Line weight for an exported layer, in 1/100 mm (the DXF unit).
 #
@@ -71,6 +77,9 @@ def nearest_aci(rgb: RgbLike) -> int:
         An index in ``[1, 255]`` — never ``0`` (ByBlock) or ``256``
         (ByLayer).
     """
+    # deferred: keeps ezdxf off the API boot path (see the module imports).
+    from ezdxf.colors import DXF_DEFAULT_COLORS, int2rgb
+
     target = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
     best_index = _FIRST_REAL_ACI
     best_distance = None
