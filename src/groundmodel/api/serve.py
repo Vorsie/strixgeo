@@ -62,15 +62,37 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from groundmodel.shared.logging.logger_factory import LoggerFactory
+from groundmodel.shared.timing import ms_since, process_uptime_ms
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import uvicorn
 
 logger = LoggerFactory.get_logger(__name__)
+
+
+def engine_uptime_ms() -> int:
+    """Return milliseconds since the engine process started (startup timeline only).
+
+    A thin, well-named alias over :func:`groundmodel.shared.timing.process_uptime_ms`
+    so ``serve.main`` and ``api.main``'s lifespan report every startup phase
+    against ONE clock. The anchor deliberately lives in ``shared.timing`` (a
+    single ``sys.modules`` identity), not here: ``python -m groundmodel.api.serve``
+    loads THIS module twice (as ``__main__`` and as ``groundmodel.api.serve``),
+    so an anchor stored here would give the lifespan a later reference than
+    ``serve.main`` and understate the boot total.
+
+    Returns
+    -------
+    int
+        Elapsed milliseconds since the process's first ``shared.timing`` import.
+    """
+    return process_uptime_ms()
+
 
 # Defaults mirror what the Electron main process has always passed on the
 # uvicorn command line, so running this module with no arguments produces the
@@ -238,7 +260,29 @@ def main(argv: list[str] | None = None) -> None:
     import uvicorn
 
     args = _parse_args(argv)
+    logger.info(
+        f"[engine-start 1/3] entrypoint reached (+{engine_uptime_ms()}ms since interpreter import)"
+    )
+
+    t_config = time.perf_counter()
     config = build_config(args.host, args.port, access_log=args.access_log)
+    logger.info(f"[engine-start 2/3] uvicorn config built [{ms_since(t_config)}ms]")
+
+    # Pre-import the ASGI app so the heavy engine + router import cost (numba,
+    # llvmlite, polars, scipy, shapely, pyproj, geolib, ezdxf — all pulled in at
+    # router registration) is measured as its OWN phase instead of vanishing
+    # inside ``uvicorn.Server.run()``. The import is idempotent: uvicorn resolves
+    # the same module from ``sys.modules`` a moment later at ~zero cost. On the
+    # packaged interpreter this phase is the dominant share of the boot delay
+    # (cold compiled extensions, read + AV-scanned on first touch).
+    t_import = time.perf_counter()
+    import groundmodel.api.main  # noqa: F401
+
+    logger.info(
+        f"[engine-start 3/3] API app + engine imported [{ms_since(t_import)}ms] "
+        f"(+{engine_uptime_ms()}ms since interpreter import)"
+    )
+
     logger.info(
         f"Starting API on {args.host}:{args.port} "
         f"(access_log={args.access_log}, loop={config.loop})"
