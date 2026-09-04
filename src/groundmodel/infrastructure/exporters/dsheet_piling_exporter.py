@@ -245,7 +245,7 @@ class DSheetPilingExporter(SectionGeometryExporter):
                 self.debug(
                     f"D-Sheet Piling soil added: name='{labels[formation_id]}' "
                     f"strix='{unit.name}' nad_class={unit.nad_class} "
-                    f"soil={unit.litho_main_soil_code} parameters=NAD Tabel 2.b "
+                    f"soil={unit.litho_main_soil_code} parameters=NAD Tabel 2.1 "
                     f"(gamma_unsat={params.gamma_unsat_kn_m3} "
                     f"gamma_sat={params.gamma_sat_kn_m3} phi={params.phi_deg} "
                     f"c={params.c_kpa})"
@@ -259,7 +259,7 @@ class DSheetPilingExporter(SectionGeometryExporter):
                 )
         self.info(
             f"D-Sheet Piling soil parameters: {parameterised}/{soil_count} soil(s) "
-            f"carried NAD Tabel 2.b characteristic values, {soil_count - parameterised} "
+            f"carried NAD Tabel 2.1 characteristic values, {soil_count - parameterised} "
             "left at D-Sheet's blank defaults"
         )
 
