@@ -8,7 +8,7 @@
 // across all five.
 //
 // Owner ruling (4): BOTH classifiers are shown. The left strip is the full
-// normalised Robertson-2015 pipeline — the one that carries Daniel Verastegui's
+// normalised Robertson-2015 pipeline — the one that carries the
 // extended organic/peat boundary — and the right strip is the non-normalised
 // I_SBT. Where they disagree is exactly what the engineer needs to see, so
 // neither is hidden behind a toggle.
