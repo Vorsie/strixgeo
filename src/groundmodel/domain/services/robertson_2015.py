@@ -202,7 +202,7 @@ def stress_profile(
     yw_m : float
         Groundwater table elevation in TAW (m).
     gunsat_kNm3 : float
-        Unit weight of soil above the water table (default 16 kN/m³, the segmenter's standing default).
+        Unit weight of soil above the water table (default 16 kN/m³).
     gwater_kNm3 : float
         Unit weight of water (default 9.81 kN/m³).
 
@@ -231,7 +231,7 @@ def stress_profile(
             seed = g
             break
     # Backward-fill: fill unitw(j) with unitw(j+1) when unitw(j) is undefined.
-    # Walk from second-to-last DOWN to first (index 0), matching the .sce loop.
+    # Walk from second-to-last DOWN to first (index 0).
     filled: list[float] = [0.0] * n_pts
     last_g = gammas[n_pts - 1]
     filled[n_pts - 1] = last_g if last_g is not None else seed
@@ -239,7 +239,7 @@ def stress_profile(
         g_k = gammas[k]
         filled[k] = g_k if g_k is not None else filled[k + 1]
 
-    # --- TAW-coordinate depths (Niv in the .sce: Niveau - depth) ---
+    # --- TAW-coordinate depths (level = ground level - depth) ---
     niv = [niveau_m - d for d in depths_m]  # TAW elevation of each point
 
     # --- Total stress integration + pore pressure (three water-position cases) ---
@@ -271,11 +271,11 @@ def stress_profile(
 
     else:
         # Case 3: water level is below the first data point.
-        # n = floor((Niveau - yw - depth[0]) / xint), min 1 (per .sce).
+        # n = floor((level - yw - depth[0]) / xint), at least 1.
         # For the array case we identify the last point still above the water
         # table and integrate with gunsat up to that point.
         n_above = sum(1 for d in depths_m if d < depth_above_water)
-        n_above = max(n_above, 1)  # per .sce: if n==0 then n=1
+        n_above = max(n_above, 1)  # at least one increment
         for k in range(n_above):
             stot[k] = depths_m[k] * gunsat_kNm3
         for k in range(n_above, n_pts):
@@ -284,7 +284,7 @@ def stress_profile(
             pwp[k] = gwater_kNm3 * (yw_m - niv[k])
 
     seff = [max(stot[k] - pwp[k], 0.001) for k in range(n_pts)]
-    # Floor effective stress at 0.001 kPa — the .sce assumes seff > 0
+    # Floor effective stress at 0.001 kPa — the normalisation assumes seff > 0
     # (it appears in division and as exponent base). Near-surface points above
     # the water table can produce seff ≈ 0; floor prevents division-by-zero
     # and log-domain undefined behaviour.
@@ -332,8 +332,8 @@ def qtn_f_ic_series(
 ) -> list[QtnResult | None]:
     """Iterative Robertson (2015) stress-normalisation — Q_tn / F / Ic / n.
 
-    Mirrors CPTE_2025.sce lines 266-285 (the while-loop inside the main loop)
-    VERBATIM. Convergence criterion: ``|n_new - n_old| < 0.002`` (per .sce).
+    Iterates the stress exponent n as in Robertson (2009). Convergence
+    criterion: ``|n_new - n_old| < 0.002``.
 
     Formulas (verbatim):
     ``Q_tn = ((qc*1000 - stot)/100) * (100/seff)**n``
@@ -352,10 +352,10 @@ def qtn_f_ic_series(
     stress : Sequence[StressResult]
         Pre-computed stress profile (same length, from ``stress_profile``).
     max_iter : int
-        Safety cap on convergence iterations (default 200; .sce has no cap
+        Safety cap on convergence iterations (default 200; the published procedure has no cap
         — in practice ≤ 5 iterations suffice for any real CPT).
     convergence_tol : float
-        Convergence threshold on n (default 0.002, per .sce).
+        Convergence threshold on n (default 0.002).
 
     Returns
     -------
@@ -376,7 +376,7 @@ def qtn_f_ic_series(
             continue
 
         qc_kpa = qc * 1000.0
-        # .sce computes F = fs[MPa]*100000 / (qc[MPa]*1000 - stot[kPa]).
+        # F = fs[MPa]*100000 / (qc[MPa]*1000 - stot[kPa]) — Robertson (2009), in %.
         # The *100000 numerator factor (vs *1000 MPa→kPa) carries the ×100
         # that turns the ratio into a percentage: F = fs_kpa*100 / net_qc_kpa
         # = the Robertson (2009) normalised friction ratio F [%]. Kept as the
@@ -394,7 +394,7 @@ def qtn_f_ic_series(
             results.append(None)
             continue
 
-        # Iterative convergence (start n=1, per .sce line 243: n=ones(1,length(yi)))
+        # Iterative convergence (start n=1)
         n = 1.0
         qtn = 1.0
         ic = 0.0
@@ -406,7 +406,7 @@ def qtn_f_ic_series(
                 qtn = 1e-9
             ic = math.sqrt((3.47 - math.log10(qtn)) ** 2 + (math.log10(f_val) + 1.22) ** 2)
             nn = 0.381 * ic + 0.05 * (sr.seff_kpa / 100.0) - 0.15
-            # Clamp to [0, 1] (verbatim from .sce lines 278-283)
+            # Clamp to [0, 1] (Robertson 2009: 0 < n <= 1)
             nn = max(0.0, min(1.0, nn))
             if abs(n - nn) < convergence_tol:
                 n = nn
@@ -421,10 +421,10 @@ def qtn_f_ic_series(
 def sbt_zone_series(qtn_results: Sequence[QtnResult | None]) -> list[int | None]:
     """Assign Robertson (2009) chart zone ST 1..9 per depth point.
 
-    Mirrors CPTE_2025.sce lines 305-315 (the if/elseif ladder for ST) and
+    Implements the Robertson (2015) zone ladder and
     line 302 (Z8 peat boundary, Lengkeek & Brinkgreve 2022) VERBATIM.
 
-    Zone definitions (from .sce plot labels):
+    Zone definitions (Robertson 2015 chart labels):
     1 = Sensitive fine-grained
     2 = Organic soil / clay  (incl. peat extension, Lengkeek & Brinkgreve 2022)
     3 = Clay to silty clay
@@ -465,11 +465,11 @@ def sbt_zone_series(qtn_results: Sequence[QtnResult | None]) -> list[int | None]
         log10_f = math.log10(f)
 
         z = [_zone_threshold(i, log10_f) for i in range(7)]
-        # Peat boundary (Lengkeek & Brinkgreve 2022) — verbatim from .sce line 302:
+        # Peat boundary (Lengkeek & Brinkgreve 2022):
         # ``if F <= 5.2 then Z8=0; else Z8=8*(F-5.2)**0.5; end``
         z8 = 0.0 if f <= 5.2 else 8.0 * (f - 5.2) ** 0.5
 
-        # Verbatim if/elseif ladder from .sce lines 305-315:
+        # Zone ladder (Robertson 2015):
         if qtn <= z[0]:
             st = 1
         elif qtn > z[0] and qtn < z[1] and (qtn < z[2] or qtn < z8):
