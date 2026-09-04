@@ -83,6 +83,28 @@ export interface ParameterTreeNode {
    * ungrouped body. Drives the "(group N)" leaf tag.
    */
   groupNumber?: number | null
+  /**
+   * The geotech body id this row's grouping checkbox toggles (owner finding
+   * 2026-09-04: "i can't group loose sand in Zand #0 with loose Zand in Zand
+   * #2"). Set on a GEOTECH-BODY leaf (its own id) AND on a CLASS row that
+   * collapsed its lone geotech body into itself — so a single-body class row,
+   * which reads as a leaf with no geotech-body child, still carries a checkbox
+   * and can be grouped across litho parents. ``undefined`` on every non-groupable
+   * row (a litho unit, a litho body, a multi-body class row that groups its
+   * children individually). It is the CHECKBOX identity only — the row's own
+   * ``scope`` (what a click POOLS) is never re-pointed by it.
+   */
+  groupableBodyId?: string
+  /**
+   * The owning litho body's label, set ONLY on a collapsed SOLE-body class row
+   * (ux-reviewer 2026-09-04). Such a row's own ``label`` is the packing class
+   * alone (e.g. "SAND, loose"), identical for the same class under two litho
+   * bodies, so its checkbox's accessible name needs the parent to tell "loose
+   * sand under Zand #0" from "loose sand under Zand #2" apart — for AT and for a
+   * user scrolled away from the ancestor header. ``undefined`` on a geotech-body
+   * leaf (its own label is already unique) and every non-groupable row.
+   */
+  groupableBodyParentLabel?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -389,8 +411,27 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
                 children: [],
                 // D1: the manual-group number, so a grouped leaf shows "(group N)".
                 groupNumber: input.groupByBodyId?.get(bodyId) ?? null,
+                // The leaf's checkbox groups THIS body (owner finding 2026-09-04).
+                groupableBodyId: bodyId,
               }
             })
+
+          // A grouped SOLE body must NOT collapse (debt #278 D1/D2): it has to
+          // stay a selectable leaf so its "(group N)" tag shows AND selecting it
+          // pools the group. Otherwise the lone geotech-body ordinal folds into
+          // the class row exactly as before.
+          const children =
+            geotechBodyNodes.length === 1 && (geotechBodyNodes[0].groupNumber ?? null) !== null
+              ? geotechBodyNodes
+              : collapseSingleLeafChild(geotechBodyNodes)
+
+          // When the class row collapsed its ONE geotech body into itself, the
+          // row still stands for exactly that body — carry the body id so the
+          // checkbox appears on the class row and it can be grouped across litho
+          // parents (owner finding 2026-09-04). A multi-body class row groups its
+          // children individually, so it carries no id of its own.
+          const collapsedSoleBodyId =
+            children.length === 0 && bodyIds.size === 1 ? [...bodyIds][0] : undefined
 
           const scope: ParameterUnitScope = {
             kind: 'geotech-class',
@@ -404,14 +445,15 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
             label: nadClassName(nadClass),
             bandCount: counts.bandCount,
             coneBandCount: counts.coneBandCount,
-            // A grouped SOLE body must NOT collapse (debt #278 D1/D2): it has to
-            // stay a selectable leaf so its "(group N)" tag shows AND selecting
-            // it pools the group. Otherwise the lone geotech-body ordinal folds
-            // into the class row exactly as before.
-            children:
-              geotechBodyNodes.length === 1 && (geotechBodyNodes[0].groupNumber ?? null) !== null
-                ? geotechBodyNodes
-                : collapseSingleLeafChild(geotechBodyNodes),
+            children,
+            groupableBodyId: collapsedSoleBodyId,
+            // Disambiguate the collapsed row's checkbox by its litho parent
+            // (ux-reviewer 2026-09-04) — the same label the sibling litho-body
+            // node carries, so the two never disagree.
+            groupableBodyParentLabel:
+              collapsedSoleBodyId !== undefined
+                ? lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies)
+                : undefined,
           }
         })
 
