@@ -331,6 +331,7 @@ EXPECTED_BUNDLE_COLUMNS: dict[str, frozenset[str]] = {
             "litho_admixtures",
             "litho_main_soil_code",
             "lithology",
+            "nad_admixture_choice",
             "nad_class",
             "name",
             "parent_extrapolated",
