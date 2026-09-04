@@ -113,7 +113,7 @@ export const MODELS_NL = {
   'geology.buildStale': '3D-model bouwen · {n} verouderd',
   'geology.buildNoModel': 'Geen actieve stratigrafie — maak eerst formaties en laaggrenzen aan',
   'geology.buildNoContacts':
-    'Nog geen laaggrenzen — open een dwarsprofiel, zaai dan vanuit de stratigrafie op de geologie-as of kies handmatig laaggrenzen voor je bouwt',
+    'Nog geen laaggrenzen — open een dwarsprofiel, vul dan vanuit de stratigrafie op de geologie-as of kies handmatig laaggrenzen voor je bouwt',
   'geology.building3d': '3D-model bouwen…',
   'geology.surfacesNeedRebuildOne':
     '{n} formatie-oppervlak moet herbouwd worden — klik om TIN’s te berekenen',
@@ -208,7 +208,7 @@ export const MODELS_NL = {
   'geology.seedSkippedFragmentOne': '{n} laag overgeslagen — formatie niet in je model.',
   'geology.seedSkippedFragmentMany': '{n} lagen overgeslagen — formatie niet in je model.',
   'geology.nothingSeeded':
-    'Niets gezaaid — {skipped} Voeg ze toe in de geologiestap om ze hier te plaatsen.',
+    'Niets gevuld — {skipped} Voeg ze toe in de geologiestap om ze hier te plaatsen.',
   'geology.alreadyInSyncNothingToAdd': 'Al gesynchroniseerd — niets toe te voegen.',
   'geology.seedContactsFailed': 'Kon geen laaggrenzen vullen vanuit de stratigrafie.',
   'geology.dedupeAlreadyClean': 'Al opgeschoond — geen duplicaten gevonden.',
