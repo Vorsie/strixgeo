@@ -77,6 +77,9 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // height-datum axis symbol (Tweede Algemene Waterpassing), kept verbatim.
   'sheet.field.project',
   'sheet.mTaw',
+  // Pure scale notation ("H 1:{hs} · V 1:{vs}") — only symbols and slots, so it
+  // reads identically in BE Dutch.
+  'sheet.scaleReadout',
 
   // ---------------------------------------------------------------------------
   // 2026-09-02 renderer coverage pass. Each key below renders identically in
