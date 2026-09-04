@@ -149,6 +149,12 @@ FINAL SHAPES increment (2026-07-15, the 19-residual completion attempt):
 |---|---|
 | FINAL SHAPES — close the last 19 conformance violations (5 `0corr-not-lens` + 14 `1corr-not-onlap` + 0 `2corr-not-band`) + the 8b lens-reach cap | STOPPED WITH GEOMETRY (2026-07-15, §8 ruling 7). Deep re-diagnosis of ALL 8 remaining absent/mixed sub-classes (the 19 = 8 absent-family after the 8e rescope; the rest are the ruling-8 untied-pair residual the gate keeps flagging by design) confirmed EVERY one routes through the interval-level per-gap / two-sided termination restructuring §4 already flags as its own red→green increment. Exact geometry (from a per-gap arrangement + region probe, ``diag_probe.json``): **(a) no-emit pair** CS1 g20/g21 ZAND el[8.88,9.23] — a ZAND minority in the 5-unit interbedded SILT/ZAND stack `SILT,ZAND,SILT,ZAND,SILT` on BOTH columns; `sectionGeom.extractEnclosedLenses` skips it because its enclosing SILT-below (`63eb72`) is EDGED (base-tie), and the section-wide `edgedLayerIds` set cannot tell "edged in the ADJACENT gap" from "edged here" — a per-column pre-pass on a per-gap distinction; the SILT band sweeps the ZAND slot (absent). **(b) lens-edged trio** CS1 g3 SILT el[0.232,0.665] / CS1 g22 ZAND el[9.83,10.42] / CS2 g21 SILT el[-3.99,-3.67] — the minority is TIED IN THE ADJACENT gap, so the same section-wide `edgedLayerIds` excludes it from the column-level extraction, yet per the per-side rule it must terminate as a 0.45 lens in THIS gap; relaxing the column-wide guard would drop the adjacent-gap band's tie layerId (the Cross-section-3 regress the guard was added to prevent). **(c) boundary/mixed trio** Tie-10 ZAND el[5.73,6.44] / CS1 g5 ZAND el[5.73,6.44] / CS1 g7 SILT el[9.29,9.85] — enclosed by DIFFERENT formations above/below (not a same-formation lens), each needs its 8b lens/onlap emission via a two-sided `chooseOnlapEnclosing` close; g7 SILT faces a 2-unit shallow column (ZAND 11.27→9.85, SILT 9.85→9.29) so it entangles with the §8-Q3 sub-TD substrate. **(d) untied same-formation pairs** (the remaining `1corr`/`0corr` full-widths — Tie-9/10/12 VEEN/SILT/ZAND, CS1 g18/g19/g22, CS2 g13) are the ruling-8 retired-auto-match residual: the gate flags them correctly (opposing 8b-capped lenses until the owner ties them), NOT engine defects. **8b REACH CAP — RESISTER:** the cap helper (`lensReachCap` = `max(0.08, min(0.45, 2·thicknessM/gapWidthM))`, thickness→gap-fraction via real alongM; the conversion documented) was built + applied to the `emitLonePinch` `isLens` apex. Measured: the two advisory `0corr-reach-exceeds-cap` rows did NOT flip (they render at the 0.5 INTERIOR fraction via a NON-`isLens` lone-side path — an engine/gate routing disagreement, not a lens-branch apex), and shrinking the `isLens` apexes REGRESSED the counter (`1corr-not-onlap` 14→16, `8e-enclosure` 52→50: a nearer apex re-traced two conformant faces to full-width). REVERTED clean (engine byte-identical, holes 0/0/0, CS1 7/7, all 31 shape gates, conformance back to 5/14/0=19, tsc clean, v1 90/90). The 8b cap cannot land as an advisory-only flip without either (i) restructuring the lone-side onlap/lens routing so a 0-corr unit takes the `isLens` path (then cap it), or (ii) perturbing conformant faces — both the two-sided restructuring. FIX PATH (all 8 + the cap, ONE increment): drive `tileInterval`/the lone-side router from `effectiveCorrForSide` PER GAP PER SIDE — extract enclosed minorities at the INTERVAL level (per-gap `edgedLayerIds`, not the column pre-pass), emit each unit's own termination (0→8b-capped lens; 1→onlap; 2→band) BEFORE flooding, then re-close the residue — regression-guarding the 32 currently-OK `routeLoneStack` cases + holes 0/0/0. Baseline for that increment: **0corr-not-lens 5, 1corr-not-onlap 14, 2corr-not-band 0 (19 total); 8e-enclosure 52; q3-legit 5; reach-cap advisory 2**; parity grand Δ −0.0% (worst section residual −0.047, within the <0.05 gate; the v1Only=39 double-paint / v2 vacancy-hole classes are the documented ruling-8 auto-match divergence, not regressions) |
 
+Ruling-8v increment — the lens-edged residual (b), ISOLATED case (2026-09-04):
+
+| v1 rule / pass | v2 disposition |
+|---|---|
+| Lens-edged residual (b): a same-formation-enclosed minority TIED in one adjacent gap and 0-tie in the other must LENS in the untied gap + BAND in the tied gap (ruling 8v; the S22 lower sand) | PARTIALLY LANDED (`edgedEnclosedLens.ts` `extractPerGapEnclosedLenses`). The section-wide `edgedLayerIds` cannot tell "edged in the ADJACENT gap" from "edged here"; the new per-gap pass reads `edgedLayers.inGap` + a per-gap tie-contact view, extracts the minority as an `EnclosedLens` with a new `emitGaps` field = only the UNTIED gap(s), and MINIMAL-merges (grow `above` to the lens base, splice ONLY the lens, keep `below` + its ties). `emitEnclosedLensCurves`/`collectEnclosedLensDiamonds` gate on `emitGapAllowed`, so the flank draws only in the untied gap and the tied gap bands via the `col:lens` seed + ties. Verified on the owner's real section (`test3_cs1_input.json`): S22 sand = lens left (gap 6, apex ≈0.55), band right (gap 7). **SCOPE:** landed only for the ISOLATED case the merge keeps partition-clean — four safety gates exclude the interbedded comb (untied gap above the facing TD; the enclosing matrix bands in the emit gap; a same-formation tie in every tied gap; the kept `below` has NO same-formation tie). The excluded broader class (a thin minority inside a ZAND/SILT comb, tied to a different facing formation, or whose kept enclosing bands) remains the two-sided terminations-first restructuring — the merge is a shared-stack mutation that CANNOT be made clean for a comb, proven by the gap8 overpaint / gap21-annulus / gap11-conformance failures each gate closes. Gates: invariant test (S22 fixture + CS1 golden guard), `groundTruth` no-overpaint, `edgedAnnulus` CS1 gap21 hole-free, flag-ON conformance 0, CS1 golden master byte-identical, tsc clean. |
+
 Anything discovered in v1 during the build that is NOT in this table gets
 ADDED to this table with a disposition — nothing is dropped silently.
 
@@ -768,6 +774,59 @@ Rulings from dogfeed round 1 (2026-07-14, owner on CS1):
    (every 0-corr unit terminates; every band maps to a drawn tie), not
    v1 equivalence. Side effect embraced: the ~60 untied same-litho
    overlaps will show as double lenses until the owner ties them.
+8v. **"2/1/0 IS THE SKELETON — 0 TIES IS ALWAYS A LENS" (owner escalation,
+   2026-09-04, verbatim):** *"2/1/0 is the skeletal framework of our
+   interpolation mechanism — it has always been like that."* The rule is a
+   HARD INVARIANT, not an S22 special case: a unit with ZERO ties toward a
+   side is emitted as a lens on that side — its polygon has NO vertex on the
+   facing column, the closure pinches INSIDE the gap — **regardless of the
+   facing column's TD, sub-TD substrate, blind columns, or surface-topped
+   units.** The §12 "meet the facing test" closure (below) no longer applies
+   to a 0-tie unit. ONE physical exemption STANDS (ruling 8e/8j): a 0-tie
+   minority whose FACING carries the SAME formation across its window is ONE
+   BODY with that run ("it should be one sand") — a same-colour full-width is
+   correct, so the invariant governs a DIFFERENT-formation 0-tie minority.
+   Pinned by the ALWAYS-ON `partitionFillV2.zeroTieLens.invariant.test.ts`
+   ("2/1/0 is the skeleton: 0 ties is always a lens"), over the anonymised
+   S22 fixture + the CS1 golden.
+   **IMPLEMENTATION STATUS — GREEN for the ISOLATED edged-enclosed minority
+   (the S22 sand); the interbedded-comb class stays STOPPED WITH GEOMETRY
+   (2026-09-04).** The S22 sand is a same-formation-enclosed minority that is
+   TIED in its adjacent gap (bands right) and 0-tie in the untied gap (must
+   lens). Fixed by a PER-GAP enclosed-lens extraction, `edgedEnclosedLens.ts`
+   `extractPerGapEnclosedLenses`, run from `buildSectionInput` after the
+   ordinary `extractEnclosedLenses` (flag-ON only, additive). It records the
+   minority as an `EnclosedLens` whose new `emitGaps` field names ONLY the
+   UNTIED adjacent gap(s); `emitEnclosedLensCurves` + `collectEnclosedLensDiamonds`
+   honour it (`emitGapAllowed`), so the lens flank + its band-contour detour
+   draw only there and the TIED gap keeps its band by construction (the ties +
+   the `col:lens` seed close it). The MINIMAL merge grows the `above` matrix
+   unit down to the LENS BASE only (not over `below`) and splices ONLY the
+   lens, so `below` keeps its identity + ties and the enclosing matrix band is
+   continuous over the lens interval for the annulus. The owner's REAL section
+   (`test3_cs1_input.json`, product path) now renders the S22 sand as a closed
+   LENS left of S22 (gap 6, apex ≈0.55, never reaching S1) and a BAND right
+   (gap 7). The two-sided restructuring `buildEdgedLayers.inGap` was NOT needed
+   at large — instead the extraction is SCOPED by SAFETY GATES to the isolated
+   case the merge handles cleanly: (a) the untied emit gap is ABOVE the facing
+   column's TD (a sub-TD minority is `emitSubTdLenses`' job — extracting one
+   there overpainted col-9's drilled ZAND in gap 8, a non-local substrate
+   perturbation); (b) the enclosing matrix BANDS in the emit gap (an enclosing
+   unit carries a same-formation tie there — else an interbedded ZAND/SILT comb
+   grows a non-banding matrix and holes the tied-gap session-24 annulus, CS1
+   gap22); (c) the minority carries a same-formation tie in EVERY tied gap (so
+   that gap is a guaranteed 8j band); (d) the KEPT `below` matrix unit does NOT
+   itself carry a same-formation tie (else the abutted matrix run reads as ONE
+   full-width band the 2/1/0 conformance gate flags, CS1 gap11 SILT). The
+   BROADER edged-enclosed class the gates EXCLUDE — a thin minority inside an
+   interbedded comb, tied to a DIFFERENT facing formation, or whose kept
+   enclosing unit bands — remains the multi-increment two-sided
+   terminations-first restructuring §4's FINAL-SHAPES / Milestone-2 rows
+   document as STOPPED WITH GEOMETRY: the merge is a shared-column-stack
+   mutation and CANNOT be made clean for a comb without it. Gates green:
+   the always-on invariant test (fixture 1 S22 + fixture 2 CS1 golden guard),
+   `groundTruth` (no overpaint), `edgedAnnulus` (CS1 gap21 hole-free),
+   flag-ON conformance 0, CS1 golden master byte-identical.
 
 ## 9. Build plan (subagent-driven; month shape)
 
@@ -895,6 +954,22 @@ reference stays pinned by identity at 10 (byte-identical). Flag-ON conformance i
 a true 0; the overpaint gate is the independent data-loss backstop.
 
 ## 12. A closure exists to MEET the facing test (owner ruling 2026-08-21)
+
+> ⚠ **SUPERSEDED FOR 0-TIE UNITS by ruling 8v (owner escalation 2026-09-04, §8).**
+> "0 ties is ALWAYS a lens — regardless of the facing column's TD or sub-TD
+> substrate." A 0-tie unit no longer "continues to the facing column at full
+> thickness" to meet a short log; it pinches out INSIDE the gap as a lens (apex
+> at `LENS_PINCH_FRACTION`), and the enclosing matrix closes over the void. The
+> §12 continuation below is RETAINED ONLY for the tied cases it still serves — a
+> corr-1 onlap has a tie to follow (its `emitContinuation`/`terminationRun`
+> reach across a blind column to the first reading column is a reading to MEET),
+> which ruling 8v leaves untouched. The 0-tie continuation-to-full-thickness /
+> the sub-TD hugging-lens-as-fallback is the RETIRED half. NOTE: 8v is now GREEN
+> for the ISOLATED edged-enclosed minority (the S22 0-tie sand renders as a lens
+> under the product path via `edgedEnclosedLens.ts` — see ruling 8v STATUS); the
+> broader interbedded-comb class stays STOPPED WITH GEOMETRY. An ABOVE-TD 0-tie
+> lens is now a real interior HOLE in its enclosing matrix, so the §12
+> continuation is not the path that draws it.
 
 **Owner, verbatim,** on S7's thin interbeds drawn as phantom pinches around the
 short S7A: *"it should be a continuous band starting from S7 but now it is
