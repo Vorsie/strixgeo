@@ -30,7 +30,7 @@ import { buildArrangement } from './arrangement'
 import { detectFloodedUnits } from './detectFloodedUnits'
 import { emitCurves, type TieConflict } from './emitCurves'
 import { expandOverrideAliasesFromBase } from './expandOverrideAliases'
-import { clearForceOnlapUnits, parseForceOnlapKey, type ReviewFlag, setForceOnlapUnits } from './forceOnlapUnits'
+import { clearForceLensUnits, parseForceLensKey, type ReviewFlag, setForceLensUnits } from './forceLensUnits'
 import { computeFillIdentity, type FillIdentity } from './fillIdentity'
 import { labelFaces } from './labelFaces'
 import { mergeTouchingBodies } from './mergeTouchingBodies'
@@ -89,9 +89,9 @@ export function computeSectionFillV2WithConflicts(
   return { regions: outcome.regions, conflicts: outcome.conflicts, reviewFlags: outcome.reviewFlags }
 }
 
-/** Parse the repair pass' forced-onlap keys into structured review flags (drop any malformed key). */
+/** Parse the repair pass' forced-lens keys into structured review flags (drop any malformed key). */
 function toReviewFlags(keys: readonly string[]): ReviewFlag[] {
-  return keys.map(parseForceOnlapKey).filter((f): f is ReviewFlag => f !== null)
+  return keys.map(parseForceLensKey).filter((f): f is ReviewFlag => f !== null)
 }
 
 /**
@@ -217,11 +217,11 @@ export function classifyOverrideOutcome(
   },
 ): OverrideOutcome {
   // ONE fill pass for a given override map: normalise → emit → arrange → label → slice → merge.
-  // With the hoist flag ON, a SAFE-DEFAULT REPAIR loop follows (owner 2026-07-26): the first pass
-  // may leave a drilled unit flooded by a foreign litho (the 8m-suppressed-onlap → enclosing-flood
-  // data-loss, TS7-g0 clay → silt). ``detectFloodedUnits`` finds them; the fill re-runs with those
-  // units' onlaps FORCED ON (``forceOnlapUnits``) so the drilled litho survives. The clean cases
-  // flood nothing → detect nothing → re-run nothing → byte-identical to the pre-repair engine.
+  // With the hoist flag ON, a SAFE-DEFAULT REPAIR loop follows (owner 2026-07-26, RE-RULED 2026-09-04
+  // "zero ties = lens"): the first pass may leave a drilled unit flooded by a foreign litho (TS7-g0
+  // clay → silt). ``detectFloodedUnits`` finds them; the fill re-runs with those units FORCED TO A LENS
+  // (``forceLensUnits`` — effective corr demoted to 0 so the sweep draws each one's own-elevation
+  // pinch-out, never a forced onlap). Clean cases flood nothing → byte-identical to the pre-repair engine.
   const runFill = (
     ov: ReadonlyMap<string, LensApexOverride> | undefined,
   ): FillPass => {
@@ -261,16 +261,16 @@ export function classifyOverrideOutcome(
       let added = false
       for (const k of flooded) if (!forced.has(k)) { forced.add(k); added = true }
       if (!added) break
-      setForceOnlapUnits(forced)
+      setForceLensUnits(forced)
       try {
         result = onePass()
       } finally {
-        clearForceOnlapUnits()
+        clearForceLensUnits()
       }
     }
-    // ``repaired`` (the forced-onlap keys) are exposed as REVIEW FLAGS: the uncorrelated same-litho
-    // neighbours the repair re-emitted. The engine fixed the data loss; the UI surfaces them so the
-    // user can correlate the pair into one band (or confirm separate).
+    // ``repaired`` (the forced-lens keys) is kept on the result as REVIEW-FLAG DATA — the drilled
+    // units the repair rescued to a lens. The engine fixed the data loss; the litho overlay no longer
+    // draws a marker for these (owner 2026-09-04), but the data survives for any other consumer.
     return { ...result, repaired: [...forced], rawLayerContacts: section.rawLayerContacts }
   }
 
