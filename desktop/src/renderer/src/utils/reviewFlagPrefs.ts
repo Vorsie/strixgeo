@@ -25,7 +25,7 @@ export interface ReviewFlagRef {
 }
 
 /** Stable dismissal key for a review flag (unit + gap + side). Same shape as the engine's
- *  ``forceOnlapKey`` so the two vocabularies line up, but kept independent (this is UI state). */
+ *  ``forceLensKey`` so the two vocabularies line up, but kept independent (this is UI state). */
 export function reviewFlagId(f: ReviewFlagRef): string {
   return `${f.layerId}|${f.gapIndex}|${f.side}`
 }
