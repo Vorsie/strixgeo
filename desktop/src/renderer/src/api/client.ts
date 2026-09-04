@@ -104,6 +104,7 @@ export type {
   GeologicalFormationResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationUpdatePayload,
+  NadAdmixtureChoice,
   ModelKind,
   GeologicalModelResponse,
   GeologicalModelCreatePayload,
