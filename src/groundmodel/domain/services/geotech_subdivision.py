@@ -12,7 +12,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS
+from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS, Variant
 from groundmodel.domain.services.nad_classifier import _variant_for, classify_nad
 from groundmodel.domain.services.representative_statistic import (
     DEFAULT_STATISTIC,
@@ -192,6 +192,8 @@ def _sustained_threshold_cuts(
     soil: BaseLithology,
     admixtures: tuple[Admixture, ...],
     min_thickness_m: float,
+    *,
+    variant_override: Variant | None = None,
 ) -> list[float]:
     """Boundary depths where qc *sustainably* crosses each NAD band threshold.
 
@@ -208,6 +210,10 @@ def _sustained_threshold_cuts(
         Segment soil (fixes the NAD column + thresholds).
     admixtures : tuple[Admixture, ...]
         Segment admixtures (pick clean vs secondary NAD variant).
+    variant_override : Variant | None, optional
+        The engineer's persisted NAD-family answer, resolved to a column; forces
+        which soil column's thresholds are used. ``None`` keeps the
+        auto-from-admixtures behaviour.
     min_thickness_m : float
         Sets the persistence length: a crossing must hold for HALF this long to
         place a cut. Half, not the whole (owner ruling 2026-08-11, audit F05):
@@ -230,7 +236,7 @@ def _sustained_threshold_cuts(
     if not depths:
         return []
     persist = max(1, round((min_thickness_m / 2.0) / _median_increment(depths)))
-    variant = _variant_for(soil, admixtures)
+    variant = variant_override if variant_override is not None else _variant_for(soil, admixtures)
     thresholds = [u for u, _c in NAD_QC_BANDS[(soil, variant)] if u is not None]
     cuts: set[float] = {depths[0], depths[-1]}
     for thr in thresholds:
@@ -443,6 +449,7 @@ def _class_over(
     statistic: str,
     fallback: int | None,
     all_samples: list[tuple[float, float | None]] | None = None,
+    variant_override: Variant | None = None,
 ) -> int | None:
     """Classify one interval from the cone readings inside it.
 
@@ -473,6 +480,9 @@ def _class_over(
     all_samples : list[tuple[float, float | None]] | None
         The segment's raw in-range samples, validity included — what the coverage
         gate judges. ``None`` skips the gate (legacy callers).
+    variant_override : Variant | None
+        The engineer's persisted NAD-family answer, resolved to a column; forces
+        clean vs secondary regardless of ``admixtures``. ``None`` = auto.
 
     Returns
     -------
@@ -489,7 +499,12 @@ def _class_over(
     in_band = [q for d, q in zip(seg_depths, seg_qc) if top_m <= d < base_m]
     if not in_band:
         return fallback
-    derived = classify_nad(soil, admixtures, representative_qc(in_band, statistic))
+    derived = classify_nad(
+        soil,
+        admixtures,
+        representative_qc(in_band, statistic),
+        variant_override=variant_override,
+    )
     return fallback if derived is None else derived
 
 
@@ -505,6 +520,7 @@ def suggest_geotech_subdivision(
     gradient_snap: bool = True,
     gradient_snap_window_m: float = 0.5,
     statistic: str = DEFAULT_STATISTIC,
+    variant_override: Variant | None = None,
 ) -> list[GeotechSplit]:
     """Suggest NAD sub-units for one litho segment.
 
@@ -552,6 +568,12 @@ def suggest_geotech_subdivision(
         the SAME model column through :func:`representative_qc`, so the
         warning can never predict a class this classifier does not derive
         (ruling 6).
+    variant_override : Variant | None, optional
+        The engineer's persisted NAD-family answer (owner ruling 2026-09-04),
+        already resolved to a column: ``"clean"`` classifies the whole segment
+        into the pure NAD column, ``"secondary"`` into the with-admixture column,
+        regardless of the unit's ``admixtures``. ``None`` (default) keeps the
+        auto-from-admixtures behaviour, so every pre-ruling caller is unchanged.
 
     Returns
     -------
@@ -607,7 +629,14 @@ def suggest_geotech_subdivision(
     seg_qc: list[float] = [q for _d, q in valid if q is not None]
 
     # 1. Sustained per-threshold crossings -> cut depths (conservative placement).
-    cuts = _sustained_threshold_cuts(seg_depths, seg_qc, soil, admixtures, min_thickness_m)
+    cuts = _sustained_threshold_cuts(
+        seg_depths,
+        seg_qc,
+        soil,
+        admixtures,
+        min_thickness_m,
+        variant_override=variant_override,
+    )
 
     # 2. Bands between consecutive cuts, each classified by its REPRESENTATIVE
     #    qc — the model's chosen statistic (ruling 7); median by default,
@@ -621,14 +650,24 @@ def suggest_geotech_subdivision(
         in_band = [q for d, q in zip(seg_depths, seg_qc) if a <= d < b]
         if not in_band:
             continue
-        cls = classify_nad(soil, admixtures, representative_qc(in_band, statistic))
+        cls = classify_nad(
+            soil,
+            admixtures,
+            representative_qc(in_band, statistic),
+            variant_override=variant_override,
+        )
         bands.append([a, b, cls])
     if not bands:  # degenerate (e.g. single sample) — one band over the segment
         bands = [
             [
                 segment_top_m,
                 segment_base_m,
-                classify_nad(soil, admixtures, representative_qc(seg_qc, statistic)),
+                classify_nad(
+                    soil,
+                    admixtures,
+                    representative_qc(seg_qc, statistic),
+                    variant_override=variant_override,
+                ),
             ]
         ]
 
@@ -647,6 +686,7 @@ def suggest_geotech_subdivision(
             statistic,
             None,
             all_samples=in_range,
+            variant_override=variant_override,
         )
 
     bands = _weld_same_class_bands(
@@ -725,6 +765,7 @@ def suggest_geotech_subdivision(
                     statistic,
                     cls,
                     all_samples=in_range,
+                    variant_override=variant_override,
                 ),
             ]
             for top, base, cls in bands
