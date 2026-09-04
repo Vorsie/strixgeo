@@ -58,21 +58,15 @@ GEOLib quirks this exporter works around
 from __future__ import annotations
 
 from io import BytesIO
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from geolib.geometry.one import Point
-from geolib.models import DSheetPilingModel
-from geolib.models.dsheetpiling.dsheetpiling_model import SheetModelType
-from geolib.models.dsheetpiling.profiles import SoilLayer, SoilProfile
-from geolib.models.dsheetpiling.settings import (
-    LateralEarthPressureMethod,
-    LateralEarthPressureMethodStage,
-    PassiveSide,
-    Side,
-)
-from geolib.models.dsheetpiling.surface import Surface
-from geolib.models.dsheetpiling.water_level import WaterLevel
-from geolib.soils import MohrCoulombParameters, Soil, SoilWeightParameters
+if TYPE_CHECKING:
+    # deferred: geolib is imported lazily inside ``_build_model`` / ``_build_soil``
+    # so importing this exporter at API boot (a router pulls it in to register a
+    # route) does not pay geolib's large import cost.
+    from geolib.models import DSheetPilingModel
+    from geolib.soils import Soil
 
 from groundmodel.application.section_polygon_set import (
     SectionPolygon,
@@ -221,6 +215,20 @@ class DSheetPilingExporter(SectionGeometryExporter):
             count drives the ``[RUN IDENTIFICATION]`` provenance line — when it
             is zero the file keeps the parameters-at-defaults TODO.
         """
+        # deferred: keeps geolib off the API boot path (see the module imports).
+        from geolib.geometry.one import Point
+        from geolib.models import DSheetPilingModel
+        from geolib.models.dsheetpiling.dsheetpiling_model import SheetModelType
+        from geolib.models.dsheetpiling.profiles import SoilLayer, SoilProfile
+        from geolib.models.dsheetpiling.settings import (
+            LateralEarthPressureMethod,
+            LateralEarthPressureMethodStage,
+            PassiveSide,
+            Side,
+        )
+        from geolib.models.dsheetpiling.surface import Surface
+        from geolib.models.dsheetpiling.water_level import WaterLevel
+
         model = DSheetPilingModel()
         model.set_model(SheetModelType(method=LateralEarthPressureMethod.KA_KO_KP))
 
@@ -444,6 +452,9 @@ def _build_soil(label: str, params: NadSoilParameters | None) -> Soil:
         onto D-Sheet's ``SoilCohesion`` / ``SoilPhi`` / ``SoilGamDry`` /
         ``SoilGamWet`` when parameterised.
     """
+    # deferred: keeps geolib off the API boot path (see the module imports).
+    from geolib.soils import MohrCoulombParameters, Soil, SoilWeightParameters
+
     if params is None:
         return Soil(name=label, code=label)
     return Soil(
