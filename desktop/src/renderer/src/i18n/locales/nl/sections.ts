@@ -104,11 +104,11 @@ export const SECTIONS_NL = {
   'sections.inspector.syncGeology': 'Geologie synchroniseren',
   'sections.inspector.seedDefineFirst':
     'Definieer eerst formaties in de geologiestap — Zaaien plaatst laaggrenzen voor reeds gedefinieerde lagen',
-  'sections.inspector.seedingContacts': 'Laaggrenzen zaaien uit de boorstratigrafie…',
+  'sections.inspector.seedingContacts': 'Laaggrenzen vullen uit de boorstratigrafie…',
   'sections.inspector.seedTitle':
     'Plaats laaggrenzen uit boorwaarnemingen voor formaties die al in het model gedefinieerd zijn — voer Ontdubbelen uit als er dubbels verschijnen',
-  'sections.inspector.seeding': 'Zaaien…',
-  'sections.inspector.seed': 'Zaaien',
+  'sections.inspector.seeding': 'Vullen…',
+  'sections.inspector.seed': 'Vullen',
   'sections.inspector.seedDefineFirstShort': 'Definieer eerst formaties in de geologiestap',
   'sections.inspector.allHaveGeologyContacts':
     'Alle boringen in bereik hebben al geologische laaggrenzen — importeer nieuwe proeven om dit te gebruiken',
@@ -116,7 +116,7 @@ export const SECTIONS_NL = {
     'Plaats laaggrenzen uit de stratigrafie voor de {n} boring zonder geologische laaggrenzen',
   'sections.inspector.seedNewTestsTitleMany':
     'Plaats laaggrenzen uit de stratigrafie voor de {n} boringen zonder geologische laaggrenzen',
-  'sections.inspector.seedForNewTests': 'Zaaien voor nieuwe proeven',
+  'sections.inspector.seedForNewTests': 'Vullen voor nieuwe proeven',
   'sections.inspector.cleaning': 'Opschonen…',
   'sections.inspector.dedupeTitle':
     'Verwijder dubbele (anker, formatie) laaggrenzen — behoudt de meest recente keuze in elke groep',
@@ -563,7 +563,7 @@ export const SECTIONS_NL = {
   // means one CPT or borehole column on the section.
   'sections.menu.focusTest': 'Focus op deze proef',
   'sections.menu.openDetail': 'Details openen',
-  'sections.menu.removeFromSection': 'Uit dit profiel weghalen',
+  'sections.menu.removeFromSection': 'Uit dit profiel verwijderen',
   'sections.menu.clearSubdivision': 'Onderverdeling wissen',
   // FLAG: not owner-ruled — the column context menu's aria-label. ``{name}`` is
   // the column display name.
@@ -573,7 +573,7 @@ export const SECTIONS_NL = {
   'sections.menu.unlinkFromGeology': 'Loskoppelen van de geologie',
   'sections.menu.editInGeology': 'Bewerken in de geologiestap',
   'sections.menu.mergeLayers': 'Lagen samenvoegen',
-  'sections.menu.removeLithoUnit': 'Deze litho-eenheid weghalen',
+  'sections.menu.removeLithoUnit': 'Deze litho-eenheid verwijderen',
   'sections.menu.addSuggestionHere': 'Hier een nieuw voorstel toevoegen',
   'sections.menu.unitStatistics': 'Statistieken van deze eenheid…',
   'sections.menu.insertLayerHere': 'Hier een laag invoegen…',
