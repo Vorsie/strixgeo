@@ -207,3 +207,36 @@ export function unionIdsAnchoringBody(
   }
   return [...ids]
 }
+
+/**
+ * The distinct KNOWN NAD classes in a checked selection, ascending.
+ *
+ * Feeds the ``cross-class`` refusal hint so it names the offending classes in
+ * words rather than a bare "same packing class" (the pane maps these numbers
+ * through ``nadClassName`` at the presentation boundary). A body whose class is
+ * unknown (a roster race) contributes nothing — the same bodies the guard itself
+ * skips, so the named hint and the guard never disagree on WHAT is selected.
+ *
+ * Parameters
+ * ----------
+ * bodyIds
+ *     The checked body ids.
+ * classByBody
+ *     ``body id → nad_class`` (``bodyNadClassMap``).
+ *
+ * Returns
+ * -------
+ * number[]
+ *     The distinct class numbers of the selection, sorted ascending.
+ */
+export function selectedNadClasses(
+  bodyIds: readonly string[],
+  classByBody: ReadonlyMap<string, number>,
+): number[] {
+  const classes = new Set<number>()
+  for (const id of bodyIds) {
+    const nad = classByBody.get(id)
+    if (nad !== undefined) classes.add(nad)
+  }
+  return [...classes].sort((a, b) => a - b)
+}
