@@ -595,4 +595,18 @@ export const MODELS = {
   'geotech.reportShowDetail': 'Show every guarantee and where it stands',
   'geotech.reportLess': 'Less',
   'geotech.reportDetail': 'Detail',
+  // Admixture → NAD-family prompt (owner ruling 2026-09-04). Asked before the
+  // subdivide for units whose admixture the NAD table can read two ways.
+  'geotech.admixtureChoiceTitle': 'Which NAD classes for these admixtures?',
+  'geotech.admixtureChoiceBody':
+    'These units carry an admixture the NAD table can classify two ways. Choose, per unit, whether to classify it as the pure soil or with its admixture before dividing.',
+  'geotech.admixturePureOption': 'Pure {soil}',
+  'geotech.admixtureWithOption': '{soil} with admixture',
+  'geotech.admixtureChoiceConfirm': 'Divide',
+  'geotech.admixtureChoiceCancel': 'Cancel',
+  'geotech.admixtureChoiceGate': 'Choose a class for every unit to continue.',
+  'geotech.admixtureChoiceReopen': 'Admixture NAD choices',
+  'geotech.admixtureChoiceReopenTitle':
+    'Review or change which NAD family each admixture unit is classified into.',
+  'geotech.admixtureChoiceSaveFailed': 'Could not save the admixture NAD choices — nothing was divided.',
 } as const
