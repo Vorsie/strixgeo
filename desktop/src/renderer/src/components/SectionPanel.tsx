@@ -107,10 +107,6 @@ import {
   pickQcFullScaleMpa,
   type CptChannels,
 } from './sections/cptChannels'
-import {
-  buildReviewFlagPatch,
-} from '../utils/reviewFlagPrefs'
-import { useSessionReviewFlagDismissals } from '../hooks/useSessionReviewFlagDismissals'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import SectionGrid from './sections/SectionGrid'
 import InvestigationColumns from './sections/InvestigationColumns'
@@ -1536,28 +1532,10 @@ export default function SectionPanel({
     [onPatch],
   )
 
-  // REVIEW-FLAG dismissal (owner 2026-07-26; design §10). The safe-default repair surfaces
-  // uncorrelated same-litho neighbours as amber markers; "Keep separate" dismisses one, persisted in
-  // ``view_state.review_flags`` so it rides the .gmproj bundle and does not re-nag (like cpt_channels).
-  //
-  // ``section.view_state`` only carries a dismissal once ITS PATCH has come back, so a
-  // second "Keep separate" inside one round-trip would build its patch from the pre-first
-  // state and the server would end with only the second id — flag one re-nags. The
-  // session's dismissals are therefore accumulated in ``useSessionReviewFlagDismissals``
-  // and merged with whatever the server has acknowledged. That accumulation is keyed on
-  // ``section.id``: this panel is NOT remounted when the user picks another section (no
-  // ``key`` at the call site), flag ids are ``layerId|gapIndex|side``, and sections share
-  // investigations — so an unkeyed set would hide a genuine flag on the next section and
-  // write this section's decisions into that section's saved bag.
-  const { dismissed: dismissedReviewFlags, dismiss: dismissReviewFlag } =
-    useSessionReviewFlagDismissals(section.id, section.view_state ?? null)
-  const handleDismissReviewFlag = useCallback(
-    (flagId: string) => {
-      const next = dismissReviewFlag(flagId)
-      if (onPatch) void onPatch(buildReviewFlagPatch(next))
-    },
-    [dismissReviewFlag, onPatch],
-  )
+  // REVIEW-FLAG "!" markers removed 2026-09-04 (owner: "I don't know why the attention marker is
+  // there"). The amber litho-axis markers + their "Keep separate" dismissal are gone; the persisted
+  // ``view_state.review_flags`` field is left intact for backwards-compat (``reviewFlagPrefs`` still
+  // reads/writes it), just no longer wired to any rendered surface.
 
   // Band half-width scales with horizontal zoom — at low zoom keep
   // columns compact, at high zoom let curves breathe. The wheel-zoom
@@ -3681,9 +3659,6 @@ export default function SectionPanel({
                 onSaveBoundary={FREEDRAW_EDIT_ENABLED ? onSaveLensShape : undefined}
                 onCorrelateBoundary={FREEDRAW_EDIT_ENABLED ? onCorrelateBoundary : undefined}
                 axisMode={axisMode}
-                dismissedReviewFlags={dismissedReviewFlags}
-                onDismissReviewFlag={handleDismissReviewFlag}
-                onCorrelateReviewFlag={onCorrelateBoundary}
                 onJumpToConflictGap={handleConflictJump}
                 onConflictEdgeKeysChange={setConflictEdgeKeys}
                 openExtentLengthM={openExtentLengthM}
