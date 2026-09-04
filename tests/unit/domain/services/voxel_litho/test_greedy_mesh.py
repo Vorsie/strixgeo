@@ -21,7 +21,7 @@ import numpy as np
 
 from groundmodel.domain.services.voxel_litho.extract_body_solids import extract_body_solids
 from groundmodel.domain.services.voxel_litho.greedy_mesh import (
-    _maximal_rectangles_njit,
+    _maximal_rectangles_compiled,
     maximal_rectangles,
     subdivision_nodes,
     triangulate_subdivided_rect,
@@ -69,10 +69,10 @@ def test_kernel_compiles_in_numba_nopython_mode() -> None:
     # A plain Python function has no ``nopython_signatures``; a nopython @njit
     # dispatcher registers the compiled signature here. An object-mode fallback
     # would leave this list empty.
-    assert hasattr(_maximal_rectangles_njit, "nopython_signatures"), (
+    assert hasattr(_maximal_rectangles_compiled(), "nopython_signatures"), (
         "kernel is not a Numba dispatcher — was @njit removed?"
     )
-    assert len(_maximal_rectangles_njit.nopython_signatures) > 0, (
+    assert len(_maximal_rectangles_compiled().nopython_signatures) > 0, (
         "greedy-mesh kernel did not compile in nopython mode (object-mode fallback?)"
     )
 
