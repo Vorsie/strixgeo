@@ -33,9 +33,18 @@ import {
   type GeotechBuildPreflightInputs,
   type UnbandedTest,
 } from '../../../utils/geotechBuildPreflight'
+import {
+  ambiguousAdmixtureUnits,
+  hasUnansweredAdmixtureUnits,
+  type AdmixtureUnit,
+} from '../../../utils/admixtureNadChoice'
+import type { NadAdmixtureChoice } from '../../../api/clients/geology.types'
 import { log } from '../../../utils/log'
 import { geotechVoxelRequestCallback } from './GeotechnicalCanvas'
 import { GEOTECH_BAND_WAIT_MS } from './useGeotechBuildPreflight_constants'
+
+/** Per-unit answer while the admixture prompt is open (null = not yet chosen). */
+type AdmixtureSelections = Record<string, NadAdmixtureChoice | null>
 
 /** Nothing excluded — the ordinary whole-model build, exactly as before. */
 const NOTHING_EXCLUDED = undefined
@@ -44,12 +53,20 @@ const NOTHING_EXCLUDED = undefined
 type Phase =
   /** No press in flight. */
   | { kind: 'idle' }
+  /** The admixture NAD-family prompt is open on these units (owner ruling
+   *  2026-09-04): the FIRST gate of the press, before the unbanded-tests one. */
+  | { kind: 'choosing-admixtures'; units: readonly AdmixtureUnit[]; selections: AdmixtureSelections }
   /** The dialog is open on these findings. */
   | { kind: 'asking'; tests: readonly UnbandedTest[] }
   /** The subdivide / divide verbs are running. */
   | { kind: 'subdividing' }
   /** The verbs are done; waiting for their bands to reach the renderer. */
   | { kind: 'awaiting-bands'; investigationIds: readonly string[] }
+
+/** Seed the prompt's per-unit selection from each unit's stored answer. */
+function initSelections(units: readonly AdmixtureUnit[]): AdmixtureSelections {
+  return Object.fromEntries(units.map(u => [u.formationId, u.choice]))
+}
 
 /** What the toolbar needs to render and drive the press. */
 export interface UseGeotechBuildPreflightResult {
@@ -71,6 +88,21 @@ export interface UseGeotechBuildPreflightResult {
   visitNextExcluded: () => void
   /** True while the presses run or their bands are awaited. */
   busy: boolean
+  // ---- Admixture NAD-family prompt (owner ruling 2026-09-04) ----
+  /** Admixture-ambiguous units the prompt is open on, or ``null`` when closed. */
+  askingAdmixtures: readonly AdmixtureUnit[] | null
+  /** The prompt's current per-unit selection. */
+  admixtureSelections: AdmixtureSelections
+  /** Pick a NAD family for one unit in the prompt. */
+  selectAdmixture: (formationId: string, choice: NadAdmixtureChoice) => void
+  /** Persist the answers, then continue the press. Gated on all-answered. */
+  confirmAdmixtures: () => Promise<void>
+  /** True while the answers are being saved. */
+  admixtureBusy: boolean
+  /** Open the prompt to review / change answers, when any ambiguous unit exists. */
+  openAdmixtureChoices: () => void
+  /** True when the model has at least one admixture-ambiguous unit in scope. */
+  hasAmbiguousAdmixtureUnits: boolean
 }
 
 /**
@@ -89,10 +121,12 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
     geoModel: {
       lithoLayers,
       geotechLayers,
+      formations,
       buildGeotechSolids,
       startGeotechBuild,
       handleSubdivideAllBodies,
       handleDivideBoreholes,
+      handleSetNadAdmixtureChoices,
     },
     coordinator: { setSectionsDeepLinkTarget },
     toasts: { toast },
@@ -100,8 +134,29 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
 
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [excludedFromLastBuild, setExcludedFromLastBuild] = useState<readonly UnbandedTest[]>([])
+  // True while the admixture answers are being PATCHed.
+  const [admixtureBusy, setAdmixtureBusy] = useState(false)
   // A ref, not state: cycling the chip must not re-render the stage.
   const visitRef = useRef<number | null>(null)
+
+  // The formation ids the subdivide will actually classify: the ACCEPTED litho
+  // picks' formations, so this is exactly the scope the classifier sees.
+  const scopeFormationIds = useMemo(
+    () => new Set(lithoLayers.filter(l => l.status === 'accepted').map(l => l.formation_id)),
+    [lithoLayers],
+  )
+  // The admixture-ambiguous litho units in scope (owner ruling 2026-09-04),
+  // with each unit's stored answer. Drives the prompt and the re-open chip.
+  // ``formations ?? []`` tolerates the hand-rolled ShellContext stubs that omit
+  // the (required) formations list — no formations means nothing to ask.
+  const admixtureUnits = useMemo(
+    () => ambiguousAdmixtureUnits(formations ?? [], scopeFormationIds),
+    [formations, scopeFormationIds],
+  )
+  // Read through a ref inside the callbacks so a press always acts on the
+  // current units without every callback changing identity on each pan.
+  const admixtureUnitsRef = useRef(admixtureUnits)
+  admixtureUnitsRef.current = admixtureUnits
 
   const investigations = useMemo(
     () => [
@@ -177,7 +232,10 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
     [startGeotechBuild, buildGeotechSolids],
   )
 
-  const pressBuild = useCallback(() => {
+  // The press once any admixture answer is settled: the original unbanded-tests
+  // gate, then the build. Split out so the admixture prompt can hand control
+  // back to exactly this point after saving.
+  const continueAfterAdmixtures = useCallback(() => {
     const { unbandedTests } = geotechBuildPreflight(inputsRef.current)
     if (unbandedTests.length === 0) {
       runBuild(NOTHING_EXCLUDED)
@@ -190,6 +248,65 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
     )
     setPhase({ kind: 'asking', tests: unbandedTests })
   }, [runBuild])
+
+  const pressBuild = useCallback(() => {
+    // FIRST gate (owner ruling 2026-09-04): a unit carrying an admixture the NAD
+    // table can read two ways must be answered before the subdivide classifies
+    // it. Only unanswered units open the prompt, so a fully-answered model
+    // builds straight through to the existing unbanded-tests gate.
+    const units = admixtureUnitsRef.current
+    if (hasUnansweredAdmixtureUnits(units)) {
+      log.info(
+        'geotech-voxel',
+        `build pre-flight: ${units.length} admixture unit(s) need a NAD-family answer`,
+      )
+      setPhase({ kind: 'choosing-admixtures', units, selections: initSelections(units) })
+      return
+    }
+    continueAfterAdmixtures()
+  }, [continueAfterAdmixtures])
+
+  /** Pick a NAD family for one unit in the open admixture prompt. */
+  const selectAdmixture = useCallback((formationId: string, choice: NadAdmixtureChoice) => {
+    setPhase(p =>
+      p.kind === 'choosing-admixtures'
+        ? { ...p, selections: { ...p.selections, [formationId]: choice } }
+        : p,
+    )
+  }, [])
+
+  /** Open the prompt to review / change answers (change-my-answer path). */
+  const openAdmixtureChoices = useCallback(() => {
+    const units = admixtureUnitsRef.current
+    if (units.length === 0) return
+    setPhase({ kind: 'choosing-admixtures', units, selections: initSelections(units) })
+  }, [])
+
+  const confirmAdmixtures = useCallback(async () => {
+    if (phase.kind !== 'choosing-admixtures') return
+    const { units, selections } = phase
+    // Gate: every listed unit must have an answer (the dialog also disables the
+    // button, but never trust the view for a write).
+    if (!units.every(u => selections[u.formationId] != null)) return
+    // Persist only the units whose answer CHANGED — a re-open that changes
+    // nothing writes nothing.
+    const entries = units
+      .filter(u => selections[u.formationId] !== u.choice)
+      .map(u => ({ formationId: u.formationId, choice: selections[u.formationId] as NadAdmixtureChoice }))
+    if (entries.length > 0 && handleSetNadAdmixtureChoices) {
+      setAdmixtureBusy(true)
+      try {
+        await handleSetNadAdmixtureChoices(entries)
+      } catch {
+        // The action toasted; keep the prompt open so the answers are not lost.
+        setAdmixtureBusy(false)
+        return
+      }
+      setAdmixtureBusy(false)
+    }
+    setPhase({ kind: 'idle' })
+    continueAfterAdmixtures()
+  }, [phase, handleSetNadAdmixtureChoices, continueAfterAdmixtures])
 
   /** Deep-link to a section that carries this test and pulse its column. */
   const visitTest = useCallback(
@@ -316,5 +433,12 @@ export function useGeotechBuildPreflight(): UseGeotechBuildPreflightResult {
     excludedFromLastBuild,
     visitNextExcluded,
     busy: phase.kind === 'subdividing' || phase.kind === 'awaiting-bands',
+    askingAdmixtures: phase.kind === 'choosing-admixtures' ? phase.units : null,
+    admixtureSelections: phase.kind === 'choosing-admixtures' ? phase.selections : {},
+    selectAdmixture,
+    confirmAdmixtures,
+    admixtureBusy,
+    openAdmixtureChoices,
+    hasAmbiguousAdmixtureUnits: admixtureUnits.length > 0,
   }
 }
