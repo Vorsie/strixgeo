@@ -1,7 +1,7 @@
 """Non-normalised Robertson soil-behaviour-type classifier (I_SBT, Robertson 2010).
 
-A SEPARATE module from ``robertson_2015`` on purpose: that module is a faithful,
-frozen port of Daniel Verastegui's ``CPTE_2025.sce`` and is marked "do NOT
+A SEPARATE module from ``robertson_2015`` on purpose: that module is the frozen
+normalised Robertson (2009/2015) implementation and is marked "do NOT
 extend". The non-normalised index is a different, simpler classifier and lives
 here so the faithful port stays pristine.
 
