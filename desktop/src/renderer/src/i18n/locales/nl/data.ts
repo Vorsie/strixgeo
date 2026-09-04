@@ -115,7 +115,7 @@ export const DATA_NL = {
   // FLAG alt: Geen maaiveldhoogte — "maaiveldpeil" uses the glossary term Peil
   // for elevation; "maaiveldhoogte" is the more common survey word.
   'data.inspector.noSurfaceElevation': 'Geen maaiveldpeil — handmatige Z-invoer nodig',
-  'data.inspector.removeFromProject': 'Uit project weghalen',
+  'data.inspector.removeFromProject': 'Uit project verwijderen',
   'data.inspector.dateRange': 'Datumbereik',
   'data.inspector.clearDateFilter': 'Datumfilter wissen',
   'data.inspector.fromDate': 'Vanaf datum',
