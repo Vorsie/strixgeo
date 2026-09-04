@@ -5,9 +5,9 @@
  * After one fill pass, a DRILLED unit's own column edge must render the unit's OWN litho — the
  * column is ground truth (ruling 8k). This pass scans the sliced regions and flags every unit whose
  * near-column band is painted a DIFFERENT formation — the 8m-suppressed-onlap → enclosing-flood
- * data-loss case (TS7-g0 clay → silt). The flagged keys drive the repair re-run (``forceOnlapUnits``)
- * AND double as the review surface (these are exactly the uncorrelated same-litho neighbours the user
- * may want to correlate).
+ * data-loss case (TS7-g0 clay → silt). The flagged keys drive the repair re-run (``forceLensUnits`` —
+ * the flooded unit is demoted to corr-0 so the sweep draws its LENS, owner 2026-09-04 "zero ties =
+ * lens") AND double as the review-flag DATA on the fill result.
  *
  * Only ABOVE-shallow-TD units are checked: the sub-TD zone is the deep-to-deep substrate's job, not
  * the enclosing flood's, so a foreign paint there is a different mechanism (not this repair's scope).
@@ -16,7 +16,7 @@
  */
 
 import { type PartitionPoint, type SectionRegion } from '../sectionPartition'
-import { forceOnlapKey } from './forceOnlapUnits'
+import { forceLensKey } from './forceLensUnits'
 import { type ColumnGeom } from './sectionGeom'
 
 /** How far inside a column edge to sample (fraction). Just inside so the drilled column vertical owns it. */
@@ -72,14 +72,15 @@ function checkColumn(
       if (cover !== u.formationId) foreign++
     }
     if (sampled > 0 && foreign === sampled) {
-      flagged.add(forceOnlapKey(u.layerId, g, side))
+      flagged.add(forceLensKey(u.layerId, g, side))
     }
   }
 }
 
 /**
  * Flag every drilled unit whose own column-edge band is painted a FOREIGN formation (the 8k
- * ground-truth violation / data loss). Returns the ``forceOnlapUnits`` keys to re-emit.
+ * ground-truth violation / data loss). Returns the ``forceLensUnits`` keys (the flooded units the
+ * repair demotes to corr-0 so the sweep draws their lens).
  *
  * Parameters
  * ----------
