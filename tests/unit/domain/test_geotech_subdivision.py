@@ -15,6 +15,7 @@ from groundmodel.domain.services.geotech_subdivision import (
     _weld_same_class_bands,
     suggest_geotech_subdivision,
 )
+from groundmodel.domain.value_objects.admixture import Admixture
 
 
 def _depths(top: float, base: float, step: float = 0.5) -> list[float]:
@@ -609,9 +610,7 @@ def test_st_sub3_the_build_arm_classifies_under_the_models_chosen_statistic() ->
     """
     sample_count = 500
     depth_m = [round(0.02 * i, 3) for i in range(sample_count)]
-    qc_mpa: list[float | None] = [
-        0.5 if i % 50 == 7 else 12.0 for i in range(sample_count)
-    ]
+    qc_mpa: list[float | None] = [0.5 if i % 50 == 7 else 12.0 for i in range(sample_count)]
 
     def bands_under(statistic: str) -> list[tuple[float, float, int | None]]:
         return [
@@ -641,23 +640,210 @@ def test_st_sub3_the_build_arm_classifies_under_the_models_chosen_statistic() ->
 # tried twice and reproduced nothing, which is its own finding: the divergence needs the
 # shape real ground has, not a step and some noise.
 _SEG_DEPTH_M = [
-    7.79, 7.84, 7.89, 7.94, 7.99, 8.04, 8.09, 8.14, 8.19, 8.24, 8.29, 8.34, 8.39, 8.44, 8.49,
-    8.54, 8.59, 8.64, 8.69, 8.74, 8.79, 8.84, 8.89, 8.94, 8.99, 9.04, 9.09, 9.14, 9.19, 9.24,
-    9.29, 9.34, 9.39, 9.44, 9.49, 9.54, 9.59, 9.64, 9.69, 9.74, 9.79, 9.84, 9.89, 9.94, 9.99,
-    10.04, 10.09, 10.14, 10.19, 10.24, 10.29, 10.34, 10.39, 10.44, 10.49, 10.54, 10.59, 10.64,
-    10.69, 10.74, 10.79, 10.84, 10.89, 10.94, 10.99, 11.04, 11.09, 11.13, 11.18, 11.23, 11.28,
-    11.33, 11.38, 11.43, 11.48, 11.53, 11.58, 11.63, 11.68, 11.73, 11.78, 11.83, 11.88, 11.93,
-    11.98, 12.03, 12.08, 12.13, 12.18, 12.23, 12.28, 12.33, 12.38, 12.43, 12.48, 12.53, 12.58,
-    12.63, 12.68, 12.73, 12.78
+    7.79,
+    7.84,
+    7.89,
+    7.94,
+    7.99,
+    8.04,
+    8.09,
+    8.14,
+    8.19,
+    8.24,
+    8.29,
+    8.34,
+    8.39,
+    8.44,
+    8.49,
+    8.54,
+    8.59,
+    8.64,
+    8.69,
+    8.74,
+    8.79,
+    8.84,
+    8.89,
+    8.94,
+    8.99,
+    9.04,
+    9.09,
+    9.14,
+    9.19,
+    9.24,
+    9.29,
+    9.34,
+    9.39,
+    9.44,
+    9.49,
+    9.54,
+    9.59,
+    9.64,
+    9.69,
+    9.74,
+    9.79,
+    9.84,
+    9.89,
+    9.94,
+    9.99,
+    10.04,
+    10.09,
+    10.14,
+    10.19,
+    10.24,
+    10.29,
+    10.34,
+    10.39,
+    10.44,
+    10.49,
+    10.54,
+    10.59,
+    10.64,
+    10.69,
+    10.74,
+    10.79,
+    10.84,
+    10.89,
+    10.94,
+    10.99,
+    11.04,
+    11.09,
+    11.13,
+    11.18,
+    11.23,
+    11.28,
+    11.33,
+    11.38,
+    11.43,
+    11.48,
+    11.53,
+    11.58,
+    11.63,
+    11.68,
+    11.73,
+    11.78,
+    11.83,
+    11.88,
+    11.93,
+    11.98,
+    12.03,
+    12.08,
+    12.13,
+    12.18,
+    12.23,
+    12.28,
+    12.33,
+    12.38,
+    12.43,
+    12.48,
+    12.53,
+    12.58,
+    12.63,
+    12.68,
+    12.73,
+    12.78,
 ]
 _SEG_QC_MPA = [
-    4.41, 4.63, 4.4, 4.69, 6.64, 7.89, 7.82, 8.15, 7.86, 7.94, 7.82, 6.84, 6.04, 5.71, 5.34,
-    5.06, 4.75, 5.34, 5.92, 6.1, 7.19, 7.75, 7.69, 7.53, 7.26, 7.58, 7.21, 7.13, 6.86, 6.1,
-    5.15, 5.16, 6.32, 6.42, 5.44, 4.49, 3.85, 3.88, 3.99, 4.14, 4.85, 6.38, 8.18, 10.03, 8.63,
-    7.81, 6.94, 7.02, 8.09, 8.85, 11.27, 12.89, 13.13, 12.88, 11.63, 10.16, 9.05, 8.97, 8.32,
-    7.24, 6.57, 5.96, 5.41, 4.6, 5.14, 5.53, 5.53, 6.05, 6.65, 6.85, 6.23, 6.29, 6.2, 6.39,
-    5.79, 5.73, 7.56, 12.72, 15.47, 15.82, 14.92, 13.64, 13.72, 14.28, 11.84, 9.02, 5.58, 5.25,
-    5.93, 7.34, 9.78, 13.33, 16.99, 16.62, 14.44, 11.79, 9.48, 8.5, 8.72, 5.54, 2.48
+    4.41,
+    4.63,
+    4.4,
+    4.69,
+    6.64,
+    7.89,
+    7.82,
+    8.15,
+    7.86,
+    7.94,
+    7.82,
+    6.84,
+    6.04,
+    5.71,
+    5.34,
+    5.06,
+    4.75,
+    5.34,
+    5.92,
+    6.1,
+    7.19,
+    7.75,
+    7.69,
+    7.53,
+    7.26,
+    7.58,
+    7.21,
+    7.13,
+    6.86,
+    6.1,
+    5.15,
+    5.16,
+    6.32,
+    6.42,
+    5.44,
+    4.49,
+    3.85,
+    3.88,
+    3.99,
+    4.14,
+    4.85,
+    6.38,
+    8.18,
+    10.03,
+    8.63,
+    7.81,
+    6.94,
+    7.02,
+    8.09,
+    8.85,
+    11.27,
+    12.89,
+    13.13,
+    12.88,
+    11.63,
+    10.16,
+    9.05,
+    8.97,
+    8.32,
+    7.24,
+    6.57,
+    5.96,
+    5.41,
+    4.6,
+    5.14,
+    5.53,
+    5.53,
+    6.05,
+    6.65,
+    6.85,
+    6.23,
+    6.29,
+    6.2,
+    6.39,
+    5.79,
+    5.73,
+    7.56,
+    12.72,
+    15.47,
+    15.82,
+    14.92,
+    13.64,
+    13.72,
+    14.28,
+    11.84,
+    9.02,
+    5.58,
+    5.25,
+    5.93,
+    7.34,
+    9.78,
+    13.33,
+    16.99,
+    16.62,
+    14.44,
+    11.79,
+    9.48,
+    8.5,
+    8.72,
+    5.54,
+    2.48,
 ]
 
 
@@ -764,8 +950,13 @@ def test_mc1_a_trailing_run_of_invalid_qc_flags_the_unit_for_review() -> None:
     top_d, top_q = _uniform(50, 5.0, start=0.0)  # 1 m of good readings
     bot_d, bot_q = _uniform(100, None, start=1.0)  # 2 m the sensor lost
     splits = suggest_geotech_subdivision(
-        "ZAND", (), top_d + bot_d, top_q + bot_q,
-        segment_top_m=0.0, segment_base_m=3.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        top_d + bot_d,
+        top_q + bot_q,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
     )
     assert [s.nad_class for s in splits] == [None], (
         "67 % of the unit is unreadable — the whole unit is a needs-review band"
@@ -777,8 +968,13 @@ def test_mc2_a_leading_run_of_invalid_qc_flags_the_unit_for_review() -> None:
     top_d, top_q = _uniform(100, None, start=0.0)
     bot_d, bot_q = _uniform(50, 5.0, start=2.0)
     splits = suggest_geotech_subdivision(
-        "ZAND", (), top_d + bot_d, top_q + bot_q,
-        segment_top_m=0.0, segment_base_m=3.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        top_d + bot_d,
+        top_q + bot_q,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
     )
     assert [s.nad_class for s in splits] == [None]
 
@@ -788,8 +984,13 @@ def test_mc3_one_isolated_bad_sample_still_never_flags() -> None:
     depths, qc = _uniform(150, 8.0)
     qc[75] = None  # one void reading mid-unit
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=3.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=3.0,
+        min_thickness_m=0.35,
     )
     assert all(s.nad_class is not None for s in splits)
 
@@ -820,8 +1021,13 @@ def test_mc4_every_classified_band_passes_the_edit_paths_own_gate() -> None:
         d += 0.02
 
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=10.0,
+        min_thickness_m=0.35,
     )
     for split in splits:
         band = GeotechBand(
@@ -833,7 +1039,10 @@ def test_mc4_every_classified_band_passes_the_edit_paths_own_gate() -> None:
             source_geo_formation_id=None,
         )
         (outcome,) = reclassify_intervals(
-            soil="ZAND", admixtures=(), depth_m=depths, qc_mpa=qc,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
             intervals=[ProposedInterval(split.depth_top_m, split.depth_base_m, (band,))],
         )
         assert outcome.nad_class == split.nad_class, (
@@ -876,12 +1085,17 @@ def test_cmd1_a_sliver_whose_absorption_would_upgrade_the_host_STANDS() -> None:
     """
     depths, qc = _spans([(0.0, 0.36, 9.0), (0.36, 0.70, 30.0)])
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=0.70, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=0.70,
+        min_thickness_m=0.35,
         statistic="harmonic",
     )
     assert [(s.depth_top_m, s.depth_base_m, s.nad_class) for s in splits] == [
-        (0.0, 0.36, 6),   # the matig band keeps its own name
+        (0.0, 0.36, 6),  # the matig band keeps its own name
         (0.36, 0.70, 8),  # the sliver stands, sub-minimum, honestly zeer dicht
     ]
 
@@ -896,8 +1110,13 @@ def test_cmd2_a_sliver_with_a_non_upgrading_neighbour_still_absorbs_there() -> N
     """
     depths, qc = _spans([(0.0, 0.40, 9.0), (0.40, 0.70, 30.0), (0.70, 2.10, 12.0)])
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=2.10, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=2.10,
+        min_thickness_m=0.35,
         statistic="harmonic",
     )
     bands = [(s.depth_top_m, s.depth_base_m, s.nad_class) for s in splits]
@@ -913,8 +1132,13 @@ def test_cmd3_the_conservative_direction_is_untouched_a_weak_sliver_absorbs() ->
     """
     depths, qc = _spans([(0.0, 1.00, 12.0), (1.00, 1.30, 2.0), (1.30, 2.30, 12.0)])
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=2.30, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=2.30,
+        min_thickness_m=0.35,
         statistic="harmonic",
     )
     assert all((s.depth_base_m - s.depth_top_m) >= 0.35 - 1e-9 for s in splits), (
@@ -926,8 +1150,13 @@ def test_cmd4_a_sliver_both_of_whose_neighbours_would_upgrade_stands_between_the
     """CMD4 — no non-upgrading neighbour at all: the sliver stands mid-unit."""
     depths, qc = _spans([(0.0, 0.40, 9.0), (0.40, 0.70, 30.0), (0.70, 1.10, 9.0)])
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=1.10, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=1.10,
+        min_thickness_m=0.35,
         statistic="harmonic",
     )
     assert [(s.depth_top_m, s.depth_base_m, s.nad_class) for s in splits] == [
@@ -953,8 +1182,13 @@ def test_uc1_an_unread_tail_beyond_the_minimum_becomes_its_own_review_band() -> 
     """
     depths, qc = _uniform(350, 12.0)  # readings 0–6.98 m
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=10.0,
+        min_thickness_m=0.35,
     )
     assert splits[-1].nad_class is None, "the unread tail must be a needs-review band"
     assert splits[-1].depth_base_m == 10.0
@@ -966,8 +1200,13 @@ def test_uc2_a_short_unread_tail_still_stretches_to_the_boundary() -> None:
     """UC2 — the threshold is the minimum layer thickness, so no 2 cm tails."""
     depths, qc = _uniform(490, 12.0)  # readings 0–9.78 m; tail 0.22 < 0.35
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=10.0,
+        min_thickness_m=0.35,
     )
     assert all(s.nad_class is not None for s in splits)
     assert splits[-1].depth_base_m == 10.0
@@ -977,10 +1216,34 @@ def test_uc3_an_unread_head_gets_the_same_honesty() -> None:
     """UC3 — the mirror at the top: the unit starts above the first reading."""
     depths, qc = _uniform(350, 12.0, start=3.0)  # readings 3.0–9.98 m
     splits = suggest_geotech_subdivision(
-        "ZAND", (), depths, qc,
-        segment_top_m=0.0, segment_base_m=10.0, min_thickness_m=0.35,
+        "ZAND",
+        (),
+        depths,
+        qc,
+        segment_top_m=0.0,
+        segment_base_m=10.0,
+        min_thickness_m=0.35,
     )
     assert splits[0].nad_class is None, "the unread head must be a needs-review band"
     assert splits[0].depth_top_m == 0.0
     assert splits[0].depth_base_m == pytest.approx(3.0, abs=0.03)
     assert splits[1].nad_class == 7
+
+
+def test_variant_override_clean_classifies_a_silty_sand_segment_as_pure_sand():
+    """Owner ruling 2026-09-04: a 'pure' answer forces the whole subdivided
+    segment into the clean NAD column even though the unit carries a clay
+    admixture. A uniform qc-8 silty-sand segment auto-classifies NAD 10
+    (secondary); with variant_override='clean' every band comes back a clean-sand
+    class (5-8)."""
+    depths = _depths(1.0, 3.0, 0.1)
+    qc = [8.0] * len(depths)
+    admx = (Admixture(soil_code="KL", amount="M"),)
+
+    auto = suggest_geotech_subdivision("ZAND", admx, depths, qc, 1.0, 3.0, 0.5)
+    assert {s.nad_class for s in auto} == {10}  # secondary column
+
+    pure = suggest_geotech_subdivision(
+        "ZAND", admx, depths, qc, 1.0, 3.0, 0.5, variant_override="clean"
+    )
+    assert {s.nad_class for s in pure} == {6}  # clean column — the engineer's choice
