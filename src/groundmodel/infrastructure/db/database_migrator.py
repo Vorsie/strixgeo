@@ -47,6 +47,7 @@ from groundmodel.infrastructure.db.database_migrator_constants import (
     BACKUP_RETENTION_COUNT,
     DEFAULT_READY_POLL_INTERVAL_SECONDS,
     DEFAULT_READY_TIMEOUT_SECONDS,
+    HEAD_REVISION,
     MAINTENANCE_DATABASE_NAME,
     MIGRATIONS_DIR_NAME,
     POSTGIS_EXTENSION_NAME,
@@ -499,6 +500,18 @@ class DatabaseMigrator(GroundModelLogger):
         never from `alembic.ini` — because the packaged app ships no
         `alembic.ini` and runs with an arbitrary working directory.
 
+        Fast path
+        ---------
+        The stamped revision is read first with a single cheap DB query. When it
+        equals :data:`~...database_migrator_constants.HEAD_REVISION` — this
+        build's known head — the method returns immediately, skipping the
+        ScriptDirectory load and the no-op ``alembic upgrade head`` entirely
+        (they cost ~30s on the packaged interpreter with nothing to migrate).
+        Every other case (fresh DB, behind-head, or an unknown newer revision)
+        falls through to the full Alembic path unchanged, so the newer-database
+        guard and the pre-migration backup are never bypassed for a store that
+        is not already exactly at head.
+
         Parameters
         ----------
         database_url : str
@@ -518,18 +531,47 @@ class DatabaseMigrator(GroundModelLogger):
         """
         self.info("Preparing Alembic upgrade to head")
         target_dsn = strip_asyncpg_driver_marker(database_url)
+
+        # Read the stamped revision FIRST — one cheap ``SELECT version_num``,
+        # before any Alembic machinery is touched. Wrapped as the alembic stage
+        # because a failure to read it is still an alembic-bring-up problem.
+        try:
+            before_revision = await self._current_stamped_revision(target_dsn)
+        except Exception as exc:  # noqa: BLE001 - re-raised as the named stage below
+            raise DatabaseMigratorError(
+                STAGE_ALEMBIC, f"could not read the stamped revision: {exc}"
+            ) from exc
+
+        # FAST PATH — a store already stamped EXACTLY at this build's known head
+        # has nothing to migrate. Returning here skips building the
+        # ScriptDirectory (which loads all ~104 migration modules) and spinning
+        # up ``env.py``'s async engine to run a no-op ``alembic upgrade head`` —
+        # ~30s of packaged-Python work with no effect, on every launch (owner
+        # report, installer #12). ANY value other than an exact match — a fresh
+        # DB (``None``, no ``alembic_version`` table yet), a behind-head
+        # revision, or an unknown NEWER one — falls through to the full path
+        # below, so the newer-database guard and the pending-migration backup
+        # are never bypassed for a store that is not already at head. See
+        # ``HEAD_REVISION`` for why trusting the constant is safe.
+        if before_revision == HEAD_REVISION:
+            self.success(
+                f"Database already at head revision {HEAD_REVISION} — skipping Alembic "
+                "(fast path: no ScriptDirectory load, no upgrade)"
+            )
+            return
+
         migrations_dir = Path(__file__).resolve().parent / MIGRATIONS_DIR_NAME
         config = Config()
         set_config_option(config, "script_location", str(migrations_dir))
         set_config_option(config, "sqlalchemy.url", database_url)
 
-        # Resolve the migration state up front — a filesystem read of the
-        # scripts plus one DB read of the stamped revision. Wrapped as the
-        # alembic stage because a broken migrations tree is an alembic problem.
+        # Resolve the rest of the migration state — a filesystem read of the
+        # scripts. Wrapped as the alembic stage because a broken migrations tree
+        # is an alembic problem. ``before_revision`` was already read above and
+        # is reused, so the DB is not queried for it a second time.
         try:
             script = ScriptDirectory.from_config(config)
             head_revision = script.get_current_head()
-            before_revision = await self._current_stamped_revision(target_dsn)
         except Exception as exc:  # noqa: BLE001 - re-raised as the named stage below
             raise DatabaseMigratorError(
                 STAGE_ALEMBIC, f"could not resolve the migration state: {exc}"
