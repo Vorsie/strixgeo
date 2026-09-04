@@ -36,7 +36,7 @@
 import { segIntersect } from './detourEnclosedLens'
 import { runGapTies, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
-import { enclosedLensDiamond } from './emitLenses'
+import { emitGapAllowed, enclosedLensDiamond } from './emitLenses'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
 import { segmentDegenerate } from './snap'
 import { type Point } from './types'
@@ -238,11 +238,13 @@ export function collectEnclosedLensDiamonds(
   for (let ci = 0; ci < columns.length; ci++) {
     const col = columns[ci]
     if (col.enclosedLenses.length === 0) continue
+    // Mirror ``emitEnclosedLensCurves``' per-gap restriction (ruling 8v): a per-gap-scoped lens
+    // (the S22 sand) is drawn only into its UN-TIED gap(s), so only detour a band there.
     if (ci + 1 < columns.length) {
-      for (const el of col.enclosedLenses) record(el.lens, col, ci, ci, 'left')
+      for (const el of col.enclosedLenses) if (emitGapAllowed(el, ci)) record(el.lens, col, ci, ci, 'left')
     }
     if (ci - 1 >= 0) {
-      for (const el of col.enclosedLenses) record(el.lens, col, ci, ci - 1, 'right')
+      for (const el of col.enclosedLenses) if (emitGapAllowed(el, ci - 1)) record(el.lens, col, ci, ci - 1, 'right')
     }
   }
 }
