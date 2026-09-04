@@ -5,7 +5,7 @@ qc thresholds so a future edit to the classifier constants (or the Task T0 xlsx
 swap) can't silently drift: any change must update the manifest too, or these
 tests go RED. The manifest also carries owner-reconciliation fields (workbook
 sha256 / sheet / row) that are filled when the table is verified against
-Daniel's workbook — those are not asserted here.
+the transcription sheet — those are not asserted here.
 """
 
 from __future__ import annotations
