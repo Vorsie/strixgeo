@@ -1,9 +1,10 @@
 """Robertson (2015) / Robertson (2009) CPT classification — pure-function port.
 
-This module is a FAITHFUL Python port of Daniel Verastegui's ``CPTE_2025.sce``
-(Scilab) from the project asset archive ``info Daniel voor app.zip``. All
-formulas are reproduced verbatim from that source; the only transformations
-are language-level (Scilab → Python, loop-per-point → array-based output).
+This module implements Robertson's normalised CPT classification — the
+Q_tn / F_r / I_c definitions of Robertson (2009) and the soil-behaviour-type
+chart of Robertson (2015), with the extended organic/peat boundary of
+Lengkeek & Brinkgreve (2022). The formulas follow the published papers; the
+implementation is array-based (one pass per CPT, not loop-per-point).
 
 **Phase 4 scope carve-out (CLAUDE.md).** Robertson SBT zone classification is
 permitted in Phase 4 strictly as a SEGMENTATION INPUT for lithostratigraphic-
@@ -59,8 +60,8 @@ from groundmodel.domain.services.robertson_2015_constants import (
 # ---------------------------------------------------------------------------
 
 # log10-domain zone-boundary arrays for vectorised numpy.interp calls.
-# Sorted ascending by X — verified against CPTE_2025.sce (each X array is
-# monotone; the verbatim values from the .sce satisfy this).
+# Sorted ascending by X (each chart-boundary X array is monotone, which
+# ``numpy.interp`` requires).
 _ZX = [
     np.asarray(ZONE_X1, dtype=np.float64),
     np.asarray(ZONE_X2, dtype=np.float64),
@@ -106,16 +107,16 @@ def _zone_threshold(zone_index: int, log10_f: float) -> float:
 
 
 def unit_weight(qc_mpa: float, fs_mpa: float) -> float | None:
-    """Estimate bulk unit weight from CPT data (Robertson 2015 / CPTE_2025.sce).
+    """Estimate bulk unit weight from CPT data (Robertson & Cabal 2010).
 
-    Formula (verbatim from .sce line 161):
+    Formula (Robertson & Cabal 2010, "Estimating soil unit weight from CPT"):
     ``gamma = 9.81 * (0.27*log10(FR) + 0.36*log10(qc/0.1) + 1.236)``
     where ``FR = fs/qc * 100``.
 
     Returns ``None`` when the result is mathematically undefined (qc ≤ 0,
     fs ≤ 0, or FR ≤ 0 — log10 of a non-positive number). The caller
     (``stress_profile``) forward-fills ``None`` values from the next-deeper
-    valid point, matching the .sce loop on lines 163-167.
+    valid point, so a short undefined stretch never breaks the integration.
 
     Parameters
     ----------
@@ -172,15 +173,15 @@ def stress_profile(
 ) -> list[StressResult]:
     """Compute total/effective vertical stress profile for a CPT column.
 
-    Mirrors CPTE_2025.sce lines 190-225 (the three water-position cases)
-    and lines 161-167 (unit weight + NaN forward-fill) EXACTLY.
+    Handles the three water-table positions (above ground, within the
+    column, below the column) and the unit-weight forward-fill.
 
-    The integration step ``xint`` in the .sce (0.1 m) is replaced here by the
-    actual depth increment between consecutive measurement points — the CPT
+    The integration step is the actual depth increment between consecutive
+    measurement points (rather than a fixed 0.1 m) — the CPT
     series in the DB is already depth-tagged so we use the recorded increment
     directly.
 
-    Three water-position cases (verbatim from .sce comments):
+    Three water-position cases:
     1. ``Niveau - yw ≤ 0``: water level is at or above ground surface.
     2. ``0 < Niveau - yw ≤ depths_m[0]``: water level between surface and
        first measurement point.
@@ -201,10 +202,9 @@ def stress_profile(
     yw_m : float
         Groundwater table elevation in TAW (m).
     gunsat_kNm3 : float
-        Unit weight of soil above the water table (default 16 kN/m³, per .sce
-        default prompt).
+        Unit weight of soil above the water table (default 16 kN/m³, the segmenter's standing default).
     gwater_kNm3 : float
-        Unit weight of water (default 9.81 kN/m³, per .sce default prompt).
+        Unit weight of water (default 9.81 kN/m³).
 
     Returns
     -------
@@ -216,7 +216,7 @@ def stress_profile(
         return []
 
     # --- Unit weights (with NaN forward-fill from next-deeper valid point) ---
-    # The .sce loops from the second-to-last element DOWN to the first, checking
+    # Loop from the second-to-last element DOWN to the first, checking
     # whether each value is NaN and replacing it with the value just below it.
     # Effectively a backward-fill (fill with the next-deeper valid value).
     gammas: list[float | None] = []
@@ -230,7 +230,7 @@ def stress_profile(
         if g is not None:
             seed = g
             break
-    # Backward-fill: the .sce fills unitw(j) with unitw(j+1) when isnan(unitw(j)).
+    # Backward-fill: fill unitw(j) with unitw(j+1) when unitw(j) is undefined.
     # Walk from second-to-last DOWN to first (index 0), matching the .sce loop.
     filled: list[float] = [0.0] * n_pts
     last_g = gammas[n_pts - 1]
@@ -504,7 +504,7 @@ def relative_density_sand(
     seff_kpa: float,
     compression_factor: float = 0.675,
 ) -> float | None:
-    """Estimate sand relative density Dr [%] (Verastegui / CPTE_2025.sce line 375).
+    """Estimate sand relative density Dr [%] (Jamiolkowski et al. 2003).
 
     Formula (verbatim):
     ``Dr = 100 * (0.268 * ln((qc/0.1) / (seff/100)**0.5) - 0.675)``
@@ -524,7 +524,8 @@ def relative_density_sand(
     compression_factor : float
         Compression sensitivity factor (default 0.675 = average quartz sand;
         use 0.525 for high-compressible / calcareous, 0.825 for low-
-        compressible / quartz sands per CPTE_2025.sce comment).
+        compressible / quartz sands per Jamiolkowski et al. 2003, as tabulated in
+        Robertson & Cabal's Guide to Cone Penetration Testing).
 
     Returns
     -------
@@ -569,7 +570,7 @@ def ic_series_2015(
     Debt #22 reconciliation (2026-05-21): the CPT detail chart's ``/cpt/{id}/plot``
     endpoint now sources Ic from THIS function instead of the Robertson 1990
     preview in ``cpt_interpretation.calculate_ic_series``, so the whole app
-    (segmenter + chart) is consistent on Daniel Verastegui's 2015/2009 method.
+    (segmenter + chart) is consistent on the Robertson 2015/2009 method.
 
     Parameters
     ----------
