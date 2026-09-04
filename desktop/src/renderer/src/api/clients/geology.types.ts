@@ -52,6 +52,14 @@ export type { CrossSectionResponse } from './section'
  * admixture / NAD-class fields; geotechnical models with packing class.
  * Bundle-persisted via ``project_bundle.geological_formations``.
  */
+/**
+ * The engineer's persisted NAD-family answer for an admixture-ambiguous litho
+ * unit (owner ruling 2026-09-04). ``'pure'`` classifies into the clean NAD
+ * column; ``'with_admixture'`` into the secondary ((f)/(s)) column. Absent /
+ * null means unanswered — the classifier decides from the admixtures.
+ */
+export type NadAdmixtureChoice = 'pure' | 'with_admixture'
+
 export interface GeologicalFormationResponse {
   id: string
   app_project_id: string
@@ -83,6 +91,12 @@ export interface GeologicalFormationResponse {
   // JSONB list of {soil_code, amount, locally} dicts from the backend.
   // null on geological rows; [] on a litho unit with no admixtures.
   litho_admixtures: AdmixtureItem[] | null
+  // The engineer's NAD-family answer for an admixture-ambiguous litho unit
+  // (owner ruling 2026-09-04): 'pure' → the clean NAD column, 'with_admixture'
+  // → the secondary ((f)/(s)) column, null → not answered (auto). The geotech
+  // pre-flight derives which units still need an answer from this + the soil +
+  // admixtures. Optional so pre-change fixtures still typecheck.
+  nad_admixture_choice?: NadAdmixtureChoice | null
   // instance_ordinal: Phase-2 correlation ordinal. null in Phase 1.
   instance_ordinal: number | null
   instance_ordinal_locked: boolean
@@ -161,6 +175,9 @@ export interface GeologicalFormationUpdatePayload {
   // true server-side.
   parent_extrapolated?: boolean | null
   parent_formation_id?: string | null
+  // The geotech admixture prompt PATCHes the engineer's answer here; send null
+  // to clear it back to auto (owner ruling 2026-09-04). Omit to leave untouched.
+  nad_admixture_choice?: NadAdmixtureChoice | null
 }
 
 // ---------------------------------------------------------------------------
