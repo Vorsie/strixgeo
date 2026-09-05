@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.sectionPartition.regionArea
 ======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/sectionPartition/regionArea.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/sectionPartition/regionArea.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/sectionPartition/regionArea.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the file with the one shoelace-area helper (the shoelace formula computes a polygon's area from its corner coordinates) and its two wrappers. It imports the point and region shapes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records it was extracted 2026-08-26 when the gapless gate needed a FOURTH copy — past CLAUDE.md's extract-on-the-second-copy rule; three private copies already existed, differing only in whether the caller had the gap's width in hand. It lives next to ``SectionRegion`` rather than in the geotech package because litho code is just as likely to want a region's area.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:ringAreaM2
 
-.. CG-PLACEHOLDER
+**What this does.** Computes a closed ring's area with the shoelace formula and scales it to square metres. The ring is in fraction-by-elevation space, so the raw result is a fraction-times-metre quantity; multiplying by the gap's width in metres turns it into an area.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The shoelace sum is exact for a simple polygon, and the single width multiply is the one step that converts the section's fraction axis into real metres. Naming it once removes the four near-duplicate copies the header describes.
 
 .. CG-EXPLANATION-END id=function:ringAreaM2
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:regionAreaM2
 
-.. CG-PLACEHOLDER
+**What this does.** A thin wrapper that measures a region's polygon in square metres when the caller already knows the gap's width.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Most callers hold the width directly, so this saves them re-deriving it; it just forwards the polygon and width to ``ringAreaM2``.
 
 .. CG-EXPLANATION-END id=function:regionAreaM2
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:regionAreaM2FromAlongM
 
-.. CG-PLACEHOLDER
+**What this does.** Measures a region's area when the caller instead has the along-section metre positions: it derives the gap's width from the two column positions around the region's gap, and returns 0 if that width is not a finite number.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the 0-return guards an out-of-range gap index so it cannot throw — the guard the original ``familyFill`` copy carried, preserved verbatim when the copies were merged.
 
 .. CG-EXPLANATION-END id=function:regionAreaM2FromAlongM
 

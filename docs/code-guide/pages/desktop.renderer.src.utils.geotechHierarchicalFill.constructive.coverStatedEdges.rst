@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.geotechHierarchicalFill.constructive.coverStatedEdges
 ================================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/geotechHierarchicalFill/constructive/coverStatedEdges.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/geotechHierarchicalFill/constructive/coverStatedEdges.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/geotechHierarchicalFill/constructive/coverStatedEdges.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens a diagnostic module that answers, for a rendered region, whether each of its sloping edges was drawn by the geotech fill (a construct — a lens flank, an onlap flank, or a tie) or is simply an edge of the litho unit the bands sit inside (the cover). It imports the region type it inspects.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records why: the owner keeps circling geotech shapes he did not expect, and the expensive part of each report is always the same question — did the fill draw that diagonal, or is it the litho stage's own approved geometry? The two have completely different owners, and the geotech stage may never override the cover (the structural invariant that a geotech band never paints outside its parent litho soil). This module answers the question mechanically, using the 2026-08-25 CS3 five-vertex sand as the worked example, and says nothing about whether any shape is right.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ON_EDGE_EPS
 
-.. CG-PLACEHOLDER
+**What this does.** A constant, 1e-3 — how far off a cover edge a vertex may sit and still count as lying on it: 1 mm in elevation and the same number in fraction.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Rings arrive on the millimetre grid, and a merged outline carries vertices the arrangement placed by intersection, so a point that is genuinely ON a cover edge can miss it by grid rounding. The docstring notes 1 mm is an order below the shortest edge these shapes carry and an order above the noise.
 
 .. CG-EXPLANATION-END id=const:ON_EDGE_EPS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:RingEdge
 
-.. CG-PLACEHOLDER
+**What this does.** One edge of a ring, held as its two endpoints in fraction and elevation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the unit the authorship test works on.
 
 .. CG-EXPLANATION-END id=interface:RingEdge
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:slopingEdges
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the edges of a ring that change both fraction AND elevation at once — the sloping ones.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A horizontal edge is a band's own contact and a vertical one is a gap edge or the law's seam; neither is a shape. A silhouette is made only of its sloping edges, so those are the only ones whose authorship is in question.
 
 .. CG-EXPLANATION-END id=function:slopingEdges
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:onSegment
 
-.. CG-PLACEHOLDER
+**What this does.** Answers whether a point lies on a segment within the tolerance on both axes, using the clamped closest-point parameter along the segment.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The parameter is clamped to the segment's two ends because a point past an end is not on it, however close the infinite line through it runs.
 
 .. CG-EXPLANATION-END id=function:onSegment
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:isCoverStated
 
-.. CG-PLACEHOLDER
+**What this does.** Answers whether a sloping edge is one the litho cover already states — both of its endpoints must lie on ONE cover edge.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A segment whose two ends happen to sit on two different cover edges is a chord across the cover, which is a line the fill drew, not an edge the cover states.
 
 .. CG-EXPLANATION-END id=function:isCoverStated
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ShapeAuthorship
 
-.. CG-PLACEHOLDER
+**What this does.** One region's verdict: the region itself, the list of its sloping edges the cover states, and the list of its sloping edges the cover does not state — the lines the fill drew.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the output shape carrying the mechanical answer for one region.
 
 .. CG-EXPLANATION-END id=interface:ShapeAuthorship
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:shapeAuthorship
 
-.. CG-PLACEHOLDER
+**What this does.** Places every region's sloping edges against its own gap's litho cover and returns one verdict per region that has a silhouette; regions made only of horizontals and verticals are omitted.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the diagnostic's top-level entry point; a region with no sloping edge has no silhouette to attribute, so it is left out.
 
 .. CG-EXPLANATION-END id=function:shapeAuthorship
 

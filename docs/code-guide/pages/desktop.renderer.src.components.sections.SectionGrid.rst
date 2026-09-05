@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.SectionGrid
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/SectionGrid.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/SectionGrid.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/SectionGrid.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the file that draws the static backdrop of the cross-section plot — the vertical and horizontal gridlines and their axis tick labels. It imports the plot margin constant.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring says it was split out of the main section panel as a render-only unit that owns no interaction — it is a pure function of the geometry passed in. It also notes the gridline colours come from CSS variable tokens because SVG attributes cannot use the app's usual dark-mode utility classes.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SectionGridProps
 
-.. CG-PLACEHOLDER
+**What this does.** The inputs: the along-distance tick positions and level (elevation) tick positions in world units, the warp-aware along-to-screen mapping, the elevation-to-screen mapping, and the plot width and height in pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment on the warp-aware mapping is the load-bearing one: gridlines and x-axis labels must track the packed test positions at low column spacing, using the same warp the ground-surface line uses, while the label values themselves stay at their true along-distance.
 
 .. CG-EXPLANATION-END id=interface:SectionGridProps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:SectionGrid
 
-.. CG-PLACEHOLDER
+**What this does.** The component. It draws one vertical line plus a rounded distance label for each along-distance tick, positioning each with the warp-aware transform, then one horizontal line plus an elevation label for each level tick, showing one decimal only when the step is sub-metre.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Using the warp-aware transform keeps the grid aligned with the crowded columns whenever spacing compresses the axis — the section-view spacing rule that every overlay must obey. The sub-metre decimal keeps a label like -12.5 from collapsing to -13.
 
 .. CG-EXPLANATION-END id=function:SectionGrid
 

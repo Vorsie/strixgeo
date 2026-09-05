@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.sampleDisplayMenuItems
 =================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/sampleDisplayMenuItems.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/sampleDisplayMenuItems.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/sampleDisplayMenuItems.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for a helper that builds the two lab-sample view toggles — 'show sample markers' and 'show grain-size preview on hover' — as toolbar menu rows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The sample markers and their grain-size card draw on BOTH the litho and geotech axes, so both switches must be reachable from both axes' menus. That is two identical blocks, so they live here once (extract on the second copy) rather than being pasted into each menu. The two menus differ only in icon size and a test-id prefix, both passed in.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SampleDisplayMenuItemsInput
 
-.. CG-PLACEHOLDER
+**What this does.** The inputs a calling menu supplies: the translator, the current on/off state of the two toggles, a test-id prefix ('geotech' or 'litho'), and the icon pixel size.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Threading the translator in from the caller means a language flip re-renders both items in one pass. The prefix and size are the only real differences between the two menus, so they are parameters.
 
 .. CG-EXPLANATION-END id=interface:SampleDisplayMenuItemsInput
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:sampleDisplayMenuItems
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the two menu rows: a markers toggle (with an eye / crossed-eye icon and a keyboard hint of 'p') and a grain-size-preview toggle, each labelled with the state a click will move it TO, and each wired to flip its shared store.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The dropdown control has no checkmark, so — like every sibling toggle here — the label names the state the click will produce. A store is a small shared value the whole app can read and flip; the toggles flip the markers and preview stores.
 
 .. CG-EXPLANATION-END id=function:sampleDisplayMenuItems
 

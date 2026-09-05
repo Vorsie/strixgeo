@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.sectionWarp
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/sectionWarp.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/sectionWarp.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/sectionWarp.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The section's horizontal warp and its inverse: the map between along-section distance (real metres from the start of the line) and screen X (pixels), once the Spacing slider and the collision nudge have moved each column off its true projected position. The columns are NOT drawn at their true metre spacing; a user-adjustable spacing warps the horizontal axis.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring is the trap warning. The forward map places along-distance content at the screen X interpolated through each column's anchor pair of true along-distance and actual drawn X. The inverse answers the wheel-zoom question the reverse way: the cursor is at pixel px, which along-distance is drawn there. Without this warp-aware inverse, zoom-to-cursor would invert the plain straight-line map instead and anchor on the wrong feature whenever spacing is below one or columns collide, so the content drifts out from under the mouse. This is the section-view spacing trap that has bitten three times, and the standing rule is that EVERY overlay must use the warp-aware transform, never the raw one.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:WarpAnchor
 
-.. CG-PLACEHOLDER
+**What this does.** One placed column's warp anchor: its true along-distance in world metres and the screen X it was actually drawn at (its nudged X). The comment after is the lead-in to the forward map.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The pair of true along-distance and actual drawn X is exactly what the piecewise map interpolates through to place any content between the columns.
 
 .. CG-EXPLANATION-END id=interface:WarpAnchor
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:warpedAlongToScreenX
 
-.. CG-PLACEHOLDER
+**What this does.** The forward map: given an along-distance and the sorted anchors, it returns the screen X. Before the first column and after the last it extrapolates at the true scale; inside the range it finds the segment whose along-range contains the value and interpolates the drawn X linearly between the two anchors.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the exact map ``SectionPanel`` renders through (as ``warpedXToScreen``), so every overlay lands on the same warped position. A guard against two tests projected to the same along-distance falls back to the first anchor's X rather than dividing by zero.
 
 .. CG-EXPLANATION-END id=function:warpedAlongToScreenX
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:warpedScreenXToAlong
 
-.. CG-PLACEHOLDER
+**What this does.** The inverse: given a cursor pixel and the anchors, it returns the along-distance drawn there, mirroring the forward map exactly, extrapolating outside the anchor range and interpolating within it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The round trip must be stable so the wheel zoom pins the cursor's world point. The drawn X is non-decreasing because the packed layout preserves left-to-right order, which is what makes the map invertible; a guard against two columns nudged to the same X falls back to one anchor's along-distance rather than dividing by zero.
 
 .. CG-EXPLANATION-END id=function:warpedScreenXToAlong
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.cs1GoldenMaster.screenSnapshot
 =========================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/cs1GoldenMaster/screenSnapshot.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/cs1GoldenMaster/screenSnapshot.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/cs1GoldenMaster/screenSnapshot.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the second half of the golden master: what actually reaches the SCREEN. It renders the real section-fill overlay for CS1 on the geotech axis into a headless browser (jsdom, an in-memory browser page with no window) and freezes every painted SVG element — the dissolved fill groups with their colour and opacity, the self-colour seam strokes, the litho outline paths, the litho fallback fills and the un-banded hatch.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Owner 2026-08-23, quoted: "not only what is in DB also what is rendered on screen". The docstring gives the evidence: on 2026-08-22 the engine output was byte-identical from session start to end while three separate render layers changed what the user saw, so an engine-only snapshot would have called that night a no-op. The projection is fixed here so the snapshot is a statement about the render's geometry, not about a window size.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:PLOT
 
-.. CG-PLACEHOLDER
+**What this does.** The fixed drawing rectangle (top, bottom, left, right in pixels) the snapshot renders into.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A fixed rectangle, rather than the app's live viewport, keeps the frozen picture a statement about geometry rather than about whatever size the window happened to be.
 
 .. CG-EXPLANATION-END id=const:PLOT
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:PX_PER_M
 
-.. CG-PLACEHOLDER
+**What this does.** How many screen pixels represent one metre of elevation (twenty).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It fixes the vertical scale so the frozen coordinates are reproducible.
 
 .. CG-EXPLANATION-END id=const:PX_PER_M
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TOP_ELEV_M
 
-.. CG-PLACEHOLDER
+**What this does.** The elevation in metres that sits at the top of the drawing rectangle (fifteen).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It fixes where the elevation axis starts, so a level converts to the same pixel every run.
 
 .. CG-EXPLANATION-END id=const:TOP_ELEV_M
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:PX_PER_ALONG
 
-.. CG-PLACEHOLDER
+**What this does.** How many screen pixels represent one along-section metre (1.2).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It fixes the horizontal scale, the companion of the vertical one, so the whole projection is reproducible.
 
 .. CG-EXPLANATION-END id=const:PX_PER_ALONG
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:levelToScreen
 
-.. CG-PLACEHOLDER
+**What this does.** Converts an elevation in metres to a vertical screen pixel using the fixed top elevation and vertical scale.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The overlay needs a level-to-pixel function; fixing it here pins the render geometry.
 
 .. CG-EXPLANATION-END id=const:levelToScreen
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:screenToLevel
 
-.. CG-PLACEHOLDER
+**What this does.** The inverse of ``levelToScreen``: converts a vertical pixel back to an elevation in metres.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The overlay needs the inverse to interpret pointer positions; it is frozen for the same reproducibility reason.
 
 .. CG-EXPLANATION-END id=const:screenToLevel
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:alongToScreenX
 
-.. CG-PLACEHOLDER
+**What this does.** Converts an along-section metre position to a horizontal screen pixel using the fixed horizontal scale.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the horizontal companion of ``levelToScreen`` in the fixed projection.
 
 .. CG-EXPLANATION-END id=const:alongToScreenX
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:screenXToAlong
 
-.. CG-PLACEHOLDER
+**What this does.** The inverse of ``alongToScreenX``: converts a horizontal pixel back to an along-section metre.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The overlay needs the inverse for pointer maths; it is frozen with the rest of the projection.
 
 .. CG-EXPLANATION-END id=const:screenXToAlong
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:round2
 
-.. CG-PLACEHOLDER
+**What this does.** Rounds a number to two decimal places.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes two decimals match what the component itself emits into an SVG path, so the frozen path data lines up with the real output.
 
 .. CG-EXPLANATION-END id=const:round2
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toRows
 
-.. CG-PLACEHOLDER
+**What this does.** Turns the scene's columns into the litho-layer database-row shape the overlay expects, giving each unit an accepted status, a manual source, and fixed timestamps.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The overlay is written to consume real API row shapes, so the fixture must be dressed up as those rows for the render path to run unchanged — again so the snapshot is of the shipped code.
 
 .. CG-EXPLANATION-END id=function:toRows
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toEdgeRows
 
-.. CG-PLACEHOLDER
+**What this does.** Turns the scene's correlation edges into the approved correlation-edge database-row shape, defaulting each side to top and marking each user-approved.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Like ``toRows``, it presents the fixture edges in the exact shape the overlay reads, so no test-only path is exercised.
 
 .. CG-EXPLANATION-END id=function:toEdgeRows
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:CARD_W
 
-.. CG-PLACEHOLDER
+**What this does.** The width in pixels of a column's card (eighteen).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The fill's horizontal extent is measured from card edges, so the card width is needed to place the columns the way the app does.
 
 .. CG-EXPLANATION-END id=const:CARD_W
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:MIN_PITCH
 
-.. CG-PLACEHOLDER
+**What this does.** The smallest allowed centre-to-centre spacing between two column cards — the card width plus a margin.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the minimum spacing the collision nudge must keep so that every gap stays wide enough to paint.
 
 .. CG-EXPLANATION-END id=const:MIN_PITCH
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toPlaced
 
-.. CG-PLACEHOLDER
+**What this does.** Places the columns the way the app does, WITH the collision nudge: it puts each card at its true along-position but pushes it right if it would come closer than the minimum pitch to the previous one, and records both the nudged and true positions.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records why this matters: the fill's x comes from each card's nudged edges, and the overlay drops any gap under one pixel as degenerate. Real CS1 has columns 0.17 m apart, so placing cards at raw along-position would silently drop about ten of the twenty-three gaps and freeze a picture with holes — a gate blind to a third of the section. The app avoids this with its spacing nudge, so the harness must too.
 
 .. CG-EXPLANATION-END id=function:toPlaced
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:FrozenElement
 
-.. CG-PLACEHOLDER
+**What this does.** One painted SVG element reduced to what the eye can tell apart: its family (which layer of paint), its fill, stroke, opacity, stroke-opacity and stroke-width, and its path data with every coordinate rounded to two decimals (or, for a paint definition, that definition's own attributes).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Freezing exactly the visible attributes means the on-screen half catches a change to colour, opacity or shape that the engine half cannot see, which is the whole reason this half exists.
 
 .. CG-EXPLANATION-END id=interface:FrozenElement
 
@@ -373,13 +309,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ScreenSnapshot
 
-.. CG-PLACEHOLDER
+**What this does.** The screen half: the list of painted elements, plus the distinct element families in the order they are painted (first painted first).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains the elements are sorted by content so a reshuffle inside a layer is not a change, but that erases paint ORDER — which is not cosmetic here: the litho outline is drawn deliberately OVER the packing fills (owner ruling 2026-08-13, "litho boundaries persist"), and an audit once moved it beneath with the gate staying green. So the layer sequence is frozen separately to pin exactly that.
 
 .. CG-EXPLANATION-END id=interface:ScreenSnapshot
 
@@ -395,13 +327,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:cs1GeotechProps
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the props (the inputs a React component is given) for the section-fill overlay exactly as the real section panel wires them on the geotech axis: the litho frame with its layers, edges and colour maps; the geotech layers and edges; the placed columns; the NAD-class colours; and the fixed projection functions.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It reproduces the real panel's wiring so the render is the shipped one; the docstring notes on the geotech axis every row is coloured by its NAD class, and the litho colour is the stored soil colour, so the frozen picture matches what the engineer sees.
 
 .. CG-EXPLANATION-END id=function:cs1GeotechProps
 
@@ -417,13 +345,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FAMILIES
 
-.. CG-PLACEHOLDER
+**What this does.** The list of which element markers carry visible geometry and the short name each is called by in the snapshot — the fill groups, the two seam-stroke kinds, the litho outline, the litho fallback and the un-banded hatch.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the whitelist of painted layers the snapshot freezes, so only elements that actually carry visible geometry are captured and named consistently.
 
 .. CG-EXPLANATION-END id=const:FAMILIES
 
@@ -439,13 +363,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:roundPath
 
-.. CG-PLACEHOLDER
+**What this does.** Rounds every number inside an SVG path's data string to two decimals.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It normalises path coordinates to the same grain the component emits, so trivial last-digit differences do not fail the gate.
 
 .. CG-EXPLANATION-END id=const:roundPath
 
@@ -461,13 +381,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:computeScreenSnapshot
 
-.. CG-PLACEHOLDER
+**What this does.** Renders CS1 on the geotech axis into the headless browser and freezes everything painted: it collects each whitelisted element's visible attributes and rounded path, records the layer paint order, then also freezes the paint DEFINITIONS (the hatch patterns under the drawing's defs), and finally sorts the elements by content into a deterministic order.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records why the paint definitions are captured too: a hatch path only says "fill with pattern X", and everything the eye sees of that texture lives in the pattern definition, which carries no marker and was once skipped entirely — changing the hatch ink from slate to magenta left the gate green (audit finding 2026-08-23). A definition is part of the picture, so it is frozen with the rest.
 
 .. CG-EXPLANATION-END id=function:computeScreenSnapshot
 

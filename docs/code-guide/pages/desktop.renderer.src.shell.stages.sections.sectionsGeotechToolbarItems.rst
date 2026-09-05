@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.sectionsGeotechToolbarItems
 ======================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/sectionsGeotechToolbarItems.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/sectionsGeotechToolbarItems.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/sectionsGeotechToolbarItems.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the builder that turns the geotech menus above into actual toolbar items — the statistic dropdown, the pipeline dropdown, the two live chips (pending-tie and stale-litho), the Correlate-packing button, and the Display dropdown.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Pulled verbatim from ``SectionsToolbar`` (debt #201). A pure builder — no hooks — so it carries no hook-ordering risk and its item bodies match the original.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:buildGeotechToolbarItems
 
-.. CG-PLACEHOLDER
+**What this does.** Assembles the geotech-axis verb specs. It builds the three menus, works out the pipeline button's busy label, then lays out: the statistic dropdown first (labelled with the current statistic), the four-step pipeline dropdown, the pending-tie chip (only while a tie is pending), the stale-litho chip (only while something is stale), the manual 'Correlate packing' button, and the Display dropdown. Returns an empty list off the geotech axis. Each spec declares a priority the responsive row uses to decide what keeps its label when space runs short.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The statistic control is FIRST, ahead of the pipeline, because it is a choice made before subdividing (owner 2026-08-09: 'the user chooses before subdividing') and is part of that model's provenance; its ``iconOnly: false`` keeps the current statistic readable without opening anything. The pipeline is one dropdown because four inline buttons crowded the bar. The two chips stay OUTSIDE the pipeline menu because they are numbers a gate depends on — a count only visible after two clicks is not a gate read-out. Both chips render only while there is something to show, so they are never standing weight.
 
 .. CG-EXPLANATION-END id=function:buildGeotechToolbarItems
 

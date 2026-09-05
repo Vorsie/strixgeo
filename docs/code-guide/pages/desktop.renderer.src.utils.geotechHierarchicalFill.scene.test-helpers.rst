@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.geotechHierarchicalFill.scene.test-helpers
 =====================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/geotechHierarchicalFill/scene.test-helpers.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/geotechHierarchicalFill/scene.test-helpers.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/geotechHierarchicalFill/scene.test-helpers.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This is a TEST-ONLY helper file — not part of the shipped product — holding four small tools every geotech-fill behavioural test uses: build a column from metre depths, draw a correlation tie, test whether a point lies inside a region, and read the class painted at a point. It imports the correlation-edge, column and region shapes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records it was extracted once a fourth copy came due (three test files each carried its own), so the pins those tests hold now share one set of tools. It is deliberately named ``test-helpers`` so the test runner's file pattern does not collect it as a test itself. It is documented here honestly as test scaffolding, not runtime code.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UnitSpec
 
-.. CG-PLACEHOLDER
+**What this does.** The data shape for one band of a test column: a layer id, a formation id, and its top and base in metres below the collar.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the terse description a test writes a synthetic column's bands in — test scaffolding only.
 
 .. CG-EXPLANATION-END id=interface:UnitSpec
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:column
 
-.. CG-PLACEHOLDER
+**What this does.** Builds a partition column the fill engines accept from an id, a collar elevation, and a list of unit specs given in metres below the collar.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It saves every test from spelling out the full column shape by hand, keeping the scenes readable — test scaffolding only.
 
 .. CG-EXPLANATION-END id=function:column
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:tie
 
-.. CG-PLACEHOLDER
+**What this does.** Builds one correlation edge between two layers, defaulting both ends to the top contact — the side most scene ties use.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Most test ties are top-to-top, so the defaults keep the common case to two arguments while still allowing base ties — test scaffolding only.
 
 .. CG-EXPLANATION-END id=function:tie
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:inRegion
 
-.. CG-PLACEHOLDER
+**What this does.** Tests whether a fraction-and-elevation point lies inside a region's outline, by the even-odd ray-cast rule.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The behavioural tests assert what is painted where, so they need a plain inside/outside test against a region — test scaffolding only.
 
 .. CG-EXPLANATION-END id=function:inRegion
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:paintAt
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the LAST region of one gap that contains a sample point — the region the render would paint there, given its draw order — or nothing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It reproduces the render's own z-order (later regions paint over earlier ones) so a test reads the same class the engineer would see on screen — test scaffolding only.
 
 .. CG-EXPLANATION-END id=function:paintAt
 

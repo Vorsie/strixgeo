@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.cptInterpolation
 =========================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/cptInterpolation.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/cptInterpolation.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/cptInterpolation.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file: it looks up a CPT depth-series value (such as qc or Rf) at an arbitrary depth by linear interpolation between the two nearest samples. It imports nothing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the history: the same lookup was originally inlined in the hover readout of ``ContactPickBar``, and when the drag interaction in ``ContactsLayer`` needed the same thing, the second use triggered the project's extract-on-the-second-copy rule.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:lookupCptValueAtDepth
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the interpolated value at a given depth: it clamps a depth below the first or above the last sample to that sample's value, and otherwise finds the two bracketing samples and interpolates linearly between them, skipping nulls.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the depths are ascending by contract in every CPT plot response, and that a plain linear walk is used rather than a binary search because a CPT has only about a hundred samples and this runs on every hover and drag mouse-move, so extra code is not worth it.
 
 .. CG-EXPLANATION-END id=function:lookupCptValueAtDepth
 

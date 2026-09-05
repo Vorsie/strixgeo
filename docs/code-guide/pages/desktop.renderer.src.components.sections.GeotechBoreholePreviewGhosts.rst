@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.GeotechBoreholePreviewGhosts
 =====================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/GeotechBoreholePreviewGhosts.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/GeotechBoreholePreviewGhosts.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/GeotechBoreholePreviewGhosts.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the large file that draws ghost packing bands over borehole columns not yet divided on the geotech axis — a preview of what 'Divide boreholes' would write, before the button is pressed. The imports pull in React hooks, the preview and layer data types, a preview-summary store, the NAD-class helpers, the generic menu, and geometry helpers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The gap it closes (owner dogfeed 2026-08-04): correlation bands were not drawn over boreholes, so there was no way to see what dividing them would do before clicking. The bands are drawn from the server's dry run of the same planner the commit uses, and a backend parity gate asserts the preview matches the commit band for band. A borehole that already carries committed bands is a re-divide, drawn as an outline-only diff over the committed band rather than a solid overpaint (debt #269).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TIERS
 
-.. CG-PLACEHOLDER
+**What this does.** A constant holding the visual weights per confidence level: a strong tier (more opaque fill, sparser hatch) and a weak tier (lighter fill, denser hatch).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A class a neighbouring CPT actually resolved and a conservative lithology-floor guess must not look identical on a feature whose whole purpose is 'what packing does this borehole get' — so weaker evidence reads lighter and more heavily hatched, a difference that survives without hovering. The strong fill opacity matches the litho pending-ghost default so a preview carries the same weight on both axes.
 
 .. CG-EXPLANATION-END id=const:TIERS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:Tier
 
-.. CG-PLACEHOLDER
+**What this does.** A type naming the two allowed tier keys — strong or weak.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It ties the tier value to the two entries in ``TIERS`` so only a real tier can be named.
 
 .. CG-EXPLANATION-END id=type:Tier
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:LABEL_FONT_SIZE
 
-.. CG-PLACEHOLDER
+**What this does.** A constant — the text size of the in-band NAD label.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It matches the litho ghost label so the two previews read alike.
 
 .. CG-EXPLANATION-END id=const:LABEL_FONT_SIZE
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:LABEL_MIN_HEIGHT_PX
 
-.. CG-PLACEHOLDER
+**What this does.** A constant — the smallest band height at which the label is still drawn.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Below this the label is unreadable, so it is suppressed.
 
 .. CG-EXPLANATION-END id=const:LABEL_MIN_HEIGHT_PX
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:MIN_DRAWN_HEIGHT_PX
 
-.. CG-PLACEHOLDER
+**What this does.** A constant — the floor height, one pixel, for a drawn band.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A planned band with no pixels would read as 'nothing is planned at this depth', the one thing this overlay must never imply; a hairline in the right place is a truthful, if imprecise, answer.
 
 .. CG-EXPLANATION-END id=const:MIN_DRAWN_HEIGHT_PX
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:PROVENANCE_PROSE
 
-.. CG-PLACEHOLDER
+**What this does.** A constant dictionary mapping each provenance token the planner emits (interpolated from CPTs, weakest class in the body, lithology floor, loosest class the column measured) to a plain sentence.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is exhaustive over the tokens this build knows; an unknown token is shown verbatim rather than given a default sentence, because describing an unrecognised provenance as 'no CPT evidence' could state something false about the evidence behind an engineering class.
 
 .. CG-EXPLANATION-END id=const:PROVENANCE_PROSE
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:donorDistance
 
-.. CG-PLACEHOLDER
+**What this does.** A helper that formats a donor test's distance and side into a short string like '5 m left' or '256 m'.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It gives the engineer the distance and side of the test the machine listened to, so the preview names its evidence concretely.
 
 .. CG-EXPLANATION-END id=function:donorDistance
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:donorProse
 
-.. CG-PLACEHOLDER
+**What this does.** A helper that builds a donor-aware provenance sentence for one band — naming the actual test or tests and their distances — or nothing when the band carries no donor fields.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Naming the actual tests lets the engineer go and look at the CPT the machine listened to, instead of the older 'surrounding CPTs' phrasing that read as a consensus even when one donor 624 m away spoke alone.
 
 .. CG-EXPLANATION-END id=function:donorProse
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:Props
 
-.. CG-PLACEHOLDER
+**What this does.** The inputs: the per-borehole planned bands from the preview endpoint, the committed geotech layers and whether they currently reflect the server, the placed columns and coordinate converter, the plot bounds, and an optional per-column accept callback.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The 'loaded' flag matters because the model layer array is cleared to empty before every refetch and on a failed load; read literally, an empty array would claim no borehole is divided and put solid ghosts back over columns that already carry committed bands. While the flag is false the last known answer is used instead. The accept callback commits one column alone (right-click); absent, the ghosts stay a read-only overlay.
 
 .. CG-EXPLANATION-END id=interface:Props
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:GhostBand
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of one resolved ghost band in screen coordinates: its top depth, its Y and height, its fill colour, its tier, its label, and its tooltip title.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the per-band record the render draws from, resolved once so the drawing loop stays simple.
 
 .. CG-EXPLANATION-END id=interface:GhostBand
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:GhostColumn
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of one borehole column's ghost geometry: its investigation id, display name, left edge and width, its bands, and whether it is a re-divide.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The re-divide flag decides the whole draw: a re-divide is an outline-only diff over the committed band with no accept gesture, while a first divide keeps the solid hatched ghost and can be accepted (debt #269). The name lets the menu say which column it is about to divide.
 
 .. CG-EXPLANATION-END id=interface:GhostColumn
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:GhostMenuState
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of an open right-click menu over one ghosted column: its position, the investigation id, the name, and the band count.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It carries what the menu header shows and what the accept action needs.
 
 .. CG-EXPLANATION-END id=interface:GhostMenuState
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:Resolved
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of everything one render needs: the resolved ghost columns plus a summary of what is hatched, for the toolbar.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Bundling the render data with the summary lets the same computation feed both the drawing and the toolbar's legend in one pass.
 
 .. CG-EXPLANATION-END id=interface:Resolved
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:NOTHING
 
-.. CG-PLACEHOLDER
+**What this does.** A constant — the empty result returned when the overlay draws no band: no columns and a zero summary.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A single shared 'nothing drawn' value keeps the empty case clean and makes the toolbar publish a real zero rather than skip the update.
 
 .. CG-EXPLANATION-END id=const:NOTHING
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useCommittedBoreholeIds
 
-.. CG-PLACEHOLDER
+**What this does.** A small custom *hook* — a reusable piece of component logic named ``useX`` — that returns the set of borehole ids already carrying committed geotech bands, falling back to the last known set while the layers do not reflect the server.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The already-divided columns are the ones drawn as a re-divide diff; holding the last known set through the mid-refetch window stops a divided column flickering back to a solid ghost over its committed band. The computation is deliberately idempotent so writing its remembered value during the calculation is safe under React's development-mode double-run.
 
 .. CG-EXPLANATION-END id=function:useCommittedBoreholeIds
 
@@ -373,13 +309,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:GeotechBoreholePreviewGhosts
 
-.. CG-PLACEHOLDER
+**What this does.** The whole overlay component. It computes, per borehole, the ghost bands' screen geometry from the preview payload, marks each column as a first divide or a re-divide, and counts only the first-divide columns and bands for the toolbar summary. It publishes that summary, then draws the hatch patterns, each column's bands (solid hatched for a first divide, dashed outline-only for a re-divide), the in-band labels, and the right-click menu that commits one column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Every position uses the nudged column X because column spacing warps the layout and a ghost from the raw projected distance would float off its borehole. The summary counts first divides only, because a re-divide diff is an outline, not a hatch, and counting it would light the 'Hatched = preview' legend for hatching not on screen. The band rect stays hit-testable so its tooltip can appear (a pointer-events-off ancestor kills every tooltip under it), a trade-off the docstring accepts knowingly since a ghosted column is an undivided borehole with nothing to click below.
 
 .. CG-EXPLANATION-END id=function:GeotechBoreholePreviewGhosts
 

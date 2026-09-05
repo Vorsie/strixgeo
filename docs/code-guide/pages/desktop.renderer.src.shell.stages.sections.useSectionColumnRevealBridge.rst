@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.useSectionColumnRevealBridge
 =======================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useSectionColumnRevealBridge.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useSectionColumnRevealBridge.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/useSectionColumnRevealBridge.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the glue hook that publishes the section panel's 'bring these columns on screen' function onto the shell-facing bridge box, with one rule: WHAT gets marked follows from HOW MANY columns were named.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One column — the Build pre-flight's deep-link — is a test the engineer must subdivide, so the column itself gets the pulse. Two columns — the gapless-build report's 'Show me' — name a GAP, and the finding is the ground between them, so the span's midpoint is centred and the span itself pulsed; pulsing either end would claim the defect is on a column when it is not.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useSectionColumnRevealBridge
 
-.. CG-PLACEHOLDER
+**What this does.** Registers, while the panel is mounted, a shell-facing reveal implementation that forwards to the panel's own reveal function — flashing the single column for one id, or the gap span for two — and clears the box on unmount.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It lives outside the giant canvas and outside the pending-tie reveal hook, which answers a different question (which of several pending ties comes next). A caller that finds the box null (no panel mounted) gets 'not revealed' back rather than a crash.
 
 .. CG-EXPLANATION-END id=function:useSectionColumnRevealBridge
 

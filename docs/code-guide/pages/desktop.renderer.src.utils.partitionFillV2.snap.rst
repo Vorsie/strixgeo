@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.partitionFillV2.snap
 ===============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/snap.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/snap.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/partitionFillV2/snap.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This module rounds points to a fixed 1 mm integer grid and provides the helpers that compare and key those snapped points. A snapped point is kept as whole grid units (metres divided by the grid size, rounded), so two points within a millimetre collapse to the same cell and equality is exact.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring states the whole numerical-robustness strategy: perform ONE snapping pass mapping every input vertex and every computed intersection to the 1 mm grid, then do all arrangement walking as exact integer arithmetic on the snapped graph — so no floating-point epsilon comparisons cascade downstream (design §3).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:GridPoint
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of a snapped point: its x and elevation as whole grid units.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Because the coordinates are integers, equality is exact and the pair forms a reliable vertex key — the property the whole exact-arithmetic strategy rests on.
 
 .. CG-EXPLANATION-END id=interface:GridPoint
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:snapPoint
 
-.. CG-PLACEHOLDER
+**What this does.** Rounds a real metres-by-elevation point to the nearest 1 mm grid cell, in integer grid units.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the single snapping operation the one-pass strategy applies to every point.
 
 .. CG-EXPLANATION-END id=function:snapPoint
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:unsnapPoint
 
-.. CG-PLACEHOLDER
+**What this does.** Converts a snapped grid point back to real metres.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Once walking is done on the integer graph, output geometry must be expressed in metres again; this reverses the snap.
 
 .. CG-EXPLANATION-END id=function:unsnapPoint
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:gridKey
 
-.. CG-PLACEHOLDER
+**What this does.** Builds a stable text key from a grid point's two integer coordinates.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** For deduplicating and indexing vertices — two equal grid points produce the same exact key.
 
 .. CG-EXPLANATION-END id=function:gridKey
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:gridEqual
 
-.. CG-PLACEHOLDER
+**What this does.** Returns whether two grid points are the same cell, by exact integer equality.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Exact integer equality is the reliable same-vertex test the snapped graph is built to allow.
 
 .. CG-EXPLANATION-END id=function:gridEqual
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:segmentDegenerate
 
-.. CG-PLACEHOLDER
+**What this does.** Returns whether a segment collapses to a single point once snapped — its two endpoints land in the same 1 mm cell.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains a zero-extent curve is a malformed input: a closing flank whose apex snaps onto its own corner in a sub-millimetre gap would leave the lens loop half-open (the CS1 gap21 class). An emission path must test this before pushing a closing so no output curve has zero extent in both axes; skipping such a lens with its partner flank keeps holes and overlaps at zero (a documented no-op in a sub-snap gap).
 
 .. CG-EXPLANATION-END id=function:segmentDegenerate
 

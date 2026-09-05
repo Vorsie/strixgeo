@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.useFocusColumn
 =======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/useFocusColumn.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/useFocusColumn.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/useFocusColumn.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A hook for column focus mode: snap the viewport to a tight window around one test and restore the previous view on exit.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Debt #30. It encapsulates the focused column, the pre-focus viewport and vertical-exaggeration snapshots (kept in refs, not state, because nothing renders them), and the enter and exit callbacks. It is event-driven rather than effect-driven, which avoids the stale-read pattern that bites subtly; and a sub-focus chain (entering focus on a second column while already focused on a first) preserves the first's snapshot as the eventual restore target. The header also explains that fitting the test's depth means solving for the vertical exaggeration that maps its metre span onto the plot height, because a tight level range alone changes only the vertical centre and does nothing to the zoom, which was the focus-is-zoom-insensitive bug.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clamp
 
-.. CG-PLACEHOLDER
+**What this does.** A tiny helper that keeps a number between a minimum and a maximum.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It keeps the computed vertical exaggeration inside its slider bounds.
 
 .. CG-EXPLANATION-END id=function:clamp
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FOCUS_X_HALF_WIDTH_M
 
-.. CG-PLACEHOLDER
+**What this does.** Half the horizontal window, twenty metres, that the focused view snaps to.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is wide enough to give the column band breathing room and narrow enough that the test reads as the obvious subject.
 
 .. CG-EXPLANATION-END id=const:FOCUS_X_HALF_WIDTH_M
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FOCUS_DEFAULT_DEPTH_M
 
-.. CG-PLACEHOLDER
+**What this does.** A fallback test depth of thirty metres, used when the row records no depth.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It gives the focus zoom something sensible to fit against rather than collapsing to the surface.
 
 .. CG-EXPLANATION-END id=const:FOCUS_DEFAULT_DEPTH_M
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FOCUS_LEVEL_PADDING_M
 
-.. CG-PLACEHOLDER
+**What this does.** The vertical padding, two metres, above the surface and below the test bottom.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It keeps the column caps off the plot edge.
 
 .. CG-EXPLANATION-END id=const:FOCUS_LEVEL_PADDING_M
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:FocusTarget
 
-.. CG-PLACEHOLDER
+**What this does.** Which column to focus: kind, id and name.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It names the test that enter and exit act on.
 
 .. CG-EXPLANATION-END id=interface:FocusTarget
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseFocusColumnResult
 
-.. CG-PLACEHOLDER
+**What this does.** What the hook returns: the focused column or nothing, plus enter and exit. The long comment after explains the depth-fit and the true-along-distance centring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Enter no-ops when the column is not currently placed (for instance it was removed since the right-click), and exit restores the snapshot. Centring uses the column's true projected along-distance, not its packed nudged X, because the earlier nudged-X inversion baked in the collision offset and left the test off-centre, the had-to-pan-to-find-the-test bug.
 
 .. CG-EXPLANATION-END id=interface:UseFocusColumnResult
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useFocusColumn
 
-.. CG-PLACEHOLDER
+**What this does.** Holds the focused column and the two snapshot refs. Enter finds the column, snapshots the viewport once, computes the fitted level window and the vertical exaggeration that maps the test's metre span onto the plot height for the tight window, and sets the viewport centred on the column's true along-distance; exit restores the snapshot and clears focus.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The level minimum and maximum set only the vertical centre, so fitting the test needs solving for the exaggeration (vertical scale over horizontal scale), not just a tight level range; setting the range alone did nothing, which was the zoom-insensitive bug. Snapshotting only when the ref is still empty preserves the truly-original framing across a sub-focus chain.
 
 .. CG-EXPLANATION-END id=function:useFocusColumn
 

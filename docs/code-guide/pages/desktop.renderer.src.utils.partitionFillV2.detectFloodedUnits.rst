@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.partitionFillV2.detectFloodedUnits
 =============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/detectFloodedUnits.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/detectFloodedUnits.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/partitionFillV2/detectFloodedUnits.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file is the detection half of the safe-default repair. After one fill pass, a drilled unit's own column edge must show the unit's OWN soil (the column is ground truth). This pass scans the finished tiles and flags every unit whose near-column band is painted a DIFFERENT soil -- the data-loss case where a suppressed onlap let an enclosing flood paint over a drilled clay as silt. The flagged units drive the repair re-run (they are forced to a lens) and double as the review-flag data.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the owner rulings behind it (2026-07-26 find the gaps and re-emit; 2026-09-04 zero ties = lens, so the flooded unit is redrawn as a lens, never an onlap). It checks only units ABOVE the shallow TD, because the sub-TD zone is the deep-to-deep substrate's job and a foreign paint there is a different mechanism. Pure module.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:EDGE_FRAC
 
-.. CG-PLACEHOLDER
+**What this does.** How far inside a column edge to sample (0.02) -- just inside, so the drilled column vertical owns it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Sampling a hair inside the edge reads the unit's own near-column band, not the neighbour's.
 
 .. CG-EXPLANATION-END id=const:EDGE_FRAC
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ELEV_EPS
 
-.. CG-PLACEHOLDER
+**What this does.** A tiny elevation tolerance (one-millionth metre).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Standard hair's-width margin for the sub-TD skip comparison.
 
 .. CG-EXPLANATION-END id=const:ELEV_EPS
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:SAMPLE_FRACTIONS
 
-.. CG-PLACEHOLDER
+**What this does.** Three band-interior sample heights (30, 50 and 70 per cent of the unit's thickness).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment notes these avoid the exact top and base contacts where the neighbour unit begins, so a sample reads the unit's own interior.
 
 .. CG-EXPLANATION-END id=const:SAMPLE_FRACTIONS
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:pointInPoly
 
-.. CG-PLACEHOLDER
+**What this does.** A ray-cast test for whether a point (a fraction and an elevation) lies inside a polygon.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The primitive that asks which tile covers a sample point.
 
 .. CG-EXPLANATION-END id=function:pointInPoly
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:coverFormationAt
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the soil covering a given fraction-and-elevation in a gap's tiles, or nothing when no tile covers it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is how the check reads what was actually painted at a sample point.
 
 .. CG-EXPLANATION-END id=function:coverFormationAt
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:checkColumn
 
-.. CG-PLACEHOLDER
+**What this does.** Checks one column's units terminating into a gap: for each above-TD unit it samples three interior heights at the near-column fraction, and flags the unit only when EVERY covered sample is a foreign soil.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment explains requiring all samples foreign avoids a false positive where a face merely thins near a contact and shows a sliver of the neighbour; a hole sample (nothing covering) is skipped as the holes gate's concern.
 
 .. CG-EXPLANATION-END id=function:checkColumn
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:detectFloodedUnits
 
-.. CG-PLACEHOLDER
+**What this does.** The public pass: it groups the tiles by gap, works out each gap's shallow TD, and checks both facing columns' units, returning the set of force-lens keys for the flooded units -- empty when the fill lost no drilled soil.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An empty result means the clean case (no repair re-run needed), which keeps clean sections byte-identical to the pre-repair engine.
 
 .. CG-EXPLANATION-END id=function:detectFloodedUnits
 

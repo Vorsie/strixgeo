@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.useContactPicker
 =========================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/useContactPicker.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/useContactPicker.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/useContactPicker.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A hook for the click-to-place formation-contact picker: click a depth on a CPT data band or a borehole strip, choose a formation in a modal, and a contact is created there.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Debt #30. It encapsulates the panel's previous inline pick-context state and its three handlers. The snapped flag flows from the click site all the way through to the create handler, so the caller can stamp the contact's source and confidence based on whether the depth came from a snap to a stratigraphy boundary or from a free click (debt #22 and #23).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:PickContextState
 
-.. CG-PLACEHOLDER
+**What this does.** The open picker's state: kind, the anchor's id and name, the depth, the elevation, and whether the depth was snapped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It pre-seeds the formation-picker modal with the click's own metadata.
 
 .. CG-EXPLANATION-END id=interface:PickContextState
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:CptPickAnchor
 
-.. CG-PLACEHOLDER
+**What this does.** The anchor a CPT-band click supplies, with snapped always false.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A CPT band has no stratigraphy boundaries to snap to, so its clicks are always free depths.
 
 .. CG-EXPLANATION-END id=interface:CptPickAnchor
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:BoreholePickAnchor
 
-.. CG-PLACEHOLDER
+**What this does.** The anchor a borehole-strip click supplies, carrying a snapped flag.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A borehole strip has stratigraphy boundaries to snap to, and the snap flag decides the stamped source and confidence.
 
 .. CG-EXPLANATION-END id=interface:BoreholePickAnchor
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:OnCreateContact
 
-.. CG-PLACEHOLDER
+**What this does.** The caller-supplied create hook: given the anchor kind, id, depth, chosen formation and the snapped flag, it makes the contact.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller uses the snapped flag to set the new contact's source and confidence (debt #22 and #23).
 
 .. CG-EXPLANATION-END id=type:OnCreateContact
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseContactPickerResult
 
-.. CG-PLACEHOLDER
+**What this does.** What the hook returns: the pick context, the two click handlers, the modal-commit handler, and a cancel.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The modal commit forwards to the create hook and then clears the state; cancel clears the state without committing.
 
 .. CG-EXPLANATION-END id=interface:UseContactPickerResult
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useContactPicker
 
-.. CG-PLACEHOLDER
+**What this does.** Holds the pick context, opens it from a CPT or borehole click, commits by calling the create hook and then clearing, and cancels by clearing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** When the section is mounted read-only, with no active geological model, the create hook is absent and the commit simply clears the state without calling back, which matches the previous inline behaviour.
 
 .. CG-EXPLANATION-END id=function:useContactPicker
 

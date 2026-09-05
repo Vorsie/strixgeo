@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.partitionFillV2.tileFlags
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/tileFlags.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/tileFlags.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/partitionFillV2/tileFlags.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This module holds the single process-wide flag that switches the interval tiler between its old thickness-weighted seam model and the new per-unit terminations-first path.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains why it is a module-level flag rather than a per-section switch: the engine's public entry point carries no section identity (only columns, edges, and along-metres), so the cut-over is developed and guarded one section's shapes at a time by flipping this flag inside the per-section oracle and reading that section's rows, while the default output stays on the old path until every section is correct (ruling 8c). It is made runtime-mutable so a test can toggle it without a rebuild. Pure module — but a test that flips it must restore it so it never leaks across the byte-identical checks.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=let:TWO_SIDED_TERMINATIONS
 
-.. CG-PLACEHOLDER
+**What this does.** The process-global variable holding the flag's current value, defaulting to false.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Default off means the engine keeps the old seam-based interval tiler; flipping the default to on (then deleting the old path) is the cut-over.
 
 .. CG-EXPLANATION-END id=let:TWO_SIDED_TERMINATIONS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:twoSidedTerminationsEnabled
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current value of the cut-over flag.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the one read the rest of the engine calls, so no other module touches the raw variable.
 
 .. CG-EXPLANATION-END id=function:twoSidedTerminationsEnabled
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:setTwoSidedTerminations
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the flag and returns its previous value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Returning the previous value lets a test restore it in a finally block, which the docstring requires so the flag never leaks across the deterministic byte-identical checks.
 
 .. CG-EXPLANATION-END id=function:setTwoSidedTerminations
 

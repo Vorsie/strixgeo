@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.useSectionExportInputs
 =================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useSectionExportInputs.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useSectionExportInputs.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/useSectionExportInputs.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for a hook that reads, off the shell bus, the inputs the Sections-stage exporters share: the anchor-ordered investigation list, the geotech mass-identity map, and both axes' models, layers and formations.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Lifted out of the D-Series export hook because the PDF sheet builder is the second consumer of the same inputs (extract on the second copy), and the sheet needs BOTH axes so its fill toggle can render litho or geotech from one hook.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SectionExportInputs
 
-.. CG-PLACEHOLDER
+**What this does.** The shape the hook returns: the project, the visible CPTs and boreholes, the CPT-then-borehole ordered investigation list, the geotech formation-to-class map, and both axes' active models, layer rows and formations.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The investigations are in CPT-then-borehole anchor order — the same composition the build feeds — so an export's columns land in the same order the built model's do.
 
 .. CG-EXPLANATION-END id=interface:SectionExportInputs
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useSectionExportInputs
 
-.. CG-PLACEHOLDER
+**What this does.** Reads those pieces off the shell, composes the ordered investigation list, builds the packing-class lookup from the geotech formations, and returns one stable object (a memo — a cached result recomputed only when an input changes).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The result is memoised for stable identity so a downstream callback keyed on the whole object does not rebuild every render, which would spin the sheet preview's build effect. Only the framed geotech fill reads the class map (owner 2026-08-21, one mass one body); a litho export ignores it.
 
 .. CG-EXPLANATION-END id=function:useSectionExportInputs
 

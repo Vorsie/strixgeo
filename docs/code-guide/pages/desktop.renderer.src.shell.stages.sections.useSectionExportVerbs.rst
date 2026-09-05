@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.useSectionExportVerbs
 ================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useSectionExportVerbs.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useSectionExportVerbs.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/useSectionExportVerbs.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the hook that owns the section-export verbs — DXF, Plaxis 3-D, the PDF sheet, and the two D-Series rows — for the toolbar.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Extracted verbatim from ``SectionsToolbar`` (debt #201) to consolidate the export concern that was scattered across the component: the axis-model selector, the busy flags and handlers, the PDF dialog state, and the closed-geometry items. Bodies unchanged.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseSectionExportVerbsDeps
 
-.. CG-PLACEHOLDER
+**What this does.** What the export verbs need from the shell: the axis flags, the three active models, the open section, the project, the localised level word, and the two shell export handlers (DXF and Plaxis 3-D).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These are exactly the inputs the export decisions weigh; bundling them keeps the hook's dependencies explicit.
 
 .. CG-EXPLANATION-END id=interface:UseSectionExportVerbsDeps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseSectionExportVerbsResult
 
-.. CG-PLACEHOLDER
+**What this does.** What the hook hands back: the DXF and Plaxis busy flags, the PDF sheet dialog's open state and setter, the DXF and Plaxis handlers, and the two D-Series export items.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The toolbar renders straight from these without carrying the export machinery itself.
 
 .. CG-EXPLANATION-END id=interface:UseSectionExportVerbsResult
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useSectionExportVerbs
 
-.. CG-PLACEHOLDER
+**What this does.** Owns the export state and handlers. A single selector picks the model matching the current axis so DXF and PDF cannot disagree about which level the engineer is looking at; the DXF handler exports that axis's model level; the Plaxis handler exports the geological model; the PDF dialog opens the sheet preview; and the two D-Series items are built from the axis-model selector.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The one selector for both export verbs is the fix for a real audit finding: the geotech branch used to fall through to the geological model, so an engineer on the NAD axis silently got a geological DXF. Routing the axis model's id is the whole fix, because the snapshot builder is level-agnostic.
 
 .. CG-EXPLANATION-END id=function:useSectionExportVerbs
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.useSectionGapReveal
 ============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/useSectionGapReveal.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/useSectionGapReveal.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/useSectionGapReveal.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A tiny hook holding the one-shot state for the model-check gap marker in a section view.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It drives the brief pulse that lands on the ground between two columns when a model-check finding is revealed.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useSectionGapReveal
 
-.. CG-PLACEHOLDER
+**What this does.** Holds the pair of investigations to flash, exposes a flashGap callback to set them, and clears them after the flash timeout, cancelling any prior timer first.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The timer is cleared on unmount and on a repeat flash so an old pulse never lingers, and it uses the shared flash duration so the pulse matches the Ctrl+F column pulse.
 
 .. CG-EXPLANATION-END id=function:useSectionGapReveal
 

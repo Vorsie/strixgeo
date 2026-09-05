@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.partitionFillV2.sliceAnnulus
 =======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/sliceAnnulus.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/sliceAnnulus.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/partitionFillV2/sliceAnnulus.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This module subtracts interior holes from a matrix ANNULUS and supplies the polygon-clipping primitives the slicer needs. An annulus is a simple outer ring with one or more interior holes (the enclosed-lens faces); it is decomposed into disjoint strictly-simple pieces — the replacement for the removed keyhole.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records it was split out of ``slice.ts`` for the 500-line budget (debt #201) and rebuilt for sloped-edge exactness (ruling-8e Milestone-2). For each hole the region splits into a left cap, a right cap, and the matrix above and below the hole's ACTUAL sloped envelope, not its flat bounding box. Pure module.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:splitAnnulus
 
-.. CG-PLACEHOLDER
+**What this does.** Splits an annulus into disjoint simple pieces whose union is the outer ring minus every hole, subtracting the holes one at a time (left to right for determinism) and re-splitting each surviving piece against the next hole.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring pins that piece boundaries are kept EXACT with no grid snap: the pieces share a sloped contact with the neighbouring band, and snapping a shared vertex to the 1 mm lattice would push it half a millimetre off the true contact line and overlap the neighbour (the cs1void sand-over-sand exact-overlap gate). The crossings are solved analytically so adjacent pieces meet on the exact same line.
 
 .. CG-EXPLANATION-END id=function:splitAnnulus
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:subtractHole
 
-.. CG-PLACEHOLDER
+**What this does.** Subtracts one hole from a simple piece. The cuts are confined to the hole's elevation band: above and below that band the matrix stays one full-width strip, and within the band the piece is split into a left cap, a right cap, and the two matrix wedges beside the hole's actual sloped edges.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains both choices. Keeping the matrix outside the band as a single strip means a top or base contour shared with a neighbouring band stays a single straight edge, avoiding the half-millimetre snap sliver. Following the hole's real sloped envelope inside the band is required because an enclosed lens hole is a TRIANGLE — a flat-line box split would drop the wedges beside it (the CS1 g15 silt 44 cm coverage hole).
 
 .. CG-EXPLANATION-END id=function:subtractHole
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clipToStrip2Y
 
-.. CG-PLACEHOLDER
+**What this does.** Clips a polygon to the horizontal band between two elevations, by clipping against the low and then the high horizontal line.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It restricts the piece to the hole's elevation band so the cutting work happens only there.
 
 .. CG-EXPLANATION-END id=function:clipToStrip2Y
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:holeEnvelopes
 
-.. CG-PLACEHOLDER
+**What this does.** Splits a hole ring into its upper and lower envelope chains, each running left-to-right, deliberately excluding any vertical base edge sitting on a column at an extreme x.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An enclosed-lens hole is a triangle or convex quad with its base on a column vertical and its apex mid-gap; the two envelope chains are what the wedge clip follows. The docstring warns that including the vertical base edge would make a chain non-monotone and let the clip cover the hole itself (the silt-lens-over-sand overlap), and the caller's strip clip already owns that edge.
 
 .. CG-EXPLANATION-END id=function:holeEnvelopes
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clipAgainstChain
 
-.. CG-PLACEHOLDER
+**What this does.** Clips a polygon to the region above (or below) an x-monotone chain, using Sutherland-Hodgman clipping against the chain, interpolating crossings and holding the chain constant outside its x-span.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is how the matrix wedge is cut to follow the hole's real sloped edge rather than a flat line, so the wedge beside a triangular lens hole is retained instead of dropped.
 
 .. CG-EXPLANATION-END id=function:clipAgainstChain
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:crossChain
 
-.. CG-PLACEHOLDER
+**What this does.** Finds where a segment crosses the chain, by bisection on the signed vertical distance, and returns an endpoint directly when it already lies exactly on the chain.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records two bugs it fixes: without the exact-endpoint shortcut the bisection seeds with a zero distance, never sees a sign change, and drifts to the far endpoint (the silt-lens-over-sand overlap where a middle-slab edge started on the lens base corner). Bisection is robust for a piecewise-linear chain without per-segment special-casing.
 
 .. CG-EXPLANATION-END id=function:crossChain
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:dedup
 
-.. CG-PLACEHOLDER
+**What this does.** Drops consecutive duplicate points from a ring, including a trailing point equal to the first.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Post-clip cleanup so each emitted piece is a clean simple ring with no repeated vertices.
 
 .. CG-EXPLANATION-END id=function:dedup
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:minX
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the smallest x of a ring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A small geometry helper the hole-band and cap splits use to locate a hole's extent.
 
 .. CG-EXPLANATION-END id=function:minX
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:maxX
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the largest x of a ring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same as ``minX``, for the opposite extreme.
 
 .. CG-EXPLANATION-END id=function:maxX
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:minY
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the smallest elevation of a ring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Used to locate the bottom of a hole's elevation band.
 
 .. CG-EXPLANATION-END id=function:minY
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:maxY
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the largest elevation of a ring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Used to locate the top of a hole's elevation band.
 
 .. CG-EXPLANATION-END id=function:maxY
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clipToStrip
 
-.. CG-PLACEHOLDER
+**What this does.** Clips a polygon to the vertical strip between two x lines, treating an infinite bound as a no-op so the annulus caps can clip on one line only.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the vertical clip the slicer uses to cut a face to a gap strip and the annulus code uses to carve the left and right caps.
 
 .. CG-EXPLANATION-END id=function:clipToStrip
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clipHalfPlane
 
-.. CG-PLACEHOLDER
+**What this does.** Clips a polygon against a single axis-aligned line — vertical or horizontal — keeping whichever side a supplied test approves, and interpolating the crossings.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the one Sutherland-Hodgman primitive every strip and band clip in the module is built from.
 
 .. CG-EXPLANATION-END id=function:clipHalfPlane
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:intersectX
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the point where a segment crosses a given vertical line.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The vertical half-plane clip needs the exact crossing point on that line.
 
 .. CG-EXPLANATION-END id=function:intersectX
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:intersectY
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the point where a segment crosses a given horizontal line.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The horizontal half-plane clip needs the exact crossing point on that line.
 
 .. CG-EXPLANATION-END id=function:intersectY
 

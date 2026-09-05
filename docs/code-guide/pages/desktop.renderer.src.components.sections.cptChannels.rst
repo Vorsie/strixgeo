@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.cptChannels
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/cptChannels.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/cptChannels.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/cptChannels.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file and describes the layout it governs. It holds the CPT data-channel toggles and the zoom-responsive band geometry for the cross-section. Each CPT (Cone Penetration Test, a sounding) renders into one shared horizontal band centred on its column axis: qc (cone resistance) reads right of the axis, Rf (friction ratio) is mirrored to the left, and fs and u2 overlay with their own scales when enabled.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the DOV lengteprofiel PDF page 3 as the visual reference, and that the band width scales with the horizontal zoom so the curves stay readable across the zoom range; the width-aware column nudge consumes the band width so adjacent CPTs respect each other's footprints.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:CptChannels
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the five on/off toggles for which CPT curves show — qc, Rf, fs (sleeve friction), u2 (pore-water pressure), and q_total (a CPTM cone's total resistance).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments record that fs and u2 are off by default as specialist tracks the DOV PDF does not show, and q_total overlays the qc track as a dashed line on a CPTM cone.
 
 .. CG-EXPLANATION-END id=interface:CptChannels
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEFAULT_CPT_CHANNELS
 
-.. CG-PLACEHOLDER
+**What this does.** The default toggle set — qc, Rf and q_total on; fs and u2 off.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It matches the DOV reading convention the whole panel imitates.
 
 .. CG-EXPLANATION-END id=const:DEFAULT_CPT_CHANNELS
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:QC_FULL_SCALE_MPA
 
-.. CG-PLACEHOLDER
+**What this does.** The default qc full scale, 40 MPa (megapascals).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records this as the DOV convention, read rightward from the axis.
 
 .. CG-EXPLANATION-END id=const:QC_FULL_SCALE_MPA
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:RF_FULL_SCALE_PCT
 
-.. CG-PLACEHOLDER
+**What this does.** The Rf full scale, 10 percent.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records this as the DOV convention, read leftward from the axis and mirrored.
 
 .. CG-EXPLANATION-END id=const:RF_FULL_SCALE_PCT
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:QC_FULL_SCALE_STEPS_MPA
 
-.. CG-PLACEHOLDER
+**What this does.** The list of stepped upper bounds for the section-wide qc scale — 40, 60, 80, 100, 150, 200 MPa.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the smallest step no CPT exceeds wins, and above 200 the scale keeps stepping up by 50.
 
 .. CG-EXPLANATION-END id=const:QC_FULL_SCALE_STEPS_MPA
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:QC_CONSECUTIVE_THRESHOLD
 
-.. CG-PLACEHOLDER
+**What this does.** The run length, 20 consecutive samples, that counts as a real layer rather than a transient spike.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that at a typical 2 cm sampling interval, 20 samples is about 40 cm — enough to mean a real layer — and that this is the user-visible trade-off knob for how easily a hard band bumps the scale.
 
 .. CG-EXPLANATION-END id=const:QC_CONSECUTIVE_THRESHOLD
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:longestConsecutiveAboveMpa
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the longest run of consecutive qc samples strictly above a threshold in one CPT's series, with null or non-finite samples breaking the run.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that gaps break the run so a series with holes cannot fake a long high-qc layer.
 
 .. CG-EXPLANATION-END id=function:longestConsecutiveAboveMpa
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:pickQcFullScaleMpa
 
-.. CG-PLACEHOLDER
+**What this does.** Chooses the section-wide qc full scale: it walks the step list and returns the smallest step for which no CPT has a run of the threshold length above that step's trigger, where the trigger is the midpoint between the step and the next one up.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the per-CPT check honours one real thick high-qc layer even when the rest of the section is soft, and the comment records the midpoint trigger prevents over-stepping — a run at 41 to 45 MPa should not push the scale to 60 when the data clearly fits 40 (dogfeed 2026-05-31: 'barely values above 30, why is it 60?').
 
 .. CG-EXPLANATION-END id=function:pickQcFullScaleMpa
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:cptBandHalfWidth
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the CPT band's half-width in pixels at the current horizontal zoom, with a floor and a cap on the scaling factor.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the floor keeps columns legible when zoomed out and the cap prevents runaway widths when zoomed in; the comment records the earlier 3.0x cap was hit too early and locked the wheel-zoom guard sooner than the user wanted (dogfeed 2026-05-31).
 
 .. CG-EXPLANATION-END id=function:cptBandHalfWidth
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:cptBandFullWidth
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the full band pixel width for a given CPT kind and channel selection, or 0 when no applicable channel is enabled (for example only u2 on but the cone is not a CPTU).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the nudge layout consumes this width so adjacent CPTs respect each other's data footprints, and the band is the same size regardless of which channels sit inside it.
 
 .. CG-EXPLANATION-END id=function:cptBandFullWidth
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:COLUMN_SPACING_MIN
 
-.. CG-PLACEHOLDER
+**What this does.** The minimum column-spacing multiplier, 0.0.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that at 0 the nudge layout treats every column as zero-width so adjacent tests render at their true projected position with overlapping bands.
 
 .. CG-EXPLANATION-END id=const:COLUMN_SPACING_MIN
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:COLUMN_SPACING_MAX
 
-.. CG-PLACEHOLDER
+**What this does.** The maximum column-spacing multiplier, 1.0.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that at 1 the nudge sees the full width and adjacent columns sit edge-to-edge with the standard gap.
 
 .. CG-EXPLANATION-END id=const:COLUMN_SPACING_MAX
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:COLUMN_SPACING_DEFAULT
 
-.. CG-PLACEHOLDER
+**What this does.** The default column-spacing multiplier, 1.0.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the current default, edge-to-edge behaviour.
 
 .. CG-EXPLANATION-END id=const:COLUMN_SPACING_DEFAULT
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readColumnSpacing
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the column-spacing value out of a section's stored view-state, clamped to the allowed range, returning the default when it is absent or not a valid number.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records it lives in the section's view-state so the choice rides in the project bundle and survives reopening on another machine; the read is guarded so a hand-edited bundle cannot break it.
 
 .. CG-EXPLANATION-END id=function:readColumnSpacing
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:BoreholeChannels
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the borehole observation-stream toggles — geotechnical coding, formal stratigraphy, and informal stratigraphy.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments record that DOV records up to five streams per borehole but the section exposes the three engineers most often cross-reference, and that some earlier toggles were dropped because the detail panel already surfaces those streams.
 
 .. CG-EXPLANATION-END id=interface:BoreholeChannels
 
@@ -373,13 +309,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEFAULT_BOREHOLE_CHANNELS
 
-.. CG-PLACEHOLDER
+**What this does.** The default borehole toggle set — geotechnical coding on, the two stratigraphy streams off.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records engineers reach for geotechnical coding first when building a ground model, because it is the engineering-relevant ISO 14688 stream.
 
 .. CG-EXPLANATION-END id=const:DEFAULT_BOREHOLE_CHANNELS
 
@@ -395,13 +327,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:BOREHOLE_CHANNEL_OBSERVATION_TYPES
 
-.. CG-PLACEHOLDER
+**What this does.** Maps each borehole channel key to the DOV observation-type string the backend ships, in display order.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the iteration order is the display order in the band: geotech, then formal, then informal.
 
 .. CG-EXPLANATION-END id=const:BOREHOLE_CHANNEL_OBSERVATION_TYPES
 
@@ -417,13 +345,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readBoreholeChannels
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the borehole channel toggles out of the stored view-state, falling back per key to the default when a value is missing or not a boolean.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the parse-guarded read of a persisted preference, so a corrupt or hand-edited value cannot throw.
 
 .. CG-EXPLANATION-END id=function:readBoreholeChannels
 
@@ -439,13 +363,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:enabledBoreholeChannelCount
 
-.. CG-PLACEHOLDER
+**What this does.** Counts how many borehole channels are enabled.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the width-aware nudge layout uses the count to work out how many strip-widths a borehole column occupies, so adjacent columns get pushed apart proportionally.
 
 .. CG-EXPLANATION-END id=function:enabledBoreholeChannelCount
 
@@ -461,13 +381,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:SNAP_TOLERANCE_PX
 
-.. CG-PLACEHOLDER
+**What this does.** The snap tolerance, 8 pixels, for click-to-place sticky boundaries.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records it lets engineers snap a dropped contact to a known geological break without zooming to pixel precision.
 
 .. CG-EXPLANATION-END id=const:SNAP_TOLERANCE_PX
 
@@ -483,13 +399,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readSnapToStratigraphy
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the snap-to-stratigraphy toggle out of the stored view-state, defaulting to off.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records it is a persisted preference and that free placement is the default, for engineers who want the raw click depth.
 
 .. CG-EXPLANATION-END id=function:readSnapToStratigraphy
 
@@ -505,13 +417,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readCptChannels
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the CPT channel toggles out of the stored view-state, falling back per key to the documented default when a value is missing or not a boolean.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that out-of-range or missing values fall back so a hand-edited bundle cannot render an invisible or saturated panel.
 
 .. CG-EXPLANATION-END id=function:readCptChannels
 

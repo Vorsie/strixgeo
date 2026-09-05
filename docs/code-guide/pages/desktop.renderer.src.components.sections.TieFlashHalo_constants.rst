@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.TieFlashHalo_constants
 ===============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/TieFlashHalo_constants.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/TieFlashHalo_constants.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/TieFlashHalo_constants.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the small file holding the three visual constants for the tie landing pulse.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Constants live in their own file next to the component that uses them, per the project's constants convention.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TIE_FLASH_COLOR
 
-.. CG-PLACEHOLDER
+**What this does.** The pulse colour, amber-500.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring: the same value the pending-tie colour and the column-landing flash use, so the highlight belongs to the same family; a literal rather than a utility class because SVG stroke cannot be set by a class.
 
 .. CG-EXPLANATION-END id=const:TIE_FLASH_COLOR
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TIE_FLASH_WIDTH_PX
 
-.. CG-PLACEHOLDER
+**What this does.** The stroke width, 7 px.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment: fat enough to find on a busy section from across the canvas.
 
 .. CG-EXPLANATION-END id=const:TIE_FLASH_WIDTH_PX
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TIE_FLASH_OPACITY
 
-.. CG-PLACEHOLDER
+**What this does.** The stroke opacity, 0.45.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring: low enough that the tie's own thin dashes stay legible through the halo — a highlight that hides its subject has not highlighted anything.
 
 .. CG-EXPLANATION-END id=const:TIE_FLASH_OPACITY
 

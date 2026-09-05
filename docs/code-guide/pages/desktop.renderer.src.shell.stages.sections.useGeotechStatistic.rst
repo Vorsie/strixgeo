@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.useGeotechStatistic
 ==============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useGeotechStatistic.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useGeotechStatistic.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/useGeotechStatistic.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the state machine behind the geotech 'qc: <statistic>' picker — median, harmonic, and so on. It owns the two renderer-held pieces of statistic state (the server's answer held locally as a bridge, and the pre-model pending choice), their reconciliation, and the setter.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Extracted verbatim from ``SectionsToolbar`` (debt #201). The derived label and staleness flag come out of the hook so the toolbar reads them without carrying the machinery.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseGeotechStatisticDeps
 
-.. CG-PLACEHOLDER
+**What this does.** What the hook needs: the project (holding the id the statistic write posts to), the active geotech model, and the mark-dirty and toast actions.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These are the inputs the setter fires against; bundling them keeps the dependency list explicit.
 
 .. CG-EXPLANATION-END id=interface:UseGeotechStatisticDeps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseGeotechStatisticResult
 
-.. CG-PLACEHOLDER
+**What this does.** What it returns: the statistic the next subdivide will classify with (or the one the bands on screen were built with), a stale flag, the pre-model pending choice, and the setter.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The toolbar renders the label and stale tag straight from these; the pending choice is handed to the first subdivide.
 
 .. CG-EXPLANATION-END id=interface:UseGeotechStatisticResult
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useGeotechStatistic
 
-.. CG-PLACEHOLDER
+**What this does.** Holds the server's statistic answer locally as a bridge and the pre-model pending choice separately, derives the displayed statistic (the pending choice before any model exists, otherwise the model's own value), derives whether the bands are stale (classified-with differs from chosen), and reconciles both pieces of local state to nothing once the refreshed model row agrees. The setter parks the choice before a model exists (no write) or posts it once one does.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The pre-model choice cannot be written anywhere — the column it lives in belongs to a row step 1 has not created yet — so it is held here and handed to the first subdivide, then dropped the moment a model exists so the label always reads what got built, not what was asked for. The local server answer is a BRIDGE not a cache: it covers the gap between the write and the next model refresh, then gets out of the way, because holding it past that point would pin the 're-run under X' tag on forever and invite a verb that wipes and rebuilds every band.
 
 .. CG-EXPLANATION-END id=function:useGeotechStatistic
 

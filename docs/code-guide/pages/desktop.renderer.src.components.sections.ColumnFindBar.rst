@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.ColumnFindBar
 ======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/ColumnFindBar.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/ColumnFindBar.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/ColumnFindBar.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the file for the Ctrl+F find bar on a cross-section — type a column name like 's8' and jump to it. The imports bring in React's memory and lifecycle tools (*hooks*), the name-matching helper, and the translation helper.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The owner asked for this on 2026-08-17 so he could go straight to a named column header on a busy section. The keyboard behaviour deliberately mirrors every find bar the engineer already knows (Enter for next, Shift+Enter for previous, Esc to close), and the first match jumps as you type so typing the name is usually the whole interaction.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:Props
 
-.. CG-PLACEHOLDER
+**What this does.** The inputs: every placed column on the open section, a callback to perform a jump (pan the view so a column is centred), and a callback to close the bar.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The bar is presentational — it owns only the search text and which match is current, while the parent owns the list of columns and does the actual panning. Keeping the jump in the parent's hands lets the bar stay simple and testable.
 
 .. CG-EXPLANATION-END id=interface:Props
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:ColumnFindBar
 
-.. CG-PLACEHOLDER
+**What this does.** The component. It holds the typed query and the current match number as *state* (values it remembers between redraws), keeps a *ref* (a handle) to the text box so it can grab the keyboard on open, recomputes the matching columns, and provides a wrapped jump that cycles safely past the ends of the match list. It draws a small floating search box with a match counter and a close button.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The current match number is clamped so it never points past a narrowed list. Typing jumps to the first match immediately because typing the name is the gesture — a separate confirm press would only add friction on the common path. The box grabs focus on open because the bar exists to be typed into.
 
 .. CG-EXPLANATION-END id=function:ColumnFindBar
 

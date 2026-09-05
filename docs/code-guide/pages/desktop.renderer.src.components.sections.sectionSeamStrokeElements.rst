@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.sectionSeamStrokeElements
 ==================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/sectionSeamStrokeElements.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/sectionSeamStrokeElements.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/sectionSeamStrokeElements.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Runs the seam-stroke classifier with the column-glyph cards counted as filled ground.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains the drift. The seam-stroke pass keeps a fill's hairline-closing stroke only where the edge's outward side is NOT covered by a same-formation fill, and its cases named the card strip as unfilled space, which was true when it was written. It stopped being true when the fill started painting THROUGH the cards (``columnStripFills.ts``, 2026-08-14): the strips joined the dissolved fill layer but not this classifier, so every gap region still counted its card edge as bordering nothing and stroked it, giving a darker rim down the gap side of every card edge, one soil body reading as two tones (owner dogfeed 2026-08-15). The strips are classification-only; they are never stroked themselves.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SectionSeamStrokes
 
-.. CG-PLACEHOLDER
+**What this does.** The two stroke-path lists the overlay actually draws: one index-aligned with the under-column substrate quads, one index-aligned with the gap regions. The comment after describes the classify function.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller draws exactly these two groups; the cards go in only to inform the classifier and carry no stroke of their own.
 
 .. CG-EXPLANATION-END id=interface:SectionSeamStrokes
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:computeSectionSeamStrokes
 
-.. CG-PLACEHOLDER
+**What this does.** Classifies every fill edge with the cards passed in as filled ground: it runs the shared stroke-path computation over the under-column quads, the gap regions, and the card strips concatenated together, then slices out just the quad strokes and the region strokes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The strips are placed LAST in the concatenation so the two stroked groups keep the array indices the caller expects, and the strips' own entries simply fall off the end with the slice.
 
 .. CG-EXPLANATION-END id=function:computeSectionSeamStrokes
 

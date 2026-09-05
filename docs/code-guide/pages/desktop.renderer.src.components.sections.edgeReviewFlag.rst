@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.edgeReviewFlag
 =======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/edgeReviewFlag.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/edgeReviewFlag.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/edgeReviewFlag.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file. The ``.tsx`` extension marks a file that mixes TypeScript with JSX, the markup React uses to describe screen elements. This module presents a correlation edge that is awaiting the engineer's confirmation. It imports React and the correlation-edge type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the situation: a re-subdivide can leave an accepted geotech tie attached to a band that is no longer obviously the one it was drawn on, and such ties are carried and stamped with a review reason rather than deleted, because an accepted edge never disappears without the user deleting it. Two styling rules follow — not amber (amber already means auto-proposed and pending) and not colour alone (WCAG 2.2 AA and the no-info-by-colour-alone rule) — and the file lives beside the overlay because that overlay is past 1400 lines and under the god-component watch (debt #201).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:REVIEW_FLAG_COLOR
 
-.. CG-PLACEHOLDER
+**What this does.** The review-flag colour, violet.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records it is distinct from approved emerald, pending amber and base-tie cyan.
 
 .. CG-EXPLANATION-END id=const:REVIEW_FLAG_COLOR
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:REVIEW_FLAG_DASH
 
-.. CG-PLACEHOLDER
+**What this does.** The review-flag dash pattern — a long dash and a short gap.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records it is readable at section zoom without reading as 'pending' (which uses a different dash).
 
 .. CG-EXPLANATION-END id=const:REVIEW_FLAG_DASH
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:BADGE_RADIUS
 
-.. CG-PLACEHOLDER
+**What this does.** The radius of the badge disc, 6.5 screen pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Why: not recorded — ask the owner
 
 .. CG-EXPLANATION-END id=const:BADGE_RADIUS
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:isFlaggedForReview
 
-.. CG-PLACEHOLDER
+**What this does.** Answers whether an edge has a review reason set, meaning it needs the engineer to confirm it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A one-line predicate the overlay uses to decide whether to draw the badge.
 
 .. CG-EXPLANATION-END id=function:isFlaggedForReview
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:reviewFlagLabel
 
-.. CG-PLACEHOLDER
+**What this does.** Turns a review-reason token into a human sentence — separate wording for class-changed, ambiguous-band, band-absorbed and frame-mismatch, with a default for anything else.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the raw token 'class_changed' on its own does not tell the engineer whether to keep the tie, so each case says what happened and what is being asked; the comments cite the owner's wording of 2026-08-10 for the absorbed case and the owner order of 2026-08-21 for the frame-mismatch case.
 
 .. CG-EXPLANATION-END id=function:reviewFlagLabel
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:EdgeReviewBadgeProps
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the inputs the badge component takes — the flagged edge, its centre X and Y in screen pixels, and an optional right-click handler. Props are the inputs a React component is given.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the edge's id keys the test id, and the right-click handler opens the same edge menu the tie itself opens.
 
 .. CG-EXPLANATION-END id=interface:EdgeReviewBadgeProps
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:EdgeReviewBadge
 
-.. CG-PLACEHOLDER
+**What this does.** A React component — a function that returns a piece of screen — that draws a small violet disc with a bold '!' marking a tie awaiting confirmation. It renders an SVG group with a title tooltip, a circle, and the '!' glyph, and becomes interactive on right-click when a handler is supplied.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records it is interactive on right-click so the badge is a target in its own right — a flagged tie can be thin or hidden under a ribbon, and hunting for a sub-two-pixel line to resolve a warning is the kind of friction that makes people ignore warnings.
 
 .. CG-EXPLANATION-END id=function:EdgeReviewBadge
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.gaplessGate.index
 ============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/gaplessGate/index.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/gaplessGate/index.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/gaplessGate/index.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the renderer's assembler for the gapless gate and re-exports the pieces the caller needs. It folds the per-section evidence for clauses 1 to 3 into one answer per clause and appends clause 4.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring states the merge rule so it cannot silently drift: any entry anywhere makes the clause FAIL and carries every entry found; no entries with every in-scope section evaluated makes it PASS; no entries but at least one section not evaluated makes it NOT-EVALUATED — because a build that only partly measured a clause does not get to report a clean pass.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:CLAUSE_2D_KEYS
 
-.. CG-PLACEHOLDER
+**What this does.** The three 2-D clause keys in order, as a small fixed list.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It fixes the order the three clauses are assembled and reported in, so the output is deterministic.
 
 .. CG-EXPLANATION-END id=const:CLAUSE_2D_KEYS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:mergeAcrossSections
 
-.. CG-PLACEHOLDER
+**What this does.** Folds one clause key's per-section evidence into a single wire answer: it gathers every section's entries; if any exist the clause fails carrying them all; if none exist and every section was evaluated it passes; otherwise it is not-evaluated with a reason that counts how many sections had no fill.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the literal implementation of the merge rule the module docstring pins — in particular it makes a mixed result (some sections measured, some not, none failing) not-evaluated rather than a clean pass, which is exactly the case the not-a-soft-pass distinction exists for.
 
 .. CG-EXPLANATION-END id=function:mergeAcrossSections
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:assembleGaplessClauses2d
 
-.. CG-PLACEHOLDER
+**What this does.** The public assembler: it groups every section's clause-1/2/3 evidence by key, merges each key across sections, and appends clause 4, returning exactly four clause inputs ready to attach to the voxel build payload.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the single call the build makes to get the renderer's half of the report, so the four 2-D clauses always leave the frontend as one consistent set.
 
 .. CG-EXPLANATION-END id=function:assembleGaplessClauses2d
 

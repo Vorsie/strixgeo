@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.geotechLensSuggestion
 ==============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/geotechLensSuggestion.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/geotechLensSuggestion.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/geotechLensSuggestion.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file: it detects a small enclosed class-lens — a thin band of one packing class fully inside a host stack of another — and drives the 'merge into surrounding band' suggestion. It imports the interval types and the merge check.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the owner idea (debt #227): tiny enclosed packing-class lenses get an affordance suggesting the absorb, mirroring the litho stage's assisted-manual philosophy where the system points and the engineer acts. Detection gates only the affordance; the server never checks smallness or host-class equality, and the smallness threshold reuses the model's own minimum-layer-thickness preference rather than a new magic number.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:EnclosedLens
 
-.. CG-PLACEHOLDER
+**What this does.** Describes a qualifying lens — the thin band, the two same-class hosts around it, the hosts' shared non-null NAD class, and the lens's own class (which may be null).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A data shape carrying the enclosure and the classes the absorb restores.
 
 .. CG-EXPLANATION-END id=interface:EnclosedLens
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:enclosedLensAt
 
-.. CG-PLACEHOLDER
+**What this does.** Judges whether the band at a given index is an enclosed lens: it qualifies when both neighbours exist, both boundaries are legal merges, both hosts carry the same non-null NAD class, and the lens's own class differs (including being null).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that requiring both boundaries to be legal merges gives 'a lens against a litho contact is excluded' for free (ruling 2), that an unclassifiable sliver between matching hosts is the best absorb candidate of all, and that thickness is judged by the caller so a menu opened on any band can still name the enclosure without the size gate.
 
 .. CG-EXPLANATION-END id=function:enclosedLensAt
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:findSmallEnclosedLenses
 
-.. CG-PLACEHOLDER
+**What this does.** Returns every small enclosed lens on a column, top to bottom — the ones at or under the model's minimum-layer-thickness preference.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The size gate is applied here, so only lenses thin enough to suggest absorbing are returned.
 
 .. CG-EXPLANATION-END id=function:findSmallEnclosedLenses
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.DemSurfaceLine
 =======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/DemSurfaceLine.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/DemSurfaceLine.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/DemSurfaceLine.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the file that draws the ground-surface elevation profile on the cross-section as a single thin brown line, from the terrain-model samples. The imports pull in React's memory hook, the sample data type, and the translation helper.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The DEM (digital elevation model) line gives terrain context beneath the columns. Where samples are missing (NoData) the line breaks into separate pieces rather than bridging straight across, because engineers expect a gap over missing data, not an invented surface.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEM_STROKE
 
-.. CG-PLACEHOLDER
+**What this does.** A constant — the earthy brown colour of the surface line.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An earth tone reads as terrain context without competing with the investigation columns for attention.
 
 .. CG-EXPLANATION-END id=const:DEM_STROKE
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEM_STROKE_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** A constant — the width of the surface line in pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A thin line so the terrain profile stays subordinate.
 
 .. CG-EXPLANATION-END id=const:DEM_STROKE_WIDTH
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:DemSurfaceLine
 
-.. CG-PLACEHOLDER
+**What this does.** The component. It walks the samples and builds an SVG path, opening a new sub-path each time it crosses a missing sample or a point outside the plot rectangle, and clamping the pen state so a lone in-bounds sample does not draw a stray one-point move. It renders the path as a thin brown line at 60 percent opacity with a tooltip, or nothing when the path is empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The path is recomputed only when its inputs change (a memo). Points outside the plot rectangle are skipped so the surface line stays inside the canvas and does not bleed into the axis margins. The break-on-NoData behaviour keeps the line honest over data gaps.
 
 .. CG-EXPLANATION-END id=function:DemSurfaceLine
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.partitionFillV2.slice
 ================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/slice.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2/slice.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/partitionFillV2/slice.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This module cuts the labelled arrangement faces at the column verticals and emits the per-gap fill regions the engine's output contract promises. A single face can span several gaps (a band tied across many columns), so each face is clipped to every column strip it overlaps, each non-empty clip becoming one region whose polygon is in that gap's fraction-by-elevation space and whose kind follows the face class (band becomes a quad, onlap becomes a pinch, lens becomes a lens).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The output contract (design §3 output step and §5) is per-gap fraction-by-elevation regions, and consumers downstream — geotech refinement, the voxel builder, DXF export — assume simple polygons, so the slicing, snapping, and simplicity work all lives here. Pure module.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FRACTION_SNAP
 
-.. CG-PLACEHOLDER
+**What this does.** The output fraction snap grid, 1e-6.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Design §3's numerical-robustness rule for the output fraction axis.
 
 .. CG-EXPLANATION-END id=const:FRACTION_SNAP
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ELEV_SNAP_M
 
-.. CG-PLACEHOLDER
+**What this does.** The 1 mm elevation snap grid.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the same 1 mm grid the arrangement uses; snapping clip-interpolation float noise collapses a shared contact to one canonical vertex so the ring stays simple.
 
 .. CG-EXPLANATION-END id=const:ELEV_SNAP_M
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:MIN_SLICE_AREA
 
-.. CG-PLACEHOLDER
+**What this does.** The minimum area below which a sliced region is dropped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A near-zero-area sliver is float noise, not a real region, and would only clutter the output.
 
 .. CG-EXPLANATION-END id=const:MIN_SLICE_AREA
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:MIN_FRACTION_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** The minimum fraction width a sliced region must span.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A region whose whole width is sub-pixel and pinned against a column vertical is a float-noise slice near fraction 1.0 (the B6 gap2 slivers, design §4 increment-16); a real region spans a meaningful width.
 
 .. CG-EXPLANATION-END id=const:MIN_FRACTION_WIDTH
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:sliceFaces
 
-.. CG-PLACEHOLDER
+**What this does.** The slicer. For each labelled face it maps the class to a kind, then for each gap strip it clips the face's outer ring to the strip; for a holed face (a matrix annulus around lens faces) it also clips each hole and splits the annulus into simple pieces so the matrix never overpaints a lens. It converts each clipped ring to fraction-by-elevation space, splits any self-crossing or self-touching ring into strictly simple sub-rings, drops sub-area and sub-width slivers, and emits a region carrying the face's soil, body, kind, gap, and (when present) its fallback flag and producing layer ids. Finally it sorts the output deterministically.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring pins the tricky parts: the annulus split replaces the keyhole removed in increment 6 (its self-touching slit broke the area and containment checks); the strip-clip-FIRST handles a lens straddling a column vertical (ruling-8e Milestone-2), turning each gap's hole into a clean triangle so the box split covers it exactly; and the two simplicity passes are needed because a face simple in metres can slice to a weakly-simple or genuinely self-crossing ring (the CS2 gap15 figure-8), which downstream consumers cannot accept.
 
 .. CG-EXPLANATION-END id=function:sliceFaces
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toFractionSpace
 
-.. CG-PLACEHOLDER
+**What this does.** Maps a strip-clipped metres polygon into that gap's fraction-by-elevation space, snapping the fraction to the 1e-6 grid and the elevation to the 1 mm grid, and dropping consecutive and closing duplicate points.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The strip clip interpolates crossing points as float noise, which would leave two near-identical vertices on a shared contact and make the ring weakly non-simple; snapping both axes collapses each to one canonical vertex, and dropping duplicates keeps the ring simple.
 
 .. CG-EXPLANATION-END id=function:toFractionSpace
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:splitAtRepeatedPoints
 
-.. CG-PLACEHOLDER
+**What this does.** Splits a fraction-space ring that touches itself at a repeated vertex into simple sub-rings, recursing until none repeat.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the fraction-space twin of the metres-space repeat splitter: a face simple in metres can slice to a weakly simple ring when two distinct metres vertices collapse onto one fraction (both on a column vertical) or a lobe pinches to a seam apex on the strip edge.
 
 .. CG-EXPLANATION-END id=function:splitAtRepeatedPoints
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:snapFraction
 
-.. CG-PLACEHOLDER
+**What this does.** Rounds a fraction to the 1e-6 grid and clamps it into 0 to 1.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeps every output vertex on the contract's fraction grid and inside a valid gap.
 
 .. CG-EXPLANATION-END id=function:snapFraction
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:polygonAbsArea
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the absolute area of a fraction-by-elevation ring via the shoelace formula.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the measure the min-area sliver drop compares against.
 
 .. CG-EXPLANATION-END id=function:polygonAbsArea
 

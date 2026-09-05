@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.sections.useLithoSuggestVerbs
 ===============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useLithoSuggestVerbs.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/sections/useLithoSuggestVerbs.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/sections/useLithoSuggestVerbs.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the litho Suggest / Accept verbs' state and derivations — the focused-anchor lookup, the ghost-suggestion counts, the bulk-anchor list, the three busy flags, and the five handlers behind the Suggest split-button.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Extracted verbatim from ``SectionsToolbar`` (debt #201). The split-button's primary-mode label stays in the toolbar because it also reads ``canSuggest`` and the bulk anchors out of this hook.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseLithoSuggestVerbsDeps
 
-.. CG-PLACEHOLDER
+**What this does.** The shell state and handlers the verbs read: axis and section flags, the active litho model, the section's focused column, the selection ids, the unified ghost map and focused-anchor flag, the busy flag and litho contacts, the four suggest/accept handlers, and the section and investigation lists.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One interface for the whole Suggest concern; the verbs derive the counts and anchors from it.
 
 .. CG-EXPLANATION-END id=interface:UseLithoSuggestVerbsDeps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UseLithoSuggestVerbsResult
 
-.. CG-PLACEHOLDER
+**What this does.** What it returns: whether suggest is possible, whether focused suggestions exist, the bulk and per-kind ghost counts, the three busy flags, the bulk-confirm state, the bulk and new-test anchor lists, and the five async handlers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The toolbar renders the Suggest split-button and its transient pills from these.
 
 .. CG-EXPLANATION-END id=interface:UseLithoSuggestVerbsResult
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useLithoSuggestVerbs
 
-.. CG-PLACEHOLDER
+**What this does.** Derives the focused anchor (the section's right-click-focused column on the litho axis), whether it has suggestions, the bulk anchor count, and per-kind ghost counts; builds the bulk-anchor list from investigations that actually land on the section (minus its exclusions and any with no elevation); filters that to new tests with no contacts yet; and provides handlers to suggest for the focused column, accept all focused, confirm the bulk suggest, suggest for new tests, and accept all bulk.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** On the litho axis the source is the section-local focused column (right-click then Focus), not the global map/data selection. The bulk anchors route through the same on-section projection the overlays use, after an earlier bug reported the project's full test count ('will run for 68 investigations') instead of the section's. Accept threads the section id and the section-update callback so the just-accepted contacts pass the explicit-content filter immediately — the recurring #57 bug.
 
 .. CG-EXPLANATION-END id=function:useLithoSuggestVerbs
 

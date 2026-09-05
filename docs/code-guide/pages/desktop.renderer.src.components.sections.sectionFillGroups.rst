@@ -1,7 +1,7 @@
 desktop.renderer.src.components.sections.sectionFillGroups
 ==========================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/sections/sectionFillGroups.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/sections/sectionFillGroups.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/sections/sectionFillGroups.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Dissolves adjacent same-lithology fill regions into ONE paint operation, so a merged soil mass is drawn as a single translucent shape rather than several.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The long docstring lays out the problem and the fix. Two same-lithology regions that abut along a lens, onlap or carve seam are two separate SVG shapes, and at their shared edge the darker app background bleeds through as a fine hairline (owner dogfeed 2026-07-19). Re-stroking the seam was rejected, because a self-colour stroke over the two translucent fills stacks to the very diagonal helper line the owner had just asked to remove, and overlapping two translucent shapes composites to a visibly darker band. Painting one shape per merged body composites its whole coverage as a single mask, so there is no hairline and no darkened seam. The grouping key is the formation plus an opacity bucket, so the selection-fade (a selected body at full opacity, its same-lithology siblings dimmed) still works. This is the app-render half of owner clause 5, merge touching lithos.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:FillGroupElement
 
-.. CG-PLACEHOLDER
+**What this does.** One fill element ready to be grouped: its closed screen ring, its lithology id, its fill colour, the opacity bucket it paints at, and the actual opacity value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Two elements with the same formation but a different opacity bucket stay separate shapes, because a faded sibling of the selected body genuinely paints at a different opacity and must not be dissolved with the full-opacity mass.
 
 .. CG-EXPLANATION-END id=interface:FillGroupElement
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:FillGroup
 
-.. CG-PLACEHOLDER
+**What this does.** One dissolved group: a stable key, the combined SVG path data (one subpath per constituent ring), the colour, and the opacity.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the single SVG shape the overlay paints once for the whole merged mass.
 
 .. CG-EXPLANATION-END id=interface:FillGroup
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:signedArea
 
-.. CG-PLACEHOLDER
+**What this does.** The shoelace signed area of a screen ring; the sign tells which way the ring winds.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The winding must be known and normalised before several rings can be safely combined into one shape.
 
 .. CG-EXPLANATION-END id=function:signedArea
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:subpath
 
-.. CG-PLACEHOLDER
+**What this does.** Appends one ring to a path string as a subpath, reversing it when its winding disagrees with a target sign, and returning nothing for a degenerate ring with fewer than three vertices.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Every subpath in a group must wind the same way so the default nonzero fill rule fills their union; an opposite-wound subpath would punch a hole wherever it overlaps a neighbour.
 
 .. CG-EXPLANATION-END id=function:subpath
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:buildFillGroups
 
-.. CG-PLACEHOLDER
+**What this does.** Groups the elements by formation and opacity bucket in first-seen order, picks one target winding per group, turns each ring into a subpath wound that same way, and returns one combined path per group.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** First-seen order gives a deterministic, stable output; skipping degenerate rings and dropping a group whose rings are all degenerate keeps the output clean.
 
 .. CG-EXPLANATION-END id=function:buildFillGroups
 
