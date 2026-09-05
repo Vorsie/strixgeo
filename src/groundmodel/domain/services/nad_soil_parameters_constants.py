@@ -7,8 +7,8 @@ The values are the NBN EN 1997-1 ANB (the Belgian national annex to Eurocode 7)
 the qc thresholds in ``nad_classification_constants.py`` come from: unit
 weight γ, effective friction angle φ′ and effective cohesion c′.
 
-Those numbers are NOT in this repository, and this module does NOT invent
-them. It ships :data:`NAD_SOIL_PARAMETERS` transcribed from that table. The plumbing that
+This module does NOT invent any number: it ships :data:`NAD_SOIL_PARAMETERS`
+transcribed from that table, row by row, on 2026-09-02. The plumbing that
 reads it (the D-Stability and D-Sheet Piling exporters) is wired so that the
 day the owner transcribes the table into this dict — one
 :class:`NadSoilParameters` per class, keyed by the NAD class number from
