@@ -108,7 +108,22 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'De grijze lijn bovenaan is het maaiveld uit het DEM, automatisch getekend overal waar de maaiveldhoogte bekend is. Het is de referentie waaraan je hoogtes hangen.',
   'tutorial.section-persist.title': 'Je weergave wordt bewaard',
   'tutorial.section-persist.body':
-    'Elke instelling hier — buffer, afstand, overdrijving, kanalen, snap — wordt vanzelf bij dit dwarsprofiel bewaard. Heropen het en de kadrering staat exact zoals je ze achterliet; Reset zet de standaardweergave terug.',
+    'Zoom in en uit met de plus- en minknoppen; de schaal-uitlezing toont de exacte horizontale en verticale schaal. Elke instelling hier (buffer, afstand, overdrijving, kanalen, snap, zoom) wordt vanzelf bij dit dwarsprofiel bewaard, dus heropenen zet de kadrering terug; Reset zet de standaardweergave terug en de X sluit het profiel.',
+  'tutorial.section-undo.title': 'Ongedaan maken',
+  'tutorial.section-undo.body':
+    'Ongedaan maken loopt terug door je modelbewerkingen, ook een aanvaarde litholaag. Het zit ook op Ctrl+Z; de knop maakt de stapel zichtbaar.',
+  'tutorial.section-tie.title': 'Profielen koppelen',
+  'tutorial.section-tie.body':
+    'Met meer dan een profiel stelt Koppelprofielen voorstellen korte koppelingen voor waar ze elkaar kruisen, en de caret aanvaardt ze in een keer. De koppelingen geven de 3D-bouw gegevens om tussen je lijnen te interpoleren.',
+  'tutorial.section-delete.title': 'Een dwarsprofiel verwijderen',
+  'tutorial.section-delete.body':
+    'Verwijderen haalt het geselecteerde dwarsprofiel weg. Het is onomkeerbaar, dus het vraagt altijd eerst bevestiging; de onderliggende sonderingen en boringen blijven ongemoeid.',
+  'tutorial.section-export.title': 'Dit profiel exporteren',
+  'tutorial.section-export.body':
+    'Het Export-menu stuurt het open profiel naar DXF, naar Plaxis, naar D-Stability of D-Sheet, of naar een PDF-blad. Elk bestand draagt het modelniveau van de actieve as. De Export-stap verzamelt dezelfde bestemmingen op een plek.',
+  'tutorial.section-inspector.title': 'Het profielpaneel',
+  'tutorial.section-inspector.body':
+    'Het rechterpaneel toont je dwarsprofielen en draagt de modelacties voor de open as: Bouw de vlakken, Vul contacten vanuit de stratigrafie, en Ontdubbelen. Het is de pendant van de werkbalkacties.',
 
   // 4 · Geologisch model ----------------------------------------------------
   'tutorial.geo-open.title': 'Open de Stratigrafie-stap',
@@ -182,10 +197,87 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.export-open.title': 'Open de Export-stap',
   'tutorial.export-open.body':
     'Stuur het afgewerkte model met drie niveaus naar je ontwerptools. StrixGeo levert het grondmodel, en de ontwerpcontroles gebeuren in de tool waarnaar je exporteert. Kies het formaat dat je volgende tool nodig heeft.',
-  'tutorial.export-dxf.title': 'Exporteer je model',
+  'tutorial.export-dxf.title': 'Een dwarsprofiel exporteren',
   'tutorial.export-dxf.body':
-    'Exporteer een dwarsprofiel naar DXF, naar Plaxis, naar D-Stability of D-Sheet, of naar een PDF-rapportblad. Elke export draagt je eenheidsidentificaties mee, zodat het model gelabeld aankomt in de ontwerptool. Kies het formaat dat je volgende stap nodig heeft.',
+    'Kies een dwarsprofiel en exporteer het naar DXF voor CAD of naar een uitvoerbaar Plaxis 2D-script. Elke export draagt je eenheidsidentificaties mee, zodat het model gelabeld aankomt in de ontwerptool.',
+  'tutorial.export-plaxis3d.title': 'Het 3D-model exporteren',
+  'tutorial.export-plaxis3d.body':
+    'Exporteer het volledige stratigrafische model als een uitvoerbaar Plaxis 3D-script. Het is modelbreed in plaats van profielgebonden, dus het heeft een gebouwd stratigrafisch model nodig, geen enkel profiel.',
   'tutorial.closing.title': 'Je bent klaar',
   'tutorial.closing.body':
     'Dat is de volledige workflow: importeren, dwarsprofiel, stratigrafie, litho, geotech, parameters, export. Bouw je eerste model op je eigen data. Er komen meer import- en exportfuncties, dus stuur de bestandsformaten die je gebruikt naar StrixGeo en wij bouwen ze als volgende.',
+
+  // Extra knoppen + eigenaarsbeslissingen (2026-09-05) -----------------------
+  'tutorial.import-search.title': 'Zoek in de lijst',
+  'tutorial.import-search.body':
+    'Typ in het zoekveld om het huidige tabblad op naam te filteren. Het filtert terwijl je typt; wis het om weer alle onderzoeken te zien.',
+  'tutorial.import-sort.title': 'Sorteer de lijst',
+  'tutorial.import-sort.body':
+    'Sorteer de onderzoeken op naam, diepte of datum en keer de richting om. Sorteren is een weergavehulp; het verandert de data nooit.',
+  'tutorial.import-remove-cptm.title': 'Verwijder de mechanische conussen',
+  'tutorial.import-remove-cptm.body':
+    'Mechanische conussen (CPTM) dragen geen kleef of waterspanning, dus laat ze weg. Vink CPTM uit in de proeftypefilter op de kaart; de grijze rijen staan dan onderaan de sonderingslijst. Klik de eerste, Shift-klik de laatste en druk op Delete om ze uit het project te verwijderen.',
+  'tutorial.data-open-cpt.title': 'Open een sondering',
+  'tutorial.data-open-cpt.body':
+    'Klik een sonderingsrij om haar grafiek te openen. Lees qc, fs, Rf en u2 tegen de diepteas; waar DOV een laagmodel levert, staat het naast de curven. Deze stap vinkt af zodra een sonderingsgrafiek open is.',
+  'tutorial.data-open-borehole.title': 'Open een boring',
+  'tutorial.data-open-borehole.body':
+    'Klik een boringsrij om haar log te openen. Ze toont de beschreven lagen en de classificatieproeven die bij de boring zijn gelogd, inclusief de labresultaten. Deze stap vinkt af zodra een boringslog open is.',
+  'tutorial.geo-add-formation.title': 'Voeg een formatie toe',
+  'tutorial.geo-add-formation.body':
+    'Het paneel toont de formaties in het model, jongste bovenaan. Voeg er met de hand een toe als een eenheid ontbreekt, sleep om ze te herordenen, en gebruik de vertrouwensvervaging om geextrapoleerde ondergrond weg van de data te dimmen.',
+  'tutorial.geo-boreholes-in-model.title': 'Boringen in het model',
+  'tutorial.geo-boreholes-in-model.body':
+    'Deze lijst bepaalt welke boringen het model verankeren. Vink er een uit om ze uit de vlakken te laten terwijl ze op het profiel blijft tekenen; vink opnieuw aan om ze weer op te nemen. Beide zijn omkeerbaar.',
+  'tutorial.geo-dedupe.title': 'Contacten ontdubbelen',
+  'tutorial.geo-dedupe.body':
+    'Ontdubbelen verwijdert dubbele formatiecontacten die na herhaald vullen op elkaar stapelen. Het wist rijen, dus het bevestigt eerst en noemt hoeveel het vond.',
+  'tutorial.geo-reset-delete.title': 'Weergave resetten en verwijderen',
+  'tutorial.geo-reset-delete.body':
+    'Weergave resetten vliegt de 3D-camera terug naar het model en klapt een gesplitst venster dicht. Stratigrafie verwijderen haalt het hele model weg, elke formatie, elk contact en elk vlak, dus het bevestigt altijd eerst.',
+  'tutorial.geo-carry-strat.title': 'Draag de stratigrafie over naar de sonderingen',
+  'tutorial.geo-carry-strat.body':
+    'Houd Shift ingedrukt en sleep een boringscontact zijwaarts over de naburige sonderingskolommen. Het schildert een kopie van dat contact op elke kolom die je passeert, zodat de sonderingen dezelfde onderverdeling dragen. Doe dit voor je de vlakken bouwt.',
+  'tutorial.litho-suggest.title': 'Litholagen voorstellen',
+  'tutorial.litho-suggest.body':
+    'Voorstellen leest de gefocuste kolom met een Robertson-classificatie en stelt litholagen voor als spookgrenzen. De caret biedt de bulkvarianten: voorstellen voor het hele profiel, of enkel voor nieuwe proeven.',
+  'tutorial.litho-bodies.title': 'Weergaveopties voor lichamen',
+  'tutorial.litho-bodies.body':
+    'Het menu Lichamen verzamelt de weergaveschakelaars: vul de banden, toon of verberg de correlatielinten en de gebouwde-modelvulling, reset je handgetekende grenspunten, en schakel de staalmarkers.',
+  'tutorial.litho-admixtures.title': 'Bijmengingen',
+  'tutorial.litho-admixtures.body':
+    'Het menu Bijmengingen ruimt de spookvoorstellen op voor je ze aanvaardt: strip de bijmengingen van de sondering of de boring, strip ze allemaal, of hervul ze vanuit de observatielog van de boring.',
+  'tutorial.litho-fence.title': 'Exporteer de litho-fence',
+  'tutorial.litho-fence.body':
+    'Zodra de solids gebouwd zijn, schrijft Fence exporteren het 3D-fencediagram naar DXF. Het staat naast Model bouwen op deze stap en weigert met een waarschuwing tenzij de weergave in Fence-modus staat.',
+  'tutorial.litho-pane.title': 'Het lithologiepaneel',
+  'tutorial.litho-pane.body':
+    'Het paneel draagt de modelkiezer, de vertrouwensvervaging, de eenhedenlijst met haar lichamenlegende, Instanties oplossen om de lijst te verversen, en de boringen-in-model-selectie. Model wissen wist de lithocontacten na een bevestiging.',
+  'tutorial.geotech-statistic.title': 'Kies de representatieve qc',
+  'tutorial.geotech-statistic.body':
+    'Voor je onderverdeelt, kies je de qc-statistiek waarmee elke pakkingsklasse wordt geclassificeerd. Het is een keuze per model en deel van de modelprovenance, dus het label toont de huidige waarde op de werkbalk.',
+  'tutorial.geotech-correlate.title': 'Pakking met de hand correleren',
+  'tutorial.geotech-correlate.body':
+    'Pakking correleren verbindt een pakkingsband met dezelfde klasse op een buur, de geotech-tegenhanger van litho Correleren. Klik twee banden van dezelfde klasse om ze te koppelen; rechtsklik een koppeling om ze te ontkoppelen.',
+  'tutorial.geotech-display.title': 'Weergaveopties geotech',
+  'tutorial.geotech-display.body':
+    'Het menu Weergave schakelt wat de geotech-as tekent: de pakkingsvulling, de gebouwde-modelvulling, de lithovulling eronder, de boringsvoorbeeldweergave en de correlatielinten.',
+  'tutorial.geotech-build.title': 'Bouw het geotechnisch model',
+  'tutorial.geotech-build.body':
+    'Op de Geotech-stap zet Model bouwen de aanvaarde pakkingsbanden om in 3D NAD-lichamen. Een preflight vraagt naar elke proef die litho draagt maar geen banden, voor het bouwt.',
+  'tutorial.geotech-fence.title': 'Exporteer de geotech-fence',
+  'tutorial.geotech-fence.body':
+    'Zodra de geotech-solids bestaan, schrijft Fence exporteren het 3D-fencediagram naar DXF, net als de litho-stap. Het weigert met een waarschuwing tenzij de weergave in Fence-modus staat.',
+  'tutorial.geotech-pane.title': 'Het eenhedenpaneel',
+  'tutorial.geotech-pane.body':
+    'Het paneel toont de eenheden als grondsoort, dan NAD-pakkingsklasse, dan lichaam, en laat je een rij herkleuren. Klik een lichaam om het op het profiel te selecteren; de uitlezing noemt de klasse en hoe haar qc is toegekend.',
+  'tutorial.params-units.title': 'De eenhedenboom',
+  'tutorial.params-units.body':
+    'De eenhedenboom toont elke eenheid in het afgewerkte model. Vink een eenheid aan om haar statistiek te zien; de tellingen tonen hoeveel lichamen elke eenheid samenbrengt.',
+  'tutorial.params-group.title': 'Eenheden groeperen',
+  'tutorial.params-group.body':
+    'Vink eenheden van dezelfde NAD-klasse over lichamen heen aan en Voeg ze samen tot een rapportgroep; Ontkoppelen licht er een weer uit en Wissen laat de selectie los. Een groep bundelt de statistiek van haar leden onder een hoofding.',
+  'tutorial.params-water-table.title': 'De grondwatertafel',
+  'tutorial.params-water-table.body':
+    'De grondwatertafellijn zegt onder welk niveau elke genormaliseerde waarde erboven berekend is. Klik ze om je eigen diepte in te stellen; het bronlabel toont of ze van jou of van een standaard komt. Alles hier is karakterisatie, nooit een ontwerpwaarde.',
 }
