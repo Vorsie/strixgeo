@@ -43,6 +43,13 @@ could not be placed. Entering the coordinates by hand at import, for a file that
 arrives without them, is future work; today such a file is refused rather than
 prompted for.
 
+When a test does carry a coordinate but it falls outside the area its declared
+coordinate system covers, StrixGeo raises a warning that names the system and
+the values, so a swapped easting and northing, a wrong coordinate system, or a
+position copied from another project is caught at import rather than appearing
+as a dot in the sea. This is a warning only, so the import still proceeds and
+you can correct the record.
+
 Coordinate systems are translated at import. The GEF coordinate-system codes are
 GEF codes, not EPSG codes, so StrixGeo maps them: GEF 32000 becomes Belgian
 Lambert 72 (EPSG 31370), GEF 31000 becomes Dutch RD (EPSG 28992), and the
