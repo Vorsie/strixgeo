@@ -394,6 +394,89 @@ class TestValidationCoordinates:
         )
 
 
+class TestValidationCrsBounds:
+    """Coordinates outside the declared CRS's area raise a WARNING that names
+    the EPSG and the values (owner ruling 2026-09-05)."""
+
+    def test_coordinates_outside_the_declared_systems_area_raise_warning(
+        self, parser: GEFParser
+    ) -> None:
+        # GEF code 32000 → EPSG:31370 (Belgian Lambert 72), but the values are
+        # an Amsterdam RD New easting/northing — far north of Belgium.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 121000.0, 487000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+        )
+        data = "0.20; 1.0\n0.40; 1.5\n0.60; 2.0\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert "COORDINATES_OUTSIDE_CRS_BOUNDS" in _warning_codes(result)
+        # The message names the system and the offending values.
+        message = next(
+            i.message for i in result.issues if i.code == "COORDINATES_OUTSIDE_CRS_BOUNDS"
+        )
+        assert "31370" in message
+        assert "121000" in message and "487000" in message
+
+    def test_coordinates_inside_the_area_raise_nothing(self, parser: GEFParser) -> None:
+        # The base header's (200000, 100000) is a valid Belgian Lambert 72 point.
+        result = parser.parse(_gef())
+        assert "COORDINATES_OUTSIDE_CRS_BOUNDS" not in _codes(result)
+
+    def test_swapped_x_and_y_are_flagged(self, parser: GEFParser) -> None:
+        # (265000, 145000) is a real far-east Belgian point; the file wrote the
+        # easting and northing the wrong way round.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 145000.0, 265000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+        )
+        data = "0.20; 1.0\n0.40; 1.5\n0.60; 2.0\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert "COORDINATES_OUTSIDE_CRS_BOUNDS" in _warning_codes(result)
+
+    def test_unknown_system_skips_the_check_no_double_report(self, parser: GEFParser) -> None:
+        # Code 99999 is neither a known GEF code nor a supported EPSG → epsg is
+        # None. The unresolved-code story is UNKNOWN_CRS_CODE's; the bounds check
+        # must stay silent so the reader is not sent looking twice.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 99999, 121000.0, 487000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+        )
+        data = "0.20; 1.0\n0.40; 1.5\n0.60; 2.0\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert "UNKNOWN_CRS_CODE" in _codes(result)
+        assert "COORDINATES_OUTSIDE_CRS_BOUNDS" not in _codes(result)
+
+    def test_zero_coordinates_skip_the_bounds_check_no_double_report(
+        self, parser: GEFParser
+    ) -> None:
+        # (0, 0) is already told by ZERO_COORDINATES; the bounds check must not
+        # pile a second warning on the same fact.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 0.0, 0.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+        )
+        data = "0.20; 1.0\n0.40; 1.5\n0.60; 2.0\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert "ZERO_COORDINATES" in _codes(result)
+        assert "COORDINATES_OUTSIDE_CRS_BOUNDS" not in _codes(result)
+
+
 # ---------------------------------------------------------------------------
 # Validation — required columns
 # ---------------------------------------------------------------------------
