@@ -637,14 +637,19 @@ export const MODELS_NL = {
   'geotech.reportShowDetail': 'Toon elke garantie en waar ze staat',
   'geotech.reportLess': 'Minder',
   'geotech.reportDetail': 'Details',
-  // Bijmenging → NAD-familie prompt (eigenaarsbeslissing 2026-09-04). Gevraagd
-  // vóór het onderverdelen voor eenheden waarvan de NAD-tabel de bijmenging op
-  // twee manieren kan lezen.
+  // Bijmenging → NAD-familie prompt (eigenaarsbeslissing 2026-09-04, verfijnd
+  // 2026-09-05: noem de gevonden bijmenging; alleen de klei-/silt- of
+  // zandvertakking wordt gevraagd, grind nooit). Gevraagd vóór het onderverdelen.
   'geotech.admixtureChoiceTitle': 'Welke NAD-klassen voor deze bijmengingen?',
   'geotech.admixtureChoiceBody':
-    'Deze eenheden bevatten een bijmenging die de NAD-tabel op twee manieren kan classificeren. Kies per eenheid of je ze als de zuivere grondsoort of met bijmenging classificeert voordat je onderverdeelt.',
+    'Deze eenheden bevatten een klei-/silt- of zandbijmenging die de NAD-tabel op twee manieren kan classificeren. Kies per eenheid of je ze als de zuivere grondsoort of met bijmenging classificeert voordat je onderverdeelt.',
+  // Noemt de gevonden bijmenging, zodat de ingenieur ziet waarom het gevraagd wordt.
+  'geotech.admixtureFound': 'Deze {soil} bevat een {admixture} bijmenging.',
   'geotech.admixturePureOption': 'Zuiver {soil}',
-  'geotech.admixtureWithOption': '{soil} met bijmenging',
+  // De "met"-optie noemt de familie waarop de grondsoort vertakt: klei/silt voor
+  // een grove grondsoort, zand voor een fijne grondsoort.
+  'geotech.admixtureWithOptionFines': '{soil} met klei-/siltbijmenging',
+  'geotech.admixtureWithOptionSand': '{soil} met zandbijmenging',
   'geotech.admixtureChoiceConfirm': 'Onderverdelen',
   'geotech.admixtureChoiceCancel': 'Annuleren',
   'geotech.admixtureChoiceGate': 'Kies voor elke eenheid een klasse om verder te gaan.',
