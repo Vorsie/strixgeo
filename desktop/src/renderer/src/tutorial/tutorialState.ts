@@ -39,6 +39,10 @@ export interface TutorialState {
   lithoSolidsBuilt: boolean
   /** A geotechnical model exists (has an active model). */
   geotechModelExists: boolean
+  /** A CPT detail is open — a row was clicked and its chart is showing. */
+  cptOpen: boolean
+  /** A borehole detail is open — a row was clicked and its log is showing. */
+  boreholeOpen: boolean
 }
 
 /**
@@ -60,6 +64,8 @@ export function emptyTutorialState(): TutorialState {
     lithoAcceptedCount: 0,
     lithoSolidsBuilt: false,
     geotechModelExists: false,
+    cptOpen: false,
+    boreholeOpen: false,
   }
 }
 
@@ -95,6 +101,9 @@ export interface TutorialShellFacts {
   }
   /** The project lifecycle slice (carries the stratigraphy lumping snapshot). */
   lifecycle: { readonly currentLumping: { readonly map: Record<string, string> } | null }
+  /** The selection coordinator slice — a selected CPT / borehole means its
+   *  detail view (chart / log) is open (owner ruling 7). */
+  coordinator: { readonly selectedId: string | null; readonly selectedBoreholeId: string | null }
 }
 
 /**
@@ -124,5 +133,7 @@ export function deriveTutorialState(facts: TutorialShellFacts): TutorialState {
     lithoAcceptedCount: facts.geoModel.lithoLayers.filter(l => l.status === 'accepted').length,
     lithoSolidsBuilt: facts.geoModel.hasLithoSolids,
     geotechModelExists: facts.geoModel.activeGeotechModel != null,
+    cptOpen: facts.coordinator.selectedId != null,
+    boreholeOpen: facts.coordinator.selectedBoreholeId != null,
   }
 }
