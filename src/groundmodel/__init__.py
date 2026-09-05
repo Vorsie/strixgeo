@@ -1,1 +1,1 @@
-"""Ground Model Platform - geotechnical data platform."""
+"""StrixGeo - geotechnical data platform."""
