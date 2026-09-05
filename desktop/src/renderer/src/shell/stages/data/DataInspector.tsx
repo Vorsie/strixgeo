@@ -475,6 +475,7 @@ export default function DataInspector(): JSX.Element {
             onChange={e => setSearchQuery(e.target.value)}
             placeholder={activeTab === 'cpt' ? t('data.inspector.searchCpts') : t('data.inspector.searchBoreholes')}
             className="w-full bg-transparent text-xs text-[--color-text-secondary] placeholder-[--color-text-muted] focus:outline-none"
+            data-testid="data-inspector-search"
           />
           {searchQuery !== '' && (
             <button
@@ -698,7 +699,7 @@ function SortControl({
   const t = useT()
   const isDefault = sort.key === 'default'
   return (
-    <div className="flex items-center gap-1 text-[--color-text-secondary]">
+    <div className="flex items-center gap-1 text-[--color-text-secondary]" data-testid="data-inspector-sort">
       <span className="text-[--color-text-muted]">{t('data.inspector.sortLabel')}</span>
       <select
         value={sort.key}
@@ -1055,7 +1056,7 @@ function DateRangeControl({
             title={t('data.inspector.clearDateFilter')}
             className="ml-auto text-[10px] text-[--color-accent] hover:underline"
           >
-            {t('data.inspector.clear')}
+            {t('data.inspector.clearFilter')}
           </button>
         )}
       </div>
