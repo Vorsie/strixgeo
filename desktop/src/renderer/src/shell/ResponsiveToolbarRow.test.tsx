@@ -28,7 +28,7 @@ function specs(onExport = vi.fn(), onDelete = vi.fn()): ToolbarItemSpec[] {
       overflowItems: [],
       render: p => (
         <div data-testid="pill" role="group" aria-label="Section model axis">
-          <button type="button">{p === 'compact' ? 'Geo' : 'Geology'}</button>
+          <button type="button">{p === 'compact' ? 'Geo' : 'Stratigraphy'}</button>
           <button type="button">Litho</button>
           <button type="button">Geotech</button>
         </div>
@@ -119,7 +119,7 @@ describe('ResponsiveToolbarRow', () => {
 
   it('RT2 — on a wide screen every control still shows its full label', () => {
     render(<ResponsiveToolbarRow items={specs()} measureWidth={wide} />)
-    expect(screen.getByText('Geology')).toBeTruthy()
+    expect(screen.getByText('Stratigraphy')).toBeTruthy()
     expect(screen.getByText('Recompute bodies')).toBeTruthy()
     expect(screen.queryByTestId('toolbar-overflow-more')).toBeNull()
   })
@@ -129,7 +129,7 @@ describe('ResponsiveToolbarRow', () => {
     // Present, and reading the DESIGNED short label — never "Geote".
     expect(screen.getByTestId('pill')).toBeTruthy()
     expect(screen.getByText('Geo')).toBeTruthy()
-    expect(screen.queryByText('Geology')).toBeNull()
+    expect(screen.queryByText('Stratigraphy')).toBeNull()
     // The last segment is spelled out in full at every width.
     expect(screen.getByText('Geotech')).toBeTruthy()
   })
