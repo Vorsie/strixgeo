@@ -187,12 +187,12 @@ export const PANELS_NL = {
   'composition.editSuggestionTitle': 'Samenstelling van het voorstel bewerken',
   'composition.within': 'binnen:',
   'composition.parentAutoResolved':
-    'De bovenliggende geologische formatie wordt automatisch bepaald wanneer de laaggrens wordt vastgelegd. Als hier geen geologie gekarteerd is, verschijnt de eenheid onder "Niet toegewezen".',
+    'De bovenliggende stratigrafische formatie wordt automatisch bepaald wanneer de laaggrens wordt vastgelegd. Als hier geen stratigrafie gekarteerd is, verschijnt de eenheid onder "Niet toegewezen".',
   'composition.unassigned': 'Niet toegewezen',
   'composition.tabExisting': 'Bestaande eenheden',
   'composition.tabNew': 'Nieuwe eenheid',
   'composition.noUnitsInFormation':
-    'Nog geen litho-eenheden in deze geologische formatie — gebruik het tabblad "Nieuwe eenheid" om er een aan te maken.',
+    'Nog geen litho-eenheden in deze stratigrafische formatie — gebruik het tabblad "Nieuwe eenheid" om er een aan te maken.',
   'composition.noUnitsInModel':
     'Nog geen litho-eenheden in dit model — gebruik het tabblad "Nieuwe eenheid" om de eerste aan te maken.',
   'composition.under': 'onder {name}',
@@ -216,7 +216,7 @@ export const PANELS_NL = {
   'formation.editTitle': 'Formatie bewerken',
   'formation.newTitle': 'Nieuwe formatie',
   'formation.dialogBlurb':
-    'Een formatie is een substraateenheid waarnaar je in het geologische model verwijst — bv.',
+    'Een formatie is een substraateenheid waarnaar je in het stratigrafische model verwijst — bv.',
   'formation.exampleQuaternary': 'Kwartaire afzettingen',
   'formation.colour': 'Kleur',
   'formation.regionalReference': 'Regionale referentie',
@@ -264,11 +264,11 @@ export const PANELS_NL = {
     'automatische correlatieverbinding op dit profiel. Wat wil je doen?',
   'dialog.reCorrelateBodyPostMany':
     'automatische correlatieverbindingen op dit profiel. Wat wil je doen?',
-  'dialog.snapTitle': 'Vastklikken op de geologische laaggrens?',
-  'dialog.snapLithoToGeo': 'Litho op geologie vastklikken',
-  'dialog.snapGeoToLitho': 'Geologie naar litho verplaatsen',
+  'dialog.snapTitle': 'Vastklikken op de stratigrafische laaggrens?',
+  'dialog.snapLithoToGeo': 'Litho op stratigrafie vastklikken',
+  'dialog.snapGeoToLitho': 'Stratigrafie naar litho verplaatsen',
   'dialog.snapKeepSeparate': 'Annuleren — apart houden',
-  'dialog.snapPickContact': 'Kies een geologische laaggrens',
+  'dialog.snapPickContact': 'Kies een stratigrafische laaggrens',
   'dialog.copyCompositionTitle': 'Samenstelling van het doel vervangen?',
   'dialog.copyCompositionReplace': 'Vervangen',
   'dialog.copyCompositionFrom': 'Van:',
