@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.SectionSheet
 =======================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/SectionSheet.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/SectionSheet.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/SectionSheet.tsx``
 

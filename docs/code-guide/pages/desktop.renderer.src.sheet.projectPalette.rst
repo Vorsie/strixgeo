@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.projectPalette
 =========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/projectPalette.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/projectPalette.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/projectPalette.ts``
 

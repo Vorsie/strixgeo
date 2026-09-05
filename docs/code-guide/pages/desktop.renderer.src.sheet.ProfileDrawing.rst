@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.ProfileDrawing
 =========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/ProfileDrawing.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/ProfileDrawing.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/ProfileDrawing.tsx``
 

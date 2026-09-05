@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.SheetMap
 ===================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/SheetMap.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/SheetMap.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/SheetMap.tsx``
 

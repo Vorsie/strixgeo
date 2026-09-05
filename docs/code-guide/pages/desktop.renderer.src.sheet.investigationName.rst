@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.investigationName
 ============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/investigationName.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/investigationName.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/investigationName.ts``
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.sheetConstants
 =========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetConstants.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetConstants.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/sheetConstants.ts``
 

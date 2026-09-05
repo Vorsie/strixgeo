@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.TitleBlock
 =====================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/TitleBlock.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/TitleBlock.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/TitleBlock.tsx``
 

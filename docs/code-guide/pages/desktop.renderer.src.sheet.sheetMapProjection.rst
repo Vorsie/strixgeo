@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.sheetMapProjection
 =============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetMapProjection.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetMapProjection.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/sheetMapProjection.ts``
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.sheetGeometry
 ========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetGeometry.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetGeometry.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/sheetGeometry.ts``
 

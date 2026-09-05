@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.unitStyle
 ====================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/unitStyle.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/unitStyle.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/unitStyle.ts``
 

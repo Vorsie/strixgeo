@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.regionPath
 =====================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/regionPath.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/regionPath.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/regionPath.ts``
 

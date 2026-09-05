@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.main
 ===============================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/main.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/main.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/main.tsx``
 

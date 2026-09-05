@@ -1,7 +1,7 @@
 desktop.renderer.src.sheet.sheetPayload
 =======================================
 
-.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetPayload.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/sheet/sheetPayload.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/sheet/sheetPayload.ts``
 
