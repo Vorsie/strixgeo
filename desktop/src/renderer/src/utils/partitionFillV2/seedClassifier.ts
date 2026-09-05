@@ -28,6 +28,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { columnDeepestBase } from './columnMetrics'
 import { type ColumnGeom } from './sectionGeom'
 import { SNAP_GRID_M, type Arrangement, type Face } from './types'
 
@@ -275,6 +276,44 @@ function interpAcross(x: number, xs: readonly number[], vals: readonly number[])
 }
 
 /**
+ * Per-section fillable envelope: the top-band line and the deepest floor, sampled per column, so
+ * the per-face void test interpolates precomputed arrays instead of rebuilding them on every face.
+ */
+export interface VoidEnvelope {
+  /** Column x positions, left to right (the interpolation abscissa). */
+  xs: number[]
+  /** Per-column top-band elevation (first-litho top, else surface) at each column x. */
+  topBandVals: number[]
+  /** Per-column deepest base elevation (the substrate floor) at each column x. */
+  floorVals: number[]
+}
+
+/**
+ * Build the per-section fillable envelope ONCE — the top-band line + the deepest floor per column.
+ * Hoisted out of ``isExplicitVoidGeometric`` so the per-face void test reads these precomputed
+ * arrays instead of rebuilding ``columns.map(...)`` on every face lookup. The values are
+ * byte-identical to the former inline expressions (top band ``units[0]?.topElev ?? surfaceElevM``;
+ * floor ``columnDeepestBase``), so the seed classification is unchanged.
+ *
+ * Parameters
+ * ----------
+ * columns : readonly ColumnGeom[]
+ *     The normalised section columns (their x + unit stacks define the envelope).
+ *
+ * Returns
+ * -------
+ * VoidEnvelope
+ *     The precomputed abscissa + top-band + floor arrays, index-aligned to ``columns``.
+ */
+export function buildVoidEnvelope(columns: readonly ColumnGeom[]): VoidEnvelope {
+  return {
+    xs: columns.map((c) => c.x),
+    topBandVals: columns.map((c) => c.units[0]?.topElev ?? c.surfaceElevM),
+    floorVals: columns.map((c) => columnDeepestBase(c)),
+  }
+}
+
+/**
  * Whether a zero-seed face lies GEOMETRICALLY OUTSIDE the fillable model domain (-> explicit
  * void). Narrow + geometric, per the mandate: a void is a face whose whole extent sits ABOVE
  * the local top-band (the strip between ground and first-litho, deliberately empty) OR BELOW
@@ -291,20 +330,17 @@ function interpAcross(x: number, xs: readonly number[], vals: readonly number[])
  * ----------
  * bounds : FaceBounds
  *     The face's x/elevation bounding box.
- * columns : readonly ColumnGeom[]
- *     Section columns (their x + unit stacks define the envelope).
+ * env : VoidEnvelope
+ *     The per-section envelope from ``buildVoidEnvelope`` (built once per section).
  *
  * Returns
  * -------
  * boolean
  *     True when the face is geometrically outside the fillable envelope (explicit void).
  */
-export function isExplicitVoidGeometric(bounds: FaceBounds, columns: readonly ColumnGeom[]): boolean {
-  const xs = columns.map((c) => c.x)
-  const topBandAt = (x: number): number =>
-    interpAcross(x, xs, columns.map((c) => c.units[0]?.topElev ?? c.surfaceElevM))
-  const floorAt = (x: number): number =>
-    interpAcross(x, xs, columns.map((c) => Math.min(...c.units.map((u) => u.baseElev))))
+export function isExplicitVoidGeometric(bounds: FaceBounds, env: VoidEnvelope): boolean {
+  const topBandAt = (x: number): number => interpAcross(x, env.xs, env.topBandVals)
+  const floorAt = (x: number): number => interpAcross(x, env.xs, env.floorVals)
   // A void must be outside at BOTH x-extent endpoints (conservative).
   const aboveTopBand =
     bounds.elLo >= topBandAt(bounds.xLo) - 1e-6 && bounds.elLo >= topBandAt(bounds.xHi) - 1e-6
@@ -324,6 +360,10 @@ export function isExplicitVoidGeometric(bounds: FaceBounds, columns: readonly Co
  *     The segment->curve map from ``buildSegCurveMap`` (built once per arrangement).
  * columns : readonly ColumnGeom[]
  *     The normalised section columns (so a ``col<ci>:u<ui>`` id resolves to a unit).
+ * env : VoidEnvelope, optional
+ *     The per-section fillable envelope from ``buildVoidEnvelope``. Pass it once per section (the
+ *     face loop builds it before iterating) so the void test does not rebuild it per face; omitted,
+ *     it is built from ``columns`` on the call (correct, just not hoisted).
  *
  * Returns
  * -------
@@ -334,6 +374,7 @@ export function classifyFaceSeed(
   face: Face,
   segCurve: Map<string, string[]>,
   columns: readonly ColumnGeom[],
+  env: VoidEnvelope = buildVoidEnvelope(columns),
 ): SeedResult {
   const seedRefs = seedRefsOfFace(face, segCurve)
   const seedFormations = [
@@ -343,7 +384,7 @@ export function classifyFaceSeed(
   let classification: SeedClass
   if (seedFormations.length === 1) classification = 'single-seed'
   else if (seedFormations.length >= 2) classification = 'multi-seed-defect'
-  else classification = isExplicitVoidGeometric(bounds, columns) ? 'explicit-void' : 'zero-seed-defect'
+  else classification = isExplicitVoidGeometric(bounds, env) ? 'explicit-void' : 'zero-seed-defect'
   return { classification, seedRefs, seedFormations, bounds }
 }
 
