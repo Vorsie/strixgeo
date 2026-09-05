@@ -173,6 +173,17 @@ export const OUTPUTS_NL = {
     'Ze werd verwijderd of herbouwd sinds ze geselecteerd werd — kies een andere eenheid in de lijst.',
   'params.lithostratigraphicUnit': 'Lithostratigrafische eenheid',
   'params.geotechnicalUnit': 'Geotechnische eenheid',
+  // Blok karakteristieke waarden NAD (eigenaarsbeslissing 2026-09-05) — een
+  // aflezing per body van de NAD-tabel, apart van de statistieken per eenheid.
+  'params.nadValuesTitle': 'Karakteristieke waarden NAD',
+  'params.nadProvenance':
+    'NBN EN 1997-1 ANB Tabel 2.1, karakteristieke waarden voor klasse {n} ({name})',
+  'params.nadCaveat': 'Karakteristieke waarden uit de NAD-tabel, geen ontwerpwaarden.',
+  'params.nadDryUnitWeight': 'droog volumegewicht',
+  'params.nadWetUnitWeight': 'nat volumegewicht',
+  'params.nadFrictionAngle': 'wrijvingshoek',
+  'params.nadCohesion': 'cohesie',
+  'params.nadUndrainedShear': 'ongedraineerde schuifsterkte',
   'params.closeUnitStats': 'Sluit de eenheidsstatistieken',
   'params.loadingMeasurements': 'Metingen laden…',
   'params.populationNote':
