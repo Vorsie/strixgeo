@@ -55,6 +55,9 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_VERTICAL_EPSG,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.crs_bounds_constants import (
+    COORDINATES_OUTSIDE_CRS_BOUNDS_CODE,
+)
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
 from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
 from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
@@ -195,6 +198,21 @@ class ImportBoreholeDov(GroundModelLogger):
                         f"DOV import: '{wfs_row.test_id}' parsed with errors — "
                         + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
                     )
+
+            # Phase-summary INFO: how many parsed boreholes carry coordinates
+            # outside their declared CRS's area (a swapped X/Y or a foreign
+            # position). The per-test detail is the WARNING the parser already
+            # attached; this is the "did this batch have any" the reader scans.
+            flagged = sum(
+                1
+                for _, result in parsed
+                if any(iss.code == COORDINATES_OUTSIDE_CRS_BOUNDS_CODE for iss in result.issues)
+            )
+            if flagged:
+                self.info(
+                    f"DOV import: {flagged}/{len(parsed)} borehole(s) have coordinates "
+                    "outside their declared CRS area"
+                )
 
             # Phase 3 — batch dedup. One IN-query for all incoming test_ids.
             t_dedup = time.perf_counter()
