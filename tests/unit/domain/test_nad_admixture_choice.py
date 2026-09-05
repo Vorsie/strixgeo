@@ -18,6 +18,8 @@ from groundmodel.domain.value_objects.admixture import Admixture
 # The qualifying admixtures: silt/clay for coarse soils, sand for fine soils.
 SILTY = (Admixture(soil_code="KL", amount="M"),)  # clay admixture (silt-/kleihoudend)
 SANDY = (Admixture(soil_code="XZ", amount="M"),)  # sand admixture (zandhoudend)
+# A gravel admixture — NOT the coarse-soil fork (owner ruling 2026-09-05).
+GRAVELLY = (Admixture(soil_code="GL", amount="M"),)
 
 
 class TestUnitAdmixtureIsAmbiguous:
@@ -49,6 +51,13 @@ class TestUnitAdmixtureIsAmbiguous:
         """A SAND admixture on SAND is not the coarse-soil fork (silt/clay is);
         the NAD table has no 'sandy sand' column, so there is nothing to ask."""
         assert unit_admixture_is_ambiguous("ZAND", SANDY) is False
+
+    def test_gravelly_sand_is_not_ambiguous_gravel_does_not_count(self):
+        """Owner ruling 2026-09-05: *"if it is gravel it does not count and it
+        should default to normal sand."* A gravel admixture is not the coarse-soil
+        fork (silt/clay is), so a gravelly sand is never prompted — it classifies
+        as plain sand."""
+        assert unit_admixture_is_ambiguous("ZAND", GRAVELLY) is False
 
     def test_silty_silt_is_not_ambiguous_the_table_has_no_such_variant(self):
         """A silt/clay admixture on SILT is not the fine-soil fork (sand is);
