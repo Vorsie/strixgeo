@@ -254,7 +254,7 @@ export default function LithologyCanvas(): JSX.Element {
           exportFenceDxf({
             projectId,
             modelId: lithoModelId,
-            modelName: activeLithoModel?.name ?? 'lithostratigraphy',
+            modelName: activeLithoModel?.name ?? 'lithology',
             panels: fencePanels,
             // The SAME array the viewer paints with, so the DXF layer names
             // and colours are what the user is looking at.
