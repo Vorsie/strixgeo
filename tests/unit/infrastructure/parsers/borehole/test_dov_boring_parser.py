@@ -235,6 +235,22 @@ class TestCoordinates:
         assert result.has_errors is True
         assert any(i.code == "NO_COORDINATES" for i in result.issues)
 
+    def test_lambert72_position_outside_belgium_raises_bounds_warning(self) -> None:
+        # DOV positions are Belgian Lambert 72 (EPSG:31370); a northing far
+        # north of Belgium (Amsterdam RD range) is caught at import.
+        result = DovBoringParser().parse(_xml(pos="121000.0 487000.0 5.0"))
+        bounds = [i for i in result.issues if i.code == "COORDINATES_OUTSIDE_CRS_BOUNDS"]
+        assert len(bounds) == 1
+        assert bounds[0].level == ValidationLevel.WARNING
+        assert "31370" in bounds[0].message
+        # Never blocks the import for it.
+        assert all(i.level != ValidationLevel.ERROR for i in result.issues)
+
+    def test_lambert72_position_inside_belgium_raises_no_bounds_warning(self) -> None:
+        # The default fixture's (200000, 200000) is a valid Belgian point.
+        result = DovBoringParser().parse(_xml())
+        assert all(i.code != "COORDINATES_OUTSIDE_CRS_BOUNDS" for i in result.issues)
+
 
 # ---------------------------------------------------------------------------
 # Drill segments
