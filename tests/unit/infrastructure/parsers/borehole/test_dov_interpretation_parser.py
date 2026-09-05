@@ -27,7 +27,7 @@ from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_parser import (
     DovInterpretationParser,
 )
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 
 _NS = "http://kern.schemas.dov.vlaanderen.be"
