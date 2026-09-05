@@ -36,9 +36,6 @@ import { type LonePinchBracket } from './emitLonePinch'
 import { type LensLabel } from './emitLenses'
 import { type InputCurve, type Point } from './types'
 
-/** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
-const ELEV_EPS = 1e-6
-
 /**
  * Emit the shared-contact onlap for one lone-side unit (ruling 8a).
  *
@@ -123,16 +120,34 @@ export function emitSharedContactOnlap(
   // ENCLOSING matrix (the untied-side lithology) — it closes AROUND the onlap notch. The tied
   // band keeps its own full-width band and never rises/descends into the interval. The wedge is
   // the interval quad (topCorner, baseCorner, conv) minus the pinch triangle: two triangles
-  // (topCorner->conv->apex and baseCorner->conv->apex) sharing the conv->apex edge.
+  // (topCorner->conv->apex and baseCorner->conv->apex) SHARING the conv->apex edge.
   const floodLabelled = (points: Point[]): void => pushLabelled(nextFloodId, enclosingMatrix, labels, out, points)
+  // The shared conv->apex edge is emitted ONCE — both sub-triangles lean on it, mirroring the
+  // sibling ``emitFloodWedge``'s ``convApexEmitted`` guard. Emitting it inside ``emitWedge`` gave
+  // the shared edge two ids, one per corner.
+  let convApexEmitted = false
   const emitWedge = (corner: Point): void => {
-    // Skip a degenerate wedge (corner coincides with conv — zero facing thickness on that side).
-    if (Math.abs(corner.y - conv.y) < ELEV_EPS && Math.abs(corner.x - conv.x) < ELEV_EPS) return
-    floodLabelled([corner, conv])
-    floodLabelled([conv, apex])
+    // Guard each SEGMENT by snap-degeneracy, exactly as the sibling emitter does. The old whole-
+    // wedge test (corner coincides with conv) could never fire: the corner sits on the lone column
+    // and conv on the facing column, so their x never matches for a real gap. A wedge with zero
+    // height past the tip is the one whose conv coincides with the apex — that is what suppresses
+    // the closing curve, not the corner-vs-conv coincidence.
+    if (!segDegenerate(corner, conv)) floodLabelled([corner, conv])
+    if (!convApexEmitted) {
+      convApexEmitted = true
+      if (!segDegenerate(conv, apex)) floodLabelled([conv, apex])
+    }
   }
   emitWedge(topPt)
   emitWedge(basePt)
+}
+
+/** Whether both endpoints snap to the same 1 mm grid cell (mirrors ``emitFloodWedge.segmentDeg``). */
+function segDegenerate(a: Point, b: Point): boolean {
+  const SNAP = 0.001
+  return (
+    Math.round(a.x / SNAP) === Math.round(b.x / SNAP) && Math.round(a.y / SNAP) === Math.round(b.y / SNAP)
+  )
 }
 
 /** Push one closing curve and record its litho label under the allocated id. */
