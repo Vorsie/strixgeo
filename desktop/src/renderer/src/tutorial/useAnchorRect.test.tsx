@@ -61,6 +61,17 @@ describe('useAnchorRect', () => {
     expect(result.current).toBeNull()
   })
 
+  it('resolves an anchor CHAIN to the deepest revealed link (owner ruling 2)', async () => {
+    // Only the trigger present → measures the trigger.
+    mountAnchor('menu-btn', { left: 5, top: 5, width: 40, height: 20 })
+    const { result } = renderHook(() => useAnchorRect(['menu-btn', 'menu-item']))
+    await waitFor(() => expect(result.current).toMatchObject({ left: 5, top: 5 }))
+    // The item appears (menu opened) → measures the item instead.
+    mountAnchor('menu-item', { left: 60, top: 30, width: 80, height: 18 })
+    window.dispatchEvent(new Event('resize'))
+    await waitFor(() => expect(result.current).toMatchObject({ left: 60, top: 30, width: 80 }))
+  })
+
   it('re-measures when the target appears after mount', async () => {
     const { result } = renderHook(() => useAnchorRect('late'))
     expect(result.current).toBeNull()
