@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.domain.models.borehole.drill_segment import DrillSegment
 from groundmodel.domain.models.borehole.field_log_interval import FieldLogInterval
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+from groundmodel.infrastructure.parsers.validation.validation_issue import (
     ValidationIssue,
     issue_warnings,
     issues_have_errors,
