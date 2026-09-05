@@ -6,7 +6,7 @@ export const SHEET_NL = {
   'sheet.exporting': 'Bezig met printen…',
   'sheet.close': 'Sluiten',
   'sheet.fill': 'Opvulling',
-  'sheet.fill.litho': 'Lithostratigrafie',
+  'sheet.fill.litho': 'Lithologie',
   'sheet.fill.geotech': 'Geotechnisch',
   'sheet.scaleMode': 'Schaal',
   'sheet.scaleMode.fit': 'Passend op A3-hoogte',
