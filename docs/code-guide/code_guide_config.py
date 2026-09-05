@@ -1405,7 +1405,9 @@ READING_ORDER: list[dict[str, object]] = [
         "title": "2. Parsers — reading CPT, borehole and DOV data",
         "tree": "backend",
         "members": [],
-        "prefixes": ["src/groundmodel/infrastructure/parsers/"],
+        "prefixes": [
+            "src/groundmodel/infrastructure/parsers/",
+        ],
     },
     {
         "slug": "03-domain-models-and-storage",
@@ -1424,7 +1426,9 @@ READING_ORDER: list[dict[str, object]] = [
         "title": "4. The fill / litho engine — turning readings into layers",
         "tree": "backend",
         "members": [],
-        "prefixes": ["src/groundmodel/domain/services/"],
+        "prefixes": [
+            "src/groundmodel/domain/services/",
+        ],
     },
     {
         "slug": "05-geotech",
@@ -1443,7 +1447,9 @@ READING_ORDER: list[dict[str, object]] = [
         "title": "6. Exports — writing files for design tools",
         "tree": "backend",
         "members": [],
-        "prefixes": ["src/groundmodel/infrastructure/exporters/"],
+        "prefixes": [
+            "src/groundmodel/infrastructure/exporters/",
+        ],
     },
     {
         "slug": "08-desktop-main",
@@ -1564,7 +1570,9 @@ READING_ORDER: list[dict[str, object]] = [
             "desktop/src/renderer/src/shell/useShellState.ts",
             "desktop/src/renderer/src/shell/useToolbarShortcuts.ts",
         ],
-        "prefixes": [],
+        "prefixes": [
+            "desktop/src/renderer/src/i18n/",
+        ],
         # Curated reading order: the renderer entry point and top component, then
         # the shell frame around every stage (layout, the stage descriptor +
         # registry, spine, canvas + toolbar + inspector slots, the per-stage
@@ -1574,31 +1582,6 @@ READING_ORDER: list[dict[str, object]] = [
         # are read in groups 10-11 (excluded below); the general hooks,
         # components, API clients and utils are group 12; the i18n tables are the
         # only whole sub-tree this group owns (added by prefix).
-        "members": [
-            "desktop/src/renderer/src/main.tsx",
-            "desktop/src/renderer/src/App.tsx",
-            "desktop/src/renderer/src/shell/AppShell.tsx",
-            "desktop/src/renderer/src/shell/StageDescriptor.ts",
-            "desktop/src/renderer/src/shell/StageRegistry.ts",
-            "desktop/src/renderer/src/shell/StageSpine.tsx",
-            "desktop/src/renderer/src/shell/StageCanvas.tsx",
-            "desktop/src/renderer/src/shell/StageToolbar.tsx",
-            "desktop/src/renderer/src/shell/Inspector.tsx",
-            "desktop/src/renderer/src/shell/EmptyState.tsx",
-            "desktop/src/renderer/src/shell/StageErrorBoundary.tsx",
-            "desktop/src/renderer/src/shell/ShellContext.ts",
-            "desktop/src/renderer/src/shell/useShellState.ts",
-            "desktop/src/renderer/src/shell/ToolbarPrimitives.tsx",
-            "desktop/src/renderer/src/shell/ResponsiveToolbarRow.tsx",
-            "desktop/src/renderer/src/shell/toolbarOverflow.ts",
-            "desktop/src/renderer/src/shell/toolbarOverflow_constants.ts",
-            "desktop/src/renderer/src/shell/useToolbarShortcuts.ts",
-            "desktop/src/renderer/src/hooks/useAppBoot.ts",
-            "desktop/src/renderer/src/components/licensing/LicensingDialog.tsx",
-            "desktop/src/renderer/src/components/onboarding/OnboardingOverlay.tsx",
-            "desktop/src/renderer/src/components/updater/UpdateNotification.tsx",
-        ],
-        "prefixes": ["desktop/src/renderer/src/i18n/"],
         # The shell's stages are read in groups 10-11, not here.
         "exclude_prefixes": ["desktop/src/renderer/src/shell/stages/"],
     },
@@ -1867,12 +1850,6 @@ READING_ORDER: list[dict[str, object]] = [
             "desktop/src/renderer/src/utils/sectionPartition/sectionRegion.ts",
             "desktop/src/renderer/src/utils/sectionPartition/types.ts",
         ],
-        "prefixes": [],
-        "members": [],
-        # The Sections stage's own components + shell, plus the two pure fill
-        # engines it drives: the 2/1/0 partition (v2) and the geotech
-        # hierarchical fill. Listed BEFORE group 11 so it claims
-        # shell/stages/sections/ first (group 11 then takes the other stages).
         "prefixes": [
             "desktop/src/renderer/src/components/sections/",
             "desktop/src/renderer/src/shell/stages/sections/",
@@ -1882,14 +1859,20 @@ READING_ORDER: list[dict[str, object]] = [
             "desktop/src/renderer/src/utils/gaplessGate/",
             "desktop/src/renderer/src/utils/cs1GoldenMaster/",
         ],
+        # The Sections stage's own components + shell, plus the two pure fill
+        # engines it drives: the 2/1/0 partition (v2) and the geotech
+        # hierarchical fill. Listed BEFORE group 11 so it claims
+        # shell/stages/sections/ first (group 11 then takes the other stages).
     },
     {
         "slug": "11-desktop-stages",
         "title": "11. Desktop — stages (geology, litho, geotech, parameters, export, 3D)",
         "tree": "desktop",
         "members": [],
+        "prefixes": [
+            "desktop/src/renderer/src/shell/stages/",
+        ],
         # Group 10 already claimed shell/stages/sections; this takes the rest.
-        "prefixes": ["desktop/src/renderer/src/shell/stages/"],
     },
     {
         "slug": "12-desktop-api-and-utils",
@@ -2225,7 +2208,9 @@ READING_ORDER: list[dict[str, object]] = [
         "title": "13. Desktop — the sheet (printable output)",
         "tree": "desktop",
         "members": [],
-        "prefixes": ["desktop/src/renderer/src/sheet/"],
+        "prefixes": [
+            "desktop/src/renderer/src/sheet/",
+        ],
     },
 ]
 
