@@ -169,6 +169,7 @@ function mergeGroup(members: readonly FencePanel[], bodyId: string | null): Fenc
     // KNOWN LIMITATION: a cross-family-welded body spans two formations, and this
     // stamps the whole merged wall with just this one.
     formationId: members[0].formationId,
+    sectionId: members[0].sectionId,
     bodyId,
     layerIds: layerIds.size > 0 ? [...layerIds] : undefined,
     vertices,
