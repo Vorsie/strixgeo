@@ -152,7 +152,12 @@ export function buildProjectFence(
     }))
     // Collapse this section's per-gap panels to one per connected body before
     // pushing — the shared column seams weld away (debt #278 fence follow-on).
-    all.push(...mergeFencePanels(buildFencePanels(input.section, worldColumns, fenceRegions), resolveBody))
+    // Every wall names its section so the DXF export can split layers per
+    // section (owner ruling 2026-09-05: a whole section can be switched off in CAD).
+    const stamped = buildFencePanels(input.section, worldColumns, fenceRegions).map(p =>
+      input.sectionId === undefined ? p : { ...p, sectionId: input.sectionId },
+    )
+    all.push(...mergeFencePanels(stamped, resolveBody))
   }
   return all
 }
