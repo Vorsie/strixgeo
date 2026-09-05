@@ -28,6 +28,7 @@ import { faceLayerIds, withFaceLayerIds } from './faceLayerIds'
 import { type ColumnGeom } from './sectionGeom'
 import {
   buildSegCurveMap,
+  buildVoidEnvelope,
   classifyFaceSeed,
   COL_LENS_SEED_RE,
   COL_SEED_RE,
@@ -181,6 +182,9 @@ export function labelFaces(
   // undefined and every face takes the original label path (flag-OFF byte-identity).
   const seedActive = twoSidedTerminationsEnabled() && arrangement !== undefined
   const segCurve = seedActive ? buildSegCurveMap(arrangement!) : undefined
+  // The seed void test's per-column top-band + floor arrays depend only on the section, so build
+  // them ONCE here and thread them through ``classifyFaceSeed`` instead of rebuilding per face.
+  const voidEnvelope = seedActive ? buildVoidEnvelope(columns) : undefined
 
   const out: LabelledFace[] = []
   for (const face of faces) {
@@ -199,7 +203,7 @@ export function labelFaces(
     }
     // ---- FLAG-ON SEED PATH (mandate §B). ----
     if (seedActive && segCurve) {
-      const seed = classifyFaceSeed(face, segCurve, columns)
+      const seed = classifyFaceSeed(face, segCurve, columns, voidEnvelope)
       const base = labelOneFace(face, columns, lensLabels)
       // ---- RULING 8r DISCRIMINATOR (SEED_FILL_MANDATE Steps 2+3, 2026-07-19). ----
       // An ENCLOSED-LENS's OWN face carries the collapsed lens's TRUE minority litho
