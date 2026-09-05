@@ -275,11 +275,17 @@ class RebuildModelSurfaces(GroundModelLogger):
         # survives Build" property — they stay at the high-display_order
         # end where the inspector renders them at the top). Resolves
         # debt #177 (age-reorder direction inversion).
+        # Label each formation for the anthropogenic-youngest pin. Pass
+        # the DOV code (regional_ref) when present, else the name, so the
+        # pin fires whether Antropogeen arrives as the code "A" or the
+        # name "Antropogeen" (owner ruling 2026-09-05).
+        labels_by_formation = {f.id: (f.regional_ref or f.name) for f in all_formations}
         age_ordered_oldest_first = list(
             reversed(
                 infer_age_order(
                     contacts_by_anchor=contacts_by_anchor,
                     all_formation_ids=list(with_contacts),
+                    labels_by_formation=labels_by_formation,
                 )
             )
         )
