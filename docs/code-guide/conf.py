@@ -69,3 +69,8 @@ html_css_files = ["custom.css"]
 # only matter if an ``autodoc`` directive is ever added; harmless otherwise.
 napoleon_numpy_docstring = True
 napoleon_google_docstring = False
+
+# Pygments' tsx lexer chokes on a few JSX constructs; a block it cannot lex is
+# rendered as plain text, which is fine for reading — never a reason to fail the
+# -W build. (212 such blocks on the desktop pages, 2026-09-05.)
+suppress_warnings = ["misc.highlighting_failure"]
