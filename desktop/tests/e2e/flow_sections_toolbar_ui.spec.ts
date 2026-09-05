@@ -74,8 +74,8 @@ test.describe('flow_sections_toolbar_ui', () => {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Sections')
 
-      // --- Axis toggle: Geology is the default-selected segment. -------------
-      const geologyTab = page.getByRole('radio', { name: 'Geology' })
+      // --- Axis toggle: Stratigraphy is the default-selected segment. --------
+      const geologyTab = page.getByRole('radio', { name: 'Stratigraphy' })
       const lithoTab = page.getByRole('radio', { name: 'Litho' })
       await expect(geologyTab).toBeVisible()
       await expect(geologyTab).toHaveAttribute('aria-checked', 'true')
