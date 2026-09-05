@@ -36,8 +36,8 @@ def soil_parameters_for_unit(
         litho unit) or when its class has not been transcribed into
         ``NAD_SOIL_PARAMETERS`` yet.
     """
-    if unit.nad_class is None:
-        return None
-    # Read through the module (not a bound name) so a monkeypatched table
-    # is honoured, and so the empty shipped table resolves to None cleanly.
-    return nad_soil_parameters_constants.NAD_SOIL_PARAMETERS.get(unit.nad_class)
+    # The shared class → parameters accessor (same row the Parameters pane
+    # reads via the formation ``nad_parameters`` field), so the export and the
+    # pane can never read the table two different ways. Called through the
+    # module so a monkeypatched table is honoured.
+    return nad_soil_parameters_constants.parameters_for_class(unit.nad_class)
