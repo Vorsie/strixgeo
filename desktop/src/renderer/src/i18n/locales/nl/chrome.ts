@@ -147,7 +147,7 @@ export const CHROME_NL = {
   // characters, so the short form is forced here even if the long surface name
   // ends up being "Dwarsprofielen".
   'spine.sections': 'Profielen',
-  'spine.geology': 'Geologie',
+  'spine.geology': 'Stratigrafie',
   'spine.lithology': 'Litho',
   'spine.geotechnical': 'Geotech',
   'spine.parameters': 'Parameters',
@@ -182,8 +182,8 @@ export const CHROME_NL = {
   // FLAG alt: laaggrens | geologisch contact — the geology module renders
   // "contact" as "laaggrens"; a "geological contact" here is a formation
   // boundary, so "geologisch contact" was chosen literally.
-  'common.geologicalContactWordOne': 'geologisch contact',
-  'common.geologicalContactWordMany': 'geologische contacten',
+  'common.geologicalContactWordOne': 'stratigrafisch contact',
+  'common.geologicalContactWordMany': 'stratigrafische contacten',
   'common.columnWordOne': 'kolom',
   'common.columnWordMany': 'kolommen',
   'common.groupingWordOne': 'groepering',
