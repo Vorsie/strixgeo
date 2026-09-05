@@ -248,6 +248,23 @@ COMPLETE_MODULES: frozenset[str] = frozenset(
         "src/groundmodel/infrastructure/exporters/section_unit_labels.py",
         "src/groundmodel/infrastructure/exporters/unit_identifier.py",
         "src/groundmodel/infrastructure/exporters/unit_identifier_constants.py",
+        # Reading-order group (5): the geotech stage — the two subdivision use
+        # cases and the geotech_* application helpers (band edit, borehole
+        # materialiser, edge derivation, tie re-anchor / status / tombstones,
+        # crossing + off-section sweeps, litho staleness, view-state).
+        "src/groundmodel/application/divide_boreholes.py",
+        "src/groundmodel/application/subdivide_all_bodies.py",
+        "src/groundmodel/application/geotech_band_edit_constants.py",
+        "src/groundmodel/application/geotech_band_edit_helpers.py",
+        "src/groundmodel/application/geotech_borehole_materialiser.py",
+        "src/groundmodel/application/geotech_crossing_sweep.py",
+        "src/groundmodel/application/geotech_edge_derivation.py",
+        "src/groundmodel/application/geotech_litho_staleness.py",
+        "src/groundmodel/application/geotech_offsection_sweep.py",
+        "src/groundmodel/application/geotech_tie_reanchor.py",
+        "src/groundmodel/application/geotech_tie_status.py",
+        "src/groundmodel/application/geotech_tie_tombstones.py",
+        "src/groundmodel/application/geotech_view_state.py",
     }
 )
 
