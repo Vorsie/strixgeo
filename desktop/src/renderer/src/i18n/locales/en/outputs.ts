@@ -107,7 +107,7 @@ export const OUTPUTS = {
     "The fence diagram cut down to the selected unit's walls over the basemap — a visual anchor, not an editor.",
   'params.loading3dView': 'Loading the 3D view…',
   'params.kindGeotech': 'geotechnical',
-  'params.kindLitho': 'lithostratigraphic',
+  'params.kindLitho': 'lithological',
   'params.noModelYet': 'No {kind} model yet — the fence cutout appears once one exists.',
   'params.assemblingFence': 'Assembling the fence…',
   'params.noFenceWalls':
@@ -141,7 +141,7 @@ export const OUTPUTS = {
   'params.loadingUnitRoster': 'Loading the unit roster…',
   'params.noUnitsYet': 'No units yet',
   'params.noUnitsHintTree':
-    'Build a lithostratigraphic model on the Lithology stage, then subdivide it on the Geotechnical stage — the tree will populate here.',
+    'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage — the tree will populate here.',
   'params.unitsHeader': 'Units',
   'params.orphanBandsOne': '{n} band outside the litho model',
   'params.orphanBandsMany': '{n} bands outside the litho model',
@@ -171,7 +171,7 @@ export const OUTPUTS = {
   'params.unitNoLongerExists': 'This unit no longer exists',
   'params.unitNoLongerExistsHint':
     'It was removed or rebuilt since it was selected — pick another unit in the list.',
-  'params.lithostratigraphicUnit': 'Lithostratigraphic unit',
+  'params.lithostratigraphicUnit': 'Lithological unit',
   'params.geotechnicalUnit': 'Geotechnical unit',
   // NAD characteristic values block (owner ruling 2026-09-05) — a per-body read
   // of the NAD table, shown separately from the per-unit statistics.
@@ -207,7 +207,7 @@ export const OUTPUTS = {
     'Design-ready parameter — populated in Phase 5 when the correlation / xlsx pipeline lands.',
   // per-unit tab
   'params.noUnitsHintStats':
-    'Build a lithostratigraphic model on the Lithology stage, then subdivide it on the Geotechnical stage — the units will populate here with their statistics.',
+    'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage — the units will populate here with their statistics.',
   'params.pickUnit': 'Pick a unit',
   'params.pickUnitHint':
     'Click a unit in the list on the right — its qc / fs / Rf statistics draw here. Right-clicking a band in a cross-section jumps here too.',
@@ -251,15 +251,15 @@ export const OUTPUTS = {
   'export.title': 'Exports',
   'export.blurb': 'Hand the ground model off to a downstream design tool.',
   'export.sections': 'Sections',
-  'export.geology': 'Geology',
+  'export.geology': 'Stratigraphy',
   'export.crossSection': 'Cross-section',
   'export.crossSectionToExport': 'Cross-section to export',
   'export.sectionBlurb':
     "Export one cross-section's layer geometry — DXF (universal CAD exchange) or a runnable Plaxis 2D plxscripting script with one borehole per projected column.",
-  'export.geologyPlaxis3d': 'Geological model → Plaxis 3D',
+  'export.geologyPlaxis3d': 'Stratigraphic model → Plaxis 3D',
   'export.geologyBlurb':
     'Export the whole model as a runnable plxscripting Python script — one Mohr-Coulomb placeholder soil + one borehole per investigation.',
-  'export.noActiveModel': 'No active geological model. Define formations and place contacts first.',
+  'export.noActiveModel': 'No active stratigraphic model. Define formations and place contacts first.',
   'export.dxf': 'AutoCAD DXF',
   'export.pythonScript': 'Python script',
   'export.allFiles': 'All Files',
@@ -286,7 +286,7 @@ export const OUTPUTS = {
   'export.canvasBlurb':
     'Hand the ground model off to a downstream design tool. Layer geometry is the integration unit — per-layer parameters are set in the destination tool.',
   'export.guidanceNoModelPre':
-    'No active geological model. Define formations and place contacts in the ',
+    'No active stratigraphic model. Define formations and place contacts in the ',
   'export.guidanceNoModelPost': ' stage first.',
   'export.guidanceNoSectionsPre': 'No cross-sections yet. Create one in the ',
   'export.guidanceNoSectionsPost': ' stage.',
