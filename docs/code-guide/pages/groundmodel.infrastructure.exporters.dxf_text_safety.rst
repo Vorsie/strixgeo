@@ -1,7 +1,7 @@
 groundmodel.infrastructure.exporters.dxf_text_safety
 ====================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/exporters/dxf_text_safety.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/exporters/dxf_text_safety.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/exporters/dxf_text_safety.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The file's one-line job: strip carriage-returns and line-feeds from any string bound for a DXF file. It imports nothing beyond the future-annotations switch.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A DXF (the CAD drawing-exchange text file) is *line-oriented* — a numeric group code sits on one line and its value on the next — so a stray line break inside a string value splits the record and corrupts the file. The DXF-writing library ezdxf guards this only with an ``assert``, which the optimised ``python -O`` build strips out, so a packaged build could emit a corrupt DXF and never notice. Removing the breaks ourselves means the protection never depends on assertions being switched on.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def strip_dxf_line_breaks``
 
 .. CG-EXPLANATION-START id=function:strip_dxf_line_breaks
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the text with every carriage-return and line-feed deleted.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is byte-for-byte identical for any string that has no line break, so it changes nothing on the overwhelming majority of real formation and investigation names; it only bites the rare bad-import name that carried a raw newline.
 
 .. CG-EXPLANATION-END id=function:strip_dxf_line_breaks
 

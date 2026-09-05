@@ -1,7 +1,7 @@
 groundmodel.infrastructure.exporters
 ====================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/exporters/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/exporters/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/exporters/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This is the one-line marker file that turns the ``exporters`` folder into a Python package. It holds a single line — the folder's short description — and no code.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A folder needs a file named ``__init__.py`` before Python will let you import the modules inside it. The line of text is just the package's summary. Why: not recorded beyond that — it is the standard empty package marker.
 
 .. CG-EXPLANATION-END id=module-header
 

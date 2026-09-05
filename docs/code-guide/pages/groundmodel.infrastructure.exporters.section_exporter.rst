@@ -1,7 +1,7 @@
 groundmodel.infrastructure.exporters.section_exporter
 =====================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/exporters/section_exporter.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/exporters/section_exporter.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/exporters/section_exporter.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The file's description and its imports: the abstract-base-class tools (``ABC`` / ``abstractmethod``), the one-cross-section snapshot type it works on (``SectionSnapshot`` — a single section's geometry, projected from the geological model), and the shared logging base class.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The second of the three exporter base classes from the ``BaseExporter`` split (docs/exports.md, debt #109). This one is for artefacts scoped to ONE cross-section built from the formation picks — a section DXF, a Plaxis 2D script.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SectionExporter`` — header
 
 .. CG-EXPLANATION-START id=class:SectionExporter
 
-.. CG-PLACEHOLDER
+**What this does.** Declares the abstract base class for section-scoped exporters, inheriting the logging mixin and ``ABC`` so it must be subclassed rather than used directly.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same reasoning as the project exporter: the logger comes first (the project convention), and abstractness forces every concrete section exporter to supply its own ``export``.
 
 .. CG-EXPLANATION-END id=class:SectionExporter
 
@@ -65,13 +57,9 @@ Method ``SectionExporter``. ``def export``
 
 .. CG-EXPLANATION-START id=method:SectionExporter.export
 
-.. CG-PLACEHOLDER
+**What this does.** The method each subclass must fill in. It takes a ``SectionSnapshot`` (one section's assembled geometry) and returns the finished file as raw bytes; the ``...`` body is a placeholder for the subclass.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Returning bytes leaves the choice of file-versus-download to the API layer, the same contract every exporter follows (docs/exports.md).
 
 .. CG-EXPLANATION-END id=method:SectionExporter.export
 

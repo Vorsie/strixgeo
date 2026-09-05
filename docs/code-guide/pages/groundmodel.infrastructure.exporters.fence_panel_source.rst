@@ -1,7 +1,7 @@
 groundmodel.infrastructure.exporters.fence_panel_source
 =======================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/exporters/fence_panel_source.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/exporters/fence_panel_source.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/exporters/fence_panel_source.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The file's description and its imports: ``Sequence``, ``Protocol`` and ``runtime_checkable``, plus an ``__all__`` naming the one public type. A *Protocol* is a structural interface — it says ``anything with these fields fits`` without the fitting types having to inherit from it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The fence exporter needs a certain shape from a wall panel, but it is INFRASTRUCTURE and must not import the API request schema that happens to carry those fields today — an ``infrastructure -> api.schemas`` import would invert the one-way dependency arrow the whole codebase keeps (API -> Application -> Domain <- Infrastructure; see start-here). A Protocol states the requirement structurally and costs nothing: any object with the right fields satisfies it, with no adapter.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``FencePanelSource`` — header
 
 .. CG-EXPLANATION-START id=class:FencePanelSource
 
-.. CG-PLACEHOLDER
+**What this does.** Declares the structural interface for one triangulated vertical wall of the 3-D fence diagram, as a set of read-only properties.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Read-only properties rather than plain attributes so a caller may hand in a ``list`` where a ``Sequence`` is asked for — a mutable attribute would demand the exact container type declared here.
 
 .. CG-EXPLANATION-END id=class:FencePanelSource
 
@@ -65,13 +57,9 @@ Method ``FencePanelSource``. ``def formation_id``
 
 .. CG-EXPLANATION-START id=method:FencePanelSource.formation_id
 
-.. CG-PLACEHOLDER
+**What this does.** The lithostratigraphic formation this wall belongs to.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the panel's stable identity handle: the export route uses it to look up the wall's NAD class and soil code (which the panel itself does not carry) so the layer can be named by the machine identifier.
 
 .. CG-EXPLANATION-END id=method:FencePanelSource.formation_id
 
@@ -87,13 +75,9 @@ Method ``FencePanelSource``. ``def body_id``
 
 .. CG-EXPLANATION-START id=method:FencePanelSource.body_id
 
-.. CG-PLACEHOLDER
+**What this does.** The resolver-assigned body identity, or ``None`` when the wall is untied to any body.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is part of the panel's full declared shape, but the fence DXF exporter does not read it — it names layers from ``formation_id``. Why: not recorded — ask the owner.
 
 .. CG-EXPLANATION-END id=method:FencePanelSource.body_id
 
@@ -109,13 +93,9 @@ Method ``FencePanelSource``. ``def name``
 
 .. CG-EXPLANATION-START id=method:FencePanelSource.name
 
-.. CG-PLACEHOLDER
+**What this does.** The display label, already resolved; it becomes the DXF layer name on the fallback path (when no machine identifier could be resolved for the unit).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is resolved at the presentation boundary (a translated lithology label), so the server uses what the renderer produced rather than re-deriving a name that might disagree with the screen.
 
 .. CG-EXPLANATION-END id=method:FencePanelSource.name
 
@@ -131,13 +111,9 @@ Method ``FencePanelSource``. ``def color``
 
 .. CG-EXPLANATION-START id=method:FencePanelSource.color
 
-.. CG-PLACEHOLDER
+**What this does.** The hex layer colour, resolved at the presentation boundary.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** NAD packing colours override the inherited lithology colour and are never stored, so the server must not re-derive this — the renderer-computed colour is the only correct one (docs/exports.md, the fence DXF exporter).
 
 .. CG-EXPLANATION-END id=method:FencePanelSource.color
 
@@ -153,13 +129,9 @@ Method ``FencePanelSource``. ``def vertices``
 
 .. CG-EXPLANATION-START id=method:FencePanelSource.vertices
 
-.. CG-PLACEHOLDER
+**What this does.** The wall's corner points, each an ``(x, y, elevation)`` triple in metres.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The coordinates are PROJECTED project-CRS metres (Lambert 72 for Belgium, RD New for the Netherlands), never longitude/latitude — the same space the renderer builds the walls in and the space the DXF is written in, so no reprojection ever happens.
 
 .. CG-EXPLANATION-END id=method:FencePanelSource.vertices
 
@@ -175,13 +147,9 @@ Method ``FencePanelSource``. ``def triangles``
 
 .. CG-EXPLANATION-START id=method:FencePanelSource.triangles
 
-.. CG-PLACEHOLDER
+**What this does.** The wall's triangle faces, each a triple of index numbers pointing into ``vertices``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The wall arrives already cut into triangles by the renderer (the server has no twin able to rebuild it), and the exporter writes one DXF face per triangle.
 
 .. CG-EXPLANATION-END id=method:FencePanelSource.triangles
 
