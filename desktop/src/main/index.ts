@@ -1177,7 +1177,7 @@ function buildMenu(win: BrowserWindow): void {
           dialog.showMessageBox(win, {
             type: 'info',
             title: 'StrixGeo',
-            message: 'StrixGeo — Ground Model Platform',
+            message: 'StrixGeo — ground model platform',
             detail: `Version ${app.getVersion()}${buildLine}\nGround model platform for geotechnical engineers.`
           })
         }}
