@@ -10,12 +10,16 @@
 // invisible; too narrow clips, which is the bug the module exists to kill.
 
 /**
- * The axis pill at full labels — "Geology | Litho | Geotech".
+ * The axis pill at full labels — "Stratigraphy | Litho | Geotech".
  *
- * 19 characters at the 6.4 px advance, three segments of ``px-2`` (16 px
- * each), plus the group's 1 px border on either side.
+ * 24 characters at the 6.4 px advance (≈154 px), three segments of ``px-2``
+ * (16 px each), plus the group's 1 px border on either side — ≈204 px, rounded
+ * up to keep the deliberate over-estimate policy. (The "Geology"→"Stratigraphy"
+ * display rename of 2026-09-05 widened the first segment from 7 to 12 chars;
+ * the previous 172 was sized for the old 19-char label and would now
+ * under-budget the row.)
  */
-export const AXIS_PILL_FULL_PX = 172
+export const AXIS_PILL_FULL_PX = 210
 
 /**
  * The axis pill in its designed short form — "Geo | Litho | Geotech".
