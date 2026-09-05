@@ -54,6 +54,34 @@ export function restart(steps: readonly CatalogueStep[]): TutorialProgress {
   return initialProgress(steps)
 }
 
+/**
+ * Fresh progress that respects the app context at start (owner ruling 3).
+ *
+ * When a project is already open, the project-creation steps (the ``'welcome'``
+ * stage — "Name your project" / "Create the project") make no sense, so they
+ * are marked completed and the walk begins at the first non-welcome step (the
+ * project-settings step). From the welcome screen (no project open) this is
+ * exactly {@link initialProgress}. The completed welcome ids keep Back from
+ * resurfacing steps the user can never act on.
+ *
+ * @param steps  The ordered step list.
+ * @param context  Whether a project is currently open.
+ * @returns  Fresh progress positioned for the current context.
+ */
+export function initialProgressForContext(
+  steps: readonly CatalogueStep[],
+  context: { projectOpen: boolean },
+): TutorialProgress {
+  if (!context.projectOpen) return initialProgress(steps)
+  const firstReal = steps.findIndex(s => s.stage !== 'welcome')
+  // No non-welcome step (degenerate catalogue) → behave like a plain start.
+  if (firstReal <= 0) return initialProgress(steps)
+  return {
+    stepId: steps[firstReal].id,
+    completed: steps.slice(0, firstReal).map(s => s.id),
+  }
+}
+
 /** Whether the tutorial has run past its last step. */
 export function isFinished(progress: TutorialProgress): boolean {
   return progress.stepId === null
