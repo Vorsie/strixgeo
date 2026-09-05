@@ -57,6 +57,23 @@ describe('tutorialCatalogue integrity', () => {
     expect(missing).toEqual([])
   })
 
+  it('every link of every anchor CHAIN is carried by a real control (owner ruling 2)', () => {
+    // A chained step leads the user through several controls; each link must
+    // resolve to a real element, or the spotlight would land nowhere at one of
+    // the intermediate steps (menu button, item, control).
+    const missing: string[] = []
+    for (const step of TUTORIAL_STEPS) {
+      const chain = step.anchors ?? [step.anchor]
+      for (const link of chain) {
+        if (!anchorExists(link)) missing.push(`${step.id} → ${link}`)
+      }
+      // The final link of a chain is the plain `anchor` (docked fallback + this
+      // catalogue's identity contract).
+      if (step.anchors) expect(step.anchor).toBe(step.anchors[step.anchors.length - 1])
+    }
+    expect(missing).toEqual([])
+  })
+
   it('no two steps share an id', () => {
     const ids = TUTORIAL_STEPS.map(s => s.id)
     expect(ids).toHaveLength(new Set(ids).size)
@@ -134,10 +151,13 @@ describe('tutorialCatalogue owner-walk rulings', () => {
     expect(step?.anchor).toBe('geotech-pipeline')
   })
 
-  it('finding 6: the seed step points at the real fill-from-boreholes button (guard)', () => {
-    // Owner renamed it "Vullen vanuit boringen"; the anchor must stay on the real
-    // seed/fill button in the section inspector (SectionsInspector inspector-seed).
-    expect(stepById('geo-seed')?.anchor).toBe('inspector-seed')
+  it('finding 6 / ruling 8: the fill step points at the Stratigrafie toolbar button via a chain', () => {
+    // Owner ruling 8 (2026-09-05): "Vullen vanuit boringen" must highlight the
+    // toolbar button on the Stratigrafie stage, reached by a chain (stage tab →
+    // the button), not the sections-inspector seed verb it used to point at.
+    const step = stepById('geo-seed')
+    expect(step?.stage).toBe('geology')
+    expect(step?.anchors).toEqual(['stage-tab-geology', 'geology-fill-from-boreholes-button'])
   })
 
   it('finding 1: chapter 1 shows WHERE the project settings live before the CRS field', () => {
@@ -163,5 +183,57 @@ describe('tutorialCatalogue owner-walk rulings', () => {
     // Owner: "je laat ook niet zien hoe je de parameter stage kan bereiken vanaf de CS".
     expect(stepById('params-jump')?.anchor).toBe('body-ctx-unit-statistics')
     expect(indexOf('params-jump')).toBeLessThan(indexOf('params-stats'))
+  })
+})
+
+// --- owner rulings (2026-09-05, walk + every-button gate) -----------------
+describe('tutorialCatalogue owner rulings 2026-09-05', () => {
+  it('ruling 2 / 1: every stage step (chapters 2-8) leads the click through a chain', () => {
+    // No bare single anchor for a control that sits behind a tab / axis / menu:
+    // each such step declares an anchor chain so the overlay always resolves to
+    // a visible link and the "not visible yet" fallback stays rare.
+    const bare = TUTORIAL_STEPS.filter(s => s.chapter >= 2 && s.anchors === undefined).map(s => s.id)
+    expect(bare).toEqual([])
+  })
+
+  it('ruling 5: the DOV import steps chain through the Import menu', () => {
+    expect(stepById('import-cpt-dov')?.anchors).toEqual([
+      'stage-tab-data',
+      'import-menu-button',
+      'import-verb-cpt-dov',
+    ])
+    expect(stepById('import-borehole-dov')?.anchors).toEqual([
+      'stage-tab-data',
+      'import-menu-button',
+      'import-verb-borehole-dov',
+    ])
+  })
+
+  it('ruling 6: a step removes the mechanical cones via the map CPTM filter', () => {
+    const step = stepById('import-remove-cptm')
+    expect(step?.anchors).toContain('map-filter-cpt-CPTM')
+    // Before "Boringen importeren" (owner: new step BEFORE borehole import).
+    expect(indexOf('import-remove-cptm')).toBeLessThan(indexOf('import-borehole-dov'))
+  })
+
+  it('ruling 7: look at the data first — open a CPT, then a borehole, before creating a section', () => {
+    expect(stepById('data-open-cpt')?.done).toEqual({ state: 'cptOpen' })
+    expect(stepById('data-open-borehole')?.done).toEqual({ state: 'boreholeOpen' })
+    expect(indexOf('data-open-cpt')).toBeLessThan(indexOf('section-create'))
+    expect(indexOf('data-open-borehole')).toBeLessThan(indexOf('section-create'))
+  })
+
+  it('ruling 9: carry the borehole stratigraphy onto the CPTs before building the surfaces', () => {
+    const step = stepById('geo-carry-strat')
+    expect(step?.stage).toBe('sections')
+    expect(step?.anchor).toBe('sections-canvas')
+    expect(indexOf('geo-carry-strat')).toBeLessThan(indexOf('geo-surfaces'))
+  })
+
+  it('litho + geotech editing chains through the sections axis pill (axis switch)', () => {
+    expect(stepById('litho-suggest')?.anchors).toContain('axis-litho')
+    expect(stepById('litho-correlate')?.anchors).toContain('axis-litho')
+    expect(stepById('geotech-subdivide')?.anchors).toContain('axis-geotech')
+    expect(stepById('geotech-correlate')?.anchors).toContain('axis-geotech')
   })
 })
