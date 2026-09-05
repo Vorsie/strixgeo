@@ -911,6 +911,60 @@ COMPLETE_MODULES: frozenset[str] = frozenset(
         "desktop/src/main/windowGuards.ts",
         "desktop/src/main/zipArchive.ts",
         "desktop/src/preload/index.ts",
+        # Reading-order group (9): the desktop RENDERER shell + boot — the
+        # renderer entry point and top component, the shell frame around every
+        # stage (spine, canvas/toolbar/inspector slots, registry, error boundary,
+        # cross-stage context/state, the responsive toolbar), the boot hook that
+        # waits for the engine, the licence / onboarding / update screens, and the
+        # i18n translation tables. The stages themselves are groups 10-11.
+        "desktop/src/renderer/src/main.tsx",
+        "desktop/src/renderer/src/App.tsx",
+        "desktop/src/renderer/src/shell/AppShell.tsx",
+        "desktop/src/renderer/src/shell/StageDescriptor.ts",
+        "desktop/src/renderer/src/shell/StageRegistry.ts",
+        "desktop/src/renderer/src/shell/StageSpine.tsx",
+        "desktop/src/renderer/src/shell/StageCanvas.tsx",
+        "desktop/src/renderer/src/shell/StageToolbar.tsx",
+        "desktop/src/renderer/src/shell/Inspector.tsx",
+        "desktop/src/renderer/src/shell/EmptyState.tsx",
+        "desktop/src/renderer/src/shell/StageErrorBoundary.tsx",
+        "desktop/src/renderer/src/shell/ShellContext.ts",
+        "desktop/src/renderer/src/shell/useShellState.ts",
+        "desktop/src/renderer/src/shell/ToolbarPrimitives.tsx",
+        "desktop/src/renderer/src/shell/ResponsiveToolbarRow.tsx",
+        "desktop/src/renderer/src/shell/toolbarOverflow.ts",
+        "desktop/src/renderer/src/shell/toolbarOverflow_constants.ts",
+        "desktop/src/renderer/src/shell/useToolbarShortcuts.ts",
+        "desktop/src/renderer/src/hooks/useAppBoot.ts",
+        "desktop/src/renderer/src/components/licensing/LicensingDialog.tsx",
+        "desktop/src/renderer/src/components/onboarding/OnboardingOverlay.tsx",
+        "desktop/src/renderer/src/components/updater/UpdateNotification.tsx",
+        "desktop/src/renderer/src/i18n/i18n_constants.ts",
+        "desktop/src/renderer/src/i18n/interpolateSlot.tsx",
+        "desktop/src/renderer/src/i18n/languageSelect.ts",
+        "desktop/src/renderer/src/i18n/translate.ts",
+        "desktop/src/renderer/src/i18n/locales/en/chrome.ts",
+        "desktop/src/renderer/src/i18n/locales/en/data.ts",
+        "desktop/src/renderer/src/i18n/locales/en/index.ts",
+        "desktop/src/renderer/src/i18n/locales/en/launch.ts",
+        "desktop/src/renderer/src/i18n/locales/en/models.ts",
+        "desktop/src/renderer/src/i18n/locales/en/outputs.ts",
+        "desktop/src/renderer/src/i18n/locales/en/panels.ts",
+        "desktop/src/renderer/src/i18n/locales/en/sections.ts",
+        "desktop/src/renderer/src/i18n/locales/en/settings.ts",
+        "desktop/src/renderer/src/i18n/locales/en/sheet.ts",
+        "desktop/src/renderer/src/i18n/locales/en/tutorial.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/chrome.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/data.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/index.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/launch.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/models.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/outputs.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/panels.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/sections.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/settings.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/sheet.ts",
+        "desktop/src/renderer/src/i18n/locales/nl/tutorial.ts",
     }
 )
 
@@ -1115,6 +1169,40 @@ READING_ORDER: list[dict[str, object]] = [
             "desktop/src/renderer/src/shell/useToolbarShortcuts.ts",
         ],
         "prefixes": [],
+        # Curated reading order: the renderer entry point and top component, then
+        # the shell frame around every stage (layout, the stage descriptor +
+        # registry, spine, canvas + toolbar + inspector slots, the per-stage
+        # error boundary, the cross-stage context/state, the toolbar primitives +
+        # responsive overflow row + planner), then the boot hook, then the three
+        # screens the user meets before real work begins. The stages themselves
+        # are read in groups 10-11 (excluded below); the general hooks,
+        # components, API clients and utils are group 12; the i18n tables are the
+        # only whole sub-tree this group owns (added by prefix).
+        "members": [
+            "desktop/src/renderer/src/main.tsx",
+            "desktop/src/renderer/src/App.tsx",
+            "desktop/src/renderer/src/shell/AppShell.tsx",
+            "desktop/src/renderer/src/shell/StageDescriptor.ts",
+            "desktop/src/renderer/src/shell/StageRegistry.ts",
+            "desktop/src/renderer/src/shell/StageSpine.tsx",
+            "desktop/src/renderer/src/shell/StageCanvas.tsx",
+            "desktop/src/renderer/src/shell/StageToolbar.tsx",
+            "desktop/src/renderer/src/shell/Inspector.tsx",
+            "desktop/src/renderer/src/shell/EmptyState.tsx",
+            "desktop/src/renderer/src/shell/StageErrorBoundary.tsx",
+            "desktop/src/renderer/src/shell/ShellContext.ts",
+            "desktop/src/renderer/src/shell/useShellState.ts",
+            "desktop/src/renderer/src/shell/ToolbarPrimitives.tsx",
+            "desktop/src/renderer/src/shell/ResponsiveToolbarRow.tsx",
+            "desktop/src/renderer/src/shell/toolbarOverflow.ts",
+            "desktop/src/renderer/src/shell/toolbarOverflow_constants.ts",
+            "desktop/src/renderer/src/shell/useToolbarShortcuts.ts",
+            "desktop/src/renderer/src/hooks/useAppBoot.ts",
+            "desktop/src/renderer/src/components/licensing/LicensingDialog.tsx",
+            "desktop/src/renderer/src/components/onboarding/OnboardingOverlay.tsx",
+            "desktop/src/renderer/src/components/updater/UpdateNotification.tsx",
+        ],
+        "prefixes": ["desktop/src/renderer/src/i18n/"],
         # The shell's stages are read in groups 10-11, not here.
         "exclude_prefixes": ["desktop/src/renderer/src/shell/stages/"],
     },
