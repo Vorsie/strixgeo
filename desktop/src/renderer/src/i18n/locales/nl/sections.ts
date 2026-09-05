@@ -372,7 +372,7 @@ export const SECTIONS_NL = {
   'sections.litho.enterCorrelateTitle':
     'Correlatiemodus openen — klik een eenheidsband op één grondonderzoek en dan een overeenkomende eenheid op een ander om ze te koppelen',
   'sections.litho.bodiesTitle':
-    'Wiggen van lichamen (lenzen) detecteren, voorstellen, materialiseren of wissen',
+    'Lichaamsbanden vullen, overlays tonen/verbergen en handmatige punten herstellen',
   'sections.litho.admixturesDisabled':
     'Stel eerst litholagen voor — bijmengingsbewerkingen werken op de voorstellen',
   'sections.litho.admixturesTitle':
@@ -678,7 +678,7 @@ export const SECTIONS_NL = {
   'sections.lens.nameDialogTitle': 'Lens benoemen',
   'sections.lens.saveName': 'Naam opslaan',
   'sections.lens.namedKeptHint':
-    'Een benoemde lens blijft bewaard: ze overleeft "Alle gedetecteerde lenzen verwijderen" en de volgende herberekening van de lichamen.',
+    'Een benoemde lens blijft bewaard: ze overleeft de reconciliatie van de detector en de volgende herberekening van de lichamen.',
   'sections.lens.boundaryStyle': 'Stijl van de grens',
   'sections.lens.boundaryStyleHint':
     'Hoe de lensgrens tussen de controlepunten getekend wordt.',
@@ -748,12 +748,12 @@ export const SECTIONS_NL = {
   'sections.crossingTie.labelResolve': '⚠ {phrase} — los op om de banden te herstellen',
   'sections.crossingTie.aria': '{phrase}. Activeer om de volgende te centreren.',
   'sections.lens.candidateEither': 'Mogelijke lens — geen correlatie met een van beide buren. Wig ze uit in plaats van ze te correleren.',
-  'sections.lens.pinchOutCandidateFull': 'Mogelijke uitwigging — deze laag wigt uit naar de buur toe, zodat de kruisende correlatie niet getekend werd. Gebruik de stroom Lichamen → Uitwiggingen voorstellen om ze als lens vast te leggen.',
+  'sections.lens.pinchOutCandidateFull': 'Mogelijke uitwigging — deze laag wigt uit naar de buur toe, zodat de kruisende correlatie niet getekend werd. De 2/1/0-vulling tekent ze automatisch als lens.',
   'sections.lens.styleStraight': 'recht',
   'sections.lens.styleBlocky': 'blokkig',
   'sections.lens.styleRounded': 'afgerond',
   // FLAG alt: reconciliatie | herafstemming | reconcile — "reconcile" is the detector's technical resweep; no settled NL term.
-  'sections.nameBody.keptHint': 'Een benoemde lens blijft bewaard: ze overleeft "Alle gedetecteerde lenzen verwijderen" en de reconciliatie van de detector.',
+  'sections.nameBody.keptHint': 'Een benoemde lens blijft bewaard: ze overleeft de reconciliatie van de detector en de volgende herberekening van de lichamen.',
   'sections.nameBody.placeholder': 'bv. Zandlens — kaai 7',
   'sections.lensPanel.bodyLabel': 'Lichaam',
   'sections.lensPanel.confirming': 'Bevestigen…',
