@@ -782,8 +782,8 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         setSectionModelAxis,
       }),
     )
-    // The Geology radio button in the axis toggle (role=radio, not role=button)
-    const geoBtn = screen.getByRole('radio', { name: /geology/i })
+    // The Stratigraphy radio button in the axis toggle (role=radio, not role=button)
+    const geoBtn = screen.getByRole('radio', { name: /stratigraphy/i })
     fireEvent.click(geoBtn)
     expect(setSectionModelAxis).toHaveBeenCalledWith('geological')
   })
