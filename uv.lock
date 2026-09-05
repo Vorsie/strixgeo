@@ -768,6 +768,7 @@ docs = [
     { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "sphinx-copybutton" },
+    { name = "sphinx-mathjax-offline" },
 ]
 
 [package.metadata]
@@ -811,6 +812,7 @@ docs = [
     { name = "furo", specifier = ">=2025.12.19" },
     { name = "sphinx", specifier = ">=9.0.4" },
     { name = "sphinx-copybutton", specifier = ">=0.5.2" },
+    { name = "sphinx-mathjax-offline", specifier = ">=0.0.2" },
 ]
 
 [[package]]
@@ -2370,6 +2372,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fc/2b/a964715e7f5295f77509e59309959f4125122d648f86b4fe7d70ca1d882c/sphinx-copybutton-0.5.2.tar.gz", hash = "sha256:4cf17c82fb9646d1bc9ca92ac280813a3b605d8c421225fd9913154103ee1fbd", size = 23039, upload-time = "2023-04-14T08:10:22.998Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/48/1ea60e74949eecb12cdd6ac43987f9fd331156388dcc2319b45e2ebb81bf/sphinx_copybutton-0.5.2-py3-none-any.whl", hash = "sha256:fb543fd386d917746c9a2c50360c7905b605726b9355cd26e9974857afeae06e", size = 13343, upload-time = "2023-04-14T08:10:20.844Z" },
+]
+
+[[package]]
+name = "sphinx-mathjax-offline"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/7d/7bc6558404ad7a1443b1fa11ec47054712980b16821c286c2fb93901f167/sphinx-mathjax-offline-0.0.2.tar.gz", hash = "sha256:7dfbcbd6dc60efd8d8f1aac0718f0ee5913a5cea03cb0e03ffa77ff0dfbfe5bd", size = 6131670, upload-time = "2022-12-05T14:30:46.89Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/62/217b8943b6ca6f293a169e019ca9c7e8ec4a07aded5bf6195eaa004f0d09/sphinx_mathjax_offline-0.0.2-py3-none-any.whl", hash = "sha256:206418155b2ff2f57496fb8501fdccae3da978e53031ff296c73729ba16062c4", size = 6233114, upload-time = "2022-12-05T14:30:40.294Z" },
 ]
 
 [[package]]
