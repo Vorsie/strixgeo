@@ -28,7 +28,7 @@ export const SECTIONS = {
   'sections.modelActions': 'Model actions',
   'sections.moreActions': 'More section actions',
   'sections.geoVerbHint':
-    'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model',
+    'Switch to the Stratigraphy axis — Build / Seed / Dedupe / Plaxis-3D act on the stratigraphic model',
   'sections.undoTitle': 'Undo the last model edit (Ctrl+Z)',
   'sections.undoNothing': 'Nothing to undo',
   'sections.recomputeUnavailable': 'Recompute bodies is unavailable — reopen the project.',
@@ -56,7 +56,7 @@ export const SECTIONS = {
   'sections.inspector.noCrossSectionForContact':
     'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
   'sections.inspector.staleBadge': '{n} stale',
-  'sections.inspector.geologicalModel': 'Geological model',
+  'sections.inspector.geologicalModel': 'Stratigraphic model',
   'sections.inspector.previewLegend':
     'Hatched bands = preview. Right-click a ghost column to divide just that borehole, or press “4 · Divide boreholes” to commit them all.',
   'sections.inspector.previewClampedOne':
@@ -84,9 +84,9 @@ export const SECTIONS = {
     'Open the cross-section containing the offending contacts and pan to them.',
   // Model actions.
   'sections.inspector.geoAxisHintBuildDedupe':
-    'Switch to the Geology axis — Build / Dedupe act on the geological model',
+    'Switch to the Stratigraphy axis — Build / Dedupe act on the stratigraphic model',
   'sections.inspector.buildNoModel':
-    'No active geological model — create formations and contacts first',
+    'No active stratigraphic model — create formations and contacts first',
   'sections.inspector.buildingSurfaces': 'Building surfaces…',
   'sections.inspector.surfacesNeedRebuildOne':
     '{n} formation surface needs rebuilding — click to compute TINs',
@@ -96,26 +96,26 @@ export const SECTIONS = {
   'sections.inspector.building': 'Building…',
   'sections.inspector.buildStale': 'Build · {n} stale',
   'sections.inspector.buildModel': 'Build model',
-  'sections.inspector.noParentGeoModel': 'No parent geological model linked',
-  'sections.inspector.loadingGeoSurfaces': 'Loading geological surfaces…',
+  'sections.inspector.noParentGeoModel': 'No parent stratigraphic model linked',
+  'sections.inspector.loadingGeoSurfaces': 'Loading stratigraphic surfaces…',
   'sections.inspector.syncGeologyTitle':
-    'Load the parent geological model’s surfaces as a read-only backdrop reference on this section',
+    'Load the parent stratigraphic model’s surfaces as a read-only backdrop reference on this section',
   'sections.inspector.syncing': 'Syncing…',
-  'sections.inspector.syncGeology': 'Sync geology',
+  'sections.inspector.syncGeology': 'Sync stratigraphy',
   'sections.inspector.seedDefineFirst':
-    'Define formations in the Geology stage first — Seed places contacts for already-defined layers',
+    'Define formations in the Stratigraphy stage first — Seed places contacts for already-defined layers',
   'sections.inspector.seedingContacts': 'Seeding contacts from borehole stratigraphy…',
   'sections.inspector.seedTitle':
     'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear',
   'sections.inspector.seeding': 'Seeding…',
   'sections.inspector.seed': 'Seed',
-  'sections.inspector.seedDefineFirstShort': 'Define formations in the Geology stage first',
+  'sections.inspector.seedDefineFirstShort': 'Define formations in the Stratigraphy stage first',
   'sections.inspector.allHaveGeologyContacts':
-    'All boreholes in scope already have geology contacts — import new tests to use this',
+    'All boreholes in scope already have stratigraphy contacts — import new tests to use this',
   'sections.inspector.seedNewTestsTitleOne':
-    'Place contacts from stratigraphy for the {n} borehole with no geology contacts yet',
+    'Place contacts from stratigraphy for the {n} borehole with no stratigraphy contacts yet',
   'sections.inspector.seedNewTestsTitleMany':
-    'Place contacts from stratigraphy for the {n} boreholes with no geology contacts yet',
+    'Place contacts from stratigraphy for the {n} boreholes with no stratigraphy contacts yet',
   'sections.inspector.seedForNewTests': 'Seed for new tests',
   'sections.inspector.cleaning': 'Cleaning…',
   'sections.inspector.dedupeTitle':
@@ -134,10 +134,10 @@ export const SECTIONS = {
   'sections.columnSpacing': 'Column spacing',
   'sections.columnSpacingHint':
     'Spacing between investigations — at 0% tests render at their true projected X (bands may overlap)',
-  'sections.referenceGeologicalModel': 'Reference geological model',
-  'sections.geologyBackdrop': 'Geology backdrop (litho axis)',
+  'sections.referenceGeologicalModel': 'Reference stratigraphic model',
+  'sections.geologyBackdrop': 'Stratigraphy backdrop (litho axis)',
   'sections.geologyBackdropHint': 'Shown as a faint reference layer when the litho axis is active.',
-  'sections.syncGeology': 'Sync geology',
+  'sections.syncGeology': 'Sync stratigraphy',
   'sections.boreholePreview': 'Borehole preview',
   'sections.virtueleBoringOverlay': 'Virtuele Boring overlay',
   'sections.closeView': 'Close section view',
@@ -160,11 +160,11 @@ export const SECTIONS = {
   'sections.axis.geoShort': 'Geo',
   'sections.axis.litho': 'Litho',
   'sections.axis.geotech': 'Geotech',
-  'sections.axis.createLithoFirst': 'Create a lithostratigraphic model in the Lithology stage first',
+  'sections.axis.createLithoFirst': 'Create a lithological model in the Lithology stage first',
   'sections.axis.editLithoContacts':
-    'Edit the lithostratigraphic model contacts on this section',
+    'Edit the lithological model contacts on this section',
   'sections.axis.createLithoForPacking':
-    'Create a lithostratigraphic model first — packing subdivides litho bodies',
+    'Create a lithological model first — packing subdivides litho bodies',
   'sections.axis.viewGeotech':
     'View geotechnical subdivision (NAD packing classes) on this section',
   'sections.axis.noGeotechYet':
@@ -173,9 +173,9 @@ export const SECTIONS = {
   // Model-level words, interpolated into the export + recompute tooltips. Kept
   // as their own keys so "No active {level} model" reads grammatically in each
   // locale (Dutch keeps the adjective before the noun, same as English).
-  'sections.level.litho': 'lithostratigraphic',
+  'sections.level.litho': 'lithological',
   'sections.level.geotech': 'geotechnical',
-  'sections.level.geological': 'geological',
+  'sections.level.geological': 'stratigraphic',
   'sections.level.geotechShort': 'geotech',
 
   // Transient busy labels shared by several verbs.
@@ -223,9 +223,9 @@ export const SECTIONS = {
   'sections.export.dxfTitle': 'Export this section’s {level} model as DXF',
   'sections.export.plaxisScript': 'Plaxis 3D script',
   'sections.export.exportingPlaxis': 'Exporting Plaxis…',
-  'sections.export.noGeologicalModel': 'No active geological model',
+  'sections.export.noGeologicalModel': 'No active stratigraphic model',
   'sections.export.plaxisTitle':
-    'Export the geological model as a Plaxis 3D plxscripting Python script',
+    'Export the stratigraphic model as a Plaxis 3D plxscripting Python script',
   'sections.export.sectionPdf': 'Section PDF report',
   'sections.export.noModelDefine': 'No active {level} model — define one first',
   'sections.export.pdfTitle': 'Generate a PDF report of this section’s {level} model',
@@ -252,7 +252,7 @@ export const SECTIONS = {
 
   'sections.toolbar.display': 'Display',
   'sections.toolbar.bodies': 'Bodies',
-  'sections.toolbar.geology': 'Geology',
+  'sections.toolbar.geology': 'Stratigraphy',
   'sections.toolbar.export': 'Export',
   'sections.toolbar.undo': 'Undo',
   'sections.toolbar.undoHint': 'Undo last model edit',
@@ -277,8 +277,8 @@ export const SECTIONS = {
   'sections.toolbar.reseedAdmixtures': 'Reseed borehole admixtures',
   'sections.toolbar.stripAdmixtures': 'Strip all admixtures',
   'sections.toolbar.clearGhostAdmixtures': 'Clear admixtures from every ghost suggestion',
-  'sections.toolbar.editGeologyContacts': 'Edit the geological model contacts on this section',
-  'sections.toolbar.noLithoModel': 'No lithostratigraphic model — create one in the Lithology stage.',
+  'sections.toolbar.editGeologyContacts': 'Edit the stratigraphic model contacts on this section',
+  'sections.toolbar.noLithoModel': 'No lithological model — create one in the Lithology stage.',
   'sections.toolbar.showLayers': 'Show or hide layers of the section view',
   'sections.toolbar.applyNextSubdivide': 'Applies to the next Subdivide — nothing re-runs now',
   'sections.toolbar.statisticFailed': 'Could not set the statistic.',
@@ -299,7 +299,7 @@ export const SECTIONS = {
   'sections.toolbar.packingFillHint':
     'Show or hide the NAD packing-band fill — the LIVE packing classes, as the pipeline last wrote them. One fill renders at a time.',
   'sections.toolbar.swapFillHint':
-    'Swap the lithostratigraphic fill in for the NAD packing fill — one fill renders at a time, never both.',
+    'Swap the lithological fill in for the NAD packing fill — one fill renders at a time, never both.',
   'sections.toolbar.qcStatisticHint':
     'Which representative qc the NAD classifier reads, chosen BEFORE you build the packing bands under it. The choice applies to the NEXT "1 · Subdivide CPTs", and bands already on screen keep the statistic they were built with until you re-run it.',
   'sections.toolbar.sampleMarkersHint':
@@ -310,19 +310,19 @@ export const SECTIONS = {
   // Litho-axis toolbar verbs + their caret / dropdown menus.
   'sections.litho.suggest': 'Suggest',
   'sections.litho.suggestAll': 'Suggest all',
-  'sections.litho.createModelFirst': 'Create a lithostratigraphic model first',
+  'sections.litho.createModelFirst': 'Create a lithological model first',
   'sections.litho.openSectionSuggest': 'Open a cross-section to use Suggest',
   'sections.litho.fetchingSuggestions': 'Fetching suggestions…',
   'sections.litho.suggestAllTitle':
     'Right-click a column to focus one, or click to suggest layers for every investigation in this section ({n})',
   'sections.litho.suggestFocusHint':
     'Right-click a column in the section to focus a CPT or borehole, then Suggest',
-  'sections.litho.suggestForColumn': 'Suggest lithostratigraphic layers for {column}',
+  'sections.litho.suggestForColumn': 'Suggest lithological layers for {column}',
   'sections.litho.theFocusedInvestigation': 'the focused investigation',
   'sections.litho.acceptAll': 'Accept all',
   'sections.litho.committingSuggestions': 'Committing all suggestion layers…',
   'sections.litho.acceptAllTitle':
-    'Accept all non-rejected suggestion layers as lithostratigraphic contacts',
+    'Accept all non-rejected suggestion layers as lithological contacts',
   'sections.litho.clear': 'Clear',
   'sections.litho.acceptAllBulk': 'Accept all (bulk)',
   'sections.litho.committingBulk': 'Committing all bulk suggestion layers…',
@@ -350,7 +350,7 @@ export const SECTIONS = {
   'sections.litho.openSectionFirst': 'Open a cross-section first',
   'sections.litho.runningSegmenterAll': 'Running segmenter on every investigation in this section…',
   'sections.litho.suggestAllInSectionTitle':
-    'Suggest lithostratigraphic layers for every investigation in this section at once',
+    'Suggest lithological layers for every investigation in this section at once',
   'sections.litho.suggestNewTests': 'Suggest for new tests',
   'sections.litho.runningSegmenter': 'Running segmenter…',
   'sections.litho.allHaveContacts':
@@ -527,9 +527,9 @@ export const SECTIONS = {
   // The column context menu's aria-label; ``{name}`` is the column display name.
   'sections.menu.actionsFor': 'Actions for {name}',
   'sections.menu.deleteContact': 'Delete contact',
-  'sections.menu.linkToGeology': 'Link to geology',
-  'sections.menu.unlinkFromGeology': 'Unlink from geology',
-  'sections.menu.editInGeology': 'Edit in Geology stage',
+  'sections.menu.linkToGeology': 'Link to stratigraphy',
+  'sections.menu.unlinkFromGeology': 'Unlink from stratigraphy',
+  'sections.menu.editInGeology': 'Edit in Stratigraphy stage',
   'sections.menu.mergeLayers': 'Merge layers',
   'sections.menu.removeLithoUnit': 'Remove this litho unit',
   'sections.menu.addSuggestionHere': 'Add new suggestion here',
@@ -579,12 +579,12 @@ export const SECTIONS = {
 
   'sections.contacts.insertHint': 'Click to insert new layer here · right-click to remove',
   'sections.contacts.lithoContactHint':
-    'Lithostratigraphic contact — dragging it moves the litho model',
-  'sections.contacts.coupledHint': 'Coupled to geological contact — right-click to unlink',
+    'Lithological contact — dragging it moves the litho model',
+  'sections.contacts.coupledHint': 'Coupled to stratigraphic contact — right-click to unlink',
   'sections.contacts.absorbHint':
     'Release here and the band below is absorbed into this unit. One boundary per drag — drag again to take the next.',
   'sections.contacts.absorbBlockedHint':
-    'Stops short of the next lithostratigraphic contact — going further would delete the unit below. Subdivide it first, or edit it on the lithology axis.',
+    'Stops short of the next lithological contact — going further would delete the unit below. Subdivide it first, or edit it on the lithology axis.',
   'sections.contacts.deleteConfirm':
     'Delete this contact? This removes the boundary and any correlations touching it.',
   'sections.contacts.deleteLensConfirm':
@@ -660,7 +660,7 @@ export const SECTIONS = {
   'sections.companion.lensCreated': 'Lens created.',
   'sections.companion.blurb': 'A perpendicular cross-section through the lens centroid helps verify the lens geometry from a second direction.',
   'sections.companion.yesCreate': 'Yes, create section',
-  'sections.contacts.refContactHint': '{name} — right-click to edit in Geology stage',
+  'sections.contacts.refContactHint': '{name} — right-click to edit in Stratigraphy stage',
   'sections.lithoMerge.title': 'Merge adjacent {litho} layers?',
   'sections.lithoMerge.body': 'Removing that contact left two {litho} units adjacent. Merging deletes the now-redundant boundary so they read as one continuous {litho} band.',
   'sections.keepSeparate': 'Keep separate',
@@ -689,12 +689,12 @@ export const SECTIONS = {
   'sections.lensPanel.saving': 'Saving…',
   'sections.lensPanel.saveNameFirst': 'Save a lens name first',
   'sections.lensPanel.companionHint': 'Auto-create a perpendicular companion cross-section through the lens centroid',
-  'sections.moveRestated.titleGeo': 'Move contact, litho and geology?',
+  'sections.moveRestated.titleGeo': 'Move contact, litho and stratigraphy?',
   'sections.moveRestated.titleLitho': 'Move contact and litho?',
-  'sections.moveRestated.body': 'This boundary is a lithostratigraphic contact, not a packing boundary. Moving it to {depth} m changes more than the geotechnical model.',
+  'sections.moveRestated.body': 'This boundary is a lithological contact, not a packing boundary. Moving it to {depth} m changes more than the geotechnical model.',
   'sections.moveRestated.bullet1': 'the two packing bands either side — both re-derive their NAD class, because their depth range changed and so does the qc over it',
-  'sections.moveRestated.bullet2': 'the lithostratigraphic contact it restates',
-  'sections.moveRestated.bullet3': 'the geological contact this unit is derived from — all three in one write, so they cannot disagree afterwards',
+  'sections.moveRestated.bullet2': 'the lithological contact it restates',
+  'sections.moveRestated.bullet3': 'the stratigraphic contact this unit is derived from — all three in one write, so they cannot disagree afterwards',
   'sections.moveRestated.undoNote': 'One step on the undo stack. Ctrl+Z puts all of it back.',
   'sections.moveRestated.moveIt': 'Move it',
   'sections.flaggedTies.titleOne': '{count} correlation no longer matches',
@@ -728,7 +728,7 @@ export const SECTIONS = {
   'sections.inspector.lengthEpsg': '{length} m · EPSG:{epsg}',
   'sections.focusLabel': 'Focus: {name}',
   'sections.emptyContacts.hintSeed': 'Click \'Seed\' in the toolbar to populate from the active model, or draw contacts manually.',
-  'sections.emptyContacts.hintDefine': 'Define formations in the Geology stage first, then return here to seed or draw contacts manually.',
+  'sections.emptyContacts.hintDefine': 'Define formations in the Stratigraphy stage first, then return here to seed or draw contacts manually.',
   'sections.hiddenFooter.count': '{n} hidden from this section',
   'sections.hiddenFooter.restoreAll': 'restore all',
   'sections.scrub.showing': 'Showing {shown} m of {total} m (data range)',
@@ -776,9 +776,9 @@ export const SECTIONS = {
   'sections.toast.copiedSomeFailed': 'Copied {total} contact(s); {failed} failed — some may be missing.',
   'sections.toast.contactsUpdateFailed': 'Could not update the selected contacts.',
   'sections.toast.contactDeleteFailed': 'Could not delete the contact.',
-  'sections.toast.unlinkFailed': 'Could not unlink the contact from geology.',
-  'sections.toast.noGeoInTolerance': 'No geological contact within snap tolerance to link.',
-  'sections.toast.linkFailed': 'Could not link the contact to geology.',
+  'sections.toast.unlinkFailed': 'Could not unlink the contact from stratigraphy.',
+  'sections.toast.noGeoInTolerance': 'No stratigraphic contact within snap tolerance to link.',
+  'sections.toast.linkFailed': 'Could not link the contact to stratigraphy.',
   'sections.toast.correlationAdded': 'Correlation added — a wedge forms when it spans the layer.',
   'sections.toast.correlationCreateFailed': 'Could not create the correlation — try again.',
   'sections.toast.edgeRetargeted': 'Edge retargeted.',
@@ -831,7 +831,7 @@ export const SECTIONS = {
   'sections.lithoCorr.correlationMany': 'correlations',
   'sections.lithoCorr.acceptFailed': 'Accept failed — try again.',
   'sections.snap.failed': 'Snap failed: {message}',
-  'sections.snap.moved': 'Geological contact moved; surfaces rebuilt.',
+  'sections.snap.moved': 'Stratigraphic contact moved; surfaces rebuilt.',
   'sections.snap.moveFailed': 'Move failed: {message}',
   'sections.canvas.newSectionTitle': 'Create a new cross-section with placeholder endpoints',
   'sections.canvasToast.admixturesUpdated': 'Updated admixtures on {n} {word}.',
@@ -847,8 +847,8 @@ export const SECTIONS = {
   'sections.canvasToast.dissolveConfirm': 'Dissolve this body? This removes the body and its extent data.',
   'sections.canvasToast.bodyDissolved': 'Body dissolved.',
   'sections.canvasToast.bodyDissolveFailed': 'Failed to dissolve body.',
-  'sections.canvasToast.noLithoContact': 'This boundary has no lithostratigraphic contact to move — edit it on the litho axis.',
-  'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithostratigraphic contact — drag it with the handle beside the column.',
-  'sections.canvasToast.packingNotLithoBorehole': 'That is a packing boundary, not a lithostratigraphic contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
+  'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move — edit it on the litho axis.',
+  'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact — drag it with the handle beside the column.',
+  'sections.canvasToast.packingNotLithoBorehole': 'That is a packing boundary, not a lithological contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
   'sections.canvasToast.perpCreated': 'Perpendicular section created.',
 } as const
