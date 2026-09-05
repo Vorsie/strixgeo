@@ -42,7 +42,7 @@ test.describe('flow_export_stage_ui', () => {
       // Stage heading + both card titles.
       await expect(page.getByRole('heading', { name: 'Export' })).toBeVisible()
       await expect(page.getByText('Cross-section', { exact: true })).toBeVisible()
-      await expect(page.getByText('Geological model → Plaxis 3D')).toBeVisible()
+      await expect(page.getByText('Stratigraphic model → Plaxis 3D')).toBeVisible()
 
       // Model-wide Plaxis 3D export is always actionable (active model present).
       await expect(page.getByRole('button', { name: 'Export Plaxis 3D' })).toBeEnabled()
