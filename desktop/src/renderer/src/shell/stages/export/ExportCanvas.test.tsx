@@ -411,7 +411,7 @@ describe('Export stage canvas (debt #30)', () => {
     renderCanvas(makeStubContext())
     // Both cards show guidance referencing the Geology stage; no export
     // buttons are rendered.
-    expect(screen.getAllByText(/Geology/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Stratigraphy/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /export dxf/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /export plaxis 3d/i })).toBeNull()
   })
