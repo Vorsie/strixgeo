@@ -459,7 +459,7 @@ describe('GeotechnicalCanvas (the 3D-only geotech room)', () => {
   it('GC1 — no litho model: EmptyState renders with the Lithology-stage hint', () => {
     renderCanvas(makeCtx({ activeLithoModel: null }))
     // EmptyState title
-    expect(screen.getByText('No lithostratigraphic model yet')).toBeTruthy()
+    expect(screen.getByText('No lithological model yet')).toBeTruthy()
     expect(screen.queryByTestId('geology-3d-viewer')).toBeNull()
   })
 
