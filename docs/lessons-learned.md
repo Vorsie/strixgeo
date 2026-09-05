@@ -502,3 +502,21 @@ while a push is in flight; if it happened, run the integration wrapper by hand
 before the next installer. A Python-touching push that finishes in seconds is
 this, every time.
 
+
+## Five corruption artefacts in two hours all look like code bugs first (2026-09-05)
+
+On a machine with a flaky DIMM the artefacts arrive as ordinary-looking
+failures: `ValueError: bad marshal data` while collecting tests (a corrupt
+`.pyc`), an `IndentationError` inside a site-packages module that nobody
+edited (a flipped byte in `jinja2`), a two-byte swap inside an identifier in
+the working copy that `git status` calls clean (the stat cache still matches),
+a corrupt loose git object that `git fsck` names, and a Docker engine that
+answers 500 under load. None of them is a logic bug and none of them is fixed
+by reading the code. Rule: when a failure names a file that the last commit
+did not touch, check the machine class first. The recipe: clear every
+`__pycache__` (including the one inside `.venv`) for marshal errors;
+`uv cache clean <pkg>` plus `uv sync --reinstall-package <pkg>` for a broken
+dependency; `rm` plus `git checkout -- <file>` for a working-copy flip;
+move a corrupt loose object aside and `git fetch --refetch origin`; then
+`git fsck`. Keep the `--group compile` dependency group in every `uv sync`
+on the main tree or the installer's native step loses Nuitka.
