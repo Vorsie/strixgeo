@@ -108,11 +108,20 @@ For both D-Series targets:
   and counted, never repaired into invented ground.
 
 **Fence DXF.** The 3-D fence walls, written as a DXF you open directly in CAD, one
-3-D face per triangle, one layer per panel, coloured from the panel. The geometry,
-the on-screen name and the colour travel up from the drawing, so the DXF matches
-the screen. A fence with no geometry is refused before the request, because a
-valid empty DXF reads as "the model is empty", the one failure a CAD user cannot
-see.
+3-D face per triangle, coloured from the panel. The geometry, the on-screen name
+and the colour travel up from the drawing, so the DXF matches the screen. A fence
+with no geometry is refused before the request, because a valid empty DXF reads as
+"the model is empty", the one failure a CAD user cannot see.
+
+The layers are split by section and by formation together, so a layer name reads
+like ``Fence-CS1_NAD-06_ZAND``: the section it belongs to, then the unit. That lets
+you switch a whole section off in CAD by hiding every layer whose name starts with
+that section, while a single unit stays selectable across all the sections by its
+trailing name. The colour and the line weight are unchanged by the split. Each wall
+also records which body it belongs to as extended data on the face, so a body can
+be found from any of its faces in CAD without a plug-in; the body is kept off the
+layer name on purpose, because one body can span several sections while the layers
+are split per section.
 
 **Cross-section PDF sheet.** The drawing sheet described in the Sections chapter,
 carrying the on-screen unit names in the legend and in the fills.
