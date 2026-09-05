@@ -23,8 +23,14 @@ import Modal from '../../../components/ui/Modal'
 import { useT } from '../../../i18n/translate'
 import { getLanguage } from '../../../i18n/languageSelect'
 import { LITHOLOGY_LABELS, LITHOLOGY_LABELS_NL } from '../../../utils/lithoConstants'
+import { admixtureSoilAdjective } from '../../../utils/lithoLabels'
 import type { NadAdmixtureChoice } from '../../../api/clients/geology.types'
 import type { AdmixtureUnit } from '../../../utils/admixtureNadChoice'
+
+/** Coarse soils fork on a clay/silt admixture; every other forkable soil (SILT
+ *  / KLEI) forks on a sand admixture. VEEN never forks, so it never reaches the
+ *  dialog. Drives which "with admixture" option string a unit shows. */
+const COARSE_SOILS: ReadonlySet<string> = new Set(['ZAND', 'GRIND'])
 
 /** Props: the units to answer, the current selections, and the ways out. */
 export interface Props {
@@ -48,6 +54,15 @@ export interface Props {
 function soilLabel(soilCode: string): string {
   const map = getLanguage() === 'nl' ? LITHOLOGY_LABELS_NL : LITHOLOGY_LABELS
   return map[soilCode] ?? soilCode
+}
+
+/**
+ * The adjective(s) naming the admixture(s) that forked this unit, joined for the
+ * "This {soil} carries a {admixture} admixture." line (owner ruling 2026-09-05).
+ * Usually one ("silty"); a unit carrying both silt and clay reads "silty, clayey".
+ */
+function foundAdmixtureLabel(unit: AdmixtureUnit): string {
+  return unit.matchedAdmixtures.map(a => admixtureSoilAdjective(a.soil_code)).join(', ')
 }
 
 /**
@@ -103,13 +118,31 @@ export default function GeotechAdmixtureChoiceDialog({
           {units.map((unit, unitIndex) => {
             const selected = selections[unit.formationId] ?? null
             const soil = soilLabel(unit.soilCode)
+            // The "with" option names the family the soil forks on: clay/silt
+            // for a coarse soil, sand for a fine one (owner ruling 2026-09-05).
+            const withOptionKey = COARSE_SOILS.has(unit.soilCode)
+              ? 'geotech.admixtureWithOptionFines'
+              : 'geotech.admixtureWithOptionSand'
             return (
               <li
                 key={unit.formationId}
                 data-testid={`geotech-admixture-unit-${unit.formationId}`}
                 className="rounded border border-border-subtle p-2.5"
               >
-                <div className="mb-1.5 text-xs font-semibold text-text-primary">{unit.name}</div>
+                <div className="mb-1 text-xs font-semibold text-text-primary">{unit.name}</div>
+                {/* Name the admixture found, so the engineer sees WHY it is asked.
+                    The soil is lower-cased here: it sits MID-SENTENCE ("This sand
+                    carries…"), where Title Case reads wrong in EN and NL alike
+                    (ux-reviewer 2026-09-05). The option labels keep Title Case. */}
+                <div
+                  className="mb-1.5 text-[11px] text-text-secondary"
+                  data-testid={`geotech-admixture-found-${unit.formationId}`}
+                >
+                  {t('geotech.admixtureFound', {
+                    soil: soil.toLowerCase(),
+                    admixture: foundAdmixtureLabel(unit),
+                  })}
+                </div>
                 <div className="flex flex-wrap gap-4 text-xs text-text-primary">
                   {(['pure', 'with_admixture'] as const).map((choice, choiceIndex) => (
                     <label
@@ -129,7 +162,7 @@ export default function GeotechAdmixtureChoiceDialog({
                       />
                       {choice === 'pure'
                         ? t('geotech.admixturePureOption', { soil })
-                        : t('geotech.admixtureWithOption', { soil })}
+                        : t(withOptionKey, { soil })}
                     </label>
                   ))}
                 </div>
