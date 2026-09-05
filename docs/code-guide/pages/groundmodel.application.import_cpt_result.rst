@@ -1,7 +1,7 @@
 groundmodel.application.import_cpt_result
 =========================================
 
-.. CG-PAGE source=src/groundmodel/application/import_cpt_result.py complete=false
+.. CG-PAGE source=src/groundmodel/application/import_cpt_result.py complete=true
 
 *Source file:* ``src/groundmodel/application/import_cpt_result.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the dataclass helper and the validation-issue helpers used by the result object below. A dataclass is a small class whose only job is to hold named values together.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeping the result's shape in its own file lets both the GEF path and the DOV path return the identical object.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ImportCptResult`` — header
 
 .. CG-EXPLANATION-START id=class:ImportCptResult
 
-.. CG-PLACEHOLDER
+**What this does.** The value returned by a CPT import: the saved CPT id, the list of parse findings, a flag saying whether an existing row was refreshed instead of a new one created, and the display name.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the CPT is always saved even when it has errors — the caller decides whether to surface or hide it. The ``refreshed`` flag lets the desktop say ``refreshed from file`` rather than ``imported``, and the name is echoed so the toast can label the CPT without a second fetch.
 
 .. CG-EXPLANATION-END id=class:ImportCptResult
 
@@ -65,13 +57,9 @@ Method ``ImportCptResult``. ``def has_errors``
 
 .. CG-EXPLANATION-START id=method:ImportCptResult.has_errors
 
-.. CG-PLACEHOLDER
+**What this does.** A read-only property that is true when any parse finding is an error.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A one-line convenience so callers ask ``result.has_errors`` instead of scanning the issue list themselves.
 
 .. CG-EXPLANATION-END id=method:ImportCptResult.has_errors
 
@@ -87,13 +75,9 @@ Method ``ImportCptResult``. ``def warnings``
 
 .. CG-EXPLANATION-START id=method:ImportCptResult.warnings
 
-.. CG-PLACEHOLDER
+**What this does.** A read-only property returning just the warning-level findings.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same convenience: the desktop shows warnings differently from errors, so it needs them split out.
 
 .. CG-EXPLANATION-END id=method:ImportCptResult.warnings
 

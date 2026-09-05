@@ -1,7 +1,7 @@
 groundmodel.application.import_cpt_dov_result
 =============================================
 
-.. CG-PAGE source=src/groundmodel/application/import_cpt_dov_result.py complete=false
+.. CG-PAGE source=src/groundmodel/application/import_cpt_dov_result.py complete=true
 
 *Source file:* ``src/groundmodel/application/import_cpt_dov_result.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the dataclass helpers for the DOV-CPT result below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A tiny module so the result shape lives on its own.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ImportCptDovResult``
 
 .. CG-EXPLANATION-START id=class:ImportCptDovResult
 
-.. CG-PLACEHOLDER
+**What this does.** The summary a DOV bbox CPT import returns: how many CPTs were imported, how many were already present, how many failed, and the ids of every CPT the caller now sees (new and pre-existing).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The counts let the desktop show one honest ``imported / duplicates / failed`` line, and the id list lets it auto-load both newly imported and already-present CPTs without a second query.
 
 .. CG-EXPLANATION-END id=class:ImportCptDovResult
 

@@ -1,7 +1,7 @@
 groundmodel.application.body_separation_reanchor
 ================================================
 
-.. CG-PAGE source=src/groundmodel/application/body_separation_reanchor.py complete=false
+.. CG-PAGE source=src/groundmodel/application/body_separation_reanchor.py complete=true
 
 *Source file:* ``src/groundmodel/application/body_separation_reanchor.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the separation re-anchor file. It imports the shared pair-ruling machinery and the separation row, and defines back-compatibility aliases for the separation-flavoured names.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A Separate ruling anchors two bands by their layer ids with cascade foreign keys, so a re-subdivide would take it with it unless carried; all the machinery lives in the shared module, and this is the thin separation specialisation whose one difference is that a fused pair is a loss (a body cannot be separated from itself).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def plan_separation_reanchor``
 
 .. CG-EXPLANATION-START id=function:plan_separation_reanchor
 
-.. CG-PLACEHOLDER
+**What this does.** A back-compatibility wrapper that plans a separation re-anchor with the fused case counted as a loss.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Callers and tests import the separation-flavoured name; it delegates to the shared planner with the loss flag set.
 
 .. CG-EXPLANATION-END id=function:plan_separation_reanchor
 
@@ -65,13 +57,9 @@ Class ``BodySeparationReanchor``
 
 .. CG-EXPLANATION-START id=class:BodySeparationReanchor
 
-.. CG-PLACEHOLDER
+**What this does.** The separation specialisation of the shared re-anchor base, setting the separation row, the noun, and the fused-is-loss flag.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A fused pair is a loss because a body cannot be separated from itself (debt #278 R5).
 
 .. CG-EXPLANATION-END id=class:BodySeparationReanchor
 

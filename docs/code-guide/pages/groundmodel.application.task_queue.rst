@@ -1,7 +1,7 @@
 groundmodel.application.task_queue
 ==================================
 
-.. CG-PAGE source=src/groundmodel/application/task_queue.py complete=false
+.. CG-PAGE source=src/groundmodel/application/task_queue.py complete=true
 
 *Source file:* ``src/groundmodel/application/task_queue.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the job domain object and the shared logger for the abstract queue below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A tiny header for the queue interface.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``TaskQueue`` — header
 
 .. CG-EXPLANATION-START id=class:TaskQueue
 
-.. CG-PLACEHOLDER
+**What this does.** An abstract base class for a task queue — a place jobs are submitted and their status is asked for. Being abstract means it names methods but does not implement them; a concrete class must.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the queue-ready-not-queue-first rule in CLAUDE.md: the interface is defined from day one so a real broker (a background job service) can be dropped in later, but nothing is built until load justifies it. A job is one unit of background work.
 
 .. CG-EXPLANATION-END id=class:TaskQueue
 
@@ -65,13 +57,9 @@ Method ``TaskQueue``. ``async def enqueue``
 
 .. CG-EXPLANATION-START id=method:TaskQueue.enqueue
 
-.. CG-PLACEHOLDER
+**What this does.** The abstract method to submit a job for execution.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Names the submit half of the contract every concrete queue must provide.
 
 .. CG-EXPLANATION-END id=method:TaskQueue.enqueue
 
@@ -87,13 +75,9 @@ Method ``TaskQueue``. ``async def get_status``
 
 .. CG-EXPLANATION-START id=method:TaskQueue.get_status
 
-.. CG-PLACEHOLDER
+**What this does.** The abstract method to return the current state of a job by its id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Names the query half of the contract.
 
 .. CG-EXPLANATION-END id=method:TaskQueue.get_status
 

@@ -1,7 +1,7 @@
 groundmodel.application.synchronous_queue
 =========================================
 
-.. CG-PAGE source=src/groundmodel/application/synchronous_queue.py complete=false
+.. CG-PAGE source=src/groundmodel/application/synchronous_queue.py complete=true
 
 *Source file:* ``src/groundmodel/application/synchronous_queue.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the CPT importer, the abstract queue, and the job types for the inline queue below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A short header for the MVP queue.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SynchronousQueue`` — header
 
 .. CG-EXPLANATION-START id=class:SynchronousQueue
 
-.. CG-PLACEHOLDER
+**What this does.** The MVP task queue: it runs each job right where it is submitted, with no separate worker process or broker, so the caller waits until the job finishes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the deliberate choice: this keeps the code queue-shaped (swappable for a real broker later) without the operational cost of one before it is needed. When a broker is added, only this class is replaced — nothing else changes (the queue-ready rule).
 
 .. CG-EXPLANATION-END id=class:SynchronousQueue
 
@@ -65,13 +57,9 @@ Method ``SynchronousQueue``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:SynchronousQueue.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Stores a session factory used to open a fresh database session per job.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Each job opens and commits its own session, matching the one-session-per-use-case rule.
 
 .. CG-EXPLANATION-END id=method:SynchronousQueue.__init__
 
@@ -87,13 +75,9 @@ Method ``SynchronousQueue``. ``async def enqueue``
 
 .. CG-EXPLANATION-START id=method:SynchronousQueue.enqueue
 
-.. CG-PLACEHOLDER
+**What this does.** Runs the job inline: marks it running, executes it, marks it done, or on any failure marks it failed with the error and re-raises.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Because it runs inline, the caller blocks until completion, and the job's status and result are updated in place. Entry and outcome are logged (the Definition-of-Done logging rule).
 
 .. CG-EXPLANATION-END id=method:SynchronousQueue.enqueue
 
@@ -109,13 +93,9 @@ Method ``SynchronousQueue``. ``async def get_status``
 
 .. CG-EXPLANATION-START id=method:SynchronousQueue.get_status
 
-.. CG-PLACEHOLDER
+**What this does.** Always raises not-implemented.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The synchronous queue keeps no persistent job store — results come straight back from enqueue — so there is nothing to query later.
 
 .. CG-EXPLANATION-END id=method:SynchronousQueue.get_status
 
@@ -131,13 +111,9 @@ Method ``SynchronousQueue``. ``async def _execute``
 
 .. CG-EXPLANATION-START id=method:SynchronousQueue._execute
 
-.. CG-PLACEHOLDER
+**What this does.** Dispatches to the right use case based on the job's type, raising on an unknown type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The single place that maps a job type to its handler; an unknown type fails loudly.
 
 .. CG-EXPLANATION-END id=method:SynchronousQueue._execute
 
@@ -153,13 +129,9 @@ Method ``SynchronousQueue``. ``async def _run_import_cpt``
 
 .. CG-EXPLANATION-START id=method:SynchronousQueue._run_import_cpt
 
-.. CG-PLACEHOLDER
+**What this does.** Runs a CPT-import job: opens a session, imports the file at the job's path, and stores the resulting id in the job result.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The one job type wired today; it follows the one-session-per-job rule and returns the new CPT id to the caller.
 
 .. CG-EXPLANATION-END id=method:SynchronousQueue._run_import_cpt
 

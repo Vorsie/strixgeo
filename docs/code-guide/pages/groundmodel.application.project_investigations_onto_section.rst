@@ -1,7 +1,7 @@
 groundmodel.application.project_investigations_onto_section
 ===========================================================
 
-.. CG-PAGE source=src/groundmodel/application/project_investigations_onto_section.py complete=false
+.. CG-PAGE source=src/groundmodel/application/project_investigations_onto_section.py complete=true
 
 *Source file:* ``src/groundmodel/application/project_investigations_onto_section.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the shared section-projection query. It imports the collection and id types, the query builder and session, the borehole/CPT/section rows, and the corridor-projection geometry helpers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that this is the single source of truth for a block copy-pasted across three body and correlation use cases (debt #197): load the section, build its endpoints, project the project's CPT and borehole locations, and keep the ones inside the projection buffer. Centralising it stops the projection maths from drifting across callers; it names the two structurally different sites deliberately left out.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``async def project_investigations_onto_section``
 
 .. CG-EXPLANATION-START id=function:project_investigations_onto_section
 
-.. CG-PLACEHOLDER
+**What this does.** Projects the in-corridor investigations onto a section line and returns each one's along-distance. It loads and scope-checks the section, builds its endpoints, gathers the excluded ids, then for every project CPT and borehole (optionally restricted to a given set) projects it onto the corridor and keeps those that land inside the buffer and between the endpoints.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It uses the same corridor rule the section view, the DXF/PDF render and the renderer all draw with, so an adjacency consumer never gets a column that is not actually on the section — a lateral-offset-only filter would. The optional missing-ok flag returns an empty mapping instead of raising for a section absent from the project, which the section-less body fallback relies on; otherwise a missing section is a hard error (the by-project scope guard).
 
 .. CG-EXPLANATION-END id=function:project_investigations_onto_section
 

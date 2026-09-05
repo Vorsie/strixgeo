@@ -1,7 +1,7 @@
 groundmodel.application.import_samples_dov_result
 =================================================
 
-.. CG-PAGE source=src/groundmodel/application/import_samples_dov_result.py complete=false
+.. CG-PAGE source=src/groundmodel/application/import_samples_dov_result.py complete=true
 
 *Source file:* ``src/groundmodel/application/import_samples_dov_result.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the dataclass helper for the sample result below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A small module holding one result shape.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ImportSamplesDovResult``
 
 .. CG-EXPLANATION-START id=class:ImportSamplesDovResult
 
-.. CG-PLACEHOLDER
+**What this does.** The sample-import summary: attached / skipped / failed counts for samples, grain-sizes, and each scalar lab-test family, plus the fetched grain-size total.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that attached counts are subsets (only children whose parent was just persisted attach), that the ``skipped_already_present`` fields are the refresh-on-duplicate counters, and that per-row failures are isolated so one bad row never aborts the batch.
 
 .. CG-EXPLANATION-END id=class:ImportSamplesDovResult
 

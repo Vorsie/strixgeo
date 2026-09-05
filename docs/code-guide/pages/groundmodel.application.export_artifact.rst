@@ -1,7 +1,7 @@
 groundmodel.application.export_artifact
 =======================================
 
-.. CG-PAGE source=src/groundmodel/application/export_artifact.py complete=false
+.. CG-PAGE source=src/groundmodel/application/export_artifact.py complete=true
 
 *Source file:* ``src/groundmodel/application/export_artifact.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the export-download contract file: the docstring and the import for building a frozen data holder.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that every export endpoint runs an exporter, gets serialised bytes, and must hand the client the payload, a proposed filename and a media type — and that before this module the six export handlers repeated that same tail across two routers (debt #110). Packaging it here keeps the filename-safety rule in one place and honours the layer direction: the application layer never imports a web response class, so this stays testable without the web framework.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def safe_filename_stem``
 
 .. CG-EXPLANATION-START id=function:safe_filename_stem
 
-.. CG-PLACEHOLDER
+**What this does.** Turns a user-supplied name into a safe filename stem by replacing anything that is not a letter, digit, dash, underscore or space with an underscore, trimming the ends, and falling back to a given default when nothing safe remains.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the single source of truth for download-filename safety across the export endpoints, stripping characters that would break a filename or the download header. Why: recorded in the docstring.
 
 .. CG-EXPLANATION-END id=function:safe_filename_stem
 
@@ -65,13 +57,9 @@ Class ``ExportArtifact`` — header
 
 .. CG-EXPLANATION-START id=class:ExportArtifact
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen data holder for a finished export ready to download: the serialised bytes, the proposed filename, and the media type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the boundary between the application and web layers — the web layer turns it into a response while the application layer never imports a response class, so exports stay testable without the web framework and reusable by any non-HTTP caller. It holds data only, so it does not inherit the logger.
 
 .. CG-EXPLANATION-END id=class:ExportArtifact
 
@@ -87,13 +75,9 @@ Method ``ExportArtifact``. ``def build``
 
 .. CG-EXPLANATION-START id=method:ExportArtifact.build
 
-.. CG-PLACEHOLDER
+**What this does.** A constructor that packages exporter output into an artifact: it builds the safe filename stem from the name and fallback, appends the format suffix, and pairs the filename with the payload and media type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It combines the two steps every export handler shared, with the route-specific differences — which name, its fallback, the suffix and the media type — as parameters (debt #110), so the shared filename logic lives in exactly one place.
 
 .. CG-EXPLANATION-END id=method:ExportArtifact.build
 

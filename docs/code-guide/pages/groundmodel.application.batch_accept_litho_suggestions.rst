@@ -1,7 +1,7 @@
 groundmodel.application.batch_accept_litho_suggestions
 ======================================================
 
-.. CG-PAGE source=src/groundmodel/application/batch_accept_litho_suggestions.py complete=false
+.. CG-PAGE source=src/groundmodel/application/batch_accept_litho_suggestions.py complete=true
 
 *Source file:* ``src/groundmodel/application/batch_accept_litho_suggestions.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the batch-accept file. It imports the single-accept use case and result, the body-partition locks, and the suggestion type, and its docstring explains why the batch exists.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The frontend's accept-all fires one request per anchor, so an N-anchor accept costs N commits and N round-trips; this use case runs every anchor with the commit and inference deferred and commits once, turning the whole bulk accept into one transaction (issue #153).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``BatchAcceptAnchorInput``
 
 .. CG-EXPLANATION-START id=class:BatchAcceptAnchorInput
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen dataclass carrying one anchor's suggestions and its CPT or borehole id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One input per investigation, with the two anchor ids mutually exclusive.
 
 .. CG-EXPLANATION-END id=class:BatchAcceptAnchorInput
 
@@ -65,13 +57,9 @@ Class ``BatchAnchorOutcome``
 
 .. CG-EXPLANATION-START id=class:BatchAnchorOutcome
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen dataclass reporting one anchor's outcome inside the batch: its anchor id, the accept result, or the error message when it was skipped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Echoing the anchor id back lets the frontend map each outcome to its investigation; a skipped anchor carries its reason instead of a result.
 
 .. CG-EXPLANATION-END id=class:BatchAnchorOutcome
 
@@ -87,13 +75,9 @@ Class ``BatchAcceptResult``
 
 .. CG-EXPLANATION-START id=class:BatchAcceptResult
 
-.. CG-PLACEHOLDER
+**What this does.** A dataclass for the whole batch: the per-anchor outcomes in order, whether the single commit ran, and the set of geological formations snapped across all anchors.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The snapped-formations set lets the router rebuild the geological surfaces once after the batch instead of once per anchor (issue #162).
 
 .. CG-EXPLANATION-END id=class:BatchAcceptResult
 
@@ -109,13 +93,9 @@ Class ``BatchAcceptLithoSuggestions`` — header
 
 .. CG-EXPLANATION-START id=class:BatchAcceptLithoSuggestions
 
-.. CG-PLACEHOLDER
+**What this does.** The use case that accepts many anchors in one transaction.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that it commits once at the end, so the caller must not commit before calling it.
 
 .. CG-EXPLANATION-END id=class:BatchAcceptLithoSuggestions
 
@@ -131,13 +111,9 @@ Method ``BatchAcceptLithoSuggestions``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:BatchAcceptLithoSuggestions.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Stores the session.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller owns the session; the batch commits it once.
 
 .. CG-EXPLANATION-END id=method:BatchAcceptLithoSuggestions.__init__
 
@@ -153,13 +129,9 @@ Method ``BatchAcceptLithoSuggestions``. ``async def execute``
 
 .. CG-EXPLANATION-START id=method:BatchAcceptLithoSuggestions.execute
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the shared batch context once, takes the model's body-partition lock once, then accepts every anchor with commit and inference deferred, recomputes display order once, and commits once — reporting the outcomes and the aggregated snapped-geo set.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Loading the context and taking the lock once for the whole batch avoids per-anchor re-loads and repeated lock takes (advisory locks are re-entrant, but one take keeps the log clean); the display-order recompute is deferred and run once because running it per anchor scans the growing contact set and would be quadratic. A per-anchor error is raised before any write, so recording it and continuing keeps the shared transaction clean.
 
 .. CG-EXPLANATION-END id=method:BatchAcceptLithoSuggestions.execute
 

@@ -1,7 +1,7 @@
 groundmodel.application.stratigraphy_candidate
 ==============================================
 
-.. CG-PAGE source=src/groundmodel/application/stratigraphy_candidate.py complete=false
+.. CG-PAGE source=src/groundmodel/application/stratigraphy_candidate.py complete=true
 
 *Source file:* ``src/groundmodel/application/stratigraphy_candidate.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and the imports for the candidate value object below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One class per file; this file holds only the discovered-candidate type.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``StratigraphyCandidate``
 
 .. CG-EXPLANATION-START id=class:StratigraphyCandidate
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen dataclass describing one unique formation found while scanning boreholes: the display name, the formal regional reference (or nothing for informal-only boreholes), the stable cross-borehole key, and how many in-scope boreholes carry that key.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The selection filter on the write path is expressed in these stable keys, so the discover endpoint returns them and the dialog passes the same set back on confirm. The borehole count lets the dialog sort the most-common units to the top.
 
 .. CG-EXPLANATION-END id=class:StratigraphyCandidate
 

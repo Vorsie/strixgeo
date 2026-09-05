@@ -1,7 +1,7 @@
 groundmodel.application.pinch_out_constants
 ===========================================
 
-.. CG-PAGE source=src/groundmodel/application/pinch_out_constants.py complete=false
+.. CG-PAGE source=src/groundmodel/application/pinch_out_constants.py complete=true
 
 *Source file:* ``src/groundmodel/application/pinch_out_constants.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Defines two constants for synthetic pinch-out contacts: the source token and a low confidence.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Constants live in a dedicated file beside the use case that uses them (a CLAUDE.md convention). The confidence is low because a synthetic tip position is model-derived, not measured, so the engineer should verify it against site data before trusting it in a design (the characterisation-not-design boundary).
 
 .. CG-EXPLANATION-END id=module-header
 

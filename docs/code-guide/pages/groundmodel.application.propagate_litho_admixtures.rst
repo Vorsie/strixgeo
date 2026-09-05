@@ -1,7 +1,7 @@
 groundmodel.application.propagate_litho_admixtures
 ==================================================
 
-.. CG-PAGE source=src/groundmodel/application/propagate_litho_admixtures.py complete=false
+.. CG-PAGE source=src/groundmodel/application/propagate_litho_admixtures.py complete=true
 
 *Source file:* ``src/groundmodel/application/propagate_litho_admixtures.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the propagate-admixtures file. It imports the scope guard, the domain correlation-edge type and connected-component helper, and the database rows, and its docstring scopes the change to admixtures only.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Only the admixtures column is touched, so no resolver re-run is needed — the naming group and ordinals are unchanged. A seed formation with no edges is its own singleton component, so the edit still applies to it alone.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``PropagateAdmixturesResult``
 
 .. CG-EXPLANATION-START id=class:PropagateAdmixturesResult
 
-.. CG-PLACEHOLDER
+**What this does.** A dataclass carrying the updated formation rows and the size of the connected component.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The rows are refreshed after commit so the caller can serialise them directly.
 
 .. CG-EXPLANATION-END id=class:PropagateAdmixturesResult
 
@@ -65,13 +57,9 @@ Class ``PropagateLithoAdmixtures`` — header
 
 .. CG-EXPLANATION-START id=class:PropagateLithoAdmixtures
 
-.. CG-PLACEHOLDER
+**What this does.** The use case that writes an admixture list to every formation in a seed's correlated body, found by a breadth-first search over the model's correlation edges.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring lists the guards: the seed and model must exist and belong to the project, the model must be lithostratigraphic, and the seed must be a litho unit (have a soil code), so a geological-model row passed in error is rejected.
 
 .. CG-EXPLANATION-END id=class:PropagateLithoAdmixtures
 
@@ -87,13 +75,9 @@ Method ``PropagateLithoAdmixtures``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:PropagateLithoAdmixtures.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Stores the session.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller owns the session; this use case writes through it.
 
 .. CG-EXPLANATION-END id=method:PropagateLithoAdmixtures.__init__
 
@@ -109,13 +93,9 @@ Method ``PropagateLithoAdmixtures``. ``async def execute``
 
 .. CG-EXPLANATION-START id=method:PropagateLithoAdmixtures.execute
 
-.. CG-PLACEHOLDER
+**What this does.** Guards the model and seed, derives formation-to-formation edges from the approved contact edges, finds the seed's connected component by breadth-first search, loads those formations, writes the admixture list to each with its own copy, and commits with a refresh.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Contact edges are the boundary-to-boundary ground truth since issue #133 phase 3, so the formation graph is derived from them, skipping self-loops and orphan edges. Each formation gets its own copy of the list so a later change to one row's JSON does not alias the others. An empty list clears the body's admixtures.
 
 .. CG-EXPLANATION-END id=method:PropagateLithoAdmixtures.execute
 

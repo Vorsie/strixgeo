@@ -1,7 +1,7 @@
 groundmodel.application.view_state_helpers
 ==========================================
 
-.. CG-PAGE source=src/groundmodel/application/view_state_helpers.py complete=false
+.. CG-PAGE source=src/groundmodel/application/view_state_helpers.py complete=true
 
 *Source file:* ``src/groundmodel/application/view_state_helpers.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A shared-readers module whose docstring says it holds the guarded float-knob reader that every builder copy-pasted.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The project row carries a free-form settings bag whose sections hold numeric tuning knobs, and every reader repeated the same guarded parse (fall back when absent, non-numeric, or not positive); the parse and the project load live here once (debt #224).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``async def load_project_view_state``
 
 .. CG-EXPLANATION-START id=function:load_project_view_state
 
-.. CG-PLACEHOLDER
+**What this does.** Loads a project's free-form view-state settings bag, or nothing when the project is missing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One place to fetch the settings bag the knob readers work over.
 
 .. CG-EXPLANATION-END id=function:load_project_view_state
 
@@ -65,13 +57,9 @@ Function ``def read_view_state_float``
 
 .. CG-EXPLANATION-START id=function:read_view_state_float
 
-.. CG-PLACEHOLDER
+**What this does.** Reads a positive float knob from a named section and key of the settings bag, falling back to a default on any absent, non-numeric or non-positive value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact guard every reader in the family applied, kept in one place so a change to the guard changes one function; callers keep their own defaults and names.
 
 .. CG-EXPLANATION-END id=function:read_view_state_float
 

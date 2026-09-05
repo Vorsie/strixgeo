@@ -1,7 +1,7 @@
 groundmodel.application.deduplicate_formation_contacts
 ======================================================
 
-.. CG-PAGE source=src/groundmodel/application/deduplicate_formation_contacts.py complete=false
+.. CG-PAGE source=src/groundmodel/application/deduplicate_formation_contacts.py complete=true
 
 *Source file:* ``src/groundmodel/application/deduplicate_formation_contacts.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports for a one-shot cleanup that removes legacy duplicate contacts. The docstring gives the survivor rule in priority order: a manual pick beats an auto-derived row; then a row with a link back to a DOV layer; then the most recently created.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The one-top-per-investigation uniqueness rule landed after some early auto-populate runs had already created duplicates (several "Boom clay at 0 m" on one borehole). This walks each duplicate group, keeps the single best survivor, and deletes the rest. Running it on a clean model does nothing (idempotent).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DedupeOutcome``
 
 .. CG-EXPLANATION-START id=class:DedupeOutcome
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen dataclass summarising one dedupe pass: how many groups were inspected, how many duplicates were removed, and the ids of the removed rows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The ids let the web response toast a meaningful number and would let a future undo re-create the rows.
 
 .. CG-EXPLANATION-END id=class:DedupeOutcome
 
@@ -65,13 +57,9 @@ Class ``DeduplicateFormationContacts`` — header
 
 .. CG-EXPLANATION-START id=class:DeduplicateFormationContacts
 
-.. CG-PLACEHOLDER
+**What this does.** The use-case class: drop duplicate model/anchor/formation contacts.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One class per unit of work; it inherits the shared logger.
 
 .. CG-EXPLANATION-END id=class:DeduplicateFormationContacts
 
@@ -87,13 +75,9 @@ Method ``DeduplicateFormationContacts``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:DeduplicateFormationContacts.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Stores the session.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller owns the session; the use case commits once, and only when it actually removes something.
 
 .. CG-EXPLANATION-END id=method:DeduplicateFormationContacts.__init__
 
@@ -109,13 +93,9 @@ Method ``DeduplicateFormationContacts``. ``async def execute``
 
 .. CG-EXPLANATION-START id=method:DeduplicateFormationContacts.execute
 
-.. CG-PLACEHOLDER
+**What this does.** Loads every contact in the model, groups them by (anchor, formation), and for each group of more than one sorts by the survivor priority, keeps the first, and marks the rest for removal. If any were removed it deletes them, refreshes the affected formation surfaces, and commits; if nothing was duplicated it does not commit at all. It returns the inspected-group count, the removed count, and the removed ids.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Grouping on the populated anchor (borehole or CPT, whichever is set) matches the one-top-per-investigation rule. Skipping the commit when nothing changed avoids an empty transaction. Refreshing the surfaces keeps the section view's slice query landing on current geometry.
 
 .. CG-EXPLANATION-END id=method:DeduplicateFormationContacts.execute
 
@@ -131,13 +111,9 @@ Function ``def _survivor_priority``
 
 .. CG-EXPLANATION-START id=function:_survivor_priority
 
-.. CG-PLACEHOLDER
+**What this does.** The sort key that decides which contact in a duplicate group survives. It returns a tuple ranked lowest-wins on three levels: source rank (manual pick beats interpolated beats borehole observation, with the synthetic pinch-out and model-seed sources ranked after the real-data trio), then rows that have a link back to a DOV layer, then the most recent creation time.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The source ranking preserves the original debt #38 contract: the auto-regenerable borehole-observation source ranks lowest of the three so a deliberate hand artefact survives an auto-populate re-run. The provenance tier keeps re-runs idempotent, and most-recent-wins breaks ties within a rank. The synthetic sources are slotted after the trio so they never silently evict a manual pick or a real observation.
 
 .. CG-EXPLANATION-END id=function:_survivor_priority
 

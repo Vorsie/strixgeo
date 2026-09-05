@@ -1,7 +1,7 @@
 groundmodel.application.confirm_correlation_edge_review
 =======================================================
 
-.. CG-PAGE source=src/groundmodel/application/confirm_correlation_edge_review.py complete=false
+.. CG-PAGE source=src/groundmodel/application/confirm_correlation_edge_review.py complete=true
 
 *Source file:* ``src/groundmodel/application/confirm_correlation_edge_review.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening docstring and imports for the use case that clears the review flag on correlation edges the engineer has confirmed. The docstring has three parts — why this exists, what it does NOT do — and the imports pull in the database update builder, the session type and the edge row type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the whole rationale. A re-subdivide can leave an accepted geotech tie attached to a band that is not obviously the one it was drawn on, so those ties are carried and stamped with a review reason rather than deleted, because the owner's rule (2026-08-02) is that an accepted edge never disappears without the engineer deleting it. This use case is the other half: the engineer looks at a flagged tie and either deletes it or confirms it is right, which is this. Without it the flag would be permanent. It deliberately changes no geometry and no approval state — a flagged edge is already approved, awaiting confirmation, so only the flag is dropped.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ConfirmCorrelationEdgeReviewResult``
 
 .. CG-EXPLANATION-START id=class:ConfirmCorrelationEdgeReviewResult
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen dataclass reporting how many edges actually had a flag cleared.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Zero is a normal answer, not an error — confirming an already-unflagged edge is a no-op — so the count lets the caller report exactly what happened.
 
 .. CG-EXPLANATION-END id=class:ConfirmCorrelationEdgeReviewResult
 
@@ -65,13 +57,9 @@ Class ``ConfirmCorrelationEdgeReview`` — header
 
 .. CG-EXPLANATION-START id=class:ConfirmCorrelationEdgeReview
 
-.. CG-PLACEHOLDER
+**What this does.** The use-case class header, inheriting the logger.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring states its job: drop the review reason from one edge or from a whole model, with the caller owning the session.
 
 .. CG-EXPLANATION-END id=class:ConfirmCorrelationEdgeReview
 
@@ -87,13 +75,9 @@ Method ``ConfirmCorrelationEdgeReview``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:ConfirmCorrelationEdgeReview.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** The setup step: stores the caller's database session.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller owns the session; this use case commits once at the end.
 
 .. CG-EXPLANATION-END id=method:ConfirmCorrelationEdgeReview.__init__
 
@@ -109,13 +93,9 @@ Method ``ConfirmCorrelationEdgeReview``. ``async def execute``
 
 .. CG-EXPLANATION-START id=method:ConfirmCorrelationEdgeReview.execute
 
-.. CG-PLACEHOLDER
+**What this does.** The entry point. It builds an update that clears the review reason on the model's flagged edges, narrows it to one edge when an edge id is given, runs it, commits, and returns the count of flags cleared.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The statement always constrains by model, so an edge id from a different model matches nothing rather than being confirmed across the model boundary. The comment explains it restricts to already-flagged rows on purpose, so the row count means flags cleared rather than rows touched — re-confirming then reports zero instead of looking like work happened. Passing no edge id confirms every flagged edge of the model, the confirm-all path.
 
 .. CG-EXPLANATION-END id=method:ConfirmCorrelationEdgeReview.execute
 

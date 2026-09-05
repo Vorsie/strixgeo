@@ -1,7 +1,7 @@
 groundmodel.application.run_interpretation
 ==========================================
 
-.. CG-PAGE source=src/groundmodel/application/run_interpretation.py complete=false
+.. CG-PAGE source=src/groundmodel/application/run_interpretation.py complete=true
 
 *Source file:* ``src/groundmodel/application/run_interpretation.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A short module whose docstring says it is a placeholder kept as a class so the real body can land in Phase 5 without changing any call sites.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The class exists now so its identity, its inheritance from the shared logger, and its call surface are already in place; Phase 5 will fill in the body and tests without churning callers.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``RunInterpretation`` — header
 
 .. CG-EXPLANATION-START id=class:RunInterpretation
 
-.. CG-PLACEHOLDER
+**What this does.** The class that will run EC7 soil classification and Robertson Ic for a stored CPT.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring marks it a Phase 5 deliverable; the stub reserves the class so callers can be wired against it today. Design-ready interpretation is deliberately Phase 5 (the MVP scope boundary).
 
 .. CG-EXPLANATION-END id=class:RunInterpretation
 
@@ -65,13 +57,9 @@ Method ``RunInterpretation``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:RunInterpretation.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Sets up the standard module-named logger.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Matches every other use case so its future log lines read as coming from this module.
 
 .. CG-EXPLANATION-END id=method:RunInterpretation.__init__
 
@@ -87,13 +75,9 @@ Method ``RunInterpretation``. ``async def execute``
 
 .. CG-EXPLANATION-START id=method:RunInterpretation.execute
 
-.. CG-PLACEHOLDER
+**What this does.** The future entry point; today it always raises a not-implemented error.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Interpretation as a design-ready parameter is a Phase 5 deliverable per the MVP scope, so the stub fails loudly rather than pretending to work.
 
 .. CG-EXPLANATION-END id=method:RunInterpretation.execute
 

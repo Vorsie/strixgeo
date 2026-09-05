@@ -1,7 +1,7 @@
 groundmodel.application.set_geotech_statistic
 =============================================
 
-.. CG-PAGE source=src/groundmodel/application/set_geotech_statistic.py complete=false
+.. CG-PAGE source=src/groundmodel/application/set_geotech_statistic.py complete=true
 
 *Source file:* ``src/groundmodel/application/set_geotech_statistic.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The top of the set-statistic file. It imports the list of valid statistics and the model row, and its docstring records rulings 7 and 8.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The statistic the NAD classifier reads is selectable per geotech model (median, arithmetic, harmonic, geometric) because the choice systematically shifts classes and is part of provenance (ruling 7). Changing it marks the model stale, never silently re-deriving the bands (ruling 8): this writes exactly one column and commits, does not touch the bands, and does not stale the 3-D solids because the bands are unchanged — what goes stale is the classification, and that staleness is derived, not stored.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SetGeotechStatisticResult``
 
 .. CG-EXPLANATION-START id=class:SetGeotechStatisticResult
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen dataclass carrying the stored choice, what the last build classified with, and whether the bands are stale.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Staleness is derived — a build has run and its statistic differs from the choice — so the build stamps the classified-with value on success and the flag self-clears.
 
 .. CG-EXPLANATION-END id=class:SetGeotechStatisticResult
 
@@ -65,13 +57,9 @@ Class ``SetGeotechStatistic`` — header
 
 .. CG-EXPLANATION-START id=class:SetGeotechStatistic
 
-.. CG-PLACEHOLDER
+**What this does.** The use case that writes the one representative-statistic column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Everything else is derived, so this touches exactly one column and commits.
 
 .. CG-EXPLANATION-END id=class:SetGeotechStatistic
 
@@ -87,13 +75,9 @@ Method ``SetGeotechStatistic``. ``def __init__``
 
 .. CG-EXPLANATION-START id=method:SetGeotechStatistic.__init__
 
-.. CG-PLACEHOLDER
+**What this does.** Stores the session.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The caller owns the session; this use case owns the commit.
 
 .. CG-EXPLANATION-END id=method:SetGeotechStatistic.__init__
 
@@ -109,13 +93,9 @@ Method ``SetGeotechStatistic``. ``async def execute``
 
 .. CG-EXPLANATION-START id=method:SetGeotechStatistic.execute
 
-.. CG-PLACEHOLDER
+**What this does.** Validates the statistic token, loads the model, writes the choice, commits, and returns the derived staleness.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An unknown token raises (the router maps it to a 422); the staleness is computed from the model's own stamps rather than stored.
 
 .. CG-EXPLANATION-END id=method:SetGeotechStatistic.execute
 
