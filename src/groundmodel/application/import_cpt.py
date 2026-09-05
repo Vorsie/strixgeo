@@ -20,7 +20,7 @@ from groundmodel.infrastructure.db.repositories.cpt_repository import CptReposit
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parser import GEFParser
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import (
     CptRefreshConfirmationRequiredError,
     CptRefreshRefusedError,
