@@ -142,7 +142,7 @@ describe('GD1 â€” right-click reference contact shows "Edit in Geology stag
     fireEvent.contextMenu(strip!)
     const menuItem = screen.getByTestId('geo-deep-link-menu-item')
     expect(menuItem).toBeTruthy()
-    expect(menuItem.textContent).toBe('Edit in Geology stage')
+    expect(menuItem.textContent).toBe('Edit in Stratigraphy stage')
   })
 
   it('does NOT render a hit-strip when onEditInGeologyStage is absent', () => {
@@ -357,7 +357,7 @@ describe('GD6 â€” litho contact right-click shows geo-deep-link when parent
     fireEvent.contextMenu(activeStrip!)
     const menuItem = screen.getByTestId('geo-deep-link-menu-item')
     expect(menuItem).toBeTruthy()
-    expect(menuItem.textContent).toBe('Edit in Geology stage')
+    expect(menuItem.textContent).toBe('Edit in Stratigraphy stage')
   })
 
   it('calls onEditInGeologyStage with the parent geo contact id (not the litho contact id)', () => {
