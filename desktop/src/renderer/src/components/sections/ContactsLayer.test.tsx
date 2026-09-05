@@ -2882,9 +2882,9 @@ describe('ContactsLayer', () => {
     const menu = document.body.querySelector('[data-testid="contact-context-menu"]')
     expect(menu).not.toBeNull()
 
-    // Click "Edit in Geology stage" menu item.
+    // Click "Edit in Stratigraphy stage" menu item.
     const editBtn = Array.from(menu!.querySelectorAll('button')).find(
-      b => b.textContent?.includes('Edit in Geology'),
+      b => b.textContent?.includes('Edit in Stratigraphy'),
     )
     expect(editBtn).not.toBeNull()
     act(() => {
