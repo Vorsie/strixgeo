@@ -26,17 +26,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from groundmodel.domain.services.voxel_litho.pinch_terminations_constants import FLAT_M
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionPartitionInput,
 )
-
-FLAT_M = 0.01
-"""A region end this thin or thinner is a pinch-out apex, in metres.
-
-The measured lens apexes sit at 0.000 m, so this is a float-noise guard rather than a
-tunable: raising it would start calling genuinely thin bands terminations.
-"""
 
 _EDGE_EPS = 1e-4
 """How close a polygon point must be to an end of the region's span to count as on it."""
