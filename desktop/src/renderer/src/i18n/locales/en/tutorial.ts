@@ -15,8 +15,8 @@ export const TUTORIAL = {
   'tutorial.chapter.1': 'Your project',
   'tutorial.chapter.2': 'Import data',
   'tutorial.chapter.3': 'Cross-sections',
-  'tutorial.chapter.4': 'Geological model',
-  'tutorial.chapter.5': 'Lithostratigraphic model',
+  'tutorial.chapter.4': 'Stratigraphic model',
+  'tutorial.chapter.5': 'Lithological model',
   'tutorial.chapter.6': 'Geotechnical model',
   'tutorial.chapter.7': 'Parameters & statistics',
   'tutorial.chapter.8': 'Export',
@@ -100,7 +100,7 @@ export const TUTORIAL = {
     'A borehole can carry several interpretation streams. Toggle Geo (geotechnical coding), F-Strat (formal stratigraphy) and I-Strat (informal stratigraphy) next to the CPT channels — each stream you turn on draws as its own strip beside the borehole. Geo is on by default.',
   'tutorial.section-axis.title': 'Model axis',
   'tutorial.section-axis.body':
-    'The same section edits all three levels. Switch the axis between Geology, Litho and Geotech to work on each model in turn without leaving the section.',
+    'The same section edits all three levels. Switch the axis between Stratigraphy, Litho and Geotech to work on each model in turn without leaving the section.',
   'tutorial.section-snap.title': 'Snap to stratigraphy',
   'tutorial.section-snap.body':
     'With Snap on, a click near a logged boundary lands exactly on it instead of a pixel off. It keeps your contacts tied to the stratigraphy the boreholes actually record.',
@@ -112,9 +112,9 @@ export const TUTORIAL = {
     'Every setting here — buffer, spacing, exaggeration, channels, snap — saves to this section on its own. Reopen it and the framing is exactly as you left it; Reset returns the default view.',
 
   // 4 · Geological model ----------------------------------------------------
-  'tutorial.geo-open.title': 'Open the Geology stage',
+  'tutorial.geo-open.title': 'Open the Stratigraphy stage',
   'tutorial.geo-open.body':
-    'The geological model is the backbone of the ground model. It holds the formations and the surfaces between them, the regional layers under your whole site. Build it first, then the litho and geotech models refine it from there.',
+    'The stratigraphic model is the backbone of the ground model. It holds the formations and the surfaces between them, the regional layers under your whole site. Build it first, then the litho and geotech models refine it from there.',
   'tutorial.geo-seed.title': 'Fill from boreholes',
   'tutorial.geo-seed.body':
     "Fill the model's first contacts from your boreholes. This button reads the formation tops the boreholes log and places a contact at each one. This step ticks itself once the first contacts appear.",
@@ -131,13 +131,13 @@ export const TUTORIAL = {
   // 5 · Lithostratigraphic model --------------------------------------------
   'tutorial.litho-open.title': 'Open the Lithology stage',
   'tutorial.litho-open.body':
-    'The lithostratigraphic model refines the geological backbone into lithological units. Think sand, clay, silt, gravel and peat, with their admixtures. You build it along your cross-sections, one column at a time.',
+    'The lithological model refines the stratigraphic backbone into lithological units. Think sand, clay, silt, gravel and peat, with their admixtures. You build it along your cross-sections, one column at a time.',
   'tutorial.litho-create.title': 'Create a lithological model',
   'tutorial.litho-create.body':
-    'The litho model is a separate ground-model axis under the geological one. Create it first — until it exists there is nothing to pick litho contacts onto. Give it a name and it becomes the active litho model.',
+    'The litho model is a separate ground-model axis under the stratigraphic one. Create it first — until it exists there is nothing to pick litho contacts onto. Give it a name and it becomes the active litho model.',
   'tutorial.litho-axis.title': 'Switch to the litho axis',
   'tutorial.litho-axis.body':
-    'Open a cross-section and switch its axis to Litho. The same section now edits the litho model instead of the geology — every suggestion and correlation you make from here belongs to the litho model.',
+    'Open a cross-section and switch its axis to Litho. The same section now edits the litho model instead of the stratigraphy — every suggestion and correlation you make from here belongs to the litho model.',
   'tutorial.litho-accept.title': 'Accept the suggestions',
   'tutorial.litho-accept.body':
     'The segmenter proposes litho layers on each column, reading the CPT with a Robertson classification. Accept the ones that match what you see. This is assisted work, not automatic correlation, so you stay in control of every layer. This step ticks once you accept your first suggestion.',
@@ -149,7 +149,7 @@ export const TUTORIAL = {
     'Before you build, correlate a layer on one column to the same layer on the next, so the model knows they are one body. Correlate at the top of the litho toolbar arms the two-click gesture; Auto-correlate proposes the ties across the whole model for you to accept.',
   'tutorial.litho-second-section.title': 'A second section for 3-D',
   'tutorial.litho-second-section.body':
-    'As with the geology, a single section carries only one profile. Draw a second cross-section so the litho bodies have the 3-D data to connect between your sections.',
+    'As with the stratigraphy, a single section carries only one profile. Draw a second cross-section so the litho bodies have the 3-D data to connect between your sections.',
   'tutorial.litho-build.title': 'Build the litho bodies',
   'tutorial.litho-build.body':
     'Build turns the accepted, correlated layers into connected litho bodies in 3-D. Each mass that joins across your sections becomes one body. This step ticks once the litho solids exist.',
@@ -185,5 +185,5 @@ export const TUTORIAL = {
     'Export a section to DXF, to Plaxis, to D-Stability or D-Sheet, or to a PDF report sheet. Each export carries your unit identifiers, so the model arrives labelled in the design tool. Pick the format your next step needs.',
   'tutorial.closing.title': "You're all set",
   'tutorial.closing.body':
-    'That is the whole workflow: import, section, geology, litho, geotech, parameters, export. Build your first model on your own data. More importers and exporters are coming, so send the file formats you use to StrixGeo and we build them next.',
+    'That is the whole workflow: import, section, stratigraphy, litho, geotech, parameters, export. Build your first model on your own data. More importers and exporters are coming, so send the file formats you use to StrixGeo and we build them next.',
 } as const
