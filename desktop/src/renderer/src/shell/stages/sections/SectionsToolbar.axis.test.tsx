@@ -509,7 +509,7 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
 
     const lithoBtn = screen.getByRole('radio', { name: /litho/i })
     expect(lithoBtn).not.toBeDisabled()
-    expect(lithoBtn).toHaveAttribute('title', 'Edit the lithostratigraphic model contacts on this section')
+    expect(lithoBtn).toHaveAttribute('title', 'Edit the lithological model contacts on this section')
 
     // The span wrapper (role="presentation") should NOT carry a tooltip in the
     // enabled case â€” its only job is to make the disabled-button tooltip reachable.
@@ -545,7 +545,7 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
     renderToolbar(ctx)
 
     // Geology radio is NOT checked (axis is litho)
-    const geoBtn = screen.getByRole('radio', { name: /geology/i })
+    const geoBtn = screen.getByRole('radio', { name: /stratigraphy/i })
     expect(geoBtn).toHaveAttribute('aria-checked', 'false')
 
     fireEvent.click(geoBtn)
@@ -566,7 +566,7 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
     const { unmount } = renderToolbar(ctxNoModel)
 
     expect(
-      screen.getByText(/no lithostratigraphic model/i),
+      screen.getByText(/no lithological model/i),
     ).toBeInTheDocument()
 
     unmount()
@@ -576,7 +576,7 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
     renderToolbar(ctxWithModel)
 
     expect(
-      screen.queryByText(/no lithostratigraphic model/i),
+      screen.queryByText(/no lithological model/i),
     ).not.toBeInTheDocument()
   })
 
@@ -603,7 +603,7 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
     expect(tooltipSpan).not.toBeNull()
     expect(tooltipSpan).toHaveAttribute(
       'title',
-      'Create a lithostratigraphic model in the Lithology stage first',
+      'Create a lithological model in the Lithology stage first',
     )
   })
 })
@@ -907,7 +907,7 @@ describe('SectionsToolbar axis pill — never truncated (owner dogfeed 2026-08-2
     const { container } = renderToolbar(makeCtx({ activeLithoModel: makeLithoModel() }))
     const pill = container.querySelector('[role="group"][aria-label="Section model axis"]')
     const segments = [...(pill?.querySelectorAll('button') ?? [])]
-    expect(segments.map(s => s.textContent)).toEqual(['Geology', 'Litho', 'Geotech'])
+    expect(segments.map(s => s.textContent)).toEqual(['Stratigraphy', 'Litho', 'Geotech'])
     for (const segment of segments) {
       expect(segment.className, `${segment.textContent ?? ''} may not wrap`).toContain(
         'whitespace-nowrap',
@@ -919,7 +919,7 @@ describe('SectionsToolbar axis pill — never truncated (owner dogfeed 2026-08-2
     const { container } = renderToolbar(makeCtx({ activeLithoModel: makeLithoModel() }))
     const pill = container.querySelector('[role="group"][aria-label="Section model axis"]')
     const geology = pill?.querySelector('button')
-    expect(geology?.getAttribute('aria-label')).toBe('Geology')
+    expect(geology?.getAttribute('aria-label')).toBe('Stratigraphy')
   })
 
   it('AP-REACH — every declared verb is reachable: nothing is dropped by the responsive row', () => {
