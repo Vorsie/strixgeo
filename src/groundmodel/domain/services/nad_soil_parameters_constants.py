@@ -77,8 +77,8 @@ class NadSoilParameters:
     cu_kpa: float | None
 
 
-#: NAD class number (1..31) → characteristic parameters. EMPTY on purpose —
-#: the owner transcribes the table here (see the module docstring). Every
+#: NAD class number (1..31) → characteristic parameters, transcribed 2026-09-02
+#: from NBN EN 1997-1 ANB Tabel 2.1 (see the module docstring). Every
 #: key MUST be a class from ``NAD_CLASSES``; every value MUST be read from the
 #: table, never inferred. Example of one filled row (illustrative shape
 #: only — NOT a real value):
