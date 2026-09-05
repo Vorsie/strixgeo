@@ -1075,6 +1075,7 @@ function LayerControl({
             count={cptTotal}
             open={openCategory === 'cpt'}
             onClick={() => onToggleCategory('cpt')}
+            testid="map-cpt-category"
           />
           {openCategory === 'cpt' && (
             <div className="px-2 pb-2">
@@ -1091,6 +1092,8 @@ function LayerControl({
                     checked={checked}
                     onChange={c => onToggleCpt(type, c)}
                     monospace
+                    // Tutorial anchor (owner ruling 6): e.g. `map-filter-cpt-CPTM`.
+                    testid={`map-filter-cpt-${type}`}
                   />
                 )
               })}
@@ -1264,6 +1267,7 @@ function CategoryHeader({
   count,
   open,
   onClick,
+  testid,
 }: {
   label: string
   // Right-aligned badge text. Numeric for CPT/Borehole categories
@@ -1273,10 +1277,13 @@ function CategoryHeader({
   count: number | string
   open: boolean
   onClick: () => void
+  /** Optional tutorial/e2e anchor (e.g. the CPT category, owner ruling 6). */
+  testid?: string
 }) {
   return (
     <button
       onClick={onClick}
+      data-testid={testid}
       className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
     >
       {open ? (
@@ -1298,6 +1305,7 @@ function CheckboxRow({
   onChange,
   monospace,
   shape = 'circle',
+  testid,
 }: {
   label: string
   count: number
@@ -1306,9 +1314,11 @@ function CheckboxRow({
   onChange: (checked: boolean) => void
   monospace?: boolean
   shape?: 'circle' | 'square'
+  /** Optional tutorial/e2e anchor (e.g. the per-type CPT filter, owner ruling 6). */
+  testid?: string
 }) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
+    <label data-testid={testid} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
       <input
         type="checkbox"
         className="cursor-pointer shrink-0"
