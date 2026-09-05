@@ -24,8 +24,10 @@ runs a **PostgreSQL database**, which is where all your project data actually
 lives. So the full picture is: *desktop window → engine → database → engine →
 desktop window*.
 
-This guide is about the **engine** (the Python back end). The desktop side gets
-the same treatment later.
+This guide covers both halves. Groups 1-7 are the **engine** (the Python back
+end). Groups 8-13 are the **desktop app** itself (the Electron main process and
+the React window). Read the engine first, then the desktop — group 8 is what
+runs the moment you double-click the icon.
 
 The four layers
 ---------------
