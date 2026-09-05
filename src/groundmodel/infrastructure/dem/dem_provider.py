@@ -191,24 +191,32 @@ class DemProvider(ABC):
         bbox_min_y: float,
         bbox_max_x: float,
         bbox_max_y: float,
-        resolution_m: float,
+        resolution_m: float | None = None,
     ) -> DemZGrid:
         """Fetch (or return from cache) a DEM tile over the given bbox.
 
         Parameters
         ----------
         bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y : float
-            Requested tile extents in the provider's native CRS.
-        resolution_m : float
-            Desired cell size in metres.  The WCS server may return a
-            slightly different resolution — the ``DemZGrid`` carries the
-            actual derived cell size.
+            Requested tile extents in the provider's native CRS (metres).
+        resolution_m : float | None, optional
+            Desired cell size in metres. ``None`` (the default) means "use the
+            provider's own native resolution", and every provider honours that.
+            An EXPLICIT value is a request the provider may or may not be able to
+            satisfy. A provider that cannot resample to an arbitrary resolution
+            (the WCS providers serve only their coverage's native grid) MUST NOT
+            silently ignore the request: it returns its native grid, logs a
+            WARNING naming the requested and the delivered resolution, and records
+            the actual delivered cell size on ``DemZGrid.resolution_m``. Callers
+            must therefore read the delivered resolution off the returned grid
+            rather than assume the requested value was met.
 
         Returns
         -------
         DemZGrid
-            Sampled z-values over the requested region.  ``from_cache``
-            distinguishes a warm hit from a network fetch.
+            Sampled z-values over the requested region. ``from_cache``
+            distinguishes a warm hit from a network fetch, and
+            ``resolution_m`` is the cell size actually delivered.
 
         Raises
         ------
