@@ -375,8 +375,9 @@ export interface UseGeologicalModelResult {
   /** Bump the correlation-edges refetch nonce (#163c). Re-exported from the
    *  injected coordinator dep so bus consumers (the Sections toolbar) can force
    *  ``SectionsCanvas`` to re-list its correlation edges + bodies after a
-   *  body-level mutation that doesn't flow through this hook (e.g. the toolbar's
-   *  "Delete all detected lenses"). Optional only so the many hand-rolled
+   *  body-level mutation that doesn't flow through this hook (e.g. an
+   *  Accept-correlations run that re-detects lenses server-side). Optional only
+   *  so the many hand-rolled
    *  geoModel test mocks need not supply it — the real hook always returns it;
    *  call sites guard with ``?.()``. */
   requestCorrelationEdgesRefetch?: () => void
