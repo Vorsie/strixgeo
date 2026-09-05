@@ -61,6 +61,9 @@ export default function Inspector({ activeStageId, open }: InspectorProps): JSX.
   return (
     <aside
       aria-label={t('shell.inspector')}
+      // Tutorial anchor: the overlay rings the whole pane when a highlighted
+      // control lives inside the right rail (owner ruling 1, 2026-09-05).
+      data-testid="shell-inspector"
       // overflow-hidden clips content when collapsing and prevents
       // a horizontal scrollbar on the body row during the transition.
       className={[
