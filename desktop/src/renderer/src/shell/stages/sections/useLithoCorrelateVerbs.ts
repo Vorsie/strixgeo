@@ -181,9 +181,10 @@ export function useLithoCorrelateVerbs({
         activeLithoModel.id,
         selectedSectionId,
       )
-      // The toast only reports the accept count.  Engineer runs
-      // "Detect lenses" separately when they actually want lens rows
-      // materialised (explicit-detect switch, 2026-05-31).
+      // The toast only reports the accept count. Lens rows are re-detected
+      // automatically inside this accept transaction (the ordinal resolver +
+      // lens detector run server-side after the flip); there is no hand-run
+      // "Detect lenses" verb (retired 2026-06-06).
       log.success(
         'sections',
         `acceptCorrelations: ${result.edges_accepted} accepted`,
