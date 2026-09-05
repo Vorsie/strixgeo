@@ -7,8 +7,8 @@
 // NewProjectDialog.
 //
 // Naming a body marks it user-curated: a named body survives the detector
-// reconcile sweep AND the "Delete all detected lenses" bulk delete — i.e.
-// naming is how you "keep" (accept) a detected lens.
+// reconcile sweep (the preserve-named guard) — i.e. naming is how you
+// "keep" (accept) a detected lens.
 
 import { useEffect, useRef, useState } from 'react'
 
