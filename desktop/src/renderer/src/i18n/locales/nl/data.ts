@@ -88,6 +88,10 @@ export const DATA_NL = {
   'data.inspector.clearSearch': 'Zoekopdracht wissen',
   'data.inspector.selectedCount': '{n} geselecteerd',
   'data.inspector.clear': 'Wissen',
+  // De wis-filteractie in de datumfilter. Een aparte sleutel van `clear` (die de
+  // SELECTIE wist) zodat "Wissen" niet als verwijderen leest naast
+  // "Verwijderen" (eigenaarsbeslissing 10, 2026-09-05).
+  'data.inspector.clearFilter': 'Wis filter',
   'data.inspector.selectAll': 'Alles selecteren',
   'data.inspector.selectAllInTab': 'Alles in dit tabblad selecteren',
   'data.inspector.allCptsRemoved': 'Alle sonderingen weggehaald',
