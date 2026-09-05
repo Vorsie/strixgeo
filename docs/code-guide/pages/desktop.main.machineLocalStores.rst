@@ -1,7 +1,7 @@
 desktop.main.machineLocalStores
 ===============================
 
-.. CG-PAGE source=desktop/src/main/machineLocalStores.ts complete=true
+.. CG-PAGE source=desktop/src/main/machineLocalStores.ts complete=false
 
 *Source file:* ``desktop/src/main/machineLocalStores.ts``
 

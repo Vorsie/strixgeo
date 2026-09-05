@@ -1,7 +1,7 @@
 desktop.main.recoveryStore
 ==========================
 
-.. CG-PAGE source=desktop/src/main/recoveryStore.ts complete=true
+.. CG-PAGE source=desktop/src/main/recoveryStore.ts complete=false
 
 *Source file:* ``desktop/src/main/recoveryStore.ts``
 

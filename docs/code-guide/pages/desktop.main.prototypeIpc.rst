@@ -1,7 +1,7 @@
 desktop.main.prototypeIpc
 =========================
 
-.. CG-PAGE source=desktop/src/main/prototypeIpc.ts complete=true
+.. CG-PAGE source=desktop/src/main/prototypeIpc.ts complete=false
 
 *Source file:* ``desktop/src/main/prototypeIpc.ts``
 

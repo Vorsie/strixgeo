@@ -1,7 +1,7 @@
 desktop.main.logRotation
 ========================
 
-.. CG-PAGE source=desktop/src/main/logRotation.ts complete=true
+.. CG-PAGE source=desktop/src/main/logRotation.ts complete=false
 
 *Source file:* ``desktop/src/main/logRotation.ts``
 

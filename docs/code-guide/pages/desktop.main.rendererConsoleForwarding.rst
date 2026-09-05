@@ -1,7 +1,7 @@
 desktop.main.rendererConsoleForwarding
 ======================================
 
-.. CG-PAGE source=desktop/src/main/rendererConsoleForwarding.ts complete=true
+.. CG-PAGE source=desktop/src/main/rendererConsoleForwarding.ts complete=false
 
 *Source file:* ``desktop/src/main/rendererConsoleForwarding.ts``
 

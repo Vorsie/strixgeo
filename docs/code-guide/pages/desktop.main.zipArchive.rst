@@ -1,7 +1,7 @@
 desktop.main.zipArchive
 =======================
 
-.. CG-PAGE source=desktop/src/main/zipArchive.ts complete=true
+.. CG-PAGE source=desktop/src/main/zipArchive.ts complete=false
 
 *Source file:* ``desktop/src/main/zipArchive.ts``
 

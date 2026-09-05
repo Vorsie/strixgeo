@@ -1,7 +1,7 @@
 desktop.main.buildStampGlobals.d
 ================================
 
-.. CG-PAGE source=desktop/src/main/buildStampGlobals.d.ts complete=true
+.. CG-PAGE source=desktop/src/main/buildStampGlobals.d.ts complete=false
 
 *Source file:* ``desktop/src/main/buildStampGlobals.d.ts``
 

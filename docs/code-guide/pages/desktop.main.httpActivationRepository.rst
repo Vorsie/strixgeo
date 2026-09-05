@@ -1,7 +1,7 @@
 desktop.main.httpActivationRepository
 =====================================
 
-.. CG-PAGE source=desktop/src/main/httpActivationRepository.ts complete=true
+.. CG-PAGE source=desktop/src/main/httpActivationRepository.ts complete=false
 
 *Source file:* ``desktop/src/main/httpActivationRepository.ts``
 

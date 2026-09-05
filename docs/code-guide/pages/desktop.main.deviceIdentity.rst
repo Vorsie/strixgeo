@@ -1,7 +1,7 @@
 desktop.main.deviceIdentity
 ===========================
 
-.. CG-PAGE source=desktop/src/main/deviceIdentity.ts complete=true
+.. CG-PAGE source=desktop/src/main/deviceIdentity.ts complete=false
 
 *Source file:* ``desktop/src/main/deviceIdentity.ts``
 

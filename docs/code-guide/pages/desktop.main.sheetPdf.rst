@@ -1,7 +1,7 @@
 desktop.main.sheetPdf
 =====================
 
-.. CG-PAGE source=desktop/src/main/sheetPdf.ts complete=true
+.. CG-PAGE source=desktop/src/main/sheetPdf.ts complete=false
 
 *Source file:* ``desktop/src/main/sheetPdf.ts``
 

@@ -1,7 +1,7 @@
 desktop.main.embedded.bootSequence
 ==================================
 
-.. CG-PAGE source=desktop/src/main/embedded/bootSequence.ts complete=true
+.. CG-PAGE source=desktop/src/main/embedded/bootSequence.ts complete=false
 
 *Source file:* ``desktop/src/main/embedded/bootSequence.ts``
 

@@ -1,7 +1,7 @@
 desktop.main.updaterPolicy
 ==========================
 
-.. CG-PAGE source=desktop/src/main/updaterPolicy.ts complete=true
+.. CG-PAGE source=desktop/src/main/updaterPolicy.ts complete=false
 
 *Source file:* ``desktop/src/main/updaterPolicy.ts``
 

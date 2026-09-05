@@ -1,7 +1,7 @@
 desktop.main.mockActivationRepository
 =====================================
 
-.. CG-PAGE source=desktop/src/main/mockActivationRepository.ts complete=true
+.. CG-PAGE source=desktop/src/main/mockActivationRepository.ts complete=false
 
 *Source file:* ``desktop/src/main/mockActivationRepository.ts``
 

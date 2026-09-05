@@ -1,7 +1,7 @@
 desktop.main.backendLifecycle
 =============================
 
-.. CG-PAGE source=desktop/src/main/backendLifecycle.ts complete=true
+.. CG-PAGE source=desktop/src/main/backendLifecycle.ts complete=false
 
 *Source file:* ``desktop/src/main/backendLifecycle.ts``
 

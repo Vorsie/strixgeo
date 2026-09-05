@@ -1,7 +1,7 @@
 desktop.main.unreachableActivationRepository
 ============================================
 
-.. CG-PAGE source=desktop/src/main/unreachableActivationRepository.ts complete=true
+.. CG-PAGE source=desktop/src/main/unreachableActivationRepository.ts complete=false
 
 *Source file:* ``desktop/src/main/unreachableActivationRepository.ts``
 

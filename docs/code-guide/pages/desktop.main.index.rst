@@ -1,7 +1,7 @@
 desktop.main.index
 ==================
 
-.. CG-PAGE source=desktop/src/main/index.ts complete=true
+.. CG-PAGE source=desktop/src/main/index.ts complete=false
 
 *Source file:* ``desktop/src/main/index.ts``
 

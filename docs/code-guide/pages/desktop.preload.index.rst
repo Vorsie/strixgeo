@@ -1,7 +1,7 @@
 desktop.preload.index
 =====================
 
-.. CG-PAGE source=desktop/src/preload/index.ts complete=true
+.. CG-PAGE source=desktop/src/preload/index.ts complete=false
 
 *Source file:* ``desktop/src/preload/index.ts``
 

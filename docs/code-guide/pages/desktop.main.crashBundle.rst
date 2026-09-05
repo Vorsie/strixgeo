@@ -1,7 +1,7 @@
 desktop.main.crashBundle
 ========================
 
-.. CG-PAGE source=desktop/src/main/crashBundle.ts complete=true
+.. CG-PAGE source=desktop/src/main/crashBundle.ts complete=false
 
 *Source file:* ``desktop/src/main/crashBundle.ts``
 

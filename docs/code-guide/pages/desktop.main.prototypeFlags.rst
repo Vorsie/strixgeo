@@ -1,7 +1,7 @@
 desktop.main.prototypeFlags
 ===========================
 
-.. CG-PAGE source=desktop/src/main/prototypeFlags.ts complete=true
+.. CG-PAGE source=desktop/src/main/prototypeFlags.ts complete=false
 
 *Source file:* ``desktop/src/main/prototypeFlags.ts``
 

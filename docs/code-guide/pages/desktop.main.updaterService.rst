@@ -1,7 +1,7 @@
 desktop.main.updaterService
 ===========================
 
-.. CG-PAGE source=desktop/src/main/updaterService.ts complete=true
+.. CG-PAGE source=desktop/src/main/updaterService.ts complete=false
 
 *Source file:* ``desktop/src/main/updaterService.ts``
 

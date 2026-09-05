@@ -1,7 +1,7 @@
 desktop.main.embedded.installSecrets
 ====================================
 
-.. CG-PAGE source=desktop/src/main/embedded/installSecrets.ts complete=true
+.. CG-PAGE source=desktop/src/main/embedded/installSecrets.ts complete=false
 
 *Source file:* ``desktop/src/main/embedded/installSecrets.ts``
 

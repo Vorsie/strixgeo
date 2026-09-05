@@ -1,7 +1,7 @@
 desktop.main.bootFailureMessage
 ===============================
 
-.. CG-PAGE source=desktop/src/main/bootFailureMessage.ts complete=true
+.. CG-PAGE source=desktop/src/main/bootFailureMessage.ts complete=false
 
 *Source file:* ``desktop/src/main/bootFailureMessage.ts``
 

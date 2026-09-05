@@ -1,7 +1,7 @@
 desktop.main.pgdataMigration
 ============================
 
-.. CG-PAGE source=desktop/src/main/pgdataMigration.ts complete=true
+.. CG-PAGE source=desktop/src/main/pgdataMigration.ts complete=false
 
 *Source file:* ``desktop/src/main/pgdataMigration.ts``
 

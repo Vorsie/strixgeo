@@ -1,7 +1,7 @@
 desktop.main.embedded.embeddedStack
 ===================================
 
-.. CG-PAGE source=desktop/src/main/embedded/embeddedStack.ts complete=true
+.. CG-PAGE source=desktop/src/main/embedded/embeddedStack.ts complete=false
 
 *Source file:* ``desktop/src/main/embedded/embeddedStack.ts``
 

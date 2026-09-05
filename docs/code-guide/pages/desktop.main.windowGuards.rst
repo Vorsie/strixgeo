@@ -1,7 +1,7 @@
 desktop.main.windowGuards
 =========================
 
-.. CG-PAGE source=desktop/src/main/windowGuards.ts complete=true
+.. CG-PAGE source=desktop/src/main/windowGuards.ts complete=false
 
 *Source file:* ``desktop/src/main/windowGuards.ts``
 

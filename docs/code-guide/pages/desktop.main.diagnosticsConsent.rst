@@ -1,7 +1,7 @@
 desktop.main.diagnosticsConsent
 ===============================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsConsent.ts complete=true
+.. CG-PAGE source=desktop/src/main/diagnosticsConsent.ts complete=false
 
 *Source file:* ``desktop/src/main/diagnosticsConsent.ts``
 

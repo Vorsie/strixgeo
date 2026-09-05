@@ -1,7 +1,7 @@
 desktop.main.atomicWrite
 ========================
 
-.. CG-PAGE source=desktop/src/main/atomicWrite.ts complete=true
+.. CG-PAGE source=desktop/src/main/atomicWrite.ts complete=false
 
 *Source file:* ``desktop/src/main/atomicWrite.ts``
 

@@ -1,7 +1,7 @@
 desktop.main.localClientToken
 =============================
 
-.. CG-PAGE source=desktop/src/main/localClientToken.ts complete=true
+.. CG-PAGE source=desktop/src/main/localClientToken.ts complete=false
 
 *Source file:* ``desktop/src/main/localClientToken.ts``
 

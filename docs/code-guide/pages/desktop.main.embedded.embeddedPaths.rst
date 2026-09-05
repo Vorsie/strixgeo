@@ -1,7 +1,7 @@
 desktop.main.embedded.embeddedPaths
 ===================================
 
-.. CG-PAGE source=desktop/src/main/embedded/embeddedPaths.ts complete=true
+.. CG-PAGE source=desktop/src/main/embedded/embeddedPaths.ts complete=false
 
 *Source file:* ``desktop/src/main/embedded/embeddedPaths.ts``
 

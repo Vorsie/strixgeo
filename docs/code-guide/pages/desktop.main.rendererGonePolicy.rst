@@ -1,7 +1,7 @@
 desktop.main.rendererGonePolicy
 ===============================
 
-.. CG-PAGE source=desktop/src/main/rendererGonePolicy.ts complete=true
+.. CG-PAGE source=desktop/src/main/rendererGonePolicy.ts complete=false
 
 *Source file:* ``desktop/src/main/rendererGonePolicy.ts``
 

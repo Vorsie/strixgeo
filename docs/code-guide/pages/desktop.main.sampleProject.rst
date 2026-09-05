@@ -1,7 +1,7 @@
 desktop.main.sampleProject
 ==========================
 
-.. CG-PAGE source=desktop/src/main/sampleProject.ts complete=true
+.. CG-PAGE source=desktop/src/main/sampleProject.ts complete=false
 
 *Source file:* ``desktop/src/main/sampleProject.ts``
 

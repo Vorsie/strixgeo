@@ -1,7 +1,7 @@
 desktop.main.strixCodec
 =======================
 
-.. CG-PAGE source=desktop/src/main/strixCodec.ts complete=true
+.. CG-PAGE source=desktop/src/main/strixCodec.ts complete=false
 
 *Source file:* ``desktop/src/main/strixCodec.ts``
 

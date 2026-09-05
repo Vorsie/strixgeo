@@ -1,7 +1,7 @@
 desktop.main.quitHandshake
 ==========================
 
-.. CG-PAGE source=desktop/src/main/quitHandshake.ts complete=true
+.. CG-PAGE source=desktop/src/main/quitHandshake.ts complete=false
 
 *Source file:* ``desktop/src/main/quitHandshake.ts``
 

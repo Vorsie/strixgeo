@@ -1,7 +1,7 @@
 desktop.main.diagnosticsUploaderConstants
 =========================================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsUploaderConstants.ts complete=true
+.. CG-PAGE source=desktop/src/main/diagnosticsUploaderConstants.ts complete=false
 
 *Source file:* ``desktop/src/main/diagnosticsUploaderConstants.ts``
 

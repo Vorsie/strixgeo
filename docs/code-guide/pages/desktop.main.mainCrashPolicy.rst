@@ -1,7 +1,7 @@
 desktop.main.mainCrashPolicy
 ============================
 
-.. CG-PAGE source=desktop/src/main/mainCrashPolicy.ts complete=true
+.. CG-PAGE source=desktop/src/main/mainCrashPolicy.ts complete=false
 
 *Source file:* ``desktop/src/main/mainCrashPolicy.ts``
 

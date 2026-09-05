@@ -1,7 +1,7 @@
 desktop.main.packagedProfile
 ============================
 
-.. CG-PAGE source=desktop/src/main/packagedProfile.ts complete=true
+.. CG-PAGE source=desktop/src/main/packagedProfile.ts complete=false
 
 *Source file:* ``desktop/src/main/packagedProfile.ts``
 
