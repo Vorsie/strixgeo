@@ -640,12 +640,12 @@ describe('Geology stage (smoke)', () => {
       expect(screen.queryByRole('dialog')).toBeNull()
       // The Delete model button carries the danger title.
       const deleteBtn = screen.getByTitle(
-        'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+        'Permanently delete the active stratigraphic model and all its formations, contacts, and surfaces',
       )
       fireEvent.click(deleteBtn)
       expect(screen.getByRole('dialog')).toBeTruthy()
       expect(
-        screen.getByRole('heading', { name: /delete geological model/i }),
+        screen.getByRole('heading', { name: /delete stratigraphic model/i }),
       ).toBeTruthy()
     })
 
@@ -659,7 +659,7 @@ describe('Geology stage (smoke)', () => {
         </ShellContext.Provider>,
       )
       const deleteBtn = screen.getByTitle(
-        'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+        'Permanently delete the active stratigraphic model and all its formations, contacts, and surfaces',
       )
       fireEvent.click(deleteBtn)
       expect(screen.getByRole('dialog')).toBeTruthy()
@@ -678,11 +678,11 @@ describe('Geology stage (smoke)', () => {
         </ShellContext.Provider>,
       )
       const deleteBtn = screen.getByTitle(
-        'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+        'Permanently delete the active stratigraphic model and all its formations, contacts, and surfaces',
       )
       fireEvent.click(deleteBtn)
       const confirmBtn = screen.getAllByRole('button', {
-        name: /delete geological model/i,
+        name: /delete stratigraphic model/i,
       })[0]
       fireEvent.click(confirmBtn)
       expect(handleDeleteModel).toHaveBeenCalledTimes(1)
