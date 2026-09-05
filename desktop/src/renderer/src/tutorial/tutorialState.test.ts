@@ -23,6 +23,7 @@ function emptyFacts(): TutorialShellFacts {
       activeGeotechModel: null,
     },
     lifecycle: { currentLumping: null },
+    coordinator: { selectedId: null, selectedBoreholeId: null },
   }
 }
 
@@ -81,6 +82,21 @@ describe('deriveTutorialState', () => {
       deriveTutorialState({ ...emptyFacts(), lifecycle: { currentLumping: { map: {} } } })
         .lumpingCount,
     ).toBe(0)
+  })
+
+  it('flags a CPT chart open and a borehole log open from the selection (owner ruling 7)', () => {
+    // "click a CPT row, the chart opens" → selectedId is set; likewise a
+    // borehole's log via selectedBoreholeId. Both false when nothing is open.
+    expect(deriveTutorialState(emptyFacts()).cptOpen).toBe(false)
+    expect(deriveTutorialState(emptyFacts()).boreholeOpen).toBe(false)
+    expect(
+      deriveTutorialState({ ...emptyFacts(), coordinator: { selectedId: 'c1', selectedBoreholeId: null } })
+        .cptOpen,
+    ).toBe(true)
+    expect(
+      deriveTutorialState({ ...emptyFacts(), coordinator: { selectedId: null, selectedBoreholeId: 'b1' } })
+        .boreholeOpen,
+    ).toBe(true)
   })
 
   it('counts only ACCEPTED litho layers and reads the built-solids flag', () => {
