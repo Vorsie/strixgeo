@@ -39,9 +39,9 @@ export const SETTINGS_NL = {
   'settings.litho.fillAtSectionLineHint':
     'Aan = de lichamen worden op de profiellijn doorgesneden (standaard, doorlopend); Uit = het model wordt op elke proeflocatie bemonsterd (een strook per proef, ruwe meetwaarde).',
   // NOTE: ruled 2026-08-27 — owner chose "Litho↔geologie snappen".
-  'settings.litho.snapTolerance': 'Litho↔geologie snappen (m)',
+  'settings.litho.snapTolerance': 'Litho↔stratigrafie snappen (m)',
   'settings.litho.snapToleranceHint':
-    'Litho- en geologische grenzen die binnen deze afstand van elkaar liggen, worden als hetzelfde vlak beschouwd — ze worden gekoppeld en klikken samen vast, zodat de ene mee verschuift met de andere. Stuurt ook de vraag bij het slepen. Bereik 0,01–5,0 m.',
+    'Litho- en stratigrafische grenzen die binnen deze afstand van elkaar liggen, worden als hetzelfde vlak beschouwd — ze worden gekoppeld en klikken samen vast, zodat de ene mee verschuift met de andere. Stuurt ook de vraag bij het slepen. Bereik 0,01–5,0 m.',
   'settings.litho.autoCorrelateWindow': 'Dieptevenster voor autocorrelatie (m)',
   'settings.litho.autoCorrelateWindowHint':
     'Hoeveel twee laaggrenzen op naburige proeven in diepte mogen verschillen en toch nog automatisch gecorreleerd worden (verder versoepeld naargelang de horizontale afstand). Verbreed het om correlaties over hellende lagen mee te nemen; versmal het om losse verbanden te weren. Autocorrelatie koppelt altijd enkel naburige proeven, nooit over een tussenliggende proef heen. Bereik {min}–{max} m. Standaard {default} m.',
@@ -53,7 +53,7 @@ export const SETTINGS_NL = {
     'Celafmetingen die de knop "Model bouwen" in de lithologiestap gebruikt om de 3D-ruimte te labelen op basis van de profielverdelingen.',
   'settings.litho.voxelHorizontal': 'Horizontale cel (X/Y) (m)',
   'settings.litho.voxelHorizontalHint':
-    'Voxelgrootte in het kaartvlak (X/Y). De geologie verandert horizontaal traag, dus dit mag grof blijven. Kleinere waarden maken de zijranden van lichamen scherper, tegen een kwadratisch stijgend aantal voxels. Bereik {min}–{max} m. Standaard {default} m.',
+    'Voxelgrootte in het kaartvlak (X/Y). De stratigrafie verandert horizontaal traag, dus dit mag grof blijven. Kleinere waarden maken de zijranden van lichamen scherper, tegen een kwadratisch stijgend aantal voxels. Bereik {min}–{max} m. Standaard {default} m.',
   'settings.litho.voxelVertical': 'Verticale cel (Z) (m)',
   'settings.litho.voxelVerticalHint':
     'Voxelgrootte in de hoogte. Een fijne Z pikt dunne lagen op — een veenlaagje of een zandlens — die een grof raster mist. Maar het vermenigvuldigt de rekentijd: 0,5 m geeft ruwweg 4× zoveel voxels (en minuten rekentijd) als een kubisch raster van 2 m, dus grijp er enkel naar wanneer dunne lagen ertoe doen. Bereik {min}–{max} m. Standaard {default} m.',
