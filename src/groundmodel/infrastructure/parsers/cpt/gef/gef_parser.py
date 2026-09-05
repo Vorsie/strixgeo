@@ -28,9 +28,9 @@ from groundmodel.infrastructure.parsers.cpt.gef.gef_crs_codes import (
 )
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.crs_bounds_issue import make_crs_bounds_issue
+from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
