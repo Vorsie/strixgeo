@@ -19,7 +19,7 @@ from groundmodel.domain.value_objects.field_log_kind import FieldLogKind
 from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_parser import (
     DovBoringParser,
 )
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 
 _NS = "http://kern.schemas.dov.vlaanderen.be"
