@@ -6,11 +6,19 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 from groundmodel.domain.services.nad_admixture_choice import NadAdmixtureChoice
 from groundmodel.domain.services.nad_classifier import class_belongs_to_soil, soil_family_of
+from groundmodel.domain.services.nad_soil_parameters_constants import parameters_for_class
 
 
 class GeologicalFormationCreateRequest(StrictRequestModel):
@@ -154,6 +162,30 @@ class GeologicalFormationUpdateRequest(StrictRequestModel):
     nad_admixture_choice: NadAdmixtureChoice | None = None
 
 
+class NadSoilParametersResponse(BaseModel):
+    """The NAD table's characteristic values for one packing class.
+
+    A read-only projection of
+    :class:`groundmodel.domain.services.nad_soil_parameters_constants.NadSoilParameters`
+    onto the API — the five values the Parameters pane's "NAD characteristic
+    values" block shows (owner ruling 2026-09-05). Every value is a
+    characteristic value transcribed from NBN EN 1997-1 ANB Tabel 2.1, not a
+    design value and not a Strix-computed correlation.
+    """
+
+    #: Unit weight above the phreatic level (unsaturated / "dry"), kN/m³.
+    gamma_unsat_kn_m3: float
+    #: Unit weight below the phreatic level (saturated / "wet"), kN/m³.
+    gamma_sat_kn_m3: float
+    #: Effective angle of internal friction φ′, degrees.
+    phi_deg: float
+    #: Effective cohesion c′, kPa.
+    c_kpa: float
+    #: Characteristic undrained shear strength cu, kPa; ``None`` for the
+    #: granular classes where the table carries a dash.
+    cu_kpa: float | None
+
+
 class GeologicalFormationResponse(BaseModel):
     """API representation of a GeologicalFormation row.
 
@@ -232,3 +264,26 @@ class GeologicalFormationResponse(BaseModel):
     parent_formation_code: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def nad_parameters(self) -> NadSoilParametersResponse | None:
+        """NAD characteristic values for this unit's packing class, or ``None``.
+
+        Compute-on-read (Data Integrity Rule §1): derived from the already-present
+        ``nad_class`` via the one shared table accessor
+        (:func:`parameters_for_class`) — the same row the D-Series exporters read.
+        ``None`` on a geological / litho unit (no class) and on a class with no
+        transcribed row. Additive and optional, so a pre-change client that never
+        reads the field is unaffected (API rule: additive only).
+        """
+        params = parameters_for_class(self.nad_class)
+        if params is None:
+            return None
+        return NadSoilParametersResponse(
+            gamma_unsat_kn_m3=params.gamma_unsat_kn_m3,
+            gamma_sat_kn_m3=params.gamma_sat_kn_m3,
+            phi_deg=params.phi_deg,
+            c_kpa=params.c_kpa,
+            cu_kpa=params.cu_kpa,
+        )
