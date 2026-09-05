@@ -554,7 +554,7 @@ describe('LithologyInspector (Slice C, #55)', () => {
     const ctx = makeCtx({ activeGeologicalModel: null })
     renderInspector(ctx)
 
-    expect(screen.getByText(/create a geological model first/i)).toBeInTheDocument()
+    expect(screen.getByText(/create a stratigraphic model first/i)).toBeInTheDocument()
     // ModelKindPicker should NOT render â€” the geological model gate fires first.
     expect(screen.queryByTestId('model-kind-picker')).not.toBeInTheDocument()
   })
