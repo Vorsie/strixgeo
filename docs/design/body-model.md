@@ -77,10 +77,15 @@ plan: `docs/superpowers/plans/2026-06-06-body-extent-retirement.md`.
 
 ## Behavioral rules that survived the refactors
 
-* **Lens detection is an EXPLICIT verb** (owner directive 2026-05-31): no use
-  case auto-fires `DetectLithoLenses`. `POST
-  .../geology/models/{mid}/lenses/detect` + the toolbar "Detect lenses" verb
-  are the only triggers. "No side-effects beyond the gesture."
+* **Lens detection runs inside the reconcile; there is no hand-run verb**
+  (owner ruling 2026-09-05). Lenses flow out of the 2/1/0 partition fill, so
+  the backend detector needs no button: it fires automatically inside the
+  correlation-mutating transactions (the ordinal resolver + lens detector run
+  in `contact_correlations.py` after an accept/flip) and in the startup sweep.
+  `POST .../geology/models/{mid}/lenses/detect` survives as that reconcile's
+  routine — the 3-D build depends on the body rows it maintains — but nothing
+  in the UI drives it. The toolbar "Detect lenses" / "Delete all detected
+  lenses" verbs were retired 2026-06-06.
 * **Bilateral closure required**: a candidate body must pinch out on ≥2
   distinct target investigations to fire as a lens; a unilateral single-target
   closure is not a lens.
