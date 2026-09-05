@@ -1,7 +1,7 @@
 // Guided-tutorial copy (debt #93, owner ruling 24; spec
 // docs/superpowers/specs/2026-09-02-guided-tutorial-design.md).
 //
-// Part of the English message catalogue — see 'locales/en/index.ts' for the
+// Part of the English message catalogue, see 'locales/en/index.ts' for the
 // key-naming rules. Keys are `tutorial.chapter.<n>`, `tutorial.<stepId>.title|body`
 // and `tutorial.ui.*` for the coach-card chrome.
 //
@@ -29,31 +29,31 @@ export const TUTORIAL = {
   'tutorial.ui.finish': 'Finish',
   'tutorial.ui.watchClip': 'Watch the clip',
   'tutorial.ui.progress': 'Chapter {chapter} of {chapterCount} · Step {step} of {stepCount}',
-  'tutorial.ui.doItHint': 'Do this in the app — the tutorial moves on by itself when you do.',
+  'tutorial.ui.doItHint': 'Do this in the app, the tutorial moves on by itself when you do.',
   'tutorial.ui.openTab': 'Open the highlighted tab to find this control.',
-  'tutorial.ui.offscreen': "The control isn't on screen right now — the tip stays here until it is.",
+  'tutorial.ui.offscreen': "The control isn't on screen right now, the tip stays here until it is.",
 
   // 1 · Your project --------------------------------------------------------
   'tutorial.project-name.title': 'Name your project',
   'tutorial.project-name.body':
-    "Every project starts with a name. Use something you'll recognise later — your job number and the site, like GEO-22/040 Brugge. Client, phase and other details can be added afterwards.",
+    "Every project starts with a name. Use something you'll recognise later, your job number and the site, like GEO-22/040 Brugge. Client, phase and other details can be added afterwards.",
   'tutorial.project-create.title': 'Create the project',
   'tutorial.project-create.body':
     'Click Create project to open it. From here on every CPT, borehole, section and model lives inside this project and is saved with it.',
   'tutorial.project-metadata.title': 'Open the project settings',
   'tutorial.project-metadata.body':
-    'Your coordinate system and vertical datum live in the project settings. Click the project name at the top of the window to open them — the same panel where you edit the client, site and tags later.',
+    'Your coordinate system and vertical datum live in the project settings. Click the project name at the top of the window to open them, the same panel where you edit the client, site and tags later.',
   'tutorial.project-crs.title': 'Set the coordinate system',
   'tutorial.project-crs.body':
     'Open the project metadata and choose the horizontal CRS: Lambert 72 (EPSG 31370) for Belgium, RD New (EPSG 28992) for the Netherlands. It must match how your data was surveyed, or every location lands in the wrong place.',
   'tutorial.project-datum.title': 'Set the vertical datum',
   'tutorial.project-datum.body':
-    'The vertical datum is the zero that every elevation is measured from — TAW in Belgium, NAP in the Netherlands. Pick the one your levels use so depths and surface heights read correctly across the whole model.',
+    'The vertical datum is the zero that every elevation is measured from, TAW in Belgium, NAP in the Netherlands. Pick the one your levels use so depths and surface heights read correctly across the whole model.',
 
   // 2 · Import --------------------------------------------------------------
   'tutorial.import-open.title': 'The Import menu',
   'tutorial.import-open.body':
-    'This is where data comes in. Open it to see every importer StrixGeo offers today — CPTs and boreholes, from local files or straight from DOV.',
+    'This is where data comes in. Open it to see every importer StrixGeo offers today, CPTs and boreholes, from local files or straight from DOV.',
   'tutorial.import-cpt-dov.title': 'Import CPTs from DOV',
   'tutorial.import-cpt-dov.body':
     "Choose 'Import CPT from DOV', then drag a box on the map. Every sounding DOV holds inside that box streams in with its depth series and location. This step ticks itself once your first CPT lands.",
@@ -65,24 +65,24 @@ export const TUTORIAL = {
     'Switch between CPTs and boreholes here. Each tab shows only that kind of investigation, so you can work through one type at a time.',
   'tutorial.import-hide.title': 'Hide a test',
   'tutorial.import-hide.body':
-    "Not every sounding belongs in your dataset. Remove one to hide it from this project — a reversible, project-local hide you can restore any time. The data itself is never deleted.",
+    "Not every sounding belongs in your dataset. Remove one to hide it from this project, a reversible, project-local hide you can restore any time. The data itself is never deleted.",
   'tutorial.import-borehole-dov.title': 'Import boreholes from DOV',
   'tutorial.import-borehole-dov.body':
     "Boreholes come in the same way: choose 'Import Borehole from DOV' and draw a box on the map. This step ticks once your first borehole lands.",
   'tutorial.import-gef.title': 'Import local GEF files',
   'tutorial.import-gef.body':
-    "Have CPTs on disk? 'Import CPT (.gef)' reads standard GEF files straight from your computer — useful for soundings that are not in DOV.",
+    "Have CPTs on disk? 'Import CPT (.gef)' reads standard GEF files straight from your computer, useful for soundings that are not in DOV.",
   'tutorial.import-more.title': 'More sources are coming',
   'tutorial.import-more.body':
-    "DMT, lab tests and monitoring data are on the roadmap — you'll see them marked 'Phase 4' in the menu for now.",
+    "DMT, lab tests and monitoring data are on the roadmap, you'll see them marked 'Phase 4' in the menu for now.",
   'tutorial.import-closing.title': 'Need another format?',
   'tutorial.import-closing.body':
-    'More importers are coming, depending on what you need — send the file formats you use to StrixGeo and we build the parser.',
+    'More importers are coming, depending on what you need, send the file formats you use to StrixGeo and we build the parser.',
 
   // 3 · Cross-sections ------------------------------------------------------
   'tutorial.section-create.title': 'Create a cross-section',
   'tutorial.section-create.body':
-    'A cross-section is where you build and edit all three models. Create your first one — draw the line through the investigations you want to correlate. Once it opens, double-click any column to read that test in full detail. This step ticks once a section exists.',
+    'A cross-section is where you build and edit all three models. Create your first one, draw the line through the investigations you want to correlate. Once it opens, double-click any column to read that test in full detail. This step ticks once a section exists.',
   'tutorial.section-buffer.title': 'Projection buffer',
   'tutorial.section-buffer.body':
     'The buffer is how far to either side of the section line a test can sit and still be projected onto it. Widen it to catch more soundings, narrow it to keep only the ones right on the line.',
@@ -91,13 +91,13 @@ export const TUTORIAL = {
     'Spacing spreads the projected columns apart so overlapping tests stop hiding each other. At 0% each test sits at its true along-section position; higher values trade that for legibility.',
   'tutorial.section-vexag.title': 'Vertical exaggeration',
   'tutorial.section-vexag.body':
-    'Ground is far wider than it is deep, so thin layers vanish at true scale. Vertical exaggeration stretches the depth axis to make them readable — only the drawing is stretched, the numbers stay real.',
+    'Ground is far wider than it is deep, so thin layers vanish at true scale. Vertical exaggeration stretches the depth axis to make them readable, only the drawing is stretched, the numbers stay real.',
   'tutorial.section-channels.title': 'CPT data channels',
   'tutorial.section-channels.body':
-    'Toggle the CPT traces — qc, Rf, fs, u2 and qT — to show only the ones you are reading. Fewer channels means a cleaner column when you correlate layers.',
+    'Toggle the CPT traces, qc, Rf, fs, u2 and qT, to show only the ones you are reading. Fewer channels means a cleaner column when you correlate layers.',
   'tutorial.section-boreholes.title': 'Borehole interpretation streams',
   'tutorial.section-boreholes.body':
-    'A borehole can carry several interpretation streams. Toggle Geo (geotechnical coding), F-Strat (formal stratigraphy) and I-Strat (informal stratigraphy) next to the CPT channels — each stream you turn on draws as its own strip beside the borehole. Geo is on by default.',
+    'A borehole can carry several interpretation streams. Toggle Geo (geotechnical coding), F-Strat (formal stratigraphy) and I-Strat (informal stratigraphy) next to the CPT channels, each stream you turn on draws as its own strip beside the borehole. Geo is on by default.',
   'tutorial.section-axis.title': 'Model axis',
   'tutorial.section-axis.body':
     'The same section edits all three levels. Switch the axis between Stratigraphy, Litho and Geotech to work on each model in turn without leaving the section.',
@@ -149,10 +149,10 @@ export const TUTORIAL = {
     'The lithological model refines the stratigraphic backbone into lithological units. Think sand, clay, silt, gravel and peat, with their admixtures. You build it along your cross-sections, one column at a time.',
   'tutorial.litho-create.title': 'Create a lithological model',
   'tutorial.litho-create.body':
-    'The litho model is a separate ground-model axis under the stratigraphic one. Create it first — until it exists there is nothing to pick litho contacts onto. Give it a name and it becomes the active litho model.',
+    'The litho model is a separate ground-model axis under the stratigraphic one. Create it first, until it exists there is nothing to pick litho contacts onto. Give it a name and it becomes the active litho model.',
   'tutorial.litho-axis.title': 'Switch to the litho axis',
   'tutorial.litho-axis.body':
-    'Open a cross-section and switch its axis to Litho. The same section now edits the litho model instead of the stratigraphy — every suggestion and correlation you make from here belongs to the litho model.',
+    'Open a cross-section and switch its axis to Litho. The same section now edits the litho model instead of the stratigraphy, every suggestion and correlation you make from here belongs to the litho model.',
   'tutorial.litho-accept.title': 'Accept the suggestions',
   'tutorial.litho-accept.body':
     'The segmenter proposes litho layers on each column, reading the CPT with a Robertson classification. Accept the ones that match what you see. This is assisted work, not automatic correlation, so you stay in control of every layer. This step ticks once you accept your first suggestion.',
