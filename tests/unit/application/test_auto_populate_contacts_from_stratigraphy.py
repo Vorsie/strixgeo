@@ -431,6 +431,100 @@ async def test_execute_selected_keys_none_processes_all():
 
 
 @pytest.mark.asyncio
+async def test_execute_pins_antropogeen_youngest_when_a_sibling_is_uncatalogued():
+    """Owner ruling (2026-09-05): Antropogeen is the youngest formation
+    whenever it is present, regardless of which boreholes log it.
+
+    Reproduces the "Fill from boreholes" bug: Pleistoceen has no G3Dv3
+    catalog entry by name, so the all-or-nothing catalog gate drops the
+    batch to the mean-depth heuristic and discards Antropogeen's known
+    age_rank 0. Here Antropogeen's only observed top (2.0 m) is deeper
+    than Pleistoceen's (0.0 m), so pure mean-depth would rank Antropogeen
+    OLDEST (lowest display_order) — Antropogeen below Pleistoceen. The
+    anthropogenic pin must instead give Antropogeen the highest
+    display_order (youngest).
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    bh_pleistoceen = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Pleistoceen")],
+            )
+        ]
+    )
+    bh_antropogeen = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=2.0, base_m=5.0, description="Antropogeen")],
+            )
+        ]
+    )
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [bh_pleistoceen, bh_antropogeen]
+    empty_formations_result = MagicMock()
+    empty_formations_result.scalars.return_value.all.return_value = []
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = -1  # coalesce default → base 0
+    empty_contacts_result = MagicMock()
+    empty_contacts_result.all.return_value = []
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return empty_formations_result
+        if call_count == 3:
+            return max_order_result
+        if call_count == 4:
+            return empty_contacts_result
+        return empty_contacts_result
+
+    # session.new must reflect the rows execute() actually adds, so the
+    # ordering block (which iterates session.new) can set display_order.
+    added_objects: list = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock(side_effect=added_objects.append)
+    session.new = added_objects
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh_pleistoceen.id, bh_antropogeen.id],
+            selected_keys=None,
+        )
+
+    formations = {f.name: f for f in added_objects if isinstance(f, GeologicalFormationOrm)}
+    assert set(formations) == {"Pleistoceen", "Antropogeen"}
+    # Higher display_order = younger. Antropogeen must outrank Pleistoceen.
+    assert formations["Antropogeen"].display_order > formations["Pleistoceen"].display_order
+
+
+@pytest.mark.asyncio
 async def test_execute_create_missing_formations_false_skips_unmatched():
     """Sections "Seed from stratigraphy" path (create_missing_formations=False).
 
