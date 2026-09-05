@@ -390,8 +390,8 @@ describe('App (smoke)', () => {
     const { findByText } = render(<App />)
 
     // StageSpine renders a button per stage with its spineLabel. Seeing
-    // "Geology" proves AppShell + the spine mounted past the project gate.
-    const spineLabel = await findByText('Geology')
+    // "Stratigraphy" proves AppShell + the spine mounted past the project gate.
+    const spineLabel = await findByText('Stratigraphy')
     expect(spineLabel).toBeInTheDocument()
 
     expect(consoleErrorSpy).not.toHaveBeenCalled()
@@ -424,7 +424,7 @@ describe('App (smoke)', () => {
 
     const { findByText, queryByTestId } = render(<App />)
     // Wait for the shell so the detection effect has had its chance to run.
-    await findByText('Geology')
+    await findByText('Stratigraphy')
     await waitFor(() => expect(consoleWarnSpy).toHaveBeenCalled())
     expect(queryByTestId('recovery-prompt-dialog')).not.toBeInTheDocument()
   })
