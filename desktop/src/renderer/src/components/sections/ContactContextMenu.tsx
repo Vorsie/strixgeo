@@ -110,17 +110,21 @@ export default function ContactContextMenu({
       onClose={onClose}
       items={[
         onEditInGeologyStage && {
-          label: 'Edit in Geology stage',
+          // Display rename (owner 2026-09-05): the stage reads "Stratigraphy".
+          // NOTE: this whole menu hard-codes English labels instead of using
+          // t() — a pre-existing i18n gap (the sections.menu.* catalogue keys
+          // go unused here). Wiring it through useT is left as a follow-up.
+          label: 'Edit in Stratigraphy stage',
           onClick: onEditInGeologyStage,
           testid: 'geo-deep-link-menu-item',
         },
         onLinkLithoToGeo && {
-          label: 'Link to geology',
+          label: 'Link to stratigraphy',
           onClick: onLinkLithoToGeo,
           testid: 'link-geo-menu-item',
         },
         onUnlinkLithoFromGeo && {
-          label: 'Unlink from geology',
+          label: 'Unlink from stratigraphy',
           onClick: onUnlinkLithoFromGeo,
           testid: 'unlink-geo-menu-item',
         },
