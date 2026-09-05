@@ -168,12 +168,12 @@ export const PANELS = {
   'composition.editSuggestionTitle': 'Edit suggestion composition',
   'composition.within': 'within:',
   'composition.parentAutoResolved':
-    'The parent geological formation is resolved automatically when the contact is committed. If no geology is mapped here, the unit appears under "Unassigned".',
+    'The parent stratigraphic formation is resolved automatically when the contact is committed. If no stratigraphy is mapped here, the unit appears under "Unassigned".',
   'composition.unassigned': 'Unassigned',
   'composition.tabExisting': 'Existing units',
   'composition.tabNew': 'New unit',
   'composition.noUnitsInFormation':
-    'No litho units in this geological formation yet — use the "New unit" tab to create one.',
+    'No litho units in this stratigraphic formation yet — use the "New unit" tab to create one.',
   'composition.noUnitsInModel':
     'No litho units in this model yet — use the "New unit" tab to create the first one.',
   'composition.under': 'under {name}',
@@ -194,7 +194,7 @@ export const PANELS = {
   'formation.editTitle': 'Edit formation',
   'formation.newTitle': 'New formation',
   'formation.dialogBlurb':
-    'A formation is a substrate unit you reference in the geological model — e.g.',
+    'A formation is a substrate unit you reference in the stratigraphic model — e.g.',
   'formation.exampleQuaternary': 'Quaternary deposits',
   'formation.colour': 'Colour',
   'formation.regionalReference': 'Regional reference',
@@ -239,11 +239,11 @@ export const PANELS = {
     'auto-correlation edge on this section. What would you like to do?',
   'dialog.reCorrelateBodyPostMany':
     'auto-correlation edges on this section. What would you like to do?',
-  'dialog.snapTitle': 'Snap to geological contact?',
-  'dialog.snapLithoToGeo': 'Snap litho to geological',
-  'dialog.snapGeoToLitho': 'Move geological to litho',
+  'dialog.snapTitle': 'Snap to stratigraphic contact?',
+  'dialog.snapLithoToGeo': 'Snap litho to stratigraphic',
+  'dialog.snapGeoToLitho': 'Move stratigraphic to litho',
   'dialog.snapKeepSeparate': 'Cancel — keep separate',
-  'dialog.snapPickContact': 'Pick a geological contact',
+  'dialog.snapPickContact': 'Pick a stratigraphic contact',
   'dialog.copyCompositionTitle': 'Replace target composition?',
   'dialog.copyCompositionReplace': 'Replace',
   'dialog.copyCompositionFrom': 'From:',
