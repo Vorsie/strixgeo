@@ -37,6 +37,21 @@ F_NEW = uuid4()
 CONTACT = uuid4()
 
 
+def _mock_session() -> AsyncMock:
+    """An AsyncMock session whose ``execute()`` Result is synchronous.
+
+    ``UpdateFormationContact`` takes the body-partition lock, which does
+    ``(await session.execute(...)).scalar_one()``. On a bare ``AsyncMock()`` the
+    awaited ``execute`` result is itself an AsyncMock, so ``.scalar_one()`` — a
+    SYNC ``Result`` method — hands back an un-awaited coroutine ("coroutine was
+    never awaited"). Wiring ``execute`` to return a ``MagicMock`` keeps the sync
+    Result methods synchronous. ``execute`` itself stays an AsyncMock (awaitable).
+    """
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=MagicMock())
+    return session
+
+
 def _use_case(session: AsyncMock) -> UpdateFormationContact:
     uc = UpdateFormationContact(session)
     uc._repo = AsyncMock()
@@ -46,7 +61,7 @@ def _use_case(session: AsyncMock) -> UpdateFormationContact:
 @pytest.mark.asyncio
 async def test_returns_none_when_row_vanished_pre_update() -> None:
     """Row gone before the update (TOCTOU) → None, no repo call."""
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=None)
     uc = _use_case(session)
 
@@ -72,7 +87,7 @@ async def test_within_formation_edit_flips_one_pair() -> None:
         cpt_id=None,
     )
     updated = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=pre)
     uc = _use_case(session)
     uc._repo.update_contact = AsyncMock(return_value=updated)
@@ -93,7 +108,7 @@ async def test_reanchor_to_new_formation_flips_both_pairs() -> None:
     """Moving the contact to a new formation flips new then old pair."""
     pre = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
     updated = SimpleNamespace(model_id=MODEL, formation_id=F_NEW)
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=pre)
     uc = _use_case(session)
     uc._repo.update_contact = AsyncMock(return_value=updated)
@@ -116,7 +131,7 @@ async def test_returns_none_when_row_vanished_mid_update() -> None:
         borehole_id=None,
         cpt_id=None,
     )
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=pre)
     uc = _use_case(session)
     uc._repo.update_contact = AsyncMock(return_value=None)
@@ -151,7 +166,7 @@ def _make_peer_session(pre: SimpleNamespace, peers: list[SimpleNamespace]) -> As
     AsyncMock
         Configured session mock.
     """
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=pre)
 
     # session.execute() returns an object whose .scalars().all() returns peers.
