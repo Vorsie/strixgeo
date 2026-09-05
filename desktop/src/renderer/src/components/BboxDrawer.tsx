@@ -13,6 +13,16 @@ interface Props {
  * When `active`, changes the cursor to crosshair and lets the user drag out
  * a rectangle.  On mouseup it fires onBboxDrawn with WGS84 (west, south, east, north).
  * Press Escape or release outside the bbox area to cancel.
+ *
+ * The move/up leg of the gesture is tracked on ``document`` rather than
+ * only on the Leaflet map. A pointer that wanders over an overlay above
+ * the map — e.g. the tutorial coach card, which is ``pointer-events:auto``
+ * and sits on top — delivers its ``mousemove``/``mouseup`` to document,
+ * never to the map container. Listening only to ``map.on('mouseup')``
+ * therefore stranded the draw with dragging left disabled when the release
+ * landed on the coach card (owner dogfeed 2026-09-05). Mirroring the
+ * document-scoped marquee used elsewhere in MapView keeps the gesture
+ * robust to any overlay.
  */
 export default function BboxDrawer({ active, onBboxDrawn, onCancel }: Props) {
   const map = useMap()
@@ -25,7 +35,12 @@ export default function BboxDrawer({ active, onBboxDrawn, onCancel }: Props) {
     map.dragging.disable()
     const container = map.getContainer()
     container.style.cursor = 'crosshair'
+    // Guards against cleanup running twice (e.g. Escape's manual cleanup
+    // followed by React tearing the effect down when ``active`` flips).
+    let torndown = false
 
+    // The draw STARTS on a Leaflet map event so it only begins on a
+    // press inside the map (a press on an overlay must not start a box).
     const onMouseDown = (e: L.LeafletMouseEvent) => {
       startRef.current = e.latlng
       rectRef.current?.remove()
@@ -42,14 +57,18 @@ export default function BboxDrawer({ active, onBboxDrawn, onCancel }: Props) {
       }).addTo(map)
     }
 
-    const onMouseMove = (e: L.LeafletMouseEvent) => {
+    // Move + up are document-scoped native handlers so the gesture keeps
+    // working when the pointer leaves the map onto an overlay. The
+    // container point is derived from the native event via the map, so an
+    // off-map release still yields a real bbox corner.
+    const onMouseMove = (e: MouseEvent) => {
       if (!startRef.current || !rectRef.current) return
-      rectRef.current.setBounds(L.latLngBounds(startRef.current, e.latlng))
+      rectRef.current.setBounds(L.latLngBounds(startRef.current, map.mouseEventToLatLng(e)))
     }
 
-    const onMouseUp = (e: L.LeafletMouseEvent) => {
+    const onMouseUp = (e: MouseEvent) => {
       if (!startRef.current) return
-      const bounds = L.latLngBounds(startRef.current, e.latlng)
+      const bounds = L.latLngBounds(startRef.current, map.mouseEventToLatLng(e))
       cleanup()
       if (bounds.isValid()) {
         const sw = bounds.getSouthWest()
@@ -68,20 +87,31 @@ export default function BboxDrawer({ active, onBboxDrawn, onCancel }: Props) {
     }
 
     function cleanup() {
+      if (torndown) return
+      torndown = true
       map.off('mousedown', onMouseDown)
-      map.off('mousemove', onMouseMove)
-      map.off('mouseup', onMouseUp)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
       document.removeEventListener('keydown', onKeyDown)
-      map.dragging.enable()
-      container.style.cursor = ''
+      // The map may already be gone (view switched, MapContainer unmounted,
+      // container reused) by the time a late close fires; guard the Leaflet
+      // teardown so closing the draw can never throw.
+      try {
+        if (map.getContainer()) {
+          map.dragging.enable()
+          container.style.cursor = ''
+        }
+      } catch {
+        // Map already removed — nothing left to restore.
+      }
       rectRef.current?.remove()
       rectRef.current = null
       startRef.current = null
     }
 
     map.on('mousedown', onMouseDown)
-    map.on('mousemove', onMouseMove)
-    map.on('mouseup', onMouseUp)
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
     document.addEventListener('keydown', onKeyDown)
 
     return cleanup
