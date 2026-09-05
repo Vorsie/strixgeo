@@ -60,7 +60,7 @@ export default function VirtueleBoringStrip({
   onChangeShowOnSection,
 }: Props): JSX.Element {
   const [open, setOpen] = useState(modelA !== null || modelB !== null)
-  const catalog = useVirtueleBoringCatalog(open)
+  const { catalog } = useVirtueleBoringCatalog(open)
   const t = useT()
   // Local-then-commit pattern for the depth input — the input shows
   // whatever the user is typing immediately, but the actual overlay
