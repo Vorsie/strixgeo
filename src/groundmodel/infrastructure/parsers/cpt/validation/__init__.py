@@ -1,5 +1,5 @@
-"""Validation severity and issue types shared across all CPT parsers."""
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+"""Back-compat shim: validation package moved to ``parsers.validation`` (shared by all parsers)."""
+
+from groundmodel.infrastructure.parsers.validation import ValidationIssue, ValidationLevel
 
 __all__ = ["ValidationIssue", "ValidationLevel"]
