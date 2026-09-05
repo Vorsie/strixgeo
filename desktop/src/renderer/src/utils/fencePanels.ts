@@ -46,6 +46,9 @@ export interface FenceRegion {
 export interface FencePanel {
   formationId: string
   bodyId: string | null
+  /** The cross-section this wall was built from; the DXF fence export puts each
+   *  section on its own layer (owner ruling 2026-09-05). Optional: legacy callers. */
+  sectionId?: string
   /** Source layer ids — see {@link FenceRegion.layerIds}; additive, optional. */
   layerIds?: readonly string[]
   vertices: [number, number, number][]
