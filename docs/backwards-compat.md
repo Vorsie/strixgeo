@@ -4,29 +4,26 @@
 
 ## Backwards Compatibility — non-negotiable from now on
 
-> **⚠ SUSPENDED during pre-ship development (owner directive 2026-05-16).**
-> The product has no external/paid users yet (internal/coworker handoff
-> only — see ``memory/project_coworker_distribution.md``). While
-> pre-ship, schema / API / ``.gmproj`` shapes may change cleanly: no
-> optional/null compatibility shims, no ``format_version`` upgrade
-> chain, no additive-only tax. This is an extension of the original
-> "v1/v2 were dev-only, removed under a one-time amnesty" stance to the
-> whole current dev window.
+> **RE-ARMED 2026-09-05 (owner: "back compatibility on").** The trigger below
+> fired: installer #17 is the first build handed to people outside the dev
+> machine to save real projects with (the closed beta). The suspension of
+> 2026-05-16 ("schema / API / `.gmproj` shapes may change cleanly, no shims,
+> no upgrade chain") is over. **Floor = what #17 emits:** backend bundle
+> `format_version = 4` (`SUPPORTED_BUNDLE_VERSIONS = {3, 4}` in
+> `shared/bundle_format.py`), `.strix` `PROJECT_FILE_FORMAT_VERSION = 3`
+> (`desktop/src/renderer/src/utils/projectFile.ts`), activation store
+> `ACTIVATION_FORMAT_VERSION = 1`, Alembic head as of `develop` at #17.
 >
-> **Re-arm trigger (the most important field):** the first time a build
-> is handed to anyone outside this dev machine *as a thing they will
-> save real projects with* — i.e. day-1 of the first external/paid
-> distribution (ties to debt #3 license keys + the coworker-binary
-> path). At that moment: restore this section in full, set the
-> ``format_version`` floor to whatever the shipped build emits, and
-> every rule below becomes non-negotiable again from that floor
-> forward. Until then, do not spend effort on compat shims — but also
-> do not gratuitously churn stable internal/API names just because you
-> can (rename only when there is a user-visible reason; e.g. the
-> Stratigraphy/3D-model relabel stays presentation-only).
+> From this floor forward every rule below is non-negotiable: a `.strix`
+> written by any beta build opens in every later build; schema and API
+> changes are additive (new columns nullable or defaulted, new fields
+> optional); removing or repurposing anything needs a deprecation cycle;
+> a version bump needs an upgrade step and a restore test for the old
+> shape. Beta testers save real projects with this build, so the cost of
+> a broken restore is now a person's work, not a re-import.
 
-The rules below are the contract **once the trigger above fires.** They
-are retained verbatim so re-arming is a revert, not a redesign.
+The rules below are the contract. They were retained verbatim during the
+suspension so re-arming was a revert, not a redesign.
 
 User-owned artefacts have to keep working across upgrades. "Forever"
 isn't rhetorical — the user paid the cost of saving the file once and
