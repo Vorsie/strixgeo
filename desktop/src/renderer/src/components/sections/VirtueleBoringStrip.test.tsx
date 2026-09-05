@@ -20,7 +20,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import VirtueleBoringStrip from './VirtueleBoringStrip'
 
 vi.mock('../../hooks/useVirtueleBoringCatalog', () => ({
-  useVirtueleBoringCatalog: () => null,
+  useVirtueleBoringCatalog: () => ({ catalog: null, failed: false, status: null }),
 }))
 
 /** Render with the picker already expanded (a non-null model opens it). */
