@@ -98,6 +98,12 @@ describe('buildFenceExportRequest', () => {
     expect(req.panels[1].color).toBe('#123456')
   })
 
+  it("carries each panel's section id as section_id, null when the panel has none", () => {
+    const req = buildFenceExportRequest([panel('f1', { sectionId: 'cs-1' }), panel('f1')], [formation('f1')])
+    expect(req.panels[0].section_id).toBe('cs-1')
+    expect(req.panels[1].section_id).toBeNull()
+  })
+
   it('drops panels with nothing to draw', () => {
     // A wall with no vertices, or vertices but no faces, contributes no
     // geometry — exporting it creates an empty CAD layer that reads as a
