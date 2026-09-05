@@ -157,7 +157,7 @@ export default function GeotechnicalInspector(): JSX.Element {
       : null
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-3 p-3" data-testid="geotech-units-roster">
       <div className="text-xs font-semibold text-text-primary">{t('geotech.units')}</div>
 
       {geotechFormations.length === 0 ? (
