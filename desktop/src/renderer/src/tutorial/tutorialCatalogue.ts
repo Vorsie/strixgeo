@@ -1,18 +1,28 @@
 // The guided tutorial as data — chapters and steps (spec §Architecture).
 //
-// A step is a pure record: which control to spotlight (`anchor` = a
-// `data-testid`), how it completes (`done`), where its copy lives (`titleKey` /
-// `bodyKey`), and which stage owns the anchor (`stage`, so the card can say
-// "open the … tab" when the control is off-screen).
+// A step is a pure record: which control to spotlight, how it completes
+// (`done`), where its copy lives (`titleKey` / `bodyKey`), and which stage owns
+// the anchor (`stage`).
 //
-// Chapters 1-3 carry full drafted copy; chapters 4-8 carry step skeletons with
-// one-sentence drafts, so the walk runs end to end and the owner's review is a
-// copy pass (spec §"Chapters and steps"). All wording is a DRAFT for the owner.
+// ANCHOR CHAINS (owner ruling 2, 2026-09-05). A step spotlights a control by a
+// CHAIN of `data-testid`s, ordered from the outermost trigger to the final
+// control — e.g. `['stage-tab-data', 'import-menu-button', 'import-verb-cpt-dov']`.
+// The overlay highlights the first link that exists whose successor does not yet
+// exist (stage tab when off the stage, the menu button when the menu is closed,
+// the item once it is open), so the user is always led to the next click and the
+// old "the button is not visible yet" fallback is rare. `anchor` is the FINAL
+// link, kept as a plain field so the integrity test and the docked-card fallback
+// keep working; single-anchor steps leave `anchors` unset.
+//
+// EVERY BUTTON EXPLAINED (owner ruling, 2026-09-05). Each stage the tutorial
+// walks (Data, Profielen, Stratigrafie, Litho, Geotech, Parameters, Export) has
+// a step for every toolbar button and right-pane control, one short step per
+// button or tight group. Do-it steps double as the button's explanation.
 //
 // This module is pure and side-effect free — `tutorialCatalogue.test.ts` asserts
-// every anchor testid exists under `desktop/src`, every copy key exists in both
-// locale catalogues, ids are unique, and every `done.state` is a `TutorialState`
-// key.
+// every anchor (and every chain link) exists under `desktop/src`, every copy key
+// exists in both locale catalogues, ids are unique, and every `done.state` is a
+// `TutorialState` key.
 
 import type { TutorialState } from './tutorialState'
 
@@ -45,8 +55,14 @@ export interface CatalogueStep {
   readonly id: string
   /** 1-based chapter number this step belongs to. */
   readonly chapter: number
-  /** The `data-testid` the spotlight targets. */
+  /** The `data-testid` the spotlight targets — the FINAL link of the chain. */
   readonly anchor: string
+  /**
+   * The ordered anchor chain (outermost trigger first, final control last). When
+   * set, the overlay resolves the chain per owner ruling 2; when unset the step
+   * is a plain single anchor (equivalent to `[anchor]`).
+   */
+  readonly anchors?: readonly string[]
   /** How the step completes. */
   readonly done: TutorialDone
   /** i18n key for the step title (`tutorial.<chapter>.<step>.title`). */
@@ -85,8 +101,9 @@ export const TUTORIAL_CHAPTERS: readonly TutorialChapter[] = [
 ]
 
 /**
- * Build a step; the copy keys follow one scheme (`tutorial.<id>.title|body`) so
- * the id is the single source of truth for a step's identity and its copy.
+ * Build a single-anchor step; the copy keys follow one scheme
+ * (`tutorial.<id>.title|body`) so the id is the single source of truth for a
+ * step's identity and its copy.
  */
 function mk(
   id: string,
@@ -99,98 +116,153 @@ function mk(
 }
 
 /**
+ * Build a chained-anchor step (owner ruling 2). `anchors` is the ordered chain
+ * from the outermost trigger to the final control; `anchor` is set to the last
+ * link so the integrity test and the docked fallback keep working.
+ */
+function mkc(
+  id: string,
+  chapter: number,
+  anchors: readonly string[],
+  done: TutorialDone,
+  stage: TutorialStage,
+): CatalogueStep {
+  return {
+    id,
+    chapter,
+    anchor: anchors[anchors.length - 1],
+    anchors,
+    done,
+    titleKey: `tutorial.${id}.title`,
+    bodyKey: `tutorial.${id}.body`,
+    stage,
+  }
+}
+
+/**
  * The ordered steps — one flat list the machine walks linearly.
  *
- * Chapters 1-3 carry full drafted copy; 4-8 carry skeletons (one-sentence
- * drafts) so the walk runs end to end. Anchors are real `data-testid`s (see
- * `tutorialCatalogue.test.ts`, which asserts each exists under desktop/src). A
- * do-it step's `done` names the observable fact that proves the user did it; an
- * explain step is `'next'`.
+ * Anchors are real `data-testid`s (see `tutorialCatalogue.test.ts`, which asserts
+ * each — and each chain link — exists under desktop/src). A do-it step's `done`
+ * names the observable fact that proves the user did it; an explain step is `'next'`.
  */
 export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   // 1 · Your project ---------------------------------------------------------
   mk('project-name', 1, 'welcome-project-name-input', 'next', 'welcome'),
   mk('project-create', 1, 'welcome-new-project-button', { state: 'projectOpen' }, 'welcome'),
-  // Lead the user to WHERE the project settings live before the CRS field
-  // (owner walk 2026-09-03: "doesn't highlight where projectgegevens are").
-  // The project-name button in the shell toolbar opens the metadata dialog that
-  // carries both CRS fields.
+  // The project-name button in the shell toolbar opens the project settings that
+  // carry both CRS fields (owner walk 2026-09-03).
   mk('project-metadata', 1, 'project-metadata-open', 'next', 'data'),
-  mk('project-crs', 1, 'project-crs-horizontal', 'next', 'data'),
-  mk('project-datum', 1, 'project-crs-vertical', 'next', 'data'),
+  // CRS + datum live INSIDE that dialog: chain the settings button → the field
+  // (owner ruling 4). Dialog closed → highlight the settings button; open →
+  // highlight the field.
+  mkc('project-crs', 1, ['project-metadata-open', 'project-crs-horizontal'], 'next', 'data'),
+  mkc('project-datum', 1, ['project-metadata-open', 'project-crs-vertical'], 'next', 'data'),
 
   // 2 · Import ---------------------------------------------------------------
-  mk('import-open', 2, 'import-menu-button', 'next', 'data'),
-  mk('import-cpt-dov', 2, 'import-verb-cpt-dov', { state: 'cptCount' }, 'data'),
-  mk('import-filter-date', 2, 'data-filter-date', 'next', 'data'),
-  mk('import-filter-type', 2, 'data-filter-testtype-cpt', 'next', 'data'),
-  mk('import-hide', 2, 'data-row-remove', 'next', 'data'),
-  mk('import-borehole-dov', 2, 'import-verb-borehole-dov', { state: 'boreholeCount' }, 'data'),
-  mk('import-gef', 2, 'import-verb-cpt-gef', 'next', 'data'),
-  mk('import-more', 2, 'import-verb-dmt', 'next', 'data'),
-  mk('import-closing', 2, 'import-menu-button', 'next', 'data'),
+  mkc('import-open', 2, ['stage-tab-data', 'import-menu-button'], 'next', 'data'),
+  // Data > Import > DOV CPT (owner ruling 5): menu button → the DOV CPT item.
+  mkc('import-cpt-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-cpt-dov'], { state: 'cptCount' }, 'data'),
+  mkc('import-gef', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-cpt-gef'], 'next', 'data'),
+  mkc('import-more', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-dmt'], 'next', 'data'),
+  // Right-pane controls, in on-screen order: tabs, search, date filter, sort.
+  mkc('import-filter-type', 2, ['stage-tab-data', 'data-filter-testtype-cpt'], 'next', 'data'),
+  mkc('import-search', 2, ['stage-tab-data', 'data-inspector-search'], 'next', 'data'),
+  mkc('import-filter-date', 2, ['stage-tab-data', 'data-filter-date'], 'next', 'data'),
+  mkc('import-sort', 2, ['stage-tab-data', 'data-inspector-sort'], 'next', 'data'),
+  // Remove the mechanical cones (owner ruling 6): uncheck CPTM in the map's
+  // test-type filter, then delete the greyed rows in the CPT pane.
+  mkc('import-remove-cptm', 2, ['stage-tab-data', 'map-cpt-category', 'map-filter-cpt-CPTM'], 'next', 'data'),
+  mkc('import-hide', 2, ['stage-tab-data', 'data-row-remove'], 'next', 'data'),
+  // DOV boreholes (owner ruling 5): menu button → the DOV borehole item.
+  mkc('import-borehole-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-borehole-dov'], { state: 'boreholeCount' }, 'data'),
+  mkc('import-closing', 2, ['stage-tab-data', 'import-menu-button'], 'next', 'data'),
 
   // 3 · Cross-sections -------------------------------------------------------
-  mk('section-create', 3, 'section-create', { state: 'sectionCount' }, 'sections'),
-  mk('section-buffer', 3, 'section-control-buffer', 'next', 'sections'),
-  mk('section-spacing', 3, 'section-control-spacing', 'next', 'sections'),
-  mk('section-vexag', 3, 'section-control-vexag', 'next', 'sections'),
-  mk('section-channels', 3, 'section-control-channel-qc', 'next', 'sections'),
-  // The borehole interpretation-stream toggles render `section-control-borehole-${key}`;
-  // the default-ON stream's key is `geotech` (SectionHeader BOREHOLE_CHANNEL_BUTTONS).
-  // The old `-geo` matched no element and docked the card bottom-right (owner walk).
-  mk('section-boreholes', 3, 'section-control-borehole-geotech', 'next', 'sections'),
-  mk('section-axis', 3, 'axis-geology', 'next', 'sections'),
-  mk('section-snap', 3, 'section-control-snap', 'next', 'sections'),
-  mk('section-dem', 3, 'section-dem-line', 'next', 'sections'),
-  mk('section-persist', 3, 'section-view-reset', 'next', 'sections'),
+  // Look at the data first (owner ruling 7): open a CPT, then a borehole.
+  mkc('data-open-cpt', 3, ['stage-tab-data', 'data-filter-testtype-cpt'], { state: 'cptOpen' }, 'data'),
+  mkc('data-open-borehole', 3, ['stage-tab-data', 'data-filter-testtype-borehole'], { state: 'boreholeOpen' }, 'data'),
+  mkc('section-create', 3, ['stage-tab-sections', 'section-create'], { state: 'sectionCount' }, 'sections'),
+  mkc('section-axis', 3, ['stage-tab-sections', 'axis-geology'], 'next', 'sections'),
+  mkc('section-buffer', 3, ['stage-tab-sections', 'section-control-buffer'], 'next', 'sections'),
+  mkc('section-spacing', 3, ['stage-tab-sections', 'section-control-spacing'], 'next', 'sections'),
+  mkc('section-vexag', 3, ['stage-tab-sections', 'section-control-vexag'], 'next', 'sections'),
+  mkc('section-channels', 3, ['stage-tab-sections', 'section-control-channel-qc'], 'next', 'sections'),
+  // The default-ON borehole stream key is `geotech` (SectionHeader BOREHOLE_CHANNEL_BUTTONS).
+  mkc('section-boreholes', 3, ['stage-tab-sections', 'section-control-borehole-geotech'], 'next', 'sections'),
+  mkc('section-snap', 3, ['stage-tab-sections', 'section-control-snap'], 'next', 'sections'),
+  mkc('section-dem', 3, ['stage-tab-sections', 'section-dem-line'], 'next', 'sections'),
+  mkc('section-persist', 3, ['stage-tab-sections', 'section-view-reset'], 'next', 'sections'),
+  // Sections toolbar verbs the flow does not otherwise touch.
+  mkc('section-undo', 3, ['stage-tab-sections', 'sections-undo'], 'next', 'sections'),
+  mkc('section-tie', 3, ['stage-tab-sections', 'suggest-tie-sections'], 'next', 'sections'),
+  mkc('section-delete', 3, ['stage-tab-sections', 'sections-delete'], 'next', 'sections'),
+  mkc('section-export', 3, ['stage-tab-sections', 'sections-toolbar-export-dropdown'], 'next', 'sections'),
+  // The sections right pane: the section list + its Build / Seed / Dedupe verbs.
+  mkc('section-inspector', 3, ['stage-tab-sections', 'inspector-build'], 'next', 'sections'),
 
-  // 4 · Geological model (skeleton) -----------------------------------------
-  mk('geo-open', 4, 'stage-tab-geology', 'next', 'geology'),
-  // Fill the model's first contacts from the boreholes (owner: "Vullen vanuit
-  // boringen"). Anchored on the real seed/fill button in the section inspector.
-  mk('geo-seed', 4, 'inspector-seed', { state: 'contactCount' }, 'sections'),
-  mk('geo-lumping', 4, 'stage-tab-geology', { state: 'lumpingCount' }, 'geology'),
-  // Suggest a second cross-section BEFORE building surfaces, so the TINs have
-  // 3-D data (owner walk: "best een 2de profiel trekken eerst").
-  mk('geo-second-section', 4, 'section-create', 'next', 'sections'),
-  mk('geo-surfaces', 4, 'inspector-build', 'next', 'sections'),
+  // 4 · Geological / stratigraphic model -------------------------------------
+  mkc('geo-open', 4, ['stage-tab-geology'], 'next', 'geology'),
+  // Fill the model's contacts from boreholes — the Stratigrafie toolbar button
+  // (owner ruling 8): stage tab → the "Vullen vanuit boringen" button.
+  mkc('geo-seed', 4, ['stage-tab-geology', 'geology-fill-from-boreholes-button'], { state: 'contactCount' }, 'geology'),
+  mkc('geo-lumping', 4, ['stage-tab-geology', 'geology-fill-from-boreholes-button'], { state: 'lumpingCount' }, 'geology'),
+  mkc('geo-add-formation', 4, ['stage-tab-geology', 'geology-create-formation-button'], 'next', 'geology'),
+  mkc('geo-boreholes-in-model', 4, ['stage-tab-geology', 'geology-boreholes-in-model'], 'next', 'geology'),
+  mkc('geo-dedupe', 4, ['stage-tab-geology', 'geology-dedupe'], 'next', 'geology'),
+  mkc('geo-reset-delete', 4, ['stage-tab-geology', 'geology-delete-stratigraphy'], 'next', 'geology'),
+  // Draw a second cross-section so the surfaces have 3-D data (owner walk).
+  mkc('geo-second-section', 4, ['stage-tab-sections', 'section-create'], 'next', 'sections'),
+  // Carry the borehole stratigraphy onto the CPTs before building (owner ruling 9).
+  mkc('geo-carry-strat', 4, ['stage-tab-sections', 'sections-canvas'], 'next', 'sections'),
+  mkc('geo-surfaces', 4, ['stage-tab-geology', 'geology-build-model-button'], 'next', 'geology'),
 
-  // 5 · Lithostratigraphic model (skeleton) ---------------------------------
-  mk('litho-open', 5, 'stage-tab-lithology', 'next', 'lithology'),
-  // A litho model must exist before you can pick litho contacts (owner walk).
-  mk('litho-create', 5, 'model-kind-picker', 'next', 'lithology'),
-  // Switch the section to the litho axis to edit the litho model.
-  mk('litho-axis', 5, 'axis-litho', 'next', 'sections'),
-  mk('litho-accept', 5, 'stage-tab-lithology', { state: 'lithoAcceptedCount' }, 'lithology'),
-  // How to merge / adjust accepted layers + the drag-boundary gestures.
-  mk('litho-adjust', 5, 'axis-litho', 'next', 'sections'),
-  // Point at Correlate (top of the litho toolbar) BEFORE Build — the owner
-  // found Build "iets te snel"; mention auto-correlate here.
-  mk('litho-correlate', 5, 'correlate-mode', 'next', 'sections'),
-  // Again suggest a second section so the litho bodies get 3-D data (owner).
-  mk('litho-second-section', 5, 'section-create', 'next', 'sections'),
-  mk('litho-build', 5, 'inspector-build', { state: 'lithoSolidsBuilt' }, 'sections'),
+  // 5 · Lithological model ---------------------------------------------------
+  mkc('litho-open', 5, ['stage-tab-lithology'], 'next', 'lithology'),
+  mkc('litho-create', 5, ['stage-tab-lithology', 'model-kind-picker'], 'next', 'lithology'),
+  // Litho editing lives on the sections toolbar's litho axis: chain the sections
+  // tab → the Litho axis segment → the verb (owner ruling: axis switch).
+  mkc('litho-axis', 5, ['stage-tab-sections', 'axis-litho'], 'next', 'sections'),
+  mkc('litho-suggest', 5, ['stage-tab-sections', 'axis-litho', 'litho-suggest'], 'next', 'sections'),
+  mkc('litho-accept', 5, ['stage-tab-sections', 'axis-litho', 'litho-accept-all'], { state: 'lithoAcceptedCount' }, 'sections'),
+  mkc('litho-adjust', 5, ['stage-tab-sections', 'axis-litho'], 'next', 'sections'),
+  mkc('litho-correlate', 5, ['stage-tab-sections', 'axis-litho', 'correlate-mode'], 'next', 'sections'),
+  mkc('litho-bodies', 5, ['stage-tab-sections', 'axis-litho', 'litho-bodies-dropdown'], 'next', 'sections'),
+  mkc('litho-admixtures', 5, ['stage-tab-sections', 'axis-litho', 'litho-admixtures-dropdown'], 'next', 'sections'),
+  mkc('litho-second-section', 5, ['stage-tab-sections', 'section-create'], 'next', 'sections'),
+  mkc('litho-build', 5, ['stage-tab-lithology', 'litho-build-model-button'], { state: 'lithoSolidsBuilt' }, 'lithology'),
+  mkc('litho-fence', 5, ['stage-tab-lithology', 'litho-export-fence-button'], 'next', 'lithology'),
+  // The litho right pane: model picker, roster, resolve, boreholes-in-model.
+  mkc('litho-pane', 5, ['stage-tab-lithology', 'resolve-instances-btn'], 'next', 'lithology'),
 
-  // 6 · Geotechnical model (skeleton) ---------------------------------------
-  mk('geotech-open', 6, 'stage-tab-geotechnical', 'next', 'geotechnical'),
-  // The packing flow lives on the sections toolbar's geotech axis, not the
-  // geotech pane (owner walk: "dit hoort bij geotech stage in cross section
-  // niet in geotech pane"). The four-step Pakkingsstroom is `geotech-pipeline`.
-  mk('geotech-subdivide', 6, 'geotech-pipeline', { state: 'geotechModelExists' }, 'sections'),
-  mk('geotech-bodies', 6, 'sections-recompute-bodies', 'next', 'sections'),
+  // 6 · Geotechnical model ---------------------------------------------------
+  mkc('geotech-open', 6, ['stage-tab-geotechnical'], 'next', 'geotechnical'),
+  // The packing flow lives on the sections toolbar's geotech axis (owner walk).
+  mkc('geotech-statistic', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-statistic-menu'], 'next', 'sections'),
+  mkc('geotech-subdivide', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-pipeline'], { state: 'geotechModelExists' }, 'sections'),
+  mkc('geotech-correlate', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-correlate-packing'], 'next', 'sections'),
+  mkc('geotech-display', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-display-menu'], 'next', 'sections'),
+  mkc('geotech-bodies', 6, ['stage-tab-sections', 'axis-geotech', 'sections-recompute-bodies'], 'next', 'sections'),
+  mkc('geotech-build', 6, ['stage-tab-geotechnical', 'geotech-build-model-button'], 'next', 'geotechnical'),
+  mkc('geotech-fence', 6, ['stage-tab-geotechnical', 'geotech-export-fence-button'], 'next', 'geotechnical'),
+  mkc('geotech-pane', 6, ['stage-tab-geotechnical', 'geotech-units-roster'], 'next', 'geotechnical'),
 
-  // 7 · Parameters & statistics (skeleton) ----------------------------------
-  mk('params-open', 7, 'stage-tab-parameters', 'next', 'parameters'),
+  // 7 · Parameters & statistics ----------------------------------------------
+  mkc('params-open', 7, ['stage-tab-parameters'], 'next', 'parameters'),
   // The path FROM a cross-section into the Parameters stage: right-click a body
-  // band → "Unit statistics…" (owner walk). The menu item is body-ctx-unit-statistics.
-  mk('params-jump', 7, 'body-ctx-unit-statistics', 'next', 'sections'),
-  mk('params-stats', 7, 'stage-tab-parameters', 'next', 'parameters'),
+  // band → "Unit statistics…" (owner walk). Chain: sections tab → canvas →
+  // the (right-click-revealed) menu item.
+  mkc('params-jump', 7, ['stage-tab-sections', 'sections-canvas', 'body-ctx-unit-statistics'], 'next', 'sections'),
+  mkc('params-units', 7, ['stage-tab-parameters', 'parameters-unit-list'], 'next', 'parameters'),
+  mkc('params-group', 7, ['stage-tab-parameters', 'parameters-group-bar', 'parameters-group-action'], 'next', 'parameters'),
+  mkc('params-water-table', 7, ['stage-tab-parameters', 'parameters-water-table-line'], 'next', 'parameters'),
+  mkc('params-stats', 7, ['stage-tab-parameters'], 'next', 'parameters'),
 
-  // 8 · Export (skeleton) ----------------------------------------------------
-  mk('export-open', 8, 'stage-tab-export', 'next', 'export'),
-  mk('export-dxf', 8, 'export-section-dxf', 'next', 'sections'),
-  mk('closing', 8, 'stage-tab-export', 'next', 'export'),
+  // 8 · Export ---------------------------------------------------------------
+  mkc('export-open', 8, ['stage-tab-export'], 'next', 'export'),
+  mkc('export-dxf', 8, ['stage-tab-export', 'export-canvas-dxf'], 'next', 'export'),
+  mkc('export-plaxis3d', 8, ['stage-tab-export', 'export-canvas-plaxis3d'], 'next', 'export'),
+  mkc('closing', 8, ['stage-tab-export'], 'next', 'export'),
 ]
 
 /**
