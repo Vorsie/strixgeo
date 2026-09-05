@@ -42,7 +42,7 @@ test.describe('flow_lithology_stage_ui', () => {
 
       // The canvas shows the guided placeholder until built solids exist
       // (litho-3D plan: the 3D pane mounts on solids, not retired TIN surfaces).
-      await expect(page.getByText('Lithostratigraphic model')).toBeVisible()
+      await expect(page.getByText('Lithological model')).toBeVisible()
       await expect(
         page.getByText(/click Build model on the Lithology toolbar/),
       ).toBeVisible()
