@@ -342,12 +342,15 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         ),
       },
 
-      /* Bodies dropdown (dogfeed 2026-06-01) — congregates every body /
-          lens action under one trigger to keep the toolbar uncluttered:
-          Detect lenses, Suggest pinch-outs, and the bulk "Delete all
-          detected lenses". Each item keeps its
-          original testid + busy-aware label; the destructive delete opens
-          a confirmation modal (irreversible).
+      /* Bodies dropdown (dogfeed 2026-06-01) — congregates the body-view
+          verbs under one trigger to keep the toolbar uncluttered: Fill
+          bands, the correlation / model-fill overlay toggles, Reset manual
+          points, and the sample-marker switches. The hand-run lens verbs
+          (Detect lenses / Delete all detected lenses / Suggest pinch-outs)
+          were retired 2026-06-06 — lenses now flow out of the 2/1/0 partition
+          fill and the backend detector runs inside the reconcile, so there is
+          no hand-run detector button. Reset manual points is a DB delete and
+          opens a confirmation modal (irreversible).
 
           'medium' — view switches and one-off body maintenance, reached a
           few times per section rather than per column. */
