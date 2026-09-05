@@ -34,11 +34,6 @@ downstream tool.
    classes are assigned for shallow soils. Using qt where the pore pressure is
    measured is future work.
 
-.. contents:: On this page
-   :local:
-   :depth: 1
-
-
 Unit weight from CPT
 --------------------
 
@@ -145,7 +140,11 @@ exponent depends on the very index it helps compute.
 
 .. math::
 
-   n = \operatorname{clamp}\!\left(0.381\,I_c + 0.05\,\frac{\sigma'_v}{100} - 0.15,\; 0,\; 1\right)
+   n = 0.381\,I_c + 0.05\,\frac{\sigma'_v}{100} - 0.15 \qquad (0 < n \le 1)
+
+The exponent is kept between 0 and 1: a computed value above 1 is used as 1,
+and a value at or below 0 as the smallest positive step, as in Robertson
+(2009).
 
 Symbols and units:
 
