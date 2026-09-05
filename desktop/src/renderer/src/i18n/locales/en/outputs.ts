@@ -173,6 +173,17 @@ export const OUTPUTS = {
     'It was removed or rebuilt since it was selected — pick another unit in the list.',
   'params.lithostratigraphicUnit': 'Lithostratigraphic unit',
   'params.geotechnicalUnit': 'Geotechnical unit',
+  // NAD characteristic values block (owner ruling 2026-09-05) — a per-body read
+  // of the NAD table, shown separately from the per-unit statistics.
+  'params.nadValuesTitle': 'NAD characteristic values',
+  'params.nadProvenance':
+    'NBN EN 1997-1 ANB Tabel 2.1, characteristic values for class {n} ({name})',
+  'params.nadCaveat': 'Characteristic values from the NAD table, not design values.',
+  'params.nadDryUnitWeight': 'dry unit weight',
+  'params.nadWetUnitWeight': 'wet unit weight',
+  'params.nadFrictionAngle': 'friction angle',
+  'params.nadCohesion': 'cohesion',
+  'params.nadUndrainedShear': 'undrained shear strength',
   'params.closeUnitStats': 'Close the unit statistics',
   'params.loadingMeasurements': 'Loading measurements…',
   'params.populationNote':
