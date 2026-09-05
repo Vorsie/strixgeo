@@ -15,10 +15,10 @@ from uuid import uuid4
 
 import pytest
 
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.lab.dov.dov_grain_size_parser import (
     DovGrainSizeParser,
 )
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 
 _NS = "http://kern.schemas.dov.vlaanderen.be"
