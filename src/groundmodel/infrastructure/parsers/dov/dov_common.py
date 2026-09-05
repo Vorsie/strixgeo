@@ -150,9 +150,21 @@ DOV_RETRY_MAX_DELAY_S = 30.0
 # ----------------------------------------------------------------------
 # CRS — DOV's primary horizontal CRS is Belgian Lambert 72 (EPSG:31370).
 # Incoming WGS84 bboxes are transformed to Lambert 72 for the WFS BBOX filter.
+#
+# Watch (Lambert 2008): DOV may migrate its horizontal CRS from Lambert 72
+# (EPSG:31370) to Lambert 2008 (EPSG:3812). The CRS is pinned here deliberately
+# so the switch is a one-value change: set DOV_HORIZONTAL_EPSG to 3812 and the
+# rest follows from it. DOV_WGS84_TO_LAMBERT72 is built from DOV_HORIZONTAL_EPSG
+# (re-targets automatically; rename it if you flip the code), cql_bbox_predicate
+# already interpolates DOV_HORIZONTAL_EPSG into its EPSG string, and the
+# out-of-area coordinate check tracks it too: the DOV parsers pass
+# DOV_HORIZONTAL_EPSG into make_crs_bounds_issue, whose classify_coordinates()
+# reads that EPSG's own pyproj area_of_use, so the bounds box re-derives for the
+# new system with no further edit. Before flipping the code, confirm the DOV WFS
+# still accepts 'EPSG:3812' in the BBOX / CQL_FILTER predicate.
 # ----------------------------------------------------------------------
 
-DOV_HORIZONTAL_EPSG = 31370  # Belgian Lambert 72
+DOV_HORIZONTAL_EPSG = 31370  # Belgian Lambert 72 (see the Lambert 2008 watch note above)
 DOV_VERTICAL_EPSG = 5710  # Belgian mTAW (TAW/NGF)
 
 # Geometry column on `monster:observaties` (and most other DOV WFS layers).
