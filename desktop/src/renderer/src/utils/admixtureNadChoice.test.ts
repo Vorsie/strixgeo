@@ -12,12 +12,16 @@ import { describe, expect, it } from 'vitest'
 import type { AdmixtureItem, GeologicalFormationResponse } from '../api/clients/geology.types'
 import {
   ambiguousAdmixtureUnits,
+  forkingAdmixtures,
   hasUnansweredAdmixtureUnits,
   unitAdmixtureIsAmbiguous,
 } from './admixtureNadChoice'
 
 const SILTY: AdmixtureItem[] = [{ soil_code: 'KL', amount: 'M', locally: false }]
 const SANDY: AdmixtureItem[] = [{ soil_code: 'XZ', amount: 'M', locally: false }]
+// A gravel admixture (owner ruling 2026-09-05: "if it is gravel it does not
+// count and it should default to normal sand").
+const GRAVELLY: AdmixtureItem[] = [{ soil_code: 'GL', amount: 'M', locally: false }]
 
 describe('unitAdmixtureIsAmbiguous', () => {
   it('a silty sand is ambiguous — pure sand (5-8) or silty sand (9-12)', () => {
@@ -56,6 +60,37 @@ describe('unitAdmixtureIsAmbiguous', () => {
   it('an unknown / null soil is not ambiguous', () => {
     expect(unitAdmixtureIsAmbiguous('ROCK', SANDY)).toBe(false)
     expect(unitAdmixtureIsAmbiguous(null, SANDY)).toBe(false)
+  })
+
+  it('a GRAVELLY sand does not count — gravel is not the coarse-soil fork', () => {
+    // Owner ruling 2026-09-05: "you can also have gravel as admixture, but that
+    // is not what we mean … if it is gravel it does not count and it should
+    // default to normal sand." Only silt/clay forks a sand; gravel never does.
+    expect(unitAdmixtureIsAmbiguous('ZAND', GRAVELLY)).toBe(false)
+  })
+})
+
+describe('forkingAdmixtures', () => {
+  it('returns the silt/clay admixture that forks a sand', () => {
+    expect(forkingAdmixtures('ZAND', SILTY)).toEqual(SILTY)
+  })
+
+  it('returns the sand admixture that forks a fine soil', () => {
+    expect(forkingAdmixtures('SILT', SANDY)).toEqual(SANDY)
+  })
+
+  it('drops a gravel admixture on sand — it is not a fork', () => {
+    expect(forkingAdmixtures('ZAND', GRAVELLY)).toEqual([])
+  })
+
+  it('keeps only the forking codes when several admixtures are present', () => {
+    const mixed: AdmixtureItem[] = [...GRAVELLY, ...SILTY]
+    expect(forkingAdmixtures('ZAND', mixed)).toEqual(SILTY)
+  })
+
+  it('empty for a soil with no fork column (VEEN) and for null soil', () => {
+    expect(forkingAdmixtures('VEEN', SANDY)).toEqual([])
+    expect(forkingAdmixtures(null, SANDY)).toEqual([])
   })
 })
 
@@ -111,6 +146,22 @@ describe('ambiguousAdmixtureUnits', () => {
     expect(units.map(u => u.formationId)).toEqual(['answered', 'silty-sand'])
     expect(units[0].choice).toBe('pure')
     expect(units[1].choice).toBeNull()
+    // Each unit carries the admixtures that forked it, so the prompt can name
+    // them (owner ruling 2026-09-05).
+    expect(units[1].matchedAdmixtures).toEqual(SILTY)
+  })
+
+  it('carries only the FORKING admixtures, dropping a gravel one on sand', () => {
+    const forms = [
+      formation({
+        id: 'silty-gravelly-sand',
+        name: 'A',
+        litho_main_soil_code: 'ZAND',
+        litho_admixtures: [...GRAVELLY, ...SILTY],
+      }),
+    ]
+    const units = ambiguousAdmixtureUnits(forms, new Set(['silty-gravelly-sand']))
+    expect(units[0].matchedAdmixtures).toEqual(SILTY)
   })
 })
 
@@ -118,8 +169,8 @@ describe('hasUnansweredAdmixtureUnits', () => {
   it('true when any listed unit has no stored answer', () => {
     expect(
       hasUnansweredAdmixtureUnits([
-        { formationId: 'a', name: 'A', soilCode: 'ZAND', choice: 'pure' },
-        { formationId: 'b', name: 'B', soilCode: 'ZAND', choice: null },
+        { formationId: 'a', name: 'A', soilCode: 'ZAND', matchedAdmixtures: SILTY, choice: 'pure' },
+        { formationId: 'b', name: 'B', soilCode: 'ZAND', matchedAdmixtures: SILTY, choice: null },
       ]),
     ).toBe(true)
   })
@@ -127,8 +178,14 @@ describe('hasUnansweredAdmixtureUnits', () => {
   it('false when every listed unit is answered', () => {
     expect(
       hasUnansweredAdmixtureUnits([
-        { formationId: 'a', name: 'A', soilCode: 'ZAND', choice: 'pure' },
-        { formationId: 'b', name: 'B', soilCode: 'KLEI', choice: 'with_admixture' },
+        { formationId: 'a', name: 'A', soilCode: 'ZAND', matchedAdmixtures: SILTY, choice: 'pure' },
+        {
+          formationId: 'b',
+          name: 'B',
+          soilCode: 'KLEI',
+          matchedAdmixtures: SANDY,
+          choice: 'with_admixture',
+        },
       ]),
     ).toBe(false)
   })
