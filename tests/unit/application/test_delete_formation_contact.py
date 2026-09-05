@@ -15,7 +15,7 @@ swapped for ``AsyncMock``/``MagicMock``.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -40,6 +40,21 @@ def _geo_model(kind: str = "geological"):
     return SimpleNamespace(kind=kind)
 
 
+def _mock_session() -> AsyncMock:
+    """An AsyncMock session whose ``execute()`` Result is synchronous.
+
+    ``DeleteFormationContact`` takes the body-partition lock, which does
+    ``(await session.execute(...)).scalar_one()``. On a bare ``AsyncMock()`` the
+    awaited ``execute`` result is itself an AsyncMock, so ``.scalar_one()`` — a
+    SYNC ``Result`` method — hands back an un-awaited coroutine ("coroutine was
+    never awaited"). Wiring ``execute`` to return a ``MagicMock`` keeps the sync
+    Result methods synchronous. ``execute`` itself stays an AsyncMock (awaitable).
+    """
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=MagicMock())
+    return session
+
+
 def _use_case(session: AsyncMock) -> DeleteFormationContact:
     uc = DeleteFormationContact(session)
     uc._repo = AsyncMock()
@@ -55,7 +70,7 @@ def _use_case(session: AsyncMock) -> DeleteFormationContact:
 @pytest.mark.asyncio
 async def test_delete_flips_surface_stale_for_preimage_pair() -> None:
     """A real delete on a geological contact flips the pre-image stale."""
-    session = AsyncMock()
+    session = _mock_session()
     # First get → FormationContactOrm; second get → GeologicalModelOrm (geological).
     session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("geological")])
     uc = _use_case(session)
@@ -76,7 +91,7 @@ async def test_delete_unseeds_contact_from_sections() -> None:
     seeded on any section, in the SAME transaction (before commit) so the
     unseed is atomic with the delete.
     """
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("geological")])
     uc = _use_case(session)
     uc._repo.delete_contact = AsyncMock(return_value=True)
@@ -91,7 +106,7 @@ async def test_delete_unseeds_contact_from_sections() -> None:
 @pytest.mark.asyncio
 async def test_idempotent_delete_does_not_unseed() -> None:
     """An already-gone contact does not touch any section's seeded set."""
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=_pre_contact())
     uc = _use_case(session)
     uc._repo.delete_contact = AsyncMock(return_value=False)
@@ -105,7 +120,7 @@ async def test_idempotent_delete_does_not_unseed() -> None:
 @pytest.mark.asyncio
 async def test_already_absent_is_idempotent_no_stale_flip() -> None:
     """An already-gone contact → False, no stale flip (idempotent)."""
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(return_value=_pre_contact())
     uc = _use_case(session)
     # Row already gone — repo reports no deletion.
@@ -121,7 +136,7 @@ async def test_already_absent_is_idempotent_no_stale_flip() -> None:
 @pytest.mark.asyncio
 async def test_no_preimage_skips_stale_flip() -> None:
     """ok True but no pre-image → nothing to flip stale."""
-    session = AsyncMock()
+    session = _mock_session()
     # First get → None (contact not found for stale-flip pre-image).
     # When ok is True and pre is None we reach the cascade branch, which
     # does a second get for the GeologicalModelOrm; return geological so
@@ -149,7 +164,7 @@ async def test_litho_cascade_runs_resolver_only() -> None:
     NOT called here — owner directive 2026-05-31 made it an explicit
     verb (``POST .../lenses/detect``).
     """
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("lithostratigraphic")])
     uc = _use_case(session)
     uc._repo.delete_contact = AsyncMock(return_value=True)
@@ -171,7 +186,7 @@ async def test_litho_cascade_runs_resolver_only() -> None:
 @pytest.mark.asyncio
 async def test_geological_contact_skips_cascade() -> None:
     """Resolver is NOT called for geological contacts (no correlation edges)."""
-    session = AsyncMock()
+    session = _mock_session()
     session.get = AsyncMock(side_effect=[_pre_contact(), _geo_model("geological")])
     uc = _use_case(session)
     uc._repo.delete_contact = AsyncMock(return_value=True)
