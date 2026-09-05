@@ -38,9 +38,9 @@ export const SETTINGS = {
   'settings.litho.fillAtSectionLine': 'Section fill at section line',
   'settings.litho.fillAtSectionLineHint':
     'On = slice the body solids at the section line (default, continuous); Off = sample the model at each test location (a strip per test, ground truth).',
-  'settings.litho.snapTolerance': 'Litho↔geology snap (m)',
+  'settings.litho.snapTolerance': 'Litho↔stratigraphy snap (m)',
   'settings.litho.snapToleranceHint':
-    'Litho and geological boundaries within this distance are treated as the same surface — linked and snapped together, so moving one moves the other (#162). Also drives the drag-snap prompt (#134). Range 0.01–5.0 m.',
+    'Litho and stratigraphic boundaries within this distance are treated as the same surface — linked and snapped together, so moving one moves the other (#162). Also drives the drag-snap prompt (#134). Range 0.01–5.0 m.',
   'settings.litho.autoCorrelateWindow': 'Auto-correlate depth window (m)',
   'settings.litho.autoCorrelateWindowHint':
     'How far apart in depth two contacts on neighbouring tests may be and still auto-correlate (relaxed further by horizontal distance). Widen it to catch correlations across dipping beds; narrow it to reject loose matches. Auto-correlate only ever links adjacent tests, never across an intervening one. Range {min}–{max} m. Default {default} m.',
@@ -52,7 +52,7 @@ export const SETTINGS = {
     'Cell dimensions used by the Lithology stage "Build model" button to label 3-D space from the cross-section partitions.',
   'settings.litho.voxelHorizontal': 'Horizontal cell (X/Y) (m)',
   'settings.litho.voxelHorizontalHint':
-    'Map-plane (easting/northing) voxel size. Geology varies slowly horizontally, so this can stay coarse. Smaller values sharpen lateral body edges at a quadratic cost in voxel count. Range {min}–{max} m. Default {default} m.',
+    'Map-plane (easting/northing) voxel size. Stratigraphy varies slowly horizontally, so this can stay coarse. Smaller values sharpen lateral body edges at a quadratic cost in voxel count. Range {min}–{max} m. Default {default} m.',
   'settings.litho.voxelVertical': 'Vertical cell (Z) (m)',
   'settings.litho.voxelVerticalHint':
     'Elevation voxel size. Fine Z catches thin layers — a peat drape or sand lens — that a coarse grid would miss. But it multiplies build time: 0.5 m is roughly 4× the voxels (and minutes of build) versus a cubic 2 m grid, so reach for it only when thin layers matter. Range {min}–{max} m. Default {default} m.',
