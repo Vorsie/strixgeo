@@ -122,6 +122,7 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
     make_issue as _issue,
 )
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.crs_bounds_issue import make_crs_bounds_issue
 from groundmodel.infrastructure.parsers.dov.dov_gml_location import (
     parse_gml_point_location,
 )
@@ -373,6 +374,16 @@ class DovBoringParser(GroundModelLogger):
                     f"DOV boring '{name}': X and Y both 0.0 — null-island artefact",
                 )
             )
+        else:
+            # DOV positions are Belgian Lambert 72 (EPSG:31370). Flag a position
+            # that falls outside Belgium's coverage — a swapped X/Y or a foreign
+            # coordinate — as a WARNING, never a refusal.
+            bounds_issue = make_crs_bounds_issue(
+                DOV_HORIZONTAL_EPSG, x, y, prefix=f"DOV boring '{name}'"
+            )
+            if bounds_issue is not None:
+                self.debug(f"DOV boring '{name}': {bounds_issue.message}")
+                issues.append(bounds_issue)
         return x, y, z
 
     def _no_coords(
