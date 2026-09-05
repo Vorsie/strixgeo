@@ -29,3 +29,4 @@ StrixGeo grows.
    chapters/02-stages
    chapters/03-methods
    chapters/04-references
+   chapters/05-support
