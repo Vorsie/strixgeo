@@ -558,7 +558,7 @@ describe('SectionsToolbar geotech axis toggle (F3)', () => {
     renderToolbar(
       makeCtx({ activeGeotechModel: makeGeotechModel(), sectionModelAxis: 'geotechnical' }),
     )
-    const geoBtn = screen.getByText('Geology').closest('button')
+    const geoBtn = screen.getByText('Stratigraphy').closest('button')
     const lithoBtn = screen.getByText('Litho').closest('button')
     expect(geoBtn?.getAttribute('aria-checked')).toBe('false')
     expect(lithoBtn?.getAttribute('aria-checked')).toBe('false')
