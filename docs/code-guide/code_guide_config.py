@@ -1075,6 +1075,27 @@ COMPLETE_MODULES: frozenset[str] = frozenset(
         "desktop/src/renderer/src/shell/stages/shared/makeVoxelRequestBuilder.ts",
         "desktop/src/renderer/src/shell/stages/shared/splitViewport.ts",
         "desktop/src/renderer/src/shell/stages/shared/useBody3DViewState.ts",
+        # Reading-order group (13): the desktop RENDERER sheet — the printable
+        # PDF sheet: the profile drawing (per-column qc/Rf header, spacing-scaled
+        # column width), the title block, the map inset + its projection, the
+        # project palette, the region paths, the sheet geometry + settings (fit
+        # vs explicit scale modes), and the unit style. Every page in
+        # docs/code-guide/indexes/13-desktop-sheet.rst.
+        "desktop/src/renderer/src/sheet/ProfileDrawing.tsx",
+        "desktop/src/renderer/src/sheet/SectionSheet.tsx",
+        "desktop/src/renderer/src/sheet/SheetMap.tsx",
+        "desktop/src/renderer/src/sheet/TitleBlock.tsx",
+        "desktop/src/renderer/src/sheet/investigationName.ts",
+        "desktop/src/renderer/src/sheet/main.tsx",
+        "desktop/src/renderer/src/sheet/mapExtent.ts",
+        "desktop/src/renderer/src/sheet/projectPalette.ts",
+        "desktop/src/renderer/src/sheet/regionPath.ts",
+        "desktop/src/renderer/src/sheet/sheetConstants.ts",
+        "desktop/src/renderer/src/sheet/sheetGeometry.ts",
+        "desktop/src/renderer/src/sheet/sheetMapProjection.ts",
+        "desktop/src/renderer/src/sheet/sheetPayload.ts",
+        "desktop/src/renderer/src/sheet/sheetSettings.ts",
+        "desktop/src/renderer/src/sheet/unitStyle.ts",
     }
 )
 
