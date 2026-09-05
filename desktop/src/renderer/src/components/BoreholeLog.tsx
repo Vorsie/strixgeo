@@ -132,9 +132,11 @@ export default function BoreholeLog({
   contactOverlays,
 }: Props): React.ReactElement {
   const t = useT()
-  const virtueleBoringCatalog = useVirtueleBoringCatalog(
-    onChangeVirtueleBoringOverrideModel !== undefined,
-  )
+  const {
+    catalog: virtueleBoringCatalog,
+    failed: dovCatalogFailed,
+    status: dovCatalogStatus,
+  } = useVirtueleBoringCatalog(onChangeVirtueleBoringOverrideModel !== undefined)
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
 
   // Vertical zoom — broadcast via PxPerMContext so deeply nested track
@@ -516,6 +518,18 @@ export default function BoreholeLog({
                   </option>
                 ))}
               </select>
+            )}
+            {/* When the lagenmodel catalogue fetch failed (e.g. the
+                backend refused the DOV host → 503) the picker above is
+                disabled; say why instead of leaving it silently greyed. */}
+            {dovCatalogFailed && (
+              <span
+                className="text-[10px] text-gray-400 dark:text-slate-500"
+                title={t('borelog.dovUnavailable')}
+              >
+                {t('borelog.dovUnavailable')}
+                {dovCatalogStatus !== null ? ` (${dovCatalogStatus})` : ''}
+              </span>
             )}
           </div>
         )}
