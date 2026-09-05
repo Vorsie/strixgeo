@@ -126,3 +126,19 @@ class TestCrossHostRedirectRefused:
             resp = await client.get("https://www.dov.vlaanderen.be/data/sondering/x.xml")
         assert resp.status_code == 200
         assert resp.content == b"<xml/>"
+
+
+def test_the_virtuele_boring_host_is_an_allowed_dov_host() -> None:
+    """The layer-model API on services.dov.vlaanderen.be is DOV too.
+
+    Installer #17 refused every Virtuele Boring request ("refusing request to
+    non-DOV host") because the allow-list only carried the WFS host, which left
+    the DOV layer-model panel greyed out on every CPT and borehole view.
+    """
+    from groundmodel.infrastructure.parsers.dov.dov_common import is_allowed_dov_url
+    from groundmodel.infrastructure.parsers.dov.virtuele_boring_constants import (
+        DOV_VIRTUELE_BORING_BASE_URL,
+    )
+
+    assert is_allowed_dov_url(DOV_VIRTUELE_BORING_BASE_URL + "/lagenmodellen")
+    assert not is_allowed_dov_url("https://services.evil.example/virtueleboringserver")
