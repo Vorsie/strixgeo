@@ -27,33 +27,15 @@ act, so nothing inherits ``GroundModelLogger``.
 
 from __future__ import annotations
 
+from groundmodel.domain.services.voxel_litho.snap_grid_constants import (
+    FRACTION_EPS,
+    SNAP_GRID_M,
+    SNAP_MARGIN_CELLS,
+)
+
 __all__ = [
-    "FRACTION_EPS",
-    "SNAP_GRID_M",
-    "SNAP_MARGIN_CELLS",
     "gap_edge_fraction_margin",
 ]
-
-FRACTION_EPS: float = 1e-6
-"""Floor for any fraction nudge — the slicer's own coordinate resolution.
-
-Slicing a region polygon exactly on a column edge hits vertices and vertical
-edges; nudging by at least this much makes every relevant edge strictly
-straddle the slice line.
-"""
-
-SNAP_GRID_M: float = 0.001
-"""The grid the 2-D engine snaps polygon coordinates to, in metres.
-
-Mirrors ``SNAP_GRID_M`` in ``partitionFillV2``.
-"""
-
-SNAP_MARGIN_CELLS: float = 2.0
-"""How many snap cells the margin must clear, so it lands INSIDE the last region.
-
-Two rather than one: a coordinate can be snapped away from the column edge by up
-to a full cell, and the scanline then has to land strictly inside what is left.
-"""
 
 
 def gap_edge_fraction_margin(width_m: float) -> float:
