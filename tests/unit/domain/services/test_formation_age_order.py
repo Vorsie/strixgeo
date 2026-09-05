@@ -154,6 +154,72 @@ def test_empty_input_returns_empty_list() -> None:
     assert infer_age_order(contacts_by_anchor={}, all_formation_ids=[]) == []
 
 
+def test_antropogeen_is_always_youngest_when_present() -> None:
+    """Ruling (owner, 2026-09-05): Antropogeen is the youngest formation
+    whenever it is present, regardless of which boreholes log it.
+
+    Here no borehole logs both Antropogeen and Pleistoceen (Quartair),
+    and Antropogeen's observed top (5.0 m) is DEEPER than Pleistoceen's
+    (0.5 m) — so the shallowest-observed-top tie-break alone would place
+    Pleistoceen first. The anthropogenic pin must still put Antropogeen
+    at the youngest end.
+    """
+    order = infer_age_order(
+        contacts_by_anchor={
+            BH_X: [(5.0, ANTROPOGEEN), (12.0, ROUBAIX)],
+            BH_Y: [(0.5, QUARTAIR), (9.0, AALBEKE)],
+        },
+        all_formation_ids=[ANTROPOGEEN, QUARTAIR, AALBEKE, ROUBAIX],
+        labels_by_formation={
+            ANTROPOGEEN: "Antropogeen",
+            QUARTAIR: "Pleistoceen",
+            AALBEKE: "Aalbeke",
+            ROUBAIX: "Roubaix",
+        },
+    )
+    # result[0] is the youngest — Antropogeen, even though its mean top
+    # is deeper than Pleistoceen's.
+    assert order[0] == ANTROPOGEEN
+
+
+def test_antropogeen_is_youngest_even_as_an_orphan() -> None:
+    """Ruling corollary: "whenever it is present" includes an Antropogeen
+    formation with no contacts on any borehole (an orphan). It must still
+    be pinned youngest rather than appended at the oldest end.
+    """
+    order = infer_age_order(
+        contacts_by_anchor={
+            BH_X: [(0.5, QUARTAIR), (12.0, ROUBAIX)],
+        },
+        all_formation_ids=[ANTROPOGEEN, QUARTAIR, ROUBAIX],
+        labels_by_formation={
+            ANTROPOGEEN: "Antropogeen",
+            QUARTAIR: "Pleistoceen",
+            ROUBAIX: "Roubaix",
+        },
+    )
+    assert order[0] == ANTROPOGEEN
+
+
+def test_formations_never_sharing_a_borehole_order_by_shallowest_top() -> None:
+    """Ruling (owner, 2026-09-05): two formations that never share a
+    borehole keep their relative order by the shallowest observed top —
+    the shallower one is younger. No anthropogenic unit here, so only the
+    data-driven tie-break decides.
+    """
+    order = infer_age_order(
+        contacts_by_anchor={
+            BH_X: [(0.5, QUARTAIR), (11.0, ROUBAIX)],
+            BH_Y: [(3.0, AALBEKE), (11.0, ROUBAIX)],
+        },
+        all_formation_ids=[QUARTAIR, AALBEKE, ROUBAIX],
+    )
+    # Quartair (top 0.5) and Aalbeke (top 3.0) never co-occur; both sit
+    # above Roubaix on their own borehole. Shallower top = younger, so
+    # Quartair precedes Aalbeke, both before Roubaix.
+    assert order == [QUARTAIR, AALBEKE, ROUBAIX]
+
+
 def test_deterministic_under_identical_input() -> None:
     """Running the algorithm twice on the same input gives the same
     list — important for bundle reproducibility.
