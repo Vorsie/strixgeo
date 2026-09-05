@@ -64,10 +64,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import replace
 
-from groundmodel.domain.services.voxel_litho.snap_grid import (
-    FRACTION_EPS,
-    gap_edge_fraction_margin,
-)
+from groundmodel.domain.services.voxel_litho.snap_grid import gap_edge_fraction_margin
+from groundmodel.domain.services.voxel_litho.snap_grid_constants import FRACTION_EPS
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     RegionInput,
     SectionPartitionInput,
