@@ -68,18 +68,18 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
-    ValidationIssue,
-)
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
-    make_issue as _issue,
-)
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.crs_bounds_issue import make_crs_bounds_issue
 from groundmodel.infrastructure.parsers.dov.dov_gml_location import (
     parse_gml_point_location,
 )
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import float_value, text
+from groundmodel.infrastructure.parsers.validation.validation_issue import (
+    ValidationIssue,
+)
+from groundmodel.infrastructure.parsers.validation.validation_issue import (
+    make_issue as _issue,
+)
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
