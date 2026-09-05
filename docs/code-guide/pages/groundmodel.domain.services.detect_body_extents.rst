@@ -1,7 +1,7 @@
 groundmodel.domain.services.detect_body_extents
 ===============================================
 
-.. CG-PAGE source=src/groundmodel/domain/services/detect_body_extents.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/services/detect_body_extents.py complete=true
 
 *Source file:* ``src/groundmodel/domain/services/detect_body_extents.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Introduces a module that now holds only three shared snapshot types, and imports the dataclass and id tools.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the body-extent system was retired in the 2026-06-06 refactor: the detect-body-extents function and its extent primitives are gone, and only these three contact-stack types survive because two other modules (auto-correlate and crossing-pinch-out detection) still reuse them. See the body-model design note for the retirement.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ContactStackEntry``
 
 .. CG-EXPLANATION-START id=class:ContactStackEntry
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen data holder for one contact within a column's depth-sorted stack: its id, the formation whose top it marks, and its depth.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The Strix convention, stated in the docstring, is that a contact marks the top of the formation that starts there and runs down to the next contact. Callers walk these entries in depth order, so bundling the id, formation, and depth together is the natural unit.
 
 .. CG-EXPLANATION-END id=class:ContactStackEntry
 
@@ -65,13 +57,9 @@ Class ``ContactStack``
 
 .. CG-EXPLANATION-START id=class:ContactStack
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen data holder for all contacts on one investigation: the investigation id and its depth-sorted entries.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Both reusing modules need a column's contacts as one depth-ordered group keyed by investigation, so this bundles the entries with the id they belong to.
 
 .. CG-EXPLANATION-END id=class:ContactStack
 
@@ -87,13 +75,9 @@ Class ``ContactEdge``
 
 .. CG-EXPLANATION-START id=class:ContactEdge
 
-.. CG-PLACEHOLDER
+**What this does.** A frozen data holder for one user-approved correlation edge: its two endpoint layer ids.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The crossing-pinch-out detector inspects approved correlation edges, so it needs each edge as a slim two-endpoint record independent of how edges are stored.
 
 .. CG-EXPLANATION-END id=class:ContactEdge
 

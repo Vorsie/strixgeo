@@ -1,7 +1,7 @@
 groundmodel.domain.services.dem_clip_constants
 ==============================================
 
-.. CG-PAGE source=src/groundmodel/domain/services/dem_clip_constants.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/services/dem_clip_constants.py complete=true
 
 *Source file:* ``src/groundmodel/domain/services/dem_clip_constants.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Defines three constants for the DEM clip service: the label for a contact whose surveyed top exceeds the terrain, the label for a vertex on a NoData cell, and how far the ground surface is carried past the outermost investigation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The two label strings are a public contract read by the API schema and the desktop when they display an issue, so changing them is a breaking change treated like renaming a REST field. The margin exists because a surface that stops exactly at the last borehole reads as a floating slab; carrying it about fifty metres past gives the eye enough context to read it as ground, a distance negligible against the DEM tile cap.
 
 .. CG-EXPLANATION-END id=module-header
 

@@ -1,7 +1,7 @@
 groundmodel.domain.services
 ===========================
 
-.. CG-PAGE source=src/groundmodel/domain/services/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/services/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/domain/services/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring marking this folder as the home of the domain-service modules: the pure geotechnical calculations. An __init__.py file is what turns a folder into a Python package the rest of the code can import from.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Every folder that is a Python package carries this file. Its only job here is to name what lives in the folder, so a reader opening the package sees at once that this is the pure-knowledge layer, the soil-mechanics maths that never touches the database or the network.
 
 .. CG-EXPLANATION-END id=module-header
 
