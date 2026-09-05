@@ -30,6 +30,27 @@ describe('buildProjectFence', () => {
     expect(Math.max(...xs)).toBeCloseTo(100, 4)
   })
 
+  it('stamps every panel with its section id, so the DXF export can put each section on its own layer', () => {
+    // Owner ruling 2026-09-05: "worth splitting those in the dxf/dwg so users can turn off a whole section".
+    const oneBodySection = (y: number, aId: string, bId: string, sectionId: string): FenceSectionInput => ({
+      sectionId,
+      section: { start_x: 0, start_y: y, end_x: 100, end_y: y },
+      projectedColumns: [
+        { investigationId: `${aId}i`, alongM: 0, surfaceElevM: 10 },
+        { investigationId: `${bId}i`, alongM: 100, surfaceElevM: 10 },
+      ],
+      layers: [
+        { investigationId: `${aId}i`, layerId: aId, formationId: 'ZAND', bodyId: 'z', topDepthM: 0, baseDepthM: 5, accepted: true },
+        { investigationId: `${bId}i`, layerId: bId, formationId: 'ZAND', bodyId: 'z', topDepthM: 0, baseDepthM: 5, accepted: true },
+      ],
+      edges: [{ a: aId, b: bId }],
+    })
+    const panels = buildProjectFence([oneBodySection(0, 'a1', 'b1', 'cs-1'), oneBodySection(300, 'c1', 'd1', 'cs-2')])
+    expect(panels.length).toBeGreaterThan(0)
+    for (const p of panels) expect(typeof p.sectionId).toBe('string')
+    expect(new Set(panels.map(p => p.sectionId))).toEqual(new Set(['cs-1', 'cs-2']))
+  })
+
   it('returns [] for a project with no sections', () => {
     expect(buildProjectFence([])).toEqual([])
   })
