@@ -329,7 +329,7 @@ describe('SectionsCanvas — dragging a litho contact from the geotech axis', ()
 
     expect(ctx.toasts.toast).toHaveBeenCalledWith(
       'warning',
-      expect.stringContaining('not a lithostratigraphic contact'),
+      expect.stringContaining('not a lithological contact'),
     )
   })
 
