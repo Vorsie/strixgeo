@@ -66,7 +66,7 @@ See [docs/commercial-direction.md](docs/commercial-direction.md) — Distributio
 
 ## Backwards Compatibility — non-negotiable from now on
 
-See [docs/backwards-compat.md](docs/backwards-compat.md) — ⚠ **SUSPENDED pre-ship** (owner directive 2026-05-16) — schema / API / `.gmproj` shapes may change cleanly until the first external distribution. The full contract, the `format_version = 4` floor, the upgrade-chain steps, and the **re-arm trigger** live in the doc. Load before any `.gmproj` / bundle / format-version change.
+See [docs/backwards-compat.md](docs/backwards-compat.md) — **RE-ARMED 2026-09-05** (owner: "back compatibility on"; the closed beta ships installer #17). The floor is the shape that build emits: backend bundle `format_version = 4` (3 and 4 restore), `.strix` `PROJECT_FILE_FORMAT_VERSION = 3`, activation store format 1. From this floor forward: additive-only schema/API/bundle changes, an upgrade step for every version bump, and a `.strix` written by any beta build must open in every later build. Load before any `.strix` / bundle / format-version / migration change.
 
 ---
 
@@ -114,49 +114,7 @@ uv run ruff format src tests     # format
 uv run mypy src                  # type check
 ```
 
-**Integration tests run against a sibling DB, never the dev DB.**
-``tests/integration/conftest.py`` TRUNCATEs every project-scoped
-table at the start and end of every test, so running it against
-``groundmodel`` (the dev DB) wipes whatever is imported. The repo
-ships a separate ``groundmodel_integration`` DB on the same
-dockerised Postgres instance + a wrapper script at
-``scripts/run-integration-tests.ps1`` that points ``DATABASE_URL``
-at it and runs ``alembic upgrade head`` first. A
-``pytest_collection_modifyitems`` guard in the integration conftest
-refuses to run if ``DATABASE_URL`` does not end in ``_integration``
-or ``_test``, so a forgotten env var fails loudly instead of
-silently destroying state.
-
-**Only ONE integration run at a time.** The same per-test TRUNCATE
-means two concurrent runs wipe each other's rows mid-test, and the
-resulting failures look like logic bugs, not a race (FK violation on
-a row just created; ``StaleDataError: expected to update 1 row(s); 0
-were matched``; a 422 for a model the log shows being created 201).
-The wrapper takes a lock at ``.integration-test.lock`` (repo root,
-gitignored) and **ABORTS** — never waits, never kills — naming the
-holder's pid, its liveness, and the ``Remove-Item`` line for a lock
-left behind by a crash. Usage:
-
-```
-.\scripts\run-integration-tests.ps1                     # full suite
-.\scripts\run-integration-tests.ps1 -q                  # quiet
-.\scripts\run-integration-tests.ps1 tests/integration/api/test_cross_section.py
-```
-
-One-time bootstrap (already done; recreate after a docker volume
-wipe with these three commands):
-
-```
-docker exec strix-db-1 psql -U groundmodel -d groundmodel `
-  -c "CREATE DATABASE groundmodel_integration;"
-docker exec strix-db-1 psql -U groundmodel -d groundmodel_integration `
-  -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-.\scripts\run-integration-tests.ps1 --collect-only       # triggers migrations
-```
-
-Alembic honours ``DATABASE_URL`` when set (see
-``src/groundmodel/infrastructure/db/migrations/env.py``), so the
-wrapper script's env override carries through to migrations cleanly.
+**Integration tests: wrapper script only, one run at a time.** `.\scripts\run-integration-tests.ps1` points `DATABASE_URL` at the sibling `groundmodel_integration` DB and migrates it first; a bare `pytest tests/integration` TRUNCATEs whatever `DATABASE_URL` names (the dev DB). The wrapper takes a lock and ABORTS on a second run. Bootstrap after a docker volume wipe, the lock recovery line and the collection guard live in [docs/testing-integration.md](docs/testing-integration.md).
 
 **Playwright (Electron) e2e suite — `scripts/run-e2e.ps1`.** Self-contained
 runner that TRUNCATEs the integration DB (clean slate — the fixture restore
@@ -179,6 +137,8 @@ A full green run is offline and deterministic.
 `desktop/tests/e2e/fixtures/dov/`. See [docs/e2e-fixtures.md](docs/e2e-fixtures.md)
 for the fixture-refresh procedure + route table pointer. Load before touching
 DOV e2e specs or fixtures.
+
+**Branch model (owner 2026-09-05, from the closed beta on):** `main` = released builds only (every commit on it shipped in an installer; tag each release); `develop` = integration, always green; **new features branch off `develop`** (`feat/<slug>`, `fix/<slug>`), land back on `develop` by rebase, never squash; a release is a fast-forward of `develop` into `main` after the installer built from that commit is verified. Hotfixes branch off `main`, land on `main`, and are merged back into `develop` the same day.
 
 **Pre-commit rules — apply to every Python file before staging:**
 
