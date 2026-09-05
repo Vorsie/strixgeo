@@ -1,10 +1,5 @@
-"""Severity levels for GEF parse validation findings."""
-from enum import StrEnum
+"""Back-compat shim re-exporting ``ValidationLevel`` from ``parsers.validation``."""
 
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 
-class ValidationLevel(StrEnum):
-    """Severity of a parse validation issue."""
-
-    ERROR = "error"
-    WARNING = "warning"
-    INFO = "info"
+__all__ = ["ValidationLevel"]
