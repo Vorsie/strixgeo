@@ -109,7 +109,22 @@ export const TUTORIAL = {
     'The grey line across the top is the terrain from the DEM, drawn automatically wherever the ground level is known. It is the reference your elevations hang from.',
   'tutorial.section-persist.title': 'Your view is saved',
   'tutorial.section-persist.body':
-    'Every setting here — buffer, spacing, exaggeration, channels, snap — saves to this section on its own. Reopen it and the framing is exactly as you left it; Reset returns the default view.',
+    'Zoom in and out with the plus and minus buttons; the scale read-out states the exact horizontal and vertical scale. Every setting here (buffer, spacing, exaggeration, channels, snap, zoom) saves to this section on its own, so reopening it restores the framing; Reset returns the default view and the X closes the section.',
+  'tutorial.section-undo.title': 'Undo',
+  'tutorial.section-undo.body':
+    'Undo steps back through your model edits, including an accepted litho layer. It is also on Ctrl+Z; the button makes the stack visible.',
+  'tutorial.section-tie.title': 'Tie cross-sections',
+  'tutorial.section-tie.body':
+    'When you have more than one section, Suggest tie-sections proposes short links where they cross, and the caret accepts them all at once. The ties give the 3-D build data to interpolate between your lines.',
+  'tutorial.section-delete.title': 'Delete a cross-section',
+  'tutorial.section-delete.body':
+    'Delete removes the selected cross-section. It is irreversible, so it always confirms first; the underlying CPTs and boreholes are never touched.',
+  'tutorial.section-export.title': 'Export this section',
+  'tutorial.section-export.body':
+    'The Export dropdown sends the open section to DXF, to Plaxis, to D-Stability or D-Sheet, or to a PDF sheet. Each file carries the model level the axis is on. The Export stage gathers the same targets in one place.',
+  'tutorial.section-inspector.title': 'The section panel',
+  'tutorial.section-inspector.body':
+    'The right panel lists your cross-sections and carries the model verbs for the open axis: Build the surfaces, Seed contacts from stratigraphy, and Dedupe. It is the panel companion to the toolbar verbs.',
 
   // 4 · Geological model ----------------------------------------------------
   'tutorial.geo-open.title': 'Open the Stratigraphy stage',
@@ -180,10 +195,87 @@ export const TUTORIAL = {
   'tutorial.export-open.title': 'Open the Export stage',
   'tutorial.export-open.body':
     'Send the finished three-level model to your design tools. StrixGeo hands over the ground model, and the design checks happen in the tool you export to. Choose the format your next tool needs.',
-  'tutorial.export-dxf.title': 'Export your model',
+  'tutorial.export-dxf.title': 'Export a cross-section',
   'tutorial.export-dxf.body':
-    'Export a section to DXF, to Plaxis, to D-Stability or D-Sheet, or to a PDF report sheet. Each export carries your unit identifiers, so the model arrives labelled in the design tool. Pick the format your next step needs.',
+    'Pick a cross-section, then export it to DXF for CAD or to a runnable Plaxis 2-D script. Each export carries your unit identifiers, so the model arrives labelled in the design tool.',
+  'tutorial.export-plaxis3d.title': 'Export the 3-D model',
+  'tutorial.export-plaxis3d.body':
+    'Export the whole stratigraphic model as a runnable Plaxis 3-D script. It is model-wide rather than section-scoped, so it needs a built stratigraphic model, not a single section.',
   'tutorial.closing.title': "You're all set",
   'tutorial.closing.body':
     'That is the whole workflow: import, section, stratigraphy, litho, geotech, parameters, export. Build your first model on your own data. More importers and exporters are coming, so send the file formats you use to StrixGeo and we build them next.',
+
+  // Added-button + owner-ruling steps (2026-09-05) ---------------------------
+  'tutorial.import-search.title': 'Search the list',
+  'tutorial.import-search.body':
+    'Type in the search box to filter the current tab by name. It matches as you type; clear it to see every investigation again.',
+  'tutorial.import-sort.title': 'Sort the list',
+  'tutorial.import-sort.body':
+    'Sort the investigations by name, depth or date and flip the direction. Sorting is a view aid; it never changes the data.',
+  'tutorial.import-remove-cptm.title': 'Remove the mechanical cones',
+  'tutorial.import-remove-cptm.body':
+    'Mechanical cones (CPTM) carry no friction or pore pressure, so leave them out. Uncheck CPTM in the map test-type filter; the greyed rows then sit at the bottom of the CPT list. Click the first, Shift-click the last, and press Delete to remove them from the project.',
+  'tutorial.data-open-cpt.title': 'Open a CPT',
+  'tutorial.data-open-cpt.body':
+    'Click a CPT row to open its chart. Read qc, fs, Rf and u2 against the depth axis; where DOV supplies a layer model it shows beside the traces. This step ticks once a CPT chart is open.',
+  'tutorial.data-open-borehole.title': 'Open a borehole',
+  'tutorial.data-open-borehole.body':
+    'Click a borehole row to open its log. It shows the described layers and the classification tests logged with the borehole, including the lab results. This step ticks once a borehole log is open.',
+  'tutorial.geo-add-formation.title': 'Add a formation',
+  'tutorial.geo-add-formation.body':
+    'The panel lists the formations in the model, youngest at the top. Add one by hand when a unit is missing, drag to reorder them, and use the confidence-fade toggle to dim extrapolated ground away from the data.',
+  'tutorial.geo-boreholes-in-model.title': 'Boreholes in the model',
+  'tutorial.geo-boreholes-in-model.body':
+    'This roster decides which boreholes anchor the model. Uncheck one to leave it out of the surfaces while it still draws on the section; re-check to include it again. Both are reversible.',
+  'tutorial.geo-dedupe.title': 'Dedupe contacts',
+  'tutorial.geo-dedupe.body':
+    'Dedupe removes duplicate formation contacts that stack up after repeated fills. It deletes rows, so it confirms first and names how many it found.',
+  'tutorial.geo-reset-delete.title': 'Reset view and delete',
+  'tutorial.geo-reset-delete.body':
+    'Reset view flies the 3-D camera back to the model and collapses a split viewport. Delete stratigraphy removes the whole model, every formation, contact and surface, so it always confirms first.',
+  'tutorial.geo-carry-strat.title': 'Carry the stratigraphy onto the CPTs',
+  'tutorial.geo-carry-strat.body':
+    'Hold Shift and drag a borehole contact sideways across the neighbouring CPT columns. It paints a copy of that contact onto every column you pass over, so the CPTs carry the same subdivision. Do this before you build the surfaces.',
+  'tutorial.litho-suggest.title': 'Suggest litho layers',
+  'tutorial.litho-suggest.body':
+    'Suggest reads the focused column with a Robertson classification and proposes litho layers as ghost boundaries. The caret offers the bulk variants: suggest for the whole section, or only for new tests.',
+  'tutorial.litho-bodies.title': 'Body view options',
+  'tutorial.litho-bodies.body':
+    'The Bodies menu gathers the view switches: fill the bands, show or hide the correlation ribbons and the built-model fill, reset your hand-drawn boundary points, and toggle the sample markers.',
+  'tutorial.litho-admixtures.title': 'Admixtures',
+  'tutorial.litho-admixtures.body':
+    'The Admixtures menu cleans up the ghost suggestions before you accept them: strip the CPT or borehole admixtures, strip them all, or reseed from the borehole observation log.',
+  'tutorial.litho-fence.title': 'Export the litho fence',
+  'tutorial.litho-fence.body':
+    'Once the solids are built, Export fence writes the 3-D fence diagram to DXF. It sits next to Build model on this stage and refuses with a warning unless the view is in Fence mode.',
+  'tutorial.litho-pane.title': 'The lithology panel',
+  'tutorial.litho-pane.body':
+    'The panel carries the model picker, the confidence-fade toggle, the unit roster with its body legend, Resolve instances to refresh the roster, and the boreholes-in-model scope. Clear model wipes the litho contacts after a confirmation.',
+  'tutorial.geotech-statistic.title': 'Choose the representative qc',
+  'tutorial.geotech-statistic.body':
+    'Before you subdivide, pick the qc statistic each packing class is classified with. It is a per-model choice and part of the model provenance, so the label shows the current token on the toolbar.',
+  'tutorial.geotech-correlate.title': 'Correlate packing by hand',
+  'tutorial.geotech-correlate.body':
+    'Correlate packing connects a packing band to the same class on a neighbour, the geotech twin of the litho Correlate. Click two same-class bands to tie them; right-click a tie to disconnect it.',
+  'tutorial.geotech-display.title': 'Geotech view options',
+  'tutorial.geotech-display.body':
+    'The Display menu toggles what the geotech axis draws: the packing fill, the built-model fill, the litho fill underneath, the borehole preview and the correlation ribbons.',
+  'tutorial.geotech-build.title': 'Build the geotech model',
+  'tutorial.geotech-build.body':
+    'On the Geotech stage, Build model turns the accepted packing bands into 3-D NAD body solids. A pre-flight asks about any test that carries litho but no bands before it builds.',
+  'tutorial.geotech-fence.title': 'Export the geotech fence',
+  'tutorial.geotech-fence.body':
+    'Once the geotech solids exist, Export fence writes the 3-D fence diagram to DXF, the same way the litho stage does. It refuses with a warning unless the view is in Fence mode.',
+  'tutorial.geotech-pane.title': 'The units panel',
+  'tutorial.geotech-pane.body':
+    'The panel lists the units as soil, then NAD packing class, then body, and lets you recolour a row. Click a body to select it on the section; the readout names the class and how its qc was assigned.',
+  'tutorial.params-units.title': 'The unit tree',
+  'tutorial.params-units.body':
+    'The unit tree lists every unit in the finished model. Tick a unit to see its statistics; the counts show how many bodies each one pools.',
+  'tutorial.params-group.title': 'Group units',
+  'tutorial.params-group.body':
+    'Tick units of the same NAD class across bodies, then Join them into one reporting group; Un-join lifts one back out and Clear drops the selection. A group pools its members statistics under one header.',
+  'tutorial.params-water-table.title': 'The water table',
+  'tutorial.params-water-table.body':
+    'The water-table line says which level every normalised value above it was computed under. Click it to set your own depth; the source label shows whether it came from you or a default. Everything here is characterisation, never a design value.',
 } as const
