@@ -46,13 +46,17 @@ Strix/
 │   │   ├── parsers/
 │   │   │   ├── dov/           dov_common.py — DOV-domain shared constants
 │   │   │   ├── cpt/           gef/ (gef_parser + header/constants/crs/type),
-│   │   │   │                      dov/ (streaming DOV import worker), validation/
+│   │   │   │                      dov/ (streaming DOV import worker)
 │   │   │   ├── borehole/      dov/dov_constants.py, dov_boring_parser.py,
 │   │   │   │                      borehole_parse_result.py,
 │   │   │   │                      dov_interpretation_parser.py,
 │   │   │   │                      interpretation_parse_result.py
-│   │   │   └── lab/           dov/dov_constants.py, dov_grain_size_parser.py,
-│   │   │                          grain_size_parse_result.py
+│   │   │   ├── lab/           dov/dov_constants.py, dov_grain_size_parser.py,
+│   │   │   │                      grain_size_parse_result.py
+│   │   │   └── validation/    validation_issue.py + validation_level.py —
+│   │   │                          shared ValidationIssue / ValidationLevel across
+│   │   │                          CPT, borehole and lab parsers (a cpt/validation/
+│   │   │                          shim re-exports the old path for back-compat)
 │   │   ├── exporters/         project/section/section_geometry ABCs; plaxis 2D/3D,
 │   │   │                      dxf section/fence, dstability, dsheet_piling,
 │   │   │                      (the cross-section PDF is rendered client-side, see docs/exports.md)
