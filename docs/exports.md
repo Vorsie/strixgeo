@@ -256,9 +256,14 @@ VERIFIED RESOLVED 2026-09-02):
   ride the layer note (D-Stability) / `[RUN IDENTIFICATION]` (D-Sheet).
   The identifiers come off the POSTed `SectionPolygonSet` units, resolved
   in `build_section_polygons.py`.
-* **Fence DXF** — layer `Fence-NAD-06_ZAND`; the class + soil are resolved
-  per panel from its `formation_id` in `_resolve_fence_identities`, since
-  the renderer-POSTed panel carries only name + colour.
+* **Fence DXF** — layer `Fence-<section>_NAD-06_ZAND` (one layer per section
+  × formation, owner 2026-09-05, so a whole section hides behind
+  `Fence-CS1_*`); the class + soil are resolved per panel from its
+  `formation_id` in `_resolve_fence_identities` and the section name from its
+  `section_id` in `_resolve_fence_section_names`, since the renderer-POSTed
+  panel carries only name + colour + those ids. Each wall's `body_id` rides on
+  its `3DFACE` as `STRIXGEO` XDATA (not in the layer name — a body spans
+  sections).
 * **Cross-section PDF sheet** — the unit legend + the labels inside the fills
   carry the on-screen unit name (client-rendered; see the sheet subsection
   above).
@@ -367,15 +372,43 @@ lithology colour and are never stored), so a server that re-derived
 them would produce a DXF disagreeing with the screen it was exported
 from.
 
-*Shape of the output.* One `3DFACE` per triangle, one layer per panel
-name (sanitised to the DXF layer charset, collisions disambiguated),
-layer true-colour from the panel. Interior edges — those shared by two
-triangles — are hidden via the 3DFACE per-edge invisibility flags, so
-CAD shows clean panel outlines rather than a triangle mesh; this is
-deterministic edge counting, without the multi-loop failure modes a
+*Shape of the output.* One `3DFACE` per triangle. Interior edges — those
+shared by two triangles — are hidden via the 3DFACE per-edge invisibility
+flags, so CAD shows clean panel outlines rather than a triangle mesh; this
+is deterministic edge counting, without the multi-loop failure modes a
 boundary-walk would carry. Coordinates stay in the project CRS (metres,
 no reprojection); `$INSUNITS` is metres and the EPSG rides in the
 header as a custom property.
+
+*One layer per section × formation (owner ruling 2026-09-05).* A layer is
+`Fence-<section>_<unit>` — e.g. `Fence-CS1_NAD-06_ZAND` — so the SAME
+formation crossing two sections lands on two layers. That answers the
+owner's question directly: the walls of Cross-section 1 and Cross-section
+2 are separable, so **a whole section is switched off in CAD by hiding /
+freezing `Fence-CS1_*`**, while a **formation stays selectable across all
+sections** by the `Fence-*_NAD-06_ZAND` name pattern. The section token
+leads and the separator is `_` (not `|`, which is in the DXF forbidden set
+and would be silently stripped). Within one section the earlier rules
+still hold: the unit part is the machine identifier (`NAD-06_ZAND`) when
+resolved, else the display name (collisions disambiguated by short id);
+same-identifier units collapse onto one layer *within* the section and the
+layer true-colour is the shallowest contributor's. A panel with no
+resolvable section (a legacy caller) keeps the pre-section `Fence-<unit>`
+name, so no geometry is ever dropped. The section id is not on the
+renderer-POSTed panel; the route resolves each panel's `section_id` to the
+cross-section's name in `_resolve_fence_section_names`, exactly as it
+resolves the NAD identity.
+
+*Where the body id lives.* Each wall's `body_id` rides on **every one of
+its `3DFACE` entities as XDATA** under the `STRIXGEO` application id (group
+1000, an ASCII string), never in the layer name — a body spans sections,
+so it is not a per-section split key. XDATA is the geometry-neutral,
+plugin-free way to hang a machine tag on a DXF entity: it changes neither
+the layer, the colour nor the shape, and an AutoCAD LISP / data-extraction
+pass (and the LIST command) reads it straight back, so **a body is
+recoverable from any one of its faces**. An untied wall (`body_id` `None`)
+carries no XDATA — an empty tag would read as "some body" and be worse
+than nothing.
 
 *Refusals are loud.* A triangle index out of range for its panel is a
 422 naming the panel and index — a silently dropped face would ship a
