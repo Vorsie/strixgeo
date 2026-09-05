@@ -155,8 +155,8 @@ Module-level constants and statements
 
 .. CG-EXPLANATION-START id=module-statements
 
-**What this does.** Lists the warm-up steps in order, each as a ``(label,
-function)`` pair: numba, geolib, ezdxf, scipy, then the mesh-kernel compile.
+**What this does.** Lists the warm-up steps in order, each as a ``(label, function)``
+pair: numba, geolib, ezdxf, scipy, then the mesh-kernel compile.
 
 **Why it is here.** Keeping the steps in one named list makes the run loop below
 simple, gives each step a label for the log, and lets a test swap in cheap fake

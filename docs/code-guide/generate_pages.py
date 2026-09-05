@@ -411,6 +411,12 @@ def write_indexes(sources: list[SourceFile], guide_root: Path) -> None:
         buckets.setdefault(rest_bucket(source.rel_path), []).append(source)
 
     rest_bucket_docs: list[str] = []
+    # A bucket that no longer exists (a file moved into a reading group) must not
+    # leave its sub-index behind: a stale sub-index is an orphan document AND
+    # references pages a reading group now owns, and ``-W`` fails on both.
+    for stale in indexes_dir.glob(f"{config.REST_GROUP_SLUG}-*.rst"):
+        if stale.stem.split(f"{config.REST_GROUP_SLUG}-", 1)[1] not in buckets:
+            stale.unlink()
     for bucket in sorted(buckets):
         bucket_sources = sorted(buckets[bucket], key=lambda s: s.rel_path)
         entries = [f"../{pages_dir_name}/{page_slug(s.rel_path)}" for s in bucket_sources]
