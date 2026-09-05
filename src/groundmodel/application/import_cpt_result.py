@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+from groundmodel.infrastructure.parsers.validation.validation_issue import (
     ValidationIssue,
     issue_warnings,
     issues_have_errors,
