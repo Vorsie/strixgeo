@@ -75,6 +75,7 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
     make_issue as _issue,
 )
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.crs_bounds_issue import make_crs_bounds_issue
 from groundmodel.infrastructure.parsers.dov.dov_gml_location import (
     parse_gml_point_location,
 )
@@ -135,6 +136,19 @@ class DovParser(GroundModelLogger):
         header = self._parse_header(cpt_elem, name)
         data, issues = self._parse_data(cpt_elem, name, header.cone_type_code)
         cpt_type = self._detect_type(header.cone_type_code, data)
+
+        # DOV positions are Belgian Lambert 72 (EPSG:31370). Flag a position
+        # that falls outside Belgium's coverage — a swapped X/Y or a foreign
+        # coordinate — as a WARNING, never a refusal. Skip the (0, 0)
+        # null-island placeholder: it is its own concern, not an out-of-area
+        # coordinate.
+        if not (header.x == 0.0 and header.y == 0.0):
+            bounds_issue = make_crs_bounds_issue(
+                header.epsg, header.x, header.y, prefix=f"DOV XML '{name}'"
+            )
+            if bounds_issue is not None:
+                self.debug(f"DOV XML '{name}': {bounds_issue.message}")
+                issues.append(bounds_issue)
 
         # DOV Rf provenance is fixed by the source schema: Rf is NEVER in the
         # DOV XML, so _parse_data computes it from fs and qc whenever fs is
