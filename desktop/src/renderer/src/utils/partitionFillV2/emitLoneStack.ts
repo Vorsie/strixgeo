@@ -1,6 +1,6 @@
-﻿/**
- * partitionFillV2/emitLoneStack.ts â€” the LONE MULTI-UNIT INTERBEDDED STACK matrix,
- * NOTCHED-COMB decomposition (design partition-engine-v2.md Â§4 increment-16; owner CS1
+/**
+ * partitionFillV2/emitLoneStack.ts - the LONE MULTI-UNIT INTERBEDDED STACK matrix,
+ * NOTCHED-COMB decomposition (design partition-engine-v2.md section 4 increment-16; owner CS1
  * repros S7 gap18 / S6 gap19 / B6 gap2 / B4|S13 gap3 / S8 gap14).
  *
  * A lone interbedded stack (several units on one column with NO facing counterpart IN THE
@@ -10,11 +10,11 @@
  *
  * The increment-15 WALL: the increment-13 code flooded the matrix as a converging WEDGE
  * from the lone column edge to the facing convergence point ``conv`` and let the minority
- * lenses notch into it. That traces as a NON-SIMPLE COMB â€” the ring interleaves the
+ * lenses notch into it. That traces as a NON-SIMPLE COMB - the ring interleaves the
  * 0.45-apex notch vertices with the single facing vertex ``conv`` and self-crosses; the
  * slicer resolves interior holes + repeated vertices, not proper crossings.
  *
- * Increment-16 fix â€” MECHANISM (b), per-sub-interval emission. The matrix does NOT
+ * Increment-16 fix - MECHANISM (b), per-sub-interval emission. The matrix does NOT
  * converge to a point: the notches bite the LONE column edge; the LEFT STRIP [loneX ..
  * apexX] (apexX = the notch apex line) is sliced into per-minority SLABS by
  *   - a HORIZONTAL seam at every minority's top/base (loneX -> apexX), and
@@ -23,14 +23,14 @@
  * adjacent notch's comb), and the pure-matrix flood BEYOND the apex line stays one clean
  * face carrying no minority column vertical. All minorities in one stack pinch to a
  * SINGLE apex fraction (the stack-min clamped fraction) so the vertical apex seam aligns
- * with every notch apex â€” a small parity divergence from v1's per-lens fractions, far
+ * with every notch apex - a small parity divergence from v1's per-lens fractions, far
  * smaller than the alternative (an adjacent minority painted the matrix colour).
  *
  * The seams carry the MATRIX flood label so a slab's residual-matrix pentagon (bounded by
  * seams + notch closings, with NO lone matrix vertical) is stamped matrix (finding-A
  * ``labelFaces`` trick).
  *
- * Pure module â€” no React, no Date.now / Math.random, no I/O.
+ * Pure module - no React, no Date.now / Math.random, no I/O.
  */
 
 import { LENS_PINCH_FRACTION } from '../sectionPartition'
@@ -77,7 +77,7 @@ function facingMatrixRunSpan(
  * per-minority slabs so a minority enclosed BETWEEN two matrix runs closes into its own
  * simple lens face, and no matrix face absorbs an adjacent minority's column vertical.
  *
- * The seams stop AT the apex line (not the facing column) â€” a full-width seam would cross
+ * The seams stop AT the apex line (not the facing column) - a full-width seam would cross
  * the interval's converging surface/tie brackets (measured crossing on gap18). The matrix
  * beyond the apex line stays one clean flood face carrying no minority vertical.
  *
@@ -86,7 +86,7 @@ function facingMatrixRunSpan(
  * matrix : LensLabel
  *     The enclosing matrix formation (labels the seam curves so a slab's residual-matrix
  *     pentagon, bounded by seams + notch closings with no lone matrix vertical, is stamped
- *     matrix â€” the finding-A ``labelFaces`` trick).
+ *     matrix - the finding-A ``labelFaces`` trick).
  * loneX, facingX : number
  * loneTop, loneBase : number
  *     The lone stack's own top / base elevations.
@@ -129,7 +129,7 @@ function emitLoneStackBand(
 }
 
 /** Below this apex fraction a minority is a BOUNDARY unit lapping the bracket in a narrow
- *  band â€” v1 shapes it as an onlap, not a heavily-truncated lens; the lone-stack path bows
+ *  band - v1 shapes it as an onlap, not a heavily-truncated lens; the lone-stack path bows
  *  out so the caller keeps the full-width fallback. */
 const MIN_CLAMPED_FRACTION = 0.3
 
@@ -171,7 +171,7 @@ function clampedLensFraction(
  * Parameters
  * ----------
  * loneMatrix : readonly IntervalUnit[]
- *     The lone side's interval units (>1 â€” the single-unit case is the caller's).
+ *     The lone side's interval units (>1 - the single-unit case is the caller's).
  * facing : ColumnGeom
  *     The facing column (its convergence-point lithology names the matrix; its matrix run
  *     confirms the full-width band reach).
@@ -204,24 +204,24 @@ export function routeLoneStack(
   const convElev = (facingTopElev + facingBaseElev) / 2
   const iTop = loneSide === 'left' ? top.leftElev : top.rightElev
   const iBase = loneSide === 'left' ? base.leftElev : base.rightElev
-  // ENCLOSING-MATRIX correction (SURGICAL â€” fires only on the failure case, so the ~32 already-OK
+  // ENCLOSING-MATRIX correction (SURGICAL - fires only on the failure case, so the ~32 already-OK
   // routeLoneStack cases are byte-identical). ``facingMatrixLabel(convElev)`` is the normal enclosing
   // matrix sample, but at a ZERO-THICKNESS facing bracket (the interval sits on a CONTACT of the
-  // facing column â€” both bracket lines meet at ``conv``) that sample lands on the contact and returns
+  // facing column - both bracket lines meet at ``conv``) that sample lands on the contact and returns
   // whichever facing unit the loop hits FIRST, NOT the lithology that encloses the lone stack (Tie-6
-  // gap0: conv on the facing ZAND/KLEI contact â†’ returns ZAND, not the enclosing KLEI â†’ the stack
-  // can't reduce â†’ bail â†’ SILT floods full-width, a ruling-8 violation). ONLY when the bracket is
+  // gap0: conv on the facing ZAND/KLEI contact so it returns ZAND, not the enclosing KLEI, so the stack
+  // can't reduce, so it bails and SILT floods full-width, a ruling-8 violation). ONLY when the bracket is
   // zero-thickness AND the sampled facing matrix is NOT a stack formation (the mis-sample signature)
   // do we override with the lone column's OWN bracket adjacency (v1's ``belowLith ?? aboveLith``).
   const stackFids = new Set(loneMatrix.map((u) => u.unit.formationId))
   const facingSample = facingMatrixLabel(facing, convElev)
   const bracketZeroThick = Math.abs(facingTopElev - facingBaseElev) < ELEV_EPS
 
-  // CONVERGING-FACING MINORITY-STACK FALLBACK (session 12, TARGET A â€” CS1 col18 gap18 SILT+VEEN).
+  // CONVERGING-FACING MINORITY-STACK FALLBACK (session 12, TARGET A - CS1 col18 gap18 SILT+VEEN).
   // When the facing bracket CONVERGES to a point (a tied band that pinches, not a lateral matrix
-  // run), the ordinary reduce path below bails at ``facingMatrixRunSpan`` â€” the enclosing matrix
+  // run), the ordinary reduce path below bails at ``facingMatrixRunSpan`` - the enclosing matrix
   // (KLEI here) has NO facing run to band full-width to (col19 carries ZAND, not KLEI, across the
-  // minority span) â€” so the seam tiled the SILT/VEEN minorities FULL-WIDTH (close50/close51). The
+  // minority span) - so the seam tiled the SILT/VEEN minorities FULL-WIDTH (close50/close51). The
   // correct shape (ruling 8h phases 1-2): each 0-corr minority gets its OWN 8b lens hugging its
   // column, the own-column bracket enclosing floods around them to ``conv``. ``emitConvergingStack``
   // (session 10/11) closes exactly this hole-free (own-bracket enclosing + ``fitLensReach`` halving).
@@ -234,8 +234,8 @@ export function routeLoneStack(
     // ``emitConvergingStack`` reads its enclosing from ``ownColumnBracket(iTop/iBase)`` where iTop = ``ownColumnBracket(iTop/iBase)`` where iTop =
     // the passed stack's first unit top, iBase = its last unit base. A stack whose TOP or BASE unit
     // is itself the ENCLOSING matrix (CS1 col18: SILT, VEEN, then KLEI[u6] as the below-enclosing at
-    // the TD) sets iBase to the matrix's base â€” which sits at the TD with no unit below it â†’
-    // ``ownColumnBracket`` returns null â†’ ``bail-no-bracket``. TRIM leading/trailing units that ARE an
+    // the TD) sets iBase to the matrix's base - which sits at the TD with no unit below it, so
+    // ``ownColumnBracket`` returns null, giving ``bail-no-bracket``. TRIM leading/trailing units that ARE an
     // own-column enclosing formation so the passed run is the pure MINORITY run: then iTop/iBase land
     // on the minority run's own contacts, whose adjacent units ARE the enclosing (KLEI u3 above at
     // 6.03, KLEI u6 below at 5.05), and ``ownColumnBracket`` resolves. The trimmed matrix units are
@@ -251,9 +251,9 @@ export function routeLoneStack(
     while (lo <= hi && enclAdj.has(loneMatrix[lo].unit.formationId)) lo++
     while (hi >= lo && enclAdj.has(loneMatrix[hi].unit.formationId)) hi--
     const run = loneMatrix.slice(lo, hi + 1)
-    if (run.length === 0) return false // the whole stack is enclosing matrix â€” nothing to lens
+    if (run.length === 0) return false // the whole stack is enclosing matrix - nothing to lens
     const conv: ConvergingSide = { col: loneCol, ownX: loneX, facing, facingX, facingTop: facingTopElev, facingBase: facingBaseElev }
-    // ``emitConvergingStack`` consumes only ``cu.iu`` (never ``cu.corr``) â€” a placeholder corr is safe.
+    // ``emitConvergingStack`` consumes only ``cu.iu`` (never ``cu.corr``) - a placeholder corr is safe.
     const dummyCorr: EffectiveCorr = { topTied: false, baseTied: false, corr: 0, topTie: null, baseTie: null }
     const sorted: CorrUnit[] = run.map((iu, i) => ({ iu, corr: dummyCorr, colUnitIndex: i }))
     return emitConvergingStack(conv, sorted, nextId, nextFloodId, lensLabels, out)
@@ -267,22 +267,22 @@ export function routeLoneStack(
   const reduced = extractLoneStackLenses([...loneMatrix], bracketMatrix.formationId, stackLenses)
   if (reduced === null) return tryConvergingStack()
 
-  // The facing matrix must span the lone stack CONTINUOUSLY to band full-width â€” if the
+  // The facing matrix must span the lone stack CONTINUOUSLY to band full-width - if the
   // facing carries no matrix run overlapping the interval, this is a genuine data void,
   // not a lateral band: fall back to the caller's full-width tiling.
   const facingSpan = facingMatrixRunSpan(facing, bracketMatrix.formationId, iTop, iBase)
   // The enclosing matrix has NO facing run to band full-width to. Ordinarily a data void
   // (keep the full-width tiling). BUT a CONVERGING facing (a tied band pinching to a point over
-  // the minority span â€” CS1 col18 SILT/VEEN) is NOT a void: the minorities lens toward the
+  // the minority span - CS1 col18 SILT/VEEN) is NOT a void: the minorities lens toward the
   // convergence with the own-column enclosing flooding around them (``emitConvergingStack``,
   // session 12 TARGET A). Try it as the fallback; a non-converging genuine void still returns false.
   if (facingSpan === null) return tryConvergingStack()
   // Lens-apex clamp band edges. The DEFAULT (all pre-existing cases) rides the facing-matrix RUN edge
   // (``clamp``). ONLY the enclosing-matrix-corrected case uses the true INTERVAL bracket elevations
-  // (the sloping tie lines iTop/iBase â†’ facingTopElev/facingBaseElev): there the run edge is flat at
+  // (the sloping tie lines iTop/iBase to facingTopElev/facingBaseElev): there the run edge is flat at
   // iBase and would let a base-boundary lens apex poke BELOW the sloping base bracket (the Tie-6 SILT
-  // 15.9 cm / CS1-g5 33.8 cm flood-bypass overlap â€” the base bracket rises to âˆ’3.88 on the facing
-  // while the run edge reads âˆ’5.31). Gating this to the corrected case keeps the 32 OK cases unmoved.
+  // 15.9 cm / CS1-g5 33.8 cm flood-bypass overlap - the base bracket rises to -3.88 on the facing
+  // while the run edge reads -5.31). Gating this to the corrected case keeps the 32 OK cases unmoved.
   const clamp = (e: number): number => Math.min(facingSpan.top, Math.max(facingSpan.base, e))
   const facingTopEdge = correctedMatrix ? facingTopElev : clamp(iTop)
   const facingBaseEdge = correctedMatrix ? facingBaseElev : clamp(iBase)
@@ -297,25 +297,25 @@ export function routeLoneStack(
     // Band-clip fraction FIRST (v1's boundary-adjacent shortening): keeps the apex on the
     // matrix side of both band edges. The MIN_CLAMPED_FRACTION bail is a band-clip guard
     // (a boundary minority in a narrow band bows out to full-width); the ruling-8b reach
-    // cap is NOT that guard and must not trip it â€” so the bail is tested on the band-clip
+    // cap is NOT that guard and must not trip it - so the bail is tested on the band-clip
     // value BEFORE the 8b cap is applied.
     const clipF = clampedLensFraction(u, iTop, iBase, facingTopEdge, facingBaseEdge)
     if (clipF < MIN_CLAMPED_FRACTION) return false
-    // Ruling 8b (design partition-engine-v2.md Â§8): tighten the apex to ~2Ã— the unit's own
+    // Ruling 8b (design partition-engine-v2.md section 8): tighten the apex to ~2x the unit's own
     // thickness (a thin minority hugs its column). Applied to the plan so BOTH the flood
-    // slab-seams (emitLoneStackBand) and the lens closings use the SAME fraction â€” a
+    // slab-seams (emitLoneStackBand) and the lens closings use the SAME fraction - a
     // mismatch would leave the slab-seam past the shortened lens apex.
     const f = Math.min(clipF, lensReachFraction(u.topElev - u.baseElev, facingX - loneX))
     plan.push({ u, f })
   }
-  // Slab-seam decomposition of the matrix band (mechanism (b) â€” no converging wedge, so no
+  // Slab-seam decomposition of the matrix band (mechanism (b) - no converging wedge, so no
   // comb; horizontal seams at each minority top/base separate a minority enclosed between two
   // matrix runs). Each minority PINCHES to its OWN clamped apex fraction (v1's per-unit 0.45/
-  // 0.38 apexes â€” restored in increment 17 now that residual-(i)'s per-sub-loop curve-id
+  // 0.38 apexes - restored in increment 17 now that residual-(i)'s per-sub-loop curve-id
   // labelling separates adjacent notches without a shared apex line).
   emitLoneStackBand(bracketMatrix, loneX, facingX, iTop, iBase, plan, nextFloodId, lensLabels, out)
   // Every minority pinches to its OWN clamped apex fraction as a notch biting the lone
-  // column edge (NOT a shared-apex WEDGE â€” increment-11 self-inverts; each keeps its own
+  // column edge (NOT a shared-apex WEDGE - increment-11 self-inverts; each keeps its own
   // mid-elevation AND its own fraction).
   for (const { u, f } of plan) emitLensClosing(u, loneX, facingX, f, nextId, out)
   return true
