@@ -1,7 +1,7 @@
 groundmodel.api.schemas.cpt.import_dov_response
 ===============================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/cpt/import_dov_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/cpt/import_dov_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/cpt/import_dov_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and imports of ``UUID`` and ``BaseModel``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern; a plain summary shape.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ImportDovResponse``
 
 .. CG-EXPLANATION-START id=class:ImportDovResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The summary of a completed DOV CPT import: imported / duplicate / failed counts and the list of imported CPT ids.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The minimal counts-and-ids shape the desktop needs after a bounding-box import; the borehole equivalent adds the lab-attachment counts.
 
 .. CG-EXPLANATION-END id=class:ImportDovResponse
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas
 ========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_contact_correlation/accept_schemas.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_contact_correlation/accept_schemas.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_contact_correlation/accept_schemas.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring, then imports of ``UUID``, ``BaseModel``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This file holds the request and responses for the accept endpoints; the request uses the strict base.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``AcceptContactCorrelationsRequest``
 
 .. CG-EXPLANATION-START id=class:AcceptContactCorrelationsRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body of the accept endpoint: an optional section id — approve only edges whose endpoints are both seeded on that section, or every unapproved edge in the model when absent.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same request-schema pattern; scoping to a section lets the engineer accept one section's correlations at a time.
 
 .. CG-EXPLANATION-END id=class:AcceptContactCorrelationsRequest
 
@@ -65,13 +57,9 @@ Class ``AcceptContactCorrelationsResponse``
 
 .. CG-EXPLANATION-START id=class:AcceptContactCorrelationsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result of accepting: how many edges were flipped to approved, and a diagnostic count of formation-ordinal changes the resolver triggered.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The ordinal count is populated only once the resolver exposes per-change counts; zero until then, as the docstring notes.
 
 .. CG-EXPLANATION-END id=class:AcceptContactCorrelationsResponse
 
@@ -87,13 +75,9 @@ Class ``ConfirmEdgeReviewResponse``
 
 .. CG-EXPLANATION-START id=class:ConfirmEdgeReviewResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result of confirming a flagged edge: how many edges had their review flag cleared.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes zero is a normal answer — confirming an edge that carries no flag is a no-op, not an error — so the desktop should not treat it as a failure.
 
 .. CG-EXPLANATION-END id=class:ConfirmEdgeReviewResponse
 

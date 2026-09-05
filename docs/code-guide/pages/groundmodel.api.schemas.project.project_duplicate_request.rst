@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.project_duplicate_request
 =========================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/project_duplicate_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/project_duplicate_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/project_duplicate_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports ``Field`` and the strict base class.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Minimal imports for a one-field request schema.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ProjectDuplicateRequest``
 
 .. CG-EXPLANATION-START id=class:ProjectDuplicateRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body for duplicating a project ("Save As"): a single optional new name.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The desktop usually derives the name from the chosen file path, but leaving it optional lets a future bulk-duplicate flow omit it and let the backend default to "Copy of <source name>", per the docstring.
 
 .. CG-EXPLANATION-END id=class:ProjectDuplicateRequest
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_layer.litho_layer_boundary_move_request
 =============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_boundary_move_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_boundary_move_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_layer/litho_layer_boundary_move_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports UUID, ``Field``, and the strict base class.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Standard imports for a small request schema.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LithoLayerBoundaryMoveRequest``
 
 .. CG-EXPLANATION-START id=class:LithoLayerBoundaryMoveRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body for moving one shared boundary: the id of the layer above, the id of the layer below, and the new depth for the boundary between them.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Moving the shared edge is a two-row change in one transaction — the layer above gets a new base and the layer below a new top — so both ids travel together. The docstring records the guards the use case enforces: the two layers must share an anchor and be adjacent, and the new depth must lie strictly between the outer edges. The per-field descriptions spell those limits out.
 
 .. CG-EXPLANATION-END id=class:LithoLayerBoundaryMoveRequest
 

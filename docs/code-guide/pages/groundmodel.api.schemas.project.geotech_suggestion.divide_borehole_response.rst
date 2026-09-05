@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_suggestion.divide_borehole_response
 ===========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_suggestion/divide_borehole_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_suggestion/divide_borehole_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_suggestion/divide_borehole_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports ``UUID`` and the Pydantic tools.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A response schema; same pattern.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DivideBoreholeResponse``
 
 .. CG-EXPLANATION-START id=class:DivideBoreholeResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result of committing the divide-boreholes step: the model updated, how many boreholes got several bands versus one, rows inserted, formations created, and a large set of counters about the accepted ties — how many were carried onto the rebuilt bands, flagged for review, lost, or deleted for various reasons — plus human-readable labels for the lost ties.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring is dense with owner rulings behind each counter; the load-bearing one is that lost ties are surfaced with a label naming both investigations and depths, because a count alone tells the engineer his accepted work vanished but nothing about where to redraw it, and the ids were only ever in a server log. Several counters (crossing, superseded-jump, replaced-span) record deliberate deletions of machine ties while hand-drawn ties are never deleted. Fields are additive and defaulted so an older client ignores them.
 
 .. CG-EXPLANATION-END id=class:DivideBoreholeResponse
 

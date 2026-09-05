@@ -1,7 +1,7 @@
 groundmodel.api.schemas.cpt
 ===========================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/cpt/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/cpt/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/cpt/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring; the file is otherwise empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It marks the CPT-schemas folder as a package; nothing is re-exported (the one-class-per-file convention).
 
 .. CG-EXPLANATION-END id=module-header
 

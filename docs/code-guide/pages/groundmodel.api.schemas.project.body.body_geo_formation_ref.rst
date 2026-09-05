@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.body.body_geo_formation_ref
 ===========================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/body/body_geo_formation_ref.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/body/body_geo_formation_ref.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/body/body_geo_formation_ref.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The one-line docstring and the imports (``UUID`` and Pydantic's ``BaseModel``).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``BaseModel`` is Pydantic's base for any schema; a *UUID* is the long unique id used as a database key throughout the project.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``BodyGeoFormationRef``
 
 .. CG-EXPLANATION-START id=class:BodyGeoFormationRef
 
-.. CG-PLACEHOLDER
+**What this does.** A minimal reference to one geological formation a body crosses: its id and its display name.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records why this is a list elsewhere, not a single stamp (debt #278): a body may span geological-formation boundaries, so its geological attribution is the list of every formation it crosses, shallowest first. The id resolves the formation; the name is what the desktop and exports show.
 
 .. CG-EXPLANATION-END id=class:BodyGeoFormationRef
 

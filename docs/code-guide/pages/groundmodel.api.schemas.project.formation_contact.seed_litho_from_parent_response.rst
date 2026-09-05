@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.seed_litho_from_parent_response
 =================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/seed_litho_from_parent_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/seed_litho_from_parent_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/seed_litho_from_parent_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic ``BaseModel``, the cross-section response).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SeedLithoFromParentResponse``
 
 .. CG-EXPLANATION-START id=class:SeedLithoFromParentResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result: the created contact ids, a skipped-existing count (idempotency), and the optional updated section row.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the section is echoed only when a section id was given, so the desktop patches its local state without a second request. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:SeedLithoFromParentResponse
 

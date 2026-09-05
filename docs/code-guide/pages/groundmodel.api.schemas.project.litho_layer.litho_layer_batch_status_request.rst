@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_layer.litho_layer_batch_status_request
 ============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_status_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_status_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_status_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports UUID, ``Field``, the shared status value-list, and the strict base class.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It reuses the status value-list defined on the response page so "accept all" and the row shape cannot disagree on the allowed words.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LithoLayerBatchStatusRequest``
 
 .. CG-EXPLANATION-START id=class:LithoLayerBatchStatusRequest
 
-.. CG-PLACEHOLDER
+**What this does.** A request body carrying a list of layer ids and one status to set on all of them. An empty list is a no-op.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Setting one status across many layers in a single database transaction is what the "accept all" / "reject all" buttons need — it replaces a loop of one-row updates. The status is limited to the three allowed words, so a bad value is rejected with a ``422`` (the status for "understood but invalid").
 
 .. CG-EXPLANATION-END id=class:LithoLayerBatchStatusRequest
 

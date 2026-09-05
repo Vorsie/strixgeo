@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_contact_correlation.body_companion_schemas
 ================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_contact_correlation/body_companion_schemas.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_contact_correlation/body_companion_schemas.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_contact_correlation/body_companion_schemas.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring, then an import of ``BaseModel``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A single response schema; same pattern.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``MaterialiseBodyCompanionsResponse``
 
 .. CG-EXPLANATION-START id=class:MaterialiseBodyCompanionsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result of the body-companions materialise endpoint: how many perpendicular companion sections were created, and counts of bodies skipped for a missing primary section or an unfinished one, plus bodies that errored.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the loop continues past each error, so a non-zero error count warrants investigation but does not block the other bodies — one bad body cannot spoil the rest.
 
 .. CG-EXPLANATION-END id=class:MaterialiseBodyCompanionsResponse
 

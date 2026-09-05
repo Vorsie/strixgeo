@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_layer.litho_layer_boundary_move_response
 ==============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_boundary_move_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_boundary_move_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_layer/litho_layer_boundary_move_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the base model and the layer response shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Reuse of the standard row shape, as elsewhere in this package.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LithoLayerBoundaryMoveResponse``
 
 .. CG-EXPLANATION-START id=class:LithoLayerBoundaryMoveResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply: both layers after the move, the upper and the lower.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Returning both changed rows lets the desktop refresh in place without a second request.
 
 .. CG-EXPLANATION-END id=class:LithoLayerBoundaryMoveResponse
 

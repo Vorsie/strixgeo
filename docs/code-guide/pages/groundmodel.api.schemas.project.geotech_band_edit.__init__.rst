@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_band_edit
 =================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_band_edit/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line description of the package (the geotech packing-band hand-edit schemas), then a list of imports that re-export every schema class in the folder under one package path, and an ``__all__`` list naming the public surface.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The project keeps one class per file (a CLAUDE.md convention). This ``__init__`` gathers those separate files so a caller can import the whole set from the package path instead of from each file. ``__all__`` is the explicit list of names the package offers.
 
 .. CG-EXPLANATION-END id=module-header
 

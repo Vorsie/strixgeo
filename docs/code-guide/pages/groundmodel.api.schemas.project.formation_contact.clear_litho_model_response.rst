@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.clear_litho_model_response
 ============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/clear_litho_model_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/clear_litho_model_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/clear_litho_model_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and the single Pydantic import.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ClearLithoModelResponse``
 
 .. CG-EXPLANATION-START id=class:ClearLithoModelResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Four per-table deletion counts (contacts, edges, surfaces, formations) from clearing a litho model.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the operation is irreversible, so no id list is returned (nothing to undo via the API); the counts make the toast meaningful, and shared formations are excluded from the formation count (orphan-safe). A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:ClearLithoModelResponse
 

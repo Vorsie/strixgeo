@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.body.clear_boundaries_response
 ==============================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/body/clear_boundaries_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/body/clear_boundaries_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/body/clear_boundaries_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and the single Pydantic import.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ClearBoundariesResponse``
 
 .. CG-EXPLANATION-START id=class:ClearBoundariesResponse
 
-.. CG-PLACEHOLDER
+**What this does.** One count, ``shapes_deleted`` — how many hand-drawn boundary shapes the bulk "Reset manual points" removed.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes the control nodes are dropped by the database cascade and not counted separately; the count is what the desktop toast reports. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:ClearBoundariesResponse
 

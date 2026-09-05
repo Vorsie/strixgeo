@@ -1,7 +1,7 @@
 groundmodel.api.schemas.cpt.cpt_plot_batch_request
 ==================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/cpt/cpt_plot_batch_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/cpt/cpt_plot_batch_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/cpt/cpt_plot_batch_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring, imports of ``UUID``, ``Field``, and the strict base, and a private constant capping the batch at 500 ids.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A request schema, so it inherits the strict base; the cap guards against one giant request (a typical section calls with fewer than 30).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``CptPlotBatchRequest``
 
 .. CG-EXPLANATION-START id=class:CptPlotBatchRequest
 
-.. CG-PLACEHOLDER
+**What this does.** Two fields: the list of CPT ids (1 to 500) and a REQUIRED ``app_project_id``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``app_project_id`` is the project-scope guard: the endpoint returns only CPTs in that project so a caller cannot fetch a foreign CPT's series by guessing its id (VULN-5). The docstring records that response order is not guaranteed and that unknown or series-less CPTs are dropped, matching the section panel's render-time behaviour.
 
 .. CG-EXPLANATION-END id=class:CptPlotBatchRequest
 

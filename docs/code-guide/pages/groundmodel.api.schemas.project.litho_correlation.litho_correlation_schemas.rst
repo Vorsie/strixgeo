@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas
 ===========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_correlation/litho_correlation_schemas.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_correlation/litho_correlation_schemas.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_correlation/litho_correlation_schemas.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A docstring noting the file now holds only the admixture-propagation schemas (the formation-level correlation schemas were removed with their router), then imports of ``UUID``, ``BaseModel``, an admixture item schema, a formation response schema, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the removed schemas went with the formation-level router in a documented cleanup (#133 Phase 3) — history a reader would otherwise wonder about.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``PropagateAdmixturesRequest``
 
 .. CG-EXPLANATION-START id=class:PropagateAdmixturesRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body to propagate admixtures across a correlated body: any formation in the target body and the new admixture list to write (an empty list clears them).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that a breadth-first search finds every other formation in the same connected component and applies the admixtures to all — the whole correlated body moves together. It uses the strict base. Admixtures are raw upstream tokens; translation stays in the desktop (translate at the presentation boundary).
 
 .. CG-EXPLANATION-END id=class:PropagateAdmixturesRequest
 
@@ -65,13 +57,9 @@ Class ``PropagateAdmixturesResponse``
 
 .. CG-EXPLANATION-START id=class:PropagateAdmixturesResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result: every formation that was updated (the full connected component, each refreshed from the database after commit) and the component size.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The refreshed formations let the caller replace its local cache entries directly. The docstring notes the size normally equals the list length, differing only in a defensive should-not-happen case.
 
 .. CG-EXPLANATION-END id=class:PropagateAdmixturesResponse
 

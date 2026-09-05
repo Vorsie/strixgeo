@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_correlation
 =================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_correlation/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_correlation/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_correlation/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring naming the package (schemas for the litho-correlation endpoints). Otherwise empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Marks the folder as an importable package.
 
 .. CG-EXPLANATION-END id=module-header
 

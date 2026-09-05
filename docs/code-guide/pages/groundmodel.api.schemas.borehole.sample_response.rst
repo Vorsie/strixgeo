@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.sample_response
 ================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/sample_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/sample_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/sample_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and imports of ``date``, ``UUID``, ``BaseModel``, ``ConfigDict``, and the five lab-test response schemas.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern; it composes all the lab families a sample can carry.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SampleResponse``
 
 .. CG-EXPLANATION-START id=class:SampleResponse
 
-.. CG-PLACEHOLDER
+**What this does.** One material sample from a borehole: its depth interval, source-vocabulary metadata (type, composition, instrument), sampling date, three geotech-provenance fields defaulting to empty, and the six lab-test lists. Reads off the row.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the metadata tokens pass through verbatim (translation at display), that the geotech fields default to empty so existing saved bundles still deserialise (additive-only rule), and — a subtle point — that ``from_attributes`` reads the ORM relationship names directly, so the JSON keys are the ORM's plural ``_tests`` names rather than the domain suffixes.
 
 .. CG-EXPLANATION-END id=class:SampleResponse
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.discover_from_stratigraphy_response
 =====================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/discover_from_stratigraphy_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/discover_from_stratigraphy_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/discover_from_stratigraphy_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (the candidate item and collision item schemas).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DiscoverFromStratigraphyResponse``
 
 .. CG-EXPLANATION-START id=class:DiscoverFromStratigraphyResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The candidate formation list plus any lumping collisions.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the candidates are sorted by borehole count then name, and the collisions mirror what the write path will return so the dialog can warn before the user confirms. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:DiscoverFromStratigraphyResponse
 

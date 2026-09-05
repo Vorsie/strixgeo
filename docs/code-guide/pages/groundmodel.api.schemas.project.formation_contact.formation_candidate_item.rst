@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.formation_candidate_item
 ==========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/formation_candidate_item.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/formation_candidate_item.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/formation_candidate_item.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and the single Pydantic import.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``FormationCandidateItem``
 
 .. CG-EXPLANATION-START id=class:FormationCandidateItem
 
-.. CG-PLACEHOLDER
+**What this does.** One discovered candidate: a display name, an optional regional reference, a stable ``key``, and the count of boreholes it was found in.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records why the key matters: the desktop passes keys (not display names) on confirm, so discover and auto-populate share one stable identity regardless of informal-name variation across boreholes; the new fields are additive. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:FormationCandidateItem
 

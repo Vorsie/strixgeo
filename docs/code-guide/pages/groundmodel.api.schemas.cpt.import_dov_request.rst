@@ -1,7 +1,7 @@
 groundmodel.api.schemas.cpt.import_dov_request
 ==============================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/cpt/import_dov_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/cpt/import_dov_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/cpt/import_dov_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring, imports of ``UUID``, ``Field`` and ``model_validator``, the strict base, and the shared bounding-box validator.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A request schema, so it inherits the strict base; the shared validator is imported so this and the borehole import enforce the identical box rule.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ImportDovRequest`` — header
 
 .. CG-EXPLANATION-START id=class:ImportDovRequest
 
-.. CG-PLACEHOLDER
+**What this does.** A bounding box (west, south, east, north, each range-guarded) plus an optional project id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The same shape as the borehole import request, so the desktop issues both alike; each edge is bounded so an out-of-range value is a ``422`` before any work starts.
 
 .. CG-EXPLANATION-END id=class:ImportDovRequest
 
@@ -65,13 +57,9 @@ Method ``ImportDovRequest``. ``def _validate_bbox``
 
 .. CG-EXPLANATION-START id=method:ImportDovRequest._validate_bbox
 
-.. CG-PLACEHOLDER
+**What this does.** An after-parse check that runs the shared bounding-box validator and returns the model unchanged when it passes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It rejects a reversed, zero-size, or oversized box at parse time; the raised error becomes the request's ``422``. It shares one validator with the borehole schema so both enforce the same ordering and area guard (don't-repeat rule).
 
 .. CG-EXPLANATION-END id=method:ImportDovRequest._validate_bbox
 

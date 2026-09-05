@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.drill_segment_response
 =======================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/drill_segment_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/drill_segment_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/drill_segment_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and the UUID/BaseModel/ConfigDict imports.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern for one drilling interval.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DrillSegmentResponse``
 
 .. CG-EXPLANATION-START id=class:DrillSegmentResponse
 
-.. CG-PLACEHOLDER
+**What this does.** One drilling interval: id, top and base depth in metres, and the method (which may be empty).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A minimal shape carrying just the depth interval and the technique used over it, read straight off the row.
 
 .. CG-EXPLANATION-END id=class:DrillSegmentResponse
 

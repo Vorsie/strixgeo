@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.gap_validation_response
 =========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/gap_validation_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/gap_validation_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/gap_validation_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic pieces, the gap-issue item).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``GapValidationResponse``
 
 .. CG-EXPLANATION-START id=class:GapValidationResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The model id, the borehole id, and a list of gap issues.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that an empty list means the contacts form a clean contiguous stratigraphy; any issue is a soft warning the editor may or may not block save on. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:GapValidationResponse
 

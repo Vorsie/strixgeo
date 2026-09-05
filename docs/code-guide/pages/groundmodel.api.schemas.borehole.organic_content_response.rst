@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.organic_content_response
 =========================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/organic_content_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/organic_content_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/organic_content_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and the date/UUID/BaseModel/ConfigDict imports.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern for one lab family.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``OrganicContentResponse``
 
 .. CG-EXPLANATION-START id=class:OrganicContentResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Organic carbon and/or organic matter, each as a percentage of dry mass, plus method, test date, and id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring stresses the two are independent and never auto-derived from each other: the carbon-to-matter conversion factor is empirical and soil-dependent, so any consumer needing one from the other must apply it at display time and label it derived (Data Integrity Rule 3). DOV ships organic carbon, so DOV rows usually fill carbon and leave matter empty.
 
 .. CG-EXPLANATION-END id=class:OrganicContentResponse
 

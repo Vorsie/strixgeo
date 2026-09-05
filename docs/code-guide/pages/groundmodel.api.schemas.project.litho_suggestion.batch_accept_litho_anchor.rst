@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_suggestion.batch_accept_litho_anchor
 ==========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/batch_accept_litho_anchor.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/batch_accept_litho_anchor.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_suggestion/batch_accept_litho_anchor.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports UUID, the validator tools, the single suggestion-item shape, and the strict base class.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Standard imports for one entry in a batch write body.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``BatchAcceptLithoAnchor`` — header
 
 .. CG-EXPLANATION-START id=class:BatchAcceptLithoAnchor
 
-.. CG-PLACEHOLDER
+**What this does.** One anchor's accepted suggestions inside a batch: its CPT or borehole id and the suggestions to commit for it. It carries no section id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It mirrors the single-accept body but drops the section id, because the batch request carries one shared section id for all anchors (the don't-repeat rule).
 
 .. CG-EXPLANATION-END id=class:BatchAcceptLithoAnchor
 
@@ -65,13 +57,9 @@ Method ``BatchAcceptLithoAnchor``. ``def _exactly_one_anchor``
 
 .. CG-EXPLANATION-START id=method:BatchAcceptLithoAnchor._exactly_one_anchor
 
-.. CG-PLACEHOLDER
+**What this does.** Rejects the entry unless exactly one anchor id is set.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same one-anchor rule as elsewhere in this package (see the suggest-request page).
 
 .. CG-EXPLANATION-END id=method:BatchAcceptLithoAnchor._exactly_one_anchor
 

@@ -1,7 +1,7 @@
 groundmodel.api.routers
 =======================
 
-.. CG-PAGE source=src/groundmodel/api/routers/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/routers/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/routers/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A single documentation line marking the folder as the home of the FastAPI route handlers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Marks the folder as an importable package. A *route handler* is the function that answers one web address; they are grouped into routers, one file per subject, inside this folder.
 
 .. CG-EXPLANATION-END id=module-header
 

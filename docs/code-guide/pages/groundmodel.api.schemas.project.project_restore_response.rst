@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.project_restore_response
 ========================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/project_restore_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/project_restore_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/project_restore_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the plain project-response schema to extend it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It builds on the existing project shape rather than repeating its fields.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ProjectRestoreResponse``
 
 .. CG-EXPLANATION-START id=class:ProjectRestoreResponse
 
-.. CG-PLACEHOLDER
+**What this does.** A restored project's full metadata plus two counts: how many depth-series rows and how many child rows the restore's size caps had to drop. Both default to zero.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Restore silently truncates over-large arrays to stay within safety caps; before this schema those drops left only a log line. Carrying the counts back lets the desktop tell the engineer "N rows were too large and were capped". It subclasses the plain response (rather than adding the fields to it) on purpose, so a restore-only field never leaks into the ``.gmproj`` file or the project list, which reuse the plain shape.
 
 .. CG-EXPLANATION-END id=class:ProjectRestoreResponse
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_suggestion.batch_accept_litho_suggestions_response
 ========================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/batch_accept_litho_suggestions_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/batch_accept_litho_suggestions_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_suggestion/batch_accept_litho_suggestions_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the base model, the section response shape, and the per-anchor result shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reply embeds both, so it imports both.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``BatchAcceptLithoSuggestionsResponse``
 
 .. CG-EXPLANATION-START id=class:BatchAcceptLithoSuggestionsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply for a batch accept: the per-anchor outcomes in request order, running totals of created/found contacts and created formations, the count of failed anchors, whether inference ran, and the refreshed section.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The per-anchor results in request order let the desktop update each ghost column and build per-anchor undo entries; the totals and the failed count give a one-glance summary; the refreshed section (seeded once with every anchor's contacts) rides back so the section view updates in place.
 
 .. CG-EXPLANATION-END id=class:BatchAcceptLithoSuggestionsResponse
 

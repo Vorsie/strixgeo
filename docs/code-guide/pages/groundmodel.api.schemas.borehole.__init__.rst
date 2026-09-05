@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole
 ================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring; the file is otherwise empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It marks the borehole-schemas folder as a package. The one-class-per-file convention (see the schemas package introduction) means nothing is re-exported here.
 
 .. CG-EXPLANATION-END id=module-header
 

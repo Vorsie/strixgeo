@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_codelist.nad_class_option
 ===================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_codelist/nad_class_option.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_codelist/nad_class_option.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_codelist/nad_class_option.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and the single Pydantic import.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``NadClassOption``
 
 .. CG-EXPLANATION-START id=class:NadClassOption
 
-.. CG-PLACEHOLDER
+**What this does.** One Belgian NAD geotechnical class: its stable number (1–31), a display label, and the base lithology (GRIND/ZAND/SILT/KLEI/VEEN) it subdivides.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the number is the stable key — the same row number as the NAD table and the future Phase-5 parameter join key. Method/source: NBN EN 1997-1 ANB Tabel 2.1 (the Belgian national annex packing classes). A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:NadClassOption
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_layer.litho_layer_batch_status_response
 =============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_status_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_status_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_status_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the plain base model and the layer response shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reply reuses the standard layer shape so a caller reads the same fields it reads everywhere else.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LithoLayerBatchStatusResponse``
 
 .. CG-EXPLANATION-START id=class:LithoLayerBatchStatusResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply for the batch-status change: how many rows were updated and every changed row in full.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Returning the mutated rows lets the desktop update its display immediately without asking for the whole list again.
 
 .. CG-EXPLANATION-END id=class:LithoLayerBatchStatusResponse
 

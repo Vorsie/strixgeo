@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.formation_contact_batch_update_request
 ========================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/formation_contact_batch_update_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/formation_contact_batch_update_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/formation_contact_batch_update_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (Pydantic ``Field``, the strict base, the batch entry).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``FormationContactBatchUpdateRequest``
 
 .. CG-EXPLANATION-START id=class:FormationContactBatchUpdateRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The batch body: a list of update entries, at least one and at most 500.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records it is all-or-nothing (one transaction, so a failure on entry N rolls back the first N−1); the minimum rejects a no-op call and the maximum keeps one transaction bounded. A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=class:FormationContactBatchUpdateRequest
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_suggestion
 ================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_suggestion/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Re-exports every litho-suggestion schema (the suggest request/response, the single item, the accept request/response, and the batch-accept family) and lists them in ``__all__``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same package-surface pattern as the litho-layer package: callers import from the package path, so a later file move stays invisible (one class per file, per project convention).
 
 .. CG-EXPLANATION-END id=module-header
 

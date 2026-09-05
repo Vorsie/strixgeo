@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.body.update_body_color_request
 ==============================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/body/update_body_color_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/body/update_body_color_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/body/update_body_color_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic ``BaseModel`` and ``Field``, the strict base).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``UpdateBodyColorRequest``
 
 .. CG-EXPLANATION-START id=class:UpdateBodyColorRequest
 
-.. CG-PLACEHOLDER
+**What this does.** Carries only ``display_color`` — a hex colour string (max 20 characters) or ``None`` to reset the per-body override.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes this extends the existing PATCH handler additively without touching the name-update path; resetting to ``None`` falls back to the formation colour in the 3-D viewer. A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=class:UpdateBodyColorRequest
 
@@ -65,13 +57,9 @@ Class ``UpdateBodyColorResponse``
 
 .. CG-EXPLANATION-START id=class:UpdateBodyColorResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply: the updated body id and the persisted colour.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:UpdateBodyColorResponse
 

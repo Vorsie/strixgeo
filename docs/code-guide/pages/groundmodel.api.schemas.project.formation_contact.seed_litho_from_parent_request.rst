@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.seed_litho_from_parent_request
 ================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/seed_litho_from_parent_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/seed_litho_from_parent_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/seed_litho_from_parent_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic ``Field``, the strict base).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SeedLithoFromParentRequest``
 
 .. CG-EXPLANATION-START id=class:SeedLithoFromParentRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The request: the in-corridor borehole ids to copy contacts for, and an optional section id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that an empty list returns immediately with nothing created, and that passing a section id makes the endpoint union the created and found contacts into that section's seeded set — the explicit-content invariant. A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=class:SeedLithoFromParentRequest
 

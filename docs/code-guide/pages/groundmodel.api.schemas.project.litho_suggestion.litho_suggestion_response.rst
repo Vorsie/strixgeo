@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_suggestion.litho_suggestion_response
 ==========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/litho_suggestion_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_suggestion/litho_suggestion_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_suggestion/litho_suggestion_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the base model and the single suggestion-item shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reply is built by us and is not validated from client input, so it uses the plain base model, not the strict one.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LithoSuggestionResponse``
 
 .. CG-EXPLANATION-START id=class:LithoSuggestionResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply for a suggest request: which data source was used, the minimum thickness that was applied, and the ordered list of suggested layers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Echoing the threshold back lets the desktop re-request with a different value without losing context. An empty layer list is a valid answer (the segmenter produced nothing).
 
 .. CG-EXPLANATION-END id=class:LithoSuggestionResponse
 

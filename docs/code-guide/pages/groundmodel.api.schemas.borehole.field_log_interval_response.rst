@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.field_log_interval_response
 ============================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/field_log_interval_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/field_log_interval_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/field_log_interval_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and the UUID/BaseModel/ConfigDict imports.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern for one field-log observation.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``FieldLogIntervalResponse``
 
 .. CG-EXPLANATION-START id=class:FieldLogIntervalResponse
 
-.. CG-PLACEHOLDER
+**What this does.** One depth interval of a field-log observation: id, top and base, the observation ``kind`` (colour, moisture, consistency, ...), and its value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It keeps the kind as a raw token so the desktop decides how to display each observation type; read straight off the row.
 
 .. CG-EXPLANATION-END id=class:FieldLogIntervalResponse
 

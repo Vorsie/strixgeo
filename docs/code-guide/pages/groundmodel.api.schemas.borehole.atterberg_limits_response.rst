@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.atterberg_limits_response
 ==========================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/atterberg_limits_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/atterberg_limits_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/atterberg_limits_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and imports of ``date``, ``UUID``, ``BaseModel``, and ``ConfigDict``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The same response-schema pattern introduced on the admixture page; a ``UUID`` is the long unique identifier a row carries, and ``date`` types the test date.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``AtterbergLimitsResponse``
 
 .. CG-EXPLANATION-START id=class:AtterbergLimitsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The liquid limit, plastic limit, non-plastic flag, method, and test date for one sample, each allowed to be empty, plus the row id. Reads off the row via ``from_attributes``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records a data-integrity choice: the plasticity index is NOT a field, because it is simply liquid minus plastic and storing it would risk drift after an edit — clients compute it when both parts are present (derived on read, Data Integrity Rule 1). ``non_plastic`` is the import's interpretation of a sample that cannot be rolled into a thread.
 
 .. CG-EXPLANATION-END id=class:AtterbergLimitsResponse
 

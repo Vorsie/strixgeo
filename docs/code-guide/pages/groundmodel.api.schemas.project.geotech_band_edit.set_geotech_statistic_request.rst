@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_band_edit.set_geotech_statistic_request
 ===============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/set_geotech_statistic_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/set_geotech_statistic_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_band_edit/set_geotech_statistic_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports ``Literal`` (a type that allows only a fixed set of exact values), ``Field``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A request schema; the ``Literal`` restricts the field to a closed set.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SetGeotechStatisticRequest``
 
 .. CG-EXPLANATION-START id=class:SetGeotechStatisticRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body for changing a geotech model's representative-cone-resistance statistic: one of exactly four tokens (median, arithmetic, harmonic, geometric).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the ``Literal`` deliberately duplicates the domain's approved set so an invalid token is rejected at the wire with a ``422`` before any code runs (owner ruling 7).
 
 .. CG-EXPLANATION-END id=class:SetGeotechStatisticRequest
 

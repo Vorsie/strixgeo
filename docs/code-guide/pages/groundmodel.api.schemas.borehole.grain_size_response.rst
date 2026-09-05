@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.grain_size_response
 ====================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/grain_size_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/grain_size_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/grain_size_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and the date/UUID/BaseModel/ConfigDict imports.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern for the grain-size lab family.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``GrainSizeResponse``
 
 .. CG-EXPLANATION-START id=class:GrainSizeResponse
 
-.. CG-PLACEHOLDER
+**What this does.** One grain-size curve for a sample: two parallel arrays (diameters and the percentage larger than each), the method, the test date, and two pre-treatment flags. Reads off the row.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The two arrays are parallel and in ascending-diameter order, so index i in one lines up with index i in the other. The docstring keeps the method as the raw DOV token (translated at display) and stresses that the ``lime_removed`` / ``organics_removed`` flags are pre-treatment markers, not measurements of lime or organic content (Data Integrity Rule 3).
 
 .. CG-EXPLANATION-END id=class:GrainSizeResponse
 

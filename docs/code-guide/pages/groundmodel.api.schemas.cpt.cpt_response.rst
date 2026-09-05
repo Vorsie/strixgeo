@@ -1,7 +1,7 @@
 groundmodel.api.schemas.cpt.cpt_response
 ========================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/cpt/cpt_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/cpt/cpt_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/cpt/cpt_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and imports of ``UUID`` and ``BaseModel``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern; the full CPT header.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``CptResponse``
 
 .. CG-EXPLANATION-START id=class:CptResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The full CPT header returned for one record: id, name, cone type, location and coordinate system, elevation with its vertical system and source, pre-drill depth, cone area ratio, water depth with its source, max depth, and row count. The two water-depth fields default to empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the API-boundary mirror of the stored header, kept separate from the row so storage can change without breaking the contract. The docstring records that the elevation source drives a provenance badge (debt #8) and that the water table is empty for every DOV CPT, whose consumers fall back to the project-wide assumption. The comment on the water fields makes the additive-only rule explicit: they default to empty so any caller that builds a response without them keeps working (``docs/api.md``).
 
 .. CG-EXPLANATION-END id=class:CptResponse
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.observation_response
 =====================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/observation_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/observation_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/observation_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and imports of ``date``, ``UUID``, ``BaseModel``, ``ConfigDict``, and the layer response.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern; it composes the layers list.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ObservationResponse``
 
 .. CG-EXPLANATION-START id=class:ObservationResponse
 
-.. CG-PLACEHOLDER
+**What this does.** One interpretation stream on a borehole: id, its type, author, date, three quality/score fields, and its layers. Reads off the row.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A borehole can carry several observations of different types (coded lithology, formal stratigraphy, ...), each its own row with its own metadata; the type is a raw token the desktop maps to a label.
 
 .. CG-EXPLANATION-END id=class:ObservationResponse
 

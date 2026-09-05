@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_contact_correlation.litho_contact_correlation_schemas
 ===========================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_contact_correlation/litho_contact_correlation_schemas.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_contact_correlation/litho_contact_correlation_schemas.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_contact_correlation/litho_contact_correlation_schemas.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A docstring listing the endpoints served and the section-scoping rule, then imports of ``datetime``, ``Literal``, ``UUID``, ``BaseModel`` and ``model_validator``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the section-scoped authoring rule (owner directive 2026-06-08): an edge carries the section it was authored on, create and delete both require a section id (the use cases raise a ``422`` on null), and the list endpoint returns the section and accepts a section filter.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ContactCorrelationRequest`` — header
 
 .. CG-EXPLANATION-START id=class:ContactCorrelationRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body for creating and deleting a contact-correlation edge: the two layer endpoints, a provenance token, the authoring section, and which contact (top or base) of each layer the edge joins.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that endpoints may be given in either order (the use case normalises to a canonical pair), that the section id is required in practice (declared optional only so the use case raises a clear ``422`` rather than request parsing), and that a base-on-both-ends edge is a bottom-tie letting the deepest unit band.
 
 .. CG-EXPLANATION-END id=class:ContactCorrelationRequest
 
@@ -65,13 +57,9 @@ Method ``ContactCorrelationRequest``. ``def _no_self_loop``
 
 .. CG-EXPLANATION-START id=method:ContactCorrelationRequest._no_self_loop
 
-.. CG-PLACEHOLDER
+**What this does.** A validator that rejects a request whose two endpoints are the same layer.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Defence in depth — a self-loop is meaningless, caught at the API boundary as well as deeper in.
 
 .. CG-EXPLANATION-END id=method:ContactCorrelationRequest._no_self_loop
 
@@ -87,13 +75,9 @@ Class ``ContactCorrelationResponse``
 
 .. CG-EXPLANATION-START id=class:ContactCorrelationResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result of creating an edge: the edge id, the canonical endpoints and their sides, the model, the provenance, whether a new edge was created, and an optional frame warning.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``was_created`` is false when the edge already existed, so an idempotent re-call returns 200 not 201. The docstring records that a frame warning is set when a geotech packing tie does not conform to the litho frame — the tie IS still written, and the warning is the draw-time flag the owner ordered (2026-08-21), surfaced as a toast; it is null for conforming ties and every litho or geological correlation.
 
 .. CG-EXPLANATION-END id=class:ContactCorrelationResponse
 
@@ -109,13 +93,9 @@ Class ``ContactCorrelationEdgeListItem``
 
 .. CG-EXPLANATION-START id=class:ContactCorrelationEdgeListItem
 
-.. CG-PLACEHOLDER
+**What this does.** One edge returned by the list endpoint: its id, canonical endpoints and sides, model, authoring section, provenance, whether the user approved it, an optional review reason, and its creation time. ``from_attributes`` is set.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``from_attributes`` lets it read straight off the database row. The docstring records that a flagged edge (carrying a review reason) is still user-approved — awaiting confirmation, not demoted to a proposal — set by the geotech re-anchor when a re-subdivide could not identify the band a tie was drawn on, so the tie is carried and flagged rather than dropped.
 
 .. CG-EXPLANATION-END id=class:ContactCorrelationEdgeListItem
 

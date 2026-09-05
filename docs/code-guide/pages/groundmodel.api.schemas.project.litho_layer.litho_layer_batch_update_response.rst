@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_layer.litho_layer_batch_update_response
 =============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_update_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_update_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_layer/litho_layer_batch_update_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the base model and the layer response shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same pattern as the batch-status response — reuse the standard row shape.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LithoLayerBatchUpdateResponse``
 
 .. CG-EXPLANATION-START id=class:LithoLayerBatchUpdateResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply: the updated count and every mutated row, in the same order as the request.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Returning the changed rows in input order lets the desktop apply the new values in place without a re-list, same as the other batch responses.
 
 .. CG-EXPLANATION-END id=class:LithoLayerBatchUpdateResponse
 

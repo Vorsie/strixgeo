@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_band_edit.move_geotech_boundary_request
 ===============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/move_geotech_boundary_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/move_geotech_boundary_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_band_edit/move_geotech_boundary_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports ``UUID``, ``Field``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A request schema on the strict base; same pattern as the merge request.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``MoveGeotechBoundaryRequest``
 
 .. CG-EXPLANATION-START id=class:MoveGeotechBoundaryRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body of the boundary-move (drag) endpoints: the two adjacent bands sharing the boundary and the proposed new boundary depth.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the new depth must land strictly inside the pair — squeezing a band to nothing is the ABSORB gesture, which is a merge call, not a move.
 
 .. CG-EXPLANATION-END id=class:MoveGeotechBoundaryRequest
 

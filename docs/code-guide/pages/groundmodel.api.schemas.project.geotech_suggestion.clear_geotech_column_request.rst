@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_suggestion.clear_geotech_column_request
 ===============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_suggestion/clear_geotech_column_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_suggestion/clear_geotech_column_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_suggestion/clear_geotech_column_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file and imports ``UUID``, ``Field``, ``BaseModel``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This file holds a request and its response together; the request uses the strict base.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ClearGeotechColumnRequest``
 
 .. CG-EXPLANATION-START id=class:ClearGeotechColumnRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body to clear one investigation's geotech bands: the CPT or borehole id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes the ties cascade and no tombstones are written, because this is rebuild preparation (owner ask 2026-08-18).
 
 .. CG-EXPLANATION-END id=class:ClearGeotechColumnRequest
 
@@ -65,13 +57,9 @@ Class ``ClearGeotechColumnResponse``
 
 .. CG-EXPLANATION-START id=class:ClearGeotechColumnResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The result of a clear: the model, the cleared investigation, and how many band rows were deleted.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A count of zero is a valid idempotent no-op (the column carried no bands), which the caller can report plainly.
 
 .. CG-EXPLANATION-END id=class:ClearGeotechColumnResponse
 

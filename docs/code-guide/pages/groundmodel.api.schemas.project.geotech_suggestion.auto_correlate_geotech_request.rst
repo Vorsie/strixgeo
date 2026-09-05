@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_suggestion.auto_correlate_geotech_request
 =================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_suggestion/auto_correlate_geotech_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_suggestion/auto_correlate_geotech_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_suggestion/auto_correlate_geotech_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports ``UUID``, ``Field``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A request schema on the strict base.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``AutoCorrelateGeotechRequest``
 
 .. CG-EXPLANATION-START id=class:AutoCorrelateGeotechRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body of the geotech auto-correlate endpoint: a single optional section id restricting the run to one section, or every section when absent.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes the geotech correlation rule takes no tunables (its class-sequence match has no depth window), so the section id is the only field.
 
 .. CG-EXPLANATION-END id=class:AutoCorrelateGeotechRequest
 

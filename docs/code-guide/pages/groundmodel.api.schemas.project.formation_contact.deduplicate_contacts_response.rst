@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.deduplicate_contacts_response
 ===============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/deduplicate_contacts_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/deduplicate_contacts_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/deduplicate_contacts_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic ``BaseModel``).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DeduplicateContactsResponse``
 
 .. CG-EXPLANATION-START id=class:DeduplicateContactsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The count of inspected groups, the count of removed duplicates, and their ids.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the ids are returned so the toast is meaningful and a future undo could re-create the deleted rows. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:DeduplicateContactsResponse
 

@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.lumping_collision_item
 ========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/lumping_collision_item.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/lumping_collision_item.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/lumping_collision_item.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic ``BaseModel``).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LumpingCollisionItem``
 
 .. CG-EXPLANATION-START id=class:LumpingCollisionItem
 
-.. CG-PLACEHOLDER
+**What this does.** One lumping collision: the borehole, the target key and name it collided on, the raw names that mapped to it, the kept top depth, and how many deeper duplicates were dropped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records this is the API projection of an application-layer collision, shown as an amber warning so the engineer understands which layers were merged and which contact was kept before committing. A *response schema* is the shape the API returns to the desktop, kept separate from the database row so internal storage can change without breaking the web contract; new fields are additive (default to optional/null) per the API contract in ``docs/api.md``.
 
 .. CG-EXPLANATION-END id=class:LumpingCollisionItem
 

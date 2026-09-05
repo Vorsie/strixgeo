@@ -1,7 +1,7 @@
 groundmodel.api.schemas.borehole.water_content_response
 =======================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/borehole/water_content_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/borehole/water_content_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/borehole/water_content_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line docstring and the date/UUID/BaseModel/ConfigDict imports.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The response-schema pattern for one lab family.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``WaterContentResponse``
 
 .. CG-EXPLANATION-START id=class:WaterContentResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Water content as a percentage of dry mass, plus method, test date, and id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring warns that values can exceed 100 % for organic soils, peats, and quick clays, and that the domain already validates the range, so consumers must not clamp — a domain fact the reader will recognise.
 
 .. CG-EXPLANATION-END id=class:WaterContentResponse
 

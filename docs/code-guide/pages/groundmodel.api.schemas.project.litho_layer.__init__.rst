@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.litho_layer
 ===========================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/litho_layer/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/litho_layer/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Re-exports every litho-layer schema (the request bodies, the response shape, and the three fixed value-lists) from this package under one import, and lists them in ``__all__``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Gathering the package's public names in one place lets the rest of the app import them from the package rather than from each file, so a later file move is invisible to callers. ``__all__`` is the explicit list of names the package offers.
 
 .. CG-EXPLANATION-END id=module-header
 

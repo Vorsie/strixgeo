@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_band_edit.restated_contact_move_response
 ================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/restated_contact_move_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/restated_contact_move_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_band_edit/restated_contact_move_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports ``UUID``, ``Field``, and the band-edit response it extends.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It builds on an existing response schema rather than repeating it — the same pattern of reuse.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``RestatedContactMoveResponse``
 
 .. CG-EXPLANATION-START id=class:RestatedContactMoveResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Extends the band-edit response with the other model levels a restated-contact move carried: the litho layer above and below the moved contact, and the geological contact carried along (or absent when the litho row is not derived from one).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The geotech half of this gesture IS a band move, so the caller reads the same plan and outcome; what it adds is the answer to "what else did I just change", which the docstring says the engineer must be told before pressing the button, not after. Extending rather than replacing keeps the shared fields identical.
 
 .. CG-EXPLANATION-END id=class:RestatedContactMoveResponse
 

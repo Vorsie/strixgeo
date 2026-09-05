@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.batch_create_sections_response
 ==============================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/batch_create_sections_response.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/batch_create_sections_response.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/batch_create_sections_response.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports the single-section response schema.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It reuses the single-section response shape so each returned entry matches what a lone create returns.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``BatchCreateSectionsResponse``
 
 .. CG-EXPLANATION-START id=class:BatchCreateSectionsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** The reply for a batch create: the created sections, one entry per submitted section, in the same order as the request.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Returning them in request order lets the desktop line each result up with what it sent without matching on ids. A *response schema* is the declared shape of the JSON the server sends back.
 
 .. CG-EXPLANATION-END id=class:BatchCreateSectionsResponse
 

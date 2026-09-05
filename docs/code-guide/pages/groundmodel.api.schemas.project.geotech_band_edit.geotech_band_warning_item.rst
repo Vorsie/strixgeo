@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_band_edit.geotech_band_warning_item
 ===========================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/geotech_band_warning_item.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/geotech_band_warning_item.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_band_edit/geotech_band_warning_item.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports the Pydantic tools.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The advisory-warning item embedded in the plan response; same schema pattern.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``GeotechBandWarningItem``
 
 .. CG-EXPLANATION-START id=class:GeotechBandWarningItem
 
-.. CG-PLACEHOLDER
+**What this does.** One advisory consequence of a hand edit: a code the desktop switches on, a ready-to-show plain-language message, the depth range it concerns, and optionally the existing band it names.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring states these are advisory and never blocking — a hand edit always proceeds. The message is pre-written so the desktop shows it verbatim rather than composing its own.
 
 .. CG-EXPLANATION-END id=class:GeotechBandWarningItem
 

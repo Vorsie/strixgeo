@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.formation_contact.formation_contact_update_request
 ==================================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/formation_contact_update_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/formation_contact/formation_contact_update_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/formation_contact/formation_contact_update_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The docstring and imports (``UUID``, Pydantic ``model_validator``, the strict base, the contact enums).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``FormationContactUpdateRequest`` — header
 
 .. CG-EXPLANATION-START id=class:FormationContactUpdateRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The partial-update request: every field optional, including the anchor, so the editor can drag-re-anchor a contact onto another investigation without deleting and recreating it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the anchor rule: to keep exactly-one-anchor safe on a partial update, both anchor fields must be sent together when either is touched (see the check below). A *request schema* declares and validates what the desktop may send; it inherits ``StrictRequestModel``, which rejects unknown fields and non-finite numbers so a client typo fails loudly with a 422 instead of silently writing junk.
 
 .. CG-EXPLANATION-END id=class:FormationContactUpdateRequest
 
@@ -65,13 +57,9 @@ Method ``FormationContactUpdateRequest``. ``def _xor_when_anchor_touched``
 
 .. CG-EXPLANATION-START id=method:FormationContactUpdateRequest._xor_when_anchor_touched
 
-.. CG-PLACEHOLDER
+**What this does.** A whole-object check on the anchor pair: if neither anchor field is in the body it is left alone; if exactly one is present it is rejected; if both are present exactly one must be non-null.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring lays out all three rules — it keeps the exactly-one-anchor invariant true across partial updates, rejecting an ambiguous half-update with a clear 422.
 
 .. CG-EXPLANATION-END id=method:FormationContactUpdateRequest._xor_when_anchor_touched
 

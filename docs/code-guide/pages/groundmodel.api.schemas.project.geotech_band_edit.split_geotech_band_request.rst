@@ -1,7 +1,7 @@
 groundmodel.api.schemas.project.geotech_band_edit.split_geotech_band_request
 ============================================================================
 
-.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/split_geotech_band_request.py complete=false
+.. CG-PAGE source=src/groundmodel/api/schemas/project/geotech_band_edit/split_geotech_band_request.py complete=true
 
 *Source file:* ``src/groundmodel/api/schemas/project/geotech_band_edit/split_geotech_band_request.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the schema and imports ``UUID``, ``Field``, and the strict base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A request schema on the strict base.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SplitGeotechBandRequest``
 
 .. CG-EXPLANATION-START id=class:SplitGeotechBandRequest
 
-.. CG-PLACEHOLDER
+**What this does.** The body of the split and split-preview endpoints: the band to split and the proposed boundary depth.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the depth must fall strictly inside the band's own litho body, and the server refuses anything else with a ``422`` — the engineer overrules the class, not the hierarchy.
 
 .. CG-EXPLANATION-END id=class:SplitGeotechBandRequest
 
