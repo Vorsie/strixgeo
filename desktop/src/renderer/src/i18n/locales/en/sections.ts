@@ -341,7 +341,7 @@ export const SECTIONS = {
   'sections.litho.exitCorrelateEsc': 'Exit correlate mode (Esc)',
   'sections.litho.enterCorrelateTitle':
     'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them',
-  'sections.litho.bodiesTitle': 'Detect, suggest, materialise, or clear body (lens) wedges',
+  'sections.litho.bodiesTitle': 'Fill body bands, toggle overlays, and reset manual points',
   'sections.litho.admixturesDisabled':
     'Suggest litho layers first — admixture edits act on ghost suggestions',
   'sections.litho.admixturesTitle': 'Strip or reseed admixtures on the current ghost suggestions',
@@ -614,7 +614,7 @@ export const SECTIONS = {
   'sections.lens.nameDialogTitle': 'Name lens',
   'sections.lens.saveName': 'Save name',
   'sections.lens.namedKeptHint':
-    'A named lens is kept: it survives "Delete all detected lenses" and the next body recompute.',
+    'A named lens is kept: it survives the detector’s reconcile and the next body recompute.',
   'sections.lens.boundaryStyle': 'Boundary style',
   'sections.lens.boundaryStyleHint': 'How the lens boundary is drawn between its control nodes.',
   'sections.lens.presentAt': 'Present at',
@@ -677,11 +677,11 @@ export const SECTIONS = {
   'sections.crossingTie.labelResolve': '⚠ {phrase} — resolve to restore bands',
   'sections.crossingTie.aria': '{phrase}. Activate to centre the next one.',
   'sections.lens.candidateEither': 'Lens candidate — no correlation on either neighbour. Pinch it out rather than correlate it.',
-  'sections.lens.pinchOutCandidateFull': 'Pinch-out lens candidate — this layer pinches out toward the neighbour, so the crossing correlation was not drawn. Use the Bodies → Suggest pinch-outs flow to claim it as a lens.',
+  'sections.lens.pinchOutCandidateFull': 'Pinch-out lens candidate — this layer pinches out toward the neighbour, so the crossing correlation was not drawn. The 2/1/0 fill draws it as a lens automatically.',
   'sections.lens.styleStraight': 'straight',
   'sections.lens.styleBlocky': 'blocky',
   'sections.lens.styleRounded': 'rounded',
-  'sections.nameBody.keptHint': 'A named lens is kept: it survives "Delete all detected lenses" and the detector’s reconcile.',
+  'sections.nameBody.keptHint': 'A named lens is kept: it survives the detector’s reconcile and the next body recompute.',
   'sections.nameBody.placeholder': 'e.g. Sand lens — quay 7',
   'sections.lensPanel.bodyLabel': 'Body',
   'sections.lensPanel.confirming': 'Confirming…',
