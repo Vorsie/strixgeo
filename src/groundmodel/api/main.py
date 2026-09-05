@@ -435,7 +435,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     cors_origin_regex = _cors_origin_regex_for(env)
 
     app = FastAPI(
-        title="Ground Model Platform",
+        title="StrixGeo",
         version="0.1.0",
         lifespan=lifespan,
         # openapi_url is left at its FastAPI default ("/openapi.json") so the
