@@ -24,6 +24,8 @@ import { formatLithoDisplayName } from './lithoLabels'
 
 /** One fence wall in the export request. */
 export interface FenceExportPanel {
+  /** The wall's cross-section; the engine names the DXF layer per section (null: legacy, unsplit). */
+  section_id: string | null
   /** The formation this wall belongs to. */
   formation_id: string
   /** The body this wall belongs to, when the fence carries body identity. */
@@ -84,6 +86,7 @@ export function buildFenceExportRequest(
 
     const formation = byId.get(panel.formationId)
     exported.push({
+      section_id: panel.sectionId ?? null,
       formation_id: panel.formationId,
       body_id: panel.bodyId,
       vertices: panel.vertices.map(v => [v[0], v[1], v[2]]),
