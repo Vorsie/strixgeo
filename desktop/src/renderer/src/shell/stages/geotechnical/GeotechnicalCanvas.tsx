@@ -305,11 +305,11 @@ export default function GeotechnicalCanvas(): JSX.Element {
   //
   // Solid view only: fence walls are built per model from that model's own
   // correlations, and this canvas holds only the geotech fence. Passing the
-  // geotech walls into a pane captioned "Lithostratigraphy" would be a lie, so
+  // geotech walls into a pane captioned "Lithology" would be a lie, so
   // the compare scene offers solids and lets ``canCompare`` disable the verb
   // when the litho model has none built.
   const lithoCompareScene = useMemo<CompareScene>(
-    () => ({ label: 'Lithostratigraphy', formations: lithoFormations, bodySolids: lithoSolids }),
+    () => ({ label: 'Lithology', formations: lithoFormations, bodySolids: lithoSolids }),
     [lithoFormations, lithoSolids],
   )
 
