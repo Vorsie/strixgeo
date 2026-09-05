@@ -23,6 +23,10 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
 from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_GML_TAG_PREFIX as DOV_GML_TAG_PREFIX,
 )
+
+# DOV_HORIZONTAL_EPSG and the DOV_WGS84_TO_LAMBERT72 transformer are DEFINED in
+# dov_common.py; see the "Watch (Lambert 2008)" note there before changing the
+# DOV horizontal CRS (EPSG:31370 -> EPSG:3812).
 from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_HORIZONTAL_EPSG as DOV_HORIZONTAL_EPSG,
 )
