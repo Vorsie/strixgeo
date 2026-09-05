@@ -30,8 +30,16 @@ class FenceExportPanel(StrictRequestModel):
         a ``formation_id`` are grouped onto the same DXF layer.
     body_id : str or None
         Resolver-assigned body identity; ``None`` when the panel is not
-        part of a correlated body. Carried for parity with the renderer's
-        ``FencePanel`` shape; not used to key DXF layers.
+        part of a correlated body. Recorded on each exported 3DFACE as
+        XDATA (owner ruling 2026-09-05) so a body is recoverable from the
+        entity; not used to key DXF layers, because a body spans sections.
+    section_id : str or None
+        Cross-section this wall was built on. Splits the DXF layers per
+        section so a whole section can be switched off in CAD (owner ruling
+        2026-09-05). ``None`` on a legacy caller; the section's human name
+        is resolved server-side from this id (the renderer does not carry
+        it), exactly as ``nad_class`` is. Optional so an older client that
+        omits it keeps the pre-section single-layer-per-unit naming.
     name : str
         Display name for the DXF layer — the renderer's already-resolved
         formation/unit label.
@@ -49,6 +57,7 @@ class FenceExportPanel(StrictRequestModel):
 
     formation_id: str
     body_id: str | None = None
+    section_id: str | None = None
     name: str
     color: str
     vertices: list[tuple[float, float, float]] = Field(default_factory=list)
