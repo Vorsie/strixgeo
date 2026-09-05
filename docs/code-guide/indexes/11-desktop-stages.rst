@@ -116,52 +116,6 @@ talk to the engine through the API clients in group 12.
    ../pages/desktop.renderer.src.shell.stages.parameters.useModelBodies
    ../pages/desktop.renderer.src.shell.stages.parameters.useUnitGrouping
    ../pages/desktop.renderer.src.shell.stages.parameters.useUnitStatistics
-   ../pages/desktop.renderer.src.shell.stages.sections.SectionsAxisPill
-   ../pages/desktop.renderer.src.shell.stages.sections.SectionsCanvas
-   ../pages/desktop.renderer.src.shell.stages.sections.SectionsInspector
-   ../pages/desktop.renderer.src.shell.stages.sections.SectionsStage
-   ../pages/desktop.renderer.src.shell.stages.sections.SectionsToolbar
-   ../pages/desktop.renderer.src.shell.stages.sections.SectionsToolbarDialogs
-   ../pages/desktop.renderer.src.shell.stages.sections.SheetPreviewDialog
-   ../pages/desktop.renderer.src.shell.stages.sections.boreholePreviewGate
-   ../pages/desktop.renderer.src.shell.stages.sections.buildSectionExportPartition
-   ../pages/desktop.renderer.src.shell.stages.sections.displayToggleToast
-   ../pages/desktop.renderer.src.shell.stages.sections.downloadSectionExport
-   ../pages/desktop.renderer.src.shell.stages.sections.geotechJumpLadder
-   ../pages/desktop.renderer.src.shell.stages.sections.joinErrorToastKey
-   ../pages/desktop.renderer.src.shell.stages.sections.pendingTieRevealBridge
-   ../pages/desktop.renderer.src.shell.stages.sections.restatedContactUndo
-   ../pages/desktop.renderer.src.shell.stages.sections.sampleDisplayMenuItems
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionColumnRevealBridge
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionsGeotechMenuItems
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionsGeotechToolbarItems
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionsLithoMenuItems
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionsLithoToolbarItems
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionsTailToolbarItems
-   ../pages/desktop.renderer.src.shell.stages.sections.sectionsToolbar_constants
-   ../pages/desktop.renderer.src.shell.stages.sections.useDseriesExportItems
-   ../pages/desktop.renderer.src.shell.stages.sections.useEdgeDragRetarget
-   ../pages/desktop.renderer.src.shell.stages.sections.useFlaggedTiePrompt
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechBandEdit
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechBoreholePreview
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechCorrelationVerbs
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechFillHotkey
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechPackingCorrelation
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechPendingTieReveal
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechStatistic
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechSubdivideVerbs
-   ../pages/desktop.renderer.src.shell.stages.sections.useGeotechTieStatus
-   ../pages/desktop.renderer.src.shell.stages.sections.useLithoCorrelateVerbs
-   ../pages/desktop.renderer.src.shell.stages.sections.useLithoFillHotkey
-   ../pages/desktop.renderer.src.shell.stages.sections.useLithoGeoSnapDialog
-   ../pages/desktop.renderer.src.shell.stages.sections.useLithoSuggestVerbs
-   ../pages/desktop.renderer.src.shell.stages.sections.useManualLithoUnit
-   ../pages/desktop.renderer.src.shell.stages.sections.useRosterLoadedGate
-   ../pages/desktop.renderer.src.shell.stages.sections.useSampleMarkersHotkey
-   ../pages/desktop.renderer.src.shell.stages.sections.useSectionColumnRevealBridge
-   ../pages/desktop.renderer.src.shell.stages.sections.useSectionExportInputs
-   ../pages/desktop.renderer.src.shell.stages.sections.useSectionExportVerbs
-   ../pages/desktop.renderer.src.shell.stages.sections.useSheetPayload
    ../pages/desktop.renderer.src.shell.stages.shared.BodyViewModePills
    ../pages/desktop.renderer.src.shell.stages.shared.exportFenceDxf
    ../pages/desktop.renderer.src.shell.stages.shared.fetchApprovedEdgesBySection
