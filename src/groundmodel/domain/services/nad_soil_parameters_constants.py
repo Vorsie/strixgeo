@@ -186,3 +186,33 @@ NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters] = {
         gamma_unsat_kn_m3=14, gamma_sat_kn_m3=14, phi_deg=15, c_kpa=10, cu_kpa=40
     ),
 }
+
+
+def parameters_for_class(nad_class: int | None) -> NadSoilParameters | None:
+    """Return the characteristic parameters for a NAD packing class, or ``None``.
+
+    The single class → parameters accessor: exactly one table-row read, shared
+    by the D-Series exporters (via
+    :func:`groundmodel.infrastructure.exporters.nad_soil_parameter_lookup.soil_parameters_for_unit`)
+    and by the formation read model's ``nad_parameters`` field — the Parameters
+    pane's "NAD characteristic values" block (owner ruling 2026-09-05). One
+    accessor means the pane and the export can never read the row two ways.
+
+    Reads :data:`NAD_SOIL_PARAMETERS` through the module global at call time, so
+    a test that monkeypatches the table is honoured.
+
+    Parameters
+    ----------
+    nad_class : int | None
+        A NAD packing class 1..31, or ``None`` for an unclassified unit.
+
+    Returns
+    -------
+    NadSoilParameters | None
+        The transcribed characteristic parameters for the class, or ``None``
+        when the unit has no class or the class carries no transcribed row.
+        ``None`` means "show / write no parameters" — never a guessed default.
+    """
+    if nad_class is None:
+        return None
+    return NAD_SOIL_PARAMETERS.get(nad_class)
