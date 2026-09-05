@@ -2932,7 +2932,10 @@ export default function SectionsCanvas(): JSX.Element {
   const showCta = !ctaDismissed && visibleSections.length === 0 && !drawingSection && !drawingBbox
 
   return (
-    <div className="relative h-full w-full">
+    // Tutorial anchor: the section-editing surface, where the shift-drag
+    // paint-through (owner ruling 9) and the body right-click → Unit statistics
+    // gesture (chapter 7) happen.
+    <div className="relative h-full w-full" data-testid="sections-canvas">
       <MapView
         cpts={visibleCpts}
         boreholes={visibleBoreholes}
