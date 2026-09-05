@@ -1,0 +1,77 @@
+desktop.renderer.src.components.BboxDrawer
+==========================================
+
+.. CG-PAGE source=desktop/src/renderer/src/components/BboxDrawer.tsx complete=false
+
+*Source file:* ``desktop/src/renderer/src/components/BboxDrawer.tsx``
+
+.. contents::
+   :local:
+   :depth: 1
+
+Module header — imports and top-level setup
+-------------------------------------------
+
+.. CG-BLOCK id=module-header lines=1-4
+
+.. literalinclude:: ../../../desktop/src/renderer/src/components/BboxDrawer.tsx
+   :language: tsx
+   :lines: 1-4
+   :lineno-match:
+
+.. CG-EXPLANATION-START id=module-header
+
+.. CG-PLACEHOLDER
+
+.. note::
+
+   **Plain-English explanation not yet written.** This block still needs a
+   "What this does" and "Why it is here" walkthrough in the plainest
+   English possible.
+
+.. CG-EXPLANATION-END id=module-header
+
+``interface Props``
+-------------------
+
+.. CG-BLOCK id=interface:Props lines=5-16
+
+.. literalinclude:: ../../../desktop/src/renderer/src/components/BboxDrawer.tsx
+   :language: tsx
+   :lines: 5-16
+   :lineno-match:
+
+.. CG-EXPLANATION-START id=interface:Props
+
+.. CG-PLACEHOLDER
+
+.. note::
+
+   **Plain-English explanation not yet written.** This block still needs a
+   "What this does" and "Why it is here" walkthrough in the plainest
+   English possible.
+
+.. CG-EXPLANATION-END id=interface:Props
+
+``function BboxDrawer``
+-----------------------
+
+.. CG-BLOCK id=function:BboxDrawer lines=17-91
+
+.. literalinclude:: ../../../desktop/src/renderer/src/components/BboxDrawer.tsx
+   :language: tsx
+   :lines: 17-91
+   :lineno-match:
+
+.. CG-EXPLANATION-START id=function:BboxDrawer
+
+.. CG-PLACEHOLDER
+
+.. note::
+
+   **Plain-English explanation not yet written.** This block still needs a
+   "What this does" and "Why it is here" walkthrough in the plainest
+   English possible.
+
+.. CG-EXPLANATION-END id=function:BboxDrawer
+
