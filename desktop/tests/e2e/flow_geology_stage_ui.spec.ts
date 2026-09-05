@@ -32,7 +32,7 @@ test.describe('flow_geology_stage_ui', () => {
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await goToStage(page, 'Geology')
+      await goToStage(page, 'Stratigraphy')
 
       // Toolbar verbs (GeologyToolbar).
       await expect(page.getByTestId('geology-fill-from-boreholes-button')).toBeVisible()
@@ -51,7 +51,7 @@ test.describe('flow_geology_stage_ui', () => {
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
-      await goToStage(page, 'Geology')
+      await goToStage(page, 'Stratigraphy')
 
       await page.getByTestId('geology-create-formation-button').click()
 
