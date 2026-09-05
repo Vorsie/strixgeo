@@ -70,7 +70,7 @@ describe('LithologyInspector — mount smoke (debt #201)', () => {
         <LithologyInspector />
       </ShellContext.Provider>,
     )
-    expect(screen.getByText(/create a geological model first/i)).toBeInTheDocument()
+    expect(screen.getByText(/create a stratigraphic model first/i)).toBeInTheDocument()
   })
 
   // Full-body branch: active geological + litho model → the whole panel renders,
