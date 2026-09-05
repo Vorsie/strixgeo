@@ -27,6 +27,9 @@ from groundmodel.application.build_ground_model_snapshot import (
     BuildGroundModelSnapshot,
 )
 from groundmodel.application.export_artifact import ExportArtifact
+from groundmodel.infrastructure.db.models.cross_section_orm import (
+    CrossSectionOrm,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -170,11 +173,18 @@ async def export_model_fence_dxf(
     # look them up here from the panels' formation_ids, scoped to the project.
     identity_by_formation_id = await _resolve_fence_identities(session, project_id, request.panels)
 
+    # Resolve each panel's section name so the exporter can split the layers per
+    # section (owner ruling 2026-09-05) — the renderer sends only the section id,
+    # for the same reason it sends only the formation id above. Scoped to the
+    # project so a panel cannot pull a section from another project.
+    section_name_by_id = await _resolve_fence_section_names(session, project_id, request.panels)
+
     payload = DxfFenceExporter().export(
         request.panels,
         project_name=project_name,
         crs_epsg=crs_epsg,
         identity_by_formation_id=identity_by_formation_id,
+        section_name_by_id=section_name_by_id,
     )
     return export_response(
         ExportArtifact.build(
@@ -248,3 +258,59 @@ async def _resolve_fence_identities(
         )
         for row in rows
     }
+
+
+async def _resolve_fence_section_names(
+    session: AsyncSession,
+    project_id: UUID,
+    panels: Sequence[FenceExportPanel],
+) -> dict[str, str]:
+    """Look up each panel's cross-section name for the per-section layer split.
+
+    The fence DXF splits its layers per section (owner ruling 2026-09-05), and
+    the layer name leads with the section's human name — a field the
+    renderer-POSTed panel does not carry (it sends only the ``section_id``, the
+    same way it sends only the ``formation_id``). This resolves those ids to
+    names in ONE query, scoped to ``project_id`` so a panel cannot pull a section
+    from another project.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope guard — only cross-sections under this project are read.
+    panels : Sequence[FenceExportPanel]
+        The client-built panels; their ``section_id`` strings are the lookup
+        keys.
+
+    Returns
+    -------
+    dict[str, str]
+        ``section_id (str) -> section name`` for every panel section the query
+        resolved. A ``section_id`` that is ``None``, does not parse as a UUID, or
+        that the query does not return, is simply absent — the exporter then
+        keeps the pre-section ``Fence-<unit>`` name for that panel.
+    """
+    section_ids: set[UUID] = set()
+    for panel in panels:
+        if panel.section_id is None:
+            continue
+        try:
+            section_ids.add(UUID(panel.section_id))
+        except (ValueError, AttributeError):
+            # A non-UUID section_id (e.g. a renderer placeholder) cannot match a
+            # row; skip it and let the exporter fall back to the unprefixed name.
+            continue
+    if not section_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(CrossSectionOrm.id, CrossSectionOrm.name).where(
+                CrossSectionOrm.app_project_id == project_id,
+                CrossSectionOrm.id.in_(section_ids),
+            )
+        )
+    ).all()
+    return {str(row.id): row.name for row in rows}
