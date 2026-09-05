@@ -88,10 +88,13 @@ if TYPE_CHECKING:
     from ezdxf.layouts.layout import Modelspace
 
 from groundmodel.infrastructure.exporters.dxf_fence_exporter_constants import (
+    BODY_ID_XDATA_APPID,
+    BODY_ID_XDATA_STRING_CODE,
     DEFAULT_LAYER_RGB,
     FENCE_LAYER_PREFIX,
     FORBIDDEN_LAYER_CHARS,
     MAX_LAYER_NAME_LEN,
+    SECTION_UNIT_SEPARATOR,
 )
 from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
 from groundmodel.infrastructure.exporters.dxf_text_safety import strip_dxf_line_breaks
@@ -150,6 +153,7 @@ class DxfFenceExporter(GroundModelLogger):
         project_name: str,
         crs_epsg: int | None,
         identity_by_formation_id: Mapping[str, FenceFormationIdentity] | None = None,
+        section_name_by_id: Mapping[str, str] | None = None,
     ) -> bytes:
         """Build the fence DXF and return the serialised bytes.
 
@@ -175,6 +179,15 @@ class DxfFenceExporter(GroundModelLogger):
             in the map) falls back to the panel's display ``name`` for that
             layer — the pre-#104 behaviour, so a geological-model fence and
             any caller that omits the map are unchanged.
+        section_name_by_id : Mapping[str, str] or None
+            ``section_id -> section name``, resolved by the export route from
+            each panel's ``section_id`` (owner ruling 2026-09-05). Splits the
+            layers per section — a layer is ``Fence-<section>_<unit>`` — so a
+            whole section can be switched off in CAD while a unit stays
+            selectable across sections. ``None`` / empty (or a panel whose
+            ``section_id`` is ``None`` or absent from the map) keeps the
+            pre-section ``Fence-<unit>`` name, so a legacy caller is unchanged
+            and never loses geometry.
 
         Returns
         -------
@@ -183,10 +196,11 @@ class DxfFenceExporter(GroundModelLogger):
             response body.
         """
         identities = identity_by_formation_id or {}
+        section_names = section_name_by_id or {}
         self.info(
             f"Exporting fence DXF: project={project_name!r} "
             f"panels={len(panels)} crs_epsg={crs_epsg} "
-            f"identities={len(identities)}"
+            f"identities={len(identities)} sections={len(section_names)}"
         )
         # deferred: keeps ezdxf off the API boot path (see the module imports).
         import ezdxf
@@ -194,6 +208,10 @@ class DxfFenceExporter(GroundModelLogger):
 
         doc = ezdxf.new(dxfversion="R2018", setup=True)
         msp = doc.modelspace()
+        # Register the app id BEFORE any entity sets XDATA under it — ezdxf
+        # requires the APPID table entry to exist first. Each wall's body id
+        # rides here (see ``_draw_panels``).
+        doc.appids.add(BODY_ID_XDATA_APPID)
 
         doc.header["$PROJECTNAME"] = project_name[:255]
         # Both BE (Lambert 72, EPSG 31370) and NL (RD New, EPSG 28992)
@@ -209,8 +227,20 @@ class DxfFenceExporter(GroundModelLogger):
                 f"project={project_name!r}"
             )
 
-        layer_by_formation_id = self._setup_layers(doc, panels, identities)
-        face_count = self._draw_panels(msp, panels, layer_by_formation_id)
+        layer_by_key = self._setup_layers(doc, panels, identities, section_names)
+        # Layer count per section (owner ruling 2026-09-05) — "my CS3 walls
+        # vanished" must be diagnosable from the log alone. ``None`` groups the
+        # sectionless panels (a legacy caller, or a section the route could not
+        # resolve to a name).
+        layers_per_section: dict[str | None, set[str]] = {}
+        for (section_label, _formation_id), layer_name in layer_by_key.items():
+            layers_per_section.setdefault(section_label, set()).add(layer_name)
+        for section_label, layer_names in sorted(
+            layers_per_section.items(), key=lambda item: (item[0] is None, item[0] or "")
+        ):
+            self.info(f"Fence DXF section {section_label!r}: {len(layer_names)} layer(s)")
+
+        face_count = self._draw_panels(msp, panels, layer_by_key, section_names)
 
         sink = io.StringIO()
         doc.write(sink)
@@ -228,13 +258,15 @@ class DxfFenceExporter(GroundModelLogger):
             )
             is not None
         )
-        # Distinct layer count, not formation count — same-identifier formations
-        # collapse onto one layer, which is the whole point of the naming.
+        # Distinct layer count, not (section, formation) count — same-identifier
+        # formations collapse onto one layer within a section, which is the whole
+        # point of the naming.
         self.success(
             f"Fence DXF exported: project={project_name!r} "
             f"panels={len(panels)} "
-            f"formations={len(layer_by_formation_id)} "
-            f"layers={len(set(layer_by_formation_id.values()))} "
+            f"section_units={len(layer_by_key)} "
+            f"layers={len(set(layer_by_key.values()))} "
+            f"sections={len(layers_per_section)} "
             f"[identifier-named formations {identifier_formations}] "
             f"faces={face_count} size={len(payload)} bytes"
         )
@@ -250,17 +282,26 @@ class DxfFenceExporter(GroundModelLogger):
         doc: Drawing,
         panels: Sequence[FencePanelSource],
         identity_by_formation_id: Mapping[str, FenceFormationIdentity],
-    ) -> dict[str, str]:
-        """Register the DXF layers and return ``formation_id -> layer name``.
+        section_name_by_id: Mapping[str, str],
+    ) -> dict[tuple[str | None, str], str]:
+        """Register the DXF layers and return ``(section, formation_id) -> layer``.
 
-        A panel's layer name is the unit's machine identifier
-        (``Fence-NAD-06_ZAND``) when the route resolved one for its formation,
-        else the panel's display ``name`` (``Fence-Boom Klei``). The two paths
-        differ in collision handling, which is the whole point of the ruling:
+        The grouping key is ``(section label, formation_id)`` (owner ruling
+        2026-09-05): the SAME formation crossing two sections lands on two
+        layers, so a whole section can be switched off in CAD. The section label
+        leads the layer name (``Fence-<section>_<unit>``); a panel with no
+        resolvable section (``section_id`` ``None`` or absent from the map) keeps
+        the pre-section ``Fence-<unit>`` name.
 
-        * **Identifier path** — panels of the SAME identifier deliberately share
-          ONE layer ("two units of the same identifier land on one layer"), so
-          an already-registered identifier layer is reused, never disambiguated.
+        Within one section a panel's unit part is the unit's machine identifier
+        (``NAD-06_ZAND``) when the route resolved one for its formation, else the
+        panel's display ``name`` (``Boom Klei``). The two paths differ in
+        collision handling, which is the whole point of the earlier ruling:
+
+        * **Identifier path** — panels of the SAME identifier IN THE SAME SECTION
+          deliberately share ONE layer ("two units of the same identifier land on
+          one layer"), so an already-registered identifier layer is reused, never
+          disambiguated.
         * **Display-name path** — two DISTINCT formations that happen to share a
           sanitised name are disambiguated so each keeps its own surface, exactly
           as before #104 (and as ``dxf_section_exporter.py`` does).
@@ -282,23 +323,31 @@ class DxfFenceExporter(GroundModelLogger):
             The panels to export.
         identity_by_formation_id : Mapping[str, FenceFormationIdentity]
             ``formation_id -> (nad_class, litho_main_soil_code)`` from the route.
+        section_name_by_id : Mapping[str, str]
+            ``section_id -> section name`` from the route; empty when no section
+            was resolvable.
 
         Returns
         -------
-        dict[str, str]
-            ``formation_id -> layer name``. Several ids can map to one layer.
+        dict[tuple[str | None, str], str]
+            ``(section label, formation_id) -> layer name``. Several keys can map
+            to one layer (same-identifier collapse within a section).
         """
-        layer_by_formation_id: dict[str, str] = {}
+        layer_by_key: dict[tuple[str | None, str], str] = {}
         # Per layer, the shallowest contributor decides the colour:
         # (top_elevation, formation_id, rgb). A layer is styled once, after every
         # panel has voted, so the colour never depends on registration order.
         color_winner: dict[str, tuple[float, str, RGB | None]] = {}
 
         for panel in panels:
-            layer_name = layer_by_formation_id.get(panel.formation_id)
+            section_label = _section_label(panel, section_name_by_id)
+            key = (section_label, panel.formation_id)
+            layer_name = layer_by_key.get(key)
             if layer_name is None:
-                layer_name = self._layer_name_for(doc, panel, identity_by_formation_id)
-                layer_by_formation_id[panel.formation_id] = layer_name
+                layer_name = self._layer_name_for(
+                    doc, panel, identity_by_formation_id, section_label
+                )
+                layer_by_key[key] = layer_name
 
             top = _panel_top(panel)
             candidate = (
@@ -316,13 +365,14 @@ class DxfFenceExporter(GroundModelLogger):
         # bounding lines are a bit thick".
         for layer_name, (_, _, rgb) in color_winner.items():
             style_layer(doc.layers.get(layer_name), rgb if rgb is not None else DEFAULT_LAYER_RGB)
-        return layer_by_formation_id
+        return layer_by_key
 
     def _layer_name_for(
         self,
         doc: Drawing,
         panel: FencePanelSource,
         identity_by_formation_id: Mapping[str, FenceFormationIdentity],
+        section_label: str | None,
     ) -> str:
         """Resolve (and register, if new) the layer name for one panel.
 
@@ -334,6 +384,9 @@ class DxfFenceExporter(GroundModelLogger):
             The panel whose layer is being resolved.
         identity_by_formation_id : Mapping[str, FenceFormationIdentity]
             ``formation_id -> identity`` from the route.
+        section_label : str or None
+            The resolved section name leading the layer name, or ``None`` for a
+            sectionless panel (pre-section ``Fence-<unit>`` naming).
 
         Returns
         -------
@@ -341,7 +394,7 @@ class DxfFenceExporter(GroundModelLogger):
             The layer name this panel's faces go on.
         """
         body, is_identifier = _resolve_layer_body(panel, identity_by_formation_id)
-        layer_name = _sanitise_layer_name(body)
+        layer_name = _sanitise_layer_name(_compose_section_body(section_label, body))
         if is_identifier:
             # Same-identifier collapse: reuse the existing layer, do NOT
             # disambiguate — that IS the ruling.
@@ -370,9 +423,16 @@ class DxfFenceExporter(GroundModelLogger):
         self,
         msp: Modelspace,
         panels: Sequence[FencePanelSource],
-        layer_by_formation_id: dict[str, str],
+        layer_by_key: dict[tuple[str | None, str], str],
+        section_name_by_id: Mapping[str, str],
     ) -> int:
         """Emit one 3DFACE per triangle across every panel.
+
+        Every face of a panel that carries a ``body_id`` also gets that id as
+        XDATA under ``BODY_ID_XDATA_APPID`` (owner ruling 2026-09-05), so a body
+        is recoverable from any one of its faces without a bespoke plugin. An
+        untied wall (``body_id`` ``None``) gets no XDATA — an empty tag would
+        read as "some body" and be worse than nothing.
 
         Parameters
         ----------
@@ -380,8 +440,12 @@ class DxfFenceExporter(GroundModelLogger):
             The ezdxf modelspace to draw into.
         panels : Sequence[FencePanelSource]
             The panels to draw.
-        layer_by_formation_id : dict[str, str]
-            ``formation_id -> layer name`` from ``_setup_layers``.
+        layer_by_key : dict[tuple[str | None, str], str]
+            ``(section label, formation_id) -> layer name`` from
+            ``_setup_layers``.
+        section_name_by_id : Mapping[str, str]
+            ``section_id -> section name`` — recomputes each panel's key the same
+            way ``_setup_layers`` did.
 
         Returns
         -------
@@ -391,7 +455,9 @@ class DxfFenceExporter(GroundModelLogger):
         total = len(panels)
         face_count = 0
         for i, panel in enumerate(panels, start=1):
-            layer_name = layer_by_formation_id[panel.formation_id]
+            layer_name = layer_by_key[
+                (_section_label(panel, section_name_by_id), panel.formation_id)
+            ]
             edge_flags = interior_triangle_edges(panel.triangles)
             for triangle, (ab_interior, bc_interior, ca_interior) in zip(
                 panel.triangles, edge_flags, strict=True
@@ -407,9 +473,14 @@ class DxfFenceExporter(GroundModelLogger):
                 ):
                     if is_interior:
                         face.set_edge_visibility(face_edge_index, False)
+                if panel.body_id is not None:
+                    face.set_xdata(
+                        BODY_ID_XDATA_APPID, [(BODY_ID_XDATA_STRING_CODE, panel.body_id)]
+                    )
                 face_count += 1
             self.debug(
                 f"[{i}/{total}] panel formation_id={panel.formation_id} "
+                f"section_id={panel.section_id} body_id={panel.body_id} "
                 f"faces={len(panel.triangles)}"
             )
         return face_count
@@ -418,6 +489,59 @@ class DxfFenceExporter(GroundModelLogger):
 # ---------------------------------------------------------------------------
 # Module helpers — pure, no logging, easy to unit-test.
 # ---------------------------------------------------------------------------
+
+
+def _section_label(
+    panel: FencePanelSource,
+    section_name_by_id: Mapping[str, str],
+) -> str | None:
+    """Return the section name that leads this panel's layer, or ``None``.
+
+    ``None`` for a panel that carries no ``section_id`` (a legacy caller) or one
+    whose id the route could not resolve to a name — both keep the pre-section
+    ``Fence-<unit>`` naming, so the section split never drops geometry.
+
+    Parameters
+    ----------
+    panel : FencePanelSource
+        The panel whose section is being resolved.
+    section_name_by_id : Mapping[str, str]
+        ``section_id -> section name`` from the route.
+
+    Returns
+    -------
+    str | None
+        The resolved section name, or ``None`` when there is no resolvable
+        section.
+    """
+    if panel.section_id is None:
+        return None
+    return section_name_by_id.get(panel.section_id)
+
+
+def _compose_section_body(section_label: str | None, body: str) -> str:
+    """Join a section label and a unit body into the pre-sanitisation layer text.
+
+    ``<section>_<body>`` when a section is present, else the bare ``body`` — so a
+    sectionless panel keeps the exact pre-section name and a legacy caller is
+    byte-identical.
+
+    Parameters
+    ----------
+    section_label : str or None
+        The resolved section name, or ``None`` for a sectionless panel.
+    body : str
+        The unit part — a machine identifier or a display name.
+
+    Returns
+    -------
+    str
+        The composed text, still to be prefixed + sanitised by
+        ``_sanitise_layer_name``.
+    """
+    if section_label:
+        return f"{section_label}{SECTION_UNIT_SEPARATOR}{body}"
+    return body
 
 
 def _resolve_layer_body(
