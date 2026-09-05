@@ -85,26 +85,49 @@ def discover_sources() -> list[SourceFile]:
     """
     suffixes = set(config.PYTHON_SUFFIXES) | set(config.TYPESCRIPT_SUFFIXES)
     found: list[SourceFile] = []
-    for _label, rel_root in config.SOURCE_ROOTS:
-        root = config.REPO_ROOT / rel_root
+    for source_root in config.SOURCE_ROOTS:
+        root = config.REPO_ROOT / source_root.rel_root
         for path in sorted(root.rglob("*")):
             if not path.is_file() or path.suffix not in suffixes:
                 continue
             if any(part in config.IGNORED_DIR_NAMES for part in path.relative_to(root).parts):
+                continue
+            # Skip test/spec files (``foo.test.ts``, ``bar.spec.tsx``): the guide
+            # documents the code that ships, not its tests.
+            if any(marker in path.name for marker in config.EXCLUDED_FILENAME_MARKERS):
                 continue
             rel = path.relative_to(config.REPO_ROOT).as_posix()
             found.append(SourceFile(rel, path, path.suffix))
     return found
 
 
+def _root_for(rel_path: str) -> config.SourceRoot | None:
+    """Return the configured source root a repo-relative path belongs to, if any."""
+    for source_root in config.SOURCE_ROOTS:
+        if rel_path == source_root.rel_root or rel_path.startswith(source_root.rel_root + "/"):
+            return source_root
+    return None
+
+
 def page_slug(rel_path: str) -> str:
     """Turn a repo-relative source path into a unique, flat page slug.
 
-    ``src/groundmodel/api/serve.py`` -> ``groundmodel.api.serve``. The ``src/``
-    prefix and the suffix are dropped and the separators become dots; because
-    file paths are unique, slugs are unique (no two pages collide).
+    ``src/groundmodel/api/serve.py`` -> ``groundmodel.api.serve``;
+    ``desktop/src/main/index.ts`` -> ``desktop.main.index``. The suffix and the
+    source root's ``strip_prefix`` are dropped, the root's ``slug_prefix`` is
+    prepended, and the separators become dots. Because file paths are unique,
+    slugs are unique (and the ``desktop.`` prefix keeps the two trees from
+    colliding). A path under no configured root falls back to stripping ``src/``.
     """
     without_suffix = rel_path.rsplit(".", 1)[0]
+    source_root = _root_for(rel_path)
+    if source_root is not None:
+        trimmed = (
+            without_suffix[len(source_root.strip_prefix) :]
+            if without_suffix.startswith(source_root.strip_prefix)
+            else without_suffix
+        )
+        return source_root.slug_prefix + trimmed.replace("/", ".")
     trimmed = without_suffix[len("src/") :] if without_suffix.startswith("src/") else without_suffix
     return trimmed.replace("/", ".")
 
@@ -253,11 +276,23 @@ def _load_preserved(page_path: Path) -> dict[str, list[str]]:
 
 
 def assign_group(rel_path: str) -> str:
-    """Return the reading-order group slug a source file belongs to."""
+    """Return the reading-order group slug a source file belongs to.
+
+    Groups are tried in list order; the first that names the path in ``members``
+    or matches it by ``prefixes`` claims it — unless the path matches one of that
+    group's ``exclude_prefixes``, in which case the group is skipped and matching
+    continues (this is how group 9 takes the renderer shell but leaves its stages
+    to groups 10-11). An unclaimed path falls into the backend catch-all.
+    """
     for group in config.READING_ORDER:
-        members = group["members"]  # type: ignore[index]
-        prefixes = group["prefixes"]  # type: ignore[index]
-        assert isinstance(members, list) and isinstance(prefixes, list)
+        members = group["members"]
+        prefixes = group["prefixes"]
+        excludes = group.get("exclude_prefixes", [])
+        assert (
+            isinstance(members, list) and isinstance(prefixes, list) and isinstance(excludes, list)
+        )
+        if any(rel_path.startswith(prefix) for prefix in excludes):
+            continue
         if rel_path in members:
             return str(group["slug"])
         if any(rel_path.startswith(prefix) for prefix in prefixes):
@@ -346,9 +381,12 @@ def write_indexes(sources: list[SourceFile], guide_root: Path) -> None:
     for source in sources:
         grouped.setdefault(assign_group(source.rel_path), []).append(source)
 
-    group_index_docs: list[str] = []
+    backend_group_docs: list[str] = []
+    desktop_group_docs: list[str] = []
 
-    # Reading-order groups 1..6.
+    # Reading-order groups: backend 1..6, then desktop 8..13. Their index docs are
+    # kept in two lists so the root toctree can slot the backend catch-all (07)
+    # between them.
     for group in config.READING_ORDER:
         slug = str(group["slug"])
         title = str(group["title"])
@@ -361,9 +399,12 @@ def write_indexes(sources: list[SourceFile], guide_root: Path) -> None:
         (indexes_dir / f"{slug}.rst").write_text(
             _render_index(title, intro, entries), encoding="utf-8"
         )
-        group_index_docs.append(f"indexes/{slug}")
+        if group.get("tree") == "desktop":
+            desktop_group_docs.append(f"indexes/{slug}")
+        else:
+            backend_group_docs.append(f"indexes/{slug}")
 
-    # Group 7 — everything else, bucketed by top-level package.
+    # Group 7 — everything else (backend only), bucketed by top-level package.
     rest = grouped.get(config.REST_GROUP_SLUG, [])
     buckets: dict[str, list[SourceFile]] = {}
     for source in rest:
@@ -399,8 +440,12 @@ def write_indexes(sources: list[SourceFile], guide_root: Path) -> None:
     (indexes_dir / f"{config.REST_GROUP_SLUG}.rst").write_text(
         _render_index(config.REST_GROUP_TITLE, rest_intro, rest_bucket_docs), encoding="utf-8"
     )
-    group_index_docs.append(f"indexes/{config.REST_GROUP_SLUG}")
 
+    # Root toctree order: backend reading groups (1-6), the backend catch-all
+    # (7), then the desktop reading groups (8-13).
+    group_index_docs = (
+        backend_group_docs + [f"indexes/{config.REST_GROUP_SLUG}"] + desktop_group_docs
+    )
     _write_root_index(guide_root, group_index_docs)
 
 
@@ -408,11 +453,13 @@ def _write_root_index(guide_root: Path, group_index_docs: list[str]) -> None:
     """Write the root ``index.rst``: preserved intro + a toctree of the groups."""
     default_intro = [
         "",
-        "This guide shows the StrixGeo backend source, one page per file, split",
-        "into small blocks. Under every block of real code is a plain-English",
-        "explanation of what it does and why it is there.",
+        "This guide shows the StrixGeo source — the Python engine (backend) and",
+        "the Electron desktop app — one page per file, split into small blocks.",
+        "Under every block of real code is a plain-English explanation of what it",
+        "does and why it is there.",
         "",
-        "Start with :doc:`start-here`, then read the numbered groups in order.",
+        "Start with :doc:`start-here`, then read the numbered groups in order:",
+        "groups 1-7 are the backend engine, groups 8-13 the desktop app.",
         "",
     ]
     intro = _index_intro(guide_root / "index.rst", default_intro)
