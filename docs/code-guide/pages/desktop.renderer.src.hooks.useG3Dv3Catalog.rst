@@ -1,7 +1,7 @@
 desktop.renderer.src.hooks.useG3Dv3Catalog
 ==========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/hooks/useG3Dv3Catalog.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/hooks/useG3Dv3Catalog.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/hooks/useG3Dv3Catalog.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The doc comment and two imports. This file builds a shared loader for the G3Dv3 catalog (about 117 entries, roughly 40 KB on the wire).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The list is static across the engine's lifetime and is read by several components — the formation dialog autocomplete today, more surfaces later. The real work lives in the ``createCatalogHook`` factory (the ``desktop.renderer.src.hooks.createCatalogHook`` page); a failed fetch surfaces as an error so the caller can fall back to a plain text input.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:g3dv3Catalog
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the single shared catalog by calling the factory with a fetch that asks the API's codelists endpoint for the G3Dv3 units.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One instance per process, so every consumer shares one cache and one fetch, and the fetch goes through the API client (the frontend always reaches the engine through the API).
 
 .. CG-EXPLANATION-END id=const:g3dv3Catalog
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useG3Dv3Catalog
 
-.. CG-PLACEHOLDER
+**What this does.** The hook: returns the shared G3Dv3 catalog state (units, loading, error).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A thin named wrapper so callers import a clearly-named hook rather than the factory's returned object.
 
 .. CG-EXPLANATION-END id=function:useG3Dv3Catalog
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:_resetG3Dv3CatalogCacheForTesting
 
-.. CG-PLACEHOLDER
+**What this does.** Clears the module cache and any in-flight request.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A test-only escape hatch so tests can stub different fetch responses across runs without leaking state between them.
 
 .. CG-EXPLANATION-END id=function:_resetG3Dv3CatalogCacheForTesting
 

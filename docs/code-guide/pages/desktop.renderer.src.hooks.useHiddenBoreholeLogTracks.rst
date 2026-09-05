@@ -1,7 +1,7 @@
 desktop.renderer.src.hooks.useHiddenBoreholeLogTracks
 =====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/hooks/useHiddenBoreholeLogTracks.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/hooks/useHiddenBoreholeLogTracks.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/hooks/useHiddenBoreholeLogTracks.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The file's opening documentation and its two imports: a shared persisted-JSON hook and the translator type. It sets up a per-user set of borehole-log tracks (columns) the engineer has chosen to hide.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the design. The hidden-track set is kept in *localStorage* — a small store the browser keeps on this one computer that survives a reload — under a global, not project-scoped, key, because column visibility is a personal preference the same engineer wants across every project; this is the same rule as every screen preference (localStorage holds UI chrome only, never project decisions). The depth axis is never hidable because the spine is structurally mandatory, and unknown stored ids are ignored so a future build can rename a track without crashing on old data.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TOGGLEABLE_TRACK_IDS
 
-.. CG-PLACEHOLDER
+**What this does.** The list of every track that can be hidden: the eight observation tracks (each named by its raw observation-type token) and three fixed tracks (drill method, field log, samples-and-lab).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the observation ids match the engine's ``observation_type`` tokens exactly — the raw upstream tokens are stored and matched, never translated (Data Integrity Rule 2). Listing them once makes this the single source of which tracks are toggleable.
 
 .. CG-EXPLANATION-END id=const:TOGGLEABLE_TRACK_IDS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:ToggleableTrackId
 
-.. CG-PLACEHOLDER
+**What this does.** A type meaning “one of the ids in the list above”.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Deriving the type from the list means the two can never drift apart: adding an id to the list automatically widens the type, and a track id outside the list is caught before the app runs.
 
 .. CG-EXPLANATION-END id=type:ToggleableTrackId
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:trackLabel
 
-.. CG-PLACEHOLDER
+**What this does.** Takes the active-language translator and a track id and returns the human label to show in the Columns dropdown.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the translate-at-the-presentation-boundary rule in action (CLAUDE.md; docs/ux.md): the id is a stored, matched token and is never altered — only the displayed label is translated. The three fixed tracks reuse the very same translation keys their column headers use, so the dropdown and the header can never disagree.
 
 .. CG-EXPLANATION-END id=function:trackLabel
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:BORELOG_HIDDEN_TRACKS_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The name under which the hidden-track set is stored in localStorage: ``groundmodel.borelog.hidden_tracks``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Naming the storage slot once, and globally rather than per project, keeps the read and the write on the same key and matches the personal-preference rule from the module header.
 
 .. CG-EXPLANATION-END id=const:BORELOG_HIDDEN_TRACKS_KEY
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:VALID_IDS
 
-.. CG-PLACEHOLDER
+**What this does.** The toggleable ids gathered into a set for fast membership checks.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A set makes the parse guard below able to check “is this a real track id?” quickly while validating stored data.
 
 .. CG-EXPLANATION-END id=const:VALID_IDS
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:parseHiddenTracks
 
-.. CG-PLACEHOLDER
+**What this does.** Turns whatever was read from localStorage into a validated set: a non-array value becomes an empty set, and any entry that is not a known track id is dropped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the two guards — forward-compatibility (a future build may rename or remove a track, and old stored ids simply evaporate) and corruption tolerance (a hand-edited or corrupt value falls back to no hidden tracks) — so a bad stored value can never crash the borehole log or hide a track that no longer exists.
 
 .. CG-EXPLANATION-END id=function:parseHiddenTracks
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:serializeHiddenTracks
 
-.. CG-PLACEHOLDER
+**What this does.** Turns the set back into a plain array for storage.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** localStorage stores text, not sets, so the set is written as its list of ids; the parse function above reverses this on load.
 
 .. CG-EXPLANATION-END id=const:serializeHiddenTracks
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useHiddenBoreholeLogTracks
 
-.. CG-PLACEHOLDER
+**What this does.** The hook itself. It hands the storage key, an empty default, and the parse and serialize functions to the shared persisted-JSON hook, and returns the current hidden set plus a setter that also writes every change to localStorage.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Delegating the read-guard-write cycle to the shared ``usePersistedJSON`` hook keeps this hook a thin, purpose-named wrapper — the borehole-log view just calls it and gets a set that is loaded on mount, validated on load, and persisted on every change, with all the corruption handling living in the parse guard above.
 
 .. CG-EXPLANATION-END id=function:useHiddenBoreholeLogTracks
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.formationOrder
 =========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/formationOrder.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/formationOrder.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/formationOrder.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file holds the helpers that order a formation list. The comment explains the two directions in play: ``display_order`` is the age axis, where a lower number means older and deeper; renderers paint the section from oldest up (the geological superposition rule), but list views that read like a borehole log — the Geology inspector list, the 3-D Layers legend, and the click-to-place picker — show youngest first, surface at the top. It imports the formation response type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment states the purpose plainly: this file is the single source of that youngest-first reading order so the three list views that share it stay in sync, rather than each re-deriving the sort and drifting apart.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:compareFormationsOldestFirst
 
-.. CG-PLACEHOLDER
+**What this does.** Compares two formations for an oldest-first sort: it orders by ``display_order`` ascending, and when two share the same order it breaks the tie by name, case-insensitively. It returns a negative number when the first formation is older (sorts first) and positive when younger.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the single comparator the ascending inspector list uses directly, and that the youngest-first helper reverses — keeping the sort rule in one place. The case-insensitive name tie-break makes the order stable and predictable when two formations sit at the same age.
 
 .. CG-EXPLANATION-END id=function:compareFormationsOldestFirst
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:formationsYoungestFirst
 
-.. CG-PLACEHOLDER
+**What this does.** Returns a new copy of the given formations ordered youngest first — it sorts them oldest-first with the comparator above, then reverses the result. It does not change the input list.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Doing "sort ascending, then reverse" (rather than a separate descending comparator) means formations that share the same age fall in the same relative order as they do in the ascending inspector list, so the two views agree. Not mutating the input keeps it a *pure function* — its output depends only on its input and it changes nothing outside itself — which is safe because the model bus hands the same array to several readers.
 
 .. CG-EXPLANATION-END id=function:formationsYoungestFirst
 

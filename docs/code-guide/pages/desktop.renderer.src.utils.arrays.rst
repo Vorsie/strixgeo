@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.arrays
 =================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/arrays.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/arrays.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/arrays.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line comment marking this as a home for tiny array helpers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that these were promoted out of inline copies scattered across the codebase, following the "extract on the second copy" rule in the user's CLAUDE.md — one shared helper instead of the same few lines repeated.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:arraysEqual
 
-.. CG-PLACEHOLDER
+**What this does.** Compares two arrays and reports whether they hold the same values in the same positions: it returns true immediately if they are literally the same array, false if their lengths differ, otherwise it walks the items and returns false at the first mismatch. It is written as a *generic* — the ``<T>`` is a placeholder for the item type, filled in by the caller, so one function works for arrays of any value shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records where it fits: callers use it for arrays of simple values (string ids, numeric EPSG codes, tag labels) where checking whether two arrays are the exact same object is too strict but turning them into text to compare would be overkill.
 
 .. CG-EXPLANATION-END id=function:arraysEqual
 

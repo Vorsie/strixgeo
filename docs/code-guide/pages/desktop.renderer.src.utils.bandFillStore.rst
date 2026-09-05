@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.bandFillStore
 ========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/bandFillStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/bandFillStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/bandFillStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment introduces a *store* — a small module-level holder of shared state that components subscribe to — for the "Fill bands" toggle, then imports the shared boolean-store factory and the model-fill setter. The toggle is set from the Sections toolbar and read by the section panel, which passes it on to the partition-fill overlay.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records why a store is the right tool: the toolbar and the panel are sibling components with no shared inputs path except the coordinator, and this is a single boolean view toggle, so a module-level store read through React's ``useSyncExternalStore`` (its built-in way to redraw a component when such a store changes) is the lightest correct way to share it. It also records that the toggle is deliberately not remembered across reloads — band fill is an explicit finish-then-click action, never on by default — and that the circular import of the model-fill setter is safe because only the function is used, and only at click time.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:store
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the actual store, a boolean starting at ``false`` (fill hidden), from the shared factory.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Building it from the shared ``createBooleanStore`` factory means every boolean view toggle in the app gets the identical subscribe/read/notify behaviour without each one re-implementing it.
 
 .. CG-EXPLANATION-END id=const:store
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toggleBandFill
 
-.. CG-PLACEHOLDER
+**What this does.** Flips the band-fill visibility and tells subscribers; then, if it just turned on, it switches the model fill off.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the owner's dogfeed ask (2026-07-13): band fill and model fill paint the same section area, so showing one hides the other — but turning band fill off never brings the model fill back.
 
 .. CG-EXPLANATION-END id=function:toggleBandFill
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:setBandFill
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the band-fill visibility to a given value, with no side effect on the model fill.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A plain setter is needed for the cases that must set the value without triggering the mutual-exclusion behaviour that ``toggleBandFill`` carries.
 
 .. CG-EXPLANATION-END id=function:setBandFill
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getBandFillVisible
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current band-fill visibility without subscribing to changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Non-reactive callers (code that just needs the value once, not a redraw when it changes) use this plain read.
 
 .. CG-EXPLANATION-END id=function:getBandFillVisible
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useBandFillVisible
 
-.. CG-PLACEHOLDER
+**What this does.** A *hook* — a ``use…`` function a component calls — that returns the current value and redraws the calling component whenever the toggle flips.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the reactive counterpart to the plain read: components that must reflect the toggle on screen subscribe through this hook.
 
 .. CG-EXPLANATION-END id=function:useBandFillVisible
 

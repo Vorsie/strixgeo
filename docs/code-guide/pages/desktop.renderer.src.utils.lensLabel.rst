@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.lensLabel
 ====================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/lensLabel.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/lensLabel.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/lensLabel.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The comment block that opens the file. It notes that only one display-label helper for bodies still lives here: the lithology abbreviation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the old depth-rank auto-labelling was removed together with the body-extent overlay it served, leaving just the abbreviation helper behind.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:LITHOLOGY_ABBREV
 
-.. CG-PLACEHOLDER
+**What this does.** A lookup table from a base-lithology token — the raw Dutch words GRIND, SILT, ZAND, KLEI, VEEN — to a one- or two-letter abbreviation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the owner directive of 2026-06-01 fixing these abbreviations: Gravel to G, Silt to Si, Sand to Sa, Clay to C, Peat to P — the desktop translating the raw token for display.
 
 .. CG-EXPLANATION-END id=const:LITHOLOGY_ABBREV
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:lithologyAbbrev
 
-.. CG-PLACEHOLDER
+**What this does.** Given a lithology token, returns its abbreviation from the table; an unrecognised token falls back to its first two characters, title-cased, and an empty input returns an empty string.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the fall-back means even a non-core soil still yields a short, readable abbreviation instead of nothing.
 
 .. CG-EXPLANATION-END id=function:lithologyAbbrev
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.geotechFillStore
 ===========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/geotechFillStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/geotechFillStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/geotechFillStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file is a small shared holder — a *store* — for the geotech axis "show / hide fill" toggle. The comment explains that the geotech view draws the connected-body packing partition as a filled 2-D map, which can be visually busy on a densely-correlated model, so the engineer needs to strip it to see the correlation ribbons underneath. It imports the boolean-store factory and two writer functions from the sibling litho-fill and built-model-fill stores.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** As the comment records, it follows the same store pattern introduced on the ``formationFillStore`` page — one boolean driven from the toolbar and read through ``useSyncExternalStore`` — and it gates the geotech fill independently of the litho fill store. Two decisions are documented in detail: it defaults to OFF by owner ruling (2026-08-15) because the old default-on turned the fill on by itself mid-review, so the fill is now always an explicit press; and it is separate from the accepted-tie gate in ``sectionFillSelection`` because those answer two different questions — "did the engineer ask for it" and "is there anything worth painting" — and both must be yes. It is transient chrome, never persisted.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:store
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the boolean store, started in the "off" (fill hidden) state.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Off is the owner-ruled default so the fill only ever appears on an explicit press, as the file comment records.
 
 .. CG-EXPLANATION-END id=const:store
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toggleGeotechFill
 
-.. CG-PLACEHOLDER
+**What this does.** Flips the geotech fill visibility and, when the flip turns it on, also turns off the litho fill and the built-model fill.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The three fills this axis can paint are mutually exclusive by owner ask (2026-08-15, extended to the built model 2026-08-26) — only one fill on at a time — so turning this one on hides the other two; turning it off never brings them back, because no fill at all is a legitimate state.
 
 .. CG-EXPLANATION-END id=function:toggleGeotechFill
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:setGeotechFill
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the geotech fill visibility to a given value directly, with no effect on the other fills.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A plain setter for callers that need to set the value without triggering the mutual-exclusion behaviour the toggle applies.
 
 .. CG-EXPLANATION-END id=function:setGeotechFill
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getGeotechFillVisible
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current geotech fill visibility once, without subscribing to changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A non-reactive read for code that needs the value at a moment in time rather than a component that redraws on change.
 
 .. CG-EXPLANATION-END id=function:getGeotechFillVisible
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useGeotechFillVisible
 
-.. CG-PLACEHOLDER
+**What this does.** A hook that returns the current visibility and re-draws the calling component when the toggle flips.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reactive read built on ``useSyncExternalStore``, the same as on the ``formationFillStore`` page.
 
 .. CG-EXPLANATION-END id=function:useGeotechFillVisible
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.geotechBodySelectionStore
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/geotechBodySelectionStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/geotechBodySelectionStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/geotechBodySelectionStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file is a small shared holder — a *store* — for which geotech body is currently selected on the section view. The comment explains the gesture and the three consumers: clicking a lab-sample dot on the geotech axis selects the body the sample belongs to; the sample overlay produces the selection, the inspector highlights the matching unit row and shows the sample's assignment source, and the fill overlay fades the non-matching bodies. It imports React's ``useSyncExternalStore``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** As the comment records, this is the shared selection signal between three sibling components with no shared path to pass it down, so it follows the same store pattern introduced on the ``formationFillStore`` page: module-global state driven by the click gesture and read through ``useSyncExternalStore``. It defaults to nothing selected and is not persisted, because it is transient screen state rather than a project decision.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:GeotechBodySelection
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the record set when a sample dot is clicked: the id of the selected body and the assignment source for the clicked sample (one of a few known text values, or nothing when unknown).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Carrying both the body and the sample's source lets the inspector highlight the right body and also explain where that sample's CPT assignment came from, from a single selection record.
 
 .. CG-EXPLANATION-END id=interface:GeotechBodySelection
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=let:selection
 
-.. CG-PLACEHOLDER
+**What this does.** The module-level holder of the current selection, starting empty (nothing selected).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One shared value that the writers change and the readers report; empty means no body is currently selected.
 
 .. CG-EXPLANATION-END id=let:selection
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:listeners
 
-.. CG-PLACEHOLDER
+**What this does.** The set of callback functions to run whenever the selection changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the *subscribe/notify* backing of the store — the list of interested components the store must tell when the value changes.
 
 .. CG-EXPLANATION-END id=const:listeners
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:notify
 
-.. CG-PLACEHOLDER
+**What this does.** Calls every registered listener.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The single place that tells all subscribers the selection changed, so a component reading the store redraws.
 
 .. CG-EXPLANATION-END id=function:notify
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:selectGeotechBody
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the selection to a given record, or clears it when passed nothing, then notifies subscribers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The plain writer that both the direct-select and the toggle paths go through, so every change flows through one notify.
 
 .. CG-EXPLANATION-END id=function:selectGeotechBody
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toggleGeotechBodySelection
 
-.. CG-PLACEHOLDER
+**What this does.** Toggles a body's selection: if that body is already selected it clears the selection, otherwise it selects that body with the clicked sample's assignment source.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Click-to-toggle is the natural gesture for a dot — clicking the already-selected body's dot deselects it — so this wraps the writer with that on/off behaviour.
 
 .. CG-EXPLANATION-END id=function:toggleGeotechBodySelection
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getGeotechBodySelection
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current selection record once, without subscribing to changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A non-reactive read for code that needs the value at a moment in time rather than a component that should redraw when it changes.
 
 .. CG-EXPLANATION-END id=function:getGeotechBodySelection
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getSelectedGeotechBodyId
 
-.. CG-PLACEHOLDER
+**What this does.** Reads just the selected body's id, or nothing when there is no selection, without subscribing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A convenience for the common case where only the id is needed, not the sample source.
 
 .. CG-EXPLANATION-END id=function:getSelectedGeotechBodyId
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:subscribe
 
-.. CG-PLACEHOLDER
+**What this does.** Registers a callback to be run on every change and returns a function that unregisters it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the *subscribe* half ``useSyncExternalStore`` requires; returning the unregister function lets React clean up when a component goes away.
 
 .. CG-EXPLANATION-END id=function:subscribe
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useGeotechBodySelection
 
-.. CG-PLACEHOLDER
+**What this does.** A hook that returns the current selection record and re-draws the calling component whenever it changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reactive read built on ``useSyncExternalStore``, for a component that needs the full selection (body plus sample source).
 
 .. CG-EXPLANATION-END id=function:useGeotechBodySelection
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useSelectedGeotechBodyId
 
-.. CG-PLACEHOLDER
+**What this does.** A hook that returns just the selected body's id and re-draws when that id changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reactive read for a component that only cares which body is selected, so it does not redraw when merely the sample source differs.
 
 .. CG-EXPLANATION-END id=function:useSelectedGeotechBodyId
 

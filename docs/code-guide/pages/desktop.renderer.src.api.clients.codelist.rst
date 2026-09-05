@@ -1,7 +1,7 @@
 desktop.renderer.src.api.clients.codelist
 =========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/api/clients/codelist.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/api/clients/codelist.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/api/clients/codelist.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment and import for the codelist and Virtuele Boring client. It covers two things: the static reference catalogues shipped with each build (the G3Dv3 Flanders stratigraphy and the DOV formal-stratigraphy list), and DOV's synthetic-borehole overlays — informative-only predictions from DOV's 3D models.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These reads share one file because both are lookup data rather than project state. Every call goes through the shared ``request`` helper introduced on the ``desktop.renderer.src.api.clients.shared`` page (here only its ``get`` wrapper is needed).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:G3Dv3UnitResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes one unit from the Flanders stratigraphic catalogue: its numeric code and abbreviation, whether it is a formation or a member, its parent when it is a member, the Dutch name, an age rank, and a prescribed colour.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring says it powers the formation dialog's autocomplete and colour autofill so engineers do not retype canonical names and colours. The Dutch name and codes are raw catalogue tokens; the colour is nullable for the rare unit with no colour row.
 
 .. CG-EXPLANATION-END id=interface:G3Dv3UnitResponse
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:G3Dv3CatalogResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the whole catalogue answer — simply a list of units.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A thin wrapper so the endpoint returns one named object rather than a bare list.
 
 .. CG-EXPLANATION-END id=interface:G3Dv3CatalogResponse
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:FormalStratigraphyUnitResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes one DOV formal-stratigraphy unit: its code, canonical Dutch name, age rank and colour.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring says it powers the informal-to-formal link in the formation dialog — picking one stores its code on the formation. The code and name are raw DOV tokens.
 
 .. CG-EXPLANATION-END id=interface:FormalStratigraphyUnitResponse
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:FormalStratigraphyCatalogResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the whole formal-stratigraphy answer — a list of units.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A thin wrapper matching the G3Dv3 catalogue shape.
 
 .. CG-EXPLANATION-END id=interface:FormalStratigraphyCatalogResponse
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtueleBoringLagenmodelEntry
 
-.. CG-PLACEHOLDER
+**What this does.** Describes one entry in the Virtuele Boring model picker: its code, description, and the resolutions it offers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring points to the design rationale in CLAUDE.md debt #10; the description is a raw DOV token.
 
 .. CG-EXPLANATION-END id=interface:VirtueleBoringLagenmodelEntry
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtueleBoringLayer
 
-.. CG-PLACEHOLDER
+**What this does.** Describes one predicted layer from a DOV 3D model at a chosen investigation: code, name and description, its top and base in mTAW, thickness, colour, and an optional reference link.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the shape of a single synthetic-borehole band drawn as an informative overlay; the descriptive tokens stay raw.
 
 .. CG-EXPLANATION-END id=interface:VirtueleBoringLayer
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtueleBoringInvestigationPrediction
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the prediction for one investigation: whether it is a CPT or a borehole, its id and name, its elevation, and its predicted layers grouped by the model codes that were requested.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that a model key missing from the grouping means the per-call fetch failed for that investigation-and-model pair — recording what was NOT found rather than silently dropping it.
 
 .. CG-EXPLANATION-END id=interface:VirtueleBoringInvestigationPrediction
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtueleBoringPredictionsResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the whole predictions answer: the models requested, one prediction per investigation, and a count of how many were skipped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The skipped count reports the investigations that could not be predicted, so the overlay can say what it left out.
 
 .. CG-EXPLANATION-END id=interface:VirtueleBoringPredictionsResponse
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:codelistClient
 
-.. CG-PLACEHOLDER
+**What this does.** The object of typed calls for the static catalogues: fetch the G3Dv3 catalogue, or the formal-stratigraphy catalogue.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Two plain reads over the shared ``request`` helper introduced on the ``desktop.renderer.src.api.clients.shared`` page, wired under ``api.codelists``.
 
 .. CG-EXPLANATION-END id=const:codelistClient
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:virtueleboringClient
 
-.. CG-PLACEHOLDER
+**What this does.** The object of typed calls for the DOV overlays: list the available layer models, or fetch per-investigation predictions for a project and a chosen set of models.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Both are reads over the shared ``request`` helper introduced on the ``desktop.renderer.src.api.clients.shared`` page; the predictions call joins the requested model codes into the query string.
 
 .. CG-EXPLANATION-END id=const:virtueleboringClient
 

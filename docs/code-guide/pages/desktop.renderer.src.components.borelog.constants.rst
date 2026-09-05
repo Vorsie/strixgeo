@@ -1,7 +1,7 @@
 desktop.renderer.src.components.borelog.constants
 =================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/borelog/constants.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/borelog/constants.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/borelog/constants.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The file's opening comment. It explains that this file holds the geometry and vocabulary constants for the borehole log — the pixel sizes and the observation-type name lists — lifted out of the main log component so every track sub-component can share the same values, and it draws a line between this file (where the numbers are named) and the utilities file (where the numbers are used).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Naming every magic number in one place is a project convention: module-level constants — sizes, lookup lists, name sets — belong in a dedicated constants file so the drawing helpers stay free of unexplained numbers and there is a single source of truth to change. Keeping them here rather than in the utilities file keeps the pure helpers uncluttered.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:BASE_PX_PER_M
 
-.. CG-PLACEHOLDER
+**What this does.** The default depth scale: sixty pixels for every metre of depth.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the base of the shared mTAW-to-pixel rail introduced on the ``desktop.renderer.src.components.borelog.components.AdmixtureChips`` page. The comment records that the log owns a zoom factor and broadcasts the effective scale to every track through a shared holder, so this is the value the zoom multiplies.
 
 .. CG-EXPLANATION-END id=const:BASE_PX_PER_M
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ZOOM_MIN
 
-.. CG-PLACEHOLDER
+**What this does.** The smallest zoom multiplier allowed: 0.4, so the depth scale can shrink to about two-fifths of the default.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A floor on zoom-out keeps the log from shrinking so far that it becomes unreadable; it pairs with the maximum below to bound the zoom range.
 
 .. CG-EXPLANATION-END id=const:ZOOM_MIN
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ZOOM_MAX
 
-.. CG-PLACEHOLDER
+**What this does.** The largest zoom multiplier allowed: 4.0, so the depth scale can grow to four times the default.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A ceiling on zoom-in keeps the log from magnifying past a useful size; it pairs with the minimum above to bound the zoom range.
 
 .. CG-EXPLANATION-END id=const:ZOOM_MAX
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ZOOM_STEP
 
-.. CG-PLACEHOLDER
+**What this does.** The zoom multiplier per step: each zoom action multiplies or divides the scale by 1.25. The section comment that follows opens the block of per-track width constants.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A fixed ratio per step gives smooth, even zooming — each notch is the same proportional change — rather than jumps that feel uneven at different scales.
 
 .. CG-EXPLANATION-END id=const:ZOOM_STEP
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:OBS_TRACK_WIDTH_LITHOLOGY
 
-.. CG-PLACEHOLDER
+**What this does.** The width of a lithology track: 150 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the reason: lithology tracks carry a lot of per-layer text — soil codes and admixtures — so they are given the wider column, unlike the narrower stratigraphy tracks below.
 
 .. CG-EXPLANATION-END id=const:OBS_TRACK_WIDTH_LITHOLOGY
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:OBS_TRACK_WIDTH_STRATIGRAPHY
 
-.. CG-PLACEHOLDER
+**What this does.** The width of a stratigraphy track: 90 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the reason: stratigraphy tracks hold only short formation codes, so the full lithology width would be mostly empty; the narrower column keeps the log compact when several stratigraphy interpretations sit alongside the lithology stream.
 
 .. CG-EXPLANATION-END id=const:OBS_TRACK_WIDTH_STRATIGRAPHY
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:HEADER_HEIGHT
 
-.. CG-PLACEHOLDER
+**What this does.** The height of each track's title block: 72 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The inline comment notes this height was sized for the track headers; it is the fixed band every track reserves at the top for its title.
 
 .. CG-EXPLANATION-END id=const:HEADER_HEIGHT
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:M_TAW_AXIS_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** The width of the absolute-level axis on the left of the log: 64 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Named here as part of the single source of truth for the log's geometry (see the module header), so the axis component and the layout maths use the same value.
 
 .. CG-EXPLANATION-END id=const:M_TAW_AXIS_WIDTH
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DRILL_TRACK_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** The width of the drill-method track: 90 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Named here as part of the single source of truth for the log's geometry (see the module header), so the drill-method track and the layout maths agree on its width.
 
 .. CG-EXPLANATION-END id=const:DRILL_TRACK_WIDTH
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FIELD_LOG_SUB_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** The width of one sub-stripe inside the field-log track: 36 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The field-log track is three sub-stripes side by side, so this is the width of each one; it is named here so both the track and the total width below derive from the same number.
 
 .. CG-EXPLANATION-END id=const:FIELD_LOG_SUB_WIDTH
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FIELD_LOG_TRACK_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** The full width of the field-log track, computed as three sub-stripe widths.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The field-log track holds exactly three stripes — colour, moisture and consistency — so its total width is defined as three times the sub-stripe width, keeping the two in step automatically if the sub-width ever changes.
 
 .. CG-EXPLANATION-END id=const:FIELD_LOG_TRACK_WIDTH
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:SAMPLES_TRACK_WIDTH
 
-.. CG-PLACEHOLDER
+**What this does.** The width of the samples track: 220 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Named here as part of the single source of truth for the log's geometry (see the module header); the samples track is the widest because it carries the sample number and a row of lab-test glyphs side by side.
 
 .. CG-EXPLANATION-END id=const:SAMPLES_TRACK_WIDTH
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TRACK_GAP
 
-.. CG-PLACEHOLDER
+**What this does.** The gap between adjacent tracks: 1 pixel.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Named here as part of the single source of truth for the log's geometry (see the module header), so every track is spaced the same hair-thin gap apart.
 
 .. CG-EXPLANATION-END id=const:TRACK_GAP
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:SVG_X_PAD
 
-.. CG-PLACEHOLDER
+**What this does.** The horizontal padding around the drawing: 16 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Named here as part of the single source of truth for the log's geometry (see the module header), so the content does not touch the left and right edges of the canvas.
 
 .. CG-EXPLANATION-END id=const:SVG_X_PAD
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:SVG_Y_PAD
 
-.. CG-PLACEHOLDER
+**What this does.** The vertical padding around the drawing: 8 pixels. The section comment that follows opens the block of observation-type name lists.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Named here as part of the single source of truth for the log's geometry (see the module header), so the content does not touch the top and bottom edges of the canvas.
 
 .. CG-EXPLANATION-END id=const:SVG_Y_PAD
 
@@ -373,13 +309,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:LITHOLOGY_TYPES
 
-.. CG-PLACEHOLDER
+**What this does.** The set of observation-type names that count as lithology: coded lithology and geotechnical coding.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the reason for the distinction: lithology streams are drawn with soil patterns, whereas stratigraphy streams are plain labelled rectangles with no soil meaning — so the drawing code checks membership in this set to choose how to render a stream.
 
 .. CG-EXPLANATION-END id=const:LITHOLOGY_TYPES
 
@@ -395,13 +327,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:STRATIGRAPHY_TYPES
 
-.. CG-PLACEHOLDER
+**What this does.** The set of observation-type names that count as stratigraphy: the formal, informal, quaternary and hydrogeological stratigraphy flavours.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These streams hold only formation codes, so they are drawn as labelled rectangles; the comment notes that free-text lithological descriptions, which are in neither set, also fall through to a labelled rectangle.
 
 .. CG-EXPLANATION-END id=const:STRATIGRAPHY_TYPES
 
@@ -417,13 +345,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:OBSERVATION_TYPE_ORDER
 
-.. CG-PLACEHOLDER
+**What this does.** The fixed left-to-right order the observation streams are drawn in: coded lithology first, then geotechnical coding, then the text description, then the stratigraphy flavours.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the intended reading order: the driller's own record first, the engineer's reinterpretation next, then text descriptions, then the stratigraphy interpretations — so the log always reads in the same, sensible sequence.
 
 .. CG-EXPLANATION-END id=const:OBSERVATION_TYPE_ORDER
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.sampleGeotechScreenPos
 =================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/sampleGeotechScreenPos.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/sampleGeotechScreenPos.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/sampleGeotechScreenPos.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file works out where a lab sample's dot goes on the geotech axis: at the midpoint of its depth interval below the borehole's surface. The block covers the module comment and the depth-input documentation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the horizontal position goes through the spacing-aware transform, never the raw one, so the dot follows the same column nudging every other geotech overlay applies (memory: the section-view spacing modifier matters for all geometry), and that a borehole with no known surface elevation returns nothing because its vertical position is undefined.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SampleDepth
 
-.. CG-PLACEHOLDER
+**What this does.** A declared shape for a sample's depth interval: the depth to its top and the depth to its base, both below ground surface.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It names the two depths that fix the sample's vertical position.
 
 .. CG-EXPLANATION-END id=interface:SampleDepth
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SampleColumnRef
 
-.. CG-PLACEHOLDER
+**What this does.** A reduced description of the column: its along-section position and its surface elevation (which may be missing).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It carries only the two facts the helper needs — where the column stands along the line, and the surface level to measure depths down from.
 
 .. CG-EXPLANATION-END id=interface:SampleColumnRef
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SampleScreenPos
 
-.. CG-PLACEHOLDER
+**What this does.** A declared shape for a screen position in pixels: an x from the left edge and a y from the top edge. The block ends with the documentation for the function below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the plain pixel point the caller draws the dot at.
 
 .. CG-EXPLANATION-END id=interface:SampleScreenPos
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:sampleGeotechScreenPos
 
-.. CG-PLACEHOLDER
+**What this does.** Computes a sample dot's screen position: nothing when the borehole has no surface elevation, otherwise the midpoint of the depth interval turned into an elevation and then a pixel point, placed horizontally through the spacing-aware transform.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the horizontal transform MUST be the spacing-aware one so the dot stays aligned with the column glyph at any spacing, and that a missing surface elevation makes the vertical position undefined.
 
 .. CG-EXPLANATION-END id=function:sampleGeotechScreenPos
 

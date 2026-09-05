@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.reviewFlagPrefs
 ==========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/reviewFlagPrefs.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/reviewFlagPrefs.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/reviewFlagPrefs.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file remembers, per project, which litho review flags the engineer has dismissed. A review flag marks an uncorrelated same-litho neighbour that the safe-default repair had to re-emit as an onlap; the flag simply invites an optional correlation, and "Keep separate" dismisses it. The import brings in a helper that reads one bag out of a section's saved view state.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the flag comes from the safe-default repair described in docs/design/partition-engine-v2.md §10, and that the dismissal is a per-project decision, so — like every such decision (CLAUDE.md, memory: decisions live in the bundle) — it rides in the project file through the section row's saved view state, not in the browser's local store, which a colleague opening the same project would never see. It mirrors the litho-segmenter view-state pattern: a shallow patch touches only its own key and leaves sibling settings untouched.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:VIEW_STATE_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The name of the view-state bag this file owns: ``review_flags``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Naming it once means the read and the write can never drift onto different keys.
 
 .. CG-EXPLANATION-END id=const:VIEW_STATE_KEY
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ReviewFlagRef
 
-.. CG-PLACEHOLDER
+**What this does.** A declared shape identifying one review flag: the drilled unit's layer id, the gap it terminates into, and which side it looks toward.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These three facts are exactly what pin a flag to one place, so it can be dismissed and recognised again later.
 
 .. CG-EXPLANATION-END id=interface:ReviewFlagRef
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:reviewFlagId
 
-.. CG-PLACEHOLDER
+**What this does.** Turns a flag's three facts into one stable text key, joined by bars.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the key has the same shape as the engine's own force-lens key so the two vocabularies line up, but is kept independent because this is purely interface state.
 
 .. CG-EXPLANATION-END id=function:reviewFlagId
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readDismissedReviewFlags
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the set of dismissed flag ids out of a project's saved view state, returning an empty set when the bag is missing or malformed. The block ends with the documentation for the add helper below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records this is best-effort persistence, never a contract — a missing or broken bag simply means nothing has been dismissed yet, not an error.
 
 .. CG-EXPLANATION-END id=function:readDismissedReviewFlags
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:addDismissedReviewFlag
 
-.. CG-PLACEHOLDER
+**What this does.** Produces the next set to save: it starts from what the server has acknowledged, folds in the dismissals still in flight this session, and adds the flag being dismissed now.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records why the in-flight set must be merged: the section row only carries a dismissal once its save has come back, so two "Keep separate" clicks in one round-trip both read the same pre-first state; building the second save from the row alone would send only the second flag, the server would store only that, and the first flag would nag again on the next refresh. Merging the in-flight set makes the dismissed set only ever grow, whatever the round-trip timing.
 
 .. CG-EXPLANATION-END id=function:addDismissedReviewFlag
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:buildReviewFlagPatch
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the small view-state patch that saves the dismissed set under the review-flags key.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the shallow-merge contract: only the review-flags key is overwritten, so sibling bags (the litho segmenter, the CPT channels, and the rest) survive the server-side merge untouched.
 
 .. CG-EXPLANATION-END id=function:buildReviewFlagPatch
 

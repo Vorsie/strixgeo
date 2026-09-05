@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.partitionFillV2.conformance.classify
 ===============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2.conformance.classify.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/partitionFillV2.conformance.classify.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/partitionFillV2.conformance.classify.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening docstring, the imports, and two re-export blocks. This file holds pure classifier helpers for the full 2/1/0 conformance gate — the test that checks the engine's rendered partition against the correlation rules. It handles two concerns: classifying the rendered shape of a region set (band, onlap, lens, or absent) and deriving the effective ties the engine used. It re-exports the merge predicates and the correlation-arithmetic from the engine package.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that it was extracted from the diagnostics file to keep that under the 500-line budget (debt #201), and that the merge predicates and the correlation-arithmetic now live in the ENGINE package as the single source of truth. They are re-exported here so the gate keeps its import surface and — crucially — cannot drift from the engine: the engine emits exactly the termination the arithmetic names, and the gate checks the render against that same arithmetic. The 2/1/0 rules are documented in the partition-engine design note. The module is pure.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:FULL_EPS
 
-.. CG-PLACEHOLDER
+**What this does.** How close to a column edge — within 0.02 of the gap's width — counts as a shape "reaching" that edge.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the edge-reach tolerance that decides whether a shape counts as spanning to a column, and so whether it is a band, an onlap, or a lens.
 
 .. CG-EXPLANATION-END id=const:FULL_EPS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:RenderShape
 
-.. CG-PLACEHOLDER
+**What this does.** The list of possible rendered shapes of a formation over a unit's elevation band in a gap: absent, band, onlap, or lens.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the vocabulary the classifier reports its verdict in — the 2 / 1 / 0 correlation outcomes plus "absent".
 
 .. CG-EXPLANATION-END id=type:RenderShape
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:GX
 
-.. CG-PLACEHOLDER
+**What this does.** The horizontal resolution of the grid used for the adjacency pass: 200 cells across.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that at 200 cells a fraction cell is 0.005 wide — about four times the engine's one-millimetre snap — so two regions meeting at a snapped seam land in the same or a neighbouring cell.
 
 .. CG-EXPLANATION-END id=const:GX
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:GY
 
-.. CG-PLACEHOLDER
+**What this does.** The vertical resolution of that grid: 64 cells tall.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that this gives even a sub-metre unit several rows, and that the grid is used only to test adjacency, never to measure reach.
 
 .. CG-EXPLANATION-END id=const:GY
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:ufFind
 
-.. CG-PLACEHOLDER
+**What this does.** The union-find root lookup with path compression — the standard way to ask which group an item currently belongs to.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the primitive that merges regions into connected components efficiently.
 
 .. CG-EXPLANATION-END id=function:ufFind
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:Component
 
-.. CG-PLACEHOLDER
+**What this does.** One connected component's data: its unclipped fraction reach (lowest and highest) and whether it reaches the left and right column edges.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is what a shape verdict is scored from.
 
 .. CG-EXPLANATION-END id=interface:Component
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:fracExtent
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the lowest and highest fraction across a polygon's corners, unclipped.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that using the full, unclipped extent matches the old classifier, so a dipping full-width band — whose band-window slice covers only part of the width but whose polygon still spans edge to edge — is still correctly scored as a band.
 
 .. CG-EXPLANATION-END id=function:fracExtent
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:elevOverlaps
 
-.. CG-PLACEHOLDER
+**What this does.** Answers whether a polygon's elevation range overlaps the target band.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It selects which same-formation regions take part in classifying a given unit's band and excludes those at other depths.
 
 .. CG-EXPLANATION-END id=function:elevOverlaps
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:bandComponents
 
-.. CG-PLACEHOLDER
+**What this does.** Groups the same-formation regions that overlap the band into connected components and returns, per component, its unclipped fraction reach and which column edges it reaches. It builds the components by rasterising each region's coverage within the band window onto a shared grid and union-finding across touching cells.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The block comment records the defect this fixes: the old classifier took the min and max fraction across ALL same-formation regions at once, so two disconnected same-formation lenses read as one full-width band (a false pass) and a facing onlap promoted the audited unit's own lens to a band (the Tie-10 false positive). Classifying per connected component, and later preferring the component touching the audited unit's own edge, cures both. Reach is measured unclipped, and the grid serves adjacency only.
 
 .. CG-EXPLANATION-END id=function:bandComponents
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:shapeOfComponent
 
-.. CG-PLACEHOLDER
+**What this does.** Classifies one component's shape from its edge reach: reaching both edges is a band, exactly one edge is an onlap, neither is a lens.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the direct 2 / 1 / 0 mapping from how many column edges a piece reaches to its shape name.
 
 .. CG-EXPLANATION-END id=function:shapeOfComponent
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:renderedShape
 
-.. CG-PLACEHOLDER
+**What this does.** Reports the rendered shape of a formation over a target band in a gap, classified per connected component. It prefers the component that touches the audited unit's own column edge (its side), scoring the widest such component; when nothing touches that edge it falls back to the widest component overall. It returns the shape plus the fraction extent, apex, edge reach, and whether the reported component was actually incident to the audited edge.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that preferring the incident component means a facing same-formation onlap or lens on the OTHER column can no longer masquerade as the audited unit's own render; and that when the unit's own termination is genuinely missing, reporting the widest component keeps an all-facing render classified as band or onlap rather than spuriously absent, leaving it to the caller to decide whether that is a violation.
 
 .. CG-EXPLANATION-END id=function:renderedShape
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:shallowTDForGap
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the shallow bottom of a gap (in mTAW): the higher of the two facing columns' deepest base elevations.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that below this elevation only one column has data, so a full-width fill there is the deep-to-deep substrate (owner ruling, section 8 question 3), not a same-formation termination band — and the 2/1/0 rule does not apply to it.
 
 .. CG-EXPLANATION-END id=function:shallowTDForGap
 

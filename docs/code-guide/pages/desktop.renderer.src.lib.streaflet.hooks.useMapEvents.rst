@@ -1,7 +1,7 @@
 desktop.renderer.src.lib.streaflet.hooks.useMapEvents
 =====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/hooks/useMapEvents.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/hooks/useMapEvents.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/lib/streaflet/hooks/useMapEvents.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports React's ``useEffect``, Leaflet's types under ``L``, and the ``useMap`` hook.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This hook subscribes to map events, so it needs React's after-redraw tool and the ``useMap`` hook (see that page) to find the map to listen on.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useMapEvents
 
-.. CG-PLACEHOLDER
+**What this does.** A hook to listen for a set of named map events. It gets the map, and in an effect binds all the given handlers when the component appears and unbinds them all when it is removed, returning the map.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Binding once on mount and cleaning up on unmount is the standard, leak-free way to attach event listeners. The ``reason:`` note explains why the handler set is not in the effect's trigger list: callers pass a fresh-but-stable set each redraw, so re-binding every redraw would needlessly thrash the listeners — the deliberate choice is to bind once, matching the usual Leaflet-hook contract. A required ``// reason:`` note accompanies the suppressed lint warning because the project rule is that every such suppression must state why the linter is wrong here.
 
 .. CG-EXPLANATION-END id=function:useMapEvents
 

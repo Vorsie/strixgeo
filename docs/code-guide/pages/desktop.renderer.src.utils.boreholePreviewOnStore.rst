@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.boreholePreviewOnStore
 =================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/boreholePreviewOnStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/boreholePreviewOnStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/boreholePreviewOnStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment introduces a store for the geotech axis "Show borehole preview" toggle, following the same store pattern introduced on the ``bandFillStore`` page, and imports the shared boolean-store factory. The toggle is set from the geotech toolbar's Display menu and read by the sections canvas.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the owner's dogfeed ruling (2026-08-07): the divide-boreholes preview ghosts must be opt-in, because when they appeared uninvited they read as "my boreholes got subdivided". The store holds only the toggle bit — the gate rule lives elsewhere — and, being screen chrome, it is not persisted and resets to off on reload.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:store
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the boolean store starting at ``false`` (preview off).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The same shared-factory reason as on the ``bandFillStore`` page.
 
 .. CG-EXPLANATION-END id=const:store
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toggleBoreholePreviewOn
 
-.. CG-PLACEHOLDER
+**What this does.** Flips the preview toggle and notifies subscribers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The single action the Display-menu control needs.
 
 .. CG-EXPLANATION-END id=function:toggleBoreholePreviewOn
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getBoreholePreviewOn
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current toggle state without subscribing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** For callers that need the value once rather than a redraw on change; the same read/subscribe split as on the ``bandFillStore`` page.
 
 .. CG-EXPLANATION-END id=function:getBoreholePreviewOn
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useBoreholePreviewOn
 
-.. CG-PLACEHOLDER
+**What this does.** A hook that returns the current value and redraws the caller when it flips.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reactive read for components that must reflect the toggle on screen.
 
 .. CG-EXPLANATION-END id=function:useBoreholePreviewOn
 

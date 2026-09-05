@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.log
 ==============================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/log.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/log.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/log.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment. This file is the frontend's logging wrapper — a thin shim over the browser's console that adds a structured prefix and a timestamp to every message.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that it is a single seam where a real logger (telemetry, file-based crash reporting) can be swapped in later, and that its levels deliberately match the backend's own logger so a user-reported issue reads identically across the engine's ``[api]`` lines and the window's ``[ui]`` lines (CLAUDE.md: both frontend and backend need logging). Debug is silenced in production to keep the console quiet, and trace is silenced even in dev unless a device opts in, because per-render trace lines written at debug once drowned the console (dogfeed 2026-08-02).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:LogLevel
 
-.. CG-PLACEHOLDER
+**What this does.** The list of allowed log levels: trace, debug, info, success, warn, error.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that success mirrors the backend's SUCCESS level so an end-to-end flow logs identically on both sides; because browsers offer no success colour, it is routed through the ordinary info channel and readers tell it apart by the SUCCESS text in the prefix, not by colour.
 
 .. CG-EXPLANATION-END id=type:LogLevel
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:IS_DEV
 
-.. CG-PLACEHOLDER
+**What this does.** A true/false value that is true in a development run and false in a production build.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the build tool injects this flag — true for the dev command, false for the build command — and it is what silences debug and trace output for end users.
 
 .. CG-EXPLANATION-END id=const:IS_DEV
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TRACE_OPT_IN_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The browser-storage key a device sets to switch trace output on: ``strix.log.trace``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that setting it to ``1`` in the DevTools console turns tracing on and removing it turns tracing off.
 
 .. CG-EXPLANATION-END id=const:TRACE_OPT_IN_KEY
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:traceEnabled
 
-.. CG-PLACEHOLDER
+**What this does.** Answers whether trace lines should be printed right now: only in a dev run, and only when the opt-in key is set to ``1``; the storage read is wrapped so a locked-down page cannot crash on it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the flag is read on every call rather than cached at load, so it can be flipped from the DevTools console mid-session — the moment you want tracing is always after the interesting thing has already started — and that the try/catch is there because storage can throw on a restricted origin and tracing is never worth a crash.
 
 .. CG-EXPLANATION-END id=function:traceEnabled
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:emit
 
-.. CG-PLACEHOLDER
+**What this does.** The central emitter: it drops debug lines in production and trace lines when tracing is off, builds a prefix of the form [ui, timestamp, level, scope], and forwards the message to the matching console method.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the one place that applies the level gates and the shared prefix so every level formats the same way; trace and debug route to the console's debug channel, info and success to its info channel, and warn and error to their own.
 
 .. CG-EXPLANATION-END id=function:emit
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:log
 
-.. CG-PLACEHOLDER
+**What this does.** The exported logger object, with one method per level (trace, debug, info, success, warn, error), each forwarding to the emitter with its level filled in.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the surface callers import, so a log line reads simply as, for example, ``log.info('boot', { apiBase, projectId })``.
 
 .. CG-EXPLANATION-END id=const:log
 

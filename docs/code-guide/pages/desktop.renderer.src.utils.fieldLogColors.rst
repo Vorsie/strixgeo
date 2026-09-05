@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.fieldLogColors
 =========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/fieldLogColors.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/fieldLogColors.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/fieldLogColors.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A comment describing the categorical colours for the borehole log's field-log track, which has three sub-stripes: the driller's observed soil colour, the moisture, and the consistency.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that DOV uses Dutch compound words for colour so the code parses the first colour token and picks a representative hue, and — importantly — that the colours are visual cues only while the literal source-vocabulary value is always shown in the cell, so the exact original string is never lost (the translate-at-the-presentation-boundary rule).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:COLOR_KEYWORDS
 
-.. CG-PLACEHOLDER
+**What this does.** A small table mapping Dutch base-colour words (brown, green, grey, red, yellow, black, white, blue) to representative hex colours.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These base hues are what a compound word like "greenish-brown" is reduced to for the stripe; keeping them in one table means every colour parse uses the same hues.
 
 .. CG-EXPLANATION-END id=const:COLOR_KEYWORDS
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:fieldColorFill
 
-.. CG-PLACEHOLDER
+**What this does.** Picks a hex colour for a DOV soil-colour string: it lowercases the value and returns the hue of the first base-colour keyword it finds, or a neutral grey for empty or unrecognised input.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that matching the first keyword in a compound word is close enough for a visual stripe, and that the literal string is also shown in the cell so the exact source value is not lost.
 
 .. CG-EXPLANATION-END id=function:fieldColorFill
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:moistureFill
 
-.. CG-PLACEHOLDER
+**What this does.** Maps DOV moisture words to a dry-to-wet colour gradient: dry to a sandy yellow, weakly moist to a light blue, moist to a mid blue, wet to a deep blue, and grey for anything else.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the intent — a wetness gradient — so the stripe reads intuitively from dry to wet.
 
 .. CG-EXPLANATION-END id=function:moistureFill
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:consistencyFill
 
-.. CG-PLACEHOLDER
+**What this does.** Maps DOV consistency words to a soft-to-hard colour gradient: soft to a pale tone, moderate to tan, firm to brown, hard to dark brown, and grey for anything else.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the intent — a hardness gradient — so the stripe reads intuitively from soft to hard.
 
 .. CG-EXPLANATION-END id=function:consistencyFill
 

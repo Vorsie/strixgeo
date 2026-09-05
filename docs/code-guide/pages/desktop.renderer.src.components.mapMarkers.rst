@@ -1,7 +1,7 @@
 desktop.renderer.src.components.mapMarkers
 ==========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/components/mapMarkers.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/components/mapMarkers.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/components/mapMarkers.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment and the imports — the WGS84 projection helper and the CPT / borehole list types from the API client.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is a Leaflet-free module holding the pure marker projection, kept separate so the coordinate-system rule can be unit-tested without mounting the map (a live map needs a real browser page). The comment records the rule seen on the ``desktop.renderer.src.components.MapView`` page: project-owned rows project through the PROJECT's own CRS, while DOV pending pins are a separate, explicitly Lambert-72 source built elsewhere.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:CptMapMarker
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of a finished CPT marker — id, latitude, longitude, name, type and depth — ready for a Leaflet circle marker.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Names the projected record the map draws, so the projection step and the drawing step agree on one shape.
 
 .. CG-EXPLANATION-END id=interface:CptMapMarker
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:BoreholeMapMarker
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of a finished borehole marker — id, latitude, longitude, name, the active axis value, drill method, borehole type and depth — ready for a Leaflet square-icon marker; plus the doc for ``resolveProjectEpsg`` below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Names the projected borehole record; the doc explains the EPSG clamp that follows.
 
 .. CG-EXPLANATION-END id=interface:BoreholeMapMarker
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:resolveProjectEpsg
 
-.. CG-PLACEHOLDER
+**What this does.** Clamps any project EPSG to one the projection helpers support — 28992 for a Netherlands project, 31370 (Belgian Lambert 72) for everything else. It also opens the comment for ``boreholeAxisValue`` below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The projection helper handles only those two horizontal systems and throws for anything else; a ``null`` on a fresh project, or a future CRS not yet wired, falls back to Belgian Lambert 72 — the platform's historical default — so marker projection degrades to the old behaviour instead of crashing the map (docstring).
 
 .. CG-EXPLANATION-END id=function:resolveProjectEpsg
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:boreholeAxisValue
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the category a borehole falls under for the active filter axis — its drill method or its borehole type — or a dash when that value is empty. It also opens the doc for ``buildCptMarkers`` below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One place that reads the axis value, so the marker colour, the filter checkbox and the legend all bucket a borehole the same way.
 
 .. CG-EXPLANATION-END id=function:boreholeAxisValue
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:buildCptMarkers
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the visible CPT markers: it drops the hidden types, projects each remaining CPT's stored x/y to WGS84 through the project's CRS, and drops any that project to a non-finite position. It also opens the doc for ``buildBoreholeMarkers`` below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Produces exactly the CPT markers the map draws from the API-client list; projecting through the project's CRS is the Codex 2 rule, and the finite check guards against a bad stored coordinate becoming an off-world dot.
 
 .. CG-EXPLANATION-END id=function:buildCptMarkers
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:buildBoreholeMarkers
 
-.. CG-PLACEHOLDER
+**What this does.** The borehole equivalent: it drops the hidden axis values, projects each remaining borehole to WGS84 through the project's CRS, drops any non-finite position, and tags each marker with its axis value and its attributes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same Codex 2 projection rule and same finite-position guard as ``buildCptMarkers``, producing the borehole markers the map draws.
 
 .. CG-EXPLANATION-END id=function:buildBoreholeMarkers
 

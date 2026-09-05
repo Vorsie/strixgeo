@@ -1,7 +1,7 @@
 desktop.renderer.src.lib.streaflet.components.controls.AttributionControl
 =========================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/controls/AttributionControl.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/controls/AttributionControl.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/lib/streaflet/components/controls/AttributionControl.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports Leaflet under ``L`` and the control factory (``createControlComponent``) with its shared control-inputs type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A control wrapper; needs only Leaflet and the control factory (see the ``createControlComponent`` page).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:AttributionControlProps
 
-.. CG-PLACEHOLDER
+**What this does.** Declares its input on top of the shared control inputs: an optional ``prefix`` (the small credit text, or ``false`` to hide it).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The attribution box shows data credits; the prefix is the only thing worth varying, and allowing ``false`` lets it be switched off.
 
 .. CG-EXPLANATION-END id=interface:AttributionControlProps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:AttributionControl
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the control with a create step that makes a Leaflet attribution control, passing position and prefix only when they were actually provided.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Built by the ``createControlComponent`` factory pattern — see that page. The comment records why options are passed only when present: handing Leaflet an empty ``position`` overwrites its built-in default and crashes when the control is added, so the file uses the same conditional-passing convention as the tile layers.
 
 .. CG-EXPLANATION-END id=const:AttributionControl
 

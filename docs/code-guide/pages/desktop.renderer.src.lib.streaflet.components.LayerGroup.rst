@@ -1,7 +1,7 @@
 desktop.renderer.src.lib.streaflet.components.LayerGroup
 ========================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/LayerGroup.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/LayerGroup.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/lib/streaflet/components/LayerGroup.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports Leaflet under ``L``, the base layer factory (``createLayerComponent``), and the shared event-inputs type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A layer group is itself a layer, so it is built with the base layer factory (see the ``createLayerComponent`` page).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:LayerGroupProps
 
-.. CG-PLACEHOLDER
+**What this does.** Says this component's inputs are exactly the shared event inputs, under its own name.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A layer group adds no settings of its own; the named type documents that it accepts the standard events and matches its siblings.
 
 .. CG-EXPLANATION-END id=type:LayerGroupProps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:LayerGroup
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the component with a single create step: make an empty Leaflet layer group. Child components placed inside attach to it, so they can be shown, hidden or removed together.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Built by the ``createLayerComponent`` factory pattern — see that page, which wires the child context so anything drawn inside joins this group.
 
 .. CG-EXPLANATION-END id=const:LayerGroup
 

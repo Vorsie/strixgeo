@@ -1,7 +1,7 @@
 desktop.renderer.src.lib.streaflet.components.controls.ScaleControl
 ===================================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/controls/ScaleControl.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/controls/ScaleControl.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/lib/streaflet/components/controls/ScaleControl.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports Leaflet under ``L`` and the control factory (``createControlComponent``) with its shared control-inputs type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A control wrapper; needs only Leaflet and the control factory (see the ``createControlComponent`` page).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ScaleControlProps
 
-.. CG-PLACEHOLDER
+**What this does.** Declares its inputs on top of the shared control inputs: optional ``metric`` and ``imperial`` flags choosing which scale bars to show.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The scale bar shows distance on the map; letting metric and imperial be toggled independently covers the two unit systems.
 
 .. CG-EXPLANATION-END id=interface:ScaleControlProps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:ScaleControl
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the control with a create step that makes a Leaflet scale control, passing position, metric and imperial only when actually provided.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Built by the ``createControlComponent`` factory pattern — see that page. Options are passed only when present for the same crash-avoidance reason as the other controls.
 
 .. CG-EXPLANATION-END id=const:ScaleControl
 

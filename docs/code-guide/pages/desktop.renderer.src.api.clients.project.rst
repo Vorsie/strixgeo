@@ -1,7 +1,7 @@
 desktop.renderer.src.api.clients.project
 ========================================
 
-.. CG-PAGE source=desktop/src/renderer/src/api/clients/project.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/api/clients/project.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/api/clients/project.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment and imports for the project client — the typed calls for the ``/projects/*`` endpoints and the per-investigation review sub-resource (create, edit, archive, duplicate, bundle get and restore, view-state edit, review upsert). It imports the shared HTTP helpers and, type-only, the shape of the stratigraphy-lumping snapshot.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment explains the lumping shape is imported as a type only, never as runnable code, so this module keeps no run-time dependency on the utils layer. Every call goes through the shared ``request`` helper introduced on the ``desktop.renderer.src.api.clients.shared`` page.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:ProjectPhase
 
-.. CG-PLACEHOLDER
+**What this does.** Names the four allowed project phases: feasibility, design, construction, monitoring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Fixing the set catches a stray phase value before the app runs.
 
 .. CG-EXPLANATION-END id=type:ProjectPhase
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:ProjectStatus
 
-.. CG-PLACEHOLDER
+**What this does.** Names the three allowed project statuses: active, on hold, completed.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Fixing the set catches a stray status value before the app runs.
 
 .. CG-EXPLANATION-END id=type:ProjectStatus
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ProjectResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the full project metadata answer: identity and labels, tags, the default coordinate systems, phase and status, archive and timestamp fields, the view-state preferences bag, and the three stratigraphy-lumping fields.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments carry several rules: phase and status are kept as loose strings for forward-compatibility; the view-state bag is schema-less on the server so each consumer narrows the keys it cares about; the lumping ``staged`` and ``saved`` slots are the durable home of the two-stage save model, where ``staged`` differing from ``saved`` is the same dirty signal the renderer derives in memory (``docs/design/autosave-recovery.md``); and the revision is a renderer-owned counter that crash-recovery compares instead of wall-clocks. The lumping fields are optional, mirroring the additive-only stance — a response serialised before the columns existed carries none of them, so every read site handles the null case.
 
 .. CG-EXPLANATION-END id=interface:ProjectResponse
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ProjectBundleResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the whole project bundle: a format version, the project row, every CPT with its series, every borehole with its child tree, and the geological, litho, section, review, correlation, body, absence, tombstone, separation and union rows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring says the renderer never inspects the row shapes — the data dictionaries are opaque and round-trip unchanged — which is why they are typed loosely. The comments mark the newer collections as absent in older bundles (additive-only) and stress that several are evidence, not cache: dropping the deleted-tie tombstones, separations or unions would resurrect every tie, split or join the engineer had deliberately made on the next derivation.
 
 .. CG-EXPLANATION-END id=interface:ProjectBundleResponse
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ProjectCreatePayload
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the body for creating a project: a required name and the optional labels, tags, coordinate systems, phase and status.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Only the name is required; the optional fields mirror the additive-only backend schema.
 
 .. CG-EXPLANATION-END id=interface:ProjectCreatePayload
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ProjectUpdatePayload
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the body for editing a project: every field optional, so a caller sends only what it is changing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** All-optional matches a partial edit — an absent field means leave it unchanged.
 
 .. CG-EXPLANATION-END id=interface:ProjectUpdatePayload
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:ReviewTargetKind
 
-.. CG-PLACEHOLDER
+**What this does.** Names what an investigation review can point at: a CPT or a borehole.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Fixing the two kinds lets the review sub-resource address either investigation type by the same shape.
 
 .. CG-EXPLANATION-END id=type:ReviewTargetKind
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:ReviewStatus
 
-.. CG-PLACEHOLDER
+**What this does.** Names the three review states: unreviewed, in progress, reviewed.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Fixing the set catches a stray status before the app runs.
 
 .. CG-EXPLANATION-END id=type:ReviewStatus
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:InvestigationReviewResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes one per-investigation review row: its ids, the target kind and id, the review status and notes, the reviewed timestamp, whether it is hidden, and its timestamps.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring says it drives the sidebar's project-local hide (``is_hidden``) and, later, the reviewed-state filter, and that it rides in the project bundle on save and is restored on open — an engineering decision persisted in the bundle, not local screen chrome.
 
 .. CG-EXPLANATION-END id=interface:InvestigationReviewResponse
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:InvestigationReviewUpsertPayload
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the body for setting a review: an optional status, notes, and hidden flag.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** All-optional so a caller can set just one of the three without disturbing the others.
 
 .. CG-EXPLANATION-END id=interface:InvestigationReviewUpsertPayload
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ProjectRestoreResponse
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the restore answer: a full project response plus two counts of rows the restore's size caps had to drop.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes both counts are zero when nothing was dropped, and a non-zero count is worth a toast telling the engineer some over-large depth-series or child rows were capped on open.
 
 .. CG-EXPLANATION-END id=interface:ProjectRestoreResponse
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:projectClient
 
-.. CG-PLACEHOLDER
+**What this does.** The object of typed calls for the ``/projects/*`` endpoints: fetch, create, edit, archive or duplicate a project; get the full bundle; restore from a bundle; edit the view-state; and the two stratigraphy-lumping calls (stage and promote).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Every call goes through the shared ``request`` helper introduced on the ``desktop.renderer.src.api.clients.shared`` page. The comments carry the design: the bundle drops the cached 3-D meshes by default because the project file never stores them and pulling megabytes of vertices slowed saving; restore is idempotent and can replace a project's children exactly for a revert-to-last-save; view-state is shallow-merged; and the two lumping calls are the halves of the two-stage save — staging writes the ``staged`` slot and rejects a lower revision with 409 so a stale writer cannot roll the map back, while promote copies ``staged`` onto ``saved`` on File → Save, which is what makes the two match and read clean right after a save.
 
 .. CG-EXPLANATION-END id=const:projectClient
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:reviewClient
 
-.. CG-PLACEHOLDER
+**What this does.** The object of typed calls for the review sub-resource: list a project's reviews, or create-or-update the review for one investigation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Both go through the shared ``request`` helper introduced on the ``desktop.renderer.src.api.clients.shared`` page, wired under ``api.review``.
 
 .. CG-EXPLANATION-END id=const:reviewClient
 

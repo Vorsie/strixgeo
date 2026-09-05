@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.geotechPreviewRenderStore
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/geotechPreviewRenderStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/geotechPreviewRenderStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/geotechPreviewRenderStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file is a small shared holder — a *store* — for a summary of what the borehole packing-preview overlay actually drew, published so the toolbar can react to it. The comment explains the problem: the toolbar's "hatched = preview" legend must appear exactly when something hatched is on screen, and deriving that in the toolbar was wrong whenever the overlay declined to draw for a reason the toolbar could not see (a column with no collar elevation, a preview still loading, a preview that errored). Only the overlay knows what it drew, so the overlay publishes it here. A clamped-band count rides along so a planned band that fell entirely outside the depth window is surfaced rather than silently implying nothing is planned there. It imports React's ``useSyncExternalStore``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** As the comment records, it follows the same store pattern introduced on the ``formationFillStore`` page but holds a small record rather than a boolean, so it does not use the boolean-store factory. The snapshot is cached and only replaced when a number actually changes, because ``useSyncExternalStore`` redraws on every change of the snapshot's identity, so handing it a fresh object each render would spin an endless redraw loop. It is module-global and never persisted because it describes the current frame, not the project.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:GeotechPreviewRender
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the summary of the ghost bands currently on screen: how many borehole columns carry at least one drawn ghost band, how many ghost bands were drawn (including ones drawn at a one-pixel floor), and how many planned bands fell entirely outside the visible depth window so no pixel of them exists.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The clamped count is carried, rather than swallowed, so the engineer is told a band is planned but off-screen — the one thing this feature must never let silence imply is "nothing is planned at this depth".
 
 .. CG-EXPLANATION-END id=interface:GeotechPreviewRender
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:EMPTY_GEOTECH_PREVIEW_RENDER
 
-.. CG-PLACEHOLDER
+**What this does.** The all-zero summary meaning nothing is hatched — the starting value and what a reset restores. It is frozen so it cannot be changed.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A single shared empty value lets a reset return to a known snapshot by identity, which the reset function relies on to skip a needless notification.
 
 .. CG-EXPLANATION-END id=const:EMPTY_GEOTECH_PREVIEW_RENDER
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=let:snapshot
 
-.. CG-PLACEHOLDER
+**What this does.** The module-level holder of the last published summary, starting empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One shared value the readers report and the publisher replaces; caching it by identity is what keeps subscribers from redrawing on an unchanged frame.
 
 .. CG-EXPLANATION-END id=let:snapshot
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:listeners
 
-.. CG-PLACEHOLDER
+**What this does.** The set of callbacks to run when the summary changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The *subscribe/notify* backing of the store — the list of components to tell when the drawn-ghost numbers change.
 
 .. CG-EXPLANATION-END id=const:listeners
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:notify
 
-.. CG-PLACEHOLDER
+**What this does.** Calls every registered listener.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The single place that tells all subscribers the summary changed.
 
 .. CG-EXPLANATION-END id=function:notify
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:subscribeGeotechPreviewRender
 
-.. CG-PLACEHOLDER
+**What this does.** Registers a callback to run whenever the published numbers change, and returns a function that unregisters it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The *subscribe* half ``useSyncExternalStore`` requires; the returned unregister function lets React clean up when a component goes away.
 
 .. CG-EXPLANATION-END id=function:subscribeGeotechPreviewRender
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getGeotechPreviewRender
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current summary once, without subscribing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The snapshot getter ``useSyncExternalStore`` reads, and a plain read for any code that needs the value at a moment in time.
 
 .. CG-EXPLANATION-END id=function:getGeotechPreviewRender
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:publishGeotechPreviewRender
 
-.. CG-PLACEHOLDER
+**What this does.** Publishes the counts for the frame just drawn. If every number matches the current snapshot it does nothing; otherwise it replaces the snapshot with a fresh record and notifies subscribers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The no-op-on-unchanged check is what keeps the snapshot's identity stable across repeats, so ``useSyncExternalStore`` consumers do not redraw when the overlay drew the same thing again — the loop the module header warns about.
 
 .. CG-EXPLANATION-END id=function:publishGeotechPreviewRender
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:resetGeotechPreviewRender
 
-.. CG-PLACEHOLDER
+**What this does.** Declares that nothing is hatched, restoring the empty summary — used when the overlay unmounts or drew nothing. It does nothing if the snapshot is already the empty one.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Skipping the notify when already empty avoids a needless redraw, and reusing the shared frozen empty value makes that identity check exact.
 
 .. CG-EXPLANATION-END id=function:resetGeotechPreviewRender
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useGeotechPreviewRender
 
-.. CG-PLACEHOLDER
+**What this does.** A hook that returns the current summary and re-draws the calling component when it changes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reactive read built on ``useSyncExternalStore``, the same pattern as on the ``formationFillStore`` page.
 
 .. CG-EXPLANATION-END id=function:useGeotechPreviewRender
 

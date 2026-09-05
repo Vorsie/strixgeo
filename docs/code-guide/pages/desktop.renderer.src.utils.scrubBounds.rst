@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.scrubBounds
 ======================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/scrubBounds.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/scrubBounds.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/scrubBounds.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file works out the span of the section scrub-bar track — the range along the section the engineer can pan across. It insists the range match where the columns are actually drawn, not where they were originally projected. The block covers the module comment and the column-input documentation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records why the distinction matters: the section applies a spacing warp so columns do not overlap, and at low spacing the columns pack toward the left, so a column's drawn x sits left of its raw projected x. If the scrub track used the raw positions, the handle would let the view scroll well past the packed columns into empty space (dogfeed 2026-06-06). Mapping each column's drawn x back through the viewport's inverse gives its warp-effective along position — the world position that actually renders where it is packed — and the extremes of those are the true track bounds. It is pan-independent because the drawn x already includes the current scroll, which the inverse adds straight back.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ScrubBoundsColumn
 
-.. CG-PLACEHOLDER
+**What this does.** A placed column reduced to the one field the bounds need: its drawn x after the spacing warp and nudge.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that this drawn x is the whole point — it is what carries the warp, so it is all the bounds calculation reads.
 
 .. CG-EXPLANATION-END id=interface:ScrubBoundsColumn
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:ScrubBounds
 
-.. CG-PLACEHOLDER
+**What this does.** An along-section range in world metres: a minimum and a maximum. The block ends with the documentation for the function below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the span the scrub track covers, expressed in the section's own world metres.
 
 .. CG-EXPLANATION-END id=interface:ScrubBounds
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:computeScrubBounds
 
-.. CG-PLACEHOLDER
+**What this does.** Walks the placed columns, maps each column's drawn x back to its warp-effective along position, and returns the smallest and largest of those; when there are no columns it returns the supplied fallback range.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the fallback keeps the bar grab-able before projection has landed on a fresh section, so the scrub handle never becomes unusable.
 
 .. CG-EXPLANATION-END id=function:computeScrubBounds
 

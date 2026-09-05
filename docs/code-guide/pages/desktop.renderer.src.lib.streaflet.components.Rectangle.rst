@@ -1,7 +1,7 @@
 desktop.renderer.src.lib.streaflet.components.Rectangle
 =======================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/Rectangle.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/Rectangle.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/lib/streaflet/components/Rectangle.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports Leaflet under ``L`` and the vector-shape factory (``createPathComponent``) with its shared inputs type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A near-identical shape wrapper; needs only Leaflet and the shape factory (see the ``createPathComponent`` page).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:RectangleProps
 
-.. CG-PLACEHOLDER
+**What this does.** Declares its own inputs on top of the shared shape inputs: ``bounds`` — the south-west and north-east corner pair that defines the box.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A rectangle is fully described by its two opposite corners, so the corner-pair box is all it adds.
 
 .. CG-EXPLANATION-END id=interface:RectangleProps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:Rectangle
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the component by giving the shape factory a create step (make a Leaflet rectangle from the box and style) and an update step (re-set the box if it changed).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Built by the ``createPathComponent`` factory pattern — see that page. Only the two rectangle-specific lines live here.
 
 .. CG-EXPLANATION-END id=const:Rectangle
 

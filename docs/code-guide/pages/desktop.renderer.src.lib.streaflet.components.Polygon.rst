@@ -1,7 +1,7 @@
 desktop.renderer.src.lib.streaflet.components.Polygon
 =====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/Polygon.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/lib/streaflet/components/Polygon.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/lib/streaflet/components/Polygon.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports Leaflet under ``L`` and the vector-shape factory (``createPathComponent``) with its shared inputs type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A near-identical shape wrapper; needs only Leaflet and the shape factory (see the ``createPathComponent`` page).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:PolygonProps
 
-.. CG-PLACEHOLDER
+**What this does.** Declares its own inputs on top of the shared shape inputs: ``positions`` — either a single ring of points, or an array of rings so the outer ring can enclose holes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A polygon is defined by its corner points; allowing an array of rings lets a shape carry holes (for example a formation footprint with a gap punched out).
 
 .. CG-EXPLANATION-END id=interface:PolygonProps
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:Polygon
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the component by giving the shape factory a create step (make a Leaflet polygon from the points and style) and an update step (re-set the points if they changed).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Built by the ``createPathComponent`` factory pattern — see that page. Only the two polygon-specific lines live here.
 
 .. CG-EXPLANATION-END id=const:Polygon
 

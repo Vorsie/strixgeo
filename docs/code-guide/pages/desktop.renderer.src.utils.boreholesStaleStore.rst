@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.boreholesStaleStore
 ==============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/boreholesStaleStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/boreholesStaleStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/boreholesStaleStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment introduces a store for the geotech "Divide boreholes" stale flag, following the same store pattern introduced on the ``bandFillStore`` page, and imports the shared boolean-store factory. The flag records whether the borehole packing bands have gone out of date.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the reason the flag exists: the borehole packing bands are divided from the CPT bodies' geometry, so they go stale whenever the bodies change — after a "Subdivide all bodies" run or any packing correlation. Tracking that lets the toolbar button go amber (the unsaved/needs-attention colour, never red) to prompt the engineer to re-divide. It defaults to not-stale because a freshly opened project already matches whatever was last divided and saved.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:store
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the boolean store starting at ``false`` (not stale).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The same shared-factory reason as on the ``bandFillStore`` page.
 
 .. CG-EXPLANATION-END id=const:store
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:markBoreholesStale
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the flag to stale.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Called when the bodies or correlations change, so the toolbar can prompt a re-divide.
 
 .. CG-EXPLANATION-END id=function:markBoreholesStale
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clearBoreholesStale
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the flag back to not-stale.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Called after a successful "Divide boreholes" run, when the bands match the bodies again.
 
 .. CG-EXPLANATION-END id=function:clearBoreholesStale
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getBoreholesStale
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current stale state without subscribing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** For callers that need the value once; the same read/subscribe split as on the ``bandFillStore`` page.
 
 .. CG-EXPLANATION-END id=function:getBoreholesStale
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useBoreholesStale
 
-.. CG-PLACEHOLDER
+**What this does.** A hook that returns the current value and redraws the caller when staleness flips.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reactive read for the toolbar button that shows the amber state.
 
 .. CG-EXPLANATION-END id=function:useBoreholesStale
 

@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.sampleMarkersOnStore
 ===============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/sampleMarkersOnStore.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/sampleMarkersOnStore.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/sampleMarkersOnStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This file holds a tiny shared *store* for the section "Show samples" toggle — the same store pattern introduced on the ``psdPreviewOnStore`` page. The import brings in the ready-made boolean-store builder.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the lab-sample extent markers draw on both the litho and the geotech axis, so a dense borehole corridor can carry a lot of them and the engineer needs a way to clear the view without leaving the section. It mirrors the borehole-preview store: a single value read by the canvas through *useSyncExternalStore*, module-global because only one section view is open at a time, defaulting on because the markers are data the user imported rather than an opt-in preview, and never saved — it resets on reload.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:store
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the holder, a boolean starting on.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the single shared value the readers below point at.
 
 .. CG-EXPLANATION-END id=const:store
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:toggleSampleMarkersOn
 
-.. CG-PLACEHOLDER
+**What this does.** Flips the switch and tells subscribers it changed.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is what the Display menu and the hotkey call to show or hide the markers.
 
 .. CG-EXPLANATION-END id=function:toggleSampleMarkersOn
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:getSampleMarkersOn
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the current value once, without subscribing.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is for code that needs the value now and does not want to be redrawn when it later changes.
 
 .. CG-EXPLANATION-END id=function:getSampleMarkersOn
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:setSampleMarkersOn
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the switch to a given value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records this is the path the hotkey's test-reset uses to force a known state.
 
 .. CG-EXPLANATION-END id=function:setSampleMarkersOn
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:useSampleMarkersOn
 
-.. CG-PLACEHOLDER
+**What this does.** The hook form: returns the current value and re-draws its caller when the switch flips.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The canvas uses this so it repaints, showing or hiding the markers, the moment the toggle changes.
 
 .. CG-EXPLANATION-END id=function:useSampleMarkersOn
 

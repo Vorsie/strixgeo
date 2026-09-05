@@ -1,7 +1,7 @@
 desktop.renderer.src.utils.virtueleBoringOverlay
 ================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/utils/virtueleBoringOverlay.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/utils/virtueleBoringOverlay.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/utils/virtueleBoringOverlay.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** State utilities for the Virtuele Boring (DOV synthetic-borehole) overlay. The comment records where the project-level state is persisted (in ``project.view_state.virtuele_boring``, stored opaquely by the server) and its shape: two model slots (each a DOV lagenmodel code or nothing for "off", driving two side-by-side ghost columns on the section view) and a maximum depth in metres. It imports the shared view-state bag reader.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records two decisions: the 30 m default depth matches typical CPT and borehole depth, so the overlay reads as "what is relevant to this test" rather than DOV's full crustal column down to bedrock; and the per-pane visibility lives in localStorage because it is per-user screen chrome, not a project-level engineering decision — the rule that decisions live in the project bundle and localStorage holds only UI preferences.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtueleBoringOverlayState
 
-.. CG-PLACEHOLDER
+**What this does.** The overlay's state shape: ``modelA`` and ``modelB`` (each a model code or nothing when the slot is off) and ``maxDepthM`` (a clip in metres below each investigation's surface, or nothing for no clip).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Names the project-level overlay state the section view reads and writes.
 
 .. CG-EXPLANATION-END id=interface:VirtueleBoringOverlayState
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEFAULT_VIRTUELE_BORING_OVERLAY
 
-.. CG-PLACEHOLDER
+**What this does.** The default state: both slots off, 30 m depth.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that 30 m matches typical investigation depth so the overlay stays relevant rather than showing the full column.
 
 .. CG-EXPLANATION-END id=const:DEFAULT_VIRTUELE_BORING_OVERLAY
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:VIRTUELE_BORING_VIEW_STATE_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The JSON key inside ``project.view_state`` that owns the overlay state, followed by the comment on the depth bounds below.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Naming the key once keeps the read and the write from drifting onto different names.
 
 .. CG-EXPLANATION-END id=const:VIRTUELE_BORING_VIEW_STATE_KEY
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:VIRTUELE_BORING_MAX_DEPTH_MIN_M
 
-.. CG-PLACEHOLDER
+**What this does.** The smallest depth clip the control accepts, 1 m.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that 1 m is the minimum meaningful clip.
 
 .. CG-EXPLANATION-END id=const:VIRTUELE_BORING_MAX_DEPTH_MIN_M
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:VIRTUELE_BORING_MAX_DEPTH_MAX_M
 
-.. CG-PLACEHOLDER
+**What this does.** The largest depth clip the control accepts, 1000 m, followed by the reader's docstring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that 1000 m covers any realistic mining-depth survey while still bounding a runaway value from a hand-edited project bundle.
 
 .. CG-EXPLANATION-END id=const:VIRTUELE_BORING_MAX_DEPTH_MAX_M
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readVirtueleBoringOverlay
 
-.. CG-PLACEHOLDER
+**What this does.** Pulls the overlay state out of the view_state bag with sensible defaults. It reads the bag (returning the defaults when it is absent), then validates the depth (an explicit nothing means no clip; a finite in-range number is kept; anything else falls back to the default), and coerces each model slot to a non-empty string or nothing. It is followed by the active-models docstring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that it is tolerant of hand-edited or migrated bundles — it never throws and always returns a usable shape — so a bad stored value cannot render an invisible or endless overlay forever. This is the best-effort view_state persistence rule.
 
 .. CG-EXPLANATION-END id=function:readVirtueleBoringOverlay
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:activeOverlayModels
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the currently-active (non-null) model codes in A-then-B order, dropping a duplicate when both slots hold the same model. It is followed by the section comment that introduces per-pane visibility.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records both choices: an empty list when both slots are off lets callers skip the predictions fetch instead of hitting the backend with an empty query, and de-duplicating avoids two identical ghost columns confusing the UI.
 
 .. CG-EXPLANATION-END id=function:activeOverlayModels
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:VirtueleBoringPane
 
-.. CG-PLACEHOLDER
+**What this does.** The three panes that can show the overlay independently: the section view, the CPT detail panel, and the borehole detail panel.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Names the panes whose visibility and model override are tracked separately.
 
 .. CG-EXPLANATION-END id=type:VirtueleBoringPane
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEFAULT_PANE_VISIBILITY
 
-.. CG-PLACEHOLDER
+**What this does.** The default on/off state per pane: the section view on, the CPT and borehole detail panes off.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records the reasoning: the section view defaults on so that picking a model there shows the ghost columns without a second click, while the detail panes default off because opting into the overlay on the section view should not burst it into the CPT chart or borelog without an explicit click.
 
 .. CG-EXPLANATION-END id=const:DEFAULT_PANE_VISIBILITY
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:paneStorageKey
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the localStorage key for a pane's visibility, keyed by project id (returning nothing when there is no project). It is followed by the reader docstring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that keying by project id lets the same setting be tuned differently per project; with no project id there is nothing to store.
 
 .. CG-EXPLANATION-END id=function:paneStorageKey
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readPaneVisibility
 
-.. CG-PLACEHOLDER
+**What this does.** Reads whether a pane currently shows the overlay: the per-pane default when there is no project id or no localStorage, otherwise a stored "1" means on and "0" means off, tolerating any corrupt value. It is followed by the writer docstring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring and comment record that it returns the default on a test mount, the welcome screen, or when localStorage is unavailable, and the read is wrapped so a quota or private-mode failure falls through to the default — the guarded-read pattern.
 
 .. CG-EXPLANATION-END id=function:readPaneVisibility
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:writePaneVisibility
 
-.. CG-PLACEHOLDER
+**What this does.** Persists a pane's visibility, doing nothing when there is no project id or localStorage is not writable. It is followed by the section comment introducing the per-pane model override.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that a storage failure is ignored because the caller's UI still reflects the new value through React state, so the in-memory state stays consistent.
 
 .. CG-EXPLANATION-END id=function:writePaneVisibility
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:paneModelStorageKey
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the localStorage key for a pane's model override, keyed by project id (nothing when there is no project). It is followed by the reader docstring.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The override is stored per project and per pane, the same keying pattern as the visibility flag.
 
 .. CG-EXPLANATION-END id=function:paneModelStorageKey
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readPaneModelOverride
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the active model override for a detail pane: an empty string (the default) means "follow the section", and a specific code means show only that one ghost column. It tolerates a missing project id or unavailable localStorage.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that an empty string means follow the section's selection, which the caller treats as "no override" and falls back to the section's own modelA / modelB — the same guarded read as the visibility reader.
 
 .. CG-EXPLANATION-END id=function:readPaneModelOverride
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:writePaneModelOverride
 
-.. CG-PLACEHOLDER
+**What this does.** Persists a pane's model override; an empty string clears the override back to "follow the section". It does nothing when there is no project id or localStorage is not writable.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that it silently ignores quota or private-mode failures, the same fallback as the other writers.
 
 .. CG-EXPLANATION-END id=function:writePaneModelOverride
 

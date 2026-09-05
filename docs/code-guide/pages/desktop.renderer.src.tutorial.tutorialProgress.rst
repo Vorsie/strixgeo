@@ -1,7 +1,7 @@
 desktop.renderer.src.tutorial.tutorialProgress
 ==============================================
 
-.. CG-PAGE source=desktop/src/renderer/src/tutorial/tutorialProgress.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/tutorial/tutorialProgress.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/tutorial/tutorialProgress.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The opening comment and one import. The comment explains that this file saves and loads where the user is in the tour. It states that this is per-device screen chrome, so it lives in *localStorage*, not in the ``.strix`` project file; and that every accessor here degrades gracefully and never throws — a profile with storage disabled, or a corrupt value from an older version of the tour, must still let the app boot. It notes the same try/catch discipline as ``onboardingSeen.ts``. The import pulls in the ``TutorialProgress`` shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** *localStorage* is a small per-user store in the browser that survives a reload. Where the user is in the tour is a screen preference, not an engineering decision, so it belongs in localStorage and never in the saved project — engineering decisions live in the ``.strix`` bundle, screen chrome lives here (memory: project_decisions_in_bundle.md; CLAUDE.md).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:TUTORIAL_PROGRESS_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The text name under which the progress is stored in localStorage — ``'strix.tutorial.progress.v1'``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes it is versioned (the ``v1``), so a future change to the tour can start from a clean key rather than choke on an old, incompatible value.
 
 .. CG-EXPLANATION-END id=const:TUTORIAL_PROGRESS_KEY
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:isProgress
 
-.. CG-PLACEHOLDER
+**What this does.** Checks that a value read back from storage has the right shape: ``stepId`` is a string or null, and ``completed`` is an array of strings. It returns true only then.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring is explicit that this validates only the SHAPE, not whether the ``stepId`` still names a real step; that later check is the machine's job (``advance`` resets an unknown id), so a change to the tour never bricks the saved value. It is the guard against a corrupt or foreign stored value.
 
 .. CG-EXPLANATION-END id=function:isProgress
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:loadTutorialProgress
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the stored text, parses it from *JSON*, and returns it only if it passes the shape check; it returns ``null`` when the value is absent, unparseable, wrong-shaped, or storage is unavailable. The whole read is wrapped so any failure simply returns ``null``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** *JSON* is the text format data is stored and exchanged in. As the docstring says, a ``null`` tells the caller to seed a fresh start. The catch-all is the never-throw discipline from the header: a bad stored value must not stop the app booting.
 
 .. CG-EXPLANATION-END id=function:loadTutorialProgress
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:saveTutorialProgress
 
-.. CG-PLACEHOLDER
+**What this does.** Writes the progress to localStorage as JSON text, swallowing any failure.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains that a lost write only means the tour will not resume next launch — never a crash mid-gesture — so it is best-effort by design.
 
 .. CG-EXPLANATION-END id=function:saveTutorialProgress
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:clearTutorialProgress
 
-.. CG-PLACEHOLDER
+**What this does.** Removes the stored progress — this is the ``Restart tutorial`` gesture — swallowing any failure.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The inline comment notes that a failed clear just leaves stale progress, which the machine's unknown-id reset already tolerates, so it is safe to ignore.
 
 .. CG-EXPLANATION-END id=function:clearTutorialProgress
 
