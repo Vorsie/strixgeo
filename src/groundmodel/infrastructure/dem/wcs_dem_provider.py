@@ -202,14 +202,21 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
         bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y : float
             Tile extents in the provider's native CRS (metres).
         resolution_m : float | None, optional
-            Cell size in metres. ``None`` (default) uses the provider's native
-            ``DEFAULT_RESOLUTION_M``. Stored on the grid as metadata; the WCS
-            server returns its native resolution regardless.
+            Desired cell size in metres. ``None`` (the default) asks for the
+            provider's native ``DEFAULT_RESOLUTION_M``, which is always honoured.
+            This WCS coverage cannot resample: it serves only its native grid, so
+            an EXPLICIT value other than the native one CANNOT be honoured. Rather
+            than silently ignore it, the request is served at the native
+            resolution, a WARNING is logged naming the requested and the native
+            value, and the delivered cell size is recorded on
+            ``DemZGrid.resolution_m``.
 
         Returns
         -------
         DemZGrid
-            Grid with ``from_cache=True`` on a warm hit.
+            Grid with ``from_cache=True`` on a warm hit; ``resolution_m`` is the
+            cell size actually delivered (the coverage's native grid), which may
+            differ from a value the caller requested.
 
         Raises
         ------
@@ -219,6 +226,19 @@ class WcsDemProvider(DemProvider, GroundModelLogger):
             When the WCS response carries no decodable GeoTIFF (server
             ExceptionReport — bbox outside coverage, invalid params, etc.).
         """
+        # This coverage cannot resample. An explicit resolution that is not the
+        # native one cannot be met, so say so at WARNING instead of dropping the
+        # request on the floor (external audit, 2026-09-05). ``None`` means "give
+        # me the native grid" and is honoured silently.
+        if resolution_m is not None and not math.isclose(
+            resolution_m, self.DEFAULT_RESOLUTION_M, rel_tol=1e-9, abs_tol=0.0
+        ):
+            self.warning(
+                f"{self.LOG_LABEL} cannot honour requested resolution {resolution_m} m: "
+                f"this WCS coverage serves only its native {self.DEFAULT_RESOLUTION_M} m grid. "
+                "Returning the native resolution; the delivered cell size is on the "
+                "returned grid's resolution_m."
+            )
         res = self.DEFAULT_RESOLUTION_M if resolution_m is None else resolution_m
         self.debug(
             f"{self.LOG_LABEL} grid request: "
