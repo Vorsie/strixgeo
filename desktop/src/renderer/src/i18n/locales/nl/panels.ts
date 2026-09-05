@@ -91,6 +91,7 @@ export const PANELS_NL = {
   'borelog.dovOverlayModel': 'DOV-overlaymodel voor dit venster',
   'borelog.overrideDovModel': 'Kies zelf welk DOV-model dit venster toont',
   'borelog.loadingDovPredictions': 'DOV-voorspellingen laden',
+  'borelog.dovUnavailable': 'DOV-lagenmodellen niet beschikbaar',
   'borelog.zoomInVertical': 'Inzoomen (verticale schaal)',
   'borelog.zoomOutVertical': 'Uitzoomen (verticale schaal)',
   'borelog.resetZoom1x': 'Zoom herstellen naar 1×',
@@ -117,6 +118,7 @@ export const PANELS_NL = {
   'chart.surfaceRef': '{level} m — maaiveld',
   'chart.tooltipDepth': 'Diepte: {depth} m',
   'chart.tooltipLevelSuffix': '  |  Peil: {level}',
+  'chart.invertRfAxis': 'Rf-as omkeren',
 
   // -------------------------------------------------------------------------
   // labproeven
