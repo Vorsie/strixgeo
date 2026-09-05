@@ -1414,7 +1414,7 @@ export default function SectionsCanvas(): JSX.Element {
   )
 
   // Commit the name entered in NameBodyDialog. A named body is preserved by
-  // the detector reconcile + bulk "Delete all detected lenses" â€” naming is how
+  // the detector reconcile sweep (the preserve-named guard) â€” naming is how
   // the user keeps ("accepts") a detected lens.
   const submitBodyName = useCallback(
     async (name: string): Promise<void> => {
