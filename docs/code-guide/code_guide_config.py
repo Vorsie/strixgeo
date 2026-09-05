@@ -222,6 +222,32 @@ COMPLETE_MODULES: frozenset[str] = frozenset(
         "src/groundmodel/infrastructure/db/repositories/project_bundle/bundle_row_builders.py",
         "src/groundmodel/infrastructure/db/repositories/project_bundle/bundle_serialization.py",
         "src/groundmodel/infrastructure/db/repositories/project_repository.py",
+        # Reading-order group (6): the exporters — the three exporter base
+        # classes, the DXF section + fence writers, the Plaxis 2D/3D script
+        # emitters, the Deltares D-Series (D-Stability + D-Sheet Piling)
+        # writers, and the shared unit-identifier / label / styling helpers.
+        "src/groundmodel/infrastructure/exporters/__init__.py",
+        "src/groundmodel/infrastructure/exporters/ascii_fold.py",
+        "src/groundmodel/infrastructure/exporters/dsheet_piling_exporter.py",
+        "src/groundmodel/infrastructure/exporters/dsheet_piling_exporter_constants.py",
+        "src/groundmodel/infrastructure/exporters/dstability_exporter.py",
+        "src/groundmodel/infrastructure/exporters/dstability_exporter_constants.py",
+        "src/groundmodel/infrastructure/exporters/dxf_fence_exporter.py",
+        "src/groundmodel/infrastructure/exporters/dxf_fence_exporter_constants.py",
+        "src/groundmodel/infrastructure/exporters/dxf_layer_style.py",
+        "src/groundmodel/infrastructure/exporters/dxf_section_exporter.py",
+        "src/groundmodel/infrastructure/exporters/dxf_text_safety.py",
+        "src/groundmodel/infrastructure/exporters/fence_panel_source.py",
+        "src/groundmodel/infrastructure/exporters/nad_soil_parameter_lookup.py",
+        "src/groundmodel/infrastructure/exporters/plaxis_exporter.py",
+        "src/groundmodel/infrastructure/exporters/plaxis_script_helpers.py",
+        "src/groundmodel/infrastructure/exporters/plaxis_section_exporter.py",
+        "src/groundmodel/infrastructure/exporters/project_exporter.py",
+        "src/groundmodel/infrastructure/exporters/section_exporter.py",
+        "src/groundmodel/infrastructure/exporters/section_geometry_exporter.py",
+        "src/groundmodel/infrastructure/exporters/section_unit_labels.py",
+        "src/groundmodel/infrastructure/exporters/unit_identifier.py",
+        "src/groundmodel/infrastructure/exporters/unit_identifier_constants.py",
     }
 )
 
