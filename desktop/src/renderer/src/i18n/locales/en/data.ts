@@ -83,6 +83,10 @@ export const DATA = {
   'data.inspector.clearSearch': 'Clear search',
   'data.inspector.selectedCount': '{n} selected',
   'data.inspector.clear': 'Clear',
+  // The clear-filter action in the date-range filter. A separate key from
+  // `clear` (which clears the SELECTION) so "Clear"/"Wissen" does not read like
+  // delete next to "Remove"/"Verwijderen" (owner ruling 10, 2026-09-05).
+  'data.inspector.clearFilter': 'Clear filter',
   'data.inspector.selectAll': 'Select all',
   'data.inspector.selectAllInTab': 'Select all in this tab',
   'data.inspector.allCptsRemoved': 'All CPTs removed',
