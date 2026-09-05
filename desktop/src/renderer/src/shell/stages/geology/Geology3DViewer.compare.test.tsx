@@ -66,7 +66,7 @@ function solid(bodyId: string): LithoBodySolidResponse {
 }
 
 const COMPARE_SCENE: CompareScene = {
-  label: 'Lithostratigraphy',
+  label: 'Lithology',
   formations: [formation('cf1', 'Compare unit')],
   bodySolids: [solid('cb1')],
 }
@@ -145,7 +145,7 @@ describe('compare split', () => {
     )
 
     const button = screen.getByTestId('geology3d-compare-button')
-    expect(button.textContent).toContain('Lithostratigraphy')
+    expect(button.textContent).toContain('Lithology')
   })
 
   it('CMP2 — does not offer a comparison against an empty model', () => {
@@ -154,7 +154,7 @@ describe('compare split', () => {
     render(
       <Geology3DViewer
         {...baseProps('single')}
-        compareScene={{ label: 'Lithostratigraphy', formations: [], bodySolids: [] }}
+        compareScene={{ label: 'Lithology', formations: [], bodySolids: [] }}
         onEnterCompare={vi.fn()}
       />,
     )
@@ -228,7 +228,7 @@ describe('compare split', () => {
 
     expect(screen.getByTestId('geology3d-compare-label-primary')).toBeTruthy()
     expect(screen.getByTestId('geology3d-compare-label-secondary').textContent).toBe(
-      'Lithostratigraphy',
+      'Lithology',
     )
   })
 
