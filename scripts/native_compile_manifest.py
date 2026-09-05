@@ -258,6 +258,11 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.lab.dov.grain_size_parse_result",
     "groundmodel.infrastructure.parsers.lab.dov.grain_size_wfs_row",
     "groundmodel.infrastructure.parsers.lab.dov.scalar_observation_wfs_row",
+    # Shared validation package (moved out of cpt/ 2026-09-05; boreholes + lab
+    # use it too). The old cpt.validation.* entries stay listed too so the
+    # back-compat shims compile alongside these canonical modules.
+    "groundmodel.infrastructure.parsers.validation.validation_issue",
+    "groundmodel.infrastructure.parsers.validation.validation_level",
 ]
 
 # ---------------------------------------------------------------------------
