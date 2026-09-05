@@ -192,6 +192,7 @@ _ENGINE_DOMAIN_SERVICES = [
     "groundmodel.domain.services.dem_clip_constants",
     "groundmodel.domain.services.detect_crossing_pinch_outs",
     "groundmodel.domain.services.formation_age_order",
+    "groundmodel.domain.services.formation_age_order_constants",
     "groundmodel.domain.services.geology_validator",
     "groundmodel.domain.services.lens_inference",
     "groundmodel.domain.services.lens_inference_constants",
