@@ -63,7 +63,7 @@ export default function GeologyBoreholesInModel({
   const excludedSet = new Set(excludedBoreholeIds)
 
   return (
-    <div className="border-t border-border-subtle pt-3 mt-1">
+    <div className="border-t border-border-subtle pt-3 mt-1" data-testid="geology-boreholes-in-model">
       <button
         type="button"
         onClick={() => setScopeOpen(prev => !prev)}
