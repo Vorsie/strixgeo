@@ -1,16 +1,24 @@
-// The tutorial overlay — the spotlight + coach card (spec §Architecture).
+// The tutorial overlay — the target highlight + coach card (spec §Architecture;
+// owner rulings 1-3, 2026-09-05).
 //
 // Mounted once by App (inside a ShellContext.Provider so it can read the shell
 // bus). It owns the progress state, advances it on observable state, and renders
-// nothing while inactive. The dim layer is `pointer-events: none` so the user can
-// still click anything — a tutorial that fights the app is worse than none (A2).
+// nothing while inactive. The whole overlay is `pointer-events: none` so the
+// user can still click anything — a tutorial that fights the app is worse than
+// none (A2).
 //
-// The spotlight targets the current step's control. When that control is off
-// screen (another stage open, a closed menu), it falls back to highlighting the
-// owning stage tab (if that tab is not already active); failing that, the card
-// docks bottom-right and explains where to look.
+// Owner ruling 1: NO background dim. Instead of darkening the app, the overlay
+// draws a clear ring + soft glow on the TARGET control, and — when that control
+// lives in the right-hand inspector pane — a second ring around the pane, so the
+// user sees exactly where to click.
+//
+// Owner ruling 2: a step may declare a CHAIN of anchors; `useAnchorRect` resolves
+// the chain to the anchor the owner's rule picks (menu button → item → control).
+//
+// Owner ruling 3: starting the tutorial while a project is already open skips the
+// project-creation (welcome) steps and begins at the project-settings step.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { useTutorialState } from './useTutorialState'
@@ -22,7 +30,7 @@ import {
   chapterProgress,
   completeStep,
   currentStep,
-  initialProgress,
+  initialProgressForContext,
   isFinished,
   skipStep,
   type TutorialProgress,
@@ -31,6 +39,10 @@ import { loadTutorialProgress, saveTutorialProgress } from './tutorialProgress'
 import { placeCoachCard, type AnchorRect } from './coachCardPlacement'
 import CoachCard, { CARD_HEIGHT, CARD_WIDTH } from './CoachCard'
 import type { MessageKey } from '../i18n/locales/en'
+
+/** The testid the shell inspector rail carries, so the overlay can tell when a
+ *  target lives in the right-hand pane and ring the pane too (owner ruling 1). */
+const INSPECTOR_TESTID = 'shell-inspector'
 
 /** Props for the overlay. */
 export interface TutorialOverlayProps {
@@ -52,8 +64,21 @@ function openExternalUrl(url: string): void {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-/** The dim + spotlight cut-out. Pointer-events none so clicks pass through. */
-function Spotlight({ rect }: { rect: AnchorRect | null }): JSX.Element {
+/** Whether `inner`'s centre falls inside `outer` (used to detect a target that
+ *  sits in the inspector pane). Both may be null. */
+function centreInside(inner: AnchorRect | null, outer: AnchorRect | null): boolean {
+  if (inner === null || outer === null || outer.width === 0 || outer.height === 0) return false
+  const cx = inner.left + inner.width / 2
+  const cy = inner.top + inner.height / 2
+  return cx >= outer.left && cx <= outer.right && cy >= outer.top && cy <= outer.bottom
+}
+
+/**
+ * The target highlight: a clear ring + soft glow on the control, and an optional
+ * ring around the inspector pane when the control lives there. No dim (owner
+ * ruling 1). Pointer-events none so clicks pass through.
+ */
+function Highlight({ rect, pane }: { rect: AnchorRect | null; pane: AnchorRect | null }): JSX.Element {
   const pad = 6
   const cut =
     rect === null
@@ -61,20 +86,24 @@ function Spotlight({ rect }: { rect: AnchorRect | null }): JSX.Element {
       : { x: rect.left - pad, y: rect.top - pad, w: rect.width + pad * 2, h: rect.height + pad * 2 }
   return (
     <svg className="fixed inset-0 h-full w-full" width="100%" height="100%" aria-hidden>
-      <defs>
-        <mask id="tutorial-spotlight-mask">
-          <rect x="0" y="0" width="100%" height="100%" fill="white" />
-          {cut && <rect x={cut.x} y={cut.y} width={cut.w} height={cut.h} rx={8} fill="black" />}
-        </mask>
-      </defs>
-      <rect
-        x="0"
-        y="0"
-        width="100%"
-        height="100%"
-        fill="rgba(15, 23, 42, 0.5)"
-        mask="url(#tutorial-spotlight-mask)"
-      />
+      {/* Pane ring — a soft dashed frame around the inspector when the target
+          sits inside it, so the eye is led to the right rail first. */}
+      {pane && (
+        <rect
+          x={pane.left + 2}
+          y={pane.top + 2}
+          width={Math.max(pane.width - 4, 0)}
+          height={Math.max(pane.height - 4, 0)}
+          rx={6}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth={2}
+          strokeDasharray="6 5"
+          opacity={0.55}
+        />
+      )}
+      {/* Target glow — a wide, low-opacity accent ring so the control reads as
+          lit rather than boxed. Steady (no animation) to stay calm. */}
       {cut && (
         <rect
           x={cut.x}
@@ -84,7 +113,21 @@ function Spotlight({ rect }: { rect: AnchorRect | null }): JSX.Element {
           rx={8}
           fill="none"
           stroke="var(--color-accent)"
-          strokeWidth={2}
+          strokeWidth={9}
+          opacity={0.3}
+        />
+      )}
+      {/* Target ring — the crisp outline the user aims at. */}
+      {cut && (
+        <rect
+          x={cut.x}
+          y={cut.y}
+          width={cut.w}
+          height={cut.h}
+          rx={8}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth={2.5}
         />
       )}
     </svg>
@@ -99,21 +142,34 @@ function Spotlight({ rect }: { rect: AnchorRect | null }): JSX.Element {
  */
 export default function TutorialOverlay({ active, onExit }: TutorialOverlayProps): JSX.Element | null {
   const state = useTutorialState()
-  const [progress, setProgress] = useState<TutorialProgress>(
-    () => loadTutorialProgress() ?? initialProgress(TUTORIAL_STEPS),
-  )
+  const [progress, setProgress] = useState<TutorialProgress>(() => {
+    const loaded = loadTutorialProgress()
+    if (loaded !== null && !isFinished(loaded)) return loaded
+    return initialProgressForContext(TUTORIAL_STEPS, { projectOpen: state.projectOpen })
+  })
   const [viewport, setViewport] = useState(() => ({
     width: window.innerWidth,
     height: window.innerHeight,
   }))
 
-  // (Re)load progress each time the tutorial is activated. A finished run starts
-  // over; a mid-way run resumes at the last incomplete step.
+  // The latest observable state, read inside the activation effect without
+  // adding it to the deps (which would re-fire the effect mid-tutorial and reset
+  // progress). Only `projectOpen` at ACTIVATION time drives the welcome-skip.
+  const stateRef = useRef(state)
+  stateRef.current = state
+
+  // (Re)load progress each time the tutorial is activated. A resumable mid-way
+  // run resumes at the last incomplete step; a fresh/finished run starts over —
+  // skipping the project-creation steps when a project is already open (ruling 3).
   useEffect(() => {
     if (!active) return
-    let loaded = loadTutorialProgress() ?? initialProgress(TUTORIAL_STEPS)
-    if (isFinished(loaded)) loaded = initialProgress(TUTORIAL_STEPS)
-    setProgress(loaded)
+    const loaded = loadTutorialProgress()
+    const resume = loaded !== null && !isFinished(loaded)
+    setProgress(
+      resume
+        ? loaded
+        : initialProgressForContext(TUTORIAL_STEPS, { projectOpen: stateRef.current.projectOpen }),
+    )
   }, [active])
 
   // Auto-advance on observable state (nothing is faked — A4).
@@ -136,9 +192,17 @@ export default function TutorialOverlay({ active, onExit }: TutorialOverlayProps
 
   const step = active ? currentStep(progress, TUTORIAL_STEPS) : null
 
-  // Primary anchor, then a stage-tab fallback when the control is off screen and
-  // the tab is not already the active one.
-  const primaryRect = useAnchorRect(step ? step.anchor : null)
+  // The step's anchor CHAIN (a single anchor is a one-element chain). The hook
+  // resolves it to the anchor the owner's rule picks and tracks its rect.
+  const chain = step ? (step.anchors ?? [step.anchor]) : null
+  const primaryRect = useAnchorRect(chain)
+
+  // Inspector-pane rect — used to ring the pane when the target sits inside it.
+  const inspectorRect = useAnchorRect(INSPECTOR_TESTID)
+
+  // A stage-tab fallback for steps whose chain resolved to nothing (control off
+  // screen and the chain did not include the owning tab). Highlights the owning
+  // tab when it is not already the active one.
   let tabTestid: string | null = null
   if (step && primaryRect === null && step.stage !== 'welcome') {
     const tabEl = document.querySelector(`[data-testid="stage-tab-${step.stage}"]`)
@@ -179,12 +243,14 @@ export default function TutorialOverlay({ active, onExit }: TutorialOverlayProps
   if (!active || step === null) return null
 
   const spotlight = primaryRect ?? tabRect
+  // Ring the inspector pane only when the resolved target actually sits inside it.
+  const paneRect = centreInside(primaryRect, inspectorRect) ? inspectorRect : null
   const placement = placeCoachCard(spotlight, { width: CARD_WIDTH, height: CARD_HEIGHT }, viewport)
   const meta = chapterMeta(step.chapter)
 
   return createPortal(
     <div className="fixed inset-0 z-[9999]" style={{ pointerEvents: 'none' }} data-testid="tutorial-overlay">
-      <Spotlight rect={spotlight} />
+      <Highlight rect={spotlight} pane={paneRect} />
       <CoachCard
         step={step}
         chapterTitleKey={(meta?.titleKey ?? '') as MessageKey}
