@@ -22,12 +22,28 @@ themselves are read in groups 10 and 11.
 .. toctree::
    :maxdepth: 1
 
-   ../pages/desktop.renderer.src.App
    ../pages/desktop.renderer.src.main
+   ../pages/desktop.renderer.src.App
+   ../pages/desktop.renderer.src.shell.AppShell
+   ../pages/desktop.renderer.src.shell.StageDescriptor
+   ../pages/desktop.renderer.src.shell.StageRegistry
+   ../pages/desktop.renderer.src.shell.StageSpine
+   ../pages/desktop.renderer.src.shell.StageCanvas
+   ../pages/desktop.renderer.src.shell.StageToolbar
+   ../pages/desktop.renderer.src.shell.Inspector
+   ../pages/desktop.renderer.src.shell.EmptyState
+   ../pages/desktop.renderer.src.shell.StageErrorBoundary
+   ../pages/desktop.renderer.src.shell.ShellContext
+   ../pages/desktop.renderer.src.shell.useShellState
+   ../pages/desktop.renderer.src.shell.ToolbarPrimitives
+   ../pages/desktop.renderer.src.shell.ResponsiveToolbarRow
+   ../pages/desktop.renderer.src.shell.toolbarOverflow
+   ../pages/desktop.renderer.src.shell.toolbarOverflow_constants
+   ../pages/desktop.renderer.src.shell.useToolbarShortcuts
+   ../pages/desktop.renderer.src.hooks.useAppBoot
    ../pages/desktop.renderer.src.components.licensing.LicensingDialog
    ../pages/desktop.renderer.src.components.onboarding.OnboardingOverlay
    ../pages/desktop.renderer.src.components.updater.UpdateNotification
-   ../pages/desktop.renderer.src.hooks.useAppBoot
    ../pages/desktop.renderer.src.i18n.i18n_constants
    ../pages/desktop.renderer.src.i18n.interpolateSlot
    ../pages/desktop.renderer.src.i18n.languageSelect
@@ -54,20 +70,4 @@ themselves are read in groups 10 and 11.
    ../pages/desktop.renderer.src.i18n.locales.nl.sheet
    ../pages/desktop.renderer.src.i18n.locales.nl.tutorial
    ../pages/desktop.renderer.src.i18n.translate
-   ../pages/desktop.renderer.src.shell.AppShell
-   ../pages/desktop.renderer.src.shell.EmptyState
-   ../pages/desktop.renderer.src.shell.Inspector
-   ../pages/desktop.renderer.src.shell.ResponsiveToolbarRow
-   ../pages/desktop.renderer.src.shell.ShellContext
-   ../pages/desktop.renderer.src.shell.StageCanvas
-   ../pages/desktop.renderer.src.shell.StageDescriptor
-   ../pages/desktop.renderer.src.shell.StageErrorBoundary
-   ../pages/desktop.renderer.src.shell.StageRegistry
-   ../pages/desktop.renderer.src.shell.StageSpine
-   ../pages/desktop.renderer.src.shell.StageToolbar
-   ../pages/desktop.renderer.src.shell.ToolbarPrimitives
-   ../pages/desktop.renderer.src.shell.toolbarOverflow
-   ../pages/desktop.renderer.src.shell.toolbarOverflow_constants
-   ../pages/desktop.renderer.src.shell.useShellState
-   ../pages/desktop.renderer.src.shell.useToolbarShortcuts
 
