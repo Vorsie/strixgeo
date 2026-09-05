@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.10c39de474aa_add_litho_layer_body_id
 ======================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/10c39de474aa_add_litho_layer_body_id.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/10c39de474aa_add_litho_layer_body_id.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/10c39de474aa_add_litho_layer_body_id.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the migration that adds a ``body_id`` link to the ``litho_layer`` table. Names its revision id and the migration it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records this is the database half of the per-instance body-identity feature: each distinct uncorrelated litho unit becomes its own instance backed by a ``body`` row. The column is nullable because legacy layers have no body.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the nullable ``body_id`` column, a foreign key from it to the ``body`` table with delete-sets-null, and an index over it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the delete rule is ``ON DELETE SET NULL`` so deleting a body orphans the layer rather than cascading the layer away with it; the index makes "which layers belong to this body" fast.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the index, the foreign key, and the column, reversing the upgrade.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step back; the index and constraint are removed before the column they depend on.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.a3f1d9c82b47_add_app_project_id_to_cpt
 ========================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a3f1d9c82b47_add_app_project_id_to_cpt.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a3f1d9c82b47_add_app_project_id_to_cpt.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/a3f1d9c82b47_add_app_project_id_to_cpt.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds an ``app_project_id`` column (and its index) to the CPT table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The upgrade docstring records the reason: this is the app-level project scope, kept separate from the GEF file's own project identifier. A CPT belongs to one StrixGeo project regardless of what project code its source file carried.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the nullable ``app_project_id`` column and an index over it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The index speeds the very common "all CPTs in this project" query; nullable so existing rows can be assigned later.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the index and the column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the reverse of the add.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

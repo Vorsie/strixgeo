@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.a4c17b93e5f2_add_water_depth_source_to_cpt
 ============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a4c17b93e5f2_add_water_depth_source_to_cpt.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a4c17b93e5f2_add_water_depth_source_to_cpt.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/a4c17b93e5f2_add_water_depth_source_to_cpt.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds a ``water_depth_source`` provenance column to the CPT table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records why (data-integrity rule 1 — where did this number come from?): the Parameters stage lets the engineer type the water table a CPT is normalised against, so once a second writer exists the water-depth value alone cannot say whether it was parsed from the file or typed by the engineer, and the refresh-on-import path cannot tell judgement from an overwritable value. The column carries that provenance as a token; empty means no water table is recorded at all and the consumer falls back to a default and labels it assumed. There is deliberately no "assumed" token — an assumption is the absence of a record. Hand-written, not auto-generated, for the recorded drift reason.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the nullable provenance column and backfills every row that has a water depth as parsed from the file.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Today the GEF parser is the only writer of the water-depth column, so a stored depth can only have come from a file — the backfill reflects that fact.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the provenance column, at which point a parsed and a typed depth become indistinguishable.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the docstring notes the lost distinction is acceptable only because backwards-compat is suspended pre-ship.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

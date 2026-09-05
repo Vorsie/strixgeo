@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.b2d3e4f5a6b7_schema_kind_parent_invariant
 ===========================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b2d3e4f5a6b7_schema_kind_parent_invariant.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b2d3e4f5a6b7_schema_kind_parent_invariant.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/b2d3e4f5a6b7_schema_kind_parent_invariant.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds one check constraint tying a model's kind to whether it must have a parent model.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring cites CLAUDE.md's modelling hierarchy: a parent model is mandatory for lithostratigraphic and geotechnical models, and the column is only database-nullable because plain geological models share it and have no parent. The application enforces this, but a stray write path could insert a litho model with no parent and be silently mistreated as a standalone geological model; this constraint encodes the documented rule in the database.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Corrects any litho or geotech rows that ended up with no parent, then adds the check constraint requiring the parent to be empty for geological models and present for the other two kinds.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The correction runs first under the pre-ship amnesty so the constraint lands cleanly; the docstring notes there should be zero such rows on a legitimate database, but the guard is added for safety.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the kind-and-parent constraint.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

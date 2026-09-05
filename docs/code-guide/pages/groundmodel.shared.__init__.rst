@@ -1,7 +1,7 @@
 groundmodel.shared
 ==================
 
-.. CG-PAGE source=src/groundmodel/shared/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/shared/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/shared/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description for the ``shared`` package. Marking a folder with an ``__init__.py`` file is what turns it into an importable package; this file is otherwise empty, so importing the package runs no code.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``shared/`` is the small corner every layer is allowed to use — the logging helpers, the settings, the exception list and a few constant tables. Keeping its marker empty means importing anything from ``shared`` costs nothing and pulls in no surprises. See CLAUDE.md "Architecture" (the shared corner).
 
 .. CG-EXPLANATION-END id=module-header
 

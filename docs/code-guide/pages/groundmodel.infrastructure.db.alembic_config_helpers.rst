@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.alembic_config_helpers
 ====================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/alembic_config_helpers.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/alembic_config_helpers.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/alembic_config_helpers.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens a tiny file of pure helpers for building a migration configuration by hand, and imports Alembic's configuration type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** *Alembic* is the tool that applies database *migrations* (ordered, replayable scripts that change the database's shape). The docstring records that the two places that set a database address on a hand-built configuration need the same escaping, and getting it wrong is not cosmetic — it crashes on exactly the addresses the shipped app generates.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def set_config_option``
 
 .. CG-EXPLANATION-START id=function:set_config_option
 
-.. CG-PLACEHOLDER
+**What this does.** Sets one option on an Alembic configuration, doubling every percent sign in the value before storing it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains the trap: Alembic stores options in a parser that treats a bare percent sign as the start of a substitution and raises an error on anything else — including the percent-encoded characters in a generated per-install password once it is written into a database address. Doubling the percent sign here is undone by the same parser on read, so the value round-trips unchanged. A *DSN* is that single address-and-login string for a database.
 
 .. CG-EXPLANATION-END id=function:set_config_option
 

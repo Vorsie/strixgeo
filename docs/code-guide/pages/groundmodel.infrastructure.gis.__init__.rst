@@ -1,7 +1,7 @@
 groundmodel.infrastructure.gis
 ==============================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/gis/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/gis/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/gis/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the GIS folder as a package holding the spatial and PostGIS helpers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A folder becomes an importable package once it holds an ``__init__.py``. *GIS* is geographic information handling, and *PostGIS* is the add-on that lets PostgreSQL store and query geometry (points, lines, boxes).
 
 .. CG-EXPLANATION-END id=module-header
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.c4d5e6f7a8b9_add_body_geometry_fact
 =====================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c4d5e6f7a8b9_add_body_geometry_fact.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c4d5e6f7a8b9_add_body_geometry_fact.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/c4d5e6f7a8b9_add_body_geometry_fact.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds one new table, ``body_geometry_fact``. The header names its revision id and the one it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the owner ruling that every set of same-lithology units whose fill regions touch must share one body id, so qc or sample data can be read per body. The geometric merge used to live twice as throwaway maps; this table persists it — the observed adjacent layer pairs the resolver unions alongside the user's approved correlation edges.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates ``body_geometry_fact`` with an id, the model it belongs to, two litho-layer ids naming the touching pair, and a creation timestamp. It adds a check constraint forcing the two layer ids into a fixed order, a uniqueness rule on (model, layer A, layer B), and an index on the model.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The forced ordering plus the uniqueness rule mean each touching pair is stored once, never twice in mirror image. The foreign keys with cascade delete tie the fact to its model and layers so it disappears when they do.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the index and the table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

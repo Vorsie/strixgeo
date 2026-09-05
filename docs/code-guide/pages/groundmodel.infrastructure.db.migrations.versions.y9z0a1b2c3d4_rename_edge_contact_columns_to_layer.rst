@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.y9z0a1b2c3d4_rename_edge_contact_columns_to_layer
 ===================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/y9z0a1b2c3d4_rename_edge_contact_columns_to_layer.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/y9z0a1b2c3d4_rename_edge_contact_columns_to_layer.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/y9z0a1b2c3d4_rename_edge_contact_columns_to_layer.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``y9z0a1b2c3d4``, following ``x8y9z0a1b2c3``) that renames the contact-correlation edge's four endpoint columns from contact vocabulary to layer vocabulary.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records audit ARCH-08: since the earlier foreign-key migration the endpoints hold layer ids, and only a code comment guarded against treating them as contacts; renaming makes the type part of the name. The two side columns ride along for coherence. A plain rename preserves the data and every constraint, and old saved projects still restore through read-side aliases.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Renames the four columns — the two endpoint ids and the two side columns — to their layer names in a loop.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The rename makes the layer type visible in the column names.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Restores the retired contact-vocabulary column names.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This reverses the renames.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

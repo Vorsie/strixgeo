@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.6092b215146e_cross_section_table
 ==================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/6092b215146e_cross_section_table.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/6092b215146e_cross_section_table.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/6092b215146e_cross_section_table.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the migration that creates the ``cross_section`` table — a 2-D slice the user draws through a project to view investigations projected onto a vertical strip and edit the model along that line. Names its revision id and the migration it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records sections are project-scoped, not model-scoped, so two alternative interpretations can both render against the same section without duplicating it; the endpoints are plain doubles (not PostGIS) because a section is a two-vertex line that needs no spatial query at v1, matching the x/y/epsg pattern the CPT and borehole tables already use.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the ``cross_section`` table: the two line endpoints and their EPSG, the projection buffer, the vertical-exaggeration display hint, arrays of excluded borehole and CPT ids, optional view-window depths, and a display order; plus an index on the project id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The inline comments record the deliberate choices: EPSG is not-null because a section without a coordinate system cannot project an investigation; the exaggeration and view window are saved per section so the .strix bundle reopens with the same proportions on another machine; empty exclusion arrays mean "draw every investigation within the buffer".
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the project-id index and the ``cross_section`` table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step back.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

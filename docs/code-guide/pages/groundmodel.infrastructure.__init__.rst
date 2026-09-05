@@ -1,7 +1,7 @@
 groundmodel.infrastructure
 ==========================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the infrastructure folder as a package and names, in one line, what it holds: the database, the file parsers, the exporters, and the GIS helpers.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A folder becomes an importable group of modules once it holds an ``__init__.py``. The infrastructure layer is the one that deals with the messy outside world — storage, files, geometry — while the pure geotechnical knowledge stays in the domain layer above it.
 
 .. CG-EXPLANATION-END id=module-header
 

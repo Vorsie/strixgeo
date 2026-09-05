@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.d3f6b820a1c4_widen_scalar_lab_test_value_unit
 ===============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/d3f6b820a1c4_widen_scalar_lab_test_value_unit.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/d3f6b820a1c4_widen_scalar_lab_test_value_unit.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/d3f6b820a1c4_widen_scalar_lab_test_value_unit.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that widens two columns on ``scalar_lab_test`` — ``unit`` and ``value_text`` — to uncapped TEXT. The header carries its revision id and the id it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains this catch-all table must accept any DOV scalar observation, so the old length caps repeated the earlier truncation problem. It gives real examples that exceed the caps (a methylene-blue unit string; a long soil description). Uncapped TEXT ends the risk, matching the free-text-defaults-to-TEXT rule.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Changes ``unit`` and ``value_text`` on ``scalar_lab_test`` to uncapped TEXT, keeping their nullability.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Widening to TEXT is a no-op for existing data, so it is a safe change that removes the truncation risk.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Reverses both back to the earlier lengths, ``value_text`` first.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring warns this would truncate any longer values inserted meanwhile.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

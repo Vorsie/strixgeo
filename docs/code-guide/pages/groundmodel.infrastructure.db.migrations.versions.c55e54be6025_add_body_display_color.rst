@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.c55e54be6025_add_body_display_color
 =====================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c55e54be6025_add_body_display_color.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c55e54be6025_add_body_display_color.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/c55e54be6025_add_body_display_color.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A short migration that adds one nullable column, ``display_color``, to the ``body`` table. The header carries its revision id and the id it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Why: not recorded — ask the owner
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the nullable ``display_color`` text column to ``body``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Why: not recorded — ask the owner
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the ``display_color`` column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

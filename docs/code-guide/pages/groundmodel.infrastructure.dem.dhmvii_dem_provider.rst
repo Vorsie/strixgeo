@@ -1,7 +1,7 @@
 groundmodel.infrastructure.dem.dhmvii_dem_provider
 ==================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/dem/dhmvii_dem_provider.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/dem/dhmvii_dem_provider.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/dem/dhmvii_dem_provider.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the Belgian (Flanders) DEM provider and, in its docstring, records where the data comes from: the Geopunt web service for DHMV II, the 1 m bare-ground LiDAR height model, in the Belgian grid (EPSG:31370 Lambert 72). It imports that provider's fixed values, the multipart splitter it needs, and the shared base class.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Like the Dutch file, this holds only what is different about the Belgian source; the shared base does the work. The docstring records the live web address (verified 2026-05-11) and the water-body limitation that matches the recorded DEM design: over rivers and canals DHMV II reports the water surface, not the bed, and cells with no data are marked ``-9999``. Per-waterway bed data is out of scope for the ground-surface feature (G7).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DhmviiDemProvider`` — header
 
 .. CG-EXPLANATION-START id=class:DhmviiDemProvider
 
-.. CG-PLACEHOLDER
+**What this does.** Declares the Belgian provider as a small subclass of the shared WCS base, filling in the five per-source values: the web address, the coverage name, the axis names ``X``/``Y``, the 1 m native cell size, the sensible-coordinate box, and the log label.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** As with the Dutch provider, listing these values is all it takes to turn the shared download-and-decode pipeline into a complete Belgian provider without repeating any of it.
 
 .. CG-EXPLANATION-END id=class:DhmviiDemProvider
 
@@ -65,13 +57,9 @@ Method ``DhmviiDemProvider``. ``def provider_id``
 
 .. CG-EXPLANATION-START id=method:DhmviiDemProvider.provider_id
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the short name ``"dhmvii"``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This becomes the cache sub-folder, keeping Belgian tiles separate from Dutch ones on disk.
 
 .. CG-EXPLANATION-END id=method:DhmviiDemProvider.provider_id
 
@@ -87,13 +75,9 @@ Method ``DhmviiDemProvider``. ``def native_epsg``
 
 .. CG-EXPLANATION-START id=method:DhmviiDemProvider.native_epsg
 
-.. CG-PLACEHOLDER
+**What this does.** Returns 31370, the numeric name of the Belgian grid (Lambert 72).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The factory matches a project's map system to a provider by this number.
 
 .. CG-EXPLANATION-END id=method:DhmviiDemProvider.native_epsg
 
@@ -109,13 +93,9 @@ Method ``DhmviiDemProvider``. ``def _extract_tiff``
 
 .. CG-EXPLANATION-START id=method:DhmviiDemProvider._extract_tiff
 
-.. CG-PLACEHOLDER
+**What this does.** Pulls the image out of the response by handing it to the multipart splitter.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The Geopunt service replies with two parts glued together — an XML description then the image — so unlike the Dutch service its image must be extracted before it can be decoded.
 
 .. CG-EXPLANATION-END id=method:DhmviiDemProvider._extract_tiff
 
@@ -131,13 +111,9 @@ Method ``DhmviiDemProvider``. ``def _is_nodata``
 
 .. CG-EXPLANATION-START id=method:DhmviiDemProvider._is_nodata
 
-.. CG-PLACEHOLDER
+**What this does.** Reports a pixel as having no data when its value exactly equals ``-9999``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** That is the marker DHMV II embeds in its metadata for cells with no real height (water bodies, hill shadows, outside coverage). An exact match is right here because it is a fixed integer sentinel, not a huge float.
 
 .. CG-EXPLANATION-END id=method:DhmviiDemProvider._is_nodata
 

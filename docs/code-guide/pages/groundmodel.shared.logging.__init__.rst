@@ -1,7 +1,7 @@
 groundmodel.shared.logging
 ==========================
 
-.. CG-PAGE source=src/groundmodel/shared/logging/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/shared/logging/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/shared/logging/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description for the ``shared/logging`` package — the three files that make up the engine's logging: the custom levels, the typed logger wrapper, and the factory that hands one out. Marking a folder with ``__init__.py`` is what makes it an importable package; this one holds only a description.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeping the package marker empty means importing the logging helpers pulls in nothing extra. These three files are the whole logging story; see CLAUDE.md "Logging".
 
 .. CG-EXPLANATION-END id=module-header
 

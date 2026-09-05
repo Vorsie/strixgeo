@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.e5f6a7b8c9d0_add_litho_lens
 =============================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/e5f6a7b8c9d0_add_litho_lens.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/e5f6a7b8c9d0_add_litho_lens.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/e5f6a7b8c9d0_add_litho_lens.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``e5f6a7b8c9d0``, following ``d4e5f6a7b8c9``) that adds the ``litho_lens`` table — a body of one lithology sitting inside a parent formation, present at some investigations and absent at others — and a *nullable* (allowed-to-be-empty) ``lens_id`` column on the contacts table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the owner directive of 2026-05-24 (debt #101): a lens carries its own identity so two clay drapes inside the same sand do not collide; the parent formation is mandatory; the project id is copied onto the lens so project-scoped queries need no join; and deleting a lens sets the contact's ``lens_id`` empty rather than deleting the real contact geometry.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates ``litho_lens`` with its id, project id (cascading foreign key), model id, mandatory parent-formation id, optional name and timestamps; adds three indexes (by model, by formation, by project); then adds the nullable ``lens_id`` foreign key on the contacts table with a partial index over only the contacts that have a lens.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments explain each choice: greenfield tables from #101 onward declare the project foreign key so the cascade is enforced in the database; the lens link uses set-empty-on-delete because the lens is metadata over real contacts; and the *partial index* (one that covers only rows matching a condition) skips the large majority of contacts with no lens.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Removes the contact partial index and the ``lens_id`` column, then drops the ``litho_lens`` table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reverse is done in dependency order — the borrowing column and its index go before the table they point at — so nothing is left referring to a table that no longer exists.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

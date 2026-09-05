@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.da111560a8d6_body_with_extent_rename_tables
 =============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/da111560a8d6_body_with_extent_rename_tables.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/da111560a8d6_body_with_extent_rename_tables.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/da111560a8d6_body_with_extent_rename_tables.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that renames the three lens tables to their body names and drops the old content-key columns. The header carries its revision id and the id it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the rename step of the body-with-extent rewrite: once body identity is carried by id and indexes rather than the content key, the lens tables become the body tables.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Deletes any lens row still missing its source investigation (unreconcilable leftovers), prints how many, drops the two content-key columns, renames the three tables children-first to ``body_boundary_node``, ``body_boundary_shape`` and ``body``, then makes the source-investigation column not-nullable.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains the leftover rows are pre-bilateral stale artefacts that cannot be reconciled, so pre-ship amnesty deletes them to let the not-null change succeed. Renaming children-first keeps foreign keys valid through the rename.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Reverses the renames and the not-null rule and restores empty content-key columns; the dropped content-key data is not recoverable.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The rename and constraint reverse cleanly, but the content-key values are gone, so only empty columns can be restored.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

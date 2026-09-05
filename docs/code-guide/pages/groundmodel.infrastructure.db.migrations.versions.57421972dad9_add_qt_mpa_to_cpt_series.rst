@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.57421972dad9_add_qt_mpa_to_cpt_series
 =======================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/57421972dad9_add_qt_mpa_to_cpt_series.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/57421972dad9_add_qt_mpa_to_cpt_series.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/57421972dad9_add_qt_mpa_to_cpt_series.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens a small migration that adds a ``qt_mpa`` array column to the CPT series table. Names its revision id and the migration it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Why: not recorded — ask the owner. (The docstring carries only the revision bookkeeping. This column later splits into ``qt`` and ``q_total`` in a separate migration; the CLAUDE.md GEF-parser note records those must stay distinct because one is the corrected cone resistance on a CPTU and the other the total resistance on a mechanical CPT.)
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds a nullable ``qt_mpa`` array column to ``cpt_series``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Nullable because the value is only present for the CPT types that carry it, and existing rows have none.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the ``qt_mpa`` column, reversing the add.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step back.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

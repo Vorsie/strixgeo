@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db
 =============================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the database folder as a package and names what it holds: the ORM models and the repositories.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A folder becomes an importable package once it holds an ``__init__.py``. An *ORM* (object-relational mapper) is the library that lets the code work with database rows as Python objects; the models describe the tables and the repositories hold the queries.
 
 .. CG-EXPLANATION-END id=module-header
 

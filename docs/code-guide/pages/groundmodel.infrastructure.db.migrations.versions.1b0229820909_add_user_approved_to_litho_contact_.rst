@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.1b0229820909_add_user_approved_to_litho_contact_
 ==================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/1b0229820909_add_user_approved_to_litho_contact_.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/1b0229820909_add_user_approved_to_litho_contact_.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/1b0229820909_add_user_approved_to_litho_contact_.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the migration that adds a ``user_approved`` flag to the litho-contact correlation-edge table. Names its revision id and the migration it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Why: not recorded — ask the owner. (The docstring carries only the revision bookkeeping; the reason is inferable from the column name — marking whether the engineer approved a correlation edge — but is not stated.)
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds a non-nullable boolean ``user_approved`` column that defaults to true.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The inline note records existing rows are all manual edges, so they default to true — a true default keeps every already-stored edge marked as approved.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the column, reversing the add.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step back.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

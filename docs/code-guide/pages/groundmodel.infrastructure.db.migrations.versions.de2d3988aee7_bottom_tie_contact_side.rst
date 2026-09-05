@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.de2d3988aee7_bottom_tie_contact_side
 ======================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/de2d3988aee7_bottom_tie_contact_side.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/de2d3988aee7_bottom_tie_contact_side.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/de2d3988aee7_bottom_tie_contact_side.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds a per-endpoint side marker (top or base) to the litho correlation-edge table so an edge can address a layer's base, and widens the edge's uniqueness rule to match. The header carries its revision id and the id it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains a bottom-tie is an edge whose both endpoints are on the base, which lets the deepest layer — which has no layer below it and so no top-keyed base contact — be correlated at its base so it can band. Both columns default to top, so every existing edge is unchanged, and the design is set out in the bottom-tie correlation spec.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds ``contact_a_side`` and ``contact_b_side`` defaulting to top, adds a check constraint pinning them to top or base, then drops and re-creates the edge's uniqueness rule to include the two side columns.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Widening the uniqueness key lets a top-to-top edge and a base-to-base bottom-tie between the same two layers on the same section coexist, which the docstring identifies as the goal.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Reverses it in opposite order: restores the narrower uniqueness rule, drops the check, then drops the two side columns.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

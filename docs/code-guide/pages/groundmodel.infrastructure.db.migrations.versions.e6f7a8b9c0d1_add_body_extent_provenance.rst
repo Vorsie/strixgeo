@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.e6f7a8b9c0d1_add_body_extent_provenance
 =========================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/e6f7a8b9c0d1_add_body_extent_provenance.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/e6f7a8b9c0d1_add_body_extent_provenance.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/e6f7a8b9c0d1_add_body_extent_provenance.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``e6f7a8b9c0d1``, following ``c2d3e4f5a6b7``) that adds two columns recording, for each side of a body's lateral extent, whether that side was set automatically or claimed by the user.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains the problem it fixes: provenance used to be guessed from the extent's kind, which made an auto-defaulted pinch indistinguishable from a user-claimed one, so the automatic pass could not safely recompute its own defaults and they went stale. An explicit per-side flag lets the automatic body-detection recompute every ``auto`` side each pass while never touching a ``user`` side — owner directive 2026-06-04 that the 2-D body-and-extent set is the source of truth feeding the 3-D model.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the two not-empty provenance columns, each defaulting to ``auto``, then runs two *backfill* updates — writes that fill the new columns on existing rows — setting a side to ``user`` wherever its kind is one of the three user-claimed kinds.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that the backfill mirrors the old kind-based rule exactly, so existing rows keep their current meaning and there is no behaviour change for data written before this migration.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the two provenance columns.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This reverses the addition; the derived provenance falls back to being inferred from the extent kind as before.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.b5c6d7e8f9a0_add_body_union
 =============================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b5c6d7e8f9a0_add_body_union.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b5c6d7e8f9a0_add_body_union.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/b5c6d7e8f9a0_add_body_union.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that creates the body-union table — the storage behind the user's "Join with…" verb.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring cites the owner ruling (debt #278): a union is the positive half of the body-identity rule and the counterpart to a separation. Where a separation forbids its two anchors from sharing a body, a union requires it — a must-link constraint in layer-id space that only the user writes. It is additive and cleanly reversible: an empty table changes no behaviour, so every prior bundle restores unchanged. It is hand-written to mirror the separation table's shape (canonical-ordered layer pair, per-model uniqueness, cascade on the model and both layers).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the body-union table and its per-model index.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Adds the store the resolver reads as must-link constraints; the index speeds finding a model's unions.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the index and the body-union table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; safe because an empty union table changed nothing.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

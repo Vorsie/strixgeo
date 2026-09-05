@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.b2f1c9a47d30_litho_lens_boundary_shape
 ========================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b2f1c9a47d30_litho_lens_boundary_shape.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b2f1c9a47d30_litho_lens_boundary_shape.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/b2f1c9a47d30_litho_lens_boundary_shape.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds user-authored lens-boundary shaping: a stable content key on the lens table, a lens-shape table, and a boundary-node table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records (feature #163f) that the shape must survive lens re-detection, so it is keyed by a content key derived from the lens's three defining contact ids rather than by the volatile body ordinal. The shape table holds the render style and owns the boundary nodes; the boundary-node table holds the ordered control points of each boundary in section-local coordinates.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the content-key column (with an index) to the lens table, then creates the lens-shape and boundary-node tables with their indexes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The content key is the stable join between a re-detected lens and its saved shape; the two new tables store the shape and its control points.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the boundary-node and lens-shape tables and the content-key column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the reverse of the upgrade, in dependency order.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

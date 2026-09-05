@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.11878f8a5732_backfill_litho_formation_colors_from_
 ====================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/11878f8a5732_backfill_litho_formation_colors_from_.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/11878f8a5732_backfill_litho_formation_colors_from_.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/11878f8a5732_backfill_litho_formation_colors_from_.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens a *backfill* migration — one that fills in a value for rows that already exist rather than changing the schema. It stamps the correct lithology colour onto litho formation rows that were created carrying a grey placeholder. It keeps its own literal copy of the five base-lithology colours and the grey placeholder.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records issue #145: rows created before the colour-at-create fix carry the neutral grey ``#9ca3af`` instead of their lithology colour, so read-side consumers (section bands, 3-D viewer, exports, the .strix bundle) show the wrong colour. The colour table is copied here rather than imported so the migration is frozen at the values current when it was written — a later edit to the shared constant must not retroactively change what this migration did.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** For each of the five base soils, updates every formation row that both still carries the grey placeholder and has that soil code, setting its colour to the lithology colour.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records only rows that BOTH carry grey AND have a recognised soil code are touched — geological formations (no soil code) keep their user-chosen colour, and an unrecognised soil code is left grey, matching the create-time fallback.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Reverts the backfilled colours to grey, but only for rows whose colour still matches the backfilled lithology colour and whose soil code matches.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So a colour the user has since changed by hand is left alone — the reverse only touches rows the upgrade itself would have set.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.b8c9d0e1f2a3_add_gapless_report_to_litho_build_gen
 ====================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b8c9d0e1f2a3_add_gapless_report_to_litho_build_gen.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b8c9d0e1f2a3_add_gapless_report_to_litho_build_gen.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/b8c9d0e1f2a3_add_gapless_report_to_litho_build_gen.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds a nullable JSON ``gapless_report`` column to the build-generation table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring cites the owner constraint (2026-08-26) that the model must have no gaps or fallbacks unless the user made a mistake. The seven-clause gapless gate answers that per build, and this column stores its report so reopening a project shows the last build's verdict without recomputing it. It is deliberately nullable rather than defaulting to an empty object, because an empty object would falsely read as "the gate ran and found nothing", which is different from "nobody ran the gate here". Additive and nullable, so every existing bundle restores unchanged; hand-written for the recorded drift reason.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the nullable JSON ``gapless_report`` column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Gives each build a place to store its gapless-gate verdict.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the column, discarding every stored gate verdict.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the reverse of the add.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.m7g8h9i0j1k2_add_litho_layer
 ==============================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/m7g8h9i0j1k2_add_litho_layer.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/m7g8h9i0j1k2_add_litho_layer.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/m7g8h9i0j1k2_add_litho_layer.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``m7g8h9i0j1k2``, following ``b2f1c9a47d30``) that creates the ``litho_layer`` table — one lithology interval at one investigation anchor, with a status and depth bounds — for the unified litho boundary model.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the design spec: a layer replaces the older dual representation (an in-memory suggestion plus a per-boundary contact) for lithostratigraphic models. This migration only creates the table and its guards; the back-fill of existing contacts into layers is a later slice, so the two models coexist during the transition. The design notes cascade rules, a two-anchor rule (exactly one of borehole or CPT is set), a depth-ordering check, and whitelists on status, source and confidence.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the table with its id, model and formation links, the borehole and CPT anchors, depth bounds, status, source, optional observation links, a parent geo-contact link, confidence, notes and timestamps; adds check constraints for the single-anchor rule, depth ordering, and the status, source and confidence whitelists; and adds five indexes for the dominant read patterns.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments map each index to a read pattern (per-anchor sorted list, status filter, per-formation list, litho-to-geo coupling), and note the timestamp defaults are kept for the same reason as the earlier empty-value fix.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the five indexes and then the ``litho_layer`` table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reverse in dependency order.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

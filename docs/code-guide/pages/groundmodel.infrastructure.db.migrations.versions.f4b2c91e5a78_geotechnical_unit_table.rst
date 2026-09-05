@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.f4b2c91e5a78_geotechnical_unit_table
 ======================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/f4b2c91e5a78_geotechnical_unit_table.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/f4b2c91e5a78_geotechnical_unit_table.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/f4b2c91e5a78_geotechnical_unit_table.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``f4b2c91e5a78``, following ``8a3f2c91d456``) that creates a ``geotechnical_unit`` table holding only structure — name, code, colour, display order, notes — for subdividing a formation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that a single geological formation often contains several geotechnical units with different parameters, and that this migration lands the v1.0 subdivide deliverable without committing to a parameter shape this early; per-unit parameter values are Phase 5 work. (Note: this table was later dropped once subdivision shipped through the model-kind design — see revision ``v6w7x8y9z0a1``.)
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the ``geotechnical_unit`` table with its columns and two indexes — one by project, one by parent formation.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments note the project id is copied onto the row so list and filter queries need no join, and the cascade means deleting a formation removes every unit beneath it.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the two indexes and then the ``geotechnical_unit`` table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reverse of the create, in dependency order.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

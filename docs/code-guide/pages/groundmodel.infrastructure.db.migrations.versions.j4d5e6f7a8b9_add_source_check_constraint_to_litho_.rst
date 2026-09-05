@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.j4d5e6f7a8b9_add_source_check_constraint_to_litho_
 ====================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/j4d5e6f7a8b9_add_source_check_constraint_to_litho_.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/j4d5e6f7a8b9_add_source_check_constraint_to_litho_.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/j4d5e6f7a8b9_add_source_check_constraint_to_litho_.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``j4d5e6f7a8b9``, following ``i3c4d5e6f7a8``) that adds a check constraint limiting the correlation-edge source column to exactly ``manual`` or ``auto``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records #127: the source column was added earlier without a database-level check, and the auto-correlate feature now writes ``auto`` rows, so the constraint locks the column to the two permitted values and catches any future code path that writes an unknown token at the database boundary.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the ``manual``-or-``auto`` check constraint to the correlation-edge table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes existing rows are all ``manual``, so the constraint adds without any data back-fill.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the check constraint, leaving the source column an unconstrained text column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This reverses the single constraint addition.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

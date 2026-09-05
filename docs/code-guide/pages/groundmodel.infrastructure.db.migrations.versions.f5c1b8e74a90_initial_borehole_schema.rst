@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.f5c1b8e74a90_initial_borehole_schema
 ======================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/f5c1b8e74a90_initial_borehole_schema.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/f5c1b8e74a90_initial_borehole_schema.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/f5c1b8e74a90_initial_borehole_schema.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``f5c1b8e74a90``, following ``d70b1a8e9c34``) that creates the first borehole tables: ``borehole`` plus the child tables ``drill_segment`` and ``field_log_interval``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records this is the Phase-3a foundation for borehole imports; it mirrors the CPT pattern (source identifiers for de-duplication, raw coordinates with their own coordinate-reference codes, a PostGIS geometry, denormalised counts for cheap list views) and gives the two child tables cascading foreign keys so removing a borehole cleans up its children. PostGIS is the spatial add-on PostgreSQL needs to store locations.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the ``borehole`` table with its identifiers, location, metadata and count columns plus a project index and a spatial index; then creates ``drill_segment`` and ``field_log_interval``, each linked back to the borehole with a cascading foreign key and their own indexes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring describes the layout; the spatial index on the location supports map queries, and the borehole-id indexes on the child tables support loading a borehole's segments and log intervals quickly.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the two child tables and their indexes, then the ``borehole`` table and its indexes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Children are removed before the parent so no foreign key is left pointing at a missing table.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

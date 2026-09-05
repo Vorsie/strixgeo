@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.a1f3c9e84b27_litho_contact_corr_partial_index
 ===============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a1f3c9e84b27_litho_contact_corr_partial_index.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a1f3c9e84b27_litho_contact_corr_partial_index.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/a1f3c9e84b27_litho_contact_corr_partial_index.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds a *partial index* — a lookup structure covering only the rows matching a condition — on the correlation-edge table's model reference, restricted to approved edges.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the audit finding: the resolver and section render filter approved edges for a model, so an index carrying only the approved rows is smaller and more selective than a plain index that also covers the speculative auto-generated edges.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the partial index on the model reference, restricted to approved rows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Makes the common "approved edges for this model" query fast without indexing the unapproved ones.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the partial index.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the reverse of the create.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

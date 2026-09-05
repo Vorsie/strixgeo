@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.c120996a504d_geotech_dual_ref_fks_on_geological_
 ==================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c120996a504d_geotech_dual_ref_fks_on_geological_.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c120996a504d_geotech_dual_ref_fks_on_geological_.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/c120996a504d_geotech_dual_ref_fks_on_geological_.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds two self-referential foreign-key columns to ``geological_formation``: ``source_litho_formation_id`` and ``source_geo_formation_id``. The header names its revision id and the one it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring makes the (geological formation, lithology, NAD packing class) identity of a geotechnical unit a stored fact: one column names the lithostratigraphic formation the geotech unit subdivides, the other the geological formation it sits within. Both are stored because a Paleogene clay and a Quaternary clay carry different parameters, so the geological parent is kept explicitly, not only implied. Both are empty on geological- and litho-model rows.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds ``source_litho_formation_id`` with a foreign key back to the same table, then ``source_geo_formation_id`` with its own foreign key, both set to clear the column when the parent is deleted.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Clear-on-delete means removing a parent formation demotes the geotech unit to unlinked rather than cascading and deleting it — the docstring's stated intent.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the two foreign keys and their columns in reverse order.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

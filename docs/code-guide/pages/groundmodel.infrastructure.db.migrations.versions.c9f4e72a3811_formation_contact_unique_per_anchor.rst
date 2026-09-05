@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.c9f4e72a3811_formation_contact_unique_per_anchor
 ==================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c9f4e72a3811_formation_contact_unique_per_anchor.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c9f4e72a3811_formation_contact_unique_per_anchor.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/c9f4e72a3811_formation_contact_unique_per_anchor.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds two partial unique indexes to ``formation_contact``, enforcing one formation top per investigation. The header carries its revision id and the id it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records a race: the rule was enforced only in the application, so copying contacts from several sources onto one target fired many parallel creates that each saw no-existing at once and all inserted, leaving duplicates and later errors. Moving the rule into the database closes the race. Because a contact is anchored by borehole or CPT but never both, one full index is impossible, so two partial indexes are used — each fires only when its anchor column is present.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the two partial unique indexes on (model, formation, borehole) and (model, formation, CPT), each over rows where that anchor is present.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Two partial indexes are the way to enforce the invariant given the borehole-or-CPT anchoring; the docstring notes duplicates were deduped in the app before this ran, or the migration would fail on a unique violation.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the two partial unique indexes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

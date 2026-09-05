@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.a26b3df9c041_observation_admixture_sample_schema
 ==================================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a26b3df9c041_observation_admixture_sample_schema.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/a26b3df9c041_observation_admixture_sample_schema.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/a26b3df9c041_observation_admixture_sample_schema.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds the four borehole child tables: observations, observation layers, admixtures, and samples.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records this is phase A2 of borehole imports, building on the borehole foundation from an earlier migration. Each observation belongs to a borehole; each layer belongs to an observation and carries its soil codes and description; each admixture belongs to a layer and lives in its own table so a query like "find layers with glauconite" can use an index; each sample belongs to a borehole. All four cascade-delete from their parent so removing a borehole cleans up everything beneath it.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the observation, observation-layer, admixture and sample tables, each with the indexes that speed lookups by parent and by key fields (observation type, admixture soil code).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The child tables complete the borehole data model; the indexes back the common by-parent and by-attribute queries.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the four tables and their indexes in reverse dependency order (sample and admixture first, then layer, then observation).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the order respects the foreign-key dependencies.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.fce0b6dcb273_sample_geotech_assignment
 ========================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/fce0b6dcb273_sample_geotech_assignment.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/fce0b6dcb273_sample_geotech_assignment.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/fce0b6dcb273_sample_geotech_assignment.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``fce0b6dcb273``, following ``c120996a504d``) that adds three nullable columns to the ``sample`` table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the purpose: the divide-boreholes use case stamps each lab sample with the geotech body it belongs to, its NAD packing class, and the provenance tier of the matched band.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the geotech-body id, NAD-class number and assignment-source columns to ``sample``, and an index on the body id.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The columns record the sample's geotech assignment; the index supports finding all samples assigned to a given body.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the index and the three geotech-assignment columns.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The reverse of the addition, index first.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

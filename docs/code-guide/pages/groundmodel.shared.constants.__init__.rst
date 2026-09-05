@@ -1,7 +1,7 @@
 groundmodel.shared.constants
 ============================
 
-.. CG-PAGE source=src/groundmodel/shared/constants/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/shared/constants/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/shared/constants/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description for the ``shared/constants`` package. It explains that pure constant, enum and codelist modules used by more than one layer live here. A *constant* is a fixed named value, an *enum* is a fixed set of named allowed values, and a *codelist* is a lookup table mapping raw codes to their meaning.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The layer rule (CLAUDE.md "Architecture": API → Application → Domain ← Infrastructure) forbids the API layer importing from the domain layer. A constant both ends need must sit at a shared floor both may import, and ``shared/`` is the explicitly cross-layer-permitted home for it (debt #54).
 
 .. CG-EXPLANATION-END id=module-header
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.c2d3e4f5a6b7_add_body_app_project_id_index
 ============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c2d3e4f5a6b7_add_body_app_project_id_index.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/c2d3e4f5a6b7_add_body_app_project_id_index.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/c2d3e4f5a6b7_add_body_app_project_id_index.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds one index to the ``body`` table, on its ``app_project_id`` column. The header names its revision id and the one it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains that saving and restoring a project both filter bodies by project id; without an index that is a full-table scan every time. Every other project-scoped root table already had such an index; ``body`` was the one missing it.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Creates the index ``idx_body_app_project_id`` on the ``body`` table's project-id column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An index is a lookup shortcut; this one makes reading all bodies in one project fast on every save and restore, matching the other root tables.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops that index.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The exact reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

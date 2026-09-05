@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.f1a2b3c4d5e6_nad_admixture_choice
 ===================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/f1a2b3c4d5e6_nad_admixture_choice.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/f1a2b3c4d5e6_nad_admixture_choice.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/f1a2b3c4d5e6_nad_admixture_choice.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``f1a2b3c4d5e6``, following ``c6d7e8f9a0b1``) that adds one nullable text column, ``nad_admixture_choice``, to the formation table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the owner ruling of 2026-09-04: when a litho unit's admixture could be read either way, the engineer is asked whether to classify it into the pure NAD class family or the with-admixture family, and the answer is saved here so a re-divide does not re-ask. NAD refers to the Belgian national annex table (NBN EN 1997-1 ANB Tabel 2.1). Empty means not answered, so the classifier keeps its automatic behaviour.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the nullable ``nad_admixture_choice`` text column to the formation table.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes this is a plain additive column; backwards-compatibility is suspended pre-ship, and an existing project reads back empty (today's behaviour) until the engineer answers the prompt.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the ``nad_admixture_choice`` column.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This reverses the single-column addition.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

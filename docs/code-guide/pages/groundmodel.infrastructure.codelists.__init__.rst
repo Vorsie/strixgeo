@@ -1,7 +1,7 @@
 groundmodel.infrastructure.codelists
 ====================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/codelists/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/codelists/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/codelists/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Marks the codelists folder as a package and, in its docstring, says what it is: the store of the authoritative DOV code tables, with a future lookup resolver planned to live here.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *codelist* is a fixed table that maps a short code to a human name. Today this folder is mostly the source data files that drive translation of DOV's Dutch vocabulary; the docstring records that a live SPARQL-plus-disk-cache resolver will be added here later.
 
 .. CG-EXPLANATION-END id=module-header
 

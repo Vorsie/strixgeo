@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.cf77c4baaddf_drop_avg_qc_mpa_from_cpt
 =======================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/cf77c4baaddf_drop_avg_qc_mpa_from_cpt.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/cf77c4baaddf_drop_avg_qc_mpa_from_cpt.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/cf77c4baaddf_drop_avg_qc_mpa_from_cpt.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A short migration that removes the ``avg_qc_mpa`` column from the ``cpt`` table. The header carries its revision id and the id it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring says the average is not needed as a stored summary — in line with the rule that a value derivable from the series is computed on read rather than stored, so the database cannot disagree with its own inputs (CLAUDE.md Data Integrity Rule 1).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the ``avg_qc_mpa`` column from ``cpt``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The average cone resistance is derivable from the stored series, so keeping it as a column adds a value that could go stale.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Re-adds ``avg_qc_mpa`` as a nullable column; restored rows are left empty.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes the value can be recomputed from the series, so restoring the column empty is enough to return to the earlier shape.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

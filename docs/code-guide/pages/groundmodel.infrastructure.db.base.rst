@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.base
 ==================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/base.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/base.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/base.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Imports SQLAlchemy's declarative-base building block.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This one import is all that is needed to define the shared parent every table class inherits from.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``Base``
 
 .. CG-EXPLANATION-START id=class:Base
 
-.. CG-PLACEHOLDER
+**What this does.** Declares the project-wide declarative base — the single parent class every ORM table model inherits from.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The *declarative Base* is the shared ancestor that ties all the table classes into one metadata registry, which the migration tooling reads to know the full set of tables. The docstring explains why there are no abstract methods here: SQLAlchemy's own machinery already forces every subclass to declare its table name and a primary key, and adding a separate abstract-class layer on top would clash with that machinery.
 
 .. CG-EXPLANATION-END id=class:Base
 

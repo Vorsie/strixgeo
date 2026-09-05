@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.w7x8y9z0a1b2_rename_companion_lens_columns
 ============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/w7x8y9z0a1b2_rename_companion_lens_columns.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/w7x8y9z0a1b2_rename_companion_lens_columns.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/w7x8y9z0a1b2_rename_companion_lens_columns.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``w7x8y9z0a1b2``, following ``v6w7x8y9z0a1``) that renames the two cross-section companion columns from lens vocabulary to body vocabulary.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records debt #222: the lens table was renamed to ``body`` earlier, but the two cross-section columns pointing at it kept the retired lens wording. A plain column rename preserves the data, the foreign key and the nullability; backwards-compatibility is suspended pre-ship, and old saved projects still restore through a read-side alias map.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Renames ``companion_lens_id`` to ``companion_body_id`` and ``is_lens_companion`` to ``is_body_companion``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This brings the column names into line with the renamed body table.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Restores the retired lens-companion column names.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This reverses the rename.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

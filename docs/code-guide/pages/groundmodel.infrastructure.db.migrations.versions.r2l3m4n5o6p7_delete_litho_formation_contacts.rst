@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.r2l3m4n5o6p7_delete_litho_formation_contacts
 ==============================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/r2l3m4n5o6p7_delete_litho_formation_contacts.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/r2l3m4n5o6p7_delete_litho_formation_contacts.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/r2l3m4n5o6p7_delete_litho_formation_contacts.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Header for the migration (revision ``r2l3m4n5o6p7``, following ``q1k2l3m4n5o6``) that deletes the historical contact-mirror rows for litho models. It sets ``DATA_REWRITE = True`` and defines the disable-trigger, delete, and re-materialise SQL statements.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records that every accepted litho boundary now lives natively in the layer table and the contact row is a vestigial mirror nothing reads; this migration prunes the historical mirrors. Two guards are documented: the forward trigger is disabled during the delete so it does not wipe the layers the delete is trying to preserve, and synthetic pinch-out contacts are excluded because they have no layer counterpart. The flag names it among the data-rewriting migrations the migrator backs up first (audit H2b).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Disables the forward trigger, deletes the litho-model contact rows (keeping synthetic pinch-outs), then re-enables the trigger.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains each SQL runs as its own statement because the async driver rejects multi-statement strings, and the disable-delete-enable wrap protects the layers.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Disables the trigger, re-materialises contact mirrors from the surviving accepted layers, then re-enables the trigger.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes this mirrors the reverse-trigger logic in bulk for the litho scope, rebuilding the contact rows the delete removed.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

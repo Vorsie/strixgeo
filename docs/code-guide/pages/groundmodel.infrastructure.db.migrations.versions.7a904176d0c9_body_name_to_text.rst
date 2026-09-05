@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.7a904176d0c9_body_name_to_text
 ================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/7a904176d0c9_body_name_to_text.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/7a904176d0c9_body_name_to_text.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/7a904176d0c9_body_name_to_text.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the migration that widens the ``body.name`` column from a length-capped ``VARCHAR(120)`` to unbounded ``TEXT``. Names its revision id and the migration it follows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the CLAUDE.md schema-design rule: a body name is free-form text entered by the user, and free-form columns are ``TEXT`` (``VARCHAR(N)`` is reserved for fixed-spec codes, enums and ids) so they never surprise-truncate. No data changes — every existing value already fits (debt #126).
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Changes the ``body.name`` column type to ``TEXT``, keeping it nullable.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the whole point of the migration — remove the length cap that could truncate a long user-entered label.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Narrows the column back to ``VARCHAR(120)``, truncating any value longer than 120 characters on the way down.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes the truncation is unavoidable when stepping back to the capped type; it is stated plainly so a downgrade is a conscious choice.
 
 .. CG-EXPLANATION-END id=function:downgrade
 

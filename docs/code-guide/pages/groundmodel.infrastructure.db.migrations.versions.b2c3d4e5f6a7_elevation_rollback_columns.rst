@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.migrations.versions.b2c3d4e5f6a7_elevation_rollback_columns
 =========================================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b2c3d4e5f6a7_elevation_rollback_columns.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/migrations/versions/b2c3d4e5f6a7_elevation_rollback_columns.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/migrations/versions/b2c3d4e5f6a7_elevation_rollback_columns.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A migration that adds three original-elevation snapshot columns to both the CPT and borehole tables.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the purpose (debt #21): the snapshot captures the upstream surface height the first time the user manually overrides it, so clearing a manual edit restores the surveyed value instead of nulling the row — a graceful undo rather than losing the height. All three are nullable with no default, because a snapshot is genuinely absent until the first override, and empty is the marker the rollback logic keys on. This honours the elevation-trust rule that a surveyed collar value is worth preserving.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def upgrade``
 
 .. CG-EXPLANATION-START id=function:upgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Adds the original elevation, original vertical-system, and original elevation-source columns to both tables.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Together they snapshot the full original height record so a cleared override restores exactly what was surveyed.
 
 .. CG-EXPLANATION-END id=function:upgrade
 
@@ -65,13 +57,9 @@ Function ``def downgrade``
 
 .. CG-EXPLANATION-START id=function:downgrade
 
-.. CG-PLACEHOLDER
+**What this does.** Drops the three snapshot columns from both tables.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** So the chain can step backwards; the reverse of the upgrade.
 
 .. CG-EXPLANATION-END id=function:downgrade
 
