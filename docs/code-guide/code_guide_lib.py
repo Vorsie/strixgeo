@@ -8,9 +8,11 @@ module. Two responsibilities:
    module to cut a Python file into blocks at every top-level function, class,
    and class method (the module header — docstring + imports + module-level
    constants — is the first block). :func:`split_typescript_source` does the
-   same for ``.ts`` / ``.tsx`` with a simple top-level line scanner (used later
-   in the campaign for the desktop tree). Both tile the whole file with no gaps
-   and no overlaps, so a page always shows every line.
+   same for ``.ts`` / ``.tsx`` (the desktop tree) with a top-level line scanner
+   that recognises functions, classes, ``interface`` / ``type`` / ``enum``
+   blocks, and ``const`` / ``let`` / ``var`` bindings (exported or bare),
+   including ``export default`` and generic ``<T>`` forms. Both tile the whole
+   file with no gaps and no overlaps, so a page always shows every line.
 
 2. **Page format.** The generated ``.rst`` pages carry inert RST comment markers
    (:data:`BLOCK_MARKER`, :data:`EXPLANATION_START`, …) that let the generator
@@ -239,25 +241,84 @@ def _split_class(
     return blocks
 
 
-# Top-level TypeScript/JavaScript definition starts: an exported or bare
-# ``function`` / ``class``, or an ``export const NAME = (`` binding (an arrow
-# function or a value). Matched only at column 0 so nested definitions stay
-# inside their parent block. Deliberately simple — the desktop explanations are
-# written later in the campaign; this only has to cut sensible blocks.
-_TS_DEF_PATTERN = re.compile(
+# Top-level TypeScript/JavaScript definition starts, matched only at column 0 so
+# nested definitions stay inside their parent block. This is a line scanner, not
+# a real parser: it is deliberately simple, and only has to cut sensible blocks
+# — a block is always a valid line range, so a mis-cut (a keyword at column 0
+# inside a template literal, say) is cosmetic, never broken RST. The five
+# patterns, tried in this order per line:
+#
+# * a ``function`` / ``class`` declaration — including ``export default
+#   function``, ``export async function``, ``abstract class`` and generic
+#   ``<T>`` forms; the name is optional so an anonymous ``export default
+#   function () {}`` still starts its own block;
+# * an ``interface`` / ``enum`` / ``namespace`` / ``module`` declaration
+#   (including ``const enum``);
+# * a ``type`` alias (``export type X = …``);
+# * a ``const`` / ``let`` / ``var`` binding — an exported or bare arrow
+#   component, a ``React.memo(...)`` component, or a top-level constant object;
+# * a bare ``export default …`` of anything else (a config object, an array).
+_TS_FUNC_CLASS = re.compile(
     r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:abstract\s+)?"
-    r"(?P<kind>function|class)\s+(?P<name>[A-Za-z0-9_$]+)"
+    r"(?P<kind>function|class)\b\s*(?P<name>[A-Za-z0-9_$]+)?"
 )
-_TS_CONST_PATTERN = re.compile(r"^export\s+const\s+(?P<name>[A-Za-z0-9_$]+)\s*(?::[^=]+)?=\s*")
+_TS_TYPEISH = re.compile(
+    r"^(?:export\s+)?(?:declare\s+)?(?:const\s+)?"
+    r"(?P<kind>interface|enum|namespace|module)\s+(?P<name>[A-Za-z0-9_$]+)"
+)
+_TS_TYPE_ALIAS = re.compile(r"^(?:export\s+)?(?:declare\s+)?type\s+(?P<name>[A-Za-z0-9_$]+)")
+_TS_BINDING = re.compile(
+    r"^(?:export\s+)?(?:declare\s+)?(?P<kind>const|let|var)\s+(?P<name>[A-Za-z0-9_$]+)"
+)
+_TS_DEFAULT = re.compile(r"^export\s+default\b")
+
+
+def _ts_definition_at(line: str) -> tuple[str, str] | None:
+    """Return ``(kind, name)`` when a line begins a top-level TS definition.
+
+    Tries the definition patterns in priority order and returns the first hit,
+    or ``None`` when the line is not a top-level definition start. An anonymous
+    ``export default`` (a function/class/value with no name) is reported with the
+    name ``default`` so it still becomes its own block.
+
+    Parameters
+    ----------
+    line : str
+        One source line, matched from column 0 (so an indented, nested
+        definition never matches).
+
+    Returns
+    -------
+    tuple[str, str] | None
+        ``(kind, name)`` — e.g. ``("function", "useCounter")``,
+        ``("interface", "Props")``, ``("const", "Badge")`` — or ``None``.
+    """
+    func_class = _TS_FUNC_CLASS.match(line)
+    if func_class:
+        return func_class.group("kind"), func_class.group("name") or "default"
+    typeish = _TS_TYPEISH.match(line)
+    if typeish:
+        return typeish.group("kind"), typeish.group("name")
+    type_alias = _TS_TYPE_ALIAS.match(line)
+    if type_alias:
+        return "type", type_alias.group("name")
+    binding = _TS_BINDING.match(line)
+    if binding:
+        return binding.group("kind"), binding.group("name")
+    if _TS_DEFAULT.match(line):
+        return "default", "default"
+    return None
 
 
 def split_typescript_source(source: str) -> list[Block]:
     """Split TypeScript/JavaScript ``source`` into gap-free top-level blocks.
 
-    A line scanner (not a real parser) marks a new block at every column-0
-    ``function`` / ``class`` declaration and every ``export const NAME =`` at
-    column 0. The module header is everything before the first such line. Same
-    gap-free tiling as the Python splitter.
+    A line scanner (not a real parser — see :func:`_ts_definition_at`) marks a
+    new block at every column-0 ``function`` / ``class`` / ``interface`` /
+    ``type`` / ``enum`` declaration and every ``const`` / ``let`` / ``var``
+    binding, exported or bare, plus a bare ``export default``. The module header
+    is everything before the first such line. Same gap-free tiling as the Python
+    splitter, so a page always shows every line.
 
     Parameters
     ----------
@@ -276,13 +337,10 @@ def split_typescript_source(source: str) -> list[Block]:
 
     starts: list[tuple[int, str, str]] = []
     for index, line in enumerate(lines):
-        def_match = _TS_DEF_PATTERN.match(line)
-        if def_match:
-            starts.append((index + 1, def_match.group("kind"), def_match.group("name")))
-            continue
-        const_match = _TS_CONST_PATTERN.match(line)
-        if const_match:
-            starts.append((index + 1, "const", const_match.group("name")))
+        found = _ts_definition_at(line)
+        if found is not None:
+            kind, name = found
+            starts.append((index + 1, kind, name))
 
     if not starts:
         return [Block("module-header", "Module header — the whole file", 1, len(lines))]
