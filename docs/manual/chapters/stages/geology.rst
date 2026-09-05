@@ -128,6 +128,7 @@ marking the extent of the interpreted volume.
    untrustworthy there: it is not the bed of the river or the sea. This is worth
    adding later, and not only for a more honest picture of the ground. Recent
    alluvial and marine deposits are strongly shaped by water: a meandering river
-   lays down distinctly different material on its inner and outer banks, and
+   deposits on the inner bend and erodes the outer bend, so the two banks
+   carry distinctly different material, and
    natural or man-made levee breaks and floodplain deposits are usually one-sided.
    Getting the water surface right is part of getting those deposits right.
