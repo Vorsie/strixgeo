@@ -1,4 +1,4 @@
-# Ground Model Platform
+# StrixGeo
 
 Commercial **ground model platform** — builds and manages the unified subsurface dataset for a project. Ingests CPT, borehole, lab, monitoring, DMT, pressuremeter, and geophysical data; derives parameters and statistics; exports to design tools (Plaxis 2D/3D, DXF, D-Stability, D-Sheet Piling, PDF).
 
