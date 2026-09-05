@@ -1,3 +1,0 @@
-# The rendered HTML is a build artefact — regenerate it with
-# scripts/build-code-guide.ps1. The .rst source pages ARE committed.
-_build/

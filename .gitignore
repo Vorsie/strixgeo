@@ -176,3 +176,7 @@ scripts/cs1_geotech_gate.json
 
 # StrixGeo user manual — Sphinx build output (regenerable via scripts/build-manual.ps1)
 docs/manual/_build/
+
+# The line-by-line code guide is a LOCAL reading copy (owner 2026-09-05): its
+# 1518 generated pages + prose are not versioned. Backup: .backups/code-guide-*.zip
+docs/code-guide/
