@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.models.observation_orm
 ====================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/models/observation_orm.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/models/observation_orm.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/models/observation_orm.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and the toolbox: ``Date``, ``ForeignKey``, ``Index``, ``String``, the Postgres ``UUID`` type, ``Mapped`` / ``mapped_column`` / ``relationship``, ``Base`` and the loader-strategy constant.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The building blocks for the observation-stream table.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ObservationOrm``
 
 .. CG-EXPLANATION-START id=class:ObservationOrm
 
-.. CG-PLACEHOLDER
+**What this does.** Defines the ``observation`` table: one interpretation stream on a borehole. It carries the ``borehole_id`` foreign key (cascade-delete), a ``dov_permkey``, an ``observation_type``, the source-vocabulary metadata (author, date, quality ratings), and relationships back to the borehole and out to its layers. Indexed on borehole and on type.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A borehole can carry several observations of different type (the driller's coded lithology plus an engineer's re-coding), each its own row. ``observation_type`` is a plain string, not a Postgres enum, so a new type is an application change rather than a migration — the ``ObservationType`` enum is the authoritative allow-list. The type index supports queries like 'show only the formal stratigraphy across the project'.
 
 .. CG-EXPLANATION-END id=class:ObservationOrm
 

@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.depth
 ======================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/depth.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/depth.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/depth.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import of ``dataclass``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A one-class value object with a single self-check.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``Depth`` — header
 
 .. CG-EXPLANATION-START id=class:Depth
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``Depth``, a frozen value object wrapping a single number — a depth in metres — as ``value_m``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Wrapping a bare number in a named type makes a function signature say 'this argument is a depth', not 'this argument is some float', and gives one place to enforce the rule that a depth is never negative.
 
 .. CG-EXPLANATION-END id=class:Depth
 
@@ -65,13 +57,9 @@ Method ``Depth``. ``def __post_init__``
 
 .. CG-EXPLANATION-START id=method:Depth.__post_init__
 
-.. CG-PLACEHOLDER
+**What this does.** Runs right after the depth is built; rejects a negative value, raising ``ValueError``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A single-field invariant that holds for every depth in the program: below the surface is positive, so a negative depth is a bug wherever it appears.
 
 .. CG-EXPLANATION-END id=method:Depth.__post_init__
 

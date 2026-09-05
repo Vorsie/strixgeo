@@ -1,7 +1,7 @@
 groundmodel.domain.models.job_status
 ====================================
 
-.. CG-PAGE source=src/groundmodel/domain/models/job_status.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/models/job_status.py complete=true
 
 *Source file:* ``src/groundmodel/domain/models/job_status.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import: ``Enum`` from Python's standard library.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An *enum* (enumeration) is a fixed, named set of allowed values; importing ``Enum`` is all that is needed to declare one.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``JobStatus``
 
 .. CG-EXPLANATION-START id=class:JobStatus
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``JobStatus``, an enum with exactly four members: ``PENDING``, ``RUNNING``, ``DONE`` and ``FAILED``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A job's state can only ever be one of these four. Making it an enum means a typo like ``'RUNING'`` is impossible — a status must be one of the four names, and the language enforces it rather than trusting each caller to spell it right.
 
 .. CG-EXPLANATION-END id=class:JobStatus
 

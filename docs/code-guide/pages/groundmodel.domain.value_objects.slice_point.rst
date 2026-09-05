@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.slice_point
 ============================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/slice_point.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/slice_point.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/slice_point.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line, ``from __future__ import annotations``, and the ``dataclass`` import.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The smallest toolbox for a two-field value object.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``SlicePoint``
 
 .. CG-EXPLANATION-START id=class:SlicePoint
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``SlicePoint``, a frozen value object holding one point on a section-slice polyline: ``along_m`` (distance measured along the section line) and ``elevation_m``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** When a surface is sliced by a section line the result is a list of these — one point per triangle edge the line crosses. It is the natural output shape for a slice query.
 
 .. CG-EXPLANATION-END id=class:SlicePoint
 

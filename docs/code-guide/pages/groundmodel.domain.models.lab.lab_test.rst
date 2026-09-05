@@ -1,7 +1,7 @@
 groundmodel.domain.models.lab.lab_test
 ======================================
 
-.. CG-PAGE source=src/groundmodel/domain/models/lab/lab_test.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/models/lab/lab_test.py complete=true
 
 *Source file:* ``src/groundmodel/domain/models/lab/lab_test.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and the toolbox: ``ABC`` (from the ``abc`` module), ``dataclass`` / ``field``, ``UUID`` / ``uuid7``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``ABC`` marks the class below as an *abstract base class* — a shared parent that is never created on its own, only inherited from.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``LabTest``
 
 .. CG-EXPLANATION-START id=class:LabTest
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``LabTest``, the abstract parent of every lab-test shape. It holds only the two things every lab test has in common: the ``sample_id`` foreign key to the sample it was performed on, and its own ``id``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Every specific test (grain size, Atterberg, water content, ...) inherits these two fields instead of repeating them. It is *abstract* because a bare 'lab test' with no measurement means nothing — you always have a specific kind. The domain rule that a lab test belongs to a ``Sample``, not to a borehole, is encoded right here in that single shared field.
 
 .. CG-EXPLANATION-END id=class:LabTest
 

@@ -1,7 +1,7 @@
 groundmodel.domain.models.lab.water_content
 ===========================================
 
-.. CG-PAGE source=src/groundmodel/domain/models/lab/water_content.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/models/lab/water_content.py complete=true
 
 *Source file:* ``src/groundmodel/domain/models/lab/water_content.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and the toolbox: ``dataclass``, ``date``, and ``LabTest``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** ``LabTest`` is imported so ``WaterContent`` inherits the shared ``sample_id`` and ``id``.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``WaterContent`` — header
 
 .. CG-EXPLANATION-START id=class:WaterContent
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``WaterContent`` (a ``LabTest``): moisture content as a percentage of dry mass, plus method and date.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The validation ceiling is 1000 %, not 100 %, because water content is measured against *dry* mass — an organic soil, peat, or quick clay can hold far more water than its dry solids weigh, so a reading above 100 % is genuine, not an error. Only clearly non-physical values are rejected.
 
 .. CG-EXPLANATION-END id=class:WaterContent
 
@@ -65,13 +57,9 @@ Method ``WaterContent``. ``def __post_init__``
 
 .. CG-EXPLANATION-START id=method:WaterContent.__post_init__
 
-.. CG-PLACEHOLDER
+**What this does.** Checks that the content, when present, lies within 0–1000 %, raising ``ValueError`` otherwise.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A single-field range guard with the wide upper bound the docstring explains.
 
 .. CG-EXPLANATION-END id=method:WaterContent.__post_init__
 

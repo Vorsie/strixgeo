@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.water_depth_source
 ===================================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/water_depth_source.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/water_depth_source.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/water_depth_source.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import of ``StrEnum``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The water-depth provenance is stored in a database column, so a string-valued enum fits.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``WaterDepthSource``
 
 .. CG-EXPLANATION-START id=class:WaterDepthSource
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``WaterDepthSource``, a StrEnum with two members — ``GEF`` and ``ENGINEER`` — recording where a CPT's water-table depth came from.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Same contract as ``ElevationSource``: it sits next to ``water_depth_m`` so a re-import can overwrite a file-derived water table but must never silently overwrite one the engineer typed, because the whole Ic profile is normalised against that water table. The docstring makes a deliberate point: there is no ``ASSUMED`` member — a NULL column means no record, the consumer falls back to the default depth and must label the value as ASSUMED, and an assumption is the *absence* of a record, not a third kind of record (Data-Integrity rule 1).
 
 .. CG-EXPLANATION-END id=class:WaterDepthSource
 

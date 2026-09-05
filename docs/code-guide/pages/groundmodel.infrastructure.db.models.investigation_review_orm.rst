@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.models.investigation_review_orm
 =============================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/models/investigation_review_orm.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/models/investigation_review_orm.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/models/investigation_review_orm.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and the toolbox: the column types (``Boolean``, ``DateTime``, ``String``, ``Text``), ``CheckConstraint`` / ``Index`` / ``UniqueConstraint``, ``func``, the Postgres ``UUID`` type, ``Mapped`` / ``mapped_column`` and ``Base``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The pieces for a small per-investigation decision table with database-level guards.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``InvestigationReviewOrm``
 
 .. CG-EXPLANATION-START id=class:InvestigationReviewOrm
 
-.. CG-PLACEHOLDER
+**What this does.** Defines the ``investigation_review`` table: one per-(project, investigation) decision — a review status, notes, a reviewed-at time and an ``is_hidden`` flag — anchored polymorphically by a ``target_kind`` (cpt or borehole) plus a ``target_id``. A ``CheckConstraint`` restricts the kind and status, and a ``UniqueConstraint`` allows one review per target.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One table holds decisions for both CPT- and borehole-anchored investigations, so a new decision field is one column here rather than two mirrored across the CPT and borehole tables. A row exists only where a decision was made — the absence of a row means 'unreviewed, not hidden' — which keeps the table small in a project with thousands of investigations. Like the formation contact, the polymorphic link is not database-enforced; the application checks the target exists at write time. These decisions ride the ``.strix`` bundle so a wiped database does not lose the engineer's review history.
 
 .. CG-EXPLANATION-END id=class:InvestigationReviewOrm
 

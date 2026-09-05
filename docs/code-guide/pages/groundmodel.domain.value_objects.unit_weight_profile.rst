@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.unit_weight_profile
 ====================================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/unit_weight_profile.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/unit_weight_profile.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/unit_weight_profile.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A module docstring plus one import of ``dataclass``. The docstring marks this as a PREVIEW shape used by the preview Ic calculation, with the production version deferred to Phase 5.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It records the CLAUDE.md build-sequence boundary: proper per-layer unit weights, derived from the Robertson soil-behaviour classification, are Phase 5 work; this fixed-defaults shape is only enough to feed the early preview.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``UnitWeightProfile``
 
 .. CG-EXPLANATION-START id=class:UnitWeightProfile
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``UnitWeightProfile``, a frozen value object holding three bulk unit weights used to estimate vertical stress: ``gamma_unsat`` (above the water table, default 18.0), ``gamma_sat`` (below it, default 20.0), and ``gamma_w`` (water, default 9.81), all in kN/m³.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The CPT normalisation that the preview Ic needs an estimate of vertical effective stress, which needs unit weights. The defaults are intentional values for Belgian/Dutch practice, with the docstring noting the honest limitation: unit weight really is soil-type dependent, and the proper next step is to derive it per layer from the soil classification once automatic profiling exists (Phase 5). Until then a project or CPT can override these.
 
 .. CG-EXPLANATION-END id=class:UnitWeightProfile
 

@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.repositories.project_bundle.bundle_row_builders
 =============================================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/repositories/project_bundle/bundle_row_builders.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/repositories/project_bundle/bundle_row_builders.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/repositories/project_bundle/bundle_row_builders.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** A module docstring plus the toolbox. It notes that these helpers construct ORM objects from bundle dicts and touch no database themselves.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeping the row builders as pure constructors — build the object, do not save it — lets the restore pipeline decide when and in what order to add and flush them.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Function ``def _uuid``
 
 .. CG-EXPLANATION-START id=function:_uuid
 
-.. CG-PLACEHOLDER
+**What this does.** Coerces a raw bundle value into a UUID, returning ``None`` when it is absent.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Bundle values arrive as strings; this is the one place that turns an id string back into a UUID and tolerates a missing one.
 
 .. CG-EXPLANATION-END id=function:_uuid
 
@@ -65,13 +57,9 @@ Function ``def _make_location``
 
 .. CG-EXPLANATION-START id=function:_make_location
 
-.. CG-PLACEHOLDER
+**What this does.** Rebuilds the PostGIS point geometry from raw x, y and EPSG values.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The geometry blob is deliberately not carried in the bundle (it is in ``_SKIP_COLUMNS``); it is reconstructed here from the plain coordinate columns, which is why those always travel.
 
 .. CG-EXPLANATION-END id=function:_make_location
 
@@ -87,13 +75,9 @@ Function ``def _series_row_count``
 
 .. CG-EXPLANATION-START id=function:_series_row_count
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the length of a CPT bundle dict's depth array, or ``None``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The cheap pre-check the restore uses to spot an over-cap series before building it.
 
 .. CG-EXPLANATION-END id=function:_series_row_count
 
@@ -109,13 +93,9 @@ Function ``def _validate_tin_payload``
 
 .. CG-EXPLANATION-START id=function:_validate_tin_payload
 
-.. CG-PLACEHOLDER
+**What this does.** Returns whether a restored TIN blob is structurally sound — the vertices and triangles are lists of the right shape.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A cached surface's geometry comes straight from the file, so a malformed or hostile blob must be caught before it reaches the database; a bad one is blanked and the surface is forced to rebuild.
 
 .. CG-EXPLANATION-END id=function:_validate_tin_payload
 
@@ -131,13 +111,9 @@ Function ``def _cap``
 
 .. CG-EXPLANATION-START id=function:_cap
 
-.. CG-PLACEHOLDER
+**What this does.** Truncates an oversized child array down to a cap, logging what was dropped and adding the count to the drops tally.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the enforcement point for the per-borehole array caps — a crafted bundle with a hundred-thousand-observation borehole is trimmed with a warning rather than allowed to allocate a runaway number of objects, and the dropped count is surfaced to the user (debt #112 / L6).
 
 .. CG-EXPLANATION-END id=function:_cap
 
@@ -153,13 +129,9 @@ Function ``def _build_cpt``
 
 .. CG-EXPLANATION-START id=function:_build_cpt
 
-.. CG-PLACEHOLDER
+**What this does.** Constructs a CPT ORM object (with its optional series) from a bundle dict.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The per-table row builder for CPTs, rebuilding the geometry from the coordinate columns as it goes.
 
 .. CG-EXPLANATION-END id=function:_build_cpt
 
@@ -175,13 +147,9 @@ Function ``def _build_borehole``
 
 .. CG-EXPLANATION-START id=function:_build_borehole
 
-.. CG-PLACEHOLDER
+**What this does.** Constructs a borehole ORM object with its whole child tree from a bundle dict, applying the per-array size caps.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The per-table row builder for boreholes; the caps keep a single crafted borehole from allocating an implausible child tree before the first write.
 
 .. CG-EXPLANATION-END id=function:_build_borehole
 
@@ -197,13 +165,9 @@ Function ``def _build_observation``
 
 .. CG-EXPLANATION-START id=function:_build_observation
 
-.. CG-PLACEHOLDER
+**What this does.** Constructs an observation ORM object with its layer children.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A nested piece of the borehole builder.
 
 .. CG-EXPLANATION-END id=function:_build_observation
 
@@ -219,13 +183,9 @@ Function ``def _build_layer``
 
 .. CG-EXPLANATION-START id=function:_build_layer
 
-.. CG-PLACEHOLDER
+**What this does.** Constructs an observation-layer ORM object with its admixture children.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The next level down of the borehole builder.
 
 .. CG-EXPLANATION-END id=function:_build_layer
 
@@ -241,13 +201,9 @@ Function ``def _build_sample``
 
 .. CG-EXPLANATION-START id=function:_build_sample
 
-.. CG-PLACEHOLDER
+**What this does.** Constructs a sample ORM object with all six lab-test family children.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The sample branch of the borehole builder, again driven off the shared lab-family registry.
 
 .. CG-EXPLANATION-END id=function:_build_sample
 

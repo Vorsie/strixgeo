@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.repositories
 ==========================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/repositories/__init__.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/repositories/__init__.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/repositories/__init__.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** One docstring line, one import of ``CptRepository``, and an ``__all__`` naming it as the package's public export.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It marks the ``repositories`` package. A *repository* is the one class that knows how to read and write a particular kind of thing in the database, so the rest of the program asks the repository for a CPT or a borehole and never writes SQL itself. Only the CPT repository is re-exported here for convenience; the others are imported directly from their own modules.
 
 .. CG-EXPLANATION-END id=module-header
 

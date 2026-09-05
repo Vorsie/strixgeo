@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.field_log_kind
 ===============================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/field_log_kind.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/field_log_kind.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/field_log_kind.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import of ``StrEnum``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The kind is stored as text, so a string-valued enum fits.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``FieldLogKind``
 
 .. CG-EXPLANATION-START id=class:FieldLogKind
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``FieldLogKind``, a StrEnum with three members — ``COLOR``, ``MOISTURE`` and ``CONSISTENCY`` — naming which property a field-log interval describes.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These are the three direct observations a driller records at the hole (colour such as ``groenbruin`` = green-brown, moisture such as ``vochtig`` = moist, consistency such as ``plastisch`` = plastic). Fixing the *kind* as an enum keeps the three streams cleanly separated, while the observed *value* itself stays a free string because the source vocabulary is open.
 
 .. CG-EXPLANATION-END id=class:FieldLogKind
 

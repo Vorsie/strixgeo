@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.models.drill_segment_orm
 ======================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/models/drill_segment_orm.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/models/drill_segment_orm.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/models/drill_segment_orm.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and a small toolbox: ``Double``, ``ForeignKey``, ``Index``, ``String``, the Postgres ``UUID`` type, ``Mapped`` / ``mapped_column`` / ``relationship``, ``Base`` and the loader-strategy constant.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The building blocks for a child table with a single foreign key to its borehole.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DrillSegmentOrm``
 
 .. CG-EXPLANATION-START id=class:DrillSegmentOrm
 
-.. CG-PLACEHOLDER
+**What this does.** Defines the ``drill_segment`` table: one interval of one drilling technique — a ``borehole_id`` foreign key (cascade-delete), ``top_m`` / ``base_m`` / ``method``, and a ``relationship`` back to the borehole. Indexed on ``borehole_id``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The borehole's overall drill method is only a summary; these per-interval rows, kept in source order along ``top_m``, are the ground truth. Cascade delete means removing a borehole removes its segments with it.
 
 .. CG-EXPLANATION-END id=class:DrillSegmentOrm
 

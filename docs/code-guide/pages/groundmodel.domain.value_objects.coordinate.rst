@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.coordinate
 ===========================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/coordinate.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/coordinate.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/coordinate.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import of ``dataclass``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The smallest toolbox for a one-class value object.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``Coordinate``
 
 .. CG-EXPLANATION-START id=class:Coordinate
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``Coordinate``, a frozen 2-D point: ``x`` and ``y`` plus an ``epsg`` code, defaulting to 4326 (WGS84, plain latitude/longitude).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** An x/y pair means nothing without the coordinate system it is measured in, so the *EPSG* code (a published number naming a coordinate reference system) travels with the numbers. The 4326 default is the safe universal fallback when nothing more specific is known.
 
 .. CG-EXPLANATION-END id=class:Coordinate
 

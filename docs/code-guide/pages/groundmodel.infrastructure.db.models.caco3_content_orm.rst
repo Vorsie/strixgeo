@@ -1,7 +1,7 @@
 groundmodel.infrastructure.db.models.caco3_content_orm
 ======================================================
 
-.. CG-PAGE source=src/groundmodel/infrastructure/db/models/caco3_content_orm.py complete=false
+.. CG-PAGE source=src/groundmodel/infrastructure/db/models/caco3_content_orm.py complete=true
 
 *Source file:* ``src/groundmodel/infrastructure/db/models/caco3_content_orm.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and the standard lab-test toolbox: ``Date``, ``Double``, ``ForeignKey``, ``Index``, ``String``, the Postgres ``UUID`` type, ``Mapped`` / ``mapped_column`` / ``relationship``, ``Base`` and the loader-strategy constant.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The ordinary building blocks for a lab-test table with a sample foreign key.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``CaCO3ContentOrm``
 
 .. CG-EXPLANATION-START id=class:CaCO3ContentOrm
 
-.. CG-PLACEHOLDER
+**What this does.** Defines the ``caco3_content`` table: an ``id``, a ``sample_id`` foreign key (cascade-delete), a ``dov_permkey``, the ``content_pct`` percentage, method and date, and a ``relationship`` back to the sample.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The stored form of a lime-content measurement. It is one row per test hanging off a sample, matching every other typed lab family; the ``dov_permkey`` gives the re-import refresh its stable key.
 
 .. CG-EXPLANATION-END id=class:CaCO3ContentOrm
 

@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.observation_type
 =================================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/observation_type.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/observation_type.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/observation_type.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import of ``StrEnum``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The observation type is stored as text, so a string-valued enum fits.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``ObservationType``
 
 .. CG-EXPLANATION-START id=class:ObservationType
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``ObservationType``, a StrEnum listing the eight kinds of interpretation stream a borehole can carry — from ``CODED_LITHOLOGY`` and ``GEOTECHNICAL_CODING`` through the several stratigraphy and hydrogeology variants.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Each member matches a separate DOV interpretation stream, and several can coexist on one borehole (a driller's coded lithology, an engineer's geotechnical re-coding, and a formal stratigraphic reading are all common) — each becomes its own ``Observation`` entity. Fixing the set as an enum keeps those streams distinct and typo-proof.
 
 .. CG-EXPLANATION-END id=class:ObservationType
 

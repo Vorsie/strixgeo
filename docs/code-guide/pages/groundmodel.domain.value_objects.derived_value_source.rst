@@ -1,7 +1,7 @@
 groundmodel.domain.value_objects.derived_value_source
 =====================================================
 
-.. CG-PAGE source=src/groundmodel/domain/value_objects/derived_value_source.py complete=false
+.. CG-PAGE source=src/groundmodel/domain/value_objects/derived_value_source.py complete=true
 
 *Source file:* ``src/groundmodel/domain/value_objects/derived_value_source.py``
 
@@ -21,13 +21,9 @@ Module header — docstring, imports and constants
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** The description line and one import: ``StrEnum`` from Python's standard library.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A *StrEnum* is an enum whose members are also plain strings, so a value both belongs to a fixed set and can be stored or compared as text without conversion — handy for a value that goes straight into a database column.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Class ``DerivedValueSource``
 
 .. CG-EXPLANATION-START id=class:DerivedValueSource
 
-.. CG-PLACEHOLDER
+**What this does.** Defines ``DerivedValueSource``, a two-member StrEnum — ``MEASURED`` and ``COMPUTED`` — that tags where a stored value came from.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the *provenance* flag behind CLAUDE.md Data-Integrity rule 1. When a value could have been recomputed from other stored fields, storing it risks *drift*: edit an input and the stored value silently disagrees. The flag makes the difference explicit — ``MEASURED`` means the file gave the value and it must be preserved as authoritative (it may carry instrument corrections a recomputation would lose); ``COMPUTED`` means the parser derived it and it is safe to throw away and recompute. A missing (``None``) flag means 'unknown' — a legacy row from before the column existed — and must be treated as opaque.
 
 .. CG-EXPLANATION-END id=class:DerivedValueSource
 
