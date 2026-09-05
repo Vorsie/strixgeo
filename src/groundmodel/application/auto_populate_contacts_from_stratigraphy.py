@@ -79,6 +79,7 @@ from groundmodel.application.stratigraphy_scan import (
     _palette_colour_for,
     scan_stratigraphy_candidates,
 )
+from groundmodel.domain.services.formation_age_order_constants import is_anthropogenic
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.g3dv3_catalog import get_catalog
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -721,6 +722,31 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     f"mean depth (G3Dv3 covered "
                     f"{len(g3d_age_ranks)}/{len(new_formation_top_depths)})"
                 )
+
+            # Anthropogenic pin (owner ruling 2026-09-05): man-made fill
+            # (Antropogeen / DOV code "A") is younger than every natural
+            # formation, so it must land at the youngest end whatever the
+            # ordering source decided. sorted_new_fids is OLDEST-first, so
+            # move every anthropogenic formation to the END (highest
+            # display_order = youngest). WHY this is needed: the G3Dv3
+            # branch runs only when EVERY new formation resolves in the
+            # catalog; a single sibling with no catalog entry (e.g.
+            # Pleistoceen/Quartair, absent by name) drops the whole batch
+            # to the mean-depth heuristic, discarding Antropogeen's known
+            # age_rank 0 — which is how Antropogeen landed below Pleistoceen
+            # after "Fill from boreholes".
+            anthropogenic_new = [
+                fid
+                for fid in sorted_new_fids
+                if (formation_row := formation_by_id.get(fid)) is not None
+                and is_anthropogenic(formation_row.regional_ref, formation_row.name)
+            ]
+            if anthropogenic_new:
+                anthro_new_set = set(anthropogenic_new)
+                sorted_new_fids = [
+                    fid for fid in sorted_new_fids if fid not in anthro_new_set
+                ] + anthropogenic_new
+                ordering_source = f"{ordering_source} + Antropogeen pinned youngest"
 
             new_orders = {fid: base_order + i for i, fid in enumerate(sorted_new_fids)}
             # Apply via setattr on the in-session ORM rows (they're
