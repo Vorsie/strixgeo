@@ -194,4 +194,48 @@ describe('locale catalogues', () => {
     expect(translated).toBeGreaterThan(0)
     expect(translated).toBeLessThanOrEqual(total)
   })
+
+  // LP7/LP8 — the stratigraphy display rename (owner ruling, manual review
+  // 2026-09-05): "rename geological to stratigraphical, lithostratigraphic to
+  // lithological, keep geotechnical as is." This is a DISPLAY rename at the
+  // presentation boundary ONLY — keys, DB `kind` values, routes and every code
+  // identifier are unchanged. So these gates scan the VALUES a user reads, not
+  // the keys. In the user's own words: the stage is "Stratigraphy" /
+  // "Stratigrafie", "geological" reads "stratigraphic" / "stratigrafisch", and
+  // "lithostratigraphic" reads "lithological" / "lithologisch". The single kept
+  // exception is the DOV borehole-observation term "Hydrogeological
+  // stratigraphy" — hydrogeology is its own domain word, not the renamed stage.
+  it('LP7 — no user-facing value still reads "geological" or "lithostratigraphic"', () => {
+    const offenders: string[] = []
+    for (const [locale, table] of [
+      ['en', EN],
+      ['nl', NL],
+    ] as const) {
+      for (const [key, value] of Object.entries(table)) {
+        // The hydrogeology domain term is a deliberate keep — strip it before
+        // scanning so it does not masquerade as a leftover stage word.
+        const scanned = value.replace(/hydrogeolog\w*/gi, '')
+        if (/geolog/i.test(scanned) || /lithostrat/i.test(scanned)) {
+          offenders.push(`${locale}: "${key}" = ${JSON.stringify(value)}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('LP8 — the renamed stage labels read Stratigraphy / Lithological', () => {
+    const en = EN as Record<string, string>
+    const nl = NL as Record<string, string>
+    // Stage label (spine rail + axis pill) and its Dutch sibling.
+    expect(en['spine.geology']).toBe('Stratigraphy')
+    expect(nl['spine.geology']).toBe('Stratigrafie')
+    expect(en['sections.toolbar.geology']).toBe('Stratigraphy')
+    expect(nl['sections.toolbar.geology']).toBe('Stratigrafie')
+    // "lithostratigraphic model" → "lithological model".
+    expect(en['litho.modelFull']).toBe('Lithological model')
+    expect(nl['litho.modelFull']).toBe('Lithologisch model')
+    // "geotechnical" is explicitly left untouched.
+    expect(en['sections.axis.geotech']).toBe('Geotech')
+    expect(nl['sections.axis.geotech']).toBe('Geotech')
+  })
 })
