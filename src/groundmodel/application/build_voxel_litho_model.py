@@ -704,6 +704,37 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         )
         self._warn_sub_voxel_investigations(model_id, investigation_columns, grid_spacing_m)
 
+        # The payload AS RECEIVED, before any transform.  The generation row
+        # stores THIS, not an intermediate: the alias map and the true-position
+        # re-seat are both derived from it, whereas the projected-foot column
+        # positions it carries are NOT recoverable afterwards — and the footprint
+        # hull needs them (it unions the columns as-drawn with the true
+        # positions, so it can only grow).  Storing the re-seated payload instead
+        # made a reproduction come back 21 grid cells narrower.
+        sections_received = sections
+
+        # --- Rank the blend in TRUE map space, not projected-foot space --------
+        # The payload's column world positions are the frontend's CANONICAL ones
+        # ("the projected position on the densest section"), which on the dev
+        # model sit a MEDIAN OF 11 m — max 65 m — from where the investigation
+        # actually is.  Everything else here works in true space: the grid, the
+        # footprint, the honored columns.  So the labeller was choosing which
+        # sections are nearest a voxel in one coordinate space and placing the
+        # material in another (docs/debt.md #247 — the twin of the footprint bug
+        # fixed in d3b6c1fd0..99c6e023f).  Owner ruling 2026-07-29: rank by true
+        # positions.  This re-measures only; along_m, the section line and every
+        # region polygon are untouched.
+        # Geometry only: the footprint hull below reads columns, never body ids.
+        sections_as_drawn = sections
+        sections, columns_moved, max_shift_m = apply_true_column_positions(
+            sections, investigation_columns
+        )
+        if columns_moved:
+            self.info(
+                f"BuildVoxelLithoModel: model={model_id} — re-seated {columns_moved} section "
+                f"column(s) onto their true map positions (max shift {max_shift_m:.2f} m)"
+            )
+
         # --- Stage 2: one body identity across the whole fence -----------------
         # The frontend's per-section merge picks its representative PER SECTION,
         # so the same physical unit arrives under a different body_id on every
@@ -719,15 +750,16 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         #
         # This creates no correlation edge and writes nothing: the user's ties
         # stay exactly the user's ties, only the ids are aliased.
-        # The payload AS RECEIVED, before any transform.  The generation row
-        # stores THIS, not an intermediate: the alias map and the true-position
-        # re-seat are both derived from it, whereas the projected-foot column
-        # positions it carries are NOT recoverable afterwards — and the footprint
-        # hull needs them (it unions the columns as-drawn with the true
-        # positions, so it can only grow).  Storing the re-seated payload instead
-        # made a reproduction come back 21 grid cells narrower.
-        sections_received = sections
-
+        #
+        # Planned on the RE-SEATED sections, after ``apply_true_column_positions``
+        # above.  The planner's fence-crossing test intersects consecutive
+        # columns' world positions, and on the payload as drawn those are the
+        # projected feet (a median of 11 m, max 65 m, from the true location on
+        # the dev model): a real crossing could be missed, so one body pinched
+        # mid-gap, or a crossing that exists only in projected space could fuse
+        # two independent bodies into one solid (cloud review 2026-09-05).  The
+        # as-drawn copy kept for the footprint hull is geometry only: no consumer
+        # reads a body id from it, so it stays unaliased.
         # Packing-class identity (debt #278): fuse the twin formation rows one
         # NAD class carries across a geological boundary, so a body spanning
         # that boundary keeps ONE id (owner 2026-08-21, "yes one mass one
@@ -748,27 +780,6 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             self.debug(
                 f"BuildVoxelLithoModel: model={model_id} — cross-section body merge "
                 f"found nothing to alias across {len(aliases)} body id(s)"
-            )
-
-        # --- Rank the blend in TRUE map space, not projected-foot space --------
-        # The payload's column world positions are the frontend's CANONICAL ones
-        # ("the projected position on the densest section"), which on the dev
-        # model sit a MEDIAN OF 11 m — max 65 m — from where the investigation
-        # actually is.  Everything else here works in true space: the grid, the
-        # footprint, the honored columns.  So the labeller was choosing which
-        # sections are nearest a voxel in one coordinate space and placing the
-        # material in another (docs/debt.md #247 — the twin of the footprint bug
-        # fixed in d3b6c1fd0..99c6e023f).  Owner ruling 2026-07-29: rank by true
-        # positions.  This re-measures only; along_m, the section line and every
-        # region polygon are untouched.
-        sections_as_drawn = sections
-        sections, columns_moved, max_shift_m = apply_true_column_positions(
-            sections, investigation_columns
-        )
-        if columns_moved:
-            self.info(
-                f"BuildVoxelLithoModel: model={model_id} — re-seated {columns_moved} section "
-                f"column(s) onto their true map positions (max shift {max_shift_m:.2f} m)"
             )
 
         # --- Phase 1: domain footprint from the feet + the drilled positions ---
