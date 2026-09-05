@@ -29,7 +29,7 @@ export const MODELS = {
   'geology.confidenceFadeHint':
     'Faded triangles in the 3D view + faded contact polylines on sections mark regions where the TIN extrapolates away from nearby data. Toggle off for a uniform colour.',
   'geology.groundSurface': 'Ground surface',
-  'geology.deleteModelConfirm': 'Delete geological model?',
+  'geology.deleteModelConfirm': 'Delete stratigraphic model?',
   'geology.deleteStratigraphy': 'Delete stratigraphy…',
   'geology.dedupeContacts': 'Dedupe contacts…',
   'geology.addToModel': 'Add to model',
@@ -50,7 +50,7 @@ export const MODELS = {
   'geology.noSectionForContact':
     'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
   'geology.loadFailed':
-    'Could not load the geological model — check the connection and reopen the project.',
+    'Could not load the stratigraphic model — check the connection and reopen the project.',
   'geology.splitView': 'Split view',
   'geology.singleView': 'Single view',
   'geology.singleViewHint': 'Collapse back to a single view',
@@ -107,7 +107,7 @@ export const MODELS = {
   'geology.buildStale': 'Build 3D model · {n} stale',
   'geology.buildNoModel': 'No active stratigraphy — create formations and contacts first',
   'geology.buildNoContacts':
-    'No contacts yet — open a cross-section, then Seed from stratigraphy on the geology axis or pick contacts manually before Build',
+    'No contacts yet — open a cross-section, then Seed from stratigraphy on the stratigraphy axis or pick contacts manually before Build',
   'geology.building3d': 'Building 3D model…',
   'geology.surfacesNeedRebuildOne': '{n} formation surface needs rebuilding — click to compute TINs',
   'geology.surfacesNeedRebuildMany':
@@ -121,8 +121,8 @@ export const MODELS = {
   'geology.resetViewTitle': 'Reset to single 3D view and fly camera to model bounding box',
   'geology.deleteStratigraphyShort': 'Delete stratigraphy',
   'geology.deleteStratigraphyTitle':
-    'Permanently delete the active geological model and all its formations, contacts, and surfaces',
-  'geology.moreActions': 'More geology actions',
+    'Permanently delete the active stratigraphic model and all its formations, contacts, and surfaces',
+  'geology.moreActions': 'More stratigraphy actions',
   'geology.applyFailed': 'Could not apply formation selection — check the connection.',
   'geology.deleteFailed': 'Could not delete the model.',
   'geology.selectionExcludePrefix': 'Your selection does not include',
@@ -135,7 +135,7 @@ export const MODELS = {
   'geology.overwriteExplainSuffix': 'and every contact on them.',
   'geology.deleteModelBody':
     'and all its formations, contacts, and cached surfaces will be permanently deleted. This cannot be undone.',
-  'geology.deleteModelButton': 'Delete geological model',
+  'geology.deleteModelButton': 'Delete stratigraphic model',
   // GeologyStage spine summary.
   'geology.summaryFormationOne': '{n} formation',
   'geology.summaryFormationMany': '{n} formations',
@@ -154,7 +154,7 @@ export const MODELS = {
     'No formations yet — Fill from boreholes or add one, then build the 3D model.',
   'geology.boreholeInModel': '{name} in model',
   'geology.deleteFormationBody':
-    'and every contact + geotech unit pointing at it will be removed from the geological model. This can’t be undone (until File → Save the change isn’t in the .gmproj yet — closing without saving reverts).',
+    'and every contact + geotech unit pointing at it will be removed from the stratigraphic model. This can’t be undone (until File → Save the change isn’t in the .gmproj yet — closing without saving reverts).',
   'geology.dragToReorderNamed': 'Drag to reorder {name}',
   'geology.colorClickToChange': '{color} — click to change colour',
   'geology.changeColorOf': 'Change colour of {name}',
@@ -186,7 +186,7 @@ export const MODELS = {
   'geology.sameAs': '→ same as',
   'geology.useCustomName': 'Use "{name}"',
   // Geology hook toasts (useGeologicalModel / useGeologicalModelOps).
-  'geology.createModelFailed': 'Could not create the geological model — check the connection.',
+  'geology.createModelFailed': 'Could not create the stratigraphic model — check the connection.',
   'geology.scanStratigraphyFailed': 'Could not scan borehole stratigraphy — check the connection.',
   'geology.nothingCreated':
     'Nothing created — {n} layer(s) already populated. Use Dedupe or Delete model to reset, then retry.',
@@ -195,7 +195,7 @@ export const MODELS = {
   'geology.seededContactsSkipped': 'Seeded {created} contacts. {skipped}',
   'geology.seedSkippedFragmentOne': '{n} layer skipped — formation not in your model.',
   'geology.seedSkippedFragmentMany': '{n} layers skipped — formation not in your model.',
-  'geology.nothingSeeded': 'Nothing seeded — {skipped} Add it in the Geology stage to place it here.',
+  'geology.nothingSeeded': 'Nothing seeded — {skipped} Add it in the Stratigraphy stage to place it here.',
   'geology.alreadyInSyncNothingToAdd': 'Already in sync — nothing to add.',
   'geology.seedContactsFailed': 'Could not seed contacts from stratigraphy.',
   'geology.dedupeAlreadyClean': 'Already clean — no duplicates found.',
@@ -219,7 +219,7 @@ export const MODELS = {
   // lithology stage.
   // -------------------------------------------------------------------------
   'litho.model': 'Lithology model',
-  'litho.modelFull': 'Lithostratigraphic model',
+  'litho.modelFull': 'Lithological model',
   'litho.units': 'Lithology units',
   'litho.unitsStale': 'Lithology units — 3-D model is stale, rebuild it',
   'litho.formations': 'Litho formations',
@@ -228,16 +228,16 @@ export const MODELS = {
   'litho.noUnits': 'No litho units in this model yet',
   'litho.stale': 'Stale',
   'litho.staleHint': 'Stale — rebuild to update',
-  'litho.createModel': 'Create lithostratigraphic model',
-  'litho.createModelHint': 'Create the lithostratigraphic model that refines this geological model',
-  'litho.newModel': 'New lithostratigraphic model',
-  'litho.newModelHint': 'New lithostratigraphic model (refines the active geological model)',
-  'litho.newModelNameLabel': 'New lithostratigraphic model name',
+  'litho.createModel': 'Create lithological model',
+  'litho.createModelHint': 'Create the lithological model that refines this stratigraphic model',
+  'litho.newModel': 'New lithological model',
+  'litho.newModelHint': 'New lithological model (refines the active stratigraphic model)',
+  'litho.newModelNameLabel': 'New lithological model name',
   'litho.modelNamePlaceholder': 'Model name…',
-  'litho.activeModel': 'Active lithostratigraphic model',
-  'litho.deleteModel': 'Delete lithostratigraphic model',
-  'litho.deleteModelConfirm': 'Delete lithostratigraphic model?',
-  'litho.deleteModelHint': 'Delete the active lithostratigraphic model',
+  'litho.activeModel': 'Active lithological model',
+  'litho.deleteModel': 'Delete lithological model',
+  'litho.deleteModelConfirm': 'Delete lithological model?',
+  'litho.deleteModelHint': 'Delete the active lithological model',
   'litho.cancelNewModel': 'Cancel new model',
   'litho.createOneToPick': 'Create one to pick contacts on sections',
   'litho.clearModel': 'Clear all litho content for this model',
@@ -276,7 +276,7 @@ export const MODELS = {
     'Under-constrained: fewer than 3 CPT/borehole traces — best-effort slab',
   'litho.confidenceFadeHint':
     'Faded triangles in the 3D view mark regions where the model extrapolates away from nearby data. Toggle off for a uniform colour.',
-  'litho.parentFormation': 'Parent geological formation',
+  'litho.parentFormation': 'Parent stratigraphic formation',
   'litho.noParent': '— No parent (detach) —',
   'litho.switchSolidFence': 'Switch between solid TIN surfaces and fence-diagram walls',
   'litho.exportFence': 'Export fence',
@@ -291,9 +291,9 @@ export const MODELS = {
   // Confirm / reassign / detach parent dialog.
   'litho.assignParent': 'Assign parent formation',
   'litho.confirmExtrapolatedParent': 'Confirm extrapolated parent',
-  'litho.orphanBlurb': 'No geology contact covered this litho unit at the investigation.',
+  'litho.orphanBlurb': 'No stratigraphy contact covered this litho unit at the investigation.',
   'litho.extrapolatedBlurb':
-    'The parent was inferred from the geology TIN — please confirm or change it.',
+    'The parent was inferred from the stratigraphy TIN — please confirm or change it.',
   'litho.detach': 'Detach',
   'litho.confirm': 'Confirm',
   'litho.reassign': 'Reassign',
@@ -302,7 +302,7 @@ export const MODELS = {
   'litho.selectPlaceholder': '— select —',
   'litho.thisModelFallback': 'This model',
   'litho.deleteModelBody':
-    'and all its formations, contacts, and cached surfaces will be permanently deleted. The geological parent is not affected. This cannot be undone.',
+    'and all its formations, contacts, and cached surfaces will be permanently deleted. The stratigraphic parent is not affected. This cannot be undone.',
   // Lithology toolbar (Build model / fence / reset).
   'litho.building': 'Building…',
   'litho.buildModelStale': 'Build model · stale',
@@ -325,7 +325,7 @@ export const MODELS = {
   'litho.buildCancelled': 'Build cancelled',
   // Lithology inspector (roster + solids legend).
   'litho.createGeoFirst':
-    'Create a geological model first (Geology stage) — a lithostratigraphic model refines it.',
+    'Create a stratigraphic model first (Stratigraphy stage) — a lithological model refines it.',
   'litho.clearing': 'Clearing…',
   'litho.clearShort': 'Clear',
   'litho.instances': 'Instances',
@@ -371,10 +371,10 @@ export const MODELS = {
   'litho.modelAlreadyEmpty': 'Litho model already empty.',
   'litho.clearedModel': 'Cleared litho model — {c} {contactWord}, {u} {unitWord} removed.',
   'litho.clearModelFailed': 'Could not clear litho model — see console.',
-  'litho.createGeoModelFirst': 'Create a geological model before adding a lithostratigraphic one.',
-  'litho.createModelFailed': 'Could not create the lithostratigraphic model.',
-  'litho.activateModelFailed': 'Could not activate the lithostratigraphic model.',
-  'litho.deleteModelFailed': 'Could not delete the lithostratigraphic model.',
+  'litho.createGeoModelFirst': 'Create a stratigraphic model before adding a lithological one.',
+  'litho.createModelFailed': 'Could not create the lithological model.',
+  'litho.activateModelFailed': 'Could not activate the lithological model.',
+  'litho.deleteModelFailed': 'Could not delete the lithological model.',
   'litho.nothingToBuildYet': 'Nothing to build yet — open a cross-section on the litho axis first.',
   'litho.builtBodies': 'Built {n} {bodyWord}',
   'litho.nothingCouldBeBuilt': 'Nothing could be built — {reason}. The stored 3-D model was cleared.',
@@ -415,7 +415,7 @@ export const MODELS = {
   'litho.layerWordMany': 'layers',
   'litho.noAdmixturesToRestore': 'No overridden borehole admixtures to restore.',
   'litho.restoredAdmixtures': 'Restored segmenter admixtures on {n} borehole {layerWord}.',
-  'litho.fetchSuggestionsFailed': 'Could not fetch lithostratigraphic suggestions.',
+  'litho.fetchSuggestionsFailed': 'Could not fetch lithological suggestions.',
   'litho.acceptSuggestionFailed': 'Could not accept the litho suggestion.',
   'litho.acceptAllFailed': 'Could not accept all litho suggestions.',
   'litho.suggestedFailures': 'Suggested {ok}/{total} — {failed} failed.',
@@ -426,16 +426,16 @@ export const MODELS = {
   'litho.anchorWordMany': 'anchors',
   'litho.acceptedFailures': 'Accepted {ok}/{total} — {failed} failed.',
   'litho.fenceEmptyHint': 'No fence panels — accept correlations in the Sections stage',
-  'litho.snapTitle': 'Snap to geological contact?',
+  'litho.snapTitle': 'Snap to stratigraphic contact?',
   'litho.snapContactAt': 'The litho contact at',
-  'litho.snapWithinMulti': 'sits within snap tolerance of two geological contacts.',
-  'litho.snapWithinSingle': 'sits within snap tolerance of a geological contact.',
-  'litho.snapPickContact': 'Pick a geological contact',
+  'litho.snapWithinMulti': 'sits within snap tolerance of two stratigraphic contacts.',
+  'litho.snapWithinSingle': 'sits within snap tolerance of a stratigraphic contact.',
+  'litho.snapPickContact': 'Pick a stratigraphic contact',
   'litho.snapDistanceAway': '({distance} m away)',
-  'litho.snapGeoContactAt': 'Geological contact at',
+  'litho.snapGeoContactAt': 'Stratigraphic contact at',
   'litho.snapCancelKeepSeparate': 'Cancel — keep separate',
-  'litho.snapMoveGeoToLitho': 'Move geological to litho',
-  'litho.snapLithoToGeo': 'Snap litho to geological',
+  'litho.snapMoveGeoToLitho': 'Move stratigraphic to litho',
+  'litho.snapLithoToGeo': 'Snap litho to stratigraphic',
 
   // -------------------------------------------------------------------------
   // geotechnical stage.
@@ -446,14 +446,14 @@ export const MODELS = {
   'geotech.soilGroups': 'Geotechnical soil groups',
   'geotech.noUnits': 'No geotech units yet',
   'geotech.noBodyModel': 'No geotech body model yet',
-  'geotech.noLithoModel': 'No lithostratigraphic model yet',
+  'geotech.noLithoModel': 'No lithological model yet',
   'geotech.selectedBody': 'Selected body',
   'geotech.estimateDisclaimer':
     'NAD packing classes are CPT-derived estimates — verify against the borehole descriptions before use.',
   'geotech.rosterBlurb':
     'Geotech units that describe ground in this model. A unit that describes nothing is not listed — there is nothing in it.',
   'geotech.runSubdivideHint':
-    "Run 'Subdivide all bodies' to classify the lithostratigraphic units into NAD packing classes.",
+    "Run 'Subdivide all bodies' to classify the lithological units into NAD packing classes.",
   'geotech.buildHint':
     "Run 'Subdivide all bodies' on the Sections stage (geotech axis), then click 'Build model' on the Geotechnical toolbar to generate the 3D NAD body solids.",
   'geotech.switchSolidFence': 'Switch between solid body model and fence-diagram walls',
@@ -529,7 +529,7 @@ export const MODELS = {
   // GeotechnicalInspector / geotechBadges / GeotechBuildPreflightDialog /
   // GeotechBuildReportBanner). The build verbs Build model / Building… /
   // Build model · stale / Export fence / Reset camera reuse the litho.* keys.
-  'geotech.selectLithoModelFirst': 'Select a lithostratigraphic model first.',
+  'geotech.selectLithoModelFirst': 'Select a lithological model first.',
   'geotech.subdivideAllBodiesFailed': 'Subdivide all bodies failed — see console.',
   'geotech.subdivideCptsFailed': 'Subdivide CPTs failed — see console.',
   'geotech.tieReviewOne':
@@ -548,7 +548,7 @@ export const MODELS = {
   'geotech.confidenceLow': 'Low',
   'geotech.nadClassParen': '(NAD {nad})',
   'geotech.noLithoModelHint':
-    'Create a lithostratigraphic model in the Lithology stage and accept litho suggestions, then return here to build the 3D geotechnical model.',
+    'Create a lithological model in the Lithology stage and accept litho suggestions, then return here to build the 3D geotechnical model.',
   'geotech.fenceEmptyHint': 'No fence panels — connect packing bands on the Sections stage',
   'geotech.subdividing': 'Subdividing…',
   'geotech.buildNoBands':
