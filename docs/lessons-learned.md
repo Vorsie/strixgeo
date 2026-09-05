@@ -491,3 +491,14 @@ catches it is a real file from the shipped app, not a fixture: keep one
 recent owner-saved `.strix` in the dogfeed loop and open it in the harness
 after any schema-bearing slice.
 
+## A landing during a running push rides that push ungated (2026-09-04)
+
+`git push` runs the pre-push integration gate against the head it saw when the
+push started, then sends the head as it is when the gate finishes. Two slices
+were fast-forwarded onto develop during a 25-minute gate; both reached origin
+without their gate, and the "second push" afterwards reported "No
+Python/integration files changed — gate skipped". Rule: never land on develop
+while a push is in flight; if it happened, run the integration wrapper by hand
+before the next installer. A Python-touching push that finishes in seconds is
+this, every time.
+
