@@ -33,7 +33,7 @@ import fs from 'fs'
 export type SpineLabel =
   | 'Data'
   | 'Sections'
-  | 'Geology'
+  | 'Stratigraphy'
   | 'Litho'
   | 'Geotech'
   | 'Parameters'
