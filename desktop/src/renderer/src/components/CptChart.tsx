@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Database } from 'lucide-react'
+import { Database, ArrowLeftRight } from 'lucide-react'
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer,
@@ -24,6 +24,7 @@ import {
 import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
+import { usePersistedJSON } from '../hooks/usePersistedJSON'
 import type { ContactOverlay } from '../utils/contactOverlays'
 import { useT } from '../i18n/translate'
 
@@ -229,9 +230,11 @@ export default function CptChart({
   // most CPT detail views never need it (engineers leaving overlays
   // off). Cached at module scope so the section pane's strip and
   // this dropdown share one fetch per session.
-  const catalog = useVirtueleBoringCatalog(
-    onChangeVirtueleBoringOverrideModel !== undefined,
-  )
+  const {
+    catalog,
+    failed: dovCatalogFailed,
+    status: dovCatalogStatus,
+  } = useVirtueleBoringCatalog(onChangeVirtueleBoringOverrideModel !== undefined)
   const t = useT()
   const elevationM = detail?.elevation_m ?? null
   const zEpsg = detail?.z_epsg ?? null
@@ -267,6 +270,16 @@ export default function CptChart({
 
   const [zoomDomain, setZoomDomain] = useState<[number, number]>([0, maxDepth])
   const [isDragging, setIsDragging] = useState(false)
+
+  // Rf-axis orientation is a per-user reading preference (many Belgian
+  // engineers read Rf increasing to the LEFT), so it persists in
+  // localStorage per user — not in the project bundle — and applies to
+  // every CPT chart. Default matches today: Rf increases to the right.
+  const [rfInverted, setRfInverted] = usePersistedJSON<boolean>(
+    'groundmodel.cptchart.rf_inverted',
+    false,
+    raw => raw === true,
+  )
 
   // Keep a ref so event listeners always see the latest domain without being recreated
   const zoomDomainRef = useRef(zoomDomain)
@@ -495,10 +508,13 @@ export default function CptChart({
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
         {isLeft  ? yLevel(zoomDomain, fmtLevel, levelLabel) : yGhostLeft(zoomDomain)}
         {isRight ? yLength(zoomDomain, t('chart.lengthAxis'))                    : yGhostRight(zoomDomain)}
-        <XAxis xAxisId="rf" type="number" orientation="top" domain={[0, RF_MAX]}
+        {/* reversed={rfInverted}: many Belgian engineers read Rf
+            increasing to the LEFT. Both the top ("rf") and bottom
+            ("rfb") axes flip together so ticks and the data line agree. */}
+        <XAxis xAxisId="rf" type="number" orientation="top" domain={[0, RF_MAX]} reversed={rfInverted}
           tick={{ fontSize: 11, fill: RF_CLR }} ticks={[...RF_AXIS_TICKS_PCT]}
         />
-        <XAxis xAxisId="rfb" type="number" orientation="bottom" domain={[0, RF_MAX]}
+        <XAxis xAxisId="rfb" type="number" orientation="bottom" domain={[0, RF_MAX]} reversed={rfInverted}
           tick={{ fontSize: 11, fill: RF_CLR }} ticks={[...RF_AXIS_TICKS_PCT]}
         />
         {preDrillZone('rf')}
@@ -591,6 +607,26 @@ export default function CptChart({
               onClick={() => setZoomDomain([0, maxDepth])}
             >{t('common.reset')}</button>
           )}
+          {/* Rf-axis orientation toggle — flips Rf to increase leftward.
+              Only offered when the chart actually draws an Rf panel. */}
+          {hasRf && (
+            <button
+              onClick={() => setRfInverted(v => !v)}
+              aria-pressed={rfInverted}
+              aria-label={t('chart.invertRfAxis')}
+              title={t('chart.invertRfAxis')}
+              className={
+                'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
+                (rfInverted
+                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                  : 'border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700')
+              }
+            >
+              <ArrowLeftRight size={11} />
+              {/* i18n-exempt: Rf is a CPT channel symbol (international notation) */}
+              Rf
+            </button>
+          )}
           {/* DOV Virtuele Boring overlay toggle + override picker.
               The button flips visibility; the dropdown picks which
               model THIS pane shows. "Follow section" inherits the
@@ -649,6 +685,19 @@ export default function CptChart({
                     </option>
                   ))}
                 </select>
+              )}
+              {/* When the lagenmodel catalogue fetch failed (e.g. the
+                  backend refused the DOV host → 503) the picker above is
+                  disabled; say why instead of leaving it silently greyed.
+                  i18n-exempt: DOV is the product/brand name. */}
+              {dovCatalogFailed && (
+                <span
+                  className="text-[10px] text-gray-400 dark:text-slate-500"
+                  title={t('borelog.dovUnavailable')}
+                >
+                  {t('borelog.dovUnavailable')}
+                  {dovCatalogStatus !== null ? ` (${dovCatalogStatus})` : ''}
+                </span>
               )}
             </>
           )}
