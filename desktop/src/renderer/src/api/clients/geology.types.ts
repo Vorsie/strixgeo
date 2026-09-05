@@ -60,6 +60,26 @@ export type { CrossSectionResponse } from './section'
  */
 export type NadAdmixtureChoice = 'pure' | 'with_admixture'
 
+/**
+ * The NAD table's characteristic values for a unit's packing class (owner
+ * ruling 2026-09-05). A read-only mirror of the backend
+ * ``NadSoilParametersResponse`` — transcribed from NBN EN 1997-1 ANB Tabel 2.1,
+ * NOT design values and NOT a Strix-computed correlation. ``cu_kpa`` is null on
+ * the granular classes where the table carries a dash.
+ */
+export interface NadCharacteristicValues {
+  /** Unit weight above the phreatic level (unsaturated / "dry"), kN/m³. */
+  gamma_unsat_kn_m3: number
+  /** Unit weight below the phreatic level (saturated / "wet"), kN/m³. */
+  gamma_sat_kn_m3: number
+  /** Effective angle of internal friction φ′, degrees. */
+  phi_deg: number
+  /** Effective cohesion c′, kPa. */
+  c_kpa: number
+  /** Characteristic undrained shear strength cu, kPa; null for granular classes. */
+  cu_kpa: number | null
+}
+
 export interface GeologicalFormationResponse {
   id: string
   app_project_id: string
@@ -127,6 +147,11 @@ export interface GeologicalFormationResponse {
   // The LithologyInspector renders an amber dot + tooltip + confirm dialog
   // when set. Cleared via PATCH parent_extrapolated=false on Confirm.
   parent_extrapolated: boolean
+  // NAD characteristic values for this unit's packing class (owner ruling
+  // 2026-09-05), computed on read from ``nad_class`` on the backend. null on any
+  // unit with no NAD class (geological / litho) or no transcribed table row.
+  // Optional so pre-change fixtures still typecheck.
+  nad_parameters?: NadCharacteristicValues | null
   created_at: string
   updated_at: string
 }
