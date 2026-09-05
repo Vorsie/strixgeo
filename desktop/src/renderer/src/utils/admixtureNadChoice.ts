@@ -63,10 +63,31 @@ export function unitAdmixtureIsAmbiguous(
   soilCode: string | null,
   admixtures: AdmixtureItem[] | null | undefined,
 ): boolean {
-  if (soilCode === null) return false
+  return forkingAdmixtures(soilCode, admixtures).length > 0
+}
+
+/**
+ * The subset of a unit's admixtures that fork it into the secondary NAD column.
+ *
+ * These are the admixtures the geotech prompt names (owner ruling 2026-09-05:
+ * *"you need to specify which admixture in the prompt"*): the silt/clay ones on
+ * a coarse soil, the sand ones on a fine soil. A gravel admixture on sand, or
+ * any code the soil's fork set does not contain, is dropped — it does not count
+ * and the unit classifies as the plain soil. Empty for a soil with no fork
+ * column (VEEN) or an unknown / null soil.
+ *
+ * @param soilCode - the unit's ``litho_main_soil_code``.
+ * @param admixtures - the unit's admixtures (may be null/empty).
+ * @returns the forking admixtures, in the unit's original order.
+ */
+export function forkingAdmixtures(
+  soilCode: string | null,
+  admixtures: AdmixtureItem[] | null | undefined,
+): AdmixtureItem[] {
+  if (soilCode === null) return []
   const codes = SECONDARY_ADMIXTURE_CODES[soilCode]
-  if (codes === undefined) return false
-  return (admixtures ?? []).some(a => codes.has(a.soil_code))
+  if (codes === undefined) return []
+  return (admixtures ?? []).filter(a => codes.has(a.soil_code))
 }
 
 /** One admixture-ambiguous litho unit the prompt lists. */
@@ -77,6 +98,9 @@ export interface AdmixtureUnit {
   name: string
   /** The main soil token (ZAND / GRIND / SILT / KLEI) — the dialog translates it. */
   soilCode: string
+  /** The admixtures that forked this unit — the prompt names them (owner ruling
+   *  2026-09-05). Never empty for a listed unit (it is why it is listed). */
+  matchedAdmixtures: AdmixtureItem[]
   /** The stored answer, or null when unanswered. */
   choice: NadAdmixtureChoice | null
 }
@@ -108,6 +132,7 @@ export function ambiguousAdmixtureUnits(
       formationId: f.id,
       name: f.name,
       soilCode: f.litho_main_soil_code as string,
+      matchedAdmixtures: forkingAdmixtures(f.litho_main_soil_code, f.litho_admixtures),
       choice: f.nad_admixture_choice ?? null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
