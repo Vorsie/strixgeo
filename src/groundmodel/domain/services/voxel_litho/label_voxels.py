@@ -72,11 +72,12 @@ from groundmodel.domain.services.voxel_litho.pinch_terminations import (
     pinch_factor,
 )
 from groundmodel.domain.services.voxel_litho.snap_grid import (
-    SNAP_GRID_M,
     gap_edge_fraction_margin,
 )
+from groundmodel.domain.services.voxel_litho.snap_grid_constants import SNAP_GRID_M
 from groundmodel.domain.services.voxel_litho.voxel_constants import (
     HAIRLINE_LIMIT_M,
+    PROGRESS_TICK_TARGET,
     PROJECTION_TIE_EPS_M,
 )
 from groundmodel.domain.services.voxel_litho.voxel_grid_budget import check_voxel_grid_budget
@@ -90,14 +91,6 @@ from groundmodel.shared.exceptions import BuildCancelled
 
 __all__ = ["label_voxels"]
 
-#: Upper bound on the number of per-column progress ticks a single build emits.
-#: The labelling loop reports once every ``max(1, nx // PROGRESS_TICK_TARGET)``
-#: x-columns (rows) plus a final tick, so a tall grid does not flood the SSE
-#: channel while a short one still ticks smoothly.  The cancel predicate, by
-#: contrast, is checked EVERY row — it is a cheap ``Event.is_set`` and must stay
-#: responsive.
-PROGRESS_TICK_TARGET = 200
-
 # Tolerance for "zero thickness / coincident elevation".  Mirrors the loft /
 # partition pipeline's EPS; intervals thinner than this are dropped.
 _EPS: float = 1e-9
@@ -109,18 +102,6 @@ Measured on the real partitions the gap is exactly zero — a slice's base IS th
 slice's top — so this is a float-noise guard, not a tunable.  Widening it would start
 joining intervals across genuinely thin layers of another body, which is the #228
 sliver problem and must be fixed there rather than absorbed here.
-"""
-
-
-CONTACT_GOES_TO_THE_BODY_ABOVE = """A voxel exactly on a contact belongs to the SHALLOWER body.
-
-One rule, two implementations (:func:`_column_labels` and
-:func:`_column_labels_gapped`): each stack interval is half-open ``[base, top)``,
-so where one entry's base equals the next entry's top the upper entry wins.  The
-column's global base is closed (the deepest entry owns a voxel exactly on it) and
-its global top is open (a voxel exactly on the surface is void) — a benign
-measure-zero asymmetry on the grid, but the SAME asymmetry in both labellers, so
-which one the caller passes never changes a voxel's answer.
 """
 
 
@@ -1535,7 +1516,7 @@ def _column_labels(
     interval contains it, and to NOTHING when no entry does.  Found with one
     ``np.searchsorted`` over the ascending boundary edges (deep → shallow) —
     O(nz log m), ``m`` = stack height.  Boundary convention:
-    :data:`CONTACT_GOES_TO_THE_BODY_ABOVE`.
+    :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.CONTACT_GOES_TO_THE_BODY_ABOVE`.
 
     **An interval no entry covers is VOID, not the body above it.**  The edge
     array used to carry only the entries' tops plus the deepest base, which
@@ -1636,8 +1617,9 @@ def _column_labels_gapped(
     Each entry is point-located independently: a voxel ``z`` with
     ``base_elev <= z < top_elev`` takes that entry's body.  Entries are applied
     shallow → deep, and a voxel keeps the FIRST (shallowest) entry that claims it.
-    Boundary convention: :data:`CONTACT_GOES_TO_THE_BODY_ABOVE` — the same rule
-    :func:`_column_labels` encodes, stated once so the two cannot drift.  Any
+    Boundary convention:
+    :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.CONTACT_GOES_TO_THE_BODY_ABOVE`
+    — the same rule :func:`_column_labels` encodes, stated once so the two cannot drift.  Any
     voxel claimed by no entry stays void — the faithful representation of a
     pinched-out litho between two geological bands.
 
@@ -1976,6 +1958,8 @@ def label_voxels(
                 zmin = base_elev
             if top_elev > zmax:
                 zmax = top_elev
+    # Extending zmin to every honored log's base is what keeps the ``logs_below_grid_floor``
+    # backstop silent; that tally becomes a live tripwire only if this extension is removed.
 
     # Horizontal spacing (X and Y) is ``grid_spacing_m``; the vertical (Z) spacing
     # is ``vertical_spacing_m`` when set, else the same — the cubic case, in which
@@ -2083,11 +2067,13 @@ def label_voxels(
         body_terminations(sections) if measured_pinch else None
     )
     tally = _LabelTally()
-    # The grid's elevation range comes from the SECTION polygons alone, so an
-    # honored log that reaches deeper than every section has no grid node to be
-    # labelled on and is silently truncated at the floor — a borehole that would
-    # read flat-bottomed in the 3-D view with nothing to say why.  Zero on the
-    # owner's model today; named the day it is not.
+    # REGRESSION BACKSTOP, silent by construction on the current framing. The grid frame
+    # above extends ``zmin`` DOWN to every honored log's base ("down to the deepest
+    # investigation"), so no honored log can fall below the floor and this tally is empty
+    # today (pinned by test_label_report_tripwires). It stays as a tripwire on the SAME
+    # ``investigation_columns``: were a future change to reframe the grid from the section
+    # polygons alone again (debt #242's regression), a log drilled deeper than every section
+    # would truncate at the floor with nothing in the 3-D view to say why, and this names it.
     tally.logs_below_grid_floor = tuple(
         (inv.investigation_id, zmin - min(base for _b, _f, _t, base in inv.intervals))
         for inv in investigation_columns
