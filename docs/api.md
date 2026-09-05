@@ -120,6 +120,8 @@ PATCH  /formations/{formation_id} — Partial update on a formation. Only fields
 DELETE /formations/{formation_id} — Delete a formation. Cascades to every contact that referenced it.
 ```
 
+The formation response carries an additive, read-only `nad_parameters` object — the NAD table's characteristic values (`gamma_unsat_kn_m3`, `gamma_sat_kn_m3`, `phi_deg`, `c_kpa`, `cu_kpa`) for the unit's `nad_class`, computed on read from the shared `parameters_for_class` accessor (the same row the D-Series exporters read); `null` on any unit with no NAD class or no transcribed row. Additive/optional — pre-change clients ignore it.
+
 **Geology » Models — `geology/models.py`**
 
 ```
