@@ -18,6 +18,9 @@ from groundmodel.infrastructure.db.repositories.cpt_repository import CptReposit
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient, WfsIndexEntry
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.crs_bounds_constants import (
+    COORDINATES_OUTSIDE_CRS_BOUNDS_CODE,
+)
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_MAX_IMPORT_FEATURES
 from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
 from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
@@ -267,6 +270,21 @@ class ImportCptDov(GroundModelLogger):
             f"{len(existing)} of {len(test_ids)} already in project"
         )
         await fire_progress(progress_cb, "dedup", len(existing), total)
+
+        # Phase-summary INFO: how many parsed CPTs carry coordinates outside
+        # their declared CRS's area (a swapped X/Y or a foreign position). The
+        # per-test detail is the WARNING the parser already attached to each
+        # result; this is the "did this batch have any" the reader scans for.
+        flagged = sum(
+            1
+            for _, result in parsed
+            if any(iss.code == COORDINATES_OUTSIDE_CRS_BOUNDS_CODE for iss in result.issues)
+        )
+        if flagged:
+            self.info(
+                f"DOV import: {flagged}/{len(parsed)} CPT(s) have coordinates outside "
+                "their declared CRS area"
+            )
 
         # Phase 4 — persist non-duplicates without committing per-CPT.
         t_persist = time.perf_counter()
