@@ -25,11 +25,14 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from uuid import UUID
 
+from groundmodel.domain.services.formation_age_order_constants import is_anthropogenic
+
 
 def infer_age_order(
     *,
     contacts_by_anchor: Mapping[UUID, Sequence[tuple[float, UUID]]],
     all_formation_ids: Iterable[UUID],
+    labels_by_formation: Mapping[UUID, str | None] | None = None,
 ) -> list[UUID]:
     """Topologically order formations from per-investigation contact depths.
 
@@ -51,6 +54,15 @@ def infer_age_order(
     all_formation_ids : Iterable[UUID]
         Every formation that should appear in the output, including
         those with zero contacts in any anchor (orphans).
+    labels_by_formation : Mapping[UUID, str or None] or None, optional
+        Optional per-formation label (its display name, or its
+        regional-reference code) used only to recognise the
+        anthropogenic unit. Any formation whose label identifies it as
+        Antropogeen (see :func:`is_anthropogenic`) is pinned to the
+        youngest end of the result — man-made fill is younger than every
+        natural formation by definition, regardless of the per-borehole
+        contact evidence (owner ruling 2026-09-05). ``None`` (default)
+        applies no pin, preserving the pure data-driven order.
 
     Returns
     -------
@@ -75,6 +87,10 @@ def infer_age_order(
     * **DAG cycles after conflict resolution** (rare; would require
       a true odd-length contradiction cycle) — any formations not
       reached by the toposort are appended by mean depth ascending.
+    * **Anthropogenic unit** (``Antropogeen`` / DOV code ``A``, matched
+      via ``labels_by_formation``) is moved to the youngest end after
+      the data-driven order is built, overriding any contact evidence
+      or tie-break — it is younger than everything by definition.
 
     The order is deterministic given the same input — same inputs
     always produce the same list. Important for reproducibility and
@@ -156,4 +172,18 @@ def infer_age_order(
 
     # Orphans last, UUID-sorted for stability.
     result.extend(orphans)
+
+    # Anthropogenic pin (owner ruling 2026-09-05): man-made fill is
+    # younger than every natural formation by definition, so no amount
+    # of contact evidence — nor an orphan placement at the oldest end —
+    # can make it older. After the data-driven youngest-first order is
+    # built, move every anthropogenic formation to the front (result[0]
+    # is the youngest), keeping their relative order stable. Only applied
+    # when the caller supplies labels; the pure data path is unchanged.
+    if labels_by_formation:
+        anthropogenic = [fid for fid in result if is_anthropogenic(labels_by_formation.get(fid))]
+        if anthropogenic:
+            anthro_set = set(anthropogenic)
+            result = anthropogenic + [fid for fid in result if fid not in anthro_set]
+
     return result
