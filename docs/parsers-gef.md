@@ -28,6 +28,7 @@ Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef
 - `NO_COORDINATES` / `ZERO_COORDINATES` / `NO_EPSG` / `NO_ELEVATION`
 - `UNKNOWN_CRS_CODE` — WARNING, `#XYID` code neither a known GEF code nor a supported EPSG (`NO_EPSG` is reserved for a genuinely absent code)
 - `UNKNOWN_VERTICAL_CRS_CODE` — INFO, same for `#ZID`; elevations keep a bare `m` label
+- `COORDINATES_OUTSIDE_CRS_BOUNDS` — WARNING, the `(x, y)` falls outside the area the declared horizontal EPSG covers (a swapped X/Y, a wrong EPSG, or a foreign position) — the message names the system and the offending values. Never an ERROR, and skipped when the CRS is unknown (`NO_EPSG` / `UNKNOWN_CRS_CODE`) or when coordinates are absent/`(0, 0)` so it never doubles a more specific finding. The area comes from pyproj's `area_of_use`, projected once per EPSG and padded by a 500 m margin (`crs_bounds.py` / `crs_bounds_constants.py`).
 - `UNCORRECTED_DEPTH` — WARNING, `depth_m` is really the qty-1 penetration length
 - `SKIPPED_ROWS` — WARNING, data lines dropped as unparseable
 - `MISSING_COLUMN` — qc always required; fs + u2 required for CPTU; fs required for CPTE
