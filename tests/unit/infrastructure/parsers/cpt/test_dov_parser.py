@@ -15,7 +15,7 @@ from groundmodel.domain.value_objects.derived_value_source import DerivedValueSo
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 
 _NS = "http://kern.schemas.dov.vlaanderen.be"
