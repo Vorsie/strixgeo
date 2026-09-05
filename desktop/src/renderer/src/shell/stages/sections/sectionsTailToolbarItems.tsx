@@ -327,6 +327,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
           disabled={!hasSection || deleting}
           busy={deleting}
           danger
+          testid="sections-delete"
           title={
             !hasSection
               ? t('sections.tail.deleteSelectFirst')
