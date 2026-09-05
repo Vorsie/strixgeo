@@ -81,17 +81,6 @@ The formation names follow the Belgian stratigraphic nomenclature maintained by
 the **National Commission for Stratigraphy Belgium (NCS)**
 (`https://ncs.naturalsciences.be <https://ncs.naturalsciences.be>`_).
 
-* **Steurbaut, E., de Ceukelaire, M., Lanckacker, T., Matthijs, J., Stassen, P.,
-  van Baelen, H., & Vandenberghe, N. (2017).** An update of the lithostratigraphy
-  of the Ieper Group.
-
-* **Laga, P., Louwye, S., & Geets, S. (2001).** Paleogene and Neogene
-  lithostratigraphic units (Belgium). Geologica Belgica, 4/1-2, 135–152.
-
-* **Gullentops, F., Bogemans, F., de Moor, G., Paulissen, E., & Pissart, A.
-  (2002).** Quaternary lithostratigraphic units (Belgium). Geologica Belgica,
-  4(1–2), 153–164.
-
 Eurocode 7, second generation
 -----------------------------
 
