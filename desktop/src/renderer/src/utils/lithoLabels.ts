@@ -300,6 +300,27 @@ export function admixtureSoilLabel(code: string): string {
   return code.toLowerCase()
 }
 
+/**
+ * The admixture adjective for a soil code in the active UI language.
+ *
+ * ``'nl'`` selects the Dutch adjective (``siltig`` / ``kleiig`` / ``zandig``),
+ * every other locale the English one, with the English adjective as the
+ * graceful fallback for codes the NL table does not curate — the same
+ * language switch ``NL_VOCAB.soil`` makes. The geotech admixture prompt uses it
+ * to NAME the admixture it found (owner ruling 2026-09-05).
+ *
+ * @param code - the admixture ``soil_code`` (e.g. ``'SL'``, ``'KL'``, ``'XZ'``).
+ * @param language - the locale to render in; defaults to the active language.
+ * @returns the adjective (e.g. ``'silty'`` / ``'siltig'``).
+ */
+export function admixtureSoilAdjective(
+  code: string,
+  language: Language = getLanguage(),
+): string {
+  if (language === 'nl') return ADMIXTURE_SOIL_NL[code] ?? admixtureSoilLabel(code)
+  return admixtureSoilLabel(code)
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
