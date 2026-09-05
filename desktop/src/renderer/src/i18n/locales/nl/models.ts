@@ -30,7 +30,7 @@ export const MODELS_NL = {
   'geology.confidenceFadeHint':
     'Vervaagde driehoeken in de 3D-weergave en vervaagde contactlijnen op profielen markeren zones waar de TIN extrapoleert, weg van nabije gegevens. Zet dit uit voor een egale kleur.',
   'geology.groundSurface': 'Maaiveld',
-  'geology.deleteModelConfirm': 'Geologisch model verwijderen?',
+  'geology.deleteModelConfirm': 'Stratigrafisch model verwijderen?',
   'geology.deleteStratigraphy': 'Stratigrafie verwijderen…',
   'geology.dedupeContacts': 'Dubbele laaggrenzen opschonen…',
   'geology.addToModel': 'Aan het model toevoegen',
@@ -52,7 +52,7 @@ export const MODELS_NL = {
   'geology.noSectionForContact':
     'Geen enkel dwarsprofiel bevat de betrokken laaggrens — teken er een door de boring of sondering om ze te bekijken.',
   'geology.loadFailed':
-    'Kon het geologisch model niet laden — controleer de verbinding en open het project opnieuw.',
+    'Kon het stratigrafisch model niet laden — controleer de verbinding en open het project opnieuw.',
   'geology.splitView': 'Gesplitste weergave',
   'geology.singleView': 'Eén weergave',
   'geology.singleViewHint': 'Terug naar één weergave',
@@ -113,7 +113,7 @@ export const MODELS_NL = {
   'geology.buildStale': '3D-model bouwen · {n} verouderd',
   'geology.buildNoModel': 'Geen actieve stratigrafie — maak eerst formaties en laaggrenzen aan',
   'geology.buildNoContacts':
-    'Nog geen laaggrenzen — open een dwarsprofiel, vul dan vanuit de stratigrafie op de geologie-as of kies handmatig laaggrenzen voor je bouwt',
+    'Nog geen laaggrenzen — open een dwarsprofiel, vul dan vanuit de stratigrafie op de stratigrafie-as of kies handmatig laaggrenzen voor je bouwt',
   'geology.building3d': '3D-model bouwen…',
   'geology.surfacesNeedRebuildOne':
     '{n} formatie-oppervlak moet herbouwd worden — klik om TIN’s te berekenen',
@@ -129,8 +129,8 @@ export const MODELS_NL = {
     'Terug naar één 3D-weergave en vlieg de camera naar het omhullende kader van het model',
   'geology.deleteStratigraphyShort': 'Stratigrafie verwijderen',
   'geology.deleteStratigraphyTitle':
-    'Verwijder definitief het actieve geologische model en al zijn formaties, laaggrenzen en oppervlakken',
-  'geology.moreActions': 'Meer geologie-acties',
+    'Verwijder definitief het actieve stratigrafische model en al zijn formaties, laaggrenzen en oppervlakken',
+  'geology.moreActions': 'Meer stratigrafie-acties',
   'geology.applyFailed': 'Kon de formatieselectie niet toepassen — controleer de verbinding.',
   'geology.deleteFailed': 'Kon het model niet verwijderen.',
   'geology.selectionExcludePrefix': 'Je selectie mist',
@@ -143,7 +143,7 @@ export const MODELS_NL = {
   'geology.overwriteExplainSuffix': 'en elk contact erop.',
   'geology.deleteModelBody':
     'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. Dit kan niet ongedaan gemaakt worden.',
-  'geology.deleteModelButton': 'Geologisch model verwijderen',
+  'geology.deleteModelButton': 'Stratigrafisch model verwijderen',
   // GeologyStage-samenvatting op de stappenbalk.
   'geology.summaryFormationOne': '{n} formatie',
   'geology.summaryFormationMany': '{n} formaties',
@@ -163,7 +163,7 @@ export const MODELS_NL = {
     'Nog geen formaties — Vullen vanuit boringen of voeg er een toe, en bouw daarna het 3D-model.',
   'geology.boreholeInModel': '{name} in het model',
   'geology.deleteFormationBody':
-    'en elke laaggrens + geotechnische eenheid die ernaar verwijst, wordt uit het geologisch model verwijderd. Dit kan niet ongedaan gemaakt worden (tot Bestand → Opslaan zit de wijziging nog niet in de .gmproj — sluiten zonder opslaan draait ze terug).',
+    'en elke laaggrens + geotechnische eenheid die ernaar verwijst, wordt uit het stratigrafisch model verwijderd. Dit kan niet ongedaan gemaakt worden (tot Bestand → Opslaan zit de wijziging nog niet in de .gmproj — sluiten zonder opslaan draait ze terug).',
   'geology.dragToReorderNamed': '{name} slepen om de volgorde te wijzigen',
   'geology.colorClickToChange': '{color} — klik om de kleur te wijzigen',
   'geology.changeColorOf': 'Kleur van {name} wijzigen',
@@ -195,7 +195,7 @@ export const MODELS_NL = {
   'geology.sameAs': '→ zelfde als',
   'geology.useCustomName': 'Gebruik "{name}"',
   // Geologie-hook-toasts (useGeologicalModel / useGeologicalModelOps).
-  'geology.createModelFailed': 'Kon het geologisch model niet aanmaken — controleer de verbinding.',
+  'geology.createModelFailed': 'Kon het stratigrafisch model niet aanmaken — controleer de verbinding.',
   'geology.scanStratigraphyFailed':
     'Kon de boorstratigrafie niet scannen — controleer de verbinding.',
   // FLAG alt: {n} laag (lagen) — English dodges the plural with "layer(s)"; Dutch
@@ -208,7 +208,7 @@ export const MODELS_NL = {
   'geology.seedSkippedFragmentOne': '{n} laag overgeslagen — formatie niet in je model.',
   'geology.seedSkippedFragmentMany': '{n} lagen overgeslagen — formatie niet in je model.',
   'geology.nothingSeeded':
-    'Niets gevuld — {skipped} Voeg ze toe in de geologiestap om ze hier te plaatsen.',
+    'Niets gevuld — {skipped} Voeg ze toe in de stratigrafiestap om ze hier te plaatsen.',
   'geology.alreadyInSyncNothingToAdd': 'Al gesynchroniseerd — niets toe te voegen.',
   'geology.seedContactsFailed': 'Kon geen laaggrenzen vullen vanuit de stratigrafie.',
   'geology.dedupeAlreadyClean': 'Al opgeschoond — geen duplicaten gevonden.',
@@ -232,7 +232,7 @@ export const MODELS_NL = {
   // lithostratigrafie
   // -------------------------------------------------------------------------
   'litho.model': 'Lithologiemodel',
-  'litho.modelFull': 'Lithostratigrafisch model',
+  'litho.modelFull': 'Lithologisch model',
   'litho.units': 'Lithologische eenheden',
   'litho.unitsStale': 'Lithologische eenheden — het 3D-model is verouderd, bouw het opnieuw op',
   'litho.formations': 'Litho-formaties',
@@ -244,18 +244,18 @@ export const MODELS_NL = {
   // FLAG alt: Niet meer actueel | Achterhaald — badge text, must stay short.
   'litho.stale': 'Verouderd',
   'litho.staleHint': 'Verouderd — bouw opnieuw op om bij te werken',
-  'litho.createModel': 'Lithostratigrafisch model aanmaken',
+  'litho.createModel': 'Lithologisch model aanmaken',
   'litho.createModelHint':
-    'Maak het lithostratigrafisch model aan dat dit geologisch model verfijnt',
-  'litho.newModel': 'Nieuw lithostratigrafisch model',
+    'Maak het lithologisch model aan dat dit stratigrafisch model verfijnt',
+  'litho.newModel': 'Nieuw lithologisch model',
   'litho.newModelHint':
-    'Nieuw lithostratigrafisch model (verfijnt het actieve geologisch model)',
-  'litho.newModelNameLabel': 'Naam van het nieuwe lithostratigrafisch model',
+    'Nieuw lithologisch model (verfijnt het actieve stratigrafisch model)',
+  'litho.newModelNameLabel': 'Naam van het nieuwe lithologisch model',
   'litho.modelNamePlaceholder': 'Modelnaam…',
-  'litho.activeModel': 'Actief lithostratigrafisch model',
-  'litho.deleteModel': 'Lithostratigrafisch model verwijderen',
-  'litho.deleteModelConfirm': 'Lithostratigrafisch model verwijderen?',
-  'litho.deleteModelHint': 'Verwijder het actieve lithostratigrafisch model',
+  'litho.activeModel': 'Actief lithologisch model',
+  'litho.deleteModel': 'Lithologisch model verwijderen',
+  'litho.deleteModelConfirm': 'Lithologisch model verwijderen?',
+  'litho.deleteModelHint': 'Verwijder het actieve lithologisch model',
   'litho.cancelNewModel': 'Nieuw model annuleren',
   'litho.createOneToPick': 'Maak er een aan om laaggrenzen op profielen te kunnen kiezen',
   'litho.clearModel': 'Alle litho-inhoud van dit model wissen',
@@ -293,7 +293,7 @@ export const MODELS_NL = {
     'Onvoldoende bepaald: minder dan 3 sondeer-/boortrajecten — benaderende plaat',
   'litho.confidenceFadeHint':
     'Vervaagde driehoeken in de 3D-weergave markeren zones waar het model extrapoleert, weg van nabije gegevens. Zet dit uit voor een egale kleur.',
-  'litho.parentFormation': 'Bovenliggende geologische formatie',
+  'litho.parentFormation': 'Bovenliggende stratigrafische formatie',
   'litho.noParent': '— Geen bovenliggende formatie (losmaken) —',
   // NOTE: ruled 2026-08-27 — owner chose "Hekkendiagram".
   'litho.switchSolidFence': 'Hekkendiagram',
@@ -313,9 +313,9 @@ export const MODELS_NL = {
   // dialoog bevestigen / opnieuw toewijzen / losmaken bovenliggende formatie
   'litho.assignParent': 'Bovenliggende formatie toewijzen',
   'litho.confirmExtrapolatedParent': 'Geëxtrapoleerde bovenliggende formatie bevestigen',
-  'litho.orphanBlurb': 'Geen geologische laaggrens dekte deze litho-eenheid bij het onderzoek.',
+  'litho.orphanBlurb': 'Geen stratigrafische laaggrens dekte deze litho-eenheid bij het onderzoek.',
   'litho.extrapolatedBlurb':
-    'De bovenliggende formatie is afgeleid uit de geologie-TIN — bevestig of wijzig ze.',
+    'De bovenliggende formatie is afgeleid uit de stratigrafie-TIN — bevestig of wijzig ze.',
   'litho.detach': 'Losmaken',
   'litho.confirm': 'Bevestigen',
   'litho.reassign': 'Opnieuw toewijzen',
@@ -324,7 +324,7 @@ export const MODELS_NL = {
   'litho.selectPlaceholder': '— selecteer —',
   'litho.thisModelFallback': 'Dit model',
   'litho.deleteModelBody':
-    'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. De geologische bovenliggende formatie blijft ongemoeid. Dit kan niet ongedaan gemaakt worden.',
+    'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. De stratigrafische bovenliggende formatie blijft ongemoeid. Dit kan niet ongedaan gemaakt worden.',
   // lithologie-werkbalk (Model bouwen / hekkendiagram / camera herstellen)
   'litho.building': 'Bouwen…',
   'litho.buildModelStale': 'Model bouwen · verouderd',
@@ -347,7 +347,7 @@ export const MODELS_NL = {
   'litho.buildCancelled': 'Bouw geannuleerd',
   // lithologie-detailvenster (rooster + solids-legende)
   'litho.createGeoFirst':
-    'Maak eerst een geologisch model aan (geologiestap) — een lithostratigrafisch model verfijnt het.',
+    'Maak eerst een stratigrafisch model aan (stratigrafiestap) — een lithologisch model verfijnt het.',
   'litho.clearing': 'Wissen…',
   'litho.clearShort': 'Wissen',
   'litho.instances': 'Instanties',
@@ -396,10 +396,10 @@ export const MODELS_NL = {
   'litho.clearedModel': 'Lithomodel gewist — {c} {contactWord}, {u} {unitWord} verwijderd.',
   'litho.clearModelFailed': 'Kon het lithomodel niet wissen — zie console.',
   'litho.createGeoModelFirst':
-    'Maak een geologisch model aan voor je een lithostratigrafisch model toevoegt.',
-  'litho.createModelFailed': 'Kon het lithostratigrafisch model niet aanmaken.',
-  'litho.activateModelFailed': 'Kon het lithostratigrafisch model niet activeren.',
-  'litho.deleteModelFailed': 'Kon het lithostratigrafisch model niet verwijderen.',
+    'Maak een stratigrafisch model aan voor je een lithologisch model toevoegt.',
+  'litho.createModelFailed': 'Kon het lithologisch model niet aanmaken.',
+  'litho.activateModelFailed': 'Kon het lithologisch model niet activeren.',
+  'litho.deleteModelFailed': 'Kon het lithologisch model niet verwijderen.',
   'litho.nothingToBuildYet': 'Nog niets om te bouwen — open eerst een dwarsprofiel op de litho-as.',
   'litho.builtBodies': '{n} {bodyWord} gebouwd',
   'litho.nothingCouldBeBuilt':
@@ -445,7 +445,7 @@ export const MODELS_NL = {
   'litho.layerWordMany': 'lagen',
   'litho.noAdmixturesToRestore': 'Geen overschreven boorbijmengingen om te herstellen.',
   'litho.restoredAdmixtures': 'Segmenter-bijmengingen hersteld op {n} boor{layerWord}.',
-  'litho.fetchSuggestionsFailed': 'Kon geen lithostratigrafische voorstellen ophalen.',
+  'litho.fetchSuggestionsFailed': 'Kon geen lithologische voorstellen ophalen.',
   'litho.acceptSuggestionFailed': 'Kon het lithovoorstel niet aanvaarden.',
   'litho.acceptAllFailed': 'Kon niet alle lithovoorstellen aanvaarden.',
   'litho.suggestedFailures': '{ok}/{total} voorgesteld — {failed} mislukt.',
@@ -459,16 +459,16 @@ export const MODELS_NL = {
   // (elsewhere "Hekkendiagram" / "3D-profielwand").
   'litho.fenceEmptyHint': 'Geen hekpanelen — aanvaard correlaties in de profielstap',
   // FLAG alt: Koppelen aan geologische laaggrens? — "snap" = vastklikken.
-  'litho.snapTitle': 'Vastklikken aan geologische laaggrens?',
+  'litho.snapTitle': 'Vastklikken aan stratigrafische laaggrens?',
   'litho.snapContactAt': 'De litholaaggrens op',
-  'litho.snapWithinMulti': 'ligt binnen de vastkliktolerantie van twee geologische laaggrenzen.',
-  'litho.snapWithinSingle': 'ligt binnen de vastkliktolerantie van een geologische laaggrens.',
-  'litho.snapPickContact': 'Kies een geologische laaggrens',
+  'litho.snapWithinMulti': 'ligt binnen de vastkliktolerantie van twee stratigrafische laaggrenzen.',
+  'litho.snapWithinSingle': 'ligt binnen de vastkliktolerantie van een stratigrafische laaggrens.',
+  'litho.snapPickContact': 'Kies een stratigrafische laaggrens',
   'litho.snapDistanceAway': '({distance} m verderop)',
-  'litho.snapGeoContactAt': 'Geologische laaggrens op',
+  'litho.snapGeoContactAt': 'Stratigrafische laaggrens op',
   'litho.snapCancelKeepSeparate': 'Annuleren — apart houden',
-  'litho.snapMoveGeoToLitho': 'Geologische naar litho verplaatsen',
-  'litho.snapLithoToGeo': 'Litho naar geologische vastklikken',
+  'litho.snapMoveGeoToLitho': 'Stratigrafische naar litho verplaatsen',
+  'litho.snapLithoToGeo': 'Litho naar stratigrafische vastklikken',
 
   // -------------------------------------------------------------------------
   // geotechniek
@@ -479,7 +479,7 @@ export const MODELS_NL = {
   'geotech.soilGroups': 'Geotechnische grondgroepen',
   'geotech.noUnits': 'Nog geen geotechnische eenheden',
   'geotech.noBodyModel': 'Nog geen geotechnisch lichaamsmodel',
-  'geotech.noLithoModel': 'Nog geen lithostratigrafisch model',
+  'geotech.noLithoModel': 'Nog geen lithologisch model',
   'geotech.selectedBody': 'Geselecteerd lichaam',
   // FLAG alt: pakkingsklassen | pakkingsdichtheidsklassen — NAD writes "gp"
   // (gepakt). "Pakking" is the shortest form that still reads as the NAD term.
@@ -488,7 +488,7 @@ export const MODELS_NL = {
   'geotech.rosterBlurb':
     'Geotechnische eenheden die grond beschrijven in dit model.',
   'geotech.runSubdivideHint':
-    'Gebruik "Alle lichamen onderverdelen" om de lithostratigrafische eenheden in NAD-pakkingsklassen in te delen.',
+    'Gebruik "Alle lichamen onderverdelen" om de lithologische eenheden in NAD-pakkingsklassen in te delen.',
   'geotech.buildHint':
     'Gebruik "Alle lichamen onderverdelen" in de profielstap (geotechnische as) en klik daarna op "Model opbouwen" in de geotechnische werkbalk om de 3D-lichamen per NAD-klasse te genereren.',
   'geotech.switchSolidFence': 'Wissel tussen het vaste lichaamsmodel en hekkendiagram',
@@ -552,7 +552,7 @@ export const MODELS_NL = {
   // De gegroepeerde-lichaam Parameters-kop (debt #278 D2). FLAG: door de
   // eigenaar te bevestigen ("Groep N — N lichamen") + kop.
   'geotech.groupHeader': 'Groep {group} — {count} lichamen',
-  'geotech.groupProvenanceHeading': 'Bron-lithostratigrafische lichamen',
+  'geotech.groupProvenanceHeading': 'Bron-lithologische lichamen',
   'geotech.soilBodies': '{soil}-lichamen',
   'geotech.packingBodiesIn': 'Pakkingslichamen in {label}',
   'geotech.bandLabel': '{count} band',
@@ -564,7 +564,7 @@ export const MODELS_NL = {
   'geotech.sampleSource': 'Bron van monster:',
   // Geotech-hook-toasts + shell-componenten. Build model / Building… /
   // Build model · stale / Export fence / Reset camera hergebruiken de litho.*-sleutels.
-  'geotech.selectLithoModelFirst': 'Selecteer eerst een lithostratigrafisch model.',
+  'geotech.selectLithoModelFirst': 'Selecteer eerst een lithologisch model.',
   // FLAG alt: verb name "Subdivide all bodies" — matches the toolbar verb (owned
   // by the sections module); confirm the Dutch button label there.
   'geotech.subdivideAllBodiesFailed': '"Alle lichamen onderverdelen" mislukt — zie console.',
@@ -588,7 +588,7 @@ export const MODELS_NL = {
   'geotech.confidenceLow': 'Laag',
   'geotech.nadClassParen': '(NAD {nad})',
   'geotech.noLithoModelHint':
-    'Maak een lithostratigrafisch model aan in de lithologiestap en aanvaard de lithovoorstellen; kom daarna hier terug om het 3D geotechnisch model te bouwen.',
+    'Maak een lithologisch model aan in de lithologiestap en aanvaard de lithovoorstellen; kom daarna hier terug om het 3D geotechnisch model te bouwen.',
   // FLAG alt: Geen hekdiagrampanelen — "fence panels".
   'geotech.fenceEmptyHint': 'Geen hekpanelen — verbind pakkingsbanden in de profielstap',
   'geotech.subdividing': 'Onderverdelen…',
