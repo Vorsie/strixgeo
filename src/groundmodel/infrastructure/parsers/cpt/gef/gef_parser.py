@@ -30,6 +30,7 @@ from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.crs_bounds_issue import make_crs_bounds_issue
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -785,6 +786,19 @@ class GEFParser(GroundModelLogger):
                     "Coordinates are (0, 0) — likely not recorded, not a real origin",
                 )
             )
+        else:
+            # Coordinates present and not the (0, 0) placeholder: check they
+            # actually fall inside the declared system's area. A swapped X/Y, a
+            # wrong EPSG, or a foreign position is a WARNING here, never a
+            # refusal. Skipped when the CRS is unknown (make_crs_bounds_issue
+            # returns None) so it never doubles NO_EPSG / UNKNOWN_CRS_CODE.
+            bounds_issue = make_crs_bounds_issue(header.epsg, header.x, header.y)
+            if bounds_issue is not None:
+                self.debug(
+                    f"GEF coordinates ({header.x:g}, {header.y:g}) outside EPSG:"
+                    f"{header.epsg} area — flagging {bounds_issue.code}"
+                )
+                issues.append(bounds_issue)
         # Only "no code at all" belongs here. A code that was written but not
         # recognised is a different, more specific story told by
         # ``_check_crs_codes`` — saying "no EPSG code" about a file that
