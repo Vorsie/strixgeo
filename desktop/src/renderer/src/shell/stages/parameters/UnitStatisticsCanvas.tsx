@@ -24,7 +24,7 @@ import { translate, useT } from '../../../i18n/translate'
 import { bodyUnionsToGroupPairs, geotechGroupOrdinals } from '../../../utils/geotechGroupOrdinals'
 import { useShell } from '../../ShellContext'
 import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
-import { bandsForScope, type ParameterTreeInput } from './parameterBodyTree'
+import { bandsForScope, nadClassIndex, type ParameterTreeInput } from './parameterBodyTree'
 import { effectiveGroupScope } from './groupScope'
 import {
   pickSectionForInvestigation,
@@ -34,6 +34,8 @@ import { groupProvenanceLithoBodies, scopeHeaderLabel } from './parameterScopeHe
 import UnitDistributionPanels from './UnitDistributionPanels'
 import UnitFenceCutout from './UnitFenceCutout'
 import UnitIdentificationPanels from './UnitIdentificationPanels'
+import UnitNadParameters from './UnitNadParameters'
+import { nadParametersForClass, scopeNadClass } from './scopeNadParameters'
 import type { UnitPsdCurve } from './unitPsd'
 import { useBodyUnions } from './useBodyUnions'
 import { useModelBodies } from './useModelBodies'
@@ -209,6 +211,20 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
     [effectiveScope, treeInput, unitExists],
   )
 
+  // ── The NAD characteristic values (owner ruling 2026-09-05) ───────────────
+  // The single NAD class the scope resolves to (null for a litho scope, a
+  // mixed-class scope, or an unclassified body), and the table row for it read
+  // off the geotech formations' backend-computed ``nad_parameters``. The block
+  // renders nothing when either is null — a table read, never a derivation.
+  const nadClass = useMemo(
+    () => scopeNadClass(scopeBands, nadClassIndex(geotechFormations ?? [])),
+    [scopeBands, geotechFormations],
+  )
+  const nadParameters = useMemo(
+    () => nadParametersForClass(nadClass, geotechFormations ?? []),
+    [nadClass, geotechFormations],
+  )
+
   // The header names the path (spec §3); the label authority lives in the tree
   // module so it never drifts from what a node pools. ``memberIds`` rides along
   // so the "pooled across N bodies" claim counts the SAME population the
@@ -336,6 +352,12 @@ export default function UnitStatisticsCanvas({ scope }: Props): JSX.Element {
               bodyScoped={bodyScoped}
             />
           )}
+
+          {/* NAD characteristic values (owner ruling 2026-09-05) — a per-body
+              read of the NAD table, SEPARATE from the statistics above. Renders
+              nothing for a litho / mixed / unclassified scope. Independent of
+              the statistics fetch, so it shows even while measurements load. */}
+          <UnitNadParameters nadClass={nadClass} parameters={nadParameters} />
 
           {/* Identification tests (R8) — pooled from the SAME scope bands the
               statistics read (the one authority), so litho / geotech / class /
