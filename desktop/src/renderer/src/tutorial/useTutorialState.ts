@@ -45,6 +45,8 @@ export function useTutorialState(): TutorialState {
       state.lithoAcceptedCount,
       state.lithoSolidsBuilt,
       state.geotechModelExists,
+      state.cptOpen,
+      state.boreholeOpen,
     ],
   )
 }
