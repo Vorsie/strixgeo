@@ -16,7 +16,7 @@ Test cases:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -85,7 +85,9 @@ async def test_b1_formation_in_project_creates_rows() -> None:
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
-    session.add = AsyncMock()
+    # ``session.add`` is SYNCHRONOUS on AsyncSession — a MagicMock, not an
+    # AsyncMock, or the un-awaited coroutine trips "coroutine was never awaited".
+    session.add = MagicMock()
 
     uc = BulkCreateLithoLayers(session)
     # Patch _session.refresh to no-op (the refresh would fail without a real row).
