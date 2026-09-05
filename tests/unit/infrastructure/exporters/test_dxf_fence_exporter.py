@@ -35,6 +35,9 @@ from groundmodel.infrastructure.exporters.dxf_fence_exporter import (
     _sanitise_layer_name,
     interior_triangle_edges,
 )
+from groundmodel.infrastructure.exporters.dxf_fence_exporter_constants import (
+    BODY_ID_XDATA_APPID,
+)
 from groundmodel.infrastructure.exporters.dxf_layer_style import THIN_LAYER_LINEWEIGHT
 
 
@@ -52,6 +55,7 @@ def _panel(
     *,
     formation_id: str = "fm-1",
     body_id: str | None = None,
+    section_id: str | None = None,
     name: str = "Sand",
     color: str = "#c2a15b",
     vertices: list[tuple[float, float, float]] | None = None,
@@ -60,6 +64,7 @@ def _panel(
     return FenceExportPanel(
         formation_id=formation_id,
         body_id=body_id,
+        section_id=section_id,
         name=name,
         color=color,
         vertices=vertices
@@ -82,11 +87,17 @@ def _parse_dxf(payload: bytes):  # type: ignore[no-untyped-def]
 
 
 def test_two_panels_round_trip_faces_layers_and_vertices() -> None:
-    """Two panels on two formations -> two layers, 4 faces total, and every
-    vertex round-trips byte-identical through the DXF."""
-    panel_a = _panel(formation_id="fm-sand", name="Sand", color="#c2a15b")
+    """Two panels on two formations of ONE section -> two section-named layers,
+    4 faces total, and every vertex round-trips byte-identical through the DXF.
+
+    A single-section export is byte-compatible with the pre-section behaviour
+    except that the section name now leads each layer name — the geometry (face
+    count, vertices, colours) is unchanged.
+    """
+    panel_a = _panel(formation_id="fm-sand", section_id="cs-1", name="Sand", color="#c2a15b")
     panel_b = _panel(
         formation_id="fm-clay",
+        section_id="cs-1",
         name="Clay",
         color="#4a7d3c",
         vertices=[(5.0, 5.0, 3.0), (6.0, 5.0, 3.0), (6.0, 5.0, 1.0)],
@@ -94,7 +105,10 @@ def test_two_panels_round_trip_faces_layers_and_vertices() -> None:
     )
 
     payload = DxfFenceExporter().export(
-        [panel_a, panel_b], project_name="Antwerp port — quay 7", crs_epsg=31370
+        [panel_a, panel_b],
+        project_name="Antwerp port — quay 7",
+        crs_epsg=31370,
+        section_name_by_id={"cs-1": "CS1"},
     )
     assert payload, "exporter produced no bytes"
 
@@ -102,11 +116,11 @@ def test_two_panels_round_trip_faces_layers_and_vertices() -> None:
     faces = list(doc.modelspace().query("3DFACE"))
     assert len(faces) == 3  # panel_a has 2 triangles, panel_b has 1
 
-    layer_names = {doc.layers.get(name).dxf.name for name in ("Fence-Sand", "Fence-Clay")}
-    assert layer_names == {"Fence-Sand", "Fence-Clay"}
+    layer_names = {doc.layers.get(name).dxf.name for name in ("Fence-CS1_Sand", "Fence-CS1_Clay")}
+    assert layer_names == {"Fence-CS1_Sand", "Fence-CS1_Clay"}
 
-    sand_faces = [f for f in faces if f.dxf.layer == "Fence-Sand"]
-    clay_faces = [f for f in faces if f.dxf.layer == "Fence-Clay"]
+    sand_faces = [f for f in faces if f.dxf.layer == "Fence-CS1_Sand"]
+    clay_faces = [f for f in faces if f.dxf.layer == "Fence-CS1_Clay"]
     assert len(sand_faces) == 2
     assert len(clay_faces) == 1
 
@@ -458,3 +472,146 @@ def test_same_identifier_conflicting_colours_pick_the_shallowest_deterministical
         # The shallow panel's top is 20 vs the deep panel's 5, so its colour wins
         # in both input orders.
         assert layer.rgb == (0x11, 0x11, 0x11)
+
+
+# ---------------------------------------------------------------------------
+# Ruling 2 — one layer PER SECTION and formation, body id on the entity
+# (owner 2026-09-05: "splitting those in the dxf/dwg ... so users can turn off
+# a whole section", "each wall's body is recorded on the entity so a body can
+# be found")
+# ---------------------------------------------------------------------------
+
+
+def test_each_sections_walls_land_on_their_own_layer() -> None:
+    """The fence DXF puts each section's walls on their own layer, named from
+    the section name and the formation, so a section can be hidden as a whole.
+
+    Two sections crossing the same two formations produce FOUR layers
+    (``Fence-CS1_Sand``, ``Fence-CS1_Clay``, ``Fence-CS2_Sand``,
+    ``Fence-CS2_Clay``) — the section leads the name so ``Fence-CS1_*`` isolates
+    a whole section in CAD, and every section's walls no longer share one layer.
+    """
+    panels = [
+        _panel(formation_id="fm-sand", section_id="cs-1", name="Sand"),
+        _panel(formation_id="fm-clay", section_id="cs-1", name="Clay"),
+        _panel(formation_id="fm-sand", section_id="cs-2", name="Sand"),
+        _panel(formation_id="fm-clay", section_id="cs-2", name="Clay"),
+    ]
+    payload = DxfFenceExporter().export(
+        panels,
+        project_name="p",
+        crs_epsg=31370,
+        section_name_by_id={"cs-1": "CS1", "cs-2": "CS2"},
+    )
+    doc = _parse_dxf(payload)
+    names = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert names == {
+        "Fence-CS1_Sand",
+        "Fence-CS1_Clay",
+        "Fence-CS2_Sand",
+        "Fence-CS2_Clay",
+    }
+
+
+def test_same_identifier_collapses_within_a_section_but_splits_across_sections() -> None:
+    """The same-identifier collapse (two units of one identifier share one
+    layer) now happens WITHIN a section, and splits ACROSS sections.
+
+    Two distinct formations that both resolve to ``NAD-06_ZAND`` collapse onto a
+    single layer inside each section, but each section keeps its own layer — so
+    ``NAD-06_ZAND`` in CS1 and the same unit in CS2 are two independently
+    hide-able layers, not one.
+    """
+    identity = {
+        "fm-quaternary": _identity(nad_class=6, soil="ZAND"),
+        "fm-diest": _identity(nad_class=6, soil="ZAND"),
+    }
+    panels = [
+        _panel(formation_id="fm-quaternary", section_id="cs-1", name="Quaternary sand"),
+        _panel(formation_id="fm-diest", section_id="cs-1", name="Diest sand"),
+        _panel(formation_id="fm-quaternary", section_id="cs-2", name="Quaternary sand"),
+        _panel(formation_id="fm-diest", section_id="cs-2", name="Diest sand"),
+    ]
+    payload = DxfFenceExporter().export(
+        panels,
+        project_name="p",
+        crs_epsg=31370,
+        identity_by_formation_id=identity,
+        section_name_by_id={"cs-1": "CS1", "cs-2": "CS2"},
+    )
+    doc = _parse_dxf(payload)
+    names = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert names == {"Fence-CS1_NAD-06_ZAND", "Fence-CS2_NAD-06_ZAND"}
+
+
+def test_a_panel_without_a_section_keeps_the_old_unprefixed_layer_name() -> None:
+    """A panel that carries no section identity (a legacy caller, or one the
+    route could not resolve to a section name) keeps the pre-section layer name
+    — byte-identical to before — so the section split never drops geometry.
+    """
+    panel = _panel(formation_id="fm-1", section_id=None, name="Sand")
+    payload = DxfFenceExporter().export(
+        [panel],
+        project_name="p",
+        crs_epsg=31370,
+        identity_by_formation_id={"fm-1": _identity(nad_class=6, soil="ZAND")},
+        section_name_by_id={"cs-1": "CS1"},
+    )
+    doc = _parse_dxf(payload)
+    names = {lay.dxf.name for lay in doc.layers if lay.dxf.name.startswith("Fence-")}
+    assert names == {"Fence-NAD-06_ZAND"}
+
+
+def test_a_wall_body_id_is_recoverable_from_the_entity() -> None:
+    """A wall's body id is recoverable from the entity: every 3DFACE of a panel
+    with a body carries that body id as XDATA under the ``STRIXGEO`` app id, so
+    a CAD user (or a data-extraction / LISP pass) can find which body any face
+    belongs to. The body id is NOT in the layer name — a body spans sections, so
+    it is not a per-section split key.
+    """
+    panel = _panel(
+        formation_id="fm-sand",
+        section_id="cs-1",
+        body_id="body-42",
+        name="Sand",
+        vertices=[(0.0, 0.0, 5.0), (1.0, 0.0, 5.0), (1.0, 0.0, 3.0)],
+        triangles=[(0, 1, 2)],
+    )
+    payload = DxfFenceExporter().export(
+        [panel],
+        project_name="p",
+        crs_epsg=31370,
+        section_name_by_id={"cs-1": "CS1"},
+    )
+    doc = _parse_dxf(payload)
+    faces = list(doc.modelspace().query("3DFACE"))
+    assert faces, "no faces exported"
+    for face in faces:
+        assert face.has_xdata(BODY_ID_XDATA_APPID)
+        values = [tag.value for tag in face.get_xdata(BODY_ID_XDATA_APPID)]
+        assert "body-42" in values
+
+
+def test_an_untied_wall_carries_no_body_xdata() -> None:
+    """A wall with no body (``body_id`` is ``None``) carries no body XDATA — an
+    empty tag would read as "some body" and be worse than nothing.
+    """
+    panel = _panel(
+        formation_id="fm-sand",
+        section_id="cs-1",
+        body_id=None,
+        name="Sand",
+        vertices=[(0.0, 0.0, 5.0), (1.0, 0.0, 5.0), (1.0, 0.0, 3.0)],
+        triangles=[(0, 1, 2)],
+    )
+    payload = DxfFenceExporter().export(
+        [panel],
+        project_name="p",
+        crs_epsg=31370,
+        section_name_by_id={"cs-1": "CS1"},
+    )
+    doc = _parse_dxf(payload)
+    faces = list(doc.modelspace().query("3DFACE"))
+    assert faces, "no faces exported"
+    for face in faces:
+        assert not face.has_xdata(BODY_ID_XDATA_APPID)
