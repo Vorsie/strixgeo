@@ -161,8 +161,9 @@ export default function SectionsToolbar(): JSX.Element {
       handleReseedLithoAdmixtures,
       handleAutoCorrelate,
       handleClearSuggestions,
-      // #163c nonce bump — forces SectionsCanvas to re-list bodies after the
-      // toolbar's "Delete all detected lenses" bulk delete.
+      // #163c nonce bump — forces SectionsCanvas to re-list bodies after a
+      // body-level mutation (e.g. an Accept-correlations run re-detects lenses
+      // server-side).
       requestCorrelationEdgesRefetch,
       // Debt #92 "new tests" filter: scope the Suggest split-button's
       // "for new tests" item to anchors not yet in the active litho
