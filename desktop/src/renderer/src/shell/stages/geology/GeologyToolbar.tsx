@@ -467,6 +467,7 @@ export default function GeologyToolbar(): JSX.Element {
           onClick={requestDedupe}
           disabled={!hasModel || deduping}
           busy={deduping}
+          testid="geology-dedupe"
           title={
             !hasModel
               ? t('geology.noActiveStratigraphy')
@@ -537,6 +538,7 @@ export default function GeologyToolbar(): JSX.Element {
           disabled={!hasModel || deletingModel}
           busy={deletingModel}
           danger
+          testid="geology-delete-stratigraphy"
           title={
             !hasModel
               ? t('geology.noActiveStratigraphy')
