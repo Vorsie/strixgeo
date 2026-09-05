@@ -57,6 +57,20 @@ Neither suggests a packing class or a firmness.
    compute (halving the voxel size in every direction is eight times the voxels),
    so the two settings are best tuned together.
 
+How a mechanical cone (CPTM) is segmented
+-----------------------------------------
+
+The segmenter needs two readings at every depth: the cone resistance and the
+sleeve friction. The soil behaviour type is read from their ratio, so without a
+friction reading there is no behaviour type and no suggested layer at that
+depth. A mechanical Begemann cone with a friction jacket records both, and it is
+segmented like any other CPT, with the coarser depth steps of a mechanical test.
+A mechanical cone that recorded only the cone resistance gets no litho
+suggestions from the segmenter: its soil types come from a nearby borehole, or
+you draw them by hand on the section. The packing class in the geotech stage is
+a different matter: that lookup uses the cone resistance alone, so a CPTM
+without friction still gets its packing classes (see the geotech chapter).
+
 Cleaning up admixtures from boreholes
 -------------------------------------
 
@@ -145,11 +159,10 @@ deepest investigation, and decides which unit each voxel belongs to.
 
 At an investigation, the voxel column is the **interpreted** stack, not the raw
 record. At a CPT it is the accepted, segmented layers; at a borehole it is the
-accepted layers positioned at the borehole's true location. This is why the owner
-question is worth answering plainly: a voxel at a column is the interpreted
-stratigraphy you accepted, not necessarily the raw observation, and where a
-borehole and a CPT fall in the same place the CPT wins, because the cone resolves
-the contact depths more finely.
+accepted layers positioned at the borehole's true location. In plain terms: a
+voxel at a column is the interpreted stratigraphy you accepted, not necessarily
+the raw observation, and where a borehole and a CPT fall in the same place the
+CPT wins, because the cone resolves the contact depths more finely.
 
 Between the sections, StrixGeo fills each voxel like this. It finds the two
 sections nearest to the voxel. If the voxel lies between them, it **blends** the
