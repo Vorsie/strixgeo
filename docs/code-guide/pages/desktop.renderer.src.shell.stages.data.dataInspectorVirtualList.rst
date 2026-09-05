@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.data.dataInspectorVirtualList
 ===============================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/data/dataInspectorVirtualList.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/data/dataInspectorVirtualList.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/data/dataInspectorVirtualList.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file and imports React hooks plus the ``List`` from the ``react-window`` library. The docstring explains this is the windowed row list behind the Data inspector's CPT and borehole tabs.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A project can hold thousands of CPTs, and drawing one on-screen row per test made the inspector stutter at around five thousand. This wraps ``react-window`` so only the rows in and just around the visible window are actually built — a technique called *virtualisation* or *windowing*; the rest stay virtual until scrolled into view. It was split out of ``DataInspector.tsx`` because that file is already well past the 500-line 'god component' size (debt #201), and the windowing wiring is the reusable part.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DATA_ROW_HEIGHT
 
-.. CG-PLACEHOLDER
+**What this does.** The fixed height of one inspector row, 52 pixels.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring explains a row is a two-line card about 50 pixels tall, set a little higher so rows never overlap and clip the second (depth) line; the sliver of surface between rows is invisible. Windowing needs a fixed row height so it can place rows without measuring each one.
 
 .. CG-EXPLANATION-END id=const:DATA_ROW_HEIGHT
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DATA_LIST_DEFAULT_HEIGHT
 
-.. CG-PLACEHOLDER
+**What this does.** The list height, 600 pixels, that ``react-window`` assumes before it has measured its container.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring notes this only governs the very first paint — the library measures the real height at runtime — and the test environment, whose size observer is a do-nothing stub, so there this value alone decides the window.
 
 .. CG-EXPLANATION-END id=const:DATA_LIST_DEFAULT_HEIGHT
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:FlatVirtualRow
 
-.. CG-PLACEHOLDER
+**What this does.** The type for one entry in the flattened list: either a data row (carrying its item and a 'hidden' flag) or the single hidden-group divider (carrying a count).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Flattening both visual groups into one list of entries lets a single fixed-height window cover the visible rows, the divider and the hidden rows all together.
 
 .. CG-EXPLANATION-END id=type:FlatVirtualRow
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:buildFlatRows
 
-.. CG-PLACEHOLDER
+**What this does.** Flattens the visible and hidden groups into one array — the visible rows, then a divider entry if there are any hidden rows, then the hidden rows.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It reproduces the exact order the old non-windowed list drew in, so the windowed version looks identical.
 
 .. CG-EXPLANATION-END id=function:buildFlatRows
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtualRowData
 
-.. CG-PLACEHOLDER
+**What this does.** The bundle of data ``react-window`` hands to every row it draws: the flattened entries plus the two functions that render a data row and the divider.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment explains the item type is left as ``unknown`` here because the library's list cannot carry the caller's own *generic* type (a type left blank to be filled per use) through it; the public list restores the exact type at its edge.
 
 .. CG-EXPLANATION-END id=interface:VirtualRowData
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:VirtualRow
 
-.. CG-PLACEHOLDER
+**What this does.** Draws one windowed slot. ``react-window`` supplies the absolute position, the height and the accessibility attributes; this function fills in the content — the divider when the entry is a separator, otherwise the data row.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the single row template the library calls for whichever entries are currently on screen.
 
 .. CG-EXPLANATION-END id=function:VirtualRow
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:VirtualRowListProps
 
-.. CG-PLACEHOLDER
+**What this does.** The props of the public list: the visible rows, the hidden rows, a function giving each item a stable key, a function to render one row, and a function to render the 'N hidden' divider.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It keeps the windowing generic — the caller supplies the item type and how to draw a row, so the same list serves both the CPT and the borehole tab.
 
 .. CG-EXPLANATION-END id=interface:VirtualRowListProps
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:VirtualRowList
 
-.. CG-PLACEHOLDER
+**What this does.** The public windowed list. It flattens the visible and hidden rows with ``useMemo``, builds a stable key-lookup with ``useCallback``, and renders ``react-window``'s ``List`` filling the parent's height, with the fixed row height and eight extra rows drawn just off-screen.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments note the key function is called during drawing, so it must be a stable reference; the 100% height lets the library measure the real pixel height at runtime; and keyboard selection, testids and hover all live in the caller's row output, so windowing changes none of them.
 
 .. CG-EXPLANATION-END id=function:VirtualRowList
 

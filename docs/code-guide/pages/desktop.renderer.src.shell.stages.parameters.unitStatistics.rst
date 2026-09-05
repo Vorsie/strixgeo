@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.parameters.unitStatistics
 ===========================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/parameters/unitStatistics.ts complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/parameters/unitStatistics.ts complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/parameters/unitStatistics.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Opens the pure-arithmetic file behind the per-unit plots: it computes the spread of qc (cone resistance), fs (sleeve friction) and Rf (friction ratio) over the ground a unit covers. The header comment states that everything here is characterisation only, and fixes the depth frame as metres below the collar, positive down.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Split from the panel that draws it because none of it touches React and all of it is worth pinning and testing directly (the same reason as ``depthPanelGeometry.ts``). The characterisation-only note is load-bearing: nothing here is correlated, converted or calibrated into a design-ready value (φ′, c′, cu, E50, OCR, Vs, G0, M) — those stay Phase 5, and the panel says so on screen. The depth frame matches both the plot endpoint's depths and a geotech band's top and base, so the two intersect with no conversion.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UnitBandInterval
 
-.. CG-PLACEHOLDER
+**What this does.** The shape of one CPT-anchored band of a unit: the CPT id it hangs off (the key into the series map) and its top and base depth in metres below the collar.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A band is where a unit sits inside one hole; the statistics read the cone measurements between its top and base, and the CPT id is the link to that hole's series.
 
 .. CG-EXPLANATION-END id=interface:UnitBandInterval
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:UnitStatisticsChannel
 
-.. CG-PLACEHOLDER
+**What this does.** Names the three measurement channels a CPT offers for characterisation — ``qc`` cone resistance in MPa, ``fs`` sleeve friction in MPa, ``rf`` the friction ratio in percent — as a fixed set of three strings.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** They are kept as three separate distributions, each with its own unit and its own axis, rather than one shared table — a single shared scale would be the dual-axis mistake.
 
 .. CG-EXPLANATION-END id=type:UnitStatisticsChannel
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:UNIT_STATISTICS_CHANNELS
 
-.. CG-PLACEHOLDER
+**What this does.** The three channels listed in the exact order the panel draws them: qc, then fs, then rf.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** One ordered list so the arithmetic and the panel iterate the channels the same way every time, and the panel's row layout never depends on what one hole happened to record.
 
 .. CG-EXPLANATION-END id=const:UNIT_STATISTICS_CHANNELS
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UnitChannelSeries
 
-.. CG-PLACEHOLDER
+**What this does.** One CPT's series reduced to just the channels the statistics need: the ascending measurement depths, and per-depth cone resistance, sleeve friction and friction ratio (the last two may be null when the file has no such column).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment keeps a distinction worth keeping: a whole-channel null means the file never recorded it (a CPTM has no sleeve friction at all), which is different from a null entry inside a recorded channel — one depth the instrument could not answer for.
 
 .. CG-EXPLANATION-END id=interface:UnitChannelSeries
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:DistributionSummary
 
-.. CG-PLACEHOLDER
+**What this does.** The five-number summary of one channel plus mean and spread: the sample count n, the minimum, the 5th percentile, the first quartile, the median, the third quartile, the 95th percentile, the maximum, the arithmetic mean, and the sample standard deviation. A distribution is how a set of readings spreads out; the median is the middle reading; a quartile or percentile is the value below which a given fraction of the readings fall; the standard deviation measures how far the readings scatter from the mean. Every field is null when the count cannot support it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A null is never replaced with a stand-in number: an empty unit has no median, and a single measurement has no standard deviation. Reporting 0 for either would state a fact about the ground that no measurement supports.
 
 .. CG-EXPLANATION-END id=interface:DistributionSummary
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UnitChannelStatistics
 
-.. CG-PLACEHOLDER
+**What this does.** One channel's pooled data: every finite sample it contains, ascending, plus that channel's summary.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The raw samples are carried alongside the summary because the strip half of the plot draws the measurements themselves; a box drawn without them would hide how many readings stand behind it, which is exactly what an engineer needs to judge whether the spread means anything.
 
 .. CG-EXPLANATION-END id=interface:UnitChannelStatistics
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:UnitStatistics
 
-.. CG-PLACEHOLDER
+**What this does.** Declares ``UnitStatistics`` — everything the per-unit panel needs about one unit: one entry per channel (always in the fixed channel order), how many CPT-anchored bands were offered, how many distinct CPTs those bands stand on, and the total metres of ground the bands cover. The lines that follow are the documentation comment for the next function, ``unitCptBands``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The three counts let the panel state how much ground the numbers describe and flag when part of it is still missing; the trailing doc-comment explains the population filters applied next.
 
 .. CG-EXPLANATION-END id=interface:UnitStatistics
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:unitCptBands
 
-.. CG-PLACEHOLDER
+**What this does.** Takes a scope's bands and narrows them to the ones the cone statistics may read: it keeps only accepted bands, only CPT-anchored ones, and — when a member set is given — only those whose CPT is on the sections. It returns each survivor as a plain {cptId, top, base}.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The scope selection (which unit, body or class the bands belong to) is done elsewhere by the single band authority, so this applies only the three population filters that stay per spec §3. Accepted-only is defensive, so a raw layer list cannot summarise ground the engineer has not committed to. CPT-anchored-only because a borehole-anchored band has no cone resistance to summarise — its class came from a flanking CPT. On-the-sections because the owner ruled that only CPTs on the sections pool, so hidden, removed and off-section holes are all excluded (2026-08-27).
 
 .. CG-EXPLANATION-END id=function:unitCptBands
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:quantile
 
-.. CG-PLACEHOLDER
+**What this does.** Reads a percentile off an ascending sample list by linear interpolation between the two nearest order statistics.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It uses the 'type 7' definition — the one Excel's PERCENTILE.INC, NumPy's default and R's default all use — so a number read off this panel matches the one an engineer reproduces in a spreadsheet from the same samples.
 
 .. CG-EXPLANATION-END id=function:quantile
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:summariseDistribution
 
-.. CG-PLACEHOLDER
+**What this does.** Turns a list of ascending samples into a full summary: the count, the minimum, the percentiles and quartiles and median via ``quantile``, the maximum, the mean, and the sample standard deviation. It returns all-null fields for an empty list and leaves the standard deviation null until there are at least two samples.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The standard deviation uses the sample (n-1) form, not the population form, because these readings are a sample OF the unit's ground, never the whole of it. The null-until-supported rule matches the summary type: no median for zero samples, no deviation for one.
 
 .. CG-EXPLANATION-END id=function:summariseDistribution
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:depthInBand
 
-.. CG-PLACEHOLDER
+**What this does.** Answers whether one measurement depth falls inside a band, using a half-open interval — at or below the top, and strictly above the base.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Half-open on purpose. A litho column is gap-free, so a band's base IS the next band's top; a closed interval would count every sample sitting exactly on a shared contact twice and inflate the count on precisely the samples two units disagree about. The cost is that the single deepest sample of a hole belongs to no band — one reading out of thousands, and cheaper than double-counting every contact.
 
 .. CG-EXPLANATION-END id=function:depthInBand
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:channelValues
 
-.. CG-PLACEHOLDER
+**What this does.** A one-line reader that returns the requested channel's array off a series — the qc array for 'qc', the fs array for 'fs', otherwise the rf array — or null when the file lacks that column. The lines that follow are the documentation comment for ``computeUnitStatistics``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A tiny lookup so the pooling loop can ask for any channel by name without repeating the branch; the trailing doc-comment sets up the pooling function explained next.
 
 .. CG-EXPLANATION-END id=function:channelValues
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:computeUnitStatistics
 
-.. CG-PLACEHOLDER
+**What this does.** The core: it pools every cone reading lying inside a unit's bands and describes them. It groups the bands by CPT, sums the covered thickness, then for each channel walks each CPT's series once, keeps only finite readings whose depth lands inside one of that CPT's bands, sorts them, and summarises. It returns one summary per channel plus the band count, the CPT count and the covered thickness.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The unit's statistics are the statistics of the ground it covers — every in-band sample, pooled across every CPT, with no weighting by band thickness — because an engineer reading the box is asking 'what does the cone say in this material', and each reading is one answer. Bands are grouped by CPT so a 1500-sample series is walked once per channel, not once per band. A null or non-finite reading is treated as an absence and skipped, never as 0, which would drag the minimum and the mean toward a measurement nobody took. A CPT whose series has not arrived contributes nothing but is still counted, so the panel can say how much is still missing.
 
 .. CG-EXPLANATION-END id=function:computeUnitStatistics
 

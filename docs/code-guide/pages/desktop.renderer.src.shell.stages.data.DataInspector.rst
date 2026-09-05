@@ -1,7 +1,7 @@
 desktop.renderer.src.shell.stages.data.DataInspector
 ====================================================
 
-.. CG-PAGE source=desktop/src/renderer/src/shell/stages/data/DataInspector.tsx complete=false
+.. CG-PAGE source=desktop/src/renderer/src/shell/stages/data/DataInspector.tsx complete=true
 
 *Source file:* ``desktop/src/renderer/src/shell/stages/data/DataInspector.tsx``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** Names the file and pulls in its tools. This is the Data stage's *inspector* — the 420-pixel panel on the right that lists the project's CPTs and boreholes. The imports bring in React's ``useEffect``, ``useMemo`` and ``useState`` *hooks*, a set of icons, the windowed row list (``VirtualRowList``), the shared shell bus (``useShell``), the shared empty-state block, a hook that saves a value to browser storage (``usePersistedJSON``), the dirty-marker and tab-bar widgets, keyboard and date helper functions, the list-item types, and the translation helper.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It lifts the CPT and borehole list out of the app's old flat ``Sidebar.tsx`` into the right-hand inspector rail of the staged shell. A *component* is a function that returns a piece of screen; a *hook* is a ``use…`` function that lets it remember values and run effects. The scope comment records what belongs here — on both the CPT and borehole tabs: the list, sort, search, multi-select, remove-from-project, restore, viewport demotion, and the amber markers for tests imported this session — and what does not: the sections tab (owned by the Sections inspector) and the interpretation tab (owned by the Stratigraphy stage). The row widgets and sort helpers were copied here and scoped to this file so the old ``Sidebar.tsx`` did not have to be deleted while other stages still read from it.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:InspectorTab
 
-.. CG-PLACEHOLDER
+**What this does.** A *type* — a note about what kind of value is allowed — that says a tab is exactly either ``'cpt'`` or ``'borehole'``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The Data inspector lists only investigations, so the tab is one of these two and nothing else. The comment notes this makes the two-way choices in the code below complete, with no need for a dead third fallback branch.
 
 .. CG-EXPLANATION-END id=type:InspectorTab
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:SortKey
 
-.. CG-PLACEHOLDER
+**What this does.** A type listing the four ways the list can be sorted: the default (import) order, by name, by depth, or by date.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It names the allowed sort choices in one place. The comment notes the date sort reads each test's start date and always pushes tests with no date to the bottom, so undated rows never interleave with dated ones.
 
 .. CG-EXPLANATION-END id=type:SortKey
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=type:SortDirection
 
-.. CG-PLACEHOLDER
+**What this does.** A type saying a sort runs either ascending (``'asc'``) or descending (``'desc'``).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The direction pairs with the sort key so the little arrow button can flip the order.
 
 .. CG-EXPLANATION-END id=type:SortDirection
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:SortState
 
-.. CG-PLACEHOLDER
+**What this does.** An *interface* — a named shape for an object — describing the remembered sort: a key plus a direction.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It bundles the two sort settings into one value that can be saved and restored together.
 
 .. CG-EXPLANATION-END id=interface:SortState
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:DateRangeFilter
 
-.. CG-PLACEHOLDER
+**What this does.** A named shape for the date-range filter: a ``from`` string and a ``to`` string, each an ISO ``YYYY-MM-DD`` date or an empty string meaning no bound is set.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comment records that the strings match the value format of a native date input, and that the two tabs keep independent date windows.
 
 .. CG-EXPLANATION-END id=interface:DateRangeFilter
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:SORT_STORAGE_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The browser-storage key under which the chosen sort is saved.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It is the same key the old sidebar used, so the engineer's sort preference survives the move to the staged shell. Browser storage (``localStorage``) holds only per-user screen preferences like this — never an engineering decision, which rides the project bundle.
 
 .. CG-EXPLANATION-END id=const:SORT_STORAGE_KEY
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEFAULT_SORT
 
-.. CG-PLACEHOLDER
+**What this does.** The starting sort used when nothing is saved: the default order, ascending.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A first-run fallback so the list always has a valid sort to apply.
 
 .. CG-EXPLANATION-END id=const:DEFAULT_SORT
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DATE_FILTER_CPT_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The browser-storage key for the CPT tab's date window.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Kept separate from the borehole key so each tab remembers its own date range.
 
 .. CG-EXPLANATION-END id=const:DATE_FILTER_CPT_KEY
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DATE_FILTER_BH_KEY
 
-.. CG-PLACEHOLDER
+**What this does.** The browser-storage key for the borehole tab's date window.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Per-tab, mirroring how the multi-select is scoped to one tab, so switching tabs does not clobber the other tab's date range.
 
 .. CG-EXPLANATION-END id=const:DATE_FILTER_BH_KEY
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DEFAULT_DATE_FILTER
 
-.. CG-PLACEHOLDER
+**What this does.** The starting date filter: both bounds empty, meaning no date filtering.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A first-run fallback with no window set, so every test shows until the engineer sets a bound.
 
 .. CG-EXPLANATION-END id=const:DEFAULT_DATE_FILTER
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:parseSortState
 
-.. CG-PLACEHOLDER
+**What this does.** Reads a raw value that came back from browser storage and returns a valid ``SortState`` — but only when it has a string ``key`` and ``direction`` from the allowed lists; otherwise it falls back to the default.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It guards against a corrupt storage entry (a hand edit, or an old format from a past version) silently breaking the sort.
 
 .. CG-EXPLANATION-END id=function:parseSortState
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:parseDateFilter
 
-.. CG-PLACEHOLDER
+**What this does.** The same validation for the date filter — it accepts the stored value only when it has string ``from`` and ``to`` fields, otherwise it returns the empty default.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The same guard: a malformed stored date window must not misbehave; it is replaced with 'no filter'.
 
 .. CG-EXPLANATION-END id=function:parseDateFilter
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:NATURAL
 
-.. CG-PLACEHOLDER
+**What this does.** A reusable string comparator built once when the file loads — numeric-aware and case-insensitive — so that, for example, ``CPT-2`` sorts before ``CPT-10`` rather than after it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Building this kind of comparator is not cheap, so it is created a single time and shared (a memo cache of a pure comparator). That keeps the per-row comparisons cheap when the whole list is re-sorted on every keystroke or sort change.
 
 .. CG-EXPLANATION-END id=const:NATURAL
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:DataInspector
 
-.. CG-PLACEHOLDER
+**What this does.** The Data stage's inspector content. It reads the visible CPTs and boreholes, the remove and restore handlers, the current selection, the out-of-viewport and imported-this-session sets, and the map filters from the shared shell. It keeps in *state* (values a component remembers between redraws): the active tab, the saved sort, a per-tab saved date window, the set of rows ticked for removal, a range anchor, and the search text. From those it derives, for each tab, the filtered, partitioned and sorted lists — a VISIBLE group and a map-filter-HIDDEN group. It wires the checkbox toggling (including Shift-click to tick a range), select-all, clear, and bulk-remove, plus a Delete/Backspace shortcut that removes the ticked rows. It draws, top to bottom: the CPT/borehole tab bar, a search box, the date-range filter, a bulk-action bar (only when at least one row is ticked), a sort and select-all row, the windowed list of rows (visible rows, then a 'N hidden' divider, then the dimmed hidden rows), and a footer showing the count and a 'restore all' link.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the inspector the engineer uses to find, filter and prune the project's tests. The comments carry the reasons. The ticked set is kept in step with the map's rectangle (marquee) selection, so ticking on the map and in the list agree. The sort is shared across both tabs and saved to browser storage. The date windows are per-tab, and their cached lists depend only on the raw bound strings, not on freshly parsed date objects, so they recompute only when a bound actually changes. Crucially, 'Remove' uses a neutral button colour, NOT the danger red, because removing a test is a *reversible* project-local hide (the footer's 'restore all' brings them back) — the red is reserved for irreversible deletes. Rows hidden by a map filter drop to the bottom at reduced opacity but stay clickable. All of this list state is per-user screen chrome saved in browser storage; the engineering decisions themselves ride the project bundle, never storage alone.
 
 .. CG-EXPLANATION-END id=function:DataInspector
 
@@ -351,13 +291,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:SortControl
 
-.. CG-PLACEHOLDER
+**What this does.** The small sort UI: a dropdown to pick the sort key (default, name, depth, date) and a button that flips the direction between ascending and descending. The direction button is disabled while the key is 'default'.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The direction toggle is greyed out on the default order because there is nothing to reverse — the default is the import order, which has no ascending or descending sense.
 
 .. CG-EXPLANATION-END id=function:SortControl
 
@@ -373,13 +309,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:makeCptSorter
 
-.. CG-PLACEHOLDER
+**What this does.** Builds the comparison function that orders the CPT list for a given sort setting: the default returns 'no change'; name uses the natural comparator; date compares parsed start dates; depth compares the maximum depth. A sign flips the result for the descending direction.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** For both date and depth, tests with no value always sort to the bottom in both directions, so they never interleave with real values. The date path runs every date through the tolerant parser, so ISO, slash-separated and year-only file dates are all handled the same way.
 
 .. CG-EXPLANATION-END id=function:makeCptSorter
 
@@ -395,13 +327,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:makeBoreholeSorter
 
-.. CG-PLACEHOLDER
+**What this does.** The same comparator builder for boreholes — default, name, date, or total depth, with the direction sign applied. It accepts the borehole axis argument but does not currently use it.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Boreholes with no date or no depth sort last in both directions too, so they never mix in among the real values.
 
 .. CG-EXPLANATION-END id=function:makeBoreholeSorter
 
@@ -417,13 +345,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:HiddenSeparator
 
-.. CG-PLACEHOLDER
+**What this does.** Draws the divider row that reads 'N hidden' with an eye-off icon, marking the start of the map-filter-hidden group in the list.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It tells the engineer that the dimmed rows below were pushed down by a map filter (or fell outside the current map view) rather than being removed from the project.
 
 .. CG-EXPLANATION-END id=function:HiddenSeparator
 
@@ -439,13 +363,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:cptBadgeColor
 
-.. CG-PLACEHOLDER
+**What this does.** Maps a CPT type — CPTU, CPTE, CPTM, or anything else — to the colour classes for its small type badge, with a light and a dark variant for each.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It gives each cone type a consistent colour so the engineer can pick out the cone kind at a glance while scanning the list.
 
 .. CG-EXPLANATION-END id=function:cptBadgeColor
 
@@ -461,13 +381,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:CptRow
 
-.. CG-PLACEHOLDER
+**What this does.** Draws one CPT row: a multi-select checkbox on the left, then a clickable body — a pin icon, the name, a dirty asterisk when the test was imported this session but not yet saved, and an amber warning triangle when the test has no surface elevation — then a coloured type badge and the maximum depth; and, revealed on hover, a trash button that removes the test. Hovering the row highlights the matching marker on the map, and the row's background shows its selected, ticked, unsaved or hidden state.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The comments record the visual rules. The amber left stripe and the asterisk mark a test imported this session but not yet saved to the project file — amber, never red, is the unsaved colour. The warning triangle flags a missing Z the engineer still needs to supply. The remove button is the *reversible* project-local hide, carrying a stable testid that the guided tutorial and the automated tests anchor on. The name uses the semantic primary-text colour token so it stays visible on the dark inspector surface — a fixed grey used to vanish there.
 
 .. CG-EXPLANATION-END id=function:CptRow
 
@@ -483,13 +399,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:BoreholeRow
 
-.. CG-PLACEHOLDER
+**What this does.** The borehole counterpart of the CPT row: a checkbox, then a drill icon, the name, the same unsaved asterisk and no-elevation warning, and the total depth with the drill method; plus the hover-revealed remove button and the same selected, ticked, unsaved and hidden background states.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It mirrors the CPT row so the two tabs behave identically. The same rules apply: amber for unsaved, a warning triangle for a missing surface elevation, and a reversible project-local remove.
 
 .. CG-EXPLANATION-END id=function:BoreholeRow
 
@@ -505,13 +417,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:DateRangeControl
 
-.. CG-PLACEHOLDER
+**What this does.** Draws the date-range filter bar under the search box: a 'From' and a 'To' native date input, with a clear link that appears when either bound is set.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The docstring records the choices. Native date inputs are used because they are accessible, keyboard-navigable and render correctly in dark mode. The filter is *reversible*, so it applies immediately with no confirmation. And the clear link resets both bounds in a single update so there is never a half-cleared in-between state.
 
 .. CG-EXPLANATION-END id=function:DateRangeControl
 
@@ -527,13 +435,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:EmptyState
 
-.. CG-PLACEHOLDER
+**What this does.** A compact empty-list row: a centred icon over a label. It shows the search icon when the emptiness is a 'no search matches' case, and the inbox icon for every other kind of emptiness.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** It uses the shared empty-state widget so the list's empties carry an icon rather than bare centred text. The comment notes the search-versus-other case is passed in explicitly rather than guessed from the label text, because the label is translated and sniffing it for the word 'match' would break in another language.
 
 .. CG-EXPLANATION-END id=function:EmptyState
 
