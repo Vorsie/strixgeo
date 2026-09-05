@@ -95,13 +95,6 @@ from uuid import UUID
 import defusedxml.ElementTree as ET
 
 from groundmodel.domain.models.lab.grain_size import GrainSize
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
-    ValidationIssue,
-)
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
-    make_issue as _issue,
-)
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import date_iso, text
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_BEHANDELING_LIME_REMOVED,
@@ -124,6 +117,13 @@ from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.lab.dov.grain_size_parse_result import (
     GrainSizeParseResult,
 )
+from groundmodel.infrastructure.parsers.validation.validation_issue import (
+    ValidationIssue,
+)
+from groundmodel.infrastructure.parsers.validation.validation_issue import (
+    make_issue as _issue,
+)
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
