@@ -18,6 +18,7 @@ without importing the application or standing up a database.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 # Repository root, resolved from this file's location on disk
@@ -30,23 +31,71 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 GUIDE_ROOT: Path = Path(__file__).resolve().parent
 PAGES_DIRNAME: str = "pages"
 
-# Source trees the guide documents, as ``(label, path-relative-to-repo)``. The
-# Python backend ships first; the desktop TypeScript tree is added to this list
-# when the campaign reaches it (the generator already knows how to split
-# ``.ts`` / ``.tsx`` — see ``code_guide_lib.split_typescript_source``).
-SOURCE_ROOTS: list[tuple[str, str]] = [
-    ("groundmodel", "src/groundmodel"),
+
+@dataclass(frozen=True)
+class SourceRoot:
+    """One source tree the guide walks, plus how its files map to page slugs.
+
+    Attributes
+    ----------
+    label : str
+        Short name of the tree (``groundmodel`` / ``desktop``); used only in the
+        generator summary.
+    rel_root : str
+        Path relative to the repository root that is walked with ``rglob``
+        (POSIX form, e.g. ``src/groundmodel`` or ``desktop/src``).
+    strip_prefix : str
+        Leading path fragment removed from a file's repo-relative path before it
+        is turned into a dotted slug. For the backend, ``src/`` is stripped so
+        ``src/groundmodel/api/serve.py`` keeps the ``groundmodel`` head; for the
+        desktop, ``desktop/src/`` is stripped so the ``desktop.`` prefix (below)
+        takes its place.
+    slug_prefix : str
+        Prepended to the dotted slug so the two trees never collide on a page
+        name. Empty for the backend (its ``groundmodel.`` head is enough);
+        ``desktop.`` for the desktop tree — e.g. ``desktop/src/main/index.ts``
+        becomes ``desktop.main.index``.
+    """
+
+    label: str
+    rel_root: str
+    strip_prefix: str
+    slug_prefix: str
+
+
+# Source trees the guide documents. The Python backend first, then the desktop
+# TypeScript/React tree. The generator already knows how to split ``.ts`` /
+# ``.tsx`` (see ``code_guide_lib.split_typescript_source``); the desktop root's
+# ``desktop.`` slug prefix keeps its pages from colliding with the backend's.
+SOURCE_ROOTS: list[SourceRoot] = [
+    SourceRoot("groundmodel", "src/groundmodel", "src/", ""),
+    SourceRoot("desktop", "desktop/src", "desktop/src/", "desktop."),
 ]
 
-# File suffixes the generator turns into pages, per source tree. Python only for
-# now; ``.ts`` / ``.tsx`` are listed so a later desktop root picks them up.
+# File suffixes the generator turns into pages, per source tree. ``.py`` for the
+# backend; ``.ts`` / ``.tsx`` for the desktop tree.
 PYTHON_SUFFIXES: tuple[str, ...] = (".py",)
 TYPESCRIPT_SUFFIXES: tuple[str, ...] = (".ts", ".tsx")
 
-# Directory names skipped anywhere in a source tree.
+# Directory names skipped anywhere in a source tree: Python caches, the Sphinx
+# build tree, the node/build output trees, and hand-authored test-fixture dirs.
 IGNORED_DIR_NAMES: frozenset[str] = frozenset(
-    {"__pycache__", ".mypy_cache", ".pytest_cache", "node_modules", "_build"}
+    {
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        "node_modules",
+        "_build",
+        "__fixtures__",
+        "dist",
+        "out",
+    }
 )
+
+# Filename markers that mark a file as a test / spec rather than shipping source
+# (``activation.test.ts``, ``foo.spec.tsx``). A file whose name contains any of
+# these is skipped — the guide documents the code that ships, not its tests.
+EXCLUDED_FILENAME_MARKERS: tuple[str, ...] = (".test.", ".spec.")
 
 # The pages whose every block MUST carry a hand-written explanation for the
 # checker to pass. These are the beta-critical files the founder reads first:
@@ -801,6 +850,10 @@ COMPLETE_MODULES: frozenset[str] = frozenset(
         "src/groundmodel/shared/logging/logger_factory.py",
         "src/groundmodel/shared/progress.py",
         "src/groundmodel/shared/timing.py",
+        # Reading-order group (8): the desktop Electron MAIN process + the
+        # preload bridge — boot sequence, the embedded Postgres + engine
+        # coordinator, the activation gate and licence store, the .strix codec,
+        # recovery, window guards, IPC, the updater wiring and diagnostics.
     }
 )
 
@@ -808,16 +861,26 @@ COMPLETE_MODULES: frozenset[str] = frozenset(
 # The beta-critical reading order. Each group becomes one index page with a
 # hand-written introduction and a toctree of its file pages. Groups are matched
 # in list order: a module joins the FIRST group that names it in ``members`` or
-# whose ``prefixes`` it starts with. Anything unmatched falls into the generated
-# "Everything else" group, bucketed by top-level package.
+# whose ``prefixes`` it starts with, UNLESS the path matches one of that group's
+# ``exclude_prefixes`` (then the group is skipped and matching continues).
+# Anything a backend group did not claim falls into the generated backend
+# "Everything else" group (07), bucketed by top-level package; the desktop
+# groups (08-13) are exhaustive, so no desktop file reaches that catch-all.
 #
-# ``members`` is an ordered list of exact repo-relative paths — used where the
-# reading order is curated and spans directories (group 1). ``prefixes`` is a
-# list of repo-relative path prefixes — used for whole-package groups.
+# Keys per group:
+#   * ``slug`` / ``title`` — the index page's file name and heading.
+#   * ``tree`` — ``"backend"`` or ``"desktop"``; the root index lists the backend
+#     groups (1-7) first, then the desktop groups (8-13).
+#   * ``members`` — an ordered list of exact repo-relative paths (curated order,
+#     used where a group spans directories).
+#   * ``prefixes`` — repo-relative path prefixes (used for whole-package groups).
+#   * ``exclude_prefixes`` — optional; a path under one of these is NOT claimed
+#     by the group (e.g. group 9 takes the renderer shell but not its stages).
 READING_ORDER: list[dict[str, object]] = [
     {
         "slug": "01-boot-and-activation",
         "title": "1. Boot and activation — how the engine starts",
+        "tree": "backend",
         "members": [
             "src/groundmodel/api/serve.py",
             "src/groundmodel/api/main.py",
@@ -833,12 +896,14 @@ READING_ORDER: list[dict[str, object]] = [
     {
         "slug": "02-parsers",
         "title": "2. Parsers — reading CPT, borehole and DOV data",
+        "tree": "backend",
         "members": [],
         "prefixes": ["src/groundmodel/infrastructure/parsers/"],
     },
     {
         "slug": "03-domain-models-and-storage",
         "title": "3. Domain models and storage — the shape of the data",
+        "tree": "backend",
         "members": [],
         "prefixes": [
             "src/groundmodel/domain/models/",
@@ -850,12 +915,14 @@ READING_ORDER: list[dict[str, object]] = [
     {
         "slug": "04-litho-engine",
         "title": "4. The fill / litho engine — turning readings into layers",
+        "tree": "backend",
         "members": [],
         "prefixes": ["src/groundmodel/domain/services/"],
     },
     {
         "slug": "05-geotech",
         "title": "5. Geotech — NAD packing classes and subdivision",
+        "tree": "backend",
         "members": [
             "src/groundmodel/application/divide_boreholes.py",
             "src/groundmodel/application/subdivide_all_bodies.py",
@@ -867,12 +934,60 @@ READING_ORDER: list[dict[str, object]] = [
     {
         "slug": "06-exports",
         "title": "6. Exports — writing files for design tools",
+        "tree": "backend",
         "members": [],
         "prefixes": ["src/groundmodel/infrastructure/exporters/"],
     },
+    {
+        "slug": "08-desktop-main",
+        "title": "8. Desktop — the Electron main process and preload bridge",
+        "tree": "desktop",
+        "members": [],
+        "prefixes": [],
+    },
+    {
+        "slug": "09-desktop-shell-and-boot",
+        "title": "9. Desktop — the renderer shell and boot",
+        "tree": "desktop",
+        "members": [],
+        "prefixes": [],
+        # The shell's stages are read in groups 10-11, not here.
+        "exclude_prefixes": ["desktop/src/renderer/src/shell/stages/"],
+    },
+    {
+        "slug": "10-desktop-sections",
+        "title": "10. Desktop — the Sections stage (the editing surface)",
+        "tree": "desktop",
+        "members": [],
+        "prefixes": [],
+    },
+    {
+        "slug": "11-desktop-stages",
+        "title": "11. Desktop — stages (geology, litho, geotech, parameters, export, 3D)",
+        "tree": "desktop",
+        "members": [],
+        # Group 10 already claimed shell/stages/sections; this takes the rest.
+        "prefixes": ["desktop/src/renderer/src/shell/stages/"],
+    },
+    {
+        "slug": "12-desktop-api-and-utils",
+        "title": "12. Desktop — API clients, hooks, components and utils",
+        "tree": "desktop",
+        "members": [],
+        "prefixes": [],
+    },
+    {
+        "slug": "13-desktop-sheet",
+        "title": "13. Desktop — the sheet (printable output)",
+        "tree": "desktop",
+        "members": [],
+        "prefixes": ["desktop/src/renderer/src/sheet/"],
+    },
 ]
 
-# Slug/title for the catch-all group that holds every source file no reading-
-# order group claimed. Bucketed by top-level package into one sub-index each.
+# Slug/title for the catch-all group that holds every backend source file no
+# reading-order group claimed. Bucketed by top-level package into one sub-index
+# each. It is listed after the backend reading groups and before the desktop
+# ones (the desktop groups above are exhaustive, so nothing desktop lands here).
 REST_GROUP_SLUG: str = "07-everything-else"
 REST_GROUP_TITLE: str = "7. Everything else — the rest of the codebase"
