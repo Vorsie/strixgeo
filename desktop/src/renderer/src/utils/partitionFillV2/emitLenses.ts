@@ -17,6 +17,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { columnDeepestBase } from './columnMetrics'
 import { emitContinuation, runGapTies, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { enclosedLensReach, type ReachTie } from './lensReach'
@@ -256,10 +257,7 @@ export function enclosedLensDiamond(
   // deep-to-deep substrate, not this lens). A lens already at/above the floor is byte-identical (the
   // ``max`` is a no-op); a lens ENTIRELY below the floor (floor ≥ top) is left untouched — it is a
   // sub-TD unit for ``emitSubTdLenses``, not an interior enclosed lens.
-  const substrateFloor = Math.max(
-    Math.min(...col.units.map((u) => u.baseElev)),
-    Math.min(...facing.units.map((u) => u.baseElev)),
-  )
+  const substrateFloor = Math.max(columnDeepestBase(col), columnDeepestBase(facing))
   const clampedBase = substrateFloor < lens.topElev ? Math.max(lens.baseElev, substrateFloor) : lens.baseElev
   const topPt: Point = { x: colX, y: lens.topElev }
   const basePt: Point = { x: colX, y: clampedBase }
