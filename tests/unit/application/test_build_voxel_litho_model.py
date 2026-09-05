@@ -112,12 +112,16 @@ async def _run(
     captured: dict[str, Any],
     *,
     vertical_spacing_m: float | None = None,
+    sections: list[SectionPartitionInput] | None = None,
+    picks: list[BodyLayerPick] | None = None,
 ) -> None:
     """Execute the use case with every heavy collaborator patched.
 
-    Records the kwargs ``label_voxels`` was called with into ``captured``.  When
-    ``vertical_spacing_m`` is set, it is forwarded to ``execute`` so the
-    anisotropy pass-through can be asserted.
+    Records the args and kwargs ``label_voxels`` was called with into
+    ``captured``.  When ``vertical_spacing_m`` is set, it is forwarded to
+    ``execute`` so the anisotropy pass-through can be asserted.  ``sections``
+    replaces the default one-gap payload and ``picks`` the (default empty)
+    honored picks, so a test can drive the true-position re-seat.
     """
 
     def _capture_label(*args: Any, **kwargs: Any) -> LabelGrid:
@@ -126,7 +130,7 @@ async def _run(
         return _empty_grid()
 
     repo = AsyncMock()
-    repo.load_body_picks = AsyncMock(return_value=[])
+    repo.load_body_picks = AsyncMock(return_value=list(picks or []))
 
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
@@ -148,7 +152,7 @@ async def _run(
     ):
         await use_case.execute(
             uuid4(),
-            [_section()],
+            list(sections) if sections is not None else [_section()],
             grid_spacing_m=1.0,
             vertical_spacing_m=vertical_spacing_m,
             force=True,
@@ -266,15 +270,22 @@ def test_changing_vertical_spacing_busts_the_partition_checksum() -> None:
 # where the ground was drilled.
 
 
-def _pick(inv_id: str, x_m: float, y_m: float) -> BodyLayerPick:
+def _pick(
+    inv_id: str,
+    x_m: float,
+    y_m: float,
+    *,
+    body_id: str = "body-1",
+    formation_id: str = "KLEI",
+) -> BodyLayerPick:
     """One accepted body-assigned pick for ``inv_id`` at a true map position."""
     return BodyLayerPick(
         investigation_id=inv_id,
         x_m=x_m,
         y_m=y_m,
         surface_elev_m=5.0,
-        body_id="body-1",
-        formation_id="KLEI",
+        body_id=body_id,
+        formation_id=formation_id,
         top_depth_m=0.0,
         base_depth_m=5.0,
     )
@@ -1099,3 +1110,89 @@ async def test_a_litho_build_does_not_heal_the_geotech_parent_links() -> None:
 
     repo.rederive_geotech_parent_litho_layers.assert_not_awaited()
     repo.restamp_geotech_parent_litho_bodies.assert_not_awaited()
+
+
+# --- The cross-section body merge reads TRUE positions, not the drawn feet ---
+
+
+def _fence(columns: list[tuple[str, float, float]], body_id: str) -> SectionPartitionInput:
+    """A two-column section with one full-gap ZAND band under ``body_id``.
+
+    The columns sit at the DRAWN (projected-foot) positions the frontend posts;
+    the true positions come from the honored picks.
+    """
+    return SectionPartitionInput(
+        start_x=columns[0][1],
+        start_y=columns[0][2],
+        end_x=columns[-1][1],
+        end_y=columns[-1][2],
+        columns=tuple(
+            SectionColumnInput(investigation_id=c, along_m=float(i) * 100.0, world_x=x, world_y=y)
+            for i, (c, x, y) in enumerate(columns)
+        ),
+        regions=(
+            RegionInput(
+                formation_id="ZAND",
+                body_id=body_id,
+                polygon=((0.0, 5.0), (1.0, 5.0), (1.0, 0.0), (0.0, 0.0)),
+                gap_index=0,
+            ),
+        ),
+    )
+
+
+def _labelled_body_ids(captured: dict[str, Any]) -> set[str]:
+    """The distinct body ids the labeller received, read from its sections argument."""
+    sections = captured["args"][2]
+    return {region.body_id for section in sections for region in section.regions}
+
+
+@pytest.mark.asyncio
+async def test_bodies_whose_fences_cross_only_at_their_true_positions_are_one_body() -> None:
+    """Two same-sand bodies whose fences cross where the tests really are fuse.
+
+    As drawn, the north-south section sits 60 m north of the east-west one and
+    the fences never meet.  The honored picks put its two tests on x = 50 from
+    y = -50 to y = 50, so in true space the fences cross at (50, 0) with the
+    same sand at the same level.  The merge must be planned on the true
+    positions (the planner's own contract), so the labeller sees ONE body.
+    """
+    captured: dict[str, Any] = {}
+    east_west = _fence([("A", 0.0, 0.0), ("B", 100.0, 0.0)], "ew")
+    north_south_as_drawn = _fence([("C", 50.0, 60.0), ("D", 50.0, 160.0)], "ns")
+    picks = [
+        _pick("A", 0.0, 0.0, body_id="ew", formation_id="ZAND"),
+        _pick("B", 100.0, 0.0, body_id="ew", formation_id="ZAND"),
+        _pick("C", 50.0, -50.0, body_id="ns", formation_id="ZAND"),
+        _pick("D", 50.0, 50.0, body_id="ns", formation_id="ZAND"),
+    ]
+
+    await _run(_make_use_case(), captured, sections=[east_west, north_south_as_drawn], picks=picks)
+
+    assert len(_labelled_body_ids(captured)) == 1
+    honored = captured["kwargs"]["investigation_columns"]
+    assert len({body for column in honored for body, _f, _t, _b in column.intervals}) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_crossing_that_exists_only_in_the_drawn_positions_does_not_fuse() -> None:
+    """Fences that cross only at the projected feet stay two bodies.
+
+    The mirror case: as drawn the north-south section crosses the east-west one
+    at (50, 0), but its tests were really drilled 60 m to 160 m north, where no
+    fence meets the other.  A crossing that exists only in projected space must
+    not fuse two independent bodies into one solid.
+    """
+    captured: dict[str, Any] = {}
+    east_west = _fence([("A", 0.0, 0.0), ("B", 100.0, 0.0)], "ew")
+    north_south_as_drawn = _fence([("C", 50.0, -50.0), ("D", 50.0, 50.0)], "ns")
+    picks = [
+        _pick("A", 0.0, 0.0, body_id="ew", formation_id="ZAND"),
+        _pick("B", 100.0, 0.0, body_id="ew", formation_id="ZAND"),
+        _pick("C", 50.0, 60.0, body_id="ns", formation_id="ZAND"),
+        _pick("D", 50.0, 160.0, body_id="ns", formation_id="ZAND"),
+    ]
+
+    await _run(_make_use_case(), captured, sections=[east_west, north_south_as_drawn], picks=picks)
+
+    assert _labelled_body_ids(captured) == {"ew", "ns"}
