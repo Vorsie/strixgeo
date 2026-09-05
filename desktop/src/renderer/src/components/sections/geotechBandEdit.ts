@@ -377,7 +377,7 @@ export function canMergeBands(
       // send the engineer away from a gesture he can make where he is standing. Near
       // remedy first, the other axis as the alternative it now is.
       reason:
-        'These bands sit in different lithostratigraphic units. The boundary between them is a ' +
+        'These bands sit in different lithological units. The boundary between them is a ' +
         'litho contact, and a packing boundary never crosses one — drag the contact itself to ' +
         'move it, or edit it on the litho axis.',
     }
