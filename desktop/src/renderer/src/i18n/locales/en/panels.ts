@@ -84,6 +84,7 @@ export const PANELS = {
   'borelog.dovOverlayModel': 'DOV overlay model for this pane',
   'borelog.overrideDovModel': 'Override which DOV model this pane shows',
   'borelog.loadingDovPredictions': 'Loading DOV predictions',
+  'borelog.dovUnavailable': 'DOV layer models unavailable',
   'borelog.zoomInVertical': 'Zoom in (vertical scale)',
   'borelog.zoomOutVertical': 'Zoom out (vertical scale)',
   'borelog.resetZoom1x': 'Reset zoom to 1×',
@@ -106,6 +107,7 @@ export const PANELS = {
   'chart.surfaceRef': '{level} m — surface',
   'chart.tooltipDepth': 'Depth: {depth} m',
   'chart.tooltipLevelSuffix': '  |  Level: {level}',
+  'chart.invertRfAxis': 'Invert Rf axis',
 
   // -------------------------------------------------------------------------
   // lab tests.
