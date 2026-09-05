@@ -15,18 +15,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import GeotechAdmixtureChoiceDialog from './GeotechAdmixtureChoiceDialog'
 import type { AdmixtureUnit } from '../../../utils/admixtureNadChoice'
-import type { NadAdmixtureChoice } from '../../../api/clients/geology.types'
+import type { AdmixtureItem, NadAdmixtureChoice } from '../../../api/clients/geology.types'
+
+const SILTY: AdmixtureItem[] = [{ soil_code: 'SL', amount: 'M', locally: false }]
+const SANDY: AdmixtureItem[] = [{ soil_code: 'XZ', amount: 'M', locally: false }]
 
 const SILTY_SAND: AdmixtureUnit = {
   formationId: 'f-sand',
   name: 'Antropogeen — Zand',
   soilCode: 'ZAND',
+  matchedAdmixtures: SILTY,
   choice: null,
 }
 const SANDY_CLAY: AdmixtureUnit = {
   formationId: 'f-clay',
   name: 'Boom — Klei',
   soilCode: 'KLEI',
+  matchedAdmixtures: SANDY,
   choice: null,
 }
 
@@ -56,13 +61,29 @@ describe('GeotechAdmixtureChoiceDialog', () => {
     renderDialog()
     expect(screen.getByTestId('geotech-admixture-unit-f-sand')).toBeTruthy()
     expect(screen.getByTestId('geotech-admixture-unit-f-clay')).toBeTruthy()
-    // English labels interpolate the soil name.
+    // English labels interpolate the soil name. Owner ruling 2026-09-05: the
+    // "with" option names the admixture FAMILY the coarse soil forks on
+    // (clay/silt), never a bare "with admixture".
     expect(screen.getByTestId('geotech-admixture-pure-f-sand').closest('label')?.textContent).toContain(
-      'Pure Sand',
+      'Plain Sand',
     )
     expect(
       screen.getByTestId('geotech-admixture-with_admixture-f-sand').closest('label')?.textContent,
-    ).toContain('Sand with admixture')
+    ).toContain('Sand with clay/silt admixture')
+  })
+
+  it('AD6 — names the specific admixture the litho unit carries (owner ruling 2026-09-05)', () => {
+    renderDialog()
+    // The sand's silty admixture is named, so the engineer sees WHY it is asked.
+    const sand = screen.getByTestId('geotech-admixture-found-f-sand').textContent ?? ''
+    expect(sand.toLowerCase()).toContain('silty')
+    // The clay's sandy admixture is named on its own row.
+    const clay = screen.getByTestId('geotech-admixture-found-f-clay').textContent ?? ''
+    expect(clay.toLowerCase()).toContain('sandy')
+    // A fine soil forks on SAND, so its "with" option says sand, not clay/silt.
+    expect(
+      screen.getByTestId('geotech-admixture-with_admixture-f-clay').closest('label')?.textContent,
+    ).toContain('Clay with sand admixture')
   })
 
   it('AD2 — picking a family reports (formationId, choice) up', () => {
