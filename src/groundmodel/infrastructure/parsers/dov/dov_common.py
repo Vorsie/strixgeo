@@ -58,7 +58,15 @@ DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
 # at an arbitrary URL — a blind SSRF that could reach a link-local metadata
 # endpoint or an intranet host. Derived from DOV_WFS_URL so the DOV host is
 # stated once; a URL whose host is not on this set is refused, never fetched.
-DOV_ALLOWED_HOSTS: frozenset[str] = frozenset({urlsplit(DOV_WFS_URL).hostname or ""})
+# The Virtuele Boring (layer-model) API is served from a second DOV host,
+# ``services.dov.vlaanderen.be`` (``virtuele_boring_constants.DOV_VIRTUELE_BORING_BASE_URL``,
+# stated as a literal here because that module must not be imported by this base
+# module). Without it every layer-model request was refused as off-host and the DOV
+# panel on the CPT and borehole views sat greyed out (installer #17, 2026-09-05).
+DOV_VIRTUELE_BORING_HOST = "services.dov.vlaanderen.be"
+DOV_ALLOWED_HOSTS: frozenset[str] = frozenset(
+    {urlsplit(DOV_WFS_URL).hostname or "", DOV_VIRTUELE_BORING_HOST}
+)
 
 
 def is_allowed_dov_url(url: str) -> bool:
