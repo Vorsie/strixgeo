@@ -166,7 +166,7 @@ const GROUPS: readonly CheatGroup[] = [
       },
       {
         trigger: 'Right-click a litho band',
-        action: 'More actions — remove this unit, link to geology, …',
+        action: 'More actions — remove this unit, link to stratigraphy, …',
       },
       { trigger: 'Right-click empty space', action: 'Add a new suggestion here' },
     ],
