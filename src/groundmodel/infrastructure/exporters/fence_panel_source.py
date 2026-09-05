@@ -43,12 +43,29 @@ class FencePanelSource(Protocol):
 
     @property
     def body_id(self) -> str | None:
-        """Resolver-assigned body identity; ``None`` when the wall is untied."""
+        """Resolver-assigned body identity; ``None`` when the wall is untied.
+
+        Recorded on each exported 3DFACE as XDATA (owner ruling 2026-09-05) so a
+        body is recoverable from the entity. It is NOT part of the layer name: a
+        body spans sections, so it is not a per-section split key.
+        """
+        ...
+
+    @property
+    def section_id(self) -> str | None:
+        """Cross-section this wall was built on; ``None`` on a legacy panel.
+
+        The DXF layer name is split per section (``Fence-<section>_<unit>``) so a
+        whole section can be switched off in CAD (owner ruling 2026-09-05). The
+        section's human name is resolved server-side from this id (the renderer
+        does not carry it), exactly as ``nad_class`` is. ``None`` (or an id the
+        route could not resolve) keeps the pre-section ``Fence-<unit>`` naming.
+        """
         ...
 
     @property
     def name(self) -> str:
-        """Display label, already resolved; becomes the DXF layer name."""
+        """Display label, already resolved; becomes the DXF layer name's unit part."""
         ...
 
     @property
