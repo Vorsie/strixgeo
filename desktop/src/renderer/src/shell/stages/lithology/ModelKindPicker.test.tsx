@@ -63,7 +63,7 @@ describe('ModelKindPicker (#55)', () => {
     expect(screen.queryByText('none yet')).toBeNull()
     // C1 empty-state CTA — names what creating it unlocks.
     const cta = screen.getByRole('button', {
-      name: 'Create lithostratigraphic model',
+      name: 'Create lithological model',
     })
     expect(cta).toBeInTheDocument()
     expect(cta).toHaveTextContent(/contacts on sections/i)
@@ -78,7 +78,7 @@ describe('ModelKindPicker (#55)', () => {
     geoModel.activeLithoModel = model('l1', 'Litho A', 'lithostratigraphic', true)
     render(<ModelKindPicker />)
     const select = screen.getByRole('combobox', {
-      name: 'Active lithostratigraphic model',
+      name: 'Active lithological model',
     })
     expect((select as HTMLSelectElement).value).toBe('l1')
     fireEvent.change(select, { target: { value: 'l2' } })
@@ -89,13 +89,13 @@ describe('ModelKindPicker (#55)', () => {
     render(<ModelKindPicker />)
     // Empty state → the CTA enters create mode.
     fireEvent.click(
-      screen.getByRole('button', { name: 'Create lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Create lithological model' }),
     )
-    const input = screen.getByLabelText('New lithostratigraphic model name')
+    const input = screen.getByLabelText('New lithological model name')
     fireEvent.change(input, { target: { value: '  Quay 7 lithology  ' } })
     // In create mode the CTA is gone; the only such button is submit.
     fireEvent.click(
-      screen.getByRole('button', { name: 'Create lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Create lithological model' }),
     )
     expect(handleCreateLithoModel).toHaveBeenCalledWith('Quay 7 lithology')
   })
@@ -103,10 +103,10 @@ describe('ModelKindPicker (#55)', () => {
   it('does not submit an empty name', () => {
     render(<ModelKindPicker />)
     fireEvent.click(
-      screen.getByRole('button', { name: 'Create lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Create lithological model' }),
     )
     const create = screen.getByRole('button', {
-      name: 'Create lithostratigraphic model',
+      name: 'Create lithological model',
     })
     expect(create).toBeDisabled()
     fireEvent.click(create)
@@ -119,11 +119,11 @@ describe('ModelKindPicker (#55)', () => {
     render(<ModelKindPicker />)
     // No destructive call until the user confirms.
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Delete lithological model' }),
     )
     expect(handleDeleteLithoModel).not.toHaveBeenCalled()
     expect(
-      screen.getByText('Delete lithostratigraphic model?'),
+      screen.getByText('Delete lithological model?'),
     ).toBeInTheDocument()
     // Irreversible confirm button reads "Delete permanently" (common.deletePermanently),
     // distinct from the reversible project-local hide "Remove" (owner 2026-09-03).
@@ -136,7 +136,7 @@ describe('ModelKindPicker (#55)', () => {
     geoModel.activeLithoModel = model('l1', 'Litho A', 'lithostratigraphic', true)
     render(<ModelKindPicker />)
     fireEvent.click(
-      screen.getByRole('button', { name: 'Delete lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Delete lithological model' }),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(handleDeleteLithoModel).not.toHaveBeenCalled()
@@ -147,10 +147,10 @@ describe('ModelKindPicker (#55)', () => {
     geoModel.activeLithoModel = model('l1', 'Litho A', 'lithostratigraphic', true)
     render(<ModelKindPicker />)
     fireEvent.click(
-      screen.getByRole('button', { name: 'New lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'New lithological model' }),
     )
     expect(
-      screen.getByLabelText('New lithostratigraphic model name'),
+      screen.getByLabelText('New lithological model name'),
     ).toBeInTheDocument()
   })
 })
