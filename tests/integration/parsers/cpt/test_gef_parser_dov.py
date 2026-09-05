@@ -20,7 +20,7 @@ import pytest
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parser import GEFParser
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 
 DATA_DIR = Path(__file__).parents[4] / "data" / "cpt"
 
