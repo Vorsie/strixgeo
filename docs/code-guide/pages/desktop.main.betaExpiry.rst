@@ -1,7 +1,7 @@
 desktop.main.betaExpiry
 =======================
 
-.. CG-PAGE source=desktop/src/main/betaExpiry.ts complete=false
+.. CG-PAGE source=desktop/src/main/betaExpiry.ts complete=true
 
 *Source file:* ``desktop/src/main/betaExpiry.ts``
 

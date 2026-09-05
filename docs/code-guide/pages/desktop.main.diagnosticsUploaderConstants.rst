@@ -1,7 +1,7 @@
 desktop.main.diagnosticsUploaderConstants
 =========================================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsUploaderConstants.ts complete=false
+.. CG-PAGE source=desktop/src/main/diagnosticsUploaderConstants.ts complete=true
 
 *Source file:* ``desktop/src/main/diagnosticsUploaderConstants.ts``
 
@@ -153,13 +153,9 @@ same events are never queued a second time on a later launch.
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_UPLOAD_TIMEOUT_MS
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the per-request timeout to 10,000 milliseconds (ten seconds) — how long a single upload attempt waits for the server to answer before giving up.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Matching the activation client's own timeout ceiling means both talk to the same server with the same patience, so neither waits noticeably longer than the other on a slow reply.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_UPLOAD_TIMEOUT_MS
 
@@ -175,13 +171,9 @@ same events are never queued a second time on a later launch.
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_RETRY_BASE_MS
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the first backoff step — 60,000 milliseconds (one minute) — waited after a bundle is kept because of a server fault or a network failure.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Because a server fault or a dead link affects every bundle equally, the drain stops on the first kept bundle and waits at least this long before trying again, then doubles the wait on each consecutive failure up to the ceiling. Retrying immediately would only repeat the same failure.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_RETRY_BASE_MS
 
@@ -197,13 +189,9 @@ same events are never queued a second time on a later launch.
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_RETRY_MAX_MS
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the ceiling on the doubling backoff to one hour (60 × 60,000 milliseconds). The block also carries the note that leads into the next value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Capping the wait at an hour means that no matter how long a server stays down, retries keep happening at least hourly rather than stretching out indefinitely.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_RETRY_MAX_MS
 
@@ -219,13 +207,9 @@ same events are never queued a second time on a later launch.
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_DRAIN_INTERVAL_MS
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the routine drain cadence to fifteen minutes (15 × 60,000 milliseconds) — how often the uploader tries again while the queue is non-empty and healthy. The block also carries the note that leads into the next value.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This gentle cadence is used when the previous drain made progress or on the first run; a failing drain switches to the minute-and-doubling backoff instead, and when the queue empties the timer stops entirely so the uploader does nothing until a new bundle is enqueued.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_DRAIN_INTERVAL_MS
 
@@ -241,13 +225,9 @@ same events are never queued a second time on a later launch.
 
 .. CG-EXPLANATION-START id=const:ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS
 
-.. CG-PLACEHOLDER
+**What this does.** A single on/off flag, set to ``false`` today, that would decide whether an uploaded bundle also carries the device's licence key and device id when an activation exists.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The capture design states, and its tests pin, that a diagnostics record carries no device id, no session id and no counter of any kind. Attaching identity to the upload would reverse that shipped, tested promise — a real privacy decision the owner has not ruled on — so the plumbing is built but held behind this one flag, to be flipped to ``true`` only in the same change that records the owner's ruling.
 
 .. CG-EXPLANATION-END id=const:ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS
 

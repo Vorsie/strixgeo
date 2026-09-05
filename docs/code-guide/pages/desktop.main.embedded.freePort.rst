@@ -1,7 +1,7 @@
 desktop.main.embedded.freePort
 ==============================
 
-.. CG-PAGE source=desktop/src/main/embedded/freePort.ts complete=false
+.. CG-PAGE source=desktop/src/main/embedded/freePort.ts complete=true
 
 *Source file:* ``desktop/src/main/embedded/freePort.ts``
 

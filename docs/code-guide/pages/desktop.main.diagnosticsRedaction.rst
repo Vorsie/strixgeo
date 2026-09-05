@@ -1,7 +1,7 @@
 desktop.main.diagnosticsRedaction
 =================================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsRedaction.ts complete=false
+.. CG-PAGE source=desktop/src/main/diagnosticsRedaction.ts complete=true
 
 *Source file:* ``desktop/src/main/diagnosticsRedaction.ts``
 

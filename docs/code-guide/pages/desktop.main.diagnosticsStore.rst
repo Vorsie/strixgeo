@@ -1,7 +1,7 @@
 desktop.main.diagnosticsStore
 =============================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsStore.ts complete=false
+.. CG-PAGE source=desktop/src/main/diagnosticsStore.ts complete=true
 
 *Source file:* ``desktop/src/main/diagnosticsStore.ts``
 
@@ -21,13 +21,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=module-header
 
-.. CG-PLACEHOLDER
+**What this does.** This is the file's opening note (a *docstring*) plus the ``import`` lines it depends on. The note explains the file's job: write one line per captured problem to ``diagnostics.log`` inside the user's own app-data folder. Each line is *NDJSON* — one complete JSON object (a labelled bag of fields) on its own line, so a file is just a stack of independent records. Rotation (capping the file's size, done through ``logRotation.ts``) keeps it from growing forever. The imports pull in file helpers, the event normaliser and its types from ``diagnosticsEvent``, and the rotation helper.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This file runs in Electron's *main process* — the part of the app with full computer access, as opposed to the sandboxed web page the user sees. It is the *capture* half of diagnostics, and capture is always on; *sending* anything is a separate, opt-in step that lives in other files and defaults to off. The note draws the load-bearing line: a log the user can read, delete and hand over on purpose is not telemetry — it is what makes "it crashed on my machine" answerable at all. Every byte has already passed the field whitelist and the redaction pass (the stripping of identifying text), so the file is safe to hand over *by construction*, not by the user's judgement in the moment. The user-data folder is passed in from outside rather than fetched from Electron here, so the automated tests can exercise this file without a real Electron running.
 
 .. CG-EXPLANATION-END id=module-header
 
@@ -43,13 +39,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_DIR_NAME
 
-.. CG-PLACEHOLDER
+**What this does.** Names the sub-folder, ``'diagnostics'``, that sits inside Electron's per-user app-data folder and holds every diagnostics artefact.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeping the log, its rotated copies, the consent file and the upload queue together under one predictable, named folder means the whole feature has a single home the user can find, inspect or delete.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_DIR_NAME
 
@@ -65,13 +57,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_FILENAME
 
-.. CG-PLACEHOLDER
+**What this does.** Names the primary log file, ``'diagnostics.log'``; rotated older copies get ``.1`` / ``.2`` suffixes. The comment at the end of the block leads into the next value and is explained there.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Writing the name once in a single named place means every part of the code that reads or writes the log agrees on the exact spelling, never a separately retyped literal.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_FILENAME
 
@@ -87,13 +75,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_MAX_BYTES
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the rotation threshold to 1 MiB (1024 × 1024 bytes) — when the log grows past this, it is rotated (the current file is set aside and a fresh one started).
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** 1 MiB is roughly 2,000 captured events, far more than any support question needs, and small enough that the whole file still fits in a mail attachment after zipping. The backend log's separate 5 MiB budget is unaffected by this number.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_MAX_BYTES
 
@@ -109,13 +93,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=const:DIAGNOSTICS_MAX_FILES
 
-.. CG-PLACEHOLDER
+**What this does.** Sets the number of rotated older generations kept to ``3``, the same count the backend log uses.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Keeping a few generations preserves a little history across rotations without letting the diagnostics folder grow without bound, and matching the backend log's count keeps the two logs behaving the same way.
 
 .. CG-EXPLANATION-END id=const:DIAGNOSTICS_MAX_FILES
 
@@ -131,13 +111,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=interface:DiagnosticsStoreConfig
 
-.. CG-PLACEHOLDER
+**What this does.** Describes the settings the store must be given (an *interface* is a written description of the fields a value must carry): ``userDataDir`` (the absolute path of Electron's per-user folder), ``appVersion`` and ``platform`` (stamped on every event), and an optional ``buildId`` present only on a stamped beta build.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** These facts are injected rather than read from Electron directly so this file can be tested in isolation, and the version, platform and build id are stamped here by the *main* process so a message arriving from the renderer can never forge which build or platform it claims to come from.
 
 .. CG-EXPLANATION-END id=interface:DiagnosticsStoreConfig
 
@@ -153,13 +129,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=let:config
 
-.. CG-PLACEHOLDER
+**What this does.** Declares one changeable module-level slot, ``config``, holding either the store's settings or ``null`` when it has not been set yet. The block also carries the note that leads into the next function.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A single shared slot is the one place the configure step fills in and every path below reads from, so all of them see the same directory and build facts.
 
 .. CG-EXPLANATION-END id=let:config
 
@@ -175,13 +147,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:configureDiagnosticsStore
 
-.. CG-PLACEHOLDER
+**What this does.** Stores the given settings into the shared ``config`` slot.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The startup code (``index.ts``) calls this once, handing over the real user-data directory and the build facts, so the rest of the file knows where to write and what to stamp on each event.
 
 .. CG-EXPLANATION-END id=function:configureDiagnosticsStore
 
@@ -197,13 +165,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:resetDiagnosticsStoreForTests
 
-.. CG-PLACEHOLDER
+**What this does.** Clears the shared ``config`` slot back to ``null``.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This exists only for the tests, so that the configuration set up by one test cannot leak into the next and quietly change its outcome.
 
 .. CG-EXPLANATION-END id=function:resetDiagnosticsStoreForTests
 
@@ -219,13 +183,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:requireConfig
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the current settings, or throws a clear error whose message names the setup call that was skipped when the store has not been configured.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Failing loudly the instant the store is used before it was configured is far safer than silently writing to an empty or wrong path; the error message points straight at the missing startup call.
 
 .. CG-EXPLANATION-END id=function:requireConfig
 
@@ -241,13 +201,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:diagnosticsDirPath
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the absolute path of the diagnostics folder by joining the configured user-data directory with the ``'diagnostics'`` sub-folder name. The block also carries the note that leads into the next function.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** Building the directory path in one place means every caller — the writer, the reader, the crash bundle — computes it the same way and cannot drift apart.
 
 .. CG-EXPLANATION-END id=function:diagnosticsDirPath
 
@@ -263,13 +219,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:diagnosticsLogPath
 
-.. CG-PLACEHOLDER
+**What this does.** Returns the absolute path of the primary log file by joining the diagnostics folder with ``'diagnostics.log'``. The block also carries the note that leads into the next function.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This is the single source of the log's full path, used by the writer, the rotation helper, the reader and the crash bundle, so none of them can point at a different file by mistake.
 
 .. CG-EXPLANATION-END id=function:diagnosticsLogPath
 
@@ -285,13 +237,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:diagnosticsBuildFacts
 
-.. CG-PLACEHOLDER
+**What this does.** Returns just the build facts — ``appVersion``, ``platform`` and the optional ``buildId`` — pulled from the configuration. The block also carries the note that leads into the next function.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** The crash bundle's manifest describes the whole installation rather than any one event, so it needs these facts on their own, without having to read an event line to find them.
 
 .. CG-EXPLANATION-END id=function:diagnosticsBuildFacts
 
@@ -307,13 +255,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:captureDiagnostic
 
-.. CG-PLACEHOLDER
+**What this does.** Records one problem. It runs the raw payload through the field whitelist and redaction (via ``normaliseDiagnosticEvent``), returning nothing if there was nothing worth logging; otherwise it (re)creates the diagnostics folder, rotates the log if it has grown past 1 MiB, and appends the event as a single NDJSON line. The whole body is wrapped so that any failure is swallowed and it returns ``null`` instead.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** This function must NEVER throw. Every caller is already an error path — a crash handler, an IPC message handler (IPC being how the renderer asks the main process to do something), a renderer-gone listener — and a diagnostics write that failed and masked the original crash would be the worst possible trade. The folder is recreated on every capture, not once at startup, so a user who cleaned out their app-data folder between two crashes still gets the second one recorded.
 
 .. CG-EXPLANATION-END id=function:captureDiagnostic
 
@@ -329,13 +273,9 @@ Module header — imports and top-level setup
 
 .. CG-EXPLANATION-START id=function:readDiagnosticEvents
 
-.. CG-PLACEHOLDER
+**What this does.** Reads the primary log back into a list of events: it returns an empty list if the file is absent or unreadable, otherwise splits the text into lines, JSON-parses each non-empty line into an event, and silently skips any line that will not parse.
 
-.. note::
-
-   **Plain-English explanation not yet written.** This block still needs a
-   "What this does" and "Why it is here" walkthrough in the plainest
-   English possible.
+**Why it is here.** A log truncated by a power cut in the middle of a write must still yield every event captured before the tear — so the reader skips the one torn line and keeps all the rest, rather than discarding the whole file over a single broken record.
 
 .. CG-EXPLANATION-END id=function:readDiagnosticEvents
 

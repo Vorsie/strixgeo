@@ -1,7 +1,7 @@
 desktop.main.embedded.pgDsn
 ===========================
 
-.. CG-PAGE source=desktop/src/main/embedded/pgDsn.ts complete=false
+.. CG-PAGE source=desktop/src/main/embedded/pgDsn.ts complete=true
 
 *Source file:* ``desktop/src/main/embedded/pgDsn.ts``
 

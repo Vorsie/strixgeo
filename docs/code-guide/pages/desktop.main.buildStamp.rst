@@ -1,7 +1,7 @@
 desktop.main.buildStamp
 =======================
 
-.. CG-PAGE source=desktop/src/main/buildStamp.ts complete=false
+.. CG-PAGE source=desktop/src/main/buildStamp.ts complete=true
 
 *Source file:* ``desktop/src/main/buildStamp.ts``
 

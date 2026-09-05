@@ -1,7 +1,7 @@
 desktop.main.diagnosticsEvent
 =============================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsEvent.ts complete=false
+.. CG-PAGE source=desktop/src/main/diagnosticsEvent.ts complete=true
 
 *Source file:* ``desktop/src/main/diagnosticsEvent.ts``
 

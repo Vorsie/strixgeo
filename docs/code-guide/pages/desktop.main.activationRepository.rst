@@ -1,7 +1,7 @@
 desktop.main.activationRepository
 =================================
 
-.. CG-PAGE source=desktop/src/main/activationRepository.ts complete=false
+.. CG-PAGE source=desktop/src/main/activationRepository.ts complete=true
 
 *Source file:* ``desktop/src/main/activationRepository.ts``
 

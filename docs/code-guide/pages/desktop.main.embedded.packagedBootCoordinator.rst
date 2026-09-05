@@ -1,7 +1,7 @@
 desktop.main.embedded.packagedBootCoordinator
 =============================================
 
-.. CG-PAGE source=desktop/src/main/embedded/packagedBootCoordinator.ts complete=false
+.. CG-PAGE source=desktop/src/main/embedded/packagedBootCoordinator.ts complete=true
 
 *Source file:* ``desktop/src/main/embedded/packagedBootCoordinator.ts``
 

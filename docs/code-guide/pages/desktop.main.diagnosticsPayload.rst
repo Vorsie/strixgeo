@@ -1,7 +1,7 @@
 desktop.main.diagnosticsPayload
 ===============================
 
-.. CG-PAGE source=desktop/src/main/diagnosticsPayload.ts complete=false
+.. CG-PAGE source=desktop/src/main/diagnosticsPayload.ts complete=true
 
 *Source file:* ``desktop/src/main/diagnosticsPayload.ts``
 
