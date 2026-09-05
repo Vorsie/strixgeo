@@ -6,7 +6,7 @@ export const SHEET = {
   'sheet.exporting': 'Printing…',
   'sheet.close': 'Close',
   'sheet.fill': 'Fill',
-  'sheet.fill.litho': 'Lithostratigraphy',
+  'sheet.fill.litho': 'Lithology',
   'sheet.fill.geotech': 'Geotechnical',
   'sheet.scaleMode': 'Scale',
   'sheet.scaleMode.fit': 'Fit to A3 height',
