@@ -14,8 +14,8 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.chapter.1': 'Je project',
   'tutorial.chapter.2': 'Data importeren',
   'tutorial.chapter.3': 'Dwarsprofielen',
-  'tutorial.chapter.4': 'Geologisch model',
-  'tutorial.chapter.5': 'Lithostratigrafisch model',
+  'tutorial.chapter.4': 'Stratigrafisch model',
+  'tutorial.chapter.5': 'Lithologisch model',
   'tutorial.chapter.6': 'Geotechnisch model',
   'tutorial.chapter.7': 'Parameters & statistiek',
   'tutorial.chapter.8': 'Exporteren',
@@ -99,7 +99,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Een boring kan meerdere interpretatiestromen dragen. Schakel Geo (geotechnische codering), F-Strat (formele stratigrafie) en I-Strat (informele stratigrafie) naast de sondeerkanalen — elke stroom die je aanzet, tekent als een eigen strook naast de boring. Geo staat standaard aan.',
   'tutorial.section-axis.title': 'Modelas',
   'tutorial.section-axis.body':
-    'Hetzelfde profiel bewerkt alle drie de niveaus. Wissel de as tussen Geologie, Litho en Geotech om elk model op zijn beurt te bewerken zonder het profiel te verlaten.',
+    'Hetzelfde profiel bewerkt alle drie de niveaus. Wissel de as tussen Stratigrafie, Litho en Geotech om elk model op zijn beurt te bewerken zonder het profiel te verlaten.',
   'tutorial.section-snap.title': 'Kleven aan stratigrafie',
   'tutorial.section-snap.body':
     'Met de Snap-knop aan belandt een klik vlak bij een gelogde grens er exact op, in plaats van een pixel ernaast. Zo blijven je grenzen verbonden met de stratigrafie die de boringen echt registreren.',
@@ -111,9 +111,9 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Elke instelling hier — buffer, afstand, overdrijving, kanalen, snap — wordt vanzelf bij dit dwarsprofiel bewaard. Heropen het en de kadrering staat exact zoals je ze achterliet; Reset zet de standaardweergave terug.',
 
   // 4 · Geologisch model ----------------------------------------------------
-  'tutorial.geo-open.title': 'Open de Geologie-stap',
+  'tutorial.geo-open.title': 'Open de Stratigrafie-stap',
   'tutorial.geo-open.body':
-    'Het geologisch model is de ruggengraat van het grondmodel. Het bevat de formaties en de vlakken ertussen, de regionale lagen onder je hele terrein. Bouw dit eerst; het litho- en het geotechnisch model verfijnen het van daaruit.',
+    'Het stratigrafisch model is de ruggengraat van het grondmodel. Het bevat de formaties en de vlakken ertussen, de regionale lagen onder je hele terrein. Bouw dit eerst; het litho- en het geotechnisch model verfijnen het van daaruit.',
   'tutorial.geo-seed.title': 'Vullen vanuit boringen',
   'tutorial.geo-seed.body':
     'Vul de eerste contacten van het model vanuit je boringen. Deze knop leest de formatietoppen die de boringen loggen en plaatst een contact op elke top. Deze stap vinkt zichzelf af zodra de eerste contacten verschijnen.',
@@ -131,13 +131,13 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   // 5 · Lithostratigrafisch model -------------------------------------------
   'tutorial.litho-open.title': 'Open de Lithologie-stap',
   'tutorial.litho-open.body':
-    'Het lithostratigrafisch model verfijnt de geologische ruggengraat tot lithologische eenheden. Denk aan zand, klei, silt, grind en veen, met hun bijmengingen. Je bouwt het langs je dwarsprofielen, kolom per kolom.',
+    'Het lithologisch model verfijnt de stratigrafische ruggengraat tot lithologische eenheden. Denk aan zand, klei, silt, grind en veen, met hun bijmengingen. Je bouwt het langs je dwarsprofielen, kolom per kolom.',
   'tutorial.litho-create.title': 'Maak een lithomodel aan',
   'tutorial.litho-create.body':
-    'Het lithomodel is een aparte grondmodel-as onder het geologische. Maak het eerst aan — zolang het niet bestaat, is er niets om litholaaggrenzen op te kiezen. Geef het een naam en het wordt het actieve lithomodel.',
+    'Het lithomodel is een aparte grondmodel-as onder het stratigrafische. Maak het eerst aan — zolang het niet bestaat, is er niets om litholaaggrenzen op te kiezen. Geef het een naam en het wordt het actieve lithomodel.',
   'tutorial.litho-axis.title': 'Schakel naar de litho-as',
   'tutorial.litho-axis.body':
-    'Open een dwarsprofiel en zet de as op Litho. Hetzelfde profiel bewerkt nu het lithomodel in plaats van de geologie — elk voorstel en elke correlatie die je hier maakt, hoort bij het lithomodel.',
+    'Open een dwarsprofiel en zet de as op Litho. Hetzelfde profiel bewerkt nu het lithomodel in plaats van de stratigrafie — elk voorstel en elke correlatie die je hier maakt, hoort bij het lithomodel.',
   'tutorial.litho-accept.title': 'Aanvaard de voorstellen',
   'tutorial.litho-accept.body':
     'De segmenter stelt lithologische lagen voor op elke kolom en leest de sondering met een Robertson-classificatie. Aanvaard die welke overeenkomen met wat je ziet. Dit is ondersteund werk, geen automatische correlatie, dus jij houdt elke laag in de hand. Deze stap vinkt af zodra je je eerste voorstel aanvaardt.',
@@ -149,7 +149,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Voor je bouwt, correleer je een laag op de ene kolom met dezelfde laag op de volgende, zodat het model weet dat ze één lichaam zijn. Correleren bovenaan de lithowerkbalk activeert het gebaar met twee klikken; Automatisch correleren stelt de koppelingen over het hele model voor, die je dan aanvaardt.',
   'tutorial.litho-second-section.title': 'Een tweede profiel voor 3D',
   'tutorial.litho-second-section.body':
-    'Net als bij de geologie draagt één profiel maar één doorsnede. Teken een tweede dwarsprofiel zodat de litholichamen de 3D-gegevens hebben om over je profielen heen te verbinden.',
+    'Net als bij de stratigrafie draagt één profiel maar één doorsnede. Teken een tweede dwarsprofiel zodat de litholichamen de 3D-gegevens hebben om over je profielen heen te verbinden.',
   // FLAG alt: lithobodies | 3D-bodies — de gepubliceerde models-catalogus gebruikt "lichamen"; het skelet gebruikte "lithobodies"
   'tutorial.litho-build.title': 'Bouw de litholichamen',
   'tutorial.litho-build.body':
@@ -187,5 +187,5 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Exporteer een dwarsprofiel naar DXF, naar Plaxis, naar D-Stability of D-Sheet, of naar een PDF-rapportblad. Elke export draagt je eenheidsidentificaties mee, zodat het model gelabeld aankomt in de ontwerptool. Kies het formaat dat je volgende stap nodig heeft.',
   'tutorial.closing.title': 'Je bent klaar',
   'tutorial.closing.body':
-    'Dat is de volledige workflow: importeren, dwarsprofiel, geologie, litho, geotech, parameters, export. Bouw je eerste model op je eigen data. Er komen meer import- en exportfuncties, dus stuur de bestandsformaten die je gebruikt naar StrixGeo en wij bouwen ze als volgende.',
+    'Dat is de volledige workflow: importeren, dwarsprofiel, stratigrafie, litho, geotech, parameters, export. Bouw je eerste model op je eigen data. Er komen meer import- en exportfuncties, dus stuur de bestandsformaten die je gebruikt naar StrixGeo en wij bouwen ze als volgende.',
 }
