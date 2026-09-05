@@ -15,6 +15,7 @@ from groundmodel.domain.value_objects.derived_value_source import DerivedValueSo
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
+from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 
 _NS = "http://kern.schemas.dov.vlaanderen.be"
@@ -132,6 +133,24 @@ def test_elevation_source_none_when_z_absent():
     through the same "needs Z" affordance as any other un-elevated row."""
     result = DovParser().parse(_xml(pos="200000.0 200000.0"))
     assert result.elevation_source == ElevationSource.NONE
+
+
+def test_lambert72_position_outside_belgium_raises_bounds_warning():
+    # DOV positions are Belgian Lambert 72 (EPSG:31370); a northing far north
+    # of Belgium (Amsterdam RD range) is caught at import as a WARNING.
+    result = DovParser().parse(_xml(pos="121000.0 487000.0 5.5"))
+    bounds = [i for i in result.issues if i.code == "COORDINATES_OUTSIDE_CRS_BOUNDS"]
+    assert len(bounds) == 1
+    assert bounds[0].level == ValidationLevel.WARNING
+    assert "31370" in bounds[0].message
+    # Never blocks the import for it.
+    assert all(i.level != ValidationLevel.ERROR for i in result.issues)
+
+
+def test_lambert72_position_inside_belgium_raises_no_bounds_warning():
+    # The default fixture's (200000, 200000) is a valid Belgian point.
+    result = DovParser().parse(_xml())
+    assert all(i.code != "COORDINATES_OUTSIDE_CRS_BOUNDS" for i in result.issues)
 
 
 def test_header_identification():
