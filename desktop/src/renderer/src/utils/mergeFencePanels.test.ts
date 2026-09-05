@@ -89,6 +89,14 @@ describe('mergeFencePanels — one connected body, one panel', () => {
     expect(merged[0].bodyId).toBe('z')
   })
 
+  it('a merged panel keeps the section id of its members', () => {
+    const a = { ...quad('f', 'b1', ['l1'], 0, 10, 5, 0), sectionId: 'cs-1' }
+    const b = { ...quad('f', 'b1', ['l2'], 10, 20, 5, 0), sectionId: 'cs-1' }
+    const merged = mergeFencePanels([a, b], () => 'b1')
+    expect(merged).toHaveLength(1)
+    expect(merged[0].sectionId).toBe('cs-1')
+  })
+
   it('keeps two panels of DIFFERENT resolved bodies as two panels', () => {
     const panels = [
       quad('ZAND', 'z', ['la'], 0, 50, 5, 0),
