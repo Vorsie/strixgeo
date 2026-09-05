@@ -109,7 +109,7 @@ export const OUTPUTS_NL = {
     'Het hekkendiagram teruggebracht tot de wanden van de geselecteerde eenheid over de basiskaart — een visueel ankerpunt, geen editor.',
   'params.loading3dView': '3D-weergave laden…',
   'params.kindGeotech': 'geotechnisch',
-  'params.kindLitho': 'lithostratigrafisch',
+  'params.kindLitho': 'lithologisch',
   'params.noModelYet': 'Nog geen {kind} model — de hekkenuitsnede verschijnt zodra er een is.',
   'params.assemblingFence': 'Hekkendiagram samenstellen…',
   'params.noFenceWalls':
@@ -142,7 +142,7 @@ export const OUTPUTS_NL = {
   'params.loadingUnitRoster': 'Eenhedenlijst laden…',
   'params.noUnitsYet': 'Nog geen eenheden',
   'params.noUnitsHintTree':
-    'Bouw een lithostratigrafisch model in de fase Lithologie en verdeel het daarna in de fase Geotechniek — de boom vult zich hier.',
+    'Bouw een lithologisch model in de fase Lithologie en verdeel het daarna in de fase Geotechniek — de boom vult zich hier.',
   'params.unitsHeader': 'Eenheden',
   'params.orphanBandsOne': '{n} band buiten het lithomodel',
   'params.orphanBandsMany': '{n} banden buiten het lithomodel',
@@ -171,7 +171,7 @@ export const OUTPUTS_NL = {
   'params.unitNoLongerExists': 'Deze eenheid bestaat niet meer',
   'params.unitNoLongerExistsHint':
     'Ze werd verwijderd of herbouwd sinds ze geselecteerd werd — kies een andere eenheid in de lijst.',
-  'params.lithostratigraphicUnit': 'Lithostratigrafische eenheid',
+  'params.lithostratigraphicUnit': 'Lithologische eenheid',
   'params.geotechnicalUnit': 'Geotechnische eenheid',
   // Blok karakteristieke waarden NAD (eigenaarsbeslissing 2026-09-05) — een
   // aflezing per body van de NAD-tabel, apart van de statistieken per eenheid.
@@ -205,7 +205,7 @@ export const OUTPUTS_NL = {
   'params.designReadyParam':
     'Ontwerpklare parameter — verschijnt in fase 5 zodra de correlatie- / xlsx-pijplijn landt.',
   'params.noUnitsHintStats':
-    'Bouw een lithostratigrafisch model in de fase Lithologie en verdeel het daarna in de fase Geotechniek — de eenheden vullen zich hier met hun statistieken.',
+    'Bouw een lithologisch model in de fase Lithologie en verdeel het daarna in de fase Geotechniek — de eenheden vullen zich hier met hun statistieken.',
   'params.pickUnit': 'Kies een eenheid',
   'params.pickUnitHint':
     'Klik op een eenheid in de lijst rechts — haar qc / fs / Rf-statistieken tekenen hier. Rechtsklikken op een band in een dwarsprofiel springt hier ook naartoe.',
@@ -248,16 +248,16 @@ export const OUTPUTS_NL = {
   'export.title': 'Exports',
   'export.blurb': 'Geef het grondmodel door aan een ontwerptool verderop in de keten.',
   'export.sections': 'Profielen',
-  'export.geology': 'Geologie',
+  'export.geology': 'Stratigrafie',
   'export.crossSection': 'Dwarsprofiel',
   'export.crossSectionToExport': 'Te exporteren dwarsprofiel',
   'export.sectionBlurb':
     'Exporteer de laaggeometrie van één dwarsprofiel — DXF (universele CAD-uitwisseling) of een uitvoerbaar Plaxis 2D plxscripting-script met één boring per geprojecteerde kolom.',
-  'export.geologyPlaxis3d': 'Geologisch model → Plaxis 3D',
+  'export.geologyPlaxis3d': 'Stratigrafisch model → Plaxis 3D',
   'export.geologyBlurb':
     'Exporteer het volledige model als een uitvoerbaar plxscripting Python-script — één voorlopige Mohr-Coulomb-grondsoort en één boring per grondonderzoek.',
   'export.noActiveModel':
-    'Geen actief geologisch model. Leg eerst formaties vast en plaats laaggrenzen.',
+    'Geen actief stratigrafisch model. Leg eerst formaties vast en plaats laaggrenzen.',
   'export.dxf': 'AutoCAD DXF',
   'export.pythonScript': 'Python-script',
   'export.allFiles': 'Alle bestanden',
@@ -285,7 +285,7 @@ export const OUTPUTS_NL = {
   'export.canvasBlurb':
     'Geef het grondmodel door aan een ontwerptool verderop in de keten. De laaggeometrie is de integratie-eenheid — parameters per laag worden in de doeltool ingesteld.',
   'export.guidanceNoModelPre':
-    'Geen actief geologisch model. Leg formaties vast en plaats laaggrenzen in de fase ',
+    'Geen actief stratigrafisch model. Leg formaties vast en plaats laaggrenzen in de fase ',
   'export.guidanceNoModelPost': '.',
   'export.guidanceNoSectionsPre': 'Nog geen dwarsprofielen. Maak er een in de fase ',
   'export.guidanceNoSectionsPost': '.',
