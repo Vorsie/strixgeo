@@ -11,8 +11,6 @@ this module only names the finding.
 from __future__ import annotations
 
 from groundmodel.infrastructure.codelists.horizontal_crs import horizontal_crs_label
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.infrastructure.parsers.crs_bounds import (
     CrsBoundsResult,
     classify_coordinates,
@@ -20,6 +18,8 @@ from groundmodel.infrastructure.parsers.crs_bounds import (
 from groundmodel.infrastructure.parsers.crs_bounds_constants import (
     COORDINATES_OUTSIDE_CRS_BOUNDS_CODE,
 )
+from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 
 
 def make_crs_bounds_issue(
