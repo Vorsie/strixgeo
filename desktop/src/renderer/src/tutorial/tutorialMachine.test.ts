@@ -16,6 +16,7 @@ import {
   completeStep,
   currentStep,
   initialProgress,
+  initialProgressForContext,
   isFinished,
   restart,
   skipStep,
@@ -42,6 +43,8 @@ function emptyState(): TutorialState {
     lithoAcceptedCount: 0,
     lithoSolidsBuilt: false,
     geotechModelExists: false,
+    cptOpen: false,
+    boreholeOpen: false,
   }
 }
 
@@ -108,6 +111,23 @@ describe('tutorialMachine', () => {
 
   it('restart returns to the first step with a clean slate', () => {
     expect(restart(STEPS)).toEqual({ stepId: 'a', completed: [] })
+  })
+
+  it('starting from the welcome screen (no project) begins at the first step (owner ruling 3)', () => {
+    expect(initialProgressForContext(STEPS, { projectOpen: false })).toEqual({
+      stepId: 'a',
+      completed: [],
+    })
+  })
+
+  it('starting inside an open project skips the project-creation (welcome) steps (owner ruling 3)', () => {
+    // Owner: restarting with a project open must not show "Name your project"
+    // or "Create the project" — start at the first non-welcome step. The
+    // welcome steps count as already completed so Back does not resurface them.
+    expect(initialProgressForContext(STEPS, { projectOpen: true })).toEqual({
+      stepId: 'c',
+      completed: ['a', 'b'],
+    })
   })
 
   it('resumes from persisted progress and completes the resumed step on state', () => {
