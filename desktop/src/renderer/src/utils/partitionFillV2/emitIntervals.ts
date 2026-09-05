@@ -33,7 +33,7 @@
 import { LENS_PINCH_FRACTION } from '../sectionPartition'
 import { collectGapBands, emitBandContourCurve, emitSideSubSeams, meetFraction, untiedUnitsInInterval, type GapBand } from './emitBands'
 import { type ResolvedTie } from './emitCurves'
-import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
+import { tiedFlags } from './effectiveCorr'
 import { emitLensClosing, extractEnclosedLenses, type IntervalUnit } from './emitIntervalLenses'
 import { type LensLabel } from './emitLenses'
 import { routeLoneSidePinch } from './emitLonePinch'
@@ -123,12 +123,7 @@ export function emitIntervalCurves(
     // unit tiles only the residue OUTSIDE the band — its lone-side fill stops at the
     // band boundary instead of overrunning the band interior (cs1bandauthority).
     const bands = collectGapBands(gi, columns[gi], columns[gi + 1], activeTies)
-    // Per-gap effective corr (2/1/0) for both columns — computed once per gap (shared
-    // with the conformance gate's ``effectiveCorr`` arithmetic). Historical note: this
-    // used to also feed the in-file cut-over branch, deleted in session 36.
-    const leftCorr = effectiveCorrForSide(gi, 'left', columns[gi], columns[gi + 1], columns[gi], columns[gi + 1], activeTies)
-    const rightCorr = effectiveCorrForSide(gi, 'right', columns[gi + 1], columns[gi], columns[gi], columns[gi + 1], activeTies)
-    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, leftCorr, rightCorr, nextId, nextBandId, nextFloodId, lensLabels, out)
+    emitGapIntervals(gi, columns[gi], columns[gi + 1], activeTies, bridgeAnchored, bands, nextId, nextBandId, nextFloodId, lensLabels, out)
   }
 }
 
@@ -184,8 +179,6 @@ function emitGapIntervals(
   activeTies: readonly ResolvedTie[],
   bridgeAnchored: ReadonlySet<string>,
   bands: readonly GapBand[],
-  leftCorr: readonly EffectiveCorr[],
-  rightCorr: readonly EffectiveCorr[],
   nextId: () => string,
   nextBandId: () => string,
   nextFloodId: () => string,
@@ -214,16 +207,9 @@ function emitGapIntervals(
   // interval brackets confine any facing fill to the residue outside the band.
   const leftBanded = new Set<number>()
   const rightBanded = new Set<number>()
-  // Formations carrying a matched-pair band in THIS gap (ruling 8e "one body" test): a
-  // same-formation full-width render enclosed by its own tied band is one body, so its
-  // single-single merge must NOT be terminated (kept as the geometric band). A same-formation
-  // pair with NO band of that formation is the retired auto-match — the terminations-first path
-  // splits it into opposing onlaps.
-  const bandFormations = new Set<string>()
   for (const b of bands) {
     leftBanded.add(b.leftUnitIndex)
     rightBanded.add(b.rightUnitIndex)
-    bandFormations.add(b.formationId)
   }
 
   // Build the bracket lines: surface (top), each tie/bridge anchor line, then the
@@ -312,7 +298,7 @@ function emitGapIntervals(
     // Bracketed = both interval boundaries are real tie/bridge anchors (v1's gate for
     // the midpoint no-auto-facies seam). A surface- or floor-bounded interval is NOT.
     const bracketed = top.anchor && base.anchor
-    tileInterval(gapIndex, left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, leftCorr, rightCorr, bandFormations, nextId, nextFloodId, lensLabels, out)
+    tileInterval(gapIndex, left, right, top, base, leftUnits, rightUnits, bracketed, leftTied, rightTied, nextId, nextFloodId, lensLabels, out)
     // A tiled interval whose BASE is the shallow-TD floor needs an explicit floor
     // curve to CLOSE it from below — the surface / tie-line brackets are already
     // arrangement curves, but the shallow-TD floor is not (sub-TD stays empty,
@@ -398,9 +384,6 @@ function tileInterval(
   bracketed: boolean,
   leftTied: TiedContacts,
   rightTied: TiedContacts,
-  leftCorr: readonly EffectiveCorr[],
-  rightCorr: readonly EffectiveCorr[],
-  bandFormations: ReadonlySet<string>,
   nextId: () => string,
   nextFloodId: () => string,
   lensLabels: Map<string, LensLabel>,
