@@ -37,8 +37,8 @@ export const LAUNCH = {
   // The six spine stages, one sentence each.
   'onboarding.stageImport': 'Import',
   'onboarding.stageImportBody': 'Bring in CPTs and boreholes from files or straight from DOV.',
-  'onboarding.stageGeology': 'Geology',
-  'onboarding.stageGeologyBody': 'Lay down the geological backbone — formations and their surfaces.',
+  'onboarding.stageGeology': 'Stratigraphy',
+  'onboarding.stageGeologyBody': 'Lay down the stratigraphic backbone — formations and their surfaces.',
   'onboarding.stageLitho': 'Lithology',
   'onboarding.stageLithoBody': 'Refine the backbone into lithological units along your sections.',
   'onboarding.stageGeotech': 'Geotechnics',
