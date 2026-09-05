@@ -135,6 +135,7 @@ export default function ExportCanvas(): JSX.Element {
                   label={sectionBusy === 'dxf' ? t('export.exporting') : t('export.exportDxf')}
                   onClick={() => void handleSectionExport('dxf')}
                   disabled={!section || sectionBusy !== null}
+                  testid="export-canvas-dxf"
                 />
                 <ActionButton
                   label={
@@ -142,6 +143,7 @@ export default function ExportCanvas(): JSX.Element {
                   }
                   onClick={() => void handleSectionExport('plaxis2d')}
                   disabled={!section || sectionBusy !== null}
+                  testid="export-canvas-plaxis2d"
                 />
               </div>
             )}
@@ -165,6 +167,7 @@ export default function ExportCanvas(): JSX.Element {
                   label={exportingPlaxis3d ? t('export.exporting') : t('export.exportPlaxis3d')}
                   onClick={() => void handlePlaxis3d()}
                   disabled={exportingPlaxis3d}
+                  testid="export-canvas-plaxis3d"
                 />
               </div>
             )}
@@ -265,6 +268,8 @@ interface ActionButtonProps {
   label: string
   onClick: () => void
   disabled?: boolean
+  /** Optional tutorial/e2e anchor (chapter 8 walks these export buttons). */
+  testid?: string
 }
 
 /**
@@ -285,12 +290,13 @@ interface ActionButtonProps {
  * JSX.Element
  *     The button element.
  */
-function ActionButton({ label, onClick, disabled }: ActionButtonProps): JSX.Element {
+function ActionButton({ label, onClick, disabled, testid }: ActionButtonProps): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-testid={testid}
       className={[
         'inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-colors whitespace-nowrap',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
