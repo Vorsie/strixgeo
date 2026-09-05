@@ -17,12 +17,27 @@
 // Recharts uses ResponsiveContainer with a ResizeObserver under
 // the hood; we stub it in setup.ts so the panels actually render.
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPlotResponse, CptResponse } from '../api/client'
 import CptChart, { injectDepthGaps } from './CptChart'
 import type { CptDataPoint } from './CptChart'
+import type { VirtueleBoringCatalogState } from '../hooks/useVirtueleBoringCatalog'
+
+// Controllable stand-in for the DOV lagenmodel catalogue hook so the
+// "DOV layer models unavailable" error copy can be exercised without a
+// network round-trip. Tests that don't render DOV controls are
+// unaffected (the value is unused). Name starts with ``mock`` so the
+// hoisted vi.mock factory may close over it.
+let mockDovCatalogState: VirtueleBoringCatalogState = {
+  catalog: null,
+  failed: false,
+  status: null,
+}
+vi.mock('../hooks/useVirtueleBoringCatalog', () => ({
+  useVirtueleBoringCatalog: () => mockDovCatalogState,
+}))
 
 function makePlot(overrides: Partial<CptPlotResponse> = {}): CptPlotResponse {
   return {
@@ -341,5 +356,82 @@ describe('injectDepthGaps', () => {
     const sentinel = result[2]
     expect(sentinel.qc).toBeNull()
     expect(sentinel.depth).toBeCloseTo(1.25)
+  })
+})
+
+describe('CptChart — Rf axis inversion (owner ruling 2026-09-05)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('offers no Rf-invert toggle when the chart has no Rf channel', () => {
+    // Default plot has rf_pct === null → no Rf panel, so no toggle.
+    render(<CptChart plot={makePlot()} detail={makeDetail()} name="CPT-1" />)
+    expect(screen.queryByLabelText('Invert Rf axis')).not.toBeInTheDocument()
+  })
+
+  it('toggles the Rf axis orientation and persists the choice per user', () => {
+    render(
+      <CptChart
+        plot={makePlot({ rf_pct: [1, 2, 3, 4, 5, 6] })}
+        detail={makeDetail()}
+        name="CPT-1"
+      />,
+    )
+    const btn = screen.getByLabelText('Invert Rf axis')
+    // Default matches today's orientation: not inverted.
+    expect(btn).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(btn)
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    expect(localStorage.getItem('groundmodel.cptchart.rf_inverted')).toBe('true')
+  })
+
+  it('restores the inverted state from localStorage on mount', () => {
+    localStorage.setItem('groundmodel.cptchart.rf_inverted', 'true')
+    render(
+      <CptChart
+        plot={makePlot({ rf_pct: [1, 2, 3, 4, 5, 6] })}
+        detail={makeDetail()}
+        name="CPT-1"
+      />,
+    )
+    expect(screen.getByLabelText('Invert Rf axis')).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('CptChart — DOV catalogue unavailable copy (owner dogfeed 2026-09-05)', () => {
+  beforeEach(() => {
+    mockDovCatalogState = { catalog: null, failed: false, status: null }
+  })
+
+  function renderWithDovControls() {
+    render(
+      <CptChart
+        plot={makePlot()}
+        detail={makeDetail()}
+        name="CPT-1"
+        onToggleVirtueleBoringVisible={() => {}}
+        virtueleBoringActiveModels={[]}
+        onChangeVirtueleBoringOverrideModel={() => {}}
+      />,
+    )
+  }
+
+  it('says what happened, with the HTTP status, when the catalogue fetch failed', () => {
+    mockDovCatalogState = { catalog: null, failed: true, status: 503 }
+    renderWithDovControls()
+    expect(screen.getByText(/DOV layer models unavailable \(503\)/)).toBeInTheDocument()
+  })
+
+  it('shows the unavailable copy without a status when none is known', () => {
+    mockDovCatalogState = { catalog: null, failed: true, status: null }
+    renderWithDovControls()
+    expect(screen.getByText('DOV layer models unavailable')).toBeInTheDocument()
+  })
+
+  it('shows no unavailable copy while the catalogue is merely loading', () => {
+    mockDovCatalogState = { catalog: null, failed: false, status: null }
+    renderWithDovControls()
+    expect(screen.queryByText(/DOV layer models unavailable/)).not.toBeInTheDocument()
   })
 })
