@@ -2,6 +2,7 @@
 
 from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
+from groundmodel.infrastructure.db.models.bed_override_orm import BedOverrideOrm
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
@@ -44,6 +45,7 @@ from groundmodel.infrastructure.db.models.water_content_orm import WaterContentO
 __all__ = [
     "AdmixtureOrm",
     "AtterbergLimitsOrm",
+    "BedOverrideOrm",
     "BodyBoundaryNodeOrm",
     "BodyBoundaryShapeOrm",
     "BodyGeometryFactOrm",
