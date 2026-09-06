@@ -31,6 +31,10 @@ from groundmodel.infrastructure.parsers.dov.dov_http import (
     _HostAllowlistTransport,
     make_dov_async_client,
 )
+from groundmodel.infrastructure.parsers.dov.virtuele_boring_constants import (
+    DOV_VIRTUELE_BORING_BASE_URL,
+    DOV_VIRTUELE_BORING_LAGENMODEL_PATH,
+)
 from groundmodel.shared.config import settings
 
 # ---------------------------------------------------------------------------
@@ -314,3 +318,38 @@ def test_unmatched_route_returns_404(tmp_path: Path) -> None:
     response = transport.handle_request(request)
 
     assert response.status_code == 404
+
+
+def test_virtuele_boring_catalog_returns_fixture(tmp_path: Path) -> None:
+    """GET the Virtuele Boring lagenmodel catalogue → virtuele_boring/lagenmodel.json.
+
+    The offline harness must answer the DOV model-picker catalogue call with a
+    small deterministic list, not 502 on the unreachable live DOV host (walker
+    findings 1-9, 2026-09-06). The route matches the exact catalogue URL the
+    client builds from ``virtuele_boring_constants``. It lives on a different
+    host (``services.dov.vlaanderen.be``) than the WFS routes, so it needs its
+    own branch in the transport handler.
+    """
+    root = _make_fixture_tree(tmp_path)
+    (root / "virtuele_boring").mkdir()
+    (root / "virtuele_boring" / "lagenmodel.json").write_text(
+        json.dumps(
+            [
+                {
+                    "code": "g3dv3_F",
+                    "beschrijving": "G3D v3.1 per formatie",
+                    "resoluties": [50, 100],
+                },
+                {"code": "hcovv2_H", "beschrijving": "HCOV v2 hoofdeenheden", "resoluties": [100]},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    transport = _build_fixture_transport(root)
+
+    url = f"{DOV_VIRTUELE_BORING_BASE_URL}{DOV_VIRTUELE_BORING_LAGENMODEL_PATH}"
+    response = transport.handle_request(httpx.Request("GET", url))
+
+    assert response.status_code == 200
+    catalog = json.loads(response.content)
+    assert [entry["code"] for entry in catalog] == ["g3dv3_F", "hcovv2_H"]
