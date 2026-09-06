@@ -522,7 +522,9 @@ def test_canonical_admixture_signature_sorted() -> None:
     # The locally flag must NOT appear in the signature.
     assert "locally" not in sig1
     assert "GL:" in sig1
-    assert "KL:Z" in sig1
+    # "zwak" folds onto "weinig" in the canonical key (owner ruling 2026-09-06),
+    # so the signature carries the folded token, not the raw one.
+    assert "KL:W" in sig1
 
 
 # ---------------------------------------------------------------------------
