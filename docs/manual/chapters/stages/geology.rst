@@ -135,12 +135,43 @@ ground between tests. One corollary matters in Belgium: a ground level of
 genuine 0.0 m collar as data. The 3-D view can also show a **footprint ring**
 marking the extent of the interpreted volume.
 
+Drawing the canal bed: bed overrides
+------------------------------------
+
+Over water the DEM is the water surface, not the bed. Where a site was dredged,
+that difference is large: a canal cut 8 m below the banks reads as if the ground
+there sat at the water level. A **bed override** fixes this by hand. You draw a
+polygon on the map and type one constant bed elevation in m TAW for it. Inside
+the polygon the ground surface takes that bed level instead of the DEM; outside,
+the DEM stands. You can draw several polygons, each with its own level, and edit
+or delete them from the list in the right pane.
+
+The bed level feeds every consumer of the ground surface: the 3-D ground
+surface, the section DEM line (which shows the bed where the section crosses the
+polygon), and the surface clip described next. A surveyed test collar still wins
+over the bed at the test's own location, the same elevation-trust rule as above.
+
+When a formation surface meets the ground: the crossing-line clip
+-----------------------------------------------------------------
+
+On Build, each formation surface is cut where it crosses the ground surface. The
+crossing is a line, and StrixGeo feeds that line into the surface as new points
+and drops the part above the ground. So a formation surface **ends where it
+meets the ground**: under a dredged canal, a unit that was present on both banks
+is cut away between them and is simply gone under the water, which matches the
+site. A surface that lies entirely below the ground, like a deep unit well under
+the bed, keeps its own top unchanged: it is never flattened to the ground. This
+replaces an older clamp that pushed every crossing surface down to a flat
+plateau at the ground level.
+
 .. admonition:: Bathymetry and water
 
-   Bathymetry cannot be added to the model yet. Over water, the DEM stands in for
-   the water surface, which makes it an approximation of the water level and very
-   untrustworthy there: it is not the bed of the river or the sea. This is worth
-   adding later, and not only for a more honest picture of the ground. Recent
+   Bathymetry from a survey file cannot be imported yet: the manual bed override
+   above is the way to set the bed for now. Over water, the DEM otherwise stands
+   in for the water surface, which makes it an approximation of the water level
+   and very untrustworthy there: it is not the bed of the river or the sea. Full
+   bathymetry import is worth adding later, and not only for a more honest
+   picture of the ground. Recent
    alluvial and marine deposits are strongly shaped by water: a meandering river
    deposits on the inner bend and erodes the outer bend, so the two banks
    carry distinctly different material, and
