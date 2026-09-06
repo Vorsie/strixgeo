@@ -118,6 +118,12 @@ _MAX_BOREHOLES_PER_BUNDLE = 10_000
 _MAX_FORMATIONS_PER_BUNDLE = 5_000
 _MAX_GEOLOGICAL_MODELS_PER_BUNDLE = 1_000
 _MAX_CROSS_SECTIONS_PER_BUNDLE = 1_000
+# A bed override is a hand-drawn map polygon; a project has a handful, never
+# thousands. 1,000 caps the DoS surface far above any plausible project.
+_MAX_BED_OVERRIDES_PER_BUNDLE = 1_000
+# One bed override's ring — a hand-drawn area, a few dozen points; 5,000 caps
+# a runaway payload while staying far above any real polygon.
+_MAX_BED_OVERRIDE_VERTICES = 5_000
 _MAX_INVESTIGATION_REVIEWS_PER_BUNDLE = 50_000
 # An edge joins two formations.  A project with 5,000 formations can have at
 # most ~12.5M edges in a complete graph; the practical upper bound for a
@@ -376,6 +382,48 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_SOLIDS_PER_BUNDLE,
     )
+    # Manual bed-level polygons (owner ruling 2026-09-06). Additive — absent in
+    # bundles saved before this field shipped; default_factory=list so older
+    # files open cleanly. Independent project-scoped root (no FK), restored in
+    # its own phase.
+    bed_overrides: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_BED_OVERRIDES_PER_BUNDLE,
+    )
+
+    @field_validator("bed_overrides", mode="after")
+    @classmethod
+    def _bound_bed_override_vertices(cls, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Bound each bed override's ``vertices`` array.
+
+        The ``max_length`` cap bounds the NUMBER of bed overrides; this closes
+        the per-item DoS surface — the JSONB ``vertices`` list is unbounded in
+        the raw payload, so a crafted .strix could ship one override with a
+        10⁶-point ring inside the envelope budget.
+
+        Parameters
+        ----------
+        items : list[dict[str, Any]]
+            The list of raw bed-override dicts from the bundle payload.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            The validated items, unchanged.
+
+        Raises
+        ------
+        ValueError
+            When any override's ``vertices`` array exceeds the cap.
+        """
+        for item in items:
+            vertices = item.get("vertices")
+            if isinstance(vertices, list) and len(vertices) > _MAX_BED_OVERRIDE_VERTICES:
+                raise ValueError(
+                    f"bed_override.vertices too long ({len(vertices)} > "
+                    f"{_MAX_BED_OVERRIDE_VERTICES})"
+                )
+        return items
 
     @field_validator("body_boundary_shapes", "body_boundary_nodes", mode="after")
     @classmethod
@@ -486,6 +534,8 @@ class ProjectBundleResponse(BaseModel):
     body_boundary_nodes: list[dict[str, Any]] = Field(default_factory=list)
     # Cached watertight body solids (watertight-loft Task 9).  Additive.
     litho_solids: list[dict[str, Any]] = Field(default_factory=list)
+    # Manual bed-level polygons (owner ruling 2026-09-06).  Additive.
+    bed_overrides: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None
