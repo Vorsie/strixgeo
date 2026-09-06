@@ -69,8 +69,19 @@ class GeologicalFormationOrm(Base):
     # would be worse still: the engineer is allowed to pick exactly the
     # automatic colour, and that decision must survive a later class change.
     color_override: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Top-to-bottom hint for the legend / borelog ordering. Ties are
-    # tolerated and broken by name in the UI.
+    # THE project's age axis — ONE convention, used everywhere:
+    # LOWER display_order = OLDER, HIGHER = YOUNGER. Build's
+    # ``_reorder_by_age`` derives it from per-investigation contact
+    # depths (oldest -> lowest slot) and pins the anthropogenic unit
+    # youngest (highest slot); the InterpretationPane / GeologyFormationList
+    # draw youngest on top; the section bands + 3-D stack paint ascending
+    # (older first, ``contactsLayerGeometry.ts``); and the crossing
+    # validator (``GeologyValidator.validate_no_crossings``) reads it as
+    # the older/younger axis. Any consumer that needs "which is older"
+    # MUST use this sign — never a surface's mean elevation, which
+    # disagrees wherever two formations' footprints span different
+    # ground (a dredged site inverts it). Ties are tolerated and broken
+    # by name in the UI.
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Debt #35: when True, the user has manually drag-reordered this
