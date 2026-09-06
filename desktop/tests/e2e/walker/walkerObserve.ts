@@ -117,9 +117,20 @@ export async function checkErrorToast(page: Page, step: number): Promise<Finding
       return (btn.parentElement?.textContent ?? 'error toast').replace(/\s+/g, ' ').trim().slice(0, 200)
     })
     .catch(() => null)
-  if (text === null) return []
+  if (text === null) {
+    lastErrorToast = null
+    return []
+  }
+  // A sticky error toast stays up until dismissed; run 3 reported the same
+  // "HTTP 422" toast on 60 consecutive steps. Report a toast when it appears
+  // or changes, not on every step it lingers.
+  if (text === lastErrorToast) return []
+  lastErrorToast = text
   return [{ step, invariant: 'error-toast', detail: text }]
 }
+
+/** The last error-toast text reported, so a lingering toast is one finding. */
+let lastErrorToast: string | null = null
 
 /** Section rows on screen vs GET /sections: phantom + empty view. */
 export async function checkSectionRows(page: Page, projectId: string, step: number): Promise<Finding[]> {
@@ -183,7 +194,10 @@ async function domIdsFor(page: Page, prefix: string): Promise<string[]> {
       const out: string[] = []
       for (const el of Array.from(document.querySelectorAll(`[data-testid^="${p}"]`))) {
         const id = (el.getAttribute('data-testid') ?? '').slice(p.length)
-        if (id) out.push(id)
+        // Only the row's own id: a row's controls carry the same prefix with a
+        // verb in between (section-row-delete-<id>), which run 3 reported as
+        // 138 phantom rows. A row id is a bare UUID.
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) out.push(id)
       }
       return out
     }, prefix)
