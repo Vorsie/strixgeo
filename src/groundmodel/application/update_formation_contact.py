@@ -117,11 +117,25 @@ class UpdateFormationContact(GroundModelLogger):
         The caller distinguishes the two ``None`` origins via the
         ``absorbed`` attribute injected onto the use-case instance after
         ``execute`` returns (``True`` on absorption, ``False`` on TOCTOU).
+
+        ``deleted_contact_ids`` (also injected on the instance) lists every
+        PEER contact a cross-merge deleted — for both the drag-up survivor
+        path and the drag-down absorbed path.  The absorbed dragger's own id
+        is not included (its death is signalled by ``absorbed``).  The router
+        forwards this list so the renderer prunes the crossed boundaries from
+        the section at once.
         """
         self.info(f"Updating formation contact: {contact_id} ({len(patch)} field(s))")
         # Initialise the absorption sentinel so the router can inspect it
         # even when execute returns a non-None ORM row.
         self.absorbed = False
+        # Record every PEER contact this cross-merge deletes so the router can
+        # name them in the response and the renderer can drop them from the
+        # section at once (installer #20 dogfeed 2026-09-06: crossed boundaries
+        # lingered client-side and a second delete of them 404'd).  The absorbed
+        # dragger's own id is NOT recorded here — its death is signalled by
+        # ``absorbed`` and its id is already known to the caller from the URL.
+        self.deleted_contact_ids: list[UUID] = []
 
         # Capture the pre-update state.  The post-update formation IS
         # always affected; the pre-update formation is also affected
@@ -235,6 +249,7 @@ class UpdateFormationContact(GroundModelLogger):
                             f"moved from {old_depth}m to {new_depth}m)"
                         )
                         await self._session.delete(c)
+                        self.deleted_contact_ids.append(c.id)
                         _peer_deleted_count += 1
                     if crossed:
                         deleted_any = True
@@ -252,6 +267,7 @@ class UpdateFormationContact(GroundModelLogger):
                                 f"Cross-merge DOWN: deleting contact {c.id} at {c.depth_top_m}m"
                             )
                             await self._session.delete(c)
+                            self.deleted_contact_ids.append(c.id)
                             _peer_deleted_count += 1
                         self.info(
                             f"Cross-merge DOWN: deleting dragger {contact_id} "
