@@ -29,6 +29,7 @@
 // rewiring, so the terminology can be reviewed and approved in one pass rather
 // than one dialog at a time.
 
+import { BED_OVERRIDE } from './bedOverride'
 import { CHROME } from './chrome'
 import { DATA } from './data'
 import { LAUNCH } from './launch'
@@ -45,6 +46,7 @@ import { TUTORIAL } from './tutorial'
 export const EN = {
   ...CHROME,
   ...DATA,
+  ...BED_OVERRIDE,
   ...SETTINGS,
   ...MODELS,
   ...SECTIONS,
@@ -61,6 +63,7 @@ export const EN = {
 export const EN_MODULES = {
   chrome: CHROME,
   data: DATA,
+  bedOverride: BED_OVERRIDE,
   settings: SETTINGS,
   models: MODELS,
   sections: SECTIONS,
