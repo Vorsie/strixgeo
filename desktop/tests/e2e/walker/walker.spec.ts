@@ -265,14 +265,18 @@ test.describe('walker scenario pass', () => {
         stepFindings.push(...(await checkErrorToast(page, step)))
 
         const post = await discover(page)
-        if (currentStage === 'Sections' && workedProjectId) {
+        // Runs 1 and 2 never left the Data stage: the heartbeat below clicked the
+        // PRE-action stage tab and undid every switch. Read the stage as it is now.
+        const stageNow = (await detectCurrentStage(page)) ?? currentStage
+        if (stageNow !== null) visited.add(stageNow)
+        if (stageNow === 'Sections' && workedProjectId) {
           stepFindings.push(...(await checkSectionRows(page, workedProjectId, step)))
           stepFindings.push(...(await checkContactRows(page, workedProjectId, step)))
         }
         // Heartbeat only when no modal is up (a modal legitimately covers the
         // spine -- clicking through it would false-flag as unresponsive).
-        if (!post.openMenu && currentStage !== null) {
-          stepFindings.push(...checkResponsiveness(await heartbeat(page, currentStage), step))
+        if (!post.openMenu && stageNow !== null) {
+          stepFindings.push(...checkResponsiveness(await heartbeat(page, stageNow), step))
         }
 
         if (stepFindings.length > 0) {
