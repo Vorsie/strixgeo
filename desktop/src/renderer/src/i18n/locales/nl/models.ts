@@ -194,6 +194,9 @@ export const MODELS_NL = {
   'geology.reassignToAnother': '"{name}" aan een andere formatie toewijzen',
   'geology.sameAs': '→ zelfde als',
   'geology.useCustomName': 'Gebruik "{name}"',
+  // Label bij een "→ zelfde als"-optie die een bestaande formatie in het model
+  // is (geen ontdekte kandidaat), zodat de gebruiker ziet welke er al zijn.
+  'geology.existingInModelBadge': '· in het model',
   // DOV formele-stratigrafiecode bij elke kandidaat (owner dogfeed 2026-09-05).
   // {codes} is een lijst gescheiden door komma's; de aantallen per code en de
   // catalogusnamen staan in de tooltip.
