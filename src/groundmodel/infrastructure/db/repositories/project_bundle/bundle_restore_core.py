@@ -41,6 +41,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.models.bed_override_orm import BedOverrideOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
@@ -138,6 +139,7 @@ async def _wipe_project_scoped_rows(
     await session.execute(
         delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project_id)
     )
+    await session.execute(delete(BedOverrideOrm).where(BedOverrideOrm.app_project_id == project_id))
     await session.execute(
         delete(InvestigationReviewOrm).where(InvestigationReviewOrm.app_project_id == project_id)
     )
@@ -538,6 +540,52 @@ async def _restore_cross_sections(
     return inserted, deferred
 
 
+async def _restore_bed_overrides(
+    session: AsyncSession,
+    project_id: UUID,
+    bed_overrides_payload: list[dict[str, Any]],
+) -> int:
+    """Insert bed-override rows from the bundle (idempotent, dedupe by id).
+
+    Bed overrides are an independent project-scoped root with no cross-table
+    FK, so this is a plain dedupe+insert loop (no deferral) — the same shape as
+    ``_restore_investigation_reviews`` without the FK guard.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Running SQLAlchemy async session.
+    project_id : UUID
+        Owning project (URL-driven — wins over any id in a payload row).
+    bed_overrides_payload : list[dict[str, Any]]
+        Raw bed-override dicts from the bundle.
+
+    Returns
+    -------
+    int
+        Number of rows inserted (existing ids are skipped).
+    """
+    existing = set(
+        (
+            await session.execute(
+                select(BedOverrideOrm.id).where(BedOverrideOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    inserted = 0
+    for item in bed_overrides_payload:
+        item_id = _uuid(item.get("id"))
+        if item_id is None or item_id in existing:
+            continue
+        kwargs = _apply_json_to_kwargs(BedOverrideOrm, item)
+        kwargs["app_project_id"] = project_id
+        session.add(BedOverrideOrm(**kwargs))
+        inserted += 1
+    return inserted
+
+
 async def _restore_investigation_reviews(
     session: AsyncSession,
     project_id: UUID,
@@ -661,6 +709,7 @@ async def _restore_project_bundle_impl(
     geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
     body_separations_payload: list[dict[str, Any]] | None = None,
     body_unions_payload: list[dict[str, Any]] | None = None,
+    bed_overrides_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
     replace: bool = False,
@@ -775,6 +824,10 @@ async def _restore_project_bundle_impl(
     # Legacy tolerance: a bundle saved before the litho_solids field existed
     # has no such key, so the caller passes None → empty list (never KeyError).
     litho_solids_payload = litho_solids_payload or []
+    # Legacy tolerance: bundles saved before bed overrides existed have no such
+    # key — the caller passes None → empty list, so an old .gmproj restores with
+    # no bed overrides rather than a KeyError (owner ruling 2026-09-06).
+    bed_overrides_payload = bed_overrides_payload or []
 
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
@@ -1015,6 +1068,10 @@ async def _restore_project_bundle_impl(
         logger=logger,
     )
 
+    # ---- Phase 13: Bed overrides -----------------------------------------
+    # Independent project-scoped root (no cross-table FK), like cross-sections.
+    new_bed_overrides = await _restore_bed_overrides(session, project_id, bed_overrides_payload)
+
     await session.flush()
     logger.info(
         f"restore_project_bundle({project_id}): "
@@ -1029,6 +1086,7 @@ async def _restore_project_bundle_impl(
         f"+{new_absences} formation absences "
         f"({skipped_absences} skipped, {dropped_absences} dropped), "
         f"+{new_solids} litho body solids "
-        f"({skipped_solids} skipped, {dropped_solids} dropped)"
+        f"({skipped_solids} skipped, {dropped_solids} dropped), "
+        f"+{new_bed_overrides} bed overrides"
     )
     return project
