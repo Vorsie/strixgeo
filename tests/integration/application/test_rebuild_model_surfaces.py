@@ -597,6 +597,7 @@ async def test_removed_test_is_dropped_but_surface_survives_above_three(
     )
     # bh4 is removed from the project (project-local hide).
     db_session.add(_hidden_review(project, bh4))
+    await db_session.flush()  # the API route commits the hide before any rebuild
     await db_session.commit()
 
     await RebuildModelSurfaces(db_session).execute(model.id)
@@ -658,9 +659,14 @@ async def test_removing_a_test_below_three_contacts_empties_the_surface(
 
     # Remove one test from the project, then rebuild → 2 contacts remain.
     db_session.add(_hidden_review(project, bh3))
+    await db_session.flush()  # the API route commits the hide before any rebuild
     await db_session.commit()
     await RebuildModelSurfaces(db_session).execute(model.id)
 
+    # The first read left the surface row in the identity map; the rebuild
+    # rewrote it in SQL, so expire that one stale object before reading it
+    # back (expiring everything would lazy-load ``model.id`` synchronously).
+    db_session.expire(built)
     surface = (
         await db_session.execute(
             select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
