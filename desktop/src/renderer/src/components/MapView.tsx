@@ -6,6 +6,7 @@ import {
   MapContainer,
   Marker,
   Pane,
+  Polygon,
   Rectangle,
   TileLayer,
   WMSTileLayer,
@@ -24,11 +25,13 @@ import {
 } from './mapMarkerStyle'
 
 import type {
+  BedOverrideResponse,
   BoreholeAxis,
   BoreholeListItem,
   CptListItem,
   CrossSectionResponse,
 } from '../api/client'
+import BedPolygonDrawer from './BedPolygonDrawer'
 import { lambertToWgs84, projectedToWgs84 } from '../hooks/useWgs84'
 import {
   buildCptMarkers,
@@ -137,6 +140,16 @@ interface Props {
     end: { lat: number; lng: number },
   ) => void
   onCancelSectionDraw?: () => void
+  // Multi-click bed-override polygon drawer (owner ruling 2026-09-06). When
+  // ``drawBedMode`` is true, clicks place polygon vertices and a double-click
+  // finishes. ``onBedPolygonDrawn`` fires with the WGS84 ring; the caller
+  // converts to the project CRS and POSTs the bed override.
+  drawBedMode?: boolean
+  onBedPolygonDrawn?: (ring: { lat: number; lng: number }[]) => void
+  onCancelBedDraw?: () => void
+  // Existing bed-override polygons drawn on the map (cyan fill). Their vertices
+  // are in the project CRS and are projected to WGS84 here for display.
+  bedOverrides?: readonly BedOverrideResponse[]
   // Cross-sections drawn on the map as polyline + buffer polygon.
   // Click on either layer selects the section. Empty by default so
   // existing MapView call sites keep working without wiring sections.
@@ -476,6 +489,10 @@ export default function MapView({
   drawSectionMode = false,
   onSectionLineDrawn,
   onCancelSectionDraw,
+  drawBedMode = false,
+  onBedPolygonDrawn,
+  onCancelBedDraw,
+  bedOverrides = [],
   sections = [],
   selectedSectionId = null,
   onSelectSection,
@@ -637,6 +654,7 @@ export default function MapView({
       {drawSectionMode && (
         <SectionDrawHint onCancel={onCancelSectionDraw ?? (() => {})} />
       )}
+      {drawBedMode && <BedDrawHint onCancel={onCancelBedDraw ?? (() => {})} />}
       <MapContainer
         ref={mapRef}
         center={startCenter}
@@ -774,6 +792,34 @@ export default function MapView({
           onLineDrawn={onSectionLineDrawn ?? (() => {})}
           onCancel={onCancelSectionDraw ?? (() => {})}
         />
+
+        <BedPolygonDrawer
+          active={drawBedMode && onBedPolygonDrawn !== undefined}
+          onPolygonDrawn={onBedPolygonDrawn ?? (() => {})}
+          onCancel={onCancelBedDraw ?? (() => {})}
+        />
+
+        {/* Existing bed-override polygons — cyan fill, projected from the
+            stored project CRS to WGS84 for display. */}
+        {bedOverrides.map(bed => {
+          const ring = bed.vertices
+            .filter(v => v.length >= 2)
+            .map(v => projectedToWgs84(v[0], v[1], bed.epsg))
+          if (ring.length < 3) return null
+          return (
+            <Polygon
+              key={bed.id}
+              positions={ring}
+              pane="investigation-markers"
+              style={{
+                color: '#0e7490',
+                weight: 2,
+                fillColor: '#0e7490',
+                fillOpacity: 0.15,
+              }}
+            />
+          )
+        })}
 
         {sections.length > 0 && onSelectSection && (
           <SectionOverlays
@@ -1569,6 +1615,24 @@ function SectionDrawHint({ onCancel }: { onCancel: () => void }): JSX.Element {
   return (
     <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1100] flex items-center gap-3 px-3 py-1.5 bg-red-600 text-white text-xs rounded shadow-lg">
       <span className="font-medium">{t('map.drawSectionLine')}</span>
+      <button
+        onClick={onCancel}
+        className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-[10px] uppercase tracking-wide"
+      >
+        {t('elevation.cancelEsc')}
+      </button>
+    </div>
+  )
+}
+
+function BedDrawHint({ onCancel }: { onCancel: () => void }): JSX.Element {
+  const t = useT()
+  return (
+    <div
+      className="absolute top-2 left-1/2 -translate-x-1/2 z-[1100] flex items-center gap-3 px-3 py-1.5 bg-cyan-700 text-white text-xs rounded shadow-lg"
+      data-testid="bed-draw-hint"
+    >
+      <span className="font-medium">{t('bedOverride.drawHint')}</span>
       <button
         onClick={onCancel}
         className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-[10px] uppercase tracking-wide"
