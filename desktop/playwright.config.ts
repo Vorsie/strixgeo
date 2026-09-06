@@ -17,6 +17,13 @@ export default defineConfig({
   // All e2e specs live in tests/e2e/.
   testDir: path.join(__dirname, 'tests', 'e2e'),
 
+  // Playwright runs ONLY *.spec.ts. The walker's pure modules ship their own
+  // *.test.ts beside the spec (run by Vitest, not Playwright); the default
+  // testMatch also grabs *.test.ts, which would make Playwright try to run those
+  // vitest files and fail on their vitest import. Every existing e2e file is a
+  // .spec.ts, so this narrowing changes nothing for them.
+  testMatch: '**/*.spec.ts',
+
   // Give each test up to 60 s before Playwright marks it as timed out.
   // The bulk-accept flow (flow 3) is the most expensive — 70 anchors × 1
   // inference pass — but must complete in < 15 s per the acceptance
