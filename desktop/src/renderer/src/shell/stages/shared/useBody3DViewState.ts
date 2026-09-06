@@ -207,9 +207,16 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     visibleBoreholes,
     sections: { visibleSections },
     toasts: { toast },
+    bedOverrides,
   } = useShell()
 
   const projectId = project?.id ?? null
+
+  // Bumped by ``useBedOverrides`` on every bed create / update / delete. Keying
+  // the ground-surface fetch on it makes a bed change refresh the 3-D terrain
+  // mesh while the stage stays mounted (owner walk of installer #20/#21,
+  // 2026-09-06); 0 when the bus has no bed-override slice (test fixtures).
+  const groundRefreshNonce = bedOverrides?.groundRefreshNonce ?? 0
 
   // -------------------------------------------------------------------------
   // Fence / Solid view toggle + wireframe — session-ephemeral, not persisted.
@@ -282,10 +289,12 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     return () => {
       cancelled = true
     }
-    // Key on stable id strings; the DEM fetch does not depend on surface
-    // staleness (a server refresh returning a new model object with the same
-    // id must not re-fire it).
-  }, [projectId, modelId])
+    // Key on stable id strings + the bed-override refresh nonce: the DEM fetch
+    // does not depend on surface staleness (a server refresh returning a new
+    // model object with the same id must not re-fire it), but a bed-override
+    // change DOES move the ground surface (the DEM is wrapped with the bed
+    // level server-side), so the nonce re-fires it in place.
+  }, [projectId, modelId, groundRefreshNonce])
 
   // -------------------------------------------------------------------------
   // Model footprint polygon — the alpha hull the 3-D build clipped to.
