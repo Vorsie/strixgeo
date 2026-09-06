@@ -12,6 +12,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import (
@@ -235,7 +236,7 @@ async def update_contact(
     contact_id: UUID,
     request: FormationContactUpdateRequest,
     session: AsyncSession = Depends(get_session),
-) -> FormationContactResult:
+) -> FormationContactResponse | JSONResponse:
     """Partial update on a contact (depth, formation, anchor, confidence, notes).
 
     The anchor pair (``borehole_id`` / ``cpt_id``) is updatable so
@@ -261,11 +262,13 @@ async def update_contact(
 
     Returns
     -------
-    FormationContactResult
-        The updated contact snapshot (serialised as
-        ``FormationContactResponse``). Returns HTTP 204 No Content
-        instead when the drag-down cross-merge absorbed the contact
-        into the formation above.
+    FormationContactResponse | JSONResponse
+        The updated contact snapshot, whose ``deleted_contact_ids`` names any
+        peer boundaries a cross-merge deleted (empty on a plain update / a
+        drag-up that crossed nothing).  When a drag-down cross-merge absorbed
+        the dragger into the formation above, returns HTTP 200 with
+        ``{"absorbed": true, "deleted_contact_ids": [...]}`` instead — the
+        renderer prunes both the dragger and the named peers at once.
 
     Raises
     ------
@@ -290,17 +293,26 @@ async def update_contact(
     )
     use_case = UpdateFormationContact(session)
     updated = await use_case.execute(contact_id, request.model_dump(exclude_unset=True))
+    # Every id the cross-merge deleted, so the renderer drops the crossed
+    # boundaries from the section at once (installer #20 dogfeed 2026-09-06).
+    deleted_ids = [str(i) for i in use_case.deleted_contact_ids]
     if updated is None:
         if use_case.absorbed:
-            # Drag-down cross-merge: the dragger was absorbed by the
-            # formation above. Return 204 No Content — the frontend
-            # refetches contacts on any non-error response to this endpoint.
-            from fastapi import Response
-
-            return Response(status_code=status.HTTP_204_NO_CONTENT)
+            # Drag-down cross-merge: the dragger was absorbed by the formation
+            # above.  Return 200 naming the peers the merge deleted — replaces
+            # the former bare 204, which forced the renderer to refetch blindly
+            # and left the crossed peers on screen (deleting them again 404'd).
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"absorbed": True, "deleted_contact_ids": deleted_ids},
+            )
         # TOCTOU race — row vanished between scope-check and update.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
-    return updated
+    # Survivor path (plain update or drag-up cross-merge): attach the deleted
+    # peer ids to the response so the renderer prunes them immediately.
+    response = FormationContactResponse.model_validate(updated)
+    response.deleted_contact_ids = list(use_case.deleted_contact_ids)
+    return response
 
 
 @router.delete(
