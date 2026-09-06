@@ -12,8 +12,9 @@ import { describe, expect, it } from 'vitest'
 
 import { EN } from '../i18n/locales/en'
 import { NL } from '../i18n/locales/nl'
-import { emptyTutorialState } from './tutorialState'
+import { emptyTutorialState, type TutorialState } from './tutorialState'
 import { TUTORIAL_CHAPTERS, TUTORIAL_STEPS } from './tutorialCatalogue'
+import { advance } from './tutorialMachine'
 
 // --- source scan ----------------------------------------------------------
 // The catalogue's own directory is excluded so an anchor is only "found" when a
@@ -169,7 +170,10 @@ describe('tutorialCatalogue owner-walk rulings', () => {
   })
 
   it('finding 8: chapter 5 creates a litho model and switches to the litho axis', () => {
-    expect(stepById('litho-create')?.anchor).toBe('model-kind-picker')
+    // The chain runs through the model-kind picker and ends at the create
+    // button (owner ruling 3, 2026-09-06 extended the final link).
+    expect(stepById('litho-create')?.anchors).toContain('model-kind-picker')
+    expect(stepById('litho-create')?.anchor).toBe('litho-model-create')
     expect(stepById('litho-axis')?.anchor).toBe('axis-litho')
   })
 
@@ -235,5 +239,91 @@ describe('tutorialCatalogue owner rulings 2026-09-05', () => {
     expect(stepById('litho-correlate')?.anchors).toContain('axis-litho')
     expect(stepById('geotech-subdivide')?.anchors).toContain('axis-geotech')
     expect(stepById('geotech-correlate')?.anchors).toContain('axis-geotech')
+  })
+})
+
+// --- owner ruling 1 (2026-09-06): every do-it step auto-advances ------------
+// "If a user clicks 'Open de projectgegevens' the tutorial should automatically
+// go to the next step, same for steps further down the road." A step whose copy
+// tells the user to click / do something completes by itself on an observable
+// fact; explanation-only steps stay 'next'.
+describe('tutorialCatalogue owner ruling 1 (2026-09-06): do-it steps auto-advance', () => {
+  // Each entry: the step's copy tells the user to DO something, so its `done`
+  // is the observable fact that proves they did it (not a Next click).
+  const DO_IT_FACTS: ReadonlyArray<[string, keyof TutorialState]> = [
+    ['project-metadata', 'projectSettingsOpen'],
+    ['project-crs', 'crsSet'],
+    ['project-datum', 'datumSet'],
+    ['import-open', 'importMenuOpen'],
+    ['litho-create', 'lithoModelExists'],
+    ['litho-axis', 'lithoAxisActive'],
+    ['geo-surfaces', 'geoSurfacesBuilt'],
+    ['geotech-build', 'geotechSolidsBuilt'],
+  ]
+
+  it.each(DO_IT_FACTS)('%s completes on its observable fact, not a Next click', (id, fact) => {
+    expect(stepById(id)?.done).toEqual({ state: fact })
+  })
+
+  it('the machine moves on by itself when the user does what a do-it step says', () => {
+    // Owner's words: "when the user does what the step says, the tutorial moves
+    // on by itself." Position the walk on project-metadata (a do-it step), turn
+    // its fact true, and assert advance() steps past it with no Next.
+    const idx = indexOf('project-metadata')
+    const progress = {
+      stepId: 'project-metadata',
+      completed: TUTORIAL_STEPS.slice(0, idx).map(s => s.id),
+    }
+    const state: TutorialState = {
+      ...emptyTutorialState(),
+      projectOpen: true,
+      projectSettingsOpen: true,
+    }
+    const next = advance(progress, state, TUTORIAL_STEPS)
+    expect(next.completed).toContain('project-metadata')
+    expect(next.stepId).not.toBe('project-metadata')
+  })
+
+  it('explanation-only steps keep done: "next" (no phantom auto-advance)', () => {
+    // A representative control-tour / intro step from each stage that describes
+    // a control rather than instructing a specific observable action.
+    for (const id of ['project-name', 'section-buffer', 'geo-open', 'litho-adjust', 'params-stats']) {
+      expect(stepById(id)?.done).toBe('next')
+    }
+  })
+})
+
+// --- owner ruling 3 (2026-09-06): do not lead to the litho axis before a
+// litho model exists. litho-create is a do-it step on lithoModelExists, and it
+// comes before the litho-axis steps, so the walk cannot reach the (greyed)
+// axis pill without a model.
+describe('tutorialCatalogue owner ruling 3 (2026-09-06): model gates the axis', () => {
+  it('litho-create completes on lithoModelExists and chains to the pane create button', () => {
+    const step = stepById('litho-create')
+    expect(step?.done).toEqual({ state: 'lithoModelExists' })
+    // The chain ends at the litho-model create button (owner ruling 3: "the
+    // pane's create button has a testid in the chain"), reached through the
+    // model-kind picker.
+    expect(step?.anchors).toEqual([
+      'stage-tab-lithology',
+      'model-kind-picker',
+      'litho-model-create',
+    ])
+  })
+
+  it('litho-create comes before every litho-axis step (the axis unlocks only after the model)', () => {
+    const createAt = indexOf('litho-create')
+    for (const id of ['litho-axis', 'litho-suggest', 'litho-accept', 'litho-correlate']) {
+      expect(indexOf(id)).toBeGreaterThan(createAt)
+    }
+  })
+
+  it('the whole geotech chapter comes after the litho model is built (its axis is then enabled)', () => {
+    // The geotech axis pill enables once a LITHO model exists (subdivide, which
+    // CREATES the geotech model, lives on that axis). Chapter 5 gates on
+    // litho-create + litho-build, so by chapter 6 the pill is never greyed.
+    const lithoBuiltAt = indexOf('litho-build')
+    const firstGeotechAxisStep = indexOf('geotech-statistic')
+    expect(firstGeotechAxisStep).toBeGreaterThan(lithoBuiltAt)
   })
 })
