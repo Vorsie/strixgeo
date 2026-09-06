@@ -159,6 +159,11 @@ export interface UseShellContextValueArgs {
   requestBodyRecompute: ShellContextValue['coordinator']['requestBodyRecompute']
   handleSelectWithoutView: ShellContextValue['coordinator']['handleSelectWithoutView']
   markMutated: ShellContextValue['coordinator']['markMutated']
+  // Optional so the fully-typed ShellContextValue test fixtures (which spread a
+  // Coordinator whose importMenuOpen is itself optional) still satisfy this
+  // shape without each fixture adding the field. App always passes it.
+  importMenuOpen?: ShellContextValue['coordinator']['importMenuOpen']
+  setImportMenuOpen?: ShellContextValue['coordinator']['setImportMenuOpen']
 }
 
 /**
@@ -215,6 +220,7 @@ export function useShellContextValue(
     parametersActiveTab, setParametersActiveTab,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
+    importMenuOpen, setImportMenuOpen,
   } = argsWithoutGeo
 
   // Re-destructure geo so the dep array stays byte-identical to the
@@ -396,6 +402,8 @@ export function useShellContextValue(
       requestBodyRecompute,
       handleSelectWithoutView,
       markMutated,
+      importMenuOpen,
+      setImportMenuOpen,
     },
   }),
   // Auto-derived dep array (debt #53, 2026-05-21). The prior shape was
