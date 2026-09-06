@@ -36,9 +36,21 @@ function pointInPoly(poly: readonly PartitionPoint[], f: number, e: number): boo
   return inside
 }
 
-/** The formation covering (f, e) in this gap's regions, or null when nothing covers it. */
+/**
+ * The formation covering (f, e) in this gap's regions, or null when nothing covers it.
+ *
+ * A ``lens`` region is an ENCLOSED-MINORITY OVERLAY — a legitimate hole INSIDE its own matrix
+ * band, not a flood that replaced a drilled unit. It is excluded here so the flood check reads
+ * only the base fill (quads / pinches) beneath it. Without this, an enclosing matrix band whose
+ * enclosed lens HUGS the near column (the lens apex reaches ~0.45 from the column edge) has its
+ * interior samples covered by that lens, so ``detectFloodedUnits`` mis-reads the band as flooded
+ * by a foreign litho and the repair forces the whole band to a lens — the band interior then
+ * renders EMPTY (owner 2026-09-06, Cross-section 3: the sand band between two ties, with the silt
+ * lens inside, rendered as a void). The lens is the minority's own face; the matrix band is still
+ * present (a concave face notched around the lens), so its drilled litho was NOT lost.
+ */
 function coverFormationAt(regs: readonly SectionRegion[], f: number, e: number): string | null {
-  for (const r of regs) if (pointInPoly(r.polygon, f, e)) return r.formationId
+  for (const r of regs) if (r.kind !== 'lens' && pointInPoly(r.polygon, f, e)) return r.formationId
   return null
 }
 
