@@ -120,6 +120,12 @@ export interface ProjectBundleResponse {
    * Absent in older bundles.
    */
   body_unions?: Record<string, unknown>[]
+  /**
+   * Manual bed-level override polygons (owner ruling 2026-09-06): a polygon with
+   * one constant bed elevation. Inside it the ground surface takes that level
+   * instead of the DEM. Absent in older bundles.
+   */
+  bed_overrides?: Record<string, unknown>[]
 }
 
 /** Request body for ``POST /projects/``. */
