@@ -153,6 +153,21 @@ DELETE /models/{model_id}/contacts/{contact_id} — Delete a contact.
 PUT    /models/{model_id}/contacts/batch — All-or-nothing batch PATCH for N contacts.
 ```
 
+**Cross-merge response on the contact PATCH (additive, installer #20).** A
+depth-only drag can cross peer contacts on the same anchor, and the backend
+resolves that by deleting the crossed boundaries. The PATCH now names them so
+the renderer prunes them at once (a crossed boundary must never linger as a row
+that only 404s on a second delete):
+
+* Survivor (plain update, or a drag-up that crossed peers) → `200` with the
+  updated `FormationContactResponse`, whose additive `deleted_contact_ids`
+  lists the peers the drag-up deleted (empty on a plain update).
+* Absorbed (a drag-down cross-merge absorbed the dragger into the formation
+  above) → `200` `{"absorbed": true, "deleted_contact_ids": [...]}` — the
+  dragger is gone (its id is the URL's), and the list names the crossed peers.
+  This replaces the former bare `204`; a legacy `204` still maps to "absorbed,
+  no named peers" client-side.
+
 **Geology » Litho ops (auto-populate / seed / suggest / accept) — `geology/litho_ops.py`**
 
 ```
