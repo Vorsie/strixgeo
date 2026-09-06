@@ -45,6 +45,10 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'litho.markers',
   'litho.contactWordOne',
   'geology.unitCount',
+  // DOV code chip + its per-code tooltip line: only the "DOV" abbreviation,
+  // a colon and interpolated slots, so they read identically in BE Dutch.
+  'geology.dovCodes',
+  'geology.dovCodeTip',
   // Loanwords that are the SAME word in Dutch.
   'spine.data',
   'spine.parameters',
