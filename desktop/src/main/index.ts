@@ -85,11 +85,13 @@ import {
   type EmbeddedStackPrep,
 } from './embedded/embeddedStack'
 import { coordinatePackagedBoot } from './embedded/packagedBootCoordinator'
-import { stopCluster, type RunningCluster } from './embedded/postgresCluster'
+import { forceStopCluster, stopClusterClean, type RunningCluster } from './embedded/postgresCluster'
 import { configurePgdataRoot } from './embedded/embeddedPaths'
 import type { BootFailure } from './embedded/bootSequence'
 import { crashActionFor, isBrokenPipe } from './mainCrashPolicy'
 import { registerBackendLifecycle } from './backendLifecycle'
+import { killProcessTreeSync } from './killProcessTree'
+import { performShutdown, type ShutdownIo, type ShutdownMode } from './shutdownSequencer'
 import { tailoredBootFailureCopy } from './bootFailureMessage'
 import { backendProbeHeaders, classifyBackendProbe, type ProbeVerdict, backendReadyAttempts, BACKEND_READY_POLL_MS } from './backendProbe'
 import { decideExitAfterReady, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
@@ -236,7 +238,7 @@ let embeddedStack: EmbeddedStack | null = null
 
 // The running embedded cluster handle (packaged only). Set asynchronously by the
 // cluster-boot phase, which runs CONCURRENTLY with the engine's cold import — so
-// this can still be null while the engine is starting. ``embeddedStack.stop``
+// this can still be null while the engine is starting. ``embeddedStack.forceStop``
 // closes over it, so a shutdown that races the boot stops whatever is up.
 let embeddedCluster: RunningCluster | null = null
 
@@ -244,12 +246,20 @@ let embeddedCluster: RunningCluster | null = null
 // BACKEND_RESPAWN_GUARD_MS of this is a crash loop and gives up to the banner.
 let lastBackendRespawnAtMs: number | null = null
 
-// True while ``stopApi`` is deliberately killing the backend (shutdown, or the
-// uncaught-exception handler). The exit handler must NOT respawn or signal a
-// failure for a death WE caused — otherwise quitting would spawn a lingering
-// backend a second before the app exits (H3(a)). Reset when a fresh backend is
-// spawned, so its later unintentional death is respawned normally.
+// True while the shutdown sequence is deliberately killing the backend (a quit,
+// or the uncaught-exception handler). The exit handler must NOT respawn or
+// signal a failure for a death WE caused — otherwise quitting would spawn a
+// lingering backend a second before the app exits (H3(a)). Reset when a fresh
+// backend is spawned, so its later unintentional death is respawned normally.
 let intentionalBackendStop = false
+
+// Latched the moment the app begins quitting (window-all-closed, will-quit, a
+// boot-failure quit, or a main-process crash). Guards ``runShutdown`` against
+// running twice - a graceful quit fires window-all-closed AND will-quit - and
+// tells ``startApi`` to STOP ACCEPTING NEW WORK: a respawn timer scheduled a
+// second before the quit must not spawn a zombie engine the exit then orphans
+// (owner ruling 2026-09-06 - "kill all lingering processes").
+let shuttingDown = false
 
 // Short delay before respawning a backend that died mid-session (H3(a)) — long
 // enough to let the port free up, short enough to be invisible to the user.
@@ -313,8 +323,15 @@ function writeMainLog(line: string): void {
 // ---------------------------------------------------------------------------
 
 function startApi(): void {
-  // A freshly spawned backend's future death is "unintentional" until stopApi
-  // says otherwise (H3(a)).
+  // Stop accepting new work once the quit has begun: a respawn timer that fires
+  // during shutdown would spawn an engine the teardown has already passed, and
+  // it would outlive the app on :8765 (owner ruling 2026-09-06).
+  if (shuttingDown) {
+    writeMainLog('[main] not starting the backend - the app is shutting down')
+    return
+  }
+  // A freshly spawned backend's future death is "unintentional" until the
+  // shutdown sequence says otherwise (H3(a)).
   intentionalBackendStop = false
   // In dev: __dirname = desktop/out/main/ → 3 levels up = repo root (Strix/).
   // A packaged build has no repo and no .venv — it runs the bundled
@@ -441,20 +458,63 @@ function startApi(): void {
   }
 }
 
-function stopApi(): void {
-  if (apiProcess) {
-    // Mark the kill as OURS so the exit handler does not respawn it (H3(a)).
+/**
+ * The real effects the shutdown sequencer drives (see ./shutdownSequencer).
+ *
+ * The engine is force-killed by its whole process tree - ``child.kill()`` on
+ * Windows is ``TerminateProcess`` on the direct process only, orphaning the
+ * ``ProcessPoolExecutor`` parse workers. The tree kill runs on the LIVE pid
+ * BEFORE the direct terminate, so ``/T`` can still walk to the grandchildren
+ * while the parent links them.
+ */
+const shutdownIo: ShutdownIo = {
+  killEngineTree: (): void => {
+    const pid = apiProcess?.pid ?? null
+    // The kill is OURS - the exit handler must not respawn (H3(a)).
     intentionalBackendStop = true
-    apiProcess.kill()
+    if (pid != null) killProcessTreeSync(pid, writeMainLog)
+    // Belt-and-suspenders for the direct process (a no-op after taskkill /F;
+    // on non-Windows dev it is the actual terminate). Guarded - never throw.
+    try {
+      apiProcess?.kill()
+    } catch {
+      // already gone
+    }
     apiProcess = null
-  }
-  // Order matters: the backend holds a connection pool, and PostgreSQL's
-  // "fast" shutdown disconnects clients anyway — but stopping the client
-  // first keeps the shutdown free of error lines in the log.
-  if (embeddedStack) {
-    embeddedStack.stop()
+  },
+  stopPostgresClean: (graceMs: number): boolean => {
+    // Dev / e2e: Docker owns the database on :5433, so there is nothing of ours
+    // to stop - report "clean" so the sequencer does not force a tree that does
+    // not belong to us.
+    if (!embeddedStack) return true
+    return embeddedStack.stopClean(graceMs)
+  },
+  killPostgresTree: (): void => {
+    embeddedStack?.forceStop()
     embeddedStack = null
-  }
+  },
+  log: writeMainLog,
+  now: () => Date.now(),
+}
+
+/**
+ * Begin the deterministic quit: bounded, tree-killing teardown of the engine +
+ * database, then the caller exits the process.
+ *
+ * Idempotent - a graceful quit fires both ``window-all-closed`` and ``will-quit``
+ * and the crash handler may race them. Cancels the diagnostics retry timer so a
+ * pending drain cannot hold the event loop open, and latches ``shuttingDown`` so
+ * no respawn timer spawns a zombie engine mid-teardown.
+ *
+ * @param mode - ``'graceful'`` gives PostgreSQL the 2s clean-stop window;
+ *   ``'crash'`` force-kills both trees at once.
+ */
+function runShutdown(mode: ShutdownMode): void {
+  if (shuttingDown) return
+  shuttingDown = true
+  // Cancel the retry timer so a pending upload drain cannot keep the loop alive.
+  diagnosticsUploader?.stop()
+  performShutdown(shutdownIo, mode)
 }
 
 /**
@@ -592,10 +652,12 @@ function showBootFailureAndQuit(failure: BootFailure): void {
       ? `${tailored.detail}\n\nDetails were written to:\n${detailsPath}`
       : `${failure.summary}\n\n${failure.message}\n\nDetails were written to:\n${detailsPath}`,
   )
-  // Kill any engine already spawned against the (now-failed) cluster, stop the
-  // cluster, and quit — there is no database, so the app cannot function.
-  stopApi()
-  app.quit()
+  // The database failed to boot, so there is nothing to save - tear the engine
+  // and cluster trees down deterministically and exit, rather than routing
+  // through the window's save-prompt handshake (whose renderer may not have
+  // mounted its subscriber yet on a boot that never reached a project).
+  runShutdown('graceful')
+  app.exit(0)
 }
 
 /**
@@ -626,14 +688,13 @@ async function bootEmbeddedDatabase(gateAllowsEngine: () => boolean): Promise<bo
         port: prep.port,
         pythonExe: prep.layout.pythonExe,
         backendEnv: prep.backendEnv,
-        // The cluster is set asynchronously by startCluster below; the closure
-        // reads the module-level handle so a shutdown that races the boot stops
+        // The cluster is set asynchronously by startCluster below; both closures
+        // read the module-level handle so a shutdown that races the boot stops
         // whatever is up.
-        stop: () => {
-          if (embeddedCluster) {
-            stopCluster(prep.layout, embeddedCluster, writeMainLog)
-            embeddedCluster = null
-          }
+        stopClean: (graceMs: number) => stopClusterClean(prep.layout, writeMainLog, graceMs),
+        forceStop: () => {
+          forceStopCluster(embeddedCluster, writeMainLog)
+          embeddedCluster = null
         },
       }
     },
@@ -1932,11 +1993,12 @@ process.on('uncaughtException', (err: Error): void => {
     'StrixGeo — unexpected error',
     `An unexpected error occurred in the StrixGeo main process:\n\n${err.message}\n\nStrixGeo will now exit. Check the log file for details.`,
   )
-  // Stop the backend child and the embedded Postgres BEFORE exiting (H3(c)). A
+  // Force-kill the engine + database process trees BEFORE exiting (H3(c)). A
   // bare hard exit skips before-quit/will-quit, so it would orphan the uvicorn
-  // child (leaving a foreign backend on :8765) and the Postgres cluster (leaving
-  // the data directory locked) for the next launch to trip over.
-  stopApi()
+  // child + its parse-pool grandchildren (leaving a foreign backend on :8765)
+  // and the Postgres cluster (leaving the data directory locked) for the next
+  // launch to trip over. Crash mode skips the polite wait - both trees at once.
+  runShutdown('crash')
   // Exit with a non-zero code so the OS knows it was a crash.
   process.exit(1)
 })
@@ -2276,13 +2338,23 @@ if (!gotSingleInstanceLock) {
 // window ``close`` handler that runs the prompt, so a stop there ran the Save
 // against a dead API (docs/design/autosave-recovery.md §4). The ordering is
 // pinned in ./backendLifecycle so it is testable without Electron.
+//
+// The teardown is the deterministic ``runShutdown`` (owner ruling 2026-09-06):
+// it kills the engine + database process trees with a 2s hard deadline, then the
+// per-event hook exits the process. Idempotent, so the two events a graceful
+// quit fires run it once.
 registerBackendLifecycle(app, {
-  stopBackend: stopApi,
+  stopBackend: () => runShutdown('graceful'),
   onWindowAllClosed: () => {
-    if (process.platform !== 'darwin') app.quit()
+    // macOS keeps the app (and its backend) alive after its last window closes;
+    // every other platform exits now that the teardown has run. ``app.exit``
+    // forces an immediate, deterministic process exit - no blocking wait can
+    // keep ``StrixGeo.exe`` alive for the installer to trip over.
+    if (process.platform !== 'darwin') app.exit(0)
   },
   onWillQuit: () => {
-    // Cancel the retry timer so a pending drain cannot keep the event loop alive.
-    diagnosticsUploader?.stop()
+    // Any ``app.quit()`` with no window to close (beta expiry, the lost
+    // single-instance lock) reaches here - exit once the teardown has run.
+    app.exit(0)
   },
 })
