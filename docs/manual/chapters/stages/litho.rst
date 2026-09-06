@@ -34,6 +34,20 @@ doing the tidying before you accept is the smoother path. Accepting is a verbati
 copy of what the suggestion shows: StrixGeo never quietly merges or splits a
 layer at accept time, so what you see is what you commit.
 
+Editing an accepted layer
+-------------------------
+
+An accepted layer is not frozen. Right-click its band on the litho axis and you
+can **Edit composition…** or **Split here**, without deleting and redrawing it.
+*Edit composition* opens the same composition editor the suggestions use: change
+the main soil (turn an accepted silt into a sand, say) or its admixtures, and the
+layer is repointed to the unit for that composition, reusing the project's
+existing unit when one already matches or creating it when none does; the layer
+keeps its depths and its position. *Split here* cuts the layer at the depth you
+clicked into two layers that keep the same composition, so you can introduce a
+boundary the segmenter missed and then drag it or recompose either half. Both are
+one action; there is no delete-and-start-over step.
+
 The segmenter offers two classifiers, chosen per project in the settings.
 
 * The stress-**normalised** classifier, which needs each CPT's elevation and
