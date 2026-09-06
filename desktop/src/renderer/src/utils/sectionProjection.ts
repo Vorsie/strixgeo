@@ -110,6 +110,17 @@ export function projectionFoot(
 // Investigation filter — keep what falls within the buffer + the line span
 // ---------------------------------------------------------------------------
 
+// Tolerance (metres) on the along-line span bounds. A test sitting EXACTLY at
+// a section endpoint projects to along == 0 or along == length in exact math,
+// but on real oblique coordinates the dot product and the sqrt round slightly
+// differently, so the computed ``along`` can land ~1e-8 m outside [0, length].
+// A strict bound then drops the endpoint test — for a tie-section drawn
+// through two tests that silently leaves it with one member ("Koppelprofiel 4
+// contains one test", owner ruling 2026-09-06). 1 micron is far above the
+// float noise and far below any real "off the section" distance, so it admits
+// endpoint-coincident tests without letting a genuinely off-line one through.
+const ENDPOINT_TOLERANCE_M = 1e-6
+
 export interface InvestigationPoint {
   id: string
   location_x: number
@@ -144,7 +155,7 @@ export function investigationsOnSection<T extends InvestigationPoint>(
     if (excludedIds.has(item.id)) continue
     const p = projectPointOntoLine(section, item.location_x, item.location_y)
     if (p === null) continue
-    if (p.along < 0 || p.along > length) continue
+    if (p.along < -ENDPOINT_TOLERANCE_M || p.along > length + ENDPOINT_TOLERANCE_M) continue
     if (Math.abs(p.offset) > section.projection_buffer_m) continue
     out.push({ item, along: p.along, offset: p.offset })
   }
