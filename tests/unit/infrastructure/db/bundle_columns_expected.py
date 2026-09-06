@@ -37,6 +37,7 @@ child tree, a geological model's contacts / surfaces / litho layers).
 from __future__ import annotations
 
 from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
+from groundmodel.infrastructure.db.models.bed_override_orm import BedOverrideOrm
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
@@ -95,6 +96,7 @@ BUNDLE_ARRAY_ORM_CLASSES: dict[str, tuple[type, ...]] = {
         LithoLayerOrm,
     ),
     "cross_sections": (CrossSectionOrm,),
+    "bed_overrides": (BedOverrideOrm,),
     "investigation_reviews": (InvestigationReviewOrm,),
     "bodies": (BodyOrm,),
     "formation_absences": (FormationAbsenceOrm,),
@@ -442,6 +444,18 @@ EXPECTED_BUNDLE_COLUMNS: dict[str, frozenset[str]] = {
             "updated_at",
             "vertical_exaggeration",
             "view_state",
+        }
+    ),
+    "BedOverrideOrm": frozenset(
+        {
+            "app_project_id",
+            "created_at",
+            "epsg",
+            "id",
+            "label",
+            "level_m",
+            "updated_at",
+            "vertices",
         }
     ),
     "InvestigationReviewOrm": frozenset(
