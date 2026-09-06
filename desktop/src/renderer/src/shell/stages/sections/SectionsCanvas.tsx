@@ -54,6 +54,9 @@ import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPa
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
+import LithoGhostCompositionEditor, {
+  type GhostAdmixtureItem,
+} from '../../../components/interpretation/LithoGhostCompositionEditor'
 import { useRosterLoadedGate } from './useRosterLoadedGate'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
 import {
@@ -1463,6 +1466,92 @@ export default function SectionsCanvas(): JSX.Element {
     [bodyMenuModel, project.id, refetchBodyMenuData, toast],
   )
 
+  // "Edit composition…" / "Split here" for an ACCEPTED litho layer (installer
+  // #21, owner 2026-09-06: "I have a silt I want to make a sand … I can only
+  // delete it"). Edit opens the SAME composition editor the pending-ghost menu
+  // uses, prefilled from the layer's formation; save repoints the layer through
+  // the composition endpoint. Split cuts the layer at the clicked depth.
+  const [compositionEditTarget, setCompositionEditTarget] = useState<{
+    layerId: string
+    mainSoilCode: string
+    admixtures: GhostAdmixtureItem[]
+  } | null>(null)
+
+  const handleEditLithoComposition = useCallback(
+    (layerId: string): void => {
+      if (!activeLithoModel) return
+      const layer = lithoLayers.find(l => l.id === layerId)
+      if (!layer) return
+      const formation = lithoFormations.find(f => f.id === layer.formation_id)
+      const mainSoilCode = formation?.litho_main_soil_code ?? 'ZAND'
+      const admixtures: GhostAdmixtureItem[] = (formation?.litho_admixtures ?? []).map(a => ({
+        soil_code: a.soil_code,
+        amount: a.amount ?? '',
+        locally: a.locally ?? false,
+      }))
+      setCompositionEditTarget({ layerId, mainSoilCode, admixtures })
+    },
+    [activeLithoModel, lithoLayers, lithoFormations],
+  )
+
+  const handleSaveLithoComposition = useCallback(
+    async (mainSoilCode: string, admixtures: GhostAdmixtureItem[]): Promise<void> => {
+      const target = compositionEditTarget
+      if (!activeLithoModel || target === null) return
+      // Close the modal first (matches the ghost editor's caller-closes pattern).
+      setCompositionEditTarget(null)
+      log.info(
+        'section',
+        `edit-litho-composition: layer=${target.layerId} → ${mainSoilCode} ` +
+          `admix=${admixtures.map(a => a.soil_code).join(',')}`,
+      )
+      try {
+        await api.geology.editLayerComposition(project.id, activeLithoModel.id, target.layerId, {
+          litho_main_soil_code: mainSoilCode,
+          admixtures: admixtures.map(a => ({
+            soil_code: a.soil_code,
+            amount: a.amount,
+            locally: a.locally,
+          })),
+        })
+        markMutated()
+        refetchLithoContacts()
+        requestBodyRecompute('litho')
+        toast('success', t('sections.canvasToast.compositionUpdated'))
+      } catch (err) {
+        log.warn('section', 'handleSaveLithoComposition: failed', err)
+        toast('error', t('sections.canvasToast.compositionUpdateFailed'))
+      }
+    },
+    [
+      activeLithoModel,
+      compositionEditTarget,
+      project.id,
+      markMutated,
+      refetchLithoContacts,
+      requestBodyRecompute,
+      toast,
+    ],
+  )
+
+  const handleSplitAcceptedLithoLayer = useCallback(
+    async (layerId: string, depthM: number): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info('section', `split-accepted-litho-layer: layer=${layerId} depth=${depthM.toFixed(3)}m`)
+      try {
+        await api.geology.splitLayer(project.id, activeLithoModel.id, layerId, depthM)
+        markMutated()
+        refetchLithoContacts()
+        requestBodyRecompute('litho')
+        toast('success', t('sections.canvasToast.layerSplit'))
+      } catch (err) {
+        log.warn('section', 'handleSplitLithoLayer: failed', err)
+        toast('error', t('sections.canvasToast.layerSplitFailed'))
+      }
+    },
+    [activeLithoModel, project.id, markMutated, refetchLithoContacts, requestBodyRecompute, toast],
+  )
+
   // Join two bodies into ONE group (owner ruling 2026-09-01, geotech axis only) —
   // record the must-link, then re-render. The endpoint re-resolves body identity
   // server-side in the same request, so the merge is durable before this returns.
@@ -2773,6 +2862,11 @@ export default function SectionsCanvas(): JSX.Element {
           // model. Contact editing stays view-only there — only the menu crosses.
           onNameBody={isLitho || isGeotech ? bid => void handleNameBody(bid) : undefined}
           onDissolveBody={isLitho || isGeotech ? bid => void handleDissolveBody(bid) : undefined}
+          // Accepted-layer verbs (installer #21) — litho axis only.
+          onEditLithoComposition={isLitho ? handleEditLithoComposition : undefined}
+          onSplitLithoLayer={
+            isLitho ? (lid, depthM) => void handleSplitAcceptedLithoLayer(lid, depthM) : undefined
+          }
           // Join / Ontkoppelen (debt #278) — GEOTECH axis ONLY. Owner ruled
           // 2026-09-01 the body verbs are stripped to these two (Separate / Rejoin
           // removed); he would not use Join on litho, and the no-affordance rule
@@ -2810,6 +2904,20 @@ export default function SectionsCanvas(): JSX.Element {
           }
         />
         </SectionScopeContext.Provider>
+        {/* "Edit composition…" for an ACCEPTED litho layer (installer #21) — the
+            SAME editor the pending-ghost menu uses, prefilled from the layer's
+            current unit; the main soil code is editable (silt → sand). */}
+        {compositionEditTarget !== null && (
+          <LithoGhostCompositionEditor
+            open
+            initialMainSoilCode={compositionEditTarget.mainSoilCode}
+            initialAdmixtures={compositionEditTarget.admixtures}
+            onSave={(mainSoilCode, admixtures) => {
+              void handleSaveLithoComposition(mainSoilCode, admixtures)
+            }}
+            onCancel={() => setCompositionEditTarget(null)}
+          />
+        )}
         {/* Inspect-lens-body panel (#101 Blocker 1) â€” shared between section-selected
             and no-section branches; Portal via Modal escapes the SVG stacking context. */}
         {inspectTarget !== null && (
