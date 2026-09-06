@@ -115,7 +115,7 @@ export const TUTORIAL = {
     'Undo steps back through your model edits, including an accepted litho layer. It is also on Ctrl+Z; the button makes the stack visible.',
   'tutorial.section-tie.title': 'Tie cross-sections',
   'tutorial.section-tie.body':
-    'When you have more than one section, Suggest tie-sections proposes short links where they cross, and the caret accepts them all at once. The ties give the 3-D build data to interpolate between your lines.',
+    'There is no separate tie-section kind. A tie section is just a normal cross-section drawn with “New cross-section” between two tests, where your lines cross. Now that a second section exists, Suggest tie-sections proposes those short links and the caret accepts them all at once; the ties give the 3-D build the data to interpolate between your lines. Rename any section by clicking its name in the section list on the right.',
   'tutorial.section-delete.title': 'Delete a cross-section',
   'tutorial.section-delete.body':
     'Delete removes the selected cross-section. It is irreversible, so it always confirms first; the underlying CPTs and boreholes are never touched.',
@@ -153,12 +153,12 @@ export const TUTORIAL = {
   'tutorial.litho-axis.title': 'Switch to the litho axis',
   'tutorial.litho-axis.body':
     'Open a cross-section and switch its axis to Litho. The Litho pill unlocks the moment the litho model exists, so you reach it right after creating the model. The same section now edits the litho model instead of the stratigraphy, and every suggestion and correlation you make from here belongs to it.',
-  'tutorial.litho-accept.title': 'Accept the suggestions',
-  'tutorial.litho-accept.body':
-    'The segmenter proposes litho layers on each column, reading the CPT with a Robertson classification. Accept the ones that match what you see. This is assisted work, not automatic correlation, so you stay in control of every layer. This step ticks once you accept your first suggestion.',
-  'tutorial.litho-adjust.title': 'Merge and adjust layers',
+  'tutorial.litho-adjust.title': 'Adapt the suggestions',
   'tutorial.litho-adjust.body':
-    "Accepted layers are yours to refine. Drag a boundary to move it; Shift-drag past the neighbour's midpoint to absorb it; Alt-drag copies a layer's composition onto another column; right-click a layer for “Merge layers” and more.",
+    'The segmenter proposes litho layers on each column, reading the CPT with a Robertson classification. Adapt them before you accept: drag a ghost boundary to move it, or drag it onto its neighbour and release to merge the two layers. Right-click the boundary between two suggestions for “Merge layers”. Alt-drag copies one suggestion’s composition onto another column, and right-click a suggestion for the rest: “Edit composition…”, “Reject layer”, and more.',
+  'tutorial.litho-accept.title': 'Adjust, then accept',
+  'tutorial.litho-accept.body':
+    'Adjust the suggestions first, accept them afterwards. Drag a ghost boundary to move it, right-click the boundary between two suggestions for “Merge layers”, reject a suggested layer you do not want with its × (or right-click for “Reject layer”), and set its admixtures with right-click, “Edit composition…”. When a column looks right, double-click a suggestion to accept it, or press “Accept all” to commit every remaining one. This is assisted work, not automatic correlation, so you stay in control of every layer. This step ticks once you accept your first suggestion.',
   'tutorial.litho-correlate.title': 'Correlate the layers',
   'tutorial.litho-correlate.body':
     'Before you build, correlate a layer on one column to the same layer on the next, so the model knows they are one body. Correlate at the top of the litho toolbar arms the two-click gesture; Auto-correlate proposes the ties across the whole model for you to accept.',
