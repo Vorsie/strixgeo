@@ -39,6 +39,7 @@ export function useTutorialState(): TutorialState {
       state.cptCount,
       state.boreholeCount,
       state.sectionCount,
+      state.twoSectionsExist,
       state.geoModelExists,
       state.contactCount,
       state.lumpingCount,
