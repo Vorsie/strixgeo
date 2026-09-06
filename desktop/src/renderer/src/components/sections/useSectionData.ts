@@ -221,6 +221,9 @@ export function useSectionData(
         endY: section.end_y,
         epsg: section.epsg,
         nSamples: 200,
+        // Apply the project's bed overrides so the DEM line shows the dredged
+        // bed where the section crosses a bed polygon (owner ruling 2026-09-06).
+        projectId: section.app_project_id,
       })
       .then(res => {
         if (cancelled) return
@@ -248,6 +251,7 @@ export function useSectionData(
     section.end_x,
     section.end_y,
     section.epsg,
+    section.app_project_id,
   ])
 
   // ---- Projected investigations -----------------------------------------
