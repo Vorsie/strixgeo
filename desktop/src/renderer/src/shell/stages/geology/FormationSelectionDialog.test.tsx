@@ -34,6 +34,39 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import FormationSelectionDialog from './FormationSelectionDialog'
 import type { FormationSelectionDialogProps } from './FormationSelectionDialog'
 import type { FormationCandidate, LumpingCollision } from '../../../hooks/useGeologicalModel'
+import type { GeologicalFormationResponse } from '../../../api/client'
+
+/** Minimal GeologicalFormationResponse for currentFormations fixtures. */
+function makeFormation(
+  id: string,
+  name: string,
+  regionalRef: string | null = null,
+): GeologicalFormationResponse {
+  return {
+    id,
+    app_project_id: 'proj-1',
+    name,
+    color: '#000',
+    code: null,
+    display_order: 0,
+    pinned_order: false,
+    regional_ref: regionalRef,
+    description: null,
+    lithology: null,
+    nad_class: null,
+    parent_formation_id: null,
+    litho_main_soil_code: null,
+    litho_admixtures: null,
+    instance_ordinal: null,
+    instance_ordinal_locked: false,
+    parent_formation_name: null,
+    parent_extrapolated: false,
+    source_litho_formation_id: null,
+    source_geo_formation_id: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  } as GeologicalFormationResponse
+}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -679,5 +712,106 @@ describe('FormationSelectionDialog', () => {
     // Both candidates offer the SAME member as the one-click target.
     const btns = screen.getAllByRole('button', { name: 'Use DOV name: Lid van Egem' })
     expect(btns).toHaveLength(2)
+  })
+
+  // -------------------------------------------------------------------------
+  // DOV-member custom targets are applicable + existing model formations are
+  // offered as lumping targets (owner dogfeed 2026-09-06).
+  //
+  //   R1a  A candidate mapped to a DOV member name can be applied; applying
+  //        creates that member as a formation and lumps the candidate into it.
+  //   R1b  The apply button is enabled when every row is mapped to a target.
+  //   R2   A formation that already exists in the model is offered as a
+  //        lumping target.
+  // -------------------------------------------------------------------------
+
+  const MERELBEKE_CANDIDATE: FormationCandidate = {
+    name: 'Ieperiaan - Paniseliaan (P1m)',
+    key: 'ieperiaan paniseliaan p1m',
+    boreholeCount: 4,
+    formalCodes: [
+      { code: 'GeMe', count: 4, catalogName: 'Lid van Merelbeke (Formatie van Gentbrugge)' },
+    ],
+  }
+
+  it('R1a: a candidate mapped to a DOV member name can be applied — onConfirm carries the member key + lump', () => {
+    const onConfirm = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ candidates: [MERELBEKE_CANDIDATE], onConfirm })}
+      />,
+    )
+
+    // Map the candidate to the DOV member name via the one-click button.
+    fireEvent.click(screen.getByRole('button', { name: 'Use DOV name: Lid van Merelbeke' }))
+
+    // Applying is allowed (the row is mapped to a target).
+    const applyBtn = screen.getByRole('button', { name: 'Apply selection' }) as HTMLButtonElement
+    expect(applyBtn.disabled).toBe(false)
+    fireEvent.click(applyBtn)
+
+    expect(onConfirm).toHaveBeenCalledOnce()
+    const [selectedKeys, manualMap] = onConfirm.mock.calls[0] as [
+      ReadonlySet<string>,
+      Record<string, string>,
+    ]
+    // Applying creates that member as a formation: its normalised key is in the
+    // selection so the backend's selected-key filter creates it.
+    expect(selectedKeys.has('lid van merelbeke')).toBe(true)
+    // ...and lumps the candidate into it (manual_map keyed on candidate.key).
+    expect(manualMap['ieperiaan paniseliaan p1m']).toBe('Lid van Merelbeke')
+  })
+
+  it('R1b: the apply button is enabled when every row is mapped to a target', () => {
+    const TWO: FormationCandidate[] = [
+      MERELBEKE_CANDIDATE,
+      {
+        name: 'Paleogeen: Formatie van Tielt - Lid van Egem',
+        key: 'paleogeen formatie van tielt lid van egem',
+        boreholeCount: 2,
+        formalCodes: [
+          { code: 'TtEg', count: 2, catalogName: 'Lid van Egem (Formatie van Tielt)' },
+        ],
+      },
+    ]
+    render(<FormationSelectionDialog {...makeProps({ candidates: TWO })} />)
+
+    // No current formations, nothing checked → Apply starts disabled.
+    expect(
+      (screen.getByRole('button', { name: 'Apply selection' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    // Map BOTH rows to their DOV member names.
+    fireEvent.click(screen.getByRole('button', { name: 'Use DOV name: Lid van Merelbeke' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use DOV name: Lid van Egem' }))
+
+    // Every row is now mapped to a target → Apply is enabled.
+    expect(
+      (screen.getByRole('button', { name: 'Apply selection' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
+
+  it('R2: a formation that already exists in the model is offered as a lumping target', () => {
+    // "Merelbeke" was added by hand via "+ Add formation" — it is in the model
+    // but not a discovered candidate, so today the dropdown never offers it.
+    const onManualMapChange = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({
+          currentFormations: [makeFormation('f-mb', 'Merelbeke')],
+          onManualMapChange,
+        })}
+      />,
+    )
+
+    // Open the "→ same as" dropdown on the Boom Klei row.
+    fireEvent.click(screen.getByRole('button', { name: /Reassign "Boom Klei"/ }))
+
+    // The hand-added model formation is offered as a lumping target.
+    const option = screen.getByRole('option', { name: 'Merelbeke' })
+    fireEvent.click(option)
+
+    // Picking it lumps the candidate into the existing formation by name.
+    expect(onManualMapChange).toHaveBeenLastCalledWith({ 'boom klei': 'Merelbeke' })
   })
 })
