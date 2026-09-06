@@ -33,6 +33,22 @@ BASE_DEPTH_THRESHOLD_M: float = 0.5
 # pair, never whether distant ones do.
 DISTANCE_FACTOR: float = 0.04
 
+# Ranking penalty (metres) added to the depth residual of a same-soil contact
+# pair whose ADMIXTURES mismatch (owner ruling 2026-09-06).  Two candidates on
+# the same adjacent column-pair, at near-equal depth, are separated by their
+# admixture composition: a matching admixture ranks above a mismatching one.
+# The value is half of BASE_DEPTH_THRESHOLD_M (0.5 -> 0.25) deliberately:
+#   * large enough to REORDER ties between near-equal residuals: two candidates
+#     whose raw depth residuals differ by less than 0.25 m, so the matching-
+#     admixture one wins even when it sits slightly deeper;
+#   * smaller than the smallest possible depth window (BASE_DEPTH_THRESHOLD_M =
+#     0.5 m at zero distance) so the penalty can never, on its own, exceed the
+#     window.  This matters because the penalty affects ONLY the ranking /
+#     mutual-nearest-neighbour residual, never the window admission test (which
+#     stays on the RAW residual), so a mismatch never blocks a tie; it
+#     only demotes it behind a matching alternative.
+ADMIXTURE_MISMATCH_PENALTY_M: float = 0.25
+
 # Provenance tag written to ``litho_contact_correlation_edge.source`` for
 # rows produced by this algorithm.  Mirrors the formation-level "auto"
 # tag from #127 so consumers (inspector badges, filters) treat them
