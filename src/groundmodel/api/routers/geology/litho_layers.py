@@ -33,7 +33,10 @@ from groundmodel.api.schemas.project.litho_layer import (
     LithoLayerBoundaryMoveRequest,
     LithoLayerBoundaryMoveResponse,
     LithoLayerBulkCreateRequest,
+    LithoLayerCompositionRequest,
     LithoLayerResponse,
+    LithoLayerSplitRequest,
+    LithoLayerSplitResponse,
     LithoLayerStatusLiteral,
     LithoLayerUpdateRequest,
 )
@@ -46,6 +49,7 @@ from groundmodel.application.bulk_create_litho_layers import (
     LithoLayerCreateRequest,
 )
 from groundmodel.application.delete_litho_layer import DeleteLithoLayer
+from groundmodel.application.edit_litho_layer_composition import EditLithoLayerComposition
 from groundmodel.application.link_litho_to_geo import LinkLithoToGeo
 from groundmodel.application.list_litho_layers_for_model import (
     ListLithoLayersForModel,
@@ -54,7 +58,9 @@ from groundmodel.application.move_litho_layer_boundary import (
     BoundaryMoveError,
     MoveLithoLayerBoundary,
 )
+from groundmodel.application.split_litho_layer import SplitError, SplitLithoLayer
 from groundmodel.application.update_litho_layer import UpdateLithoLayer
+from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
@@ -677,3 +683,145 @@ async def update_layer(
             detail="Layer not found",
         )
     return updated
+
+
+@router.patch(
+    "/models/{model_id}/layers/{layer_id}/composition",
+    response_model=LithoLayerResponse,
+)
+async def edit_layer_composition(
+    project_id: UUID,
+    model_id: UUID,
+    layer_id: UUID,
+    request: LithoLayerCompositionRequest,
+    session: AsyncSession = Depends(get_session),
+) -> LithoLayerOrm:
+    """Repoint one accepted layer to a different composition's litho unit.
+
+    "Edit composition" — e.g. turn an accepted SILT into a ZAND without deleting
+    it (installer #21 PROD BLOCKER). Resolves the target litho unit with the
+    shared find-or-create (reuse the project's unit for that composition, or mint
+    a new one), then repoints ``formation_id`` through the existing layer PATCH.
+    Depths, anchor and status are unchanged; the instance resolver re-runs so
+    body membership tracks the new composition.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    layer_id : UUID
+        The layer to recompose (path param).
+    request : LithoLayerCompositionRequest
+        Body with the target ``litho_main_soil_code`` + ``admixtures``.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerResponse
+        The updated layer row.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to ``project_id``, or
+        when the layer does not exist or is not in the URL model.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    admixtures = tuple(
+        Admixture(soil_code=a.soil_code, amount=a.amount, locally=a.locally)
+        for a in request.admixtures
+    )
+    updated = await EditLithoLayerComposition(session).execute(
+        project_id=project_id,
+        model_id=model_id,
+        layer_id=layer_id,
+        litho_main_soil_code=request.litho_main_soil_code,
+        admixtures=admixtures,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Layer not found",
+        )
+    return updated
+
+
+@router.post(
+    "/models/{model_id}/layers/{layer_id}/split",
+    response_model=LithoLayerSplitResponse,
+)
+async def split_layer(
+    project_id: UUID,
+    model_id: UUID,
+    layer_id: UUID,
+    request: LithoLayerSplitRequest,
+    session: AsyncSession = Depends(get_session),
+) -> LithoLayerSplitResponse:
+    """Split one accepted layer at a depth into two same-composition layers.
+
+    Atomic: the top half keeps the original row (base shrunk to the split
+    depth), the bottom half is a fresh accepted row ``[depth, original_base]`` on
+    the same anchor + formation, committed in ONE transaction (the deferred
+    no-overlap + contiguity constraints forbid a two-request split).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param, scope guard).
+    model_id : UUID
+        The lithostratigraphic model (path param).
+    layer_id : UUID
+        The layer to split (path param).
+    request : LithoLayerSplitRequest
+        Body with the split ``depth_m``.
+    session : AsyncSession
+        Database session injected by FastAPI dependency injection.
+
+    Returns
+    -------
+    LithoLayerSplitResponse
+        The (shrunk) top layer + the new bottom layer.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not exist or does not belong to ``project_id``, or
+        when the layer does not exist or is not in the URL model.
+    HTTPException(422)
+        When the split depth would leave either half thinner than the minimum
+        thickness, or the commit trips a residual integrity constraint
+        (``SplitError``).
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    try:
+        result = await SplitLithoLayer(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            layer_id=layer_id,
+            depth_m=request.depth_m,
+        )
+    except SplitError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Layer not found",
+        )
+    return LithoLayerSplitResponse(
+        top=LithoLayerResponse.model_validate(result.top),
+        bottom=LithoLayerResponse.model_validate(result.bottom),
+    )
