@@ -2,6 +2,7 @@
 
 import asyncio
 import multiprocessing
+import os
 import time
 from collections.abc import AsyncIterator
 from concurrent.futures import ProcessPoolExecutor
@@ -42,6 +43,7 @@ from groundmodel.infrastructure.db.session import AsyncSessionFactory, engine
 from groundmodel.shared.config import settings
 from groundmodel.shared.constants.model_kind import MODEL_KIND_LITHOSTRATIGRAPHIC
 from groundmodel.shared.logging.logger_factory import LoggerFactory
+from groundmodel.shared.parent_watchdog import start_parent_watchdog
 from groundmodel.shared.timing import ms_since
 
 logger = LoggerFactory.get_logger(__name__)
@@ -152,8 +154,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     A ``ProcessPoolExecutor`` is started here and stored on ``_app.state.parse_pool``
     so the DOV CPT router can access it via ``request.app.state.parse_pool``.
-    The pool is shut down gracefully (``wait=True``) on application exit so
-    in-flight parse tasks complete before the process exits.
+    Each worker is initialised with a parent watchdog so it self-exits if this
+    engine ever dies (see the pool construction below). On application exit the
+    pool is shut down with ``wait=False, cancel_futures=True`` so a clean stop
+    never blocks on an in-flight parse and the workers get their shutdown signal.
 
     Also instruments the running loop so a listener-killing accept failure is
     CRITICAL rather than a stray asyncio ERROR — see ``api/serve.py``. Done
@@ -202,8 +206,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # (measured ~1ms, 0 children) — the four workers warm up only on the first
     # parse task submitted (the first DOV import). So this is not a boot cost,
     # and there is no eager-spawn win to be had here.
+    #
+    # initializer=start_parent_watchdog(engine_pid): every worker, the moment it
+    # DOES spawn, starts a daemon thread watching this engine process and exits
+    # by itself if the engine is ever gone (crash, or a desktop tree-kill that
+    # misses it). The engine's own pid is captured HERE, in the parent, and
+    # passed down through initargs — the second layer behind
+    # desktop/src/main/shutdownSequencer.ts, so a stranded worker can never keep
+    # holding files in the install folder ("StrixGeo is nog actief", owner
+    # 2026-09-06).
     _t = time.perf_counter()
-    pool = ProcessPoolExecutor(max_workers=4, mp_context=multiprocessing.get_context("spawn"))
+    pool = ProcessPoolExecutor(
+        max_workers=4,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=start_parent_watchdog,
+        initargs=(os.getpid(),),
+    )
     _app.state.parse_pool = pool
     logger.info(
         f"[engine-boot 4/6] DOV parse pool created (max_workers=4, spawn, lazy) [{ms_since(_t)}ms]"
@@ -234,8 +252,14 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        pool.shutdown(wait=True)
-        logger.info("DOV parse pool shut down")
+        # wait=False + cancel_futures=True: a clean stop must not block on an
+        # in-flight DOV parse (the desktop only gives the whole tree ~2 s before
+        # it force-kills it), and cancelling the queued futures lets the idle
+        # workers take their shutdown sentinel and exit. Combined with the
+        # per-worker parent watchdog above, a worker that somehow misses this
+        # signal still self-exits once this engine is gone.
+        pool.shutdown(wait=False, cancel_futures=True)
+        logger.info("DOV parse pool shut down (wait=False, cancel_futures=True)")
 
 
 # Max bytes any single request body may carry. 256 MiB is well above
