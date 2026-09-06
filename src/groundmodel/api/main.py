@@ -19,6 +19,7 @@ from groundmodel.api.boot_migration import run_boot_migration
 from groundmodel.api.heavy_library_warmup import start_background_warmup
 from groundmodel.api.local_client_token_middleware import LocalClientTokenMiddleware
 from groundmodel.api.routers import (
+    bed_override,
     borehole,
     codelists,
     cpt,
@@ -496,6 +497,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     app.include_router(project.router)
     app.include_router(geology.router)
     app.include_router(cross_section.router)
+    app.include_router(bed_override.router)
     app.include_router(investigation_review.router)
     app.include_router(stratigraphy_lumping.router)
     app.include_router(dem.router)
