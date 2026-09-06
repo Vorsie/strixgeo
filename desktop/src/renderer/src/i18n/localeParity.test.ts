@@ -88,6 +88,9 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // Pure scale notation ("H 1:{hs} · V 1:{vs}") — only symbols and slots, so it
   // reads identically in BE Dutch.
   'sheet.scaleReadout',
+  // "m TAW" — the Belgian height-datum symbol, kept verbatim in the bed-override
+  // list rows just like ``sheet.mTaw``.
+  'bedOverride.levelSuffix',
 
   // ---------------------------------------------------------------------------
   // 2026-09-02 renderer coverage pass. Each key below renders identically in
