@@ -7,9 +7,16 @@ offline DOV e2e specs.  (Cesium visual goldens: see the last section.)
 runner sets ``STRIXGEO_DOV_FIXTURE_MODE=1``, which makes ``make_dov_async_client``
 (``dov_http.py``) back the client with an ``httpx.MockTransport``
 (``dov_fixture_transport.py``) that serves every DOV call — WFS count/features
-+ per-permkey CPT/borehole/interpretation/observation XML — from on-disk
-fixture files under ``desktop/tests/e2e/fixtures/dov/``. The full URL→file
-route table is the module docstring of ``dov_fixture_transport.py``.
++ per-permkey CPT/borehole/interpretation/observation XML + the Virtuele Boring
+lagenmodel catalogue — from on-disk fixture files under
+``desktop/tests/e2e/fixtures/dov/``. The full URL→file route table is the module
+docstring of ``dov_fixture_transport.py``.
+
+The Virtuele Boring model-picker catalogue lives on a **different DOV host**
+(``services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel``) than the
+WFS / xdov routes and maps to ``virtuele_boring/lagenmodel.json`` (a small
+2-entry list). Without it the offline harness 502s on the unreachable live
+catalogue (walker findings 1-9, 2026-09-06).
 
 The fixtures are **hand-authored synthetic DOV-format files** (permkeys like
 ``2024-E2E-001``, not real DOV ids) — a refresh is a pure file edit, no network:
