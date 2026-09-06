@@ -579,6 +579,8 @@ export const SECTIONS_NL = {
   'sections.menu.insertLayerHere': 'Hier een laag invoegen…',
   'sections.menu.editComposition': 'Samenstelling bewerken…',
   'sections.menu.splitLayer': 'Laag splitsen',
+  // Accepted-layer verbs (installer #21).
+  'sections.menu.splitHere': 'Hier splitsen',
   'sections.menu.acceptLayer': 'Laag aanvaarden',
   'sections.menu.rejectLayer': 'Laag verwerpen',
   'sections.menu.extendToNearest': 'Doortrekken tot de dichtstbijzijnde laaggrenzen',
@@ -925,6 +927,11 @@ export const SECTIONS_NL = {
   'sections.canvasToast.dissolveConfirm': 'Dit lichaam ontbinden? Dit verwijdert het lichaam en zijn uitbreidingsgegevens.',
   'sections.canvasToast.bodyDissolved': 'Lichaam ontbonden.',
   'sections.canvasToast.bodyDissolveFailed': 'Lichaam ontbinden mislukt.',
+  // Accepted-layer edit / split (installer #21).
+  'sections.canvasToast.compositionUpdated': 'Samenstelling van de laag bijgewerkt.',
+  'sections.canvasToast.compositionUpdateFailed': 'Kon de samenstelling van de laag niet bijwerken — probeer opnieuw.',
+  'sections.canvasToast.layerSplit': 'Laag gesplitst.',
+  'sections.canvasToast.layerSplitFailed': 'Kon de laag niet splitsen — het splitspunt ligt mogelijk te dicht bij een grens.',
   'sections.canvasToast.noLithoContact': 'Deze grens heeft geen lithologische laaggrens om te verplaatsen — bewerk ze op de litho-as.',
   'sections.canvasToast.packingNotLithoCpt': 'Dat is een pakkingsgrens, geen lithologische laaggrens — sleep ze met de greep naast de kolom.',
   'sections.canvasToast.packingNotLithoBorehole': 'Dat is een pakkingsgrens, geen lithologische laaggrens. De pakkingsbanden van een boring zijn geëxtrapoleerd uit de sonderingen eromheen, dus ze kunnen hier niet verplaatst worden.',
