@@ -24,13 +24,14 @@ import { Plus, X } from 'lucide-react'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import {
-  ADMIXTURE_AMOUNT_OPTIONS,
-  ADMIXTURE_SOIL_OPTIONS,
-  admixtureSoilLabel,
+  admixtureAmountOptions,
+  admixtureSoilAdjective,
+  admixtureSoilOptions,
   lithoBaseLabel,
   lithoDisplayName,
 } from '../../utils/lithoLabels'
 import { useT } from '../../i18n/translate'
+import { useLanguage } from '../../i18n/languageSelect'
 
 // Vocabulary mirrors LithoCompositionPickerDialog. Base-lithology labels
 // share a single source of truth (utils/lithoConstants.LITHOLOGY_LABELS)
@@ -90,6 +91,13 @@ export default function LithoGhostCompositionEditor({
   onCancel,
 }: LithoGhostCompositionEditorProps): JSX.Element | null {
   const t = useT()
+  // The active language, subscribed so the dropdowns re-render on a language
+  // flip. The admixture soil / amount options are localised at the presentation
+  // boundary (owner ruling 2026-09-06): the raw DOV code is the option value,
+  // the label follows the UI language, and the raw token is the option tooltip.
+  const language = useLanguage()
+  const soilOptionsBase = admixtureSoilOptions(language)
+  const amountOptionsBase = admixtureAmountOptions(language)
   // Normalise the incoming main soil code — segmenter SHOULD send a
   // BaseLithology token but a defensive fallback keeps the dialog
   // openable even on stale / unknown values.
@@ -151,9 +159,11 @@ export default function LithoGhostCompositionEditor({
 
   function addAdmixtureRow(): void {
     const id = nextRowIdRef.current++
+    // Seed with the first curated soil code (language-independent, the code is
+    // the option VALUE, not its label).
     setRows(prev => [
       ...prev,
-      { id, soil_code: ADMIXTURE_SOIL_OPTIONS[0].code, amount: '', locally: false },
+      { id, soil_code: soilOptionsBase[0].code, amount: '', locally: false },
     ])
   }
   function removeAdmixtureRow(id: number): void {
@@ -251,24 +261,27 @@ export default function LithoGhostCompositionEditor({
               // <select> silently snaps to the first option, making
               // the dialog claim "Gravel (GL)" when the underlying
               // value was e.g. "OM" (organic matter).
-              const soilOptions = ADMIXTURE_SOIL_OPTIONS.some(
+              const soilOptions = soilOptionsBase.some(
                 o => o.code === row.soil_code,
               )
-                ? ADMIXTURE_SOIL_OPTIONS
+                ? soilOptionsBase
                 : [
-                    ...ADMIXTURE_SOIL_OPTIONS,
+                    ...soilOptionsBase,
                     {
+                      // Stored code outside the curated list: label it in the
+                      // active language too, raw token as value + tooltip.
                       code: row.soil_code,
-                      label: `${admixtureSoilLabel(row.soil_code)} (${row.soil_code})`,
+                      label: `${admixtureSoilAdjective(row.soil_code, language)} (${row.soil_code})`,
+                      title: row.soil_code,
                     },
                   ]
-              const amountOptions = ADMIXTURE_AMOUNT_OPTIONS.some(
+              const amountOptions = amountOptionsBase.some(
                 o => o.code === row.amount,
               )
-                ? ADMIXTURE_AMOUNT_OPTIONS
+                ? amountOptionsBase
                 : [
-                    ...ADMIXTURE_AMOUNT_OPTIONS,
-                    { code: row.amount, label: `${row.amount} (raw)` },
+                    ...amountOptionsBase,
+                    { code: row.amount, label: `${row.amount} (raw)`, title: row.amount },
                   ]
               return (
               <div key={row.id} className="flex items-center gap-1.5">
@@ -279,7 +292,7 @@ export default function LithoGhostCompositionEditor({
                   aria-label={t('composition.admixtureSoilCode')}
                 >
                   {soilOptions.map(opt => (
-                    <option key={opt.code} value={opt.code}>
+                    <option key={opt.code} value={opt.code} title={opt.title}>
                       {opt.label}
                     </option>
                   ))}
@@ -291,7 +304,7 @@ export default function LithoGhostCompositionEditor({
                   aria-label={t('composition.admixtureAmount')}
                 >
                   {amountOptions.map(opt => (
-                    <option key={opt.code} value={opt.code}>
+                    <option key={opt.code} value={opt.code} title={opt.title}>
                       {opt.label}
                     </option>
                   ))}
