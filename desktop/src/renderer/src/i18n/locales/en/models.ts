@@ -185,6 +185,12 @@ export const MODELS = {
   'geology.reassignToAnother': 'Reassign "{name}" to another formation',
   'geology.sameAs': '→ same as',
   'geology.useCustomName': 'Use "{name}"',
+  // DOV formal-stratigraphy code surface on each candidate (owner dogfeed
+  // 2026-09-05). {codes} is a comma-joined list; the per-code counts and
+  // catalogue names go in the title tooltip.
+  'geology.dovCodes': 'DOV: {codes}',
+  'geology.dovCodeTip': '{code}: {count} {word}',
+  'geology.useDovName': 'Use DOV name: {name}',
   // Geology hook toasts (useGeologicalModel / useGeologicalModelOps).
   'geology.createModelFailed': 'Could not create the stratigraphic model — check the connection.',
   'geology.scanStratigraphyFailed': 'Could not scan borehole stratigraphy — check the connection.',
