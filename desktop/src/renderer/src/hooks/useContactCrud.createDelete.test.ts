@@ -41,6 +41,19 @@ import type { UndoCommand } from './useUndoStack'
 // Module mocks — api.geology + log + DuplicateContactError
 // ---------------------------------------------------------------------------
 
+// Shared ApiError class, hoisted so the vi.mock factory and the tests
+// instanceof-check the SAME constructor (isApiStatus narrows on it).
+const { ApiErrorMock } = vi.hoisted(() => ({
+  ApiErrorMock: class ApiError extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
+  },
+}))
+
 vi.mock('../api/client', () => ({
   api: {
     geology: {
@@ -65,6 +78,11 @@ vi.mock('../api/client', () => ({
       this.existingContactId = existingContactId
     }
   },
+  // The delete path narrows a 404 rejection via isApiStatus to drop an
+  // already-gone contact silently — mirror the real shapes so the narrow works.
+  ApiError: ApiErrorMock,
+  isApiStatus: (err: unknown, status: number): boolean =>
+    err instanceof ApiErrorMock && err.status === status,
 }))
 
 vi.mock('../utils/log', () => ({
@@ -179,7 +197,10 @@ describe('handleCreateContact', () => {
   it('CC2: a 409 duplicate MOVES the existing contact instead of refusing', async () => {
     // The create POST 409s; the backend hands back the existing contact id.
     createSpy.mockRejectedValue(new DuplicateContactError('C-existing'))
-    updateContactSpy.mockResolvedValue(makeContact({ id: 'C-existing', depth_top_m: 4 }))
+    updateContactSpy.mockResolvedValue({
+      contact: makeContact({ id: 'C-existing', depth_top_m: 4 }),
+      deletedContactIds: [],
+    })
     // The existing contact must be in local state so the move can find its model.
     const existing = makeContact({ id: 'C-existing', formation_id: 'F1', depth_top_m: 1 })
     const h = renderHarness({ contacts: [existing] })
@@ -344,6 +365,28 @@ describe('handleDeleteContact', () => {
     expect(h.setContacts).not.toHaveBeenCalled()
     expect(h.markMutated).not.toHaveBeenCalled()
     expect(h.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('DEL-404: deleting a boundary the model no longer has removes it from the screen without an error', async () => {
+    // Owner ruling (installer #20 dogfeed 2026-09-06): a cross-merge can delete
+    // a boundary that still shows on the section; right-clicking → Delete on it
+    // must drop it from the screen silently — a 404 means "already gone", not an
+    // error toast.
+    deleteContactSpy.mockRejectedValue(new ApiErrorMock('gone', 404))
+    const c = makeContact({ id: 'C-gone' })
+    const h = renderHarness({ contacts: [c] })
+
+    await act(async () => {
+      await h.result.current.handleDeleteContact('C-gone')
+    })
+
+    // No error toast — deleting an already-gone boundary is not a failure.
+    expect(h.toast).not.toHaveBeenCalled()
+    // The boundary is pruned from local state so it leaves the section.
+    const updater = h.setContacts.mock.calls.at(-1)?.[0] as (
+      prev: FormationContactResponse[],
+    ) => FormationContactResponse[]
+    expect(updater([c]).some(x => x.id === 'C-gone')).toBe(false)
   })
 
   it('DEL3: deleting an unknown id is a no-op', async () => {
