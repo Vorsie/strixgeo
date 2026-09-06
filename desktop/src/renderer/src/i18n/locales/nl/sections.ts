@@ -539,9 +539,9 @@ export const SECTIONS_NL = {
   'sections.hints.panZoom':
     'Sleep om te pannen · scroll om te zoomen · rechtsklik een kolom om te focussen · dubbelklik een kolom om te openen',
   'sections.hints.lithoLayer':
-    'Litholaag: dubbelklik om te aanvaarden · Alt+slepen om de samenstelling te kopiëren · Shift+slepen voorbij het midden van de buur om ze op te nemen · rechtsklik voor meer',
+    'Litholaag: dubbelklik om te aanvaarden · Alt+slepen om de samenstelling te kopiëren · sleep een grens op de buur en laat los om samen te voegen · rechtsklik voor meer',
   'sections.hints.acceptFirst':
-    'Aanvaard lithovoorstellen om te kunnen correleren — 0 aanvaarde laaggrenzen op dit profiel.',
+    'Aanvaard lithovoorstellen om te kunnen correleren: 0 aanvaarde laaggrenzen op dit profiel.',
   'sections.hints.buildGeotechFirst':
     'Bouw het geotechnisch model voor dit profiel op voor je een NAD-onderverdeling voorstelt.',
 
