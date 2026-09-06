@@ -97,6 +97,13 @@ correlation function across the section and produces a set of suggested ties; yo
 review them, drop the ones you disagree with, and keep the rest. As everywhere in
 StrixGeo, the suggestion is automatic and the acceptance is yours.
 
+Admixtures **rank** the suggestions but never **exclude** them. When two units of
+the same main soil are candidates for the same tie at a neighbour, the one whose
+admixtures match (a silty sand tied to a silty sand rather than to a clean sand)
+is preferred at an equal depth. A mismatch only ranks a candidate lower; it is
+still suggested when it is the only sensible match, so the depth of a contact,
+not its admixture, decides whether a tie is offered at all.
+
 The 2 / 1 / 0 rule
 ------------------
 
