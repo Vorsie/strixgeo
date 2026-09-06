@@ -39,6 +39,12 @@
 # per attempt on a day of one-spec diagnosis before it was noticed.
 $PlaywrightArgs = $args
 
+# The scenario-pass "walker" (tests/e2e/walker) is opt-in: it is a long (~15 min)
+# novice-user fuzz pass, not part of the deterministic suite, so its spec skips
+# unless WALKER is set. Passing "walker" as the filter selects AND enables it, so
+# `.\scripts\run-e2e.ps1 walker` runs it; the default full suite leaves it off.
+if ($PlaywrightArgs -match 'walker') { $env:WALKER = '1' }
+
 $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
 
 # node-postgres (the e2e db_helper) tolerates the +asyncpg suffix; the
