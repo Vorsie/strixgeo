@@ -87,10 +87,12 @@ export const DATA_NL = {
   'data.inspector.searchBoreholes': 'Boringen zoeken…',
   'data.inspector.clearSearch': 'Zoekopdracht wissen',
   'data.inspector.selectedCount': '{n} geselecteerd',
-  'data.inspector.clear': 'Wissen',
-  // De wis-filteractie in de datumfilter. Een aparte sleutel van `clear` (die de
-  // SELECTIE wist) zodat "Wissen" niet als verwijderen leest naast
-  // "Verwijderen" (eigenaarsbeslissing 10, 2026-09-05).
+  // Wist de SELECTIE. "Wis selectie" zodat een kaal "Wissen" nooit als
+  // verwijderen leest naast "Verwijderen" (eigenaarsbeslissing 5, 2026-09-06;
+  // beslissing 10, 2026-09-05).
+  'data.inspector.clear': 'Wis selectie',
+  // De wis-filteractie in de datumfilter. Een aparte sleutel van `clear` zodat
+  // de twee wis-acties nooit in een rij botsen.
   'data.inspector.clearFilter': 'Wis filter',
   'data.inspector.selectAll': 'Alles selecteren',
   'data.inspector.selectAllInTab': 'Alles in dit tabblad selecteren',
