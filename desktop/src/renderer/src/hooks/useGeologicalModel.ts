@@ -1279,6 +1279,15 @@ export function useGeologicalModel({
   // clears eagerly only when this identity changes, so a same-model refetch
   // (every band edit) keeps the last rows visible instead of blinking the fill.
   const geotechLoadedModelIdRef = useRef<string | null>(null)
+  // Which model the current lithoLayers rows belong to — same guard as the
+  // geotech twin above. The litho bootstrap effect keys on the active litho
+  // MODEL OBJECT, whose identity churns on every refreshModels / project
+  // view-state autosave even when the id is unchanged; without this ref the
+  // effect blanked lithoLayers to [] on every such churn, and a refetch that
+  // then failed or was cancelled under a correlate / delete-storm burst left
+  // the whole accepted-litho section permanently empty (installer #21 PROD
+  // BLOCKER, owner 2026-09-06: "the lithos disappeared from the columns").
+  const lithoLoadedModelIdRef = useRef<string | null>(null)
   const geotechContacts = useMemo<FormationContactResponse[]>(
     () => lithoLayersToContacts(geotechLayers),
     [geotechLayers],
@@ -1545,34 +1554,43 @@ export function useGeologicalModel({
   // optimistically + refetch, never through setContacts.
   useEffect(() => {
     if (!project || !activeLithoModel) {
+      lithoLoadedModelIdRef.current = null
       setLithoLayers([])
       setLithoSurfacesByFormationId(new Map())
       setGhostsByAnchor(new Map())
       setFocusedSuggestAnchorId(null)
       return
     }
-    // Debt #147 — clear stale state IMMEDIATELY when activeLithoModel
-    // changes (e.g. delete model + create new in quick succession),
-    // BEFORE the new fetch resolves.  Without this the inspector and
-    // the section view render the previous model's contacts during
-    // the fetch window — the user's "delete + new → 823 contacts
-    // reappear" report (filed dogfeed 2026-05-27).  The active model
-    // changing from A→B means A's contacts are no longer relevant,
-    // period; we should never show them under a different model's
-    // header.  The new fetch then populates with B's actual contents
-    // (typically 0 for a freshly-created model).
-    //
-    // Debt #147 follow-up (2026-05-27): also reset the suggestion-ghost
-    // bundle + focused-anchor pointer so a freshly-created model presents
-    // a clean section canvas (no leftover pending ghost columns from the
-    // prior model's "Suggest litho" sweep).  Mirrors the same triad
-    // ``handleClearLithoModel`` resets — the architectural reasoning is
-    // identical (these are ephemeral overlays scoped to the model the
-    // user is currently editing).
-    setLithoLayers([])
-    setLithoSurfacesByFormationId(new Map())
-    setGhostsByAnchor(new Map())
-    setFocusedSuggestAnchorId(null)
+    // Same-id guard (mirrors the geotech twin's geotechLoadedModelIdRef): the
+    // effect keys on the active litho MODEL OBJECT, and refreshModels /
+    // view-state autosaves hand back a new-but-same object every burst, so this
+    // effect re-runs constantly with the id unchanged. Only a REAL model-id
+    // change may clear the section eagerly.
+    const modelChanged = lithoLoadedModelIdRef.current !== activeLithoModel.id
+    if (modelChanged) {
+      // Debt #147 — clear stale state IMMEDIATELY on a real model change (e.g.
+      // delete model + create new in quick succession), BEFORE the new fetch
+      // resolves. Without this the inspector and the section render the previous
+      // model's contacts during the fetch window (the "delete + new → 823
+      // contacts reappear" report, dogfeed 2026-05-27). A→B means A's contacts
+      // are no longer relevant, period; never show them under B's header. The
+      // fetch then populates with B's actual contents (typically 0 for a fresh
+      // model).
+      //
+      // Debt #147 follow-up (2026-05-27): also reset the suggestion-ghost bundle
+      // + focused-anchor pointer so a freshly-created model presents a clean
+      // canvas (no leftover pending ghosts from the prior model's Suggest
+      // sweep). Mirrors the triad ``handleClearLithoModel`` resets.
+      //
+      // A SAME-model re-run (a refreshModels/view-state churn on the id we
+      // already show) deliberately does NOT clear: the last-good rows stay on
+      // screen until the fresh answer lands, so a transient re-run can never
+      // blank the accepted-litho section (installer #21 PROD BLOCKER).
+      setLithoLayers([])
+      setLithoSurfacesByFormationId(new Map())
+      setGhostsByAnchor(new Map())
+      setFocusedSuggestAnchorId(null)
+    }
     let cancelled = false
     const projectId = project.id
     const modelId = activeLithoModel.id
@@ -1585,6 +1603,7 @@ export function useGeologicalModel({
           api.geology.listSurfaces(projectId, modelId),
         ])
         if (cancelled) return
+        lithoLoadedModelIdRef.current = modelId
         setLithoLayers(layers)
         setLithoSurfacesByFormationId(indexSurfacesByFormationId(surfs))
         log.debug(
@@ -1593,9 +1612,12 @@ export function useGeologicalModel({
         )
       } catch (err) {
         if (!cancelled) {
-          log.warn('geology', `litho model ${modelId}: load failed`, err)
-          setLithoLayers([])
-          setLithoSurfacesByFormationId(new Map())
+          // Keep the last-good rows on a FAILED fetch — the accepted layers are
+          // still in the DB, so blanking them to [] here (as the code did
+          // before) turned a transient failure under a correlate / delete-storm
+          // burst into a permanently empty section. A real model switch already
+          // cleared above; a same-model refetch that fails leaves what was shown.
+          log.warn('geology', `litho model ${modelId}: load failed — keeping last-good rows`, err)
         }
       }
     })()
