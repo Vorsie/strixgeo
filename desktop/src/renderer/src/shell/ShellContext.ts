@@ -19,6 +19,7 @@ import type { UseToastsResult } from '../hooks/useToasts'
 import type { UseAppBootResult } from '../hooks/useAppBoot'
 import type { UseGeologicalModelResult } from '../hooks/useGeologicalModel'
 import type { UseSectionsResult } from '../hooks/useSections'
+import type { UseBedOverridesResult } from '../hooks/useBedOverrides'
 import type { UseMapOverlaysResult } from '../hooks/useMapOverlays'
 import type { UseProjectLifecycleResult } from '../hooks/useProjectLifecycle'
 import type { UseInvestigationDataResult } from '../hooks/useInvestigationData'
@@ -455,6 +456,11 @@ export interface ShellContextValue {
   geoModel: UseGeologicalModelResult
   /** Cross-sections — list, selection, draw mode, CRUD. */
   sections: UseSectionsResult
+  /** Manual bed-level overrides — list, draw / form flow, CRUD (owner ruling
+   *  2026-09-06). Optional so the many fully-typed ``ShellContextValue`` test
+   *  fixtures need not each add it; the real bus (App via
+   *  ``useShellContextValue``) always passes it. Consumers read defensively. */
+  bedOverrides?: UseBedOverridesResult
   /** DEM hillshade + Virtuele Boring overlay state and handlers. */
   overlays: UseMapOverlaysResult
   /**
