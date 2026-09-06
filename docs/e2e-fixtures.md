@@ -74,3 +74,52 @@ side by side.
 **First run on a fresh clone / new machine:** a missing golden fails the
 test and writes the image — that failure is the red run.  Inspect the
 written image, re-run green, commit it.
+
+## Scenario pass (walker)
+
+`desktop/tests/e2e/walker/` is a novice-user fuzz pass, run BEFORE every
+installer build so the owner has less to dogfeed (owner ruling 2026-09-06).
+It restores the bundled worked example (`desktop/resources/sample/worked-example.strix`)
+through the app's own open-from-recents path (the main process decodes the
+binary `.strix` and, finding no such project in the DB, POSTs `/restore`), then
+walks the spine Data to Export as a NOVICE: it discovers every interactive
+element on screen each step (buttons, inputs, menu items, tabs, checkboxes,
+canvases, links, anything with a role or a testid, INCLUDING elements with no
+testid) and a seeded policy picks the next action with real weight plus a large
+slice of deliberate chaos (right-click anything, drag between unrelated
+elements, wheel with modifiers, junk into inputs, double / triple / hammer
+clicks, F1-cheatsheet shortcuts in the wrong stage, resize, Enter / Escape at
+random, close and reopen). The tutorial catalogue is only a weighting prior.
+
+After every action it checks the invariants and records a FINDING per violation
+(the walk never aborts): no renderer error toast / console error, no refused
+request the UI offered (a 409 answered by a dialog is fine), no phantom row (on
+screen but not on the server), no empty view over live data, the app stays
+responsive (5 s heartbeat), and after the final close no lingering Electron or
+`groundmodel` process.
+
+Run it (it is opt-in, so the deterministic suite is unaffected):
+
+```
+.\scripts\run-e2e.ps1 walker
+```
+
+The runner sets `WALKER=1` whenever `walker` is in its arguments; without it the
+spec skips. Env knobs:
+
+- `WALKER_SEED` -- the printed integer seed; set it to replay a finding exactly.
+- `WALKER_STEPS` -- action budget (default 300).
+- `WALKER_TIME_BUDGET_S` -- wall-clock budget in seconds (default 900).
+
+Findings land in `desktop/tests/e2e/_results/walker/<timestamp>-seed<seed>/findings.md`,
+one section per finding (step number, the last steps as the reproduction, the
+invariant, the request / console line, and a screenshot). The file's first line
+is the grep-stable summary `WALKER: <n> findings`; the exit code is 0 unless the
+app actually crashed, because findings are data, not failures.
+
+The pure logic (policy, invariants, report, process tree) lives in
+`walker*.ts` beside the spec and is unit tested under Vitest
+(`walker*.test.ts`); Playwright runs only the `.spec.ts`.
+
+**Rule: run the walker before every installer build**, review `findings.md`,
+and fix or file what it surfaced before the build ships.
