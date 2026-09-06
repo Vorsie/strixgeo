@@ -24,6 +24,7 @@
 //    comments, so the review table cannot drift from the source files.
 
 import type { Messages } from '../en'
+import { BED_OVERRIDE_NL } from './bedOverride'
 import { CHROME_NL } from './chrome'
 import { DATA_NL } from './data'
 import { LAUNCH_NL } from './launch'
@@ -39,6 +40,7 @@ import { TUTORIAL_NL } from './tutorial'
 export const NL: Partial<Messages> = {
   ...CHROME_NL,
   ...DATA_NL,
+  ...BED_OVERRIDE_NL,
   ...SETTINGS_NL,
   ...MODELS_NL,
   ...SECTIONS_NL,
@@ -54,6 +56,7 @@ export const NL: Partial<Messages> = {
 export const NL_MODULES = {
   chrome: CHROME_NL,
   data: DATA_NL,
+  bedOverride: BED_OVERRIDE_NL,
   settings: SETTINGS_NL,
   models: MODELS_NL,
   sections: SECTIONS_NL,
