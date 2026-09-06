@@ -23,12 +23,19 @@ Algorithm
    edge never jumps over an intervening test.
 3. Per adjacent column-pair within ``MAX_COLUMN_DISTANCE_M``: pair contacts
    whose ``|depth_A - depth_B| < BASE_DEPTH_THRESHOLD_M + DISTANCE_FACTOR ·
-   column_distance``.
-4. Mutual-nearest-neighbour disambiguation via the shared ``_mnn_by_id``
+   column_distance``.  The window is tested on the RAW depth residual.
+4. Rank each pair by ``residual + ADMIXTURE_MISMATCH_PENALTY_M`` when the two
+   units' admixtures mismatch, else by the raw residual (owner ruling
+   2026-09-06).  A matching admixture therefore ranks above a mismatching one
+   at the same depth, but a mismatch never blocks a pair the window admitted:
+   the penalty touches ranking only, never the window test.
+5. Mutual-nearest-neighbour disambiguation via the shared ``_mnn_by_id``
    generic core, applied PER adjacent column-pair (not group-wide) so a
    contact can link to both its neighbours along a chain without one pair
-   stealing a shared endpoint from the other (#163 dogfeed 2026-05-29).
-5. Emit canonical-ordered ``(layer_a_id, layer_b_id)`` candidates.
+   stealing a shared endpoint from the other (#163 dogfeed 2026-05-29).  The
+   MNN reduction scores on the admixture-penalised residual.
+6. Emit canonical-ordered ``(layer_a_id, layer_b_id)`` candidates, each
+   carrying ``admixture_match`` for the UI.
 
 No Theil-Sen dip transfer — see spec for the trade-off discussion.
 """
@@ -40,6 +47,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from groundmodel.domain.services.auto_correlate_contact_edges_constants import (
+    ADMIXTURE_MISMATCH_PENALTY_M,
     AUTO_SOURCE,
     BASE_DEPTH_THRESHOLD_M,
     DISTANCE_FACTOR,
@@ -73,6 +81,15 @@ class ContactRecord:
         Main soil-type token of the litho unit immediately BELOW the
         contact.  ``None`` for the deepest contact on a column.  Nulls
         only match other nulls.
+    litho_admixtures : tuple[str, ...]
+        Raw admixture tokens of the unit ABOVE the contact, in the same
+        ``"<soil_code>:<amount>"`` form the accept flow stores
+        (``Admixture.canonical_key()``; the ``locally`` flag is excluded).
+        Order-independent (compared as a set).  Defaults to empty (the
+        "no admixture data" case), which keeps every existing call site
+        working and produces byte-identical output to before this field
+        existed.  Used only to RANK candidates on the same adjacent
+        column-pair (owner ruling 2026-09-06); never to gate pairing.
     """
 
     contact_id: UUID
@@ -82,6 +99,7 @@ class ContactRecord:
     parent_formation_id: UUID | None
     litho_main_soil_code: str
     litho_below_code: str | None
+    litho_admixtures: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -115,16 +133,23 @@ class AutoCorrelateContactParams:
     distance_factor : float
         Linear relaxation of the depth window per metre of horizontal
         column separation.
+    admixture_mismatch_penalty_m : float
+        Ranking penalty added to the depth residual when two same-soil
+        candidates on the same adjacent column-pair have MISMATCHING
+        admixtures.  Applied to the ranking / mutual-nearest-neighbour
+        residual only, never to the window admission test, so a mismatch
+        demotes a tie behind a matching alternative but never blocks it.
     """
 
     max_column_distance_m: float = MAX_COLUMN_DISTANCE_M
     base_depth_threshold_m: float = BASE_DEPTH_THRESHOLD_M
     distance_factor: float = DISTANCE_FACTOR
+    admixture_mismatch_penalty_m: float = ADMIXTURE_MISMATCH_PENALTY_M
 
 
 @dataclass(frozen=True)
 class _ContactCandidatePair:
-    """Internal MNN row carrying contact endpoints + depth residual.
+    """Internal MNN row carrying contact endpoints + ranking residual.
 
     Canonical-ordered (a_id < b_id) so the MNN reduction operates on
     symmetric pairs without double-counting.
@@ -133,13 +158,20 @@ class _ContactCandidatePair:
     ----------
     layer_a_id, layer_b_id : UUID
         Endpoint contact ids, ``layer_a_id < layer_b_id``.
-    residual : float
-        Absolute depth residual ``|depth_a - depth_b|`` (metres).
+    residual_ranked : float
+        Depth residual used for RANKING: ``|depth_a - depth_b|`` plus the
+        admixture-mismatch penalty when the two units' admixtures differ.
+        The MNN reduction scores on this value; the window admission test
+        upstream already used the raw residual.
+    admixture_match : bool | None
+        Whether the two units' admixtures match, propagated to the emitted
+        candidate.  ``None`` when neither unit carries admixture data.
     """
 
     layer_a_id: UUID
     layer_b_id: UUID
-    residual: float
+    residual_ranked: float
+    admixture_match: bool | None
 
 
 @dataclass(frozen=True)
@@ -154,11 +186,18 @@ class ContactCorrelationCandidate:
         Provenance tag — always ``AUTO_SOURCE`` for this algorithm's
         output; downstream may persist it verbatim into
         ``litho_contact_correlation_edge.source``.
+    admixture_match : bool | None
+        Whether the two correlated units' admixtures match: ``True`` when the
+        admixture token sets are equal, ``False`` when they differ, ``None``
+        when neither unit carries admixture data (nothing to compare).
+        Additive: surfaced for a future UI badge; the algorithm sets it but
+        no consumer reads it yet (owner ruling 2026-09-06).
     """
 
     layer_a_id: UUID
     layer_b_id: UUID
     source: str = AUTO_SOURCE
+    admixture_match: bool | None = None
 
 
 def _dist(a: InvestigationLocation, b: InvestigationLocation) -> float:
@@ -175,6 +214,38 @@ def _dist(a: InvestigationLocation, b: InvestigationLocation) -> float:
         Planar distance, metres.
     """
     return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+
+
+def _admixture_relation(a: tuple[str, ...], b: tuple[str, ...]) -> tuple[bool, bool | None]:
+    """Compare two units' admixture token sets for ranking (owner 2026-09-06).
+
+    Comparison is ORDER-INDEPENDENT (set equality on the raw tokens) and
+    treats an empty tuple as "no admixture".  Per the owner's rule, "empty vs
+    non-empty counts as a mismatch, empty vs empty as a match", so a penalty
+    fires whenever exactly one side carries admixtures, or both do but differ.
+
+    Parameters
+    ----------
+    a, b : tuple[str, ...]
+        The admixture tokens of the two units, as stored (order irrelevant).
+
+    Returns
+    -------
+    tuple[bool, bool | None]
+        ``(is_mismatch, admixture_match)``.  ``is_mismatch`` drives the
+        ranking penalty.  ``admixture_match`` is the flag surfaced on the
+        candidate: ``True``/``False`` when at least one unit has admixture
+        data, ``None`` when NEITHER does (nothing to compare; the neutral
+        default, which keeps no-admixture output byte-identical to before).
+    """
+    set_a, set_b = frozenset(a), frozenset(b)
+    if not set_a and not set_b:
+        # No admixture data on either unit: not a mismatch (no penalty), and no
+        # signal for the UI. Kept distinct from a genuine composition match so
+        # the default-empty path stays byte-identical to the pre-admixture code.
+        return False, None
+    match = set_a == set_b
+    return (not match), match
 
 
 def _relative_neighbourhood_adjacency(
@@ -334,14 +405,29 @@ def auto_correlate_contact_edges(
                 for ca in by_inv[inv_a]:
                     for cb in by_inv[inv_b]:
                         residual = abs(ca.depth_top_m - cb.depth_top_m)
+                        # Window admission is on the RAW residual (owner ruling
+                        # 2026-09-06): a mismatching admixture must never turn a
+                        # candidate inside the depth window into no candidate.
                         if residual < window:
+                            # Admixture ranks candidates on this pair without
+                            # gating them: a mismatch adds the penalty to the
+                            # RANKING residual only, so a matching admixture wins
+                            # a near-equal-depth tie but a mismatch is still
+                            # proposed when it is the only option.
+                            is_mismatch, admixture_match = _admixture_relation(
+                                ca.litho_admixtures, cb.litho_admixtures
+                            )
+                            residual_ranked = residual + (
+                                p.admixture_mismatch_penalty_m if is_mismatch else 0.0
+                            )
                             a_id = min(ca.contact_id, cb.contact_id)
                             b_id = max(ca.contact_id, cb.contact_id)
                             pair_candidates.append(
                                 _ContactCandidatePair(
                                     layer_a_id=a_id,
                                     layer_b_id=b_id,
-                                    residual=residual,
+                                    residual_ranked=residual_ranked,
+                                    admixture_match=admixture_match,
                                 )
                             )
 
@@ -349,12 +435,13 @@ def auto_correlate_contact_edges(
                     pair_candidates,
                     key_a=lambda c: c.layer_a_id,
                     key_b=lambda c: c.layer_b_id,
-                    residual=lambda c: c.residual,
+                    residual=lambda c: c.residual_ranked,
                 ):
                     out.append(
                         ContactCorrelationCandidate(
                             layer_a_id=survivor.layer_a_id,
                             layer_b_id=survivor.layer_b_id,
+                            admixture_match=survivor.admixture_match,
                         )
                     )
 
