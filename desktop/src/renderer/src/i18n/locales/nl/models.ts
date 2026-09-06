@@ -194,6 +194,12 @@ export const MODELS_NL = {
   'geology.reassignToAnother': '"{name}" aan een andere formatie toewijzen',
   'geology.sameAs': '→ zelfde als',
   'geology.useCustomName': 'Gebruik "{name}"',
+  // DOV formele-stratigrafiecode bij elke kandidaat (owner dogfeed 2026-09-05).
+  // {codes} is een lijst gescheiden door komma's; de aantallen per code en de
+  // catalogusnamen staan in de tooltip.
+  'geology.dovCodes': 'DOV: {codes}',
+  'geology.dovCodeTip': '{code}: {count} {word}',
+  'geology.useDovName': 'Gebruik DOV-naam: {name}',
   // Geologie-hook-toasts (useGeologicalModel / useGeologicalModelOps).
   'geology.createModelFailed': 'Kon het stratigrafisch model niet aanmaken — controleer de verbinding.',
   'geology.scanStratigraphyFailed':
