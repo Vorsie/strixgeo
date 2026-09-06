@@ -27,6 +27,10 @@ export interface TutorialState {
   boreholeCount: number
   /** Number of cross-sections created. */
   sectionCount: number
+  /** Two or more cross-sections exist. The second-profile steps read this so
+   *  they never ask for a second profile that already exists; true at 2+ makes
+   *  them complete instantly (owner ruling 3, 2026-09-06). */
+  twoSectionsExist: boolean
   /** A geological model exists (has an active model). */
   geoModelExists: boolean
   /** Number of geological formation contacts. */
@@ -50,9 +54,10 @@ export interface TutorialState {
 
   /** The project-settings (metadata) dialog is open. */
   projectSettingsOpen: boolean
-  /** The project has a horizontal CRS chosen. */
+  /** A horizontal CRS is chosen, either drafted in the open project-settings
+   *  dialog or already saved on the project (owner ruling 1, 2026-09-06). */
   crsSet: boolean
-  /** The project has a vertical datum chosen. */
+  /** A vertical datum is chosen, drafted in the open dialog or already saved. */
   datumSet: boolean
   /** The Data-stage Import menu is open. */
   importMenuOpen: boolean
@@ -84,6 +89,7 @@ export function emptyTutorialState(): TutorialState {
     cptCount: 0,
     boreholeCount: 0,
     sectionCount: 0,
+    twoSectionsExist: false,
     geoModelExists: false,
     contactCount: 0,
     lumpingCount: 0,
@@ -164,6 +170,13 @@ export interface TutorialShellFacts {
     readonly selectedId: string | null
     readonly selectedBoreholeId: string | null
     readonly importMenuOpen?: boolean
+    /** The draft horizontal CRS EPSG chosen in the OPEN project-settings dialog,
+     *  or null when the dialog is closed / no CRS drafted. Lets the CRS step
+     *  advance the moment a CRS is selected, before Save (owner ruling 1,
+     *  2026-09-06). */
+    readonly metadataDraftHorizontalEpsg?: number | null
+    /** The draft vertical datum EPSG chosen in the open dialog, same lifecycle. */
+    readonly metadataDraftVerticalEpsg?: number | null
   }
 }
 
@@ -188,6 +201,7 @@ export function deriveTutorialState(facts: TutorialShellFacts): TutorialState {
     cptCount: facts.visibleCpts.length,
     boreholeCount: facts.visibleBoreholes.length,
     sectionCount: facts.sections.sections.length,
+    twoSectionsExist: facts.sections.sections.length >= 2,
     geoModelExists: facts.geoModel.activeGeologicalModel != null,
     contactCount: facts.geoModel.contacts.length,
     // "A lumping exists" = it lumps at least one unit; an empty map is not one.
@@ -198,10 +212,17 @@ export function deriveTutorialState(facts: TutorialShellFacts): TutorialState {
     cptOpen: facts.coordinator.selectedId != null,
     boreholeOpen: facts.coordinator.selectedBoreholeId != null,
     projectSettingsOpen: facts.lifecycle.metadataEditorOpen,
-    // "chosen" = the project carries the EPSG code; the dialog writes it to the
-    // project on Save, so this turns true once a CRS / datum is committed.
-    crsSet: project != null && project.default_horizontal_epsg != null,
-    datumSet: project != null && project.default_vertical_epsg != null,
+    // "chosen" = the OPEN dialog's draft holds the EPSG code, OR the saved
+    // project already carries it. Reading the draft is what lets the step move
+    // on the moment a CRS / datum is selected, before Save (owner ruling 1,
+    // 2026-09-06); the saved-project fallback keeps it done after the dialog
+    // closes and on reopen.
+    crsSet:
+      facts.coordinator.metadataDraftHorizontalEpsg != null ||
+      (project != null && project.default_horizontal_epsg != null),
+    datumSet:
+      facts.coordinator.metadataDraftVerticalEpsg != null ||
+      (project != null && project.default_vertical_epsg != null),
     importMenuOpen: facts.coordinator.importMenuOpen === true,
     lithoModelExists: facts.geoModel.activeLithoModel != null,
     lithoAxisActive: facts.sections.sectionModelAxis === 'lithostratigraphic',
