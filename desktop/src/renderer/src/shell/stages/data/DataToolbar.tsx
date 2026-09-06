@@ -10,7 +10,7 @@
 // specific import verbs.
 
 import { useEffect, useRef } from 'react'
-import { ChevronDown, Upload, Loader2 } from 'lucide-react'
+import { ChevronDown, Upload, Loader2, Waves } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { PortalMenu, usePortalMenu } from '../../ToolbarPrimitives'
@@ -46,10 +46,14 @@ export default function DataToolbar(): JSX.Element {
   // test shell (WS4 wires only the investigations slice) may omit coordinator,
   // and the setter itself is optional on the bus.
   const setImportMenuOpen = shell.coordinator?.setImportMenuOpen
+  // Bed-override draw tool (owner ruling 2026-09-06). Optional on the bus; the
+  // Data stage always has it, but read defensively for partial test shells.
+  const bedOverrides = shell.bedOverrides
   const t = useT()
 
   const isImporting = importing || dovImporting
   const drawingBbox = bboxImportType !== null
+  const drawingBed = bedOverrides?.drawing ?? false
 
   // The verbs carry a message KEY, not a rendered string: the labels are read
   // in one place below so a language flip re-renders every row together.
@@ -78,21 +82,41 @@ export default function DataToolbar(): JSX.Element {
   }))
 
   return (
-    <DropdownMenu
-      testid="import-menu-button"
-      label={drawingBbox ? t('data.toolbar.drawingBbox') : t('data.toolbar.import')}
-      icon={
-        isImporting ? (
-          <Loader2 size={13} className="animate-spin" />
-        ) : (
-          <Upload size={13} />
-        )
-      }
-      highlight={!isImporting && !drawingBbox}
-      items={items}
-      t={t}
-      onOpenChange={setImportMenuOpen}
-    />
+    <div className="flex items-center gap-1">
+      <DropdownMenu
+        testid="import-menu-button"
+        label={drawingBbox ? t('data.toolbar.drawingBbox') : t('data.toolbar.import')}
+        icon={
+          isImporting ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Upload size={13} />
+          )
+        }
+        highlight={!isImporting && !drawingBbox}
+        items={items}
+        t={t}
+        onOpenChange={setImportMenuOpen}
+      />
+      {bedOverrides && (
+        <button
+          type="button"
+          data-testid="data-toolbar-bed-level"
+          onClick={() => (drawingBed ? bedOverrides.cancelDrawing() : bedOverrides.startDrawing())}
+          aria-pressed={drawingBed}
+          title={t('bedOverride.toolHint')}
+          className={[
+            'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
+            drawingBed
+              ? 'bg-surface-app text-accent'
+              : 'text-text-secondary hover:bg-surface-app',
+          ].join(' ')}
+        >
+          <Waves size={13} />
+          {t('bedOverride.tool')}
+        </button>
+      )}
+    </div>
   )
 }
 
