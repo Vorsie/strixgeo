@@ -23,18 +23,21 @@ Architecture
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.domain.services.bed_override import ground_sampler_with_bed
 from groundmodel.domain.services.dem_clip import (
     GroundPoint,
     assess_ground_coverage,
     build_ground_surface_tin,
 )
 from groundmodel.domain.services.dem_clip_constants import GROUND_SURFACE_MARGIN_M
+from groundmodel.domain.value_objects.bed_override_polygon import BedOverridePolygon
 from groundmodel.domain.value_objects.gap_issue import GapIssue
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -98,13 +101,26 @@ class BuildGroundSurface(GroundModelLogger):
         *,
         grid_spacing_m: float = 10.0,
         margin_m: float = GROUND_SURFACE_MARGIN_M,
+        bed_overrides: Sequence[BedOverridePolygon] = (),
     ) -> None:
-        """Initialise the use case."""
+        """Initialise the use case.
+
+        Parameters
+        ----------
+        bed_overrides : Sequence[BedOverridePolygon], optional
+            Manual bed-level polygons (owner ruling 2026-09-06). Inside a
+            polygon the ground surface takes the bed level instead of the DEM
+            — the manual fix for the missing bathymetry over dredged water.
+            Empty (default) leaves the surface on the raw DEM. A surveyed test
+            collar still outranks the bed at the test's own location (the
+            collar is applied on top of the bed-adjusted sampler).
+        """
         super().__init__(__name__)
         self._session = session
         self._provider = provider
         self._grid_spacing_m = grid_spacing_m
         self._margin_m = margin_m
+        self._bed_overrides = list(bed_overrides)
 
     async def execute(
         self,
@@ -209,6 +225,17 @@ class BuildGroundSurface(GroundModelLogger):
             f"res={grid.resolution_m:.2f}m from_cache={grid.from_cache}"
         )
 
+        # Apply the manual bed-level overrides on top of the DEM: inside a bed
+        # polygon the ground is the drawn bed level, not the DEM's water
+        # surface (owner ruling 2026-09-06). Empty overrides → the sampler is
+        # exactly ``grid.sample_at``, so the un-dredged case is unchanged.
+        dem_sample = ground_sampler_with_bed(grid.sample_at, self._bed_overrides)
+        if self._bed_overrides:
+            self.info(
+                f"build ground surface: applying {len(self._bed_overrides)} bed "
+                f"override(s) over the DEM (model={model_id})"
+            )
+
         # A test's own surveyed collar OUTRANKS the DEM at its location (owner
         # ruling 2026-08-28: "I trust surface elevation of a test more than a
         # DEM we pulled off the web"). Only tests that actually carry a Z go in
@@ -222,7 +249,7 @@ class BuildGroundSurface(GroundModelLogger):
         }
 
         tin = build_ground_surface_tin(
-            dem_sample=grid.sample_at,
+            dem_sample=dem_sample,
             hull_points=hull_points,
             grid_spacing_m=self._grid_spacing_m,
             margin_m=self._margin_m,
@@ -232,7 +259,7 @@ class BuildGroundSurface(GroundModelLogger):
         # The TIN spans NoData rather than leaving a hole, so a surface over
         # water still LOOKS complete. Naming the affected tests is the only
         # thing that says otherwise (Data Integrity Rule §5).
-        issues = assess_ground_coverage(grid.sample_at, ground_points)
+        issues = assess_ground_coverage(dem_sample, ground_points)
         if issues:
             self.warning(
                 f"build ground surface: model={model_id} — the DEM has no ground "
