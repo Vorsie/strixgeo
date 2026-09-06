@@ -34,6 +34,7 @@ contacts change anyway, and it is the high-frequency path).
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -80,7 +81,12 @@ class RebuildModelSurfaces(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def execute(self, model_id: UUID) -> RebuildOutcome:
+    async def execute(
+        self,
+        model_id: UUID,
+        *,
+        ground_sampler: Callable[[float, float], float | None] | None = None,
+    ) -> RebuildOutcome:
         """Recompute the surface cache for every formation in the model.
 
         Loads the distinct formation_ids that have at least one
@@ -92,6 +98,13 @@ class RebuildModelSurfaces(GroundModelLogger):
         Parameters
         ----------
         model_id : UUID
+        ground_sampler : Callable[[float, float], float | None] or None, keyword-only
+            The ground surface (DEM + manual bed overrides) to clip every
+            formation TIN against (owner ruling 2026-09-06). Forwarded to
+            ``RecomputeFormationSurface.execute_many`` so each formation is cut
+            where it crosses the ground. ``None`` (default) applies no clip —
+            the surfaces are triangulated as before, byte-identical for a model
+            with no dredged terrain.
 
         Returns
         -------
@@ -162,6 +175,7 @@ class RebuildModelSurfaces(GroundModelLogger):
             ((model_id, fid) for fid in formation_ids),
             force=True,
             hidden_investigation_ids=hidden_ids,
+            ground_sampler=ground_sampler,
         )
         # Auto-derive formation age order from the data the user just
         # built against. This corrects display_order when natural
