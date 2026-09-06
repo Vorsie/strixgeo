@@ -669,6 +669,21 @@ export interface AutoPopulateFromStratigraphyResponse {
   updated_section: CrossSectionResponse | null
 }
 
+/**
+ * One DOV formal-stratigraphy code a candidate's boreholes pair it with.
+ *
+ * ``code`` is the DOV code (canonical casing where the DOV lexicon knows it,
+ * e.g. ``"GeVl"`` / ``"TtEg"``); ``count`` is the number of in-scope boreholes
+ * that pair the candidate with it; ``catalog_name`` is the canonical Dutch name
+ * from the lexicon (null when the code is unknown). The dialog shows the code
+ * behind each informal name and offers ``catalog_name`` as a one-click target.
+ */
+export interface FormalCodeItem {
+  code: string
+  count: number
+  catalog_name: string | null
+}
+
 /** One candidate formation returned by discover-from-stratigraphy. */
 export interface FormationCandidateItem {
   /** Working display name (informal description preferred; formal as fallback). */
@@ -683,6 +698,13 @@ export interface FormationCandidateItem {
   key: string
   /** Number of in-scope boreholes that carry this key. */
   borehole_count: number
+  /**
+   * Every DOV formal-stratigraphy code the candidate's boreholes pair the
+   * informal name with, each with a count and (where known) the catalogue name.
+   * Additive; absent on responses from a backend older than 2026-09-05, empty
+   * for an informal-only candidate.
+   */
+  formal_codes?: FormalCodeItem[]
 }
 
 /**
