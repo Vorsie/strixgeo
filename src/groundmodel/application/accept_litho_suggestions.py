@@ -51,6 +51,11 @@ from groundmodel.application.body_partition_lock import (
     lock_body_partition,
     lock_sibling_geotech_partitions,
 )
+from groundmodel.application.litho_formation_lookup import (
+    build_litho_formation_lookup,
+    canonical_admixture_signature,
+    create_litho_formation,
+)
 from groundmodel.application.litho_geo_link_helpers import (
     load_geo_contacts_at_investigation,
     nearest_geo_contact_within_tolerance,
@@ -72,10 +77,6 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
-from groundmodel.shared.constants.litho_constants import (
-    LITHOLOGY_COLORS,
-    LITHOLOGY_FALLBACK_COLOR,
-)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -101,27 +102,6 @@ def _map_contact_source_to_layer(contact_source: str) -> str:
     # Segmenter outputs ('cpt_robertson_2015', 'cpt_robertson_2009', and any
     # future cone-classification token) all collapse here.
     return "segmenter"
-
-
-def _canonical_admixture_signature(admixtures: tuple[Admixture, ...]) -> str:
-    """Build the deterministic admixture signature for a litho find-or-create key.
-
-    The ``locally`` flag is excluded intentionally (owner decision: composition
-    buckets, not presence-within-layer detail) — two admixtures that differ
-    only in locality hash to the same bucket.
-
-    Parameters
-    ----------
-    admixtures : tuple[Admixture, ...]
-        Admixtures for one lithostratigraphic unit.
-
-    Returns
-    -------
-    str
-        ``"|".join(sorted([a.canonical_key() for a in admixtures]))``
-        Empty string when the tuple is empty.
-    """
-    return "|".join(sorted(a.canonical_key() for a in admixtures))
 
 
 @dataclass(frozen=True)
@@ -394,7 +374,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             )
 
             # Find-or-create the litho formation unit (geo-agnostic key).
-            sig = _canonical_admixture_signature(sug.suggested_admixtures)
+            sig = canonical_admixture_signature(sug.suggested_admixtures)
             fkey = (sug.suggested_lithology, sig)
             formation = litho_formations.get(fkey)
             if formation is None:
@@ -634,21 +614,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
             The find-or-create lookup keyed by
             ``(litho_main_soil_code, canonical_admixture_sig)``.
         """
-        lookup: dict[tuple[str, str], GeologicalFormationOrm] = {}
-        for f in project_formations:
-            if f.litho_main_soil_code is not None:
-                sig = _canonical_admixture_signature(
-                    tuple(
-                        Admixture(
-                            soil_code=a["soil_code"],
-                            amount=a.get("amount", ""),
-                            locally=a.get("locally", False),
-                        )
-                        for a in (f.litho_admixtures or [])
-                    )
-                )
-                lookup[(f.litho_main_soil_code, sig)] = f
-        return lookup
+        # Delegates to the shared helper (CLAUDE.md "extract on the second copy":
+        # EditLithoLayerComposition is the second user of this find-or-create).
+        return build_litho_formation_lookup(project_formations)
 
     async def _verify_investigation_scope(
         self,
@@ -805,34 +773,15 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # its key params so a failed flush correlates to the inputs.
         self.debug(f"  _create_litho_formation: soil={litho_main_soil_code} sig='{sig}'")
 
-        # Auto-name: e.g. "ZAND" or "KLEI (KL:Z)" — readable in the inspector.
-        admix_label = f" ({sig})" if sig else ""
-        name = f"{litho_main_soil_code}{admix_label}"
-
-        admixtures_json = [
-            {"soil_code": a.soil_code, "amount": a.amount, "locally": a.locally} for a in admixtures
-        ]
-
-        formation = GeologicalFormationOrm(
-            id=uuid7(),
-            app_project_id=project_id,
-            name=name,
-            # Stamp the lithology colour at create (#145) so the stored row is
-            # correct for every read-side consumer (section bands, 3D viewer,
-            # exports, .gmproj bundle) — no presentation-layer override needed.
-            # Falls back to neutral grey only for an unrecognised soil code.
-            color=LITHOLOGY_COLORS.get(litho_main_soil_code, LITHOLOGY_FALLBACK_COLOR),
-            display_order=0,
-            parent_formation_id=None,  # A2: geo-agnostic, always None
-            parent_extrapolated=False,  # A2: no TIN extrapolation
+        # Delegates to the shared helper (CLAUDE.md "extract on the second copy":
+        # EditLithoLayerComposition creates litho units by the same rule).
+        return await create_litho_formation(
+            self._session,
+            project_id=project_id,
             litho_main_soil_code=litho_main_soil_code,
-            litho_admixtures=admixtures_json,
-            instance_ordinal=None,  # Phase 2 assigns
-            instance_ordinal_locked=False,
+            admixtures=admixtures,
+            sig=sig,
         )
-        self._session.add(formation)
-        await self._session.flush()
-        return formation
 
     async def _recompute_litho_display_orders(
         self,
