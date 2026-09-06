@@ -529,6 +529,7 @@ async def restore_project(
             geotech_tie_tombstones_payload=request.geotech_tie_tombstones,
             body_separations_payload=request.body_separations,
             body_unions_payload=request.body_unions,
+            bed_overrides_payload=request.bed_overrides,
             replace=replace,
             drops=drops,
         )
