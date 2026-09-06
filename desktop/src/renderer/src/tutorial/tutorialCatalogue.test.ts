@@ -327,3 +327,33 @@ describe('tutorialCatalogue owner ruling 3 (2026-09-06): model gates the axis', 
     expect(firstGeotechAxisStep).toBeGreaterThan(lithoBuiltAt)
   })
 })
+
+// --- owner ruling 2 (2026-09-06): adapt the suggestions before accepting ----
+// Owner: "shouldn't we show how to adapt voorstellen before accepting?
+// dragging, merging, deleting, admixtures and so on?" The adjust-gestures step
+// and the admixtures step move BEFORE the accept step.
+describe('tutorialCatalogue owner ruling 2 (2026-09-06): adapt before accept', () => {
+  it('the adjust and admixtures steps come before the accept step', () => {
+    expect(indexOf('litho-adjust')).toBeLessThan(indexOf('litho-accept'))
+    expect(indexOf('litho-admixtures')).toBeLessThan(indexOf('litho-accept'))
+  })
+
+  it('litho-accept is still the do-it step that ticks on the first accepted layer', () => {
+    // Reordering must not turn Accept into an explanation-only step.
+    expect(stepById('litho-accept')?.done).toEqual({ state: 'lithoAcceptedCount' })
+  })
+})
+
+// --- owner ruling 3 (2026-09-06): the second-profile steps + tie order ------
+// "Een tweede profiel voor 3D" must not ask for a second profile that already
+// exists, and the tie-sections step comes AFTER the second profile in the walk.
+describe('tutorialCatalogue owner ruling 3 (2026-09-06): second profile + tie order', () => {
+  it('both second-profile steps are do-it steps on twoSectionsExist', () => {
+    expect(stepById('geo-second-section')?.done).toEqual({ state: 'twoSectionsExist' })
+    expect(stepById('litho-second-section')?.done).toEqual({ state: 'twoSectionsExist' })
+  })
+
+  it('the tie-sections step comes AFTER the second profile is drawn, never before', () => {
+    expect(indexOf('section-tie')).toBeGreaterThan(indexOf('geo-second-section'))
+  })
+})
