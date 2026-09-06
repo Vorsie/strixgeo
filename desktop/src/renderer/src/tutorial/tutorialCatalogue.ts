@@ -151,16 +151,19 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mk('project-name', 1, 'welcome-project-name-input', 'next', 'welcome'),
   mk('project-create', 1, 'welcome-new-project-button', { state: 'projectOpen' }, 'welcome'),
   // The project-name button in the shell toolbar opens the project settings that
-  // carry both CRS fields (owner walk 2026-09-03).
-  mk('project-metadata', 1, 'project-metadata-open', 'next', 'data'),
+  // carry both CRS fields (owner walk 2026-09-03). Do-it: ticks once the dialog
+  // opens (owner ruling 1, 2026-09-06).
+  mk('project-metadata', 1, 'project-metadata-open', { state: 'projectSettingsOpen' }, 'data'),
   // CRS + datum live INSIDE that dialog: chain the settings button → the field
-  // (owner ruling 4). Dialog closed → highlight the settings button; open →
-  // highlight the field.
-  mkc('project-crs', 1, ['project-metadata-open', 'project-crs-horizontal'], 'next', 'data'),
-  mkc('project-datum', 1, ['project-metadata-open', 'project-crs-vertical'], 'next', 'data'),
+  // (owner ruling 2). Dialog closed → highlight the settings button; open →
+  // highlight the field. Do-it: ticks once the project carries the chosen CRS /
+  // datum (owner ruling 1).
+  mkc('project-crs', 1, ['project-metadata-open', 'project-crs-horizontal'], { state: 'crsSet' }, 'data'),
+  mkc('project-datum', 1, ['project-metadata-open', 'project-crs-vertical'], { state: 'datumSet' }, 'data'),
 
   // 2 · Import ---------------------------------------------------------------
-  mkc('import-open', 2, ['stage-tab-data', 'import-menu-button'], 'next', 'data'),
+  // Do-it: ticks once the Import menu is open (owner ruling 1).
+  mkc('import-open', 2, ['stage-tab-data', 'import-menu-button'], { state: 'importMenuOpen' }, 'data'),
   // Data > Import > DOV CPT (owner ruling 5): menu button → the DOV CPT item.
   mkc('import-cpt-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-cpt-dov'], { state: 'cptCount' }, 'data'),
   mkc('import-gef', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-cpt-gef'], 'next', 'data'),
@@ -215,14 +218,19 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('geo-second-section', 4, ['stage-tab-sections', 'section-create'], 'next', 'sections'),
   // Carry the borehole stratigraphy onto the CPTs before building (owner ruling 9).
   mkc('geo-carry-strat', 4, ['stage-tab-sections', 'sections-canvas'], 'next', 'sections'),
-  mkc('geo-surfaces', 4, ['stage-tab-geology', 'geology-build-model-button'], 'next', 'geology'),
+  // Do-it: ticks once the formation surfaces are built (owner ruling 1).
+  mkc('geo-surfaces', 4, ['stage-tab-geology', 'geology-build-model-button'], { state: 'geoSurfacesBuilt' }, 'geology'),
 
   // 5 · Lithological model ---------------------------------------------------
   mkc('litho-open', 5, ['stage-tab-lithology'], 'next', 'lithology'),
-  mkc('litho-create', 5, ['stage-tab-lithology', 'model-kind-picker'], 'next', 'lithology'),
+  // Do-it, and the GATE for the litho axis (owner ruling 3, 2026-09-06): the
+  // walk cannot reach the litho-axis steps until a litho model exists, so the
+  // Litho / Geotech axis pills are never greyed when the user gets there.
+  mkc('litho-create', 5, ['stage-tab-lithology', 'model-kind-picker', 'litho-model-create'], { state: 'lithoModelExists' }, 'lithology'),
   // Litho editing lives on the sections toolbar's litho axis: chain the sections
-  // tab → the Litho axis segment → the verb (owner ruling: axis switch).
-  mkc('litho-axis', 5, ['stage-tab-sections', 'axis-litho'], 'next', 'sections'),
+  // tab → the Litho axis segment (owner ruling: axis switch). Do-it: ticks once
+  // the axis is on Litho (owner ruling 1).
+  mkc('litho-axis', 5, ['stage-tab-sections', 'axis-litho'], { state: 'lithoAxisActive' }, 'sections'),
   mkc('litho-suggest', 5, ['stage-tab-sections', 'axis-litho', 'litho-suggest'], 'next', 'sections'),
   mkc('litho-accept', 5, ['stage-tab-sections', 'axis-litho', 'litho-accept-all'], { state: 'lithoAcceptedCount' }, 'sections'),
   mkc('litho-adjust', 5, ['stage-tab-sections', 'axis-litho'], 'next', 'sections'),
@@ -243,7 +251,8 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('geotech-correlate', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-correlate-packing'], 'next', 'sections'),
   mkc('geotech-display', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-display-menu'], 'next', 'sections'),
   mkc('geotech-bodies', 6, ['stage-tab-sections', 'axis-geotech', 'sections-recompute-bodies'], 'next', 'sections'),
-  mkc('geotech-build', 6, ['stage-tab-geotechnical', 'geotech-build-model-button'], 'next', 'geotechnical'),
+  // Do-it: ticks once the geotech 3-D solids are built (owner ruling 1).
+  mkc('geotech-build', 6, ['stage-tab-geotechnical', 'geotech-build-model-button'], { state: 'geotechSolidsBuilt' }, 'geotechnical'),
   mkc('geotech-fence', 6, ['stage-tab-geotechnical', 'geotech-export-fence-button'], 'next', 'geotechnical'),
   mkc('geotech-pane', 6, ['stage-tab-geotechnical', 'geotech-units-roster'], 'next', 'geotechnical'),
 
