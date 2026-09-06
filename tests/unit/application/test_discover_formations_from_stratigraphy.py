@@ -25,6 +25,7 @@ from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     scan_stratigraphy_candidates,
 )
 from groundmodel.domain.value_objects.observation_type import ObservationType
+from groundmodel.shared.formation_key import normalize_formation_key
 
 # ---------------------------------------------------------------------------
 # Helpers — lightweight stand-ins for ObservationOrm / ObservationLayerOrm
@@ -70,6 +71,33 @@ def _make_session(boreholes: list) -> AsyncMock:
     session = AsyncMock()
     session.execute = AsyncMock(return_value=result_mock)
     return session
+
+
+def _dual_stream_borehole(
+    *,
+    formal_code: str,
+    informal_name: str,
+    top_m: float = 2.0,
+    base_m: float = 10.0,
+) -> SimpleNamespace:
+    """Build a dual-stream borehole: one formal + one informal layer that overlap.
+
+    Mirrors a real DOV boring that carries BOTH a formal-stratigraphy code
+    (``formal_code``) and an informal working name (``informal_name``) for the
+    same depth interval — the pairing the fill dialog reads.
+    """
+    return _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=top_m, base_m=base_m, description=formal_code)],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=top_m, base_m=base_m, description=informal_name)],
+            ),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -265,3 +293,67 @@ async def test_sort_order_by_borehole_count_then_name():
     assert candidates[0].borehole_count == 2
     assert candidates[1].borehole_count == 1
     assert candidates[2].borehole_count == 1
+
+
+@pytest.mark.asyncio
+async def test_candidate_carries_dov_formal_codes_with_counts():
+    """A candidate carries the DOV formal codes its boreholes pair it with, with counts.
+
+    Owner dogfeed 2026-09-05: the fill dialog showed only the informal names, so the
+    DOV formal code behind each candidate was invisible and the owner lumped units
+    wrongly.  Here four boreholes each pair the informal name
+    "Ieperiaan - Paniseliaan (P1)" with the DOV formal code GeVl (Lid van Vlierzele);
+    the candidate must report GeVl paired with it, with a count of 4.
+    """
+    project_id = uuid4()
+    informal = "Ieperiaan - Paniseliaan (P1)"
+    boreholes = [
+        _dual_stream_borehole(formal_code="GeVl", informal_name=informal) for _ in range(4)
+    ]
+    # The router builds this formal->informal bridge from the project's dual-stream
+    # boreholes and passes it to the scan; do the same here so the effective key is
+    # the informal name (the real fill-dialog behaviour).
+    bridge = {normalize_formation_key("GeVl"): normalize_formation_key(informal)}
+    session = _make_session(boreholes)
+    candidates, _ = await scan_stratigraphy_candidates(
+        session,
+        project_id=project_id,
+        borehole_ids=[b.id for b in boreholes],
+        bridge=bridge,
+    )
+
+    assert len(candidates) == 1
+    formal_codes = candidates[0].formal_codes
+    assert [(fc.code, fc.count) for fc in formal_codes] == [("GeVl", 4)]
+    # The DOV catalogue name is carried so the dialog can offer it as a target.
+    assert formal_codes[0].catalog_name is not None
+    assert "Vlierzele" in formal_codes[0].catalog_name
+
+
+@pytest.mark.asyncio
+async def test_candidate_lists_multiple_disagreeing_formal_codes_with_counts():
+    """When a candidate maps to more than one formal code, each is listed with its count.
+
+    Two boreholes log the same informal name but under two different DOV codes
+    (GeVl and TtEg); the merged candidate must surface BOTH codes with their counts
+    so the disagreement is visible in the dialog.
+    """
+    project_id = uuid4()
+    informal = "Zandige laag"
+    bh_a = _dual_stream_borehole(formal_code="GeVl", informal_name=informal)
+    bh_b = _dual_stream_borehole(formal_code="TtEg", informal_name=informal)
+    bridge = {
+        normalize_formation_key("GeVl"): normalize_formation_key(informal),
+        normalize_formation_key("TtEg"): normalize_formation_key(informal),
+    }
+    session = _make_session([bh_a, bh_b])
+    candidates, _ = await scan_stratigraphy_candidates(
+        session,
+        project_id=project_id,
+        borehole_ids=[bh_a.id, bh_b.id],
+        bridge=bridge,
+    )
+
+    assert len(candidates) == 1
+    codes = {(fc.code, fc.count) for fc in candidates[0].formal_codes}
+    assert codes == {("GeVl", 1), ("TtEg", 1)}
