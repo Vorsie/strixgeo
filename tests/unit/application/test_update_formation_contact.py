@@ -292,6 +292,119 @@ async def test_drag_down_formation_above_wins_dragger_absorbed() -> None:
     uc._repo.update_contact.assert_not_awaited()
 
 
+# ---------------------------------------------------------------------------
+# deleted_contact_ids reporting (installer #20 dogfeed, 2026-09-06).
+#
+# Owner ruling: "after a drag that crosses other boundaries, the crossed
+# boundaries are gone from the section at once, and deleting them again is
+# never offered."  The use case must RECORD every contact id it deletes so the
+# router can name them and the renderer can prune them at once — otherwise the
+# crossed peers linger in the section and a second delete of them 404s.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drag_up_records_crossed_peer_in_deleted_contact_ids() -> None:
+    """Drag UP naming: the crossed peer's id is reported in deleted_contact_ids.
+
+    The dragger survives, and the boundary it crossed on the way up is named
+    in ``deleted_contact_ids`` so the renderer can drop it from the section at
+    once (never offering to delete it a second time).
+    """
+    bh_id = uuid4()
+    silt_id = uuid4()
+    updated_contact = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
+
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=10.0,
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    silt_peer = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=uuid4(),
+        id=silt_id,
+        depth_top_m=5.0,  # crossed on the way from 10m up to 2m
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    session = _make_peer_session(pre, [silt_peer])
+    uc = _use_case(session)
+    uc._repo.update_contact = AsyncMock(return_value=updated_contact)
+
+    result = await uc.execute(CONTACT, {"depth_top_m": 2.0})
+
+    assert result is not None
+    assert uc.absorbed is False
+    # The crossed boundary is named so the section drops it at once.
+    assert uc.deleted_contact_ids == [silt_id]
+
+
+@pytest.mark.asyncio
+async def test_drag_down_absorbed_reports_crossed_peers_not_the_dragger() -> None:
+    """Drag DOWN absorbed: deleted_contact_ids names the crossed PEERS only.
+
+    The absorbed dragger's own death is signalled by ``absorbed=True``; the
+    ``deleted_contact_ids`` list carries the OTHER boundaries the drag crossed
+    (the renderer already knows the dragger's id from the URL).
+    """
+    bh_id = uuid4()
+    sand_id = uuid4()
+
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=5.0,
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    sand_peer = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=uuid4(),
+        id=sand_id,
+        depth_top_m=10.0,  # crossed on the way from 5m down to 12m
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    session = _make_peer_session(pre, [sand_peer])
+    uc = _use_case(session)
+
+    result = await uc.execute(CONTACT, {"depth_top_m": 12.0})
+
+    assert result is None
+    assert uc.absorbed is True
+    # Only the crossed peer is named; the dragger is NOT in the list.
+    assert uc.deleted_contact_ids == [sand_id]
+    assert CONTACT not in uc.deleted_contact_ids
+
+
+@pytest.mark.asyncio
+async def test_plain_update_reports_empty_deleted_contact_ids() -> None:
+    """A depth edit that crosses nothing reports an empty deleted_contact_ids."""
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=5.0,
+        borehole_id=None,
+        cpt_id=None,
+    )
+    updated = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
+    session = _mock_session()
+    session.get = AsyncMock(return_value=pre)
+    uc = _use_case(session)
+    uc._repo.update_contact = AsyncMock(return_value=updated)
+
+    result = await uc.execute(CONTACT, {"depth_top_m": 3.0})
+
+    assert result is not None
+    assert uc.deleted_contact_ids == []
+
+
 @pytest.mark.asyncio
 async def test_drag_up_no_peers_in_range_no_deletion() -> None:
     """Drag UP with no peers in range: dragger moves, nothing deleted."""
