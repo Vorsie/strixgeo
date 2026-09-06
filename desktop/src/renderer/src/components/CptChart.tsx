@@ -537,6 +537,15 @@ export default function CptChart({
   const rightmost = hasRf ? 'rf' : 'qcfs'
   const isZoomed  = zoomDomain[0] !== 0 || zoomDomain[1] !== maxDepth
 
+  // The DOV overlay toggle enables as soon as a layer model is active in THIS
+  // pane — either inherited from the section (virtueleBoringActiveModels) OR
+  // picked directly in this chart's own override dropdown
+  // (virtueleBoringOverrideModel). Keying on the pane's own selection too means
+  // picking a model "on the right" enables the toggle without depending on how
+  // the parent derives the active-model list (owner dogfeed 2026-09-06).
+  const dovModelActive =
+    virtueleBoringActiveModels.length > 0 || virtueleBoringOverrideModel !== ''
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -646,11 +655,11 @@ export default function CptChart({
               )}
               <button
                 onClick={onToggleVirtueleBoringVisible}
-                disabled={virtueleBoringActiveModels.length === 0}
+                disabled={!dovModelActive}
                 aria-pressed={virtueleBoringVisible}
                 aria-label={t('borelog.toggleVirtueleBoring')}
                 title={
-                  virtueleBoringActiveModels.length === 0
+                  !dovModelActive
                     ? t('borelog.dovPickModelHint')
                     : virtueleBoringVisible
                       ? t('borelog.hideDovOverlay')
@@ -658,7 +667,7 @@ export default function CptChart({
                 }
                 className={
                   'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
-                  (virtueleBoringActiveModels.length === 0
+                  (!dovModelActive
                     ? 'border-gray-200 dark:border-slate-600 text-gray-300 dark:text-slate-600 cursor-not-allowed'
                     : virtueleBoringVisible
                       ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
