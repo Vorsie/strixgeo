@@ -185,6 +185,9 @@ export const MODELS = {
   'geology.reassignToAnother': 'Reassign "{name}" to another formation',
   'geology.sameAs': '→ same as',
   'geology.useCustomName': 'Use "{name}"',
+  // Badge on a "→ same as" option that is an existing model formation (rather
+  // than a discovered candidate) so the user sees which targets already exist.
+  'geology.existingInModelBadge': '· in model',
   // DOV formal-stratigraphy code surface on each candidate (owner dogfeed
   // 2026-09-05). {codes} is a comma-joined list; the per-code counts and
   // catalogue names go in the title tooltip.
