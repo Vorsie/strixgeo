@@ -14,29 +14,37 @@ function emptyFacts(): TutorialShellFacts {
     project: null,
     visibleCpts: [],
     visibleBoreholes: [],
-    sections: { sections: [] },
+    sections: { sections: [], selectedSectionId: null, sectionModelAxis: 'geological' },
     geoModel: {
       activeGeologicalModel: null,
+      activeLithoModel: null,
       contacts: [],
       lithoLayers: [],
       hasLithoSolids: false,
+      hasGeotechSolids: false,
+      surfacesByFormationId: new Map(),
       activeGeotechModel: null,
     },
-    lifecycle: { currentLumping: null },
-    coordinator: { selectedId: null, selectedBoreholeId: null },
+    lifecycle: { currentLumping: null, metadataEditorOpen: false },
+    coordinator: { selectedId: null, selectedBoreholeId: null, importMenuOpen: false },
   }
+}
+
+/** A project open with no CRS / datum chosen yet. */
+function openProject(): TutorialShellFacts['project'] {
+  return { default_horizontal_epsg: null, default_vertical_epsg: null }
 }
 
 describe('deriveTutorialState', () => {
   it('reads projectOpen false when no project is open, true once one is', () => {
     expect(deriveTutorialState(emptyFacts()).projectOpen).toBe(false)
-    expect(deriveTutorialState({ ...emptyFacts(), project: { id: 'p1' } }).projectOpen).toBe(true)
+    expect(deriveTutorialState({ ...emptyFacts(), project: openProject() }).projectOpen).toBe(true)
   })
 
   it('counts the visible CPTs and boreholes ("done: CPT count > 0")', () => {
     const facts: TutorialShellFacts = {
       ...emptyFacts(),
-      project: { id: 'p1' },
+      project: openProject(),
       visibleCpts: [{ id: 'c1' }, { id: 'c2' }],
       visibleBoreholes: [{ id: 'b1' }],
     }
@@ -48,7 +56,10 @@ describe('deriveTutorialState', () => {
   it('counts the cross-sections from sections.sections', () => {
     const facts: TutorialShellFacts = {
       ...emptyFacts(),
-      sections: { sections: [{ id: 's1' }, { id: 's2' }, { id: 's3' }] },
+      sections: {
+        ...emptyFacts().sections,
+        sections: [{ id: 's1' }, { id: 's2' }, { id: 's3' }],
+      },
     }
     expect(deriveTutorialState(facts).sectionCount).toBe(3)
   })
@@ -71,7 +82,7 @@ describe('deriveTutorialState', () => {
     const withLumping: TutorialShellFacts = {
       ...emptyFacts(),
       geoModel: { ...emptyFacts().geoModel, contacts: [{ id: 'ct1' }, { id: 'ct2' }] },
-      lifecycle: { currentLumping: { map: { a: 'Sand', b: 'Sand' } } },
+      lifecycle: { currentLumping: { map: { a: 'Sand', b: 'Sand' } }, metadataEditorOpen: false },
     }
     const state = deriveTutorialState(withLumping)
     expect(state.contactCount).toBe(2)
@@ -79,8 +90,10 @@ describe('deriveTutorialState', () => {
     // An empty (or absent) lumping is not "a lumping exists".
     expect(deriveTutorialState(emptyFacts()).lumpingCount).toBe(0)
     expect(
-      deriveTutorialState({ ...emptyFacts(), lifecycle: { currentLumping: { map: {} } } })
-        .lumpingCount,
+      deriveTutorialState({
+        ...emptyFacts(),
+        lifecycle: { currentLumping: { map: {} }, metadataEditorOpen: false },
+      }).lumpingCount,
     ).toBe(0)
   })
 
@@ -116,5 +129,104 @@ describe('deriveTutorialState', () => {
     const state = deriveTutorialState(facts)
     expect(state.lithoAcceptedCount).toBe(2)
     expect(state.lithoSolidsBuilt).toBe(true)
+  })
+
+  // --- owner ruling 1 (2026-09-06): facts for the newly auto-advancing do-it
+  // steps. Each is derived from real shell state so the step it backs "moves on
+  // by itself when the user does what it says". ------------------------------
+
+  it('flags projectSettingsOpen from the metadata dialog being open', () => {
+    expect(deriveTutorialState(emptyFacts()).projectSettingsOpen).toBe(false)
+    expect(
+      deriveTutorialState({
+        ...emptyFacts(),
+        lifecycle: { currentLumping: null, metadataEditorOpen: true },
+      }).projectSettingsOpen,
+    ).toBe(true)
+  })
+
+  it('flags crsSet / datumSet when the project has a horizontal CRS / vertical datum chosen', () => {
+    // No project → neither is set.
+    expect(deriveTutorialState(emptyFacts()).crsSet).toBe(false)
+    expect(deriveTutorialState(emptyFacts()).datumSet).toBe(false)
+    // Project open but no CRS/datum picked → still unset.
+    const open = deriveTutorialState({ ...emptyFacts(), project: openProject() })
+    expect(open.crsSet).toBe(false)
+    expect(open.datumSet).toBe(false)
+    // A horizontal CRS chosen → crsSet true, datum still false.
+    const crs = deriveTutorialState({
+      ...emptyFacts(),
+      project: { default_horizontal_epsg: 31370, default_vertical_epsg: null },
+    })
+    expect(crs.crsSet).toBe(true)
+    expect(crs.datumSet).toBe(false)
+    // A vertical datum chosen → datumSet true.
+    const datum = deriveTutorialState({
+      ...emptyFacts(),
+      project: { default_horizontal_epsg: 31370, default_vertical_epsg: 5710 },
+    })
+    expect(datum.datumSet).toBe(true)
+  })
+
+  it('flags importMenuOpen from the coordinator', () => {
+    expect(deriveTutorialState(emptyFacts()).importMenuOpen).toBe(false)
+    expect(
+      deriveTutorialState({
+        ...emptyFacts(),
+        coordinator: { selectedId: null, selectedBoreholeId: null, importMenuOpen: true },
+      }).importMenuOpen,
+    ).toBe(true)
+  })
+
+  it('flags lithoModelExists by the active litho-model handle (distinct from geo / geotech)', () => {
+    expect(deriveTutorialState(emptyFacts()).lithoModelExists).toBe(false)
+    expect(
+      deriveTutorialState({
+        ...emptyFacts(),
+        geoModel: { ...emptyFacts().geoModel, activeLithoModel: { id: 'l1' } },
+      }).lithoModelExists,
+    ).toBe(true)
+  })
+
+  it('flags lithoAxisActive / geotechAxisActive from the sections toolbar axis', () => {
+    expect(deriveTutorialState(emptyFacts()).lithoAxisActive).toBe(false)
+    expect(deriveTutorialState(emptyFacts()).geotechAxisActive).toBe(false)
+    const litho = deriveTutorialState({
+      ...emptyFacts(),
+      sections: { sections: [], selectedSectionId: null, sectionModelAxis: 'lithostratigraphic' },
+    })
+    expect(litho.lithoAxisActive).toBe(true)
+    expect(litho.geotechAxisActive).toBe(false)
+    const geotech = deriveTutorialState({
+      ...emptyFacts(),
+      sections: { sections: [], selectedSectionId: null, sectionModelAxis: 'geotechnical' },
+    })
+    expect(geotech.geotechAxisActive).toBe(true)
+    expect(geotech.lithoAxisActive).toBe(false)
+  })
+
+  it('flags sectionOpen when a cross-section is selected', () => {
+    expect(deriveTutorialState(emptyFacts()).sectionOpen).toBe(false)
+    expect(
+      deriveTutorialState({
+        ...emptyFacts(),
+        sections: { sections: [], selectedSectionId: 's1', sectionModelAxis: 'geological' },
+      }).sectionOpen,
+    ).toBe(true)
+  })
+
+  it('flags geoSurfacesBuilt when formation surfaces exist, geotechSolidsBuilt from the flag', () => {
+    expect(deriveTutorialState(emptyFacts()).geoSurfacesBuilt).toBe(false)
+    expect(deriveTutorialState(emptyFacts()).geotechSolidsBuilt).toBe(false)
+    const built = deriveTutorialState({
+      ...emptyFacts(),
+      geoModel: {
+        ...emptyFacts().geoModel,
+        surfacesByFormationId: new Map([['f1', {}]]),
+        hasGeotechSolids: true,
+      },
+    })
+    expect(built.geoSurfacesBuilt).toBe(true)
+    expect(built.geotechSolidsBuilt).toBe(true)
   })
 })
