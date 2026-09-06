@@ -387,6 +387,22 @@ export interface Coordinator {
   importMenuOpen?: boolean
   /** Set the Import-menu-open flag (DataToolbar reports its dropdown state). */
   setImportMenuOpen?: (open: boolean) => void
+  /**
+   * The draft horizontal CRS EPSG chosen in the OPEN project-settings dialog,
+   * or null when the dialog is closed / no CRS has been drafted. Written by
+   * ProjectMetadataDialog (through AppDialogs), read by the guided tutorial via
+   * ``useTutorialState`` so the "Set the coordinate system" step advances the
+   * moment a CRS is picked in the dialog, before Save (owner ruling 1,
+   * 2026-09-06). Same writer-and-reader-in-different-subtrees rationale as
+   * ``importMenuOpen``.
+   *
+   * OPTIONAL so the many fully-typed ``ShellContextValue`` test fixtures need
+   * not each add it; the real bus (``useShellContextValue``, fed from App)
+   * always sets it, and the tutorial reads it as ``!= null``.
+   */
+  metadataDraftHorizontalEpsg?: number | null
+  /** The draft vertical datum EPSG chosen in the open dialog, same lifecycle. */
+  metadataDraftVerticalEpsg?: number | null
 }
 
 /**
