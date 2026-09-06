@@ -25,6 +25,8 @@ from groundmodel.api.schemas.project.formation_contact import (
     RebuildSurfacesResponse,
 )
 from groundmodel.application.build_ground_surface import BuildGroundSurface
+from groundmodel.application.build_model_ground_sampler import build_model_ground_sampler
+from groundmodel.application.load_bed_overrides import load_bed_override_polygons
 from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.application.validate_borehole_stratigraphy import (
     ValidateBoreholeStratigraphy,
@@ -155,7 +157,12 @@ async def rebuild_model_surfaces(
     # ready for Phase 5's per-method use cases without revisiting
     # the route.
     _ = method
-    outcome = await RebuildModelSurfaces(session).execute(model_id)
+    # Build the ground surface (DEM + manual bed overrides) so each formation
+    # TIN is cut where it crosses the ground (owner ruling 2026-09-06). The
+    # helper is best-effort: it returns None on any DEM failure, and the rebuild
+    # then produces unclipped surfaces exactly as before.
+    ground_sampler = await build_model_ground_sampler(session, project_id, model_id)
+    outcome = await RebuildModelSurfaces(session).execute(model_id, ground_sampler=ground_sampler)
     return RebuildSurfacesResponse(
         formations_considered=outcome.formations_considered,
         formations_rebuilt=outcome.formations_rebuilt,
@@ -406,9 +413,16 @@ async def build_ground_surface(
             issues=[],
         )
 
+    # Manual bed-level overrides (owner ruling 2026-09-06): inside a bed
+    # polygon the 3D ground surface reads the drawn bed level instead of the
+    # DEM's water surface. Empty list → the surface is on the raw DEM as before.
+    bed_overrides = await load_bed_override_polygons(session, project_id)
+
     try:
         async with provider:
-            result = await BuildGroundSurface(session, provider).execute(project_id, model_id)
+            result = await BuildGroundSurface(
+                session, provider, bed_overrides=bed_overrides
+            ).execute(project_id, model_id)
     # The model's investigation hull produced an extent that cannot be a real
     # place (coordinates outside the CRS domain, a runaway span). That is a
     # data problem in THIS model, not a DEM outage — 422 with the numbers.
