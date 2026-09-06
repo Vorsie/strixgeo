@@ -587,4 +587,97 @@ describe('FormationSelectionDialog', () => {
       'boom klei': 'Bespoke Canonical Name',
     })
   })
+
+  // -------------------------------------------------------------------------
+  // DOV formal-code surface (owner dogfeed 2026-09-05)
+  //
+  //   G8   The DOV formal code behind an informal candidate name is shown
+  //        next to it, so the engineer can lump on the code, not on a guess.
+  //   G9   When a candidate maps to more than one formal code, every code is
+  //        listed so the formal↔informal disagreement is visible.
+  //   G10  Where the DOV lexicon knows the code, the dialog offers the DOV
+  //        code's own formation as a one-click lumping target.
+  //   G11  Old and new codes for the same member (TtEg / HyEg are both the
+  //        Egem member) offer the SAME one-click target — recognised as one
+  //        unit.
+  // -------------------------------------------------------------------------
+
+  const DOV_CANDIDATES: FormationCandidate[] = [
+    {
+      name: 'Ieperiaan - Paniseliaan (P1)',
+      key: 'ieperiaan paniseliaan p1',
+      boreholeCount: 4,
+      formalCodes: [
+        { code: 'GeVl', count: 4, catalogName: 'Lid van Vlierzele (Formatie van Gentbrugge)' },
+      ],
+    },
+    {
+      name: 'Zandige laag',
+      key: 'zandige laag',
+      boreholeCount: 2,
+      formalCodes: [
+        { code: 'GeVl', count: 1, catalogName: 'Lid van Vlierzele (Formatie van Gentbrugge)' },
+        { code: 'TtEg', count: 1, catalogName: 'Lid van Egem (Formatie van Tielt)' },
+      ],
+    },
+  ]
+
+  it('G8: shows the DOV formal code and its borehole count next to a candidate', () => {
+    render(<FormationSelectionDialog {...makeProps({ candidates: DOV_CANDIDATES })} />)
+    expect(screen.getByText('DOV: GeVl (4)')).toBeDefined()
+  })
+
+  it('G9: lists every formal code with its count when a candidate maps to more than one', () => {
+    render(<FormationSelectionDialog {...makeProps({ candidates: DOV_CANDIDATES })} />)
+    // Both codes on one candidate, sorted by count then code → "GeVl (1), TtEg (1)".
+    expect(screen.getByText('DOV: GeVl (1), TtEg (1)')).toBeDefined()
+  })
+
+  it('G10: offers the DOV code catalogue name as a one-click lumping target', () => {
+    const onManualMapChange = vi.fn()
+    const SINGLE: FormationCandidate[] = [
+      {
+        name: 'Ieperiaan - Paniseliaan (P1)',
+        key: 'ieperiaan paniseliaan p1',
+        boreholeCount: 4,
+        formalCodes: [
+          { code: 'GeVl', count: 4, catalogName: 'Lid van Vlierzele (Formatie van Gentbrugge)' },
+        ],
+      },
+    ]
+    render(
+      <FormationSelectionDialog {...makeProps({ candidates: SINGLE, onManualMapChange })} />,
+    )
+    // The offered target is the member name ("Lid van Vlierzele"), stripped of
+    // the "(Formatie van …)" so old/new codes of the same member converge.
+    const useBtn = screen.getByRole('button', { name: 'Use DOV name: Lid van Vlierzele' })
+    fireEvent.click(useBtn)
+    const lastCall = onManualMapChange.mock.calls.at(-1)?.[0] as Record<string, string>
+    expect(lastCall['ieperiaan paniseliaan p1']).toBe('Lid van Vlierzele')
+  })
+
+  it('G11: old and new codes for the same member offer the same target (TtEg / HyEg = Egem)', () => {
+    const EGEM: FormationCandidate[] = [
+      {
+        name: 'Ieperiaan',
+        key: 'ieperiaan',
+        boreholeCount: 1,
+        formalCodes: [
+          { code: 'TtEg', count: 1, catalogName: 'Lid van Egem (Formatie van Tielt)' },
+        ],
+      },
+      {
+        name: 'Paleogeen: Formatie van Hyon - Lid van Egem',
+        key: 'paleogeen formatie van hyon lid van egem',
+        boreholeCount: 1,
+        formalCodes: [
+          { code: 'HyEg', count: 1, catalogName: 'Lid van Egem (Formatie van Hyon)' },
+        ],
+      },
+    ]
+    render(<FormationSelectionDialog {...makeProps({ candidates: EGEM })} />)
+    // Both candidates offer the SAME member as the one-click target.
+    const btns = screen.getAllByRole('button', { name: 'Use DOV name: Lid van Egem' })
+    expect(btns).toHaveLength(2)
+  })
 })
