@@ -24,6 +24,7 @@ import type {
   ImportCptResponse,
 } from '../api/client'
 import { addAllToSet } from '../utils/sets'
+import { dovBboxProblem } from '../utils/dovBbox'
 import { dovSubPhaseFailures } from '../utils/dovImportFailures'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
@@ -391,7 +392,12 @@ export function useInvestigationData({
 }: {
   project: { id: string; name: string } | null
   ready: boolean
-  toast: (type: 'success' | 'error' | 'warning', message: string) => void
+  // ``replaceKey`` groups repeatable announcements (see useToasts): a caller
+  // that can fire the same message over and over passes a stable key so the
+  // live toast is swapped in place instead of stacking. The DOV import path
+  // uses it so a persistent import error / a mis-drawn box never floods the
+  // screen with identical toasts.
+  toast: (type: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
   pushUndo: (cmd: UndoCommand) => void
   addToManifest: (kind: 'cpt' | 'borehole', ids: string[]) => void
   setSessionImportCptIds: Dispatch<SetStateAction<Set<string>>>
@@ -988,7 +994,10 @@ export function useInvestigationData({
   useEffect(() => {
     if (dovImportState.status === 'error') {
       log.error('import', `DOV stream error: ${dovImportState.message}`)
-      toast('error', dovImportState.message)
+      // Share the ``dov-import`` replace key with the local bbox refusal so a
+      // recurring server error replaces the live toast instead of stacking a
+      // column of identical sticky errors (the "60 HTTP 422" flood).
+      toast('error', dovImportState.message, 'dov-import')
       return
     }
 
@@ -1093,6 +1102,21 @@ export function useInvestigationData({
       const importType = bboxImportType
       setBboxImportType(null)
       if (!importType) return // defensive — shouldn't happen
+      // A degenerate box (a click without a drag hands BboxDrawer identical
+      // corners), an out-of-range box, or one larger than the 25 km import
+      // limit would only come back 422 from the server. Refuse it here with a
+      // sentence the engineer can act on and never spawn the import — the
+      // request goes out only for a box the schema would accept. The stable
+      // ``dov-import`` replace key keeps repeated mis-clicks to one toast.
+      const bboxProblem = dovBboxProblem({ west, south, east, north })
+      if (bboxProblem) {
+        toast(
+          'warning',
+          t(bboxProblem === 'too_large' ? 'data.import.bboxTooLarge' : 'data.import.drawABox'),
+          'dov-import',
+        )
+        return
+      }
       // Snapshot pre-import ids so the completion effect can diff for
       // the session-imports dirty-tracking (only genuinely-new rows
       // should paint the amber asterisk and trigger project dirty state).
@@ -1102,7 +1126,7 @@ export function useInvestigationData({
       }
       startDovStream({ kind: importType, bbox: { west, south, east, north }, projectId: project.id })
     },
-    [project, bboxImportType, cpts, boreholes, startDovStream],
+    [project, bboxImportType, cpts, boreholes, startDovStream, toast],
   )
 
   // Expose a reset so the progress panel's "Close" / "Import again"
