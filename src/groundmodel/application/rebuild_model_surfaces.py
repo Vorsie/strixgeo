@@ -56,6 +56,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
+from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
+    InvestigationReviewRepository,
+)
 from groundmodel.shared.constants.model_kind import NON_STRATIGRAPHIC_KINDS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -134,13 +137,31 @@ class RebuildModelSurfaces(GroundModelLogger):
             self.info(f"rebuild surfaces: model={model_id} no contacts → no-op")
             return RebuildOutcome(formations_considered=0, formations_rebuilt=0)
 
+        # Removed-from-project (hidden) investigations are not model inputs
+        # (owner ruling 2026-09-06). Load the set ONCE for the whole build and
+        # hand it to every formation recompute, so each drops those contacts
+        # and — when that leaves a formation with < 3 contacts — its surface is
+        # deleted, and the surface stops reflecting a test the user removed.
+        project_id = (
+            await self._session.execute(
+                select(GeologicalModelOrm.app_project_id).where(GeologicalModelOrm.id == model_id)
+            )
+        ).scalar_one_or_none()
+        hidden_ids: set[UUID] = (
+            await InvestigationReviewRepository(self._session).hidden_investigation_ids(project_id)
+            if project_id is not None
+            else set()
+        )
+
         recompute = RecomputeFormationSurface(self._session)
         # force=True: an explicit Build always re-triangulates, even
         # when the contacts (hence the checksum) are unchanged — so a
         # TIN-algorithm change is reflected without the user having to
         # mutate a contact to bust the cache.
         rebuilt = await recompute.execute_many(
-            ((model_id, fid) for fid in formation_ids), force=True
+            ((model_id, fid) for fid in formation_ids),
+            force=True,
+            hidden_investigation_ids=hidden_ids,
         )
         # Auto-derive formation age order from the data the user just
         # built against. This corrects display_order when natural
