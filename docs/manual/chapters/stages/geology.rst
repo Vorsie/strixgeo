@@ -32,6 +32,20 @@ logs had two spellings. StrixGeo also folds obvious variants together on its own
 (case, dashes, a chronostratigraphic prefix), but the lumping you do by hand is
 the authority.
 
+When you lump, **read the DOV code shown next to each candidate**. Beside every
+informal name the fill dialog prints the DOV formal-stratigraphy code or codes
+the boreholes paired it with, and how many boreholes each came from. That code
+is the reliable identity to lump on: two field logs can spell a unit
+differently, or use an old and a new code for the same member, while the DOV
+code still says what the borehole actually recorded. A worked example: a layer
+logged as *Ieperiaan* may carry the code **TtEg**, and one logged
+*Formatie van Hyon - Lid van Egem* may carry **HyEg**. Both codes are the Egem
+member (the 2017 national nomenclature renamed the Tielt Formation to Hyon), so
+they are the same unit even though the informal names read nothing alike. Where
+StrixGeo recognises the code it also offers the DOV unit name (here *Lid van
+Egem*) as a one-click target, so you can accept the official member name for
+both instead of guessing which spelling to keep.
+
 Formations carry a **stratigraphic order**: a lower order is an older formation,
 deeper in the column. Every layered view paints formations oldest-first so that
 younger formations render on top, the geological superposition rule. The one
