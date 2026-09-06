@@ -94,6 +94,10 @@ export interface UseShellContextValueArgs {
   handleAcceptAllTies: ShellContextValue['sections']['handleAcceptAllTies']
   handleRejectTie: ShellContextValue['sections']['handleRejectTie']
   handleClearTieSuggestions: ShellContextValue['sections']['handleClearTieSuggestions']
+  // Whole bed-override slice (owner ruling 2026-09-06) — passed as one memoised
+  // object (like ``geo``), so the auto-derived dep array tracks its identity.
+  // Optional so the fully-typed test fixtures need not fabricate it.
+  bedOverrides?: ShellContextValue['bedOverrides']
   demSource: ShellContextValue['overlays']['demSource']
   demOverlay: ShellContextValue['overlays']['demOverlay']
   handleDemOverlayChange: ShellContextValue['overlays']['handleDemOverlayChange']
@@ -209,7 +213,7 @@ export function useShellContextValue(
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
     correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
-    suggestedTies, handleSuggestTies, handleAcceptTie, handleAcceptAllTies, handleRejectTie, handleClearTieSuggestions, demSource, demOverlay,
+    suggestedTies, handleSuggestTies, handleAcceptTie, handleAcceptAllTies, handleRejectTie, handleClearTieSuggestions, bedOverrides, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade, toasts,
@@ -341,6 +345,7 @@ export function useShellContextValue(
       handleRejectTie,
       handleClearTieSuggestions,
     },
+    bedOverrides,
     overlays: {
       demSource,
       demOverlay,
