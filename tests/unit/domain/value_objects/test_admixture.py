@@ -43,3 +43,12 @@ def test_sterk_siltig_and_veel_siltig_are_the_same_admixture() -> None:
     assert Admixture("SI", "S").canonical_key() == Admixture("SI", "V").canonical_key()
     assert Admixture("SI", "S").amount == "S"
     assert Admixture("SI", "Z").canonical_key() != Admixture("SI", "V").canonical_key()
+
+
+def test_zwak_siltig_and_weinig_siltig_are_the_same_admixture() -> None:
+    """Owner ruling 2026-09-06: "zwak and weinig can be the same too" (the lowest step)."""
+    from groundmodel.domain.value_objects.admixture import Admixture
+
+    assert Admixture("SI", "Z").canonical_key() == Admixture("SI", "W").canonical_key()
+    assert Admixture("SI", "Z").amount == "Z"
+    assert Admixture("SI", "W").canonical_key() != Admixture("SI", "M").canonical_key()
