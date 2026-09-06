@@ -37,6 +37,17 @@ export interface AppDialogsProps {
   metadataEditorOpen: boolean
   setMetadataEditorOpen: (open: boolean) => void
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
+  /**
+   * Report the draft CRS / datum picked in the metadata dialog up to App, which
+   * puts them on the shell bus so the guided tutorial's CRS / datum steps
+   * advance the moment a value is selected, before Save (owner ruling 1,
+   * 2026-09-06). Optional so this pure presentational shell need not be handed a
+   * reporter in tests that do not exercise the tutorial.
+   */
+  onMetadataDraftCrsDatumChange?: (draft: {
+    horizontal: number | null
+    vertical: number | null
+  }) => void
   unsavedDialogOpen: boolean
   /** Itemised session work the discard prompt names (from useProjectLifecycle). */
   unsavedSummary: UnsavedWorkSummary
@@ -80,6 +91,7 @@ export default function AppDialogs({
   metadataEditorOpen,
   setMetadataEditorOpen,
   applyMetadataDraft,
+  onMetadataDraftCrsDatumChange,
   unsavedDialogOpen,
   unsavedSummary,
   unsavedError,
@@ -150,6 +162,7 @@ export default function AppDialogs({
         open={metadataEditorOpen}
         project={project}
         saved={savedProject}
+        onDraftCrsDatumChange={onMetadataDraftCrsDatumChange}
         onCancel={() => setMetadataEditorOpen(false)}
         onSubmit={patch => {
           applyMetadataDraft(patch)
