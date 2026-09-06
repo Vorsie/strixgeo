@@ -55,6 +55,32 @@ class InvestigationReviewRepository(GroundModelLogger):
         """Look up a review row by id. ``None`` when missing."""
         return await self._session.get(InvestigationReviewOrm, review_id)
 
+    async def hidden_investigation_ids(self, app_project_id: UUID) -> set[UUID]:
+        """Return the target ids of every investigation hidden in a project.
+
+        "Hidden" is the project-local remove: the CPT / borehole row and its
+        contacts survive, but the investigation is not shown and — per the
+        owner ruling 2026-09-06 — its contacts must not feed the stratigraphic
+        model. The TIN rebuild uses this set to drop those contacts.
+
+        Parameters
+        ----------
+        app_project_id : UUID
+            The project whose hidden investigations are returned.
+
+        Returns
+        -------
+        set[UUID]
+            ``target_id`` of every ``is_hidden`` review row in the project,
+            mixing CPT and borehole ids (both are unique UUIDs, so one flat
+            set matches a contact's ``borehole_id`` / ``cpt_id`` directly).
+        """
+        stmt = select(InvestigationReviewOrm.target_id).where(
+            InvestigationReviewOrm.app_project_id == app_project_id,
+            InvestigationReviewOrm.is_hidden.is_(True),
+        )
+        return set((await self._session.execute(stmt)).scalars().all())
+
     async def get_for_target(
         self, target_kind: str, target_id: UUID
     ) -> InvestigationReviewOrm | None:
