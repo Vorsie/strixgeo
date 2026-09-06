@@ -132,6 +132,8 @@ export type {
   LithoLayerCreateItem,
   LithoLayerBoundaryMovePayload,
   LithoLayerBoundaryMoveResponse,
+  LithoLayerCompositionPayload,
+  LithoLayerSplitResponse,
   LithoLayerBatchUpdateItem,
   LithoLayerBatchUpdateResponse,
   LithoSuggestionConfidence,
