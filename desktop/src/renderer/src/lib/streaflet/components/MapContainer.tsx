@@ -48,6 +48,22 @@ export const MapContainer = forwardRef<L.Map, MapContainerProps>(function MapCon
     // the initial view settles, so the map is genuinely ready for the callback.
     if (props.whenReady) created.whenReady(() => props.whenReady?.(created))
     return () => {
+      // Unmount can land mid-gesture, e.g. a wheel over the map just before
+      // the stage switches away (walker findings 10/11, 19/20). Leaflet
+      // debounces scroll-wheel zoom behind a setTimeout (wheelDebounceTime,
+      // 40 ms), and map.remove() tears down the panes WITHOUT clearing that
+      // timer, so the deferred _performZoom then runs against a removed map:
+      // getPosition(undefined _mapPane) throws "Cannot read properties of
+      // undefined (reading '_leaflet_pos')". Stop running animations and
+      // cancel the pending wheel zoom so unmount is deterministic.
+      created.stop()
+      const wheelZoom = created.scrollWheelZoom as unknown as {
+        _timer?: ReturnType<typeof setTimeout>
+      }
+      if (wheelZoom?._timer !== undefined) {
+        clearTimeout(wheelZoom._timer)
+        wheelZoom._timer = undefined
+      }
       created.remove()
       setMap(null)
     }
