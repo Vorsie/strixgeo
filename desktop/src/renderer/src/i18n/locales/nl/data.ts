@@ -62,6 +62,11 @@ export const DATA_NL = {
   'data.import.countGrainSize': '{n} korrelgrootte',
   'data.import.subPhaseMissing': ' — DOV gaf {items} niet terug',
   'data.import.subPhaseRetry': '; voer de import opnieuw uit om te herproberen',
+  // Lokale weigering bij het tekenen van een DOV-kader (useInvestigationData) —
+  // een leeg kader (klik zonder sleep) of een te groot kader wordt opgevangen
+  // vóór de aanvraag, zodat de gebruiker nooit een kale "HTTP 422" ziet.
+  'data.import.drawABox': 'Teken een kader op de kaart om te importeren.',
+  'data.import.bboxTooLarge': 'Dat gebied is te groot. Teken een kleiner kader (maximaal 25 km breed).',
 
   // -------------------------------------------------------------------------
   // laadfout-meldingen (useInvestigationData).
