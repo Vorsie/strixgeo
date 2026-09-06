@@ -82,10 +82,12 @@ export const DATA = {
   'data.inspector.searchBoreholes': 'Search boreholes…',
   'data.inspector.clearSearch': 'Clear search',
   'data.inspector.selectedCount': '{n} selected',
-  'data.inspector.clear': 'Clear',
+  // Clears the SELECTION. Named "Clear selection" / "Wis selectie" so a bare
+  // "Clear"/"Wissen" never reads like delete next to "Remove"/"Verwijderen"
+  // (owner ruling 5, 2026-09-06; ruling 10, 2026-09-05).
+  'data.inspector.clear': 'Clear selection',
   // The clear-filter action in the date-range filter. A separate key from
-  // `clear` (which clears the SELECTION) so "Clear"/"Wissen" does not read like
-  // delete next to "Remove"/"Verwijderen" (owner ruling 10, 2026-09-05).
+  // `clear` so the two clears never collide in one row.
   'data.inspector.clearFilter': 'Clear filter',
   'data.inspector.selectAll': 'Select all',
   'data.inspector.selectAllInTab': 'Select all in this tab',
