@@ -537,6 +537,9 @@ export const SECTIONS = {
   'sections.menu.insertLayerHere': 'Insert layer here…',
   'sections.menu.editComposition': 'Edit composition…',
   'sections.menu.splitLayer': 'Split layer',
+  // Accepted-layer verbs (installer #21): an accepted litho layer can be
+  // recomposed or split at the clicked depth without deleting it.
+  'sections.menu.splitHere': 'Split here',
   'sections.menu.acceptLayer': 'Accept layer',
   'sections.menu.rejectLayer': 'Reject layer',
   'sections.menu.extendToNearest': 'Extend to nearest contacts',
@@ -847,6 +850,11 @@ export const SECTIONS = {
   'sections.canvasToast.dissolveConfirm': 'Dissolve this body? This removes the body and its extent data.',
   'sections.canvasToast.bodyDissolved': 'Body dissolved.',
   'sections.canvasToast.bodyDissolveFailed': 'Failed to dissolve body.',
+  // Accepted-layer edit / split (installer #21).
+  'sections.canvasToast.compositionUpdated': 'Layer composition updated.',
+  'sections.canvasToast.compositionUpdateFailed': 'Could not update the layer’s composition — try again.',
+  'sections.canvasToast.layerSplit': 'Layer split.',
+  'sections.canvasToast.layerSplitFailed': 'Could not split the layer — the split point may be too close to a boundary.',
   'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move — edit it on the litho axis.',
   'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact — drag it with the handle beside the column.',
   'sections.canvasToast.packingNotLithoBorehole': 'That is a packing boundary, not a lithological contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
