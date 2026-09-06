@@ -16,6 +16,7 @@ vi.mock('../../utils/log', () => ({
 }))
 
 import { captureDiagnostic } from '../../utils/diagnostics'
+import { log } from '../../utils/log'
 import { fetchTracked, request, setBaseUrl } from './shared'
 import { resetNetworkHealth } from '../networkHealth'
 
@@ -26,6 +27,8 @@ beforeEach(() => {
   resetNetworkHealth()
   setBaseUrl(BASE)
   captureMock.mockClear()
+  vi.mocked(log.warn).mockClear()
+  vi.mocked(log.error).mockClear()
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -78,6 +81,36 @@ describe('L2 — 4xx refusals are captured as api-refusal', () => {
     await request('GET', '/x')
 
     expect(captureMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('degradable external-overlay GETs log a degraded WARN, not an ERROR', () => {
+  // The DOV Virtuele Boring catalogue is an informative-only overlay the
+  // backend proxies from an external DOV host. A 5xx there means DOV is
+  // unreachable, a degraded state, not a bug in our code, so it must log at
+  // WARN (degraded but continuing) and NOT be captured as an api-error a crash
+  // bundle would carry. (walker findings 1-9, 2026-09-06: a down DOV host
+  // logged nine identical 502 ERRORs in one 300-step session.)
+  it('a 502 on the DOV lagenmodel catalogue warns and captures no diagnostic', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'Cannot reach Virtuele Boring catalog' }, 502),
+    )
+
+    await request('GET', '/dov/virtuele-boring/lagenmodellen').catch(() => undefined)
+
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(log.error)).not.toHaveBeenCalled()
+    expect(captureMock).not.toHaveBeenCalled()
+  })
+
+  it('still logs ERROR + captures api-error for an ordinary GET 502', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'boom' }, 502))
+
+    await request('GET', '/cpt/some-id/series').catch(() => undefined)
+
+    expect(vi.mocked(log.error)).toHaveBeenCalledTimes(1)
+    expect(captureMock).toHaveBeenCalledTimes(1)
+    expect(captureMock.mock.calls[0][0].kind).toBe('api-error')
   })
 })
 
