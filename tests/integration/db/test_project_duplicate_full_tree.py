@@ -29,6 +29,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.bed_override_orm import BedOverrideOrm
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
@@ -347,6 +348,16 @@ async def _make_project_with_every_collection(db_session: AsyncSession) -> Proje
             investigation_id=borehole.id,
             investigation_kind="borehole",
             source="inferred",
+        )
+    )
+    db_session.add(
+        BedOverrideOrm(
+            id=uuid7(),
+            app_project_id=project.id,
+            label="Kanaal",
+            level_m=-4.0,
+            epsg=31370,
+            vertices=[[0.0, 0.0], [100.0, 0.0], [100.0, 50.0], [0.0, 50.0]],
         )
     )
     db_session.add(
