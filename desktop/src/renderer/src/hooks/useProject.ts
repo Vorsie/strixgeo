@@ -416,6 +416,7 @@ function restorePayloadFrom(file: ProjectFile): ProjectBundleResponse {
     geotech_tie_tombstones: file.geotech_tie_tombstones,
     body_separations: file.body_separations,
     body_unions: file.body_unions,
+    bed_overrides: file.bed_overrides,
   }
 }
 
