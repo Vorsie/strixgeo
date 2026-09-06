@@ -504,9 +504,9 @@ export const SECTIONS = {
   'sections.hints.panZoom':
     'Drag to pan · scroll to zoom · right-click a column to focus · double-click a column to open',
   'sections.hints.lithoLayer':
-    'Litho layer: double-click to accept · Alt+drag to copy composition · Shift+drag past neighbour midpoint to absorb · right-click for more',
+    'Litho layer: double-click to accept · Alt+drag to copy composition · drag a boundary onto its neighbour and release to merge · right-click for more',
   'sections.hints.acceptFirst':
-    'Accept litho suggestions to enable correlation — 0 accepted contacts on this section.',
+    'Accept litho suggestions to enable correlation: 0 accepted contacts on this section.',
   'sections.hints.buildGeotechFirst':
     'Build the geotech model for this section before suggesting NAD subdivision.',
 
