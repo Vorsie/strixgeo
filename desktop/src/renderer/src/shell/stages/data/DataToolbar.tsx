@@ -9,7 +9,7 @@
 // zone (committed in a subsequent step). This file owns only the stage-
 // specific import verbs.
 
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { ChevronDown, Upload, Loader2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -32,16 +32,20 @@ import type { MessageKey } from '../../../i18n/locales/en'
  *     The toolbar verb buttons element.
  */
 export default function DataToolbar(): JSX.Element {
+  const shell = useShell()
   const {
-    investigations: {
-      importing,
-      dovImporting,
-      bboxImportType,
-      handleImportCpt,
-      handleImportDov,
-      handleImportBoreholeDov,
-    },
-  } = useShell()
+    importing,
+    dovImporting,
+    bboxImportType,
+    handleImportCpt,
+    handleImportDov,
+    handleImportBoreholeDov,
+  } = shell.investigations
+  // The guided tutorial's "Open the Import menu" step moves on by itself when
+  // the dropdown opens (owner ruling 1, 2026-09-06). Read defensively: a partial
+  // test shell (WS4 wires only the investigations slice) may omit coordinator,
+  // and the setter itself is optional on the bus.
+  const setImportMenuOpen = shell.coordinator?.setImportMenuOpen
   const t = useT()
 
   const isImporting = importing || dovImporting
@@ -87,6 +91,7 @@ export default function DataToolbar(): JSX.Element {
       highlight={!isImporting && !drawingBbox}
       items={items}
       t={t}
+      onOpenChange={setImportMenuOpen}
     />
   )
 }
@@ -125,11 +130,23 @@ interface DropdownMenuProps {
    *  built from the already-translated trigger label, so both must come from
    *  the same render. */
   t: Translator
+  /** Report the dropdown's open/closed state (guided tutorial — owner ruling 1,
+   *  2026-09-06). Optional: absent in test fixtures with a partial coordinator. */
+  onOpenChange?: (open: boolean) => void
 }
 
-function DropdownMenu({ label, icon, highlight, testid, items, t }: DropdownMenuProps): JSX.Element {
+function DropdownMenu({ label, icon, highlight, testid, items, t, onOpenChange }: DropdownMenuProps): JSX.Element {
   const btnRef = useRef<HTMLButtonElement>(null)
   const { open, anchorRect, toggle, close } = usePortalMenu(btnRef)
+
+  // Mirror the dropdown's open state onto the bus so the tutorial's "Open the
+  // Import menu" step advances by itself. Report on every change; reset to
+  // closed when the toolbar unmounts (a stage switch) so a stale "open" never
+  // lingers. onOpenChange is a stable setState from App.
+  useEffect(() => {
+    onOpenChange?.(open)
+  }, [open, onOpenChange])
+  useEffect(() => () => onOpenChange?.(false), [onOpenChange])
 
   return (
     <div className="relative">
