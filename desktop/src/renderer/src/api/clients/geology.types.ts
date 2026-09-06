@@ -306,6 +306,26 @@ export interface FormationContactResponse {
   notes: string | null
   created_at: string
   updated_at: string
+  // Peer contacts a cross-merge deleted to produce this survivor (drag-up:
+  // the crossed boundaries; plain update: empty/omitted). Additive — only the
+  // PATCH update endpoint populates it; list / create responses omit it.
+  deleted_contact_ids?: string[]
+}
+
+/**
+ * Outcome of ``PATCH .../contacts/{cid}`` — the survivor plus the ids a
+ * cross-merge deleted.
+ *
+ * ``contact`` is the surviving row on a plain update or a drag-up that crossed
+ * peers; it is ``null`` when a drag-down cross-merge absorbed the dragger into
+ * the formation above. ``deletedContactIds`` lists the peer boundaries the
+ * cross-merge removed (empty on a plain update). The renderer prunes those ids
+ * from the section at once so a crossed boundary never lingers as a row the
+ * user can only "delete" into a 404 (installer #20 dogfeed 2026-09-06).
+ */
+export interface ContactUpdateOutcome {
+  contact: FormationContactResponse | null
+  deletedContactIds: string[]
 }
 
 /** Request body for ``POST /projects/{pid}/geology/models/{mid}/contacts``. */
