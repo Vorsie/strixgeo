@@ -483,6 +483,20 @@ export interface LithoLayerBoundaryMoveResponse {
   lower: LithoLayerResponse
 }
 
+/** Body of ``PATCH .../layers/{lid}/composition`` — repoint one accepted layer
+ *  to a different ``(main soil code, admixtures)`` composition's litho unit. */
+export interface LithoLayerCompositionPayload {
+  litho_main_soil_code: string
+  admixtures: AdmixtureItem[]
+}
+
+/** Response from ``POST .../layers/{lid}/split`` — the shrunk top + the new
+ *  bottom layer, both accepted and sharing the original formation. */
+export interface LithoLayerSplitResponse {
+  top: LithoLayerResponse
+  bottom: LithoLayerResponse
+}
+
 /** One per-row patch in a layer batch update (A4 slice 4b). */
 export interface LithoLayerBatchUpdateItem {
   layer_id: string
