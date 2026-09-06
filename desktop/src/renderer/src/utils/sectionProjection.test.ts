@@ -120,6 +120,28 @@ describe('investigationsOnSection', () => {
     ).toEqual(['start', 'end'])
   })
 
+  it('keeps a test sitting exactly at a section endpoint despite floating-point overshoot', () => {
+    // Owner ruling 2026-09-06: a tie section drawn THROUGH two tests must
+    // catch BOTH. On real oblique Lambert-72 coords the far-endpoint test's
+    // computed ``along`` lands ~1e-8 m beyond the computed section length
+    // (float rounding of the dot product vs the sqrt), so a strict
+    // ``along > length`` filter silently drops it — the "Koppelprofiel 4
+    // contains one test (GEO-15/159-S5)" bug. Here S5 is the start and S11
+    // the end of the owner's Tie-section 4; both must be members.
+    const tie = {
+      start_x: 109404.31,
+      start_y: 188782.15,
+      end_x: 109425.71,
+      end_y: 188709.83,
+      projection_buffer_m: 7,
+    }
+    const s5 = { id: 'S5', location_x: 109404.31, location_y: 188782.15 }
+    const s11 = { id: 'S11', location_x: 109425.71, location_y: 188709.83 }
+    expect(
+      investigationsOnSection(tie, [s5, s11]).map(r => r.item.id).sort(),
+    ).toEqual(['S11', 'S5'])
+  })
+
   it('honours the excluded-ids set — user-chosen hides take precedence', () => {
     const a = { id: 'a', location_x: 100, location_y: 0 }
     const b = { id: 'b', location_x: 200, location_y: 0 }
