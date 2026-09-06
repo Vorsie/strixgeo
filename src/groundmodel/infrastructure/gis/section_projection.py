@@ -44,6 +44,18 @@ from dataclasses import dataclass
 # identical for the same input.
 _DEGENERATE_LENGTH_SQ = 1e-12
 
+# Tolerance (metres) on the along-line span bounds in
+# ``project_onto_section_corridor``. A test sitting EXACTLY at a section
+# endpoint projects to along == 0 / along == length in exact math, but on real
+# oblique coordinates the dot product and the sqrt round slightly differently,
+# so the computed ``along`` can land ~1e-8 m outside [0, length]. A strict
+# bound then drops the endpoint test — for a tie-section drawn through two
+# tests that silently leaves it with one member ("Koppelprofiel 4 contains one
+# test", owner ruling 2026-09-06). 1 micron is far above the float noise and
+# far below any real "off the section" distance. Mirrors
+# ``ENDPOINT_TOLERANCE_M`` in ``utils/sectionProjection.ts``.
+_ENDPOINT_TOLERANCE_M = 1e-6
+
 
 @dataclass(frozen=True)
 class SectionEndpoints:
@@ -149,7 +161,13 @@ def project_onto_section_corridor(
     res = project_point_onto_line(section, point_x, point_y)
     if res is None:
         return None
-    if res.along < 0.0 or res.along > section_length(section):
+    # Inclusive of the endpoints, with a micron tolerance so a test sitting
+    # exactly at an endpoint is not dropped by floating-point overshoot (see
+    # ``_ENDPOINT_TOLERANCE_M``).
+    if (
+        res.along < -_ENDPOINT_TOLERANCE_M
+        or res.along > section_length(section) + _ENDPOINT_TOLERANCE_M
+    ):
         return None
     if abs(res.offset) > buffer_m:
         return None
