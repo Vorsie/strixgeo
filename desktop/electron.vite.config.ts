@@ -47,6 +47,12 @@ export default defineConfig({
   },
   renderer: {
     build: {
+      // Emit renderer sourcemaps ONLY for the e2e build (scripts/run-e2e.ps1
+      // sets E2E_SOURCEMAP=1), so a walker page error can be resolved from
+      // ``assets/<chunk>.js:line:col`` back to ``src/...`` via the .map. The
+      // production installer build (``npm run dist``) never sets it, so shipped
+      // bundles carry no maps.
+      sourcemap: process.env.E2E_SOURCEMAP === '1',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
