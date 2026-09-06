@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.application.formal_code_count import FormalCodeCount
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
     FormalStratigraphyEntry,
@@ -522,6 +523,57 @@ def _resolve_lumped_key(
     return eff_key, eff_name, False
 
 
+def build_formal_code_counts(
+    code_to_bhs: dict[str, set[UUID]],
+    code_to_raw: dict[str, str],
+) -> tuple[FormalCodeCount, ...]:
+    """Resolve a candidate's accumulated formal codes into display counts.
+
+    The scan accumulates, per effective candidate key, the set of boreholes
+    that paired the candidate with each normalised DOV formal code (plus the
+    first raw casing seen for that code).  This turns those accumulators into
+    the ``FormalCodeCount`` list the candidate carries — resolving each code
+    through the DOV formal-stratigraphy lexicon (#59) so the canonical name and
+    canonical casing surface where the lexicon knows them, and reuses that
+    existing catalogue rather than inventing an alias table (owner ruling
+    2026-09-05).  Old and new codes for the same member (``TtEg`` / ``HyEg``
+    both resolve to a name containing ``Lid van Egem``) are therefore
+    recognisable as one unit by their shared catalogue name.
+
+    Parameters
+    ----------
+    code_to_bhs : dict[str, set[UUID]]
+        ``{ normalize_formation_key(formal_code) -> {borehole ids} }`` for the
+        candidate.
+    code_to_raw : dict[str, str]
+        ``{ normalize_formation_key(formal_code) -> first raw code seen }`` —
+        the display fallback when the lexicon has no entry for the code.
+
+    Returns
+    -------
+    tuple[FormalCodeCount, ...]
+        One entry per distinct formal code, sorted by count descending then
+        code ascending (deterministic).  Empty when the candidate has no
+        formal code (informal-only boreholes).
+    """
+    catalog = get_formal_stratigraphy()
+    items: list[FormalCodeCount] = []
+    for norm_code, borehole_ids in code_to_bhs.items():
+        # A sentinel code ("u" = Onbekend) exists in the lexicon but is not a
+        # real unit — treat it like an unknown code (raw display, no target),
+        # matching _resolve_codelist_canonical's own handling.
+        entry = None if norm_code in UNRESOLVABLE_CODES_NORM else catalog.resolve(norm_code)
+        if entry is not None:
+            display_code = entry.code
+            catalog_name: str | None = entry.full_name_nl
+        else:
+            display_code = code_to_raw.get(norm_code, norm_code)
+            catalog_name = None
+        items.append(
+            FormalCodeCount(code=display_code, count=len(borehole_ids), catalog_name=catalog_name)
+        )
+    return tuple(sorted(items, key=lambda fc: (-fc.count, fc.code)))
+
 
 def _find_observation(
     observations: Iterable[ObservationOrm],
@@ -565,5 +617,3 @@ def _best_overlap(
             best_overlap_len = overlap
             best = cand
     return best
-
-
