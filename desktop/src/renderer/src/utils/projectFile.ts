@@ -162,6 +162,12 @@ export interface ProjectFileV3 {
    */
   body_unions: Record<string, unknown>[]
   /**
+   * Manual bed-level override polygons (owner ruling 2026-09-06). Inside a bed
+   * polygon the ground surface takes the drawn level instead of the DEM.
+   * Absent in files saved before this field shipped — normalised to [] on parse.
+   */
+  bed_overrides: Record<string, unknown>[]
+  /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
    * file was saved by an older build that pre-dates this field.
@@ -198,6 +204,7 @@ export function buildProjectFile(
     geotech_tie_tombstones: bundle.geotech_tie_tombstones ?? [],
     body_separations: bundle.body_separations ?? [],
     body_unions: bundle.body_unions ?? [],
+    bed_overrides: bundle.bed_overrides ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -256,6 +263,9 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   }
   if (candidate.body_unions === undefined) {
     candidate.body_unions = []
+  }
+  if (candidate.bed_overrides === undefined) {
+    candidate.bed_overrides = []
   }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
@@ -321,6 +331,7 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     (v.geotech_tie_tombstones === undefined || Array.isArray(v.geotech_tie_tombstones)) &&
     (v.body_separations === undefined || Array.isArray(v.body_separations)) &&
     (v.body_unions === undefined || Array.isArray(v.body_unions)) &&
+    (v.bed_overrides === undefined || Array.isArray(v.bed_overrides)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.
