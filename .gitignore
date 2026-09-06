@@ -180,3 +180,7 @@ docs/manual/_build/
 # The line-by-line code guide is a LOCAL reading copy (owner 2026-09-05): its
 # 1518 generated pages + prose are not versioned. Backup: .backups/code-guide-*.zip
 docs/code-guide/
+
+# Vitest conformance byproducts (partitionFillV2 oracle + diag runs)
+scripts/oracle210_conformance.json
+scripts/diag_conformance.json
