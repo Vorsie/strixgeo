@@ -40,6 +40,7 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from tests.integration._litho_builders import (
     contact as _contact,
@@ -106,6 +107,22 @@ def _litho_formation(
         display_order=display_order,
         parent_formation_id=parent.id,
         litho_main_soil_code="ZAND",
+    )
+
+
+def _hidden_review(project: ProjectOrm, borehole: BoreholeOrm) -> InvestigationReviewOrm:
+    """Unsaved investigation_review row marking a borehole removed from the project.
+
+    ``is_hidden=True`` is exactly what the desktop "remove from project" action
+    writes (project-local hide) — the borehole row and its contacts survive.
+    """
+    return InvestigationReviewOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        target_kind="borehole",
+        target_id=borehole.id,
+        review_status="unreviewed",
+        is_hidden=True,
     )
 
 
@@ -542,3 +559,117 @@ async def test_idempotent_rebuild(
             f"RS7: all surfaces must have is_stale=False after second rebuild; "
             f"formation_id={s.formation_id}"
         )
+
+
+# ---------------------------------------------------------------------------
+# RS8: a test removed from the project stops feeding the stratigraphic model
+# (owner ruling 2026-09-06)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_removed_test_is_dropped_but_surface_survives_above_three(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """RS8a: a contact on a test removed from the project (is_hidden) is NOT a
+    model input — the rebuild ignores it. With four contacts and one test
+    removed, three remain, so the surface is rebuilt WITHOUT the removed test's
+    point (source_contact_count drops from 4 to 3).
+    """
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS8a-Formation", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS8a-BH1", x=160_000.0)
+    bh2 = _borehole(project.id, suffix="RS8a-BH2", x=160_200.0)
+    bh3 = _borehole(project.id, suffix="RS8a-BH3", x=160_100.0, y=200_200.0)
+    bh4 = _borehole(project.id, suffix="RS8a-BH4", x=160_050.0, y=200_100.0)
+
+    db_session.add_all([model, f1, bh1, bh2, bh3, bh4])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _contact(model, f1, bh1, depth=3.0),
+            _contact(model, f1, bh2, depth=3.5),
+            _contact(model, f1, bh3, depth=3.2),
+            _contact(model, f1, bh4, depth=3.4),
+        ]
+    )
+    # bh4 is removed from the project (project-local hide).
+    db_session.add(_hidden_review(project, bh4))
+    await db_session.commit()
+
+    await RebuildModelSurfaces(db_session).execute(model.id)
+
+    surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+        )
+    ).scalar_one()
+    assert surface.source_contact_count == 3, (
+        "RS8a: the removed test's contact must not feed the TIN — expected 3 "
+        f"contributing contacts, got {surface.source_contact_count}"
+    )
+    assert surface.is_stale is False
+
+
+@pytest.mark.asyncio
+async def test_removing_a_test_below_three_contacts_empties_the_surface(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """RS8b: removing a test that drops a formation below three contacts leaves
+    an EMPTY, non-rendering surface — the removed test's TIN disappears.
+
+    A formation with three contacts builds a real surface; removing one test
+    from the project leaves two, so the next rebuild re-triangulates to an
+    empty surface (0 triangles, source_contact_count == 2). The two remaining
+    contacts cannot form a TIN, so nothing draws — which is what makes the
+    owner's dredged-away Vlierzele / Pleistoceen polygon vanish. (The row is
+    kept rather than deleted so the on-click-build "cache is fresh" contract in
+    ``test_geology.test_build_after_contact_create_materialises_surface`` still
+    holds; see the report's Ruling 1 note.)
+    """
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS8b-Formation", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS8b-BH1", x=161_000.0)
+    bh2 = _borehole(project.id, suffix="RS8b-BH2", x=161_200.0)
+    bh3 = _borehole(project.id, suffix="RS8b-BH3", x=161_100.0, y=200_200.0)
+
+    db_session.add_all([model, f1, bh1, bh2, bh3])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            _contact(model, f1, bh1, depth=4.0),
+            _contact(model, f1, bh2, depth=4.5),
+            _contact(model, f1, bh3, depth=4.2),
+        ]
+    )
+    await db_session.commit()
+
+    # First build: a real 3-contact surface with triangles.
+    await RebuildModelSurfaces(db_session).execute(model.id)
+    built = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+        )
+    ).scalar_one()
+    assert built.triangles, "RS8b pre-condition: the 3-contact surface must triangulate"
+
+    # Remove one test from the project, then rebuild → 2 contacts remain.
+    db_session.add(_hidden_review(project, bh3))
+    await db_session.commit()
+    await RebuildModelSurfaces(db_session).execute(model.id)
+
+    surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+        )
+    ).scalar_one()
+    assert surface.source_contact_count == 2, (
+        "RS8b: the removed test's contact must not feed the TIN — expected 2 "
+        f"remaining contacts, got {surface.source_contact_count}"
+    )
+    assert surface.triangles == [], (
+        "RS8b: two contacts cannot triangulate — the surface must be empty so nothing renders"
+    )
