@@ -4,6 +4,7 @@ import { useAppBoot } from './hooks/useAppBoot'
 import { useMapOverlays } from './hooks/useMapOverlays'
 import { useGeologicalModel } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
+import { useBedOverrides } from './hooks/useBedOverrides'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectBodyRecompute } from './hooks/useProjectBodyRecompute'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
@@ -1202,6 +1203,11 @@ export default function App() {
     handleSetShowConfidenceFade,
   } = useMapOverlays({ project, applyViewStatePatch, toast })
 
+  // Manual bed-level overrides (owner ruling 2026-09-06) — the "Bed level"
+  // draw tool + list. Declared above the early-return ladder so the hook count
+  // stays stable. Uses the section CRS resolver (project's horizontal EPSG).
+  const bedOverrides = useBedOverrides({ project, epsg: effectiveHorizontalEpsg, toast })
+
   // Resolve the currently-selected section from id + list. Lives here
   // (above the early-return ladder) so the hook count stays stable
   // across renders — same Rules-of-Hooks constraint that put the DEM
@@ -1293,6 +1299,8 @@ export default function App() {
     handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn,
     correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
     suggestedTies, handleSuggestTies, handleAcceptTie, handleAcceptAllTies, handleRejectTie, handleClearTieSuggestions,
+    // bed overrides (owner ruling 2026-09-06)
+    bedOverrides,
     // overlays
     demSource, demOverlay, handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions,
     virtueleBoringLoading, virtueleBoringSkippedCount, virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection,
