@@ -247,6 +247,61 @@ function buildInitialChecked(
   )
 }
 
+/**
+ * Reduce a DOV catalogue name to its member/unit name.
+ *
+ * The DOV formal-stratigraphy lexicon names a member as
+ * ``"Lid van <member> (Formatie van <formation>)"``.  The member is what makes
+ * two codes "the same unit": ``TtEg`` → ``"Lid van Egem (Formatie van Tielt)"``
+ * and ``HyEg`` → ``"Lid van Egem (Formatie van Hyon)"`` (the 2017 NCS renamed
+ * Tielt to Hyon) both reduce to ``"Lid van Egem"``.  Offering the member as the
+ * one-click lumping target is therefore how old and new codes for one member
+ * are recognised as one unit (owner ruling 2026-09-05).
+ *
+ * A formation- or group-level name (``"Formatie van Boom"``,
+ * ``"Groep van Quartaire afzetting"``) has no parenthetical and is returned
+ * unchanged.
+ *
+ * Parameters
+ * ----------
+ * catalogName
+ *     The full canonical Dutch name from the DOV lexicon.
+ *
+ * Returns
+ * -------
+ * string
+ *     The member/unit name (the text before the first ``" ("``), trimmed.
+ */
+function dovMemberName(catalogName: string): string {
+  const idx = catalogName.indexOf(' (')
+  return (idx >= 0 ? catalogName.slice(0, idx) : catalogName).trim()
+}
+
+/**
+ * The DOV member name to offer as a one-click lumping target for a candidate.
+ *
+ * Uses the highest-count formal code the DOV lexicon knows (``formalCodes`` is
+ * already sorted count-descending by the backend), reduced to its member name.
+ * Returns ``null`` when no formal code resolves in the lexicon — the dialog
+ * then offers no DOV target and the engineer lumps by hand as before.
+ *
+ * Parameters
+ * ----------
+ * candidate
+ *     The candidate whose formal codes to consult.
+ *
+ * Returns
+ * -------
+ * string | null
+ *     The member name, or ``null`` when the catalogue knows none of the codes.
+ */
+function suggestedDovName(candidate: FormationCandidate): string | null {
+  for (const fc of candidate.formalCodes ?? []) {
+    if (fc.catalogName) return dovMemberName(fc.catalogName)
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -701,6 +756,37 @@ export default function FormationSelectionDialog({
                     : target.kind === 'candidate'
                       ? (candidates.find(c => c.key === target.key)?.name ?? null)
                       : target.name
+                // DOV formal codes behind this candidate (owner dogfeed
+                // 2026-09-05).  The muted line shows the code(s); the title
+                // tooltip carries the per-code borehole counts + catalogue
+                // names, so a formal↔informal disagreement is legible.
+                const formalCodes = candidate.formalCodes ?? []
+                // Inline: "GeVl (4)" per code, so the count is visible without
+                // hover and a disagreement (several codes) reads at a glance;
+                // the "(N)" is only a number, no word to translate.
+                const dovCodesLabel =
+                  formalCodes.length > 0
+                    ? formalCodes.map(fc => `${fc.code} (${fc.count})`).join(', ')
+                    : null
+                const dovTitle = formalCodes
+                  .map(fc => {
+                    const line = t('geology.dovCodeTip', {
+                      code: fc.code,
+                      count: fc.count,
+                      word: t(
+                        fc.count === 1
+                          ? 'geology.boreholeWordOne'
+                          : 'geology.boreholeWordMany',
+                      ),
+                    })
+                    // catalogName is DOV domain data (a raw token shown as-is),
+                    // appended for provenance; null when the code is unknown.
+                    return fc.catalogName ? `${line} — ${fc.catalogName}` : line
+                  })
+                  .join('\n')
+                // One-click "accept the DOV code's own formation" target — only
+                // when not already reassigned and the lexicon knows a code.
+                const dovSuggestion = target === null ? suggestedDovName(candidate) : null
                 return (
                   <li key={candidate.key} className="group/row">
                     <div className={[
@@ -742,8 +828,32 @@ export default function FormationSelectionDialog({
                               { n: candidate.boreholeCount },
                             )}
                           </span>
+                          {dovCodesLabel !== null && (
+                            <span
+                              className="block text-xs text-text-muted font-mono"
+                              title={dovTitle}
+                            >
+                              {t('geology.dovCodes', { codes: dovCodesLabel })}
+                            </span>
+                          )}
                         </span>
                       </label>
+
+                      {/* One-click "use the DOV code's own formation" target.
+                          Sets a custom reassignment to the DOV member name, so
+                          old/new codes for the same member (TtEg/HyEg = Egem)
+                          converge on the same target. */}
+                      {dovSuggestion !== null && (
+                        <button
+                          type="button"
+                          className="shrink-0 self-start text-xs rounded px-1.5 py-0.5 border border-border-subtle text-text-muted hover:text-accent hover:border-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition-colors"
+                          onClick={() =>
+                            setReassignment(candidate.key, { kind: 'custom', name: dovSuggestion })
+                          }
+                        >
+                          {t('geology.useDovName', { name: dovSuggestion })}
+                        </button>
+                      )}
 
                       {/* Per-row "→ same as …" reassignment control */}
                       {candidates.length > 1 && (
