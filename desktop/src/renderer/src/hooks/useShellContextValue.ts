@@ -164,6 +164,10 @@ export interface UseShellContextValueArgs {
   // shape without each fixture adding the field. App always passes it.
   importMenuOpen?: ShellContextValue['coordinator']['importMenuOpen']
   setImportMenuOpen?: ShellContextValue['coordinator']['setImportMenuOpen']
+  // Draft CRS / datum from the open project-settings dialog (owner ruling 1,
+  // 2026-09-06). Optional for the same fixture reason as importMenuOpen above.
+  metadataDraftHorizontalEpsg?: ShellContextValue['coordinator']['metadataDraftHorizontalEpsg']
+  metadataDraftVerticalEpsg?: ShellContextValue['coordinator']['metadataDraftVerticalEpsg']
 }
 
 /**
@@ -221,6 +225,7 @@ export function useShellContextValue(
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
     importMenuOpen, setImportMenuOpen,
+    metadataDraftHorizontalEpsg, metadataDraftVerticalEpsg,
   } = argsWithoutGeo
 
   // Re-destructure geo so the dep array stays byte-identical to the
@@ -404,6 +409,8 @@ export function useShellContextValue(
       markMutated,
       importMenuOpen,
       setImportMenuOpen,
+      metadataDraftHorizontalEpsg,
+      metadataDraftVerticalEpsg,
     },
   }),
   // Auto-derived dep array (debt #53, 2026-05-21). The prior shape was
