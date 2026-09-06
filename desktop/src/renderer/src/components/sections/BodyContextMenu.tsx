@@ -31,6 +31,21 @@ export interface BodyContextMenuProps {
   /** Fired when the user picks "Name body". */
   onNameBody: (bodyId: string) => void
   /**
+   * Fired when the user picks "Edit composition…" — repoint the clicked ACCEPTED
+   * litho layer to a different composition's unit (installer #21). The caller
+   * already resolved which layer the click fell on, so this takes no args. Absent
+   * → the item is not offered (the no-affordance rule keeps it litho-only, and
+   * only when a single accepted layer resolved under the click).
+   */
+  onEditComposition?: () => void
+  /**
+   * Fired when the user picks "Split here" — split the clicked ACCEPTED litho
+   * layer at the clicked depth into two same-composition layers (installer #21).
+   * The caller already captured the layer + depth, so this takes no args. Absent
+   * → the item is not offered.
+   */
+  onSplitLayer?: () => void
+  /**
    * Fired when the user picks "Dissolve body". Absent → the item is not offered
    * (the no-affordance rule). Wired on BOTH the litho and geotech axes — the
    * owner enumerated Dissolve as one of the geotech body verbs (ruling
@@ -101,6 +116,8 @@ export interface BodyDisjoinOption {
 /** data-testid values for menu items (referenced in BodyContextMenu.test.tsx). */
 export const TESTIDS = {
   nameBody: 'body-ctx-name-body',
+  editComposition: 'body-ctx-edit-composition',
+  splitLayer: 'body-ctx-split-layer',
   dissolveBody: 'body-ctx-dissolve-body',
   unitStatistics: 'body-ctx-unit-statistics',
   joinBody: 'body-ctx-join-body',
@@ -141,6 +158,8 @@ export default function BodyContextMenu({
   body,
   displayLabel,
   onNameBody,
+  onEditComposition,
+  onSplitLayer,
   onDissolveBody,
   onShowUnitStatistics,
   onJoinBody,
@@ -168,6 +187,27 @@ export default function BodyContextMenu({
       key: 'name-body',
       onClick: () => {
         onNameBody(body.id)
+      },
+    },
+    // Accepted-layer verbs (installer #21) — the clicked layer + depth were
+    // resolved by the caller, so these commit against that layer. Litho-only:
+    // offered only where the axis wires them (the no-affordance rule). The owner
+    // was blocked here — an accepted silt could only be deleted, not recomposed
+    // or split, because Edit/Split existed only on pending ghosts.
+    onEditComposition !== undefined && {
+      label: t('sections.menu.editComposition'),
+      testid: TESTIDS.editComposition,
+      key: 'edit-composition',
+      onClick: () => {
+        onEditComposition()
+      },
+    },
+    onSplitLayer !== undefined && {
+      label: t('sections.menu.splitHere'),
+      testid: TESTIDS.splitLayer,
+      key: 'split-layer',
+      onClick: () => {
+        onSplitLayer()
       },
     },
     // Navigates away (Parameters stage, scoped to the body's UNIT) — offered
