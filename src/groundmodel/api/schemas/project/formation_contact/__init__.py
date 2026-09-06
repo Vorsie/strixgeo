@@ -15,6 +15,7 @@ from .crossing_validation_response import CrossingValidationResponse
 from .deduplicate_contacts_response import DeduplicateContactsResponse
 from .discover_from_stratigraphy_request import DiscoverFromStratigraphyRequest
 from .discover_from_stratigraphy_response import DiscoverFromStratigraphyResponse
+from .formal_code_item import FormalCodeItem
 from .formation_candidate_item import FormationCandidateItem
 from .formation_contact_batch_update_entry import FormationContactBatchUpdateEntry
 from .formation_contact_batch_update_request import FormationContactBatchUpdateRequest
@@ -40,6 +41,7 @@ __all__ = [
     "FormationContactBatchUpdateResponse",
     "FormationContactResponse",
     "DiscoverFromStratigraphyRequest",
+    "FormalCodeItem",
     "FormationCandidateItem",
     "DiscoverFromStratigraphyResponse",
     "AutoPopulateFromStratigraphyRequest",
