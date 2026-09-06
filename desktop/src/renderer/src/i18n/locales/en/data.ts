@@ -58,6 +58,11 @@ export const DATA = {
   'data.import.countGrainSize': '{n} grain-size',
   'data.import.subPhaseMissing': ' — DOV did not return {items}',
   'data.import.subPhaseRetry': '; re-run the import to retry',
+  // Local DOV bbox-draw refusals (useInvestigationData) — a degenerate box (a
+  // click without a drag) or an oversized one is caught before the request, so
+  // the engineer never sees an opaque "HTTP 422".
+  'data.import.drawABox': 'Draw a box over the map to import.',
+  'data.import.bboxTooLarge': 'That area is too large. Draw a smaller box (up to 25 km across).',
 
   // -------------------------------------------------------------------------
   // data load-failure toasts (useInvestigationData).
