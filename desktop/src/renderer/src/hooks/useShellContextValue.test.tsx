@@ -348,6 +348,8 @@ function makeCtx(): ShellContextValue {
       bodyRecomputeGeotechNonce: 0,
       requestBodyRecompute: vi.fn(),
       markMutated: vi.fn(),
+      importMenuOpen: false,
+      setImportMenuOpen: vi.fn(),
     },
   }
 }
