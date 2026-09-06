@@ -40,6 +40,7 @@ def _make_contact(
     above: str,
     below: str | None,
     formation: int | None = None,
+    admix: tuple[str, ...] = (),
 ) -> ContactRecord:
     """Construct a ContactRecord from terse positional inputs.
 
@@ -59,6 +60,9 @@ def _make_contact(
         Lithology below the contact (None for deepest contact).
     formation : int | None
         Formation id seed.  Defaults to ``cid`` if omitted.
+    admix : tuple[str, ...]
+        Admixture tokens of the unit ABOVE the contact (order-independent).
+        Defaults to empty (the "no admixture data" case).
 
     Returns
     -------
@@ -73,6 +77,7 @@ def _make_contact(
         parent_formation_id=_uid(parent),
         litho_main_soil_code=above,
         litho_below_code=below,
+        litho_admixtures=admix,
     )
 
 
@@ -364,7 +369,7 @@ def test_chain_does_not_orphan_a_boundary_when_neighbour_matches_a_third_test() 
 
 
 def test_mnn_tie_breaking_picks_exactly_one() -> None:
-    """When two contacts on column B are equidistant from a column-A contact, MNN keeps exactly one."""
+    """Two contacts on column B equidistant from a column-A contact: MNN keeps exactly one."""
     contacts = [
         _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
         _make_contact(2, 11, 5.4, 99, "ZAND", "KLEI"),
@@ -414,3 +419,127 @@ def test_explicit_adjacency_overrides_map_plane_rng() -> None:
         for c in auto_correlate_contact_edges(contacts, locations, adjacency=forced)
     }
     assert overridden == {frozenset((_uid(1), _uid(3)))}
+
+
+# ---------------------------------------------------------------------------
+# Admixtures rank suggestions but never exclude them (owner ruling 2026-09-06).
+# ---------------------------------------------------------------------------
+
+
+def test_matching_admixture_ranks_above_a_mismatching_one_at_the_same_depth() -> None:
+    """Owner: "a matching admixture ranks above a mismatching one at the same depth".
+
+    One ZAND contact on the left column carries a SILT admixture.  The right
+    column offers TWO ZAND contacts at the identical depth (both a perfect
+    depth match): one whose admixture MATCHES (also SILT) and one whose
+    admixture MISMATCHES (clean sand, no admixture).  Because both raw depth
+    residuals are zero, the only thing that can separate them is the
+    admixture: the matching pair must win the mutual-nearest-neighbour
+    reduction and the mismatching pair must be dropped.
+
+    The contact ids are arranged so the MISMATCHING right-column contact owns
+    the LOWER id (2) and the MATCHING one the higher (3).  Without the
+    admixture penalty the MNN tie-break (lowest opposite-endpoint id) would
+    pick the mismatching pair (1, 2); only the penalty flips the winner to the
+    matching pair (1, 3).
+    """
+    contacts = [
+        _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI", admix=("SILT:",)),
+        # Right column, lower id, MISMATCH (clean sand): would win on a raw tie.
+        _make_contact(2, 11, 5.0, 99, "ZAND", "KLEI", admix=()),
+        # Right column, higher id, MATCH (also silty sand).
+        _make_contact(3, 11, 5.0, 99, "ZAND", "KLEI", admix=("SILT:",)),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+    ]
+    result = auto_correlate_contact_edges(contacts, locations)
+    pairs = {(c.layer_a_id, c.layer_b_id) for c in result}
+    # The matching-admixture pair wins.
+    assert (_uid(1), _uid(3)) in pairs
+    # The mismatching pair is out-ranked and dropped.
+    assert (_uid(1), _uid(2)) not in pairs
+    assert len(result) == 1
+    assert result[0].admixture_match is True
+
+
+def test_mismatching_admixture_is_still_suggested_when_it_is_the_only_candidate() -> None:
+    """Owner: "a mismatching admixture is still suggested when it is the only candidate".
+
+    Two adjacent ZAND contacts at the same depth whose admixtures differ
+    (silty sand vs clean sand).  There is no competing candidate, so the
+    mismatch must NOT block the suggestion; the pair is still proposed, and
+    it is flagged ``admixture_match=False`` so the UI can show the difference.
+    """
+    contacts = [
+        _make_contact(1, 10, 5.0, 99, "ZAND", None, admix=("SILT:",)),
+        _make_contact(2, 11, 5.0, 99, "ZAND", None, admix=()),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+    ]
+    result = auto_correlate_contact_edges(contacts, locations)
+    assert len(result) == 1
+    assert {result[0].layer_a_id, result[0].layer_b_id} == {_uid(1), _uid(2)}
+    assert result[0].admixture_match is False
+
+
+def test_mismatch_never_turns_a_candidate_inside_the_depth_window_into_no_candidate() -> None:
+    """Owner: "a mismatch never turns a candidate inside the depth window into no candidate".
+
+    The admixture penalty must move the RANKING residual only, never the
+    window admission test.  Here two adjacent ZAND contacts 50 m apart sit
+    2.4 m apart in depth (inside the default window, 0.5 + 0.04*50 = 2.5 m)
+    but their admixtures mismatch, so ``residual + penalty`` (2.4 + 0.25 =
+    2.65 m) would fall OUTSIDE the window.  Because the window is tested on the
+    RAW residual, the candidate must survive; if the penalty leaked into the
+    window test the pair would vanish.
+    """
+    contacts = [
+        _make_contact(1, 10, 5.0, 99, "ZAND", None, admix=("SILT:",)),
+        _make_contact(2, 11, 7.4, 99, "ZAND", None, admix=()),  # 2.4 m deeper, mismatch
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+    ]
+    result = auto_correlate_contact_edges(contacts, locations)
+    assert {(_uid(1), _uid(2))} == {(c.layer_a_id, c.layer_b_id) for c in result}
+    assert result[0].admixture_match is False
+
+
+def test_suggestions_without_admixture_data_are_byte_identical_to_before() -> None:
+    """Guard: suggestions without admixture data are byte-identical to before.
+
+    The default empty admixture tuple must leave the algorithm's output
+    exactly as it was: the happy-path scenario (three columns, two boundaries
+    each) still yields the same four correlation pairs, and every candidate
+    reports ``admixture_match is None`` (there is no admixture data to compare,
+    so no ranking signal fires and the field carries the neutral default).
+    """
+    contacts = [
+        _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
+        _make_contact(2, 10, 10.0, 99, "KLEI", "SILT"),
+        _make_contact(3, 11, 5.1, 99, "ZAND", "KLEI"),
+        _make_contact(4, 11, 10.1, 99, "KLEI", "SILT"),
+        _make_contact(5, 12, 5.2, 99, "ZAND", "KLEI"),
+        _make_contact(6, 12, 10.2, 99, "KLEI", "SILT"),
+    ]
+    locations = [
+        InvestigationLocation(_uid(10), 0.0, 0.0),
+        InvestigationLocation(_uid(11), 50.0, 0.0),
+        InvestigationLocation(_uid(12), 100.0, 0.0),
+    ]
+    result = auto_correlate_contact_edges(contacts, locations)
+    pairs = {(c.layer_a_id, c.layer_b_id) for c in result}
+    assert pairs == {
+        (_uid(1), _uid(3)),
+        (_uid(3), _uid(5)),
+        (_uid(2), _uid(4)),
+        (_uid(4), _uid(6)),
+    }
+    assert len(result) == 4
+    # No admixture data anywhere → no signal, neutral default on every candidate.
+    assert all(c.admixture_match is None for c in result)
