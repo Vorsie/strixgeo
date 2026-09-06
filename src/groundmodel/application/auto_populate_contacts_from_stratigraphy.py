@@ -73,6 +73,7 @@ from groundmodel.application.stratigraphy_bridge import (
     _resolve_codelist_canonical,
     _resolve_lumped_key,
     build_formal_informal_bridge,
+    member_code_for_name,
 )
 from groundmodel.application.stratigraphy_candidate import StratigraphyCandidate
 from groundmodel.application.stratigraphy_scan import (
@@ -609,12 +610,29 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     )
                     continue
                 if formation is None:
+                    # A lumped formation should describe the TARGET unit, not
+                    # the source layer whose stream happened to create it: when
+                    # the target is a DOV member the lexicon knows unambiguously
+                    # ("Lid van Merelbeke" → "GeMe"), stamp its DOV code as
+                    # regional_ref (owner ruling 2026-09-06).  This is also
+                    # deterministic — without it the regional_ref was whatever
+                    # the first source layer carried (a formal code on a formal
+                    # borehole, None on an informal-only one).  A shared member
+                    # name (e.g. "Lid van Egem" across two formations) resolves
+                    # to no unique code and falls through to the derivation.
+                    # Only for lumped/lexicon-resolved layers; a non-lumped
+                    # layer keeps its own derived regional_ref unchanged.
+                    create_regional_ref = regional_ref
+                    if was_lumped:
+                        target_code = member_code_for_name(display_name)
+                        if target_code is not None:
+                            create_regional_ref = target_code
                     formation = GeologicalFormationOrm(
                         id=uuid7(),
                         app_project_id=project_id,
                         name=display_name,
-                        regional_ref=regional_ref,
-                        color=_palette_colour_for(regional_ref or display_name),
+                        regional_ref=create_regional_ref,
+                        color=_palette_colour_for(create_regional_ref or display_name),
                         display_order=next_display_order,
                     )
                     next_display_order += 1
