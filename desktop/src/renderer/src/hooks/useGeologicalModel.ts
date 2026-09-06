@@ -68,6 +68,23 @@ import { t } from '../i18n/translate'
 /** Payload accepted by the ContactsLayer batch-copy handler. */
 export type ContactCopyPayload = import('../components/sections/ContactsLayer').ContactCopyPayload
 
+/**
+ * One DOV formal-stratigraphy code a candidate's boreholes pair it with.
+ *
+ * Frontend-normalised mirror of the API ``FormalCodeItem``. Lets the fill
+ * dialog show the DOV code behind each informal candidate name, expose a
+ * formal↔informal disagreement (several codes on one candidate), and offer the
+ * DOV code's own formation as a one-click lumping target.
+ */
+export interface FormalCode {
+  /** DOV code (canonical casing where the lexicon knows it, e.g. "GeVl"). */
+  code: string
+  /** Number of in-scope boreholes pairing the candidate with this code. */
+  count: number
+  /** Canonical Dutch name from the DOV lexicon, or null when the code is unknown. */
+  catalogName: string | null
+}
+
 /** A candidate formation discovered from borehole stratigraphy. */
 export interface FormationCandidate {
   /** Working display name (informal description preferred; formal as fallback). */
@@ -81,6 +98,14 @@ export interface FormationCandidate {
   key: string
   /** Number of in-scope boreholes that carry this key. */
   boreholeCount: number
+  /**
+   * DOV formal codes the candidate's boreholes pair the informal name with,
+   * each with a count and (where known) the catalogue name.  Empty for an
+   * informal-only candidate or a backend older than 2026-09-05.  Optional so
+   * older/hand-built candidate fixtures stay valid; the discover flow always
+   * sets it (to ``[]`` when the backend sent none).
+   */
+  formalCodes?: FormalCode[]
 }
 
 /**
@@ -1970,6 +1995,12 @@ export function useGeologicalModel({
           // correct fallback in that case.
           key: c.key || c.name,
           boreholeCount: c.borehole_count,
+          // formal_codes is absent on a backend older than 2026-09-05 → [].
+          formalCodes: (c.formal_codes ?? []).map(fc => ({
+            code: fc.code,
+            count: fc.count,
+            catalogName: fc.catalog_name,
+          })),
         }))
         const collisions: LumpingCollision[] = (result.collisions ?? []).map(col => ({
           boreholeId: col.borehole_id,
