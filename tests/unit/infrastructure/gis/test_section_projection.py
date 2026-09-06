@@ -14,6 +14,7 @@ import pytest
 
 from groundmodel.infrastructure.gis.section_projection import (
     SectionEndpoints,
+    project_onto_section_corridor,
     project_point_onto_line,
     section_length,
 )
@@ -104,3 +105,37 @@ def test_along_can_exceed_length_for_points_past_end() -> None:
     result = project_point_onto_line(section, 125.0, 0.0)
     assert result is not None
     assert result.along == pytest.approx(125.0)
+
+
+# ---------------------------------------------------------------------------
+# project_onto_section_corridor — the "is this investigation ON the section" rule
+# ---------------------------------------------------------------------------
+
+
+def test_corridor_keeps_test_at_the_far_endpoint_despite_float_overshoot() -> None:
+    """Owner ruling 2026-09-06: a tie section drawn THROUGH two tests must
+    catch BOTH. On real oblique Lambert-72 coords the far-endpoint test's
+    computed ``along`` lands ~1e-8 m beyond the computed section length, so a
+    strict ``along > length`` bound drops it — the "Koppelprofiel 4 contains
+    one test (GEO-15/159-S5)" bug. These are the owner's Tie-section 4
+    endpoints: S5 at the start, S11 at the end; both are on the section.
+    """
+    tie = SectionEndpoints(
+        start_x=109404.31,
+        start_y=188782.15,
+        end_x=109425.71,
+        end_y=188709.83,
+    )
+    at_start = project_onto_section_corridor(tie, 109404.31, 188782.15, 7.0)
+    at_end = project_onto_section_corridor(tie, 109425.71, 188709.83, 7.0)
+    assert at_start is not None
+    assert at_end is not None
+
+
+def test_corridor_still_drops_a_point_genuinely_past_the_end() -> None:
+    """The endpoint tolerance is microns, not metres — a test a real distance
+    beyond the section end is still off-section.
+    """
+    section = SectionEndpoints(start_x=0, start_y=0, end_x=100, end_y=0)
+    assert project_onto_section_corridor(section, 101.0, 0.0, 50.0) is None
+    assert project_onto_section_corridor(section, -1.0, 0.0, 50.0) is None
