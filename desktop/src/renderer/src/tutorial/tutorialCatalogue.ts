@@ -224,6 +224,10 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('section-tie', 4, ['stage-tab-sections', 'suggest-tie-sections'], 'next', 'sections'),
   // Carry the borehole stratigraphy onto the CPTs before building (owner ruling 9).
   mkc('geo-carry-strat', 4, ['stage-tab-sections', 'sections-canvas'], 'next', 'sections'),
+  // Draw the canal bed BEFORE building the surfaces (owner ruling 2026-09-06):
+  // the DEM over water is the water surface, so a bed polygon tells the model
+  // where the ground really is. Do-it on bedOverrideExists.
+  mkc('geo-bed', 4, ['stage-tab-data', 'data-toolbar-bed-level'], { state: 'bedOverrideExists' }, 'data'),
   // Do-it: ticks once the formation surfaces are built (owner ruling 1).
   mkc('geo-surfaces', 4, ['stage-tab-geology', 'geology-build-model-button'], { state: 'geoSurfacesBuilt' }, 'geology'),
 
