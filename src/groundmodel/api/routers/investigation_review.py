@@ -34,6 +34,7 @@ from groundmodel.api.schemas.project.investigation_review import (
     ReviewTargetKind,
 )
 from groundmodel.api.schemas.project.project_response import ProjectResponse
+from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import (
@@ -204,6 +205,19 @@ async def upsert_review_for_target(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(err),
         ) from err
+    # Removing a test from the project (project-local hide) — or restoring it
+    # — changes which contacts feed the stratigraphic model, so every cached
+    # surface + 3-D solid anchored to it is now stale until the next Build.
+    # Flag them so the "unbuilt edits" prompt appears and the model is not
+    # left silently reflecting a test the engineer removed (owner ruling
+    # 2026-09-06). Mirrors the elevation-edit stale path; gated on an actual
+    # ``is_hidden`` change so a plain review-status edit stales nothing.
+    if "is_hidden" in patch:
+        stale = StaleInvestigationCaches(session)
+        if target_kind == "cpt":
+            await stale.execute(cpt_id=target_id)
+        else:
+            await stale.execute(borehole_id=target_id)
     await session.commit()
     await session.refresh(row)
     return row
