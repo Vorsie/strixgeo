@@ -37,6 +37,7 @@ function emptyState(): TutorialState {
     cptCount: 0,
     boreholeCount: 0,
     sectionCount: 0,
+    twoSectionsExist: false,
     geoModelExists: false,
     contactCount: 0,
     lumpingCount: 0,
