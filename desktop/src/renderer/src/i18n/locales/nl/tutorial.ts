@@ -139,6 +139,9 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.geo-second-section.title': 'Teken een tweede dwarsprofiel',
   'tutorial.geo-second-section.body':
     'Voor je de vlakken bouwt, teken je een tweede dwarsprofiel over het terrein. Eén lijn geeft elk vlak maar één doorsnede; een tweede lijn geeft het de 3D-gegevens om ertussen te interpoleren. Teken het op dezelfde manier als het eerste.',
+  'tutorial.geo-bed.title': 'Teken de bodem van het kanaal',
+  'tutorial.geo-bed.body':
+    'Boven water is het DHM het wateroppervlak, niet de bodem. Waar een kanaal of rivier is uitgebaggerd, ligt dat meters te hoog. Open de Data-stap, kies de Bodempeil-tool op de kaart, teken een polygoon over het water en typ het bodempeil in m TAW. Binnen de polygoon neemt het maaiveld dat peil, zodat de vlakken die je hierna bouwt op de echte bodem worden afgesneden. Deze stap vinkt af zodra er een bodempeil bestaat.',
   'tutorial.geo-surfaces.title': 'Bouw de vlakken',
   'tutorial.geo-surfaces.body':
     'Bouw de formatievlakken vanuit de contacten. StrixGeo legt één vlak door elke formatietop. Controleer daarna de kruisingen die de validatie meldt, want de formaties moeten op volgorde blijven om het model geldig te houden. Deze stap vinkt af zodra de vlakken gebouwd zijn.',
