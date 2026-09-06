@@ -373,6 +373,20 @@ export interface Coordinator {
   bodyRecomputeGeotechNonce: number
   /** Bump the recompute nonce of the model axis a mutation changed. */
   requestBodyRecompute: (kind: 'litho' | 'geotech') => void
+  /**
+   * Whether the Data-stage Import dropdown is open. Lives on the coordinator
+   * because DataToolbar (the writer) and the guided tutorial (the reader, via
+   * ``useTutorialState``) sit in different subtrees — the same cross-boundary
+   * rationale as ``geoDeepLinkTarget``. It lets the "Open the Import menu" step
+   * move on by itself when the menu opens (owner ruling 1, 2026-09-06).
+   *
+   * OPTIONAL so the many fully-typed ``ShellContextValue`` test fixtures need
+   * not each add it; the real bus (``useShellContextValue``, fed from App) always
+   * sets it, and the tutorial reads it as ``=== true``.
+   */
+  importMenuOpen?: boolean
+  /** Set the Import-menu-open flag (DataToolbar reports its dropdown state). */
+  setImportMenuOpen?: (open: boolean) => void
 }
 
 /**
