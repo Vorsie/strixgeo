@@ -10,6 +10,7 @@ participate in the user's correlation graph.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -39,6 +40,7 @@ from groundmodel.domain.services.detect_crossing_pinch_outs import (
     CrossingPinchOut,
     detect_crossing_pinch_outs,
 )
+from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -50,6 +52,41 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+def _admixture_tokens(raw: list[dict[str, Any]] | None) -> tuple[str, ...]:
+    """Convert a formation's stored admixtures into canonical comparison tokens.
+
+    Reads the ``litho_admixtures`` JSONB list
+    (``[{"soil_code", "amount", "locally"}, ...]``) of the unit ABOVE a contact
+    and returns each admixture's ``Admixture.canonical_key()`` token
+    (``"<soil_code>:<amount>"``, ``locally`` excluded), the identical token
+    format the accept flow buckets on, so auto-correlate and accept agree on
+    what "same admixture" means.  Order is preserved but irrelevant: the domain
+    algorithm compares the tokens as a set.
+
+    Parameters
+    ----------
+    raw : list | None
+        The formation's ``litho_admixtures`` column value.  ``None`` on a
+        geological (non-litho) row; ``[]`` on a litho unit with no admixtures.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Canonical admixture tokens, empty when the unit has none.  Malformed
+        entries with an empty ``soil_code`` are skipped rather than raising, so
+        one bad row never aborts the whole auto-correlate batch.
+    """
+    if not raw:
+        return ()
+    tokens: list[str] = []
+    for a in raw:
+        soil_code = a.get("soil_code", "")
+        if not soil_code:
+            continue
+        tokens.append(Admixture(soil_code=soil_code, amount=a.get("amount", "")).canonical_key())
+    return tuple(tokens)
 
 
 @dataclass
@@ -175,6 +212,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                 FormationContactOrm.depth_top_m,
                 GeologicalFormationOrm.parent_formation_id,
                 GeologicalFormationOrm.litho_main_soil_code,
+                GeologicalFormationOrm.litho_admixtures,
             )
             .join(
                 GeologicalFormationOrm,
@@ -187,8 +225,10 @@ class AutoCorrelateContactEdges(GroundModelLogger):
 
         # 3. Build contact stacks per investigation and derive litho_below_code.
         #    Each stack entry: (depth_top_m, contact_id, formation_id,
-        #    parent_formation_id, litho_main_soil_code).
-        stacks: dict[UUID, list[tuple[float, UUID, UUID, UUID | None, str]]] = {}
+        #    parent_formation_id, litho_main_soil_code, admixture_tokens).
+        #    The admixture tokens are the composition of the unit ABOVE the
+        #    contact (owner ruling 2026-09-06: rank suggestions by admixture).
+        stacks: dict[UUID, list[tuple[float, UUID, UUID, UUID | None, str, tuple[str, ...]]]] = {}
         for row in rows:
             inv_id = row.borehole_id if row.borehole_id is not None else row.cpt_id
             if inv_id is None:
@@ -200,14 +240,15 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                     row.formation_id,
                     row.parent_formation_id,
                     row.litho_main_soil_code or "",
+                    _admixture_tokens(row.litho_admixtures),
                 )
             )
         for s in stacks.values():
-            s.sort()  # ascending depth
+            s.sort()  # ascending depth (contact_id at index 1 is unique, so sort is total)
 
         contact_records: list[ContactRecord] = []
         for inv_id, entries in stacks.items():
-            for i, (depth, cid, fid, parent, litho_above) in enumerate(entries):
+            for i, (depth, cid, fid, parent, litho_above, admix_tokens) in enumerate(entries):
                 # litho_below_code is the main soil code of the unit directly
                 # below this contact in the same investigation column.  None
                 # for the deepest contact — depths are already sorted ascending
@@ -222,6 +263,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                         parent_formation_id=parent,
                         litho_main_soil_code=litho_above,
                         litho_below_code=litho_below,
+                        litho_admixtures=admix_tokens,
                     )
                 )
 
@@ -292,7 +334,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
                 investigation_id=inv_id,
                 entries=tuple(
                     ContactStackEntry(contact_id=cid, formation_id=fid, depth_top_m=depth)
-                    for depth, cid, fid, _parent, _litho in entries
+                    for depth, cid, fid, _parent, _litho, _admix in entries
                 ),
             )
             for inv_id, entries in stacks.items()
