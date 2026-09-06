@@ -68,6 +68,21 @@ describe('suggestTieSections', () => {
     expect(ties[0].members).toHaveLength(3)
   })
 
+  it('never proposes a tie that passes through fewer than two distinct tests (the rule: you can not correlate with only one test)', () => {
+    // Degenerate case: the SAME investigation id sits on two walls (here the
+    // one site appears once as a CPT on wall A and once as a borehole on wall
+    // C). The sweep would otherwise "tie" a single test to itself — a line
+    // that passes through one test. It must not be proposed.
+    const wallC: ParallelSection = { id: 'C', start_x: 0, start_y: 180, end_x: 300, end_y: 180, projection_buffer_m: 35 }
+    const sameId = suggestTieSections(
+      [wallA, wallC],
+      [inv('SITE-1', 100, 0)],
+      [inv('SITE-1', 100, 180)],
+      45,
+    )
+    expect(sameId).toEqual([])
+  })
+
   it('prefers the strike-ordered pairing over a nearest-distance crossing', () => {
     // a1 at strike 20, a2 at strike 80 on wall A; b1 at 25, b2 at 75 on wall B.
     // A naive nearest-MAP-distance matcher could pair a1↔b2 / a2↔b1 → a cross.
