@@ -86,6 +86,18 @@ plan: `docs/superpowers/plans/2026-06-06-body-extent-retirement.md`.
   routine — the 3-D build depends on the body rows it maintains — but nothing
   in the UI drives it. The toolbar "Detect lenses" / "Delete all detected
   lenses" verbs were retired 2026-06-06.
+* **Auto-correlate ranks by admixture, never gates on it** (owner ruling
+  2026-09-06). Contact-level auto-correlate (`auto_correlate_contact_edges`)
+  groups candidate ties by main soil code, then, within one adjacent
+  column-pair, ranks competing candidates by depth residual PLUS a penalty
+  (`ADMIXTURE_MISMATCH_PENALTY_M`, half the base depth window) when the two
+  units' admixtures mismatch. Sets are compared order-independently on the
+  `Admixture.canonical_key()` tokens; empty vs non-empty is a mismatch, empty
+  vs empty is not. So a matching admixture ranks above a mismatching one at the
+  same depth, but the penalty touches ranking / mutual-nearest-neighbour only:
+  the depth-window admission test stays on the RAW residual, so a mismatch
+  never turns a candidate inside the window into no candidate. The candidate
+  carries an additive `admixture_match` flag for a future UI badge.
 * **Bilateral closure required**: a candidate body must pinch out on ≥2
   distinct target investigations to fire as a lens; a unilateral single-target
   closure is not a lens.
