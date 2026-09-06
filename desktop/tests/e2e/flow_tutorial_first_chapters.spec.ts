@@ -82,13 +82,20 @@ test.describe('flow_tutorial_first_chapters', () => {
       //    lands on chapter 1's coordinate-system step (Step 3 of 4).
       await expect(card).toContainText('Step 3', { timeout: 15_000 })
 
-      // 6. Step through the CRS + datum explanations into chapter 2 (Import).
-      // Chapter 1 gained the project-settings step (owner walk 2026-09-04):
-      // Step 3 is now "where the project settings live", then CRS, then datum.
-      await page.getByTestId('tutorial-next').click() // metadata → crs
-      await page.getByTestId('tutorial-next').click() // crs → datum
-      await page.getByTestId('tutorial-next').click() // datum → import-open
-      await expect(card).toContainText('Chapter 2', { timeout: 5_000 })
+      // 6. Do-it steps advance by themselves (owner ruling 2026-09-06: "if a user
+      //    clicks 'Open de projectgegevens' the tutorial should automatically go to
+      //    the next step"). Step 3 completes when the project settings open; the
+      //    CRS and datum steps complete when the project carries a horizontal and
+      //    a vertical CRS. A fresh project may already carry defaults (then both
+      //    complete at once) or not (then each waits: skip it, the walk goes on).
+      await page.getByTestId('project-metadata-open').click()
+      for (let i = 0; i < 2; i++) {
+        if (((await card.textContent()) ?? '').includes('Chapter 2')) break
+        const skipStep = page.getByTestId('tutorial-skip-step')
+        if (await skipStep.isVisible().catch(() => false)) await skipStep.click()
+      }
+      await expect(card).toContainText('Chapter 2', { timeout: 10_000 })
+      await page.keyboard.press('Escape') // close the settings dialog again
       await expect(page.getByTestId('import-menu-button')).toBeVisible()
 
       // 7. "Skip tutorial" hides everything — the overlay unmounts.
