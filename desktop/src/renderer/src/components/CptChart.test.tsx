@@ -435,3 +435,68 @@ describe('CptChart — DOV catalogue unavailable copy (owner dogfeed 2026-09-05)
     expect(screen.queryByText(/DOV layer models unavailable/)).not.toBeInTheDocument()
   })
 })
+
+describe('CptChart — DOV overlay toggle enable rule (owner dogfeed 2026-09-06)', () => {
+  beforeEach(() => {
+    mockDovCatalogState = { catalog: null, failed: false, status: null }
+  })
+
+  it('disables the DOV toggle with a pick-a-model hint when no model is active in this pane', () => {
+    render(
+      <CptChart
+        plot={makePlot()}
+        detail={makeDetail()}
+        name="CPT-1"
+        onToggleVirtueleBoringVisible={() => {}}
+        virtueleBoringActiveModels={[]}
+        virtueleBoringOverrideModel=""
+        onChangeVirtueleBoringOverrideModel={() => {}}
+      />,
+    )
+    const btn = screen.getByRole('button', {
+      name: 'Toggle DOV Virtuele Boring overlay',
+    }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    // The disabled state is explained — the hint names where to pick a model.
+    expect(btn.title).toMatch(/Pick a DOV model/)
+  })
+
+  it('enables the DOV toggle when a layer model is active (inherited from the section)', () => {
+    render(
+      <CptChart
+        plot={makePlot()}
+        detail={makeDetail()}
+        name="CPT-1"
+        onToggleVirtueleBoringVisible={() => {}}
+        virtueleBoringActiveModels={['hcovv2_S']}
+        virtueleBoringOverrideModel=""
+        onChangeVirtueleBoringOverrideModel={() => {}}
+      />,
+    )
+    const btn = screen.getByRole('button', {
+      name: 'Toggle DOV Virtuele Boring overlay',
+    }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+  })
+
+  it('enables the DOV toggle when THIS pane has a model picked in its own dropdown, even with no inherited active models', () => {
+    // The owner picked a model in the chart's own override dropdown ("on the
+    // right").  The toggle must enable as soon as a model is active in the
+    // place the user picks it — not stay greyed waiting on section models.
+    render(
+      <CptChart
+        plot={makePlot()}
+        detail={makeDetail()}
+        name="CPT-1"
+        onToggleVirtueleBoringVisible={() => {}}
+        virtueleBoringActiveModels={[]}
+        virtueleBoringOverrideModel="hcovv2_S"
+        onChangeVirtueleBoringOverrideModel={() => {}}
+      />,
+    )
+    const btn = screen.getByRole('button', {
+      name: 'Toggle DOV Virtuele Boring overlay',
+    }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+  })
+})
