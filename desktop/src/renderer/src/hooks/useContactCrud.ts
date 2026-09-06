@@ -18,7 +18,7 @@
  */
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 
-import { api, DuplicateContactError } from '../api/client'
+import { api, DuplicateContactError, isApiStatus } from '../api/client'
 import type {
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
@@ -362,35 +362,52 @@ export function useContactCrud({
           field === 'base'
             ? { depth_base_m: newDepthM, source: snapped ? 'observation_layer' as const : 'manual' as const, confidence: snapped ? 'high' as const : 'medium' as const }
             : { depth_top_m: newDepthM, source: snapped ? 'observation_layer' as const : 'manual' as const, confidence: snapped ? 'high' as const : 'medium' as const }
-        const updated = isLitho
-          ? await api.geology.updateLayer(project.id, modelId, contactId, lithoDepthPatch)
-          : await api.geology.updateContact(project.id, modelId, contactId, {
-              depth_top_m: newDepthM,
-              source: snapped ? 'borehole_observation' : 'manual_pick',
-              confidence: snapped ? 'high' : 'medium',
-            })
+        let updated: FormationContactResponse | LithoLayerResponse | null
+        // Peer boundaries the cross-merge deleted (geological axis only — litho
+        // cross-merge is disabled at the BE, so this stays empty there).
+        let crossMergeDeletedIds: readonly string[] = []
+        if (isLitho) {
+          updated = await api.geology.updateLayer(project.id, modelId, contactId, lithoDepthPatch)
+        } else {
+          const outcome = await api.geology.updateContact(project.id, modelId, contactId, {
+            depth_top_m: newDepthM,
+            source: snapped ? 'borehole_observation' : 'manual_pick',
+            confidence: snapped ? 'high' : 'medium',
+          })
+          updated = outcome.contact
+          crossMergeDeletedIds = outcome.deletedContactIds
+        }
         // Mutation of a pre-existing contact — mark dirty so the close
         // prompt fires and a close-without-save reverts it (#160).
         markMutated()
 
-        // null = drag-down cross-merge: dragger was absorbed by the formation
-        // above.  The BE deleted the dragger + all crossed contacts in one
-        // atomic transaction.  We don't know which peer IDs were deleted, so
-        // we do a full refetch rather than optimistic filtering — the refetch
-        // is cheap (one GET for the model's contacts) and is the only way to
-        // keep local state consistent with DB truth after a multi-delete.
+        // Drop the boundaries this drag crossed from the section AT ONCE — the
+        // BE named them, so they leave the screen immediately (before the
+        // reconciling refetch lands) and deleting them again is never offered
+        // (installer #20 dogfeed 2026-09-06). Geological axis only.
+        if (crossMergeDeletedIds.length > 0) {
+          const gone = new Set(crossMergeDeletedIds)
+          setContacts(prev => prev.filter(c => !gone.has(c.id)))
+        }
+
+        // null = drag-down cross-merge: the dragger itself was absorbed by the
+        // formation above. The BE deleted the dragger + the crossed peers in one
+        // atomic transaction; prune the dragger now (the peers were pruned above)
+        // and still refetch to settle local state to DB truth.
         if (updated === null) {
           log.success(
             'geology',
             `updateContactDepth absorbed id=${contactId} (drag-down cross-merge) — refetching`,
           )
-          log.debug('geology', '[handleUpdateContactDepth] absorbed-204', {
+          log.debug('geology', '[handleUpdateContactDepth] absorbed', {
             contactId,
+            deletedContactIds: crossMergeDeletedIds,
             axis: isLitho ? 'litho' : 'geological',
           })
           if (isLitho) {
             refetchLithoContacts()
           } else {
+            setContacts(prev => prev.filter(c => c.id !== contactId))
             refetchContacts()
           }
           return
@@ -491,12 +508,9 @@ export function useContactCrud({
               refetchLithoContacts()
               return
             }
-            const reverted = await api.geology.updateContact(
-              projectId,
-              modelId,
-              contactId,
-              beforePayload,
-            )
+            const reverted = (
+              await api.geology.updateContact(projectId, modelId, contactId, beforePayload)
+            ).contact
             if (reverted !== null) {
               setContacts(prev => prev.map(c => (c.id === contactId ? reverted : c)))
             }
@@ -507,12 +521,9 @@ export function useContactCrud({
               refetchLithoContacts()
               return
             }
-            const reapplied = await api.geology.updateContact(
-              projectId,
-              modelId,
-              contactId,
-              afterPayload,
-            )
+            const reapplied = (
+              await api.geology.updateContact(projectId, modelId, contactId, afterPayload)
+            ).contact
             if (reapplied !== null) {
               setContacts(prev => prev.map(c => (c.id === contactId ? reapplied : c)))
             }
@@ -692,6 +703,13 @@ export function useContactCrud({
       const created: FormationContactResponse[] = []
       const patched: PatchedItem[] = []
       let failed = 0
+      // Ids a same-batch cross-merge deleted. A 409 "stamp on target" move can
+      // drag the target DOWN past peers created earlier in THIS batch; the BE
+      // deletes those peers (and may absorb the target itself). We record them
+      // here and prune them from both lanes + local state after the loop, so a
+      // crossed boundary never lingers as a phantom the user can only "delete"
+      // into a 404 (installer #20 dogfeed 2026-09-06).
+      const crossMergeDeletedIds = new Set<string>()
       // Local index of "everything currently in the model on the
       // server side" — seeded from React state, then live-updated
       // as this batch progresses. Authoritative for in-batch 409
@@ -740,7 +758,7 @@ export function useContactCrud({
               continue
             }
             try {
-              const after = await api.geology.updateContact(
+              const outcome = await api.geology.updateContact(
                 projectId,
                 modelId,
                 err.existingContactId,
@@ -750,13 +768,19 @@ export function useContactCrud({
                   confidence: payload.confidence,
                 },
               )
-              // null = absorbed by drag-down cross-merge; cannot happen on a
-              // plain depth PATCH without a cross-merge, but guard defensively.
+              // The "stamp on target" move may have crossed peers created
+              // earlier in this batch — the BE names them; record for pruning.
+              for (const id of outcome.deletedContactIds) crossMergeDeletedIds.add(id)
+              const after = outcome.contact
+              // null = the target itself was absorbed by the formation above
+              // (a drag-down cross-merge). Record it too so it is pruned, not
+              // left as a phantom, then skip the patched lane for this entry.
               if (after === null) {
+                crossMergeDeletedIds.add(err.existingContactId)
                 failed += 1
                 log.warn(
                   'geology',
-                  `batchCreateContacts PATCH-on-409 returned absorbed for ${err.existingContactId} — skipping`,
+                  `batchCreateContacts PATCH-on-409 absorbed ${err.existingContactId} — pruning`,
                 )
                 continue
               }
@@ -779,15 +803,39 @@ export function useContactCrud({
         }
       }
 
-      // Apply local-state changes from BOTH lanes at once.
-      if (created.length > 0) {
-        setContacts(prev => [...prev, ...created])
-        addToSessionImports('contact', created.map(c => c.id))
+      // Drop any rows a same-batch cross-merge deleted from both lanes so the
+      // optimistic setContacts below never re-adds a boundary the model no
+      // longer has (installer #20 dogfeed 2026-09-06).
+      if (crossMergeDeletedIds.size > 0) {
+        for (let k = created.length - 1; k >= 0; k -= 1) {
+          if (crossMergeDeletedIds.has(created[k].id)) created.splice(k, 1)
+        }
+        for (let k = patched.length - 1; k >= 0; k -= 1) {
+          if (crossMergeDeletedIds.has(patched[k].after.id)) patched.splice(k, 1)
+        }
+      }
+
+      // Apply local-state changes from BOTH lanes at once. When a cross-merge
+      // deleted rows, also prune them from the existing state (they may have
+      // been pre-existing contacts, not just this batch's own creations).
+      if (created.length > 0 || crossMergeDeletedIds.size > 0) {
+        setContacts(prev => {
+          const kept =
+            crossMergeDeletedIds.size > 0
+              ? prev.filter(c => !crossMergeDeletedIds.has(c.id))
+              : prev
+          return created.length > 0 ? [...kept, ...created] : kept
+        })
+        if (created.length > 0) addToSessionImports('contact', created.map(c => c.id))
       }
       if (patched.length > 0) {
         const byId = new Map(patched.map(p => [p.after.id, p.after]))
         setContacts(prev => prev.map(c => byId.get(c.id) ?? c))
       }
+      // Reconcile with DB truth after any cross-merge deletion — the immediate
+      // prune above is belt; this refetch is authoritative (matches the
+      // single-drag path, which always refetches after a cross-merge).
+      if (crossMergeDeletedIds.size > 0) refetchContacts()
       const total = created.length + patched.length
       log.success(
         'geology',
@@ -834,7 +882,7 @@ export function useContactCrud({
                   source: p.before.source,
                   confidence: p.before.confidence,
                 })
-                .then(reverted => {
+                .then(({ contact: reverted }) => {
                   if (reverted === null) return
                   setContacts(prev =>
                     prev.map(c => (c.id === reverted.id ? reverted : c)),
@@ -872,7 +920,7 @@ export function useContactCrud({
                   source: p.after.source,
                   confidence: p.after.confidence,
                 })
-                .then(reapplied => {
+                .then(({ contact: reapplied }) => {
                   if (reapplied === null) return
                   setContacts(prev =>
                     prev.map(c => (c.id === reapplied.id ? reapplied : c)),
@@ -889,6 +937,7 @@ export function useContactCrud({
       addToSessionImports,
       pushUndo,
       contacts,
+      refetchContacts,
     ],
   )
 
@@ -1139,6 +1188,17 @@ export function useContactCrud({
           },
         })
       } catch (err) {
+        // A 404 means the boundary is already gone from the model — most often
+        // a cross-merge deleted it earlier and it lingered on screen. Deleting
+        // a boundary the model no longer has must remove it from the section
+        // without an error, not raise a toast (installer #20 dogfeed
+        // 2026-09-06). The litho path's deleteLayer already swallows its own
+        // 404, so only the geological deleteContact reaches here as an error.
+        if (isApiStatus(err, 404)) {
+          log.debug('geology', `deleteContact 404 — already gone, pruning id=${contactId}`)
+          setContacts(prev => prev.filter(c => c.id !== contactId))
+          return
+        }
         log.error('geology', `deleteContact failed id=${contactId}`, err)
         toast('error', t('sections.toast.contactDeleteFailed'))
       }
