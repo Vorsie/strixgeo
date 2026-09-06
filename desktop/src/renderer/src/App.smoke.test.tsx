@@ -194,6 +194,12 @@ vi.mock('./api/client', async () => {
         delete: stub(),
         exportDxf: stub(),
       },
+      bedOverrides: {
+        list: stubArr(),
+        create: stub(),
+        update: stub(),
+        delete: stub(),
+      },
       codelists: {
         g3dv3: vi.fn().mockResolvedValue({ formations: [] }),
       },
