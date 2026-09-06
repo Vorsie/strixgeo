@@ -30,6 +30,7 @@ from groundmodel.api.schemas.project.formation_contact import (
     DeduplicateContactsResponse,
     DiscoverFromStratigraphyRequest,
     DiscoverFromStratigraphyResponse,
+    FormalCodeItem,
     FormationCandidateItem,
     LumpingCollisionItem,
     SeedLithoFromParentRequest,
@@ -347,6 +348,14 @@ async def discover_from_stratigraphy(
                 regional_ref=c.regional_ref,
                 key=c.key,
                 borehole_count=c.borehole_count,
+                formal_codes=[
+                    FormalCodeItem(
+                        code=fc.code,
+                        count=fc.count,
+                        catalog_name=fc.catalog_name,
+                    )
+                    for fc in c.formal_codes
+                ],
             )
             for c in candidates
         ],
