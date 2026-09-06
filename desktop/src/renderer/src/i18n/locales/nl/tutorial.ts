@@ -141,7 +141,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Voor je de vlakken bouwt, teken je een tweede dwarsprofiel over het terrein. Eén lijn geeft elk vlak maar één doorsnede; een tweede lijn geeft het de 3D-gegevens om ertussen te interpoleren. Teken het op dezelfde manier als het eerste.',
   'tutorial.geo-surfaces.title': 'Bouw de vlakken',
   'tutorial.geo-surfaces.body':
-    'Bouw de formatievlakken vanuit de contacten. StrixGeo legt één vlak door elke formatietop. Controleer daarna de kruisingen die de validatie meldt, want de formaties moeten op volgorde blijven om het model geldig te houden.',
+    'Bouw de formatievlakken vanuit de contacten. StrixGeo legt één vlak door elke formatietop. Controleer daarna de kruisingen die de validatie meldt, want de formaties moeten op volgorde blijven om het model geldig te houden. Deze stap vinkt af zodra de vlakken gebouwd zijn.',
 
   // 5 · Lithostratigrafisch model -------------------------------------------
   'tutorial.litho-open.title': 'Open de Lithologie-stap',
@@ -149,10 +149,10 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Het lithologisch model verfijnt de stratigrafische ruggengraat tot lithologische eenheden. Denk aan zand, klei, silt, grind en veen, met hun bijmengingen. Je bouwt het langs je dwarsprofielen, kolom per kolom.',
   'tutorial.litho-create.title': 'Maak een lithomodel aan',
   'tutorial.litho-create.body':
-    'Het lithomodel is een aparte grondmodel-as onder het stratigrafische. Maak het eerst aan, zolang het niet bestaat, is er niets om litholaaggrenzen op te kiezen. Geef het een naam en het wordt het actieve lithomodel.',
+    'Het lithomodel is een aparte grondmodel-as onder het stratigrafische. Maak het eerst aan: zolang het niet bestaat, blijven de Litho- en Geotech-aspillen vergrendeld en is er niets om litholaaggrenzen op te kiezen. Geef het een naam en het wordt het actieve lithomodel; deze stap vinkt af zodra het model bestaat.',
   'tutorial.litho-axis.title': 'Schakel naar de litho-as',
   'tutorial.litho-axis.body':
-    'Open een dwarsprofiel en zet de as op Litho. Hetzelfde profiel bewerkt nu het lithomodel in plaats van de stratigrafie, elk voorstel en elke correlatie die je hier maakt, hoort bij het lithomodel.',
+    'Open een dwarsprofiel en zet de as op Litho. De Litho-pil ontgrendelt zodra het lithomodel bestaat, dus je bereikt ze meteen na het aanmaken van het model. Hetzelfde profiel bewerkt nu het lithomodel in plaats van de stratigrafie, en elk voorstel en elke correlatie die je hier maakt, hoort bij het lithomodel.',
   'tutorial.litho-accept.title': 'Aanvaard de voorstellen',
   'tutorial.litho-accept.body':
     'De segmenter stelt lithologische lagen voor op elke kolom en leest de sondering met een Robertson-classificatie. Aanvaard die welke overeenkomen met wat je ziet. Dit is ondersteund werk, geen automatische correlatie, dus jij houdt elke laag in de hand. Deze stap vinkt af zodra je je eerste voorstel aanvaardt.',
@@ -177,7 +177,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Het geotechnisch model verdeelt de lithologische eenheden in NAD-pakkingsklassen. Het leest CPT-afgeleide indicatoren zoals qc en relatieve dichtheid, dus dit zijn karakterisatie-schattingen, geen ontwerpwaarden. Je ontwerpgetallen komen later, in je ontwerptool.',
   'tutorial.geotech-subdivide.title': 'Doorloop de pakkingsstroom',
   'tutorial.geotech-subdivide.body':
-    'Schakel op een dwarsprofiel naar de Geotech-as en open de Pakkingsstroom. Ze verloopt in vier stappen: verdeel de sonderingen onder zodat elke lithologische eenheid in haar pakkingsklassen splitst, stel de pakkingscorrelaties voor en aanvaard ze, en verdeel dan de boringen om de klassen mee over te dragen. Deze stap vinkt af zodra het geotechnisch model bestaat.',
+    'Schakel op een dwarsprofiel naar de Geotech-as en open de Pakkingsstroom. De Geotech-pil ontgrendelt zodra er een lithomodel bestaat, want de stroom bouwt het geotechnisch model uit de lithologische eenheden. Ze verloopt in vier stappen: verdeel de sonderingen onder zodat elke lithologische eenheid in haar pakkingsklassen splitst, stel de pakkingscorrelaties voor en aanvaard ze, en verdeel dan de boringen om de klassen mee over te dragen. Deze stap vinkt af zodra het geotechnisch model bestaat.',
   'tutorial.geotech-bodies.title': 'Herberekenen en groeperen',
   'tutorial.geotech-bodies.body':
     "Herbereken de lichamen om vast te leggen welke massa's als één geotechnisch lichaam tellen. Gebruik Voeg samen met om gelijkaardige massa's te groeperen, zodat je meer data en minder exportklassen draagt. Gebruik Ontkoppelen om een lichaam weer uit een groep te lichten. Bouw daarna het geotechnische 3D-model.",
@@ -237,7 +237,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Weergave resetten vliegt de 3D-camera terug naar het model en klapt een gesplitst venster dicht. Stratigrafie verwijderen haalt het hele model weg, elke formatie, elk contact en elk vlak, dus het bevestigt altijd eerst.',
   'tutorial.geo-carry-strat.title': 'Draag de stratigrafie over naar de sonderingen',
   'tutorial.geo-carry-strat.body':
-    'Houd Shift ingedrukt en sleep een boringscontact zijwaarts over de naburige sonderingskolommen. Het schildert een kopie van dat contact op elke kolom die je passeert, zodat de sonderingen dezelfde onderverdeling dragen. Doe dit voor je de vlakken bouwt.',
+    'Houd Shift ingedrukt en sleep een boringscontact zijwaarts over de naburige sonderingskolommen; het schildert een kopie op elke kolom die je passeert, zodat de sonderingen dezelfde onderverdeling dragen. Om meerdere grenzen tegelijk mee te nemen, Shift-klik het onderste contact om eerst het hele bereik te selecteren (of Shift-sleep eroverheen), en sleep de groep dan samen mee. Zet de contacten juist voor je het model bouwt, en doe dit op beide dwarsprofielen.',
   'tutorial.litho-suggest.title': 'Litholagen voorstellen',
   'tutorial.litho-suggest.body':
     'Voorstellen leest de gefocuste kolom met een Robertson-classificatie en stelt litholagen voor als spookgrenzen. De caret biedt de bulkvarianten: voorstellen voor het hele profiel, of enkel voor nieuwe proeven.',
@@ -264,7 +264,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Het menu Weergave schakelt wat de geotech-as tekent: de pakkingsvulling, de gebouwde-modelvulling, de lithovulling eronder, de boringsvoorbeeldweergave en de correlatielinten.',
   'tutorial.geotech-build.title': 'Bouw het geotechnisch model',
   'tutorial.geotech-build.body':
-    'Op de Geotech-stap zet Model bouwen de aanvaarde pakkingsbanden om in 3D NAD-lichamen. Een preflight vraagt naar elke proef die litho draagt maar geen banden, voor het bouwt.',
+    'Op de Geotech-stap zet Model bouwen de aanvaarde pakkingsbanden om in 3D NAD-lichamen. Een preflight vraagt naar elke proef die litho draagt maar geen banden, voor het bouwt. Deze stap vinkt af zodra de geotech-solids bestaan.',
   'tutorial.geotech-fence.title': 'Exporteer de geotech-fence',
   'tutorial.geotech-fence.body':
     'Zodra de geotech-solids bestaan, schrijft Fence exporteren het 3D-fencediagram naar DXF, net als de litho-stap. Het weigert met een waarschuwing tenzij de weergave in Fence-modus staat.',
