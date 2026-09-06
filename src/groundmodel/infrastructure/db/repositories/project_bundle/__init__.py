@@ -259,6 +259,7 @@ class ProjectBundleService(GroundModelLogger):
         geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
         body_separations_payload: list[dict[str, Any]] | None = None,
         body_unions_payload: list[dict[str, Any]] | None = None,
+        bed_overrides_payload: list[dict[str, Any]] | None = None,
         *,
         replace: bool = False,
         drops: BundleRestoreDrops | None = None,
@@ -304,6 +305,8 @@ class ProjectBundleService(GroundModelLogger):
             User "Separate" rulings (owner 2026-08-31, debt #278 R5).
         body_unions_payload : list[dict[str, Any]] | None
             User "Join with…" rulings (owner 2026-08-31, debt #278).
+        bed_overrides_payload : list[dict[str, Any]] | None
+            Manual bed-level polygon rows (owner ruling 2026-09-06).
         replace : bool
             When True, wipe the project's child collections before inserting
             (revert-to-last-save, debt #160) so the project ends up matching
@@ -346,6 +349,7 @@ class ProjectBundleService(GroundModelLogger):
             geotech_tie_tombstones_payload=geotech_tie_tombstones_payload,
             body_separations_payload=body_separations_payload,
             body_unions_payload=body_unions_payload,
+            bed_overrides_payload=bed_overrides_payload,
             logger=self,
             replace=replace,
             drops=drops,
@@ -402,6 +406,7 @@ async def restore_project_bundle(
     geotech_tie_tombstones_payload: list[dict[str, Any]] | None = None,
     body_separations_payload: list[dict[str, Any]] | None = None,
     body_unions_payload: list[dict[str, Any]] | None = None,
+    bed_overrides_payload: list[dict[str, Any]] | None = None,
     *,
     replace: bool = False,
     drops: BundleRestoreDrops | None = None,
@@ -448,6 +453,8 @@ async def restore_project_bundle(
         User "Separate" rulings (owner 2026-08-31, debt #278 R5).
     body_unions_payload : list[dict[str, Any]] | None
         User "Join with…" rulings (owner 2026-08-31, debt #278).
+    bed_overrides_payload : list[dict[str, Any]] | None
+        Manual bed-level polygon rows (owner ruling 2026-09-06).
     replace : bool
         When True, wipe before insert (revert-to-last-save).
     drops : BundleRestoreDrops | None
@@ -482,6 +489,7 @@ async def restore_project_bundle(
         geotech_tie_tombstones_payload=geotech_tie_tombstones_payload,
         body_separations_payload=body_separations_payload,
         body_unions_payload=body_unions_payload,
+        bed_overrides_payload=bed_overrides_payload,
         replace=replace,
         drops=drops,
     )
