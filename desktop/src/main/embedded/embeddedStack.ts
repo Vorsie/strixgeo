@@ -53,8 +53,17 @@ export interface EmbeddedStack {
   pythonExe: string
   /** Environment the backend child must inherit. */
   backendEnv: NodeJS.ProcessEnv
-  /** Shut the database down cleanly. Safe to call more than once. */
-  stop: () => void
+  /**
+   * Ask PostgreSQL to stop with a fast checkpoint, waiting at most ``graceMs``.
+   * Returns true when it confirmed stopped (no WAL replay next boot), false when
+   * it did not stop in time. Idempotent; returns true when nothing is running.
+   */
+  stopClean: (graceMs: number) => boolean
+  /**
+   * Force PostgreSQL's whole process tree down (the fallback / crash path).
+   * Idempotent; a no-op when nothing is running.
+   */
+  forceStop: () => void
 }
 
 /**
