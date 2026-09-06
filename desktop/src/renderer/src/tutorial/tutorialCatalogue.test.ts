@@ -234,6 +234,14 @@ describe('tutorialCatalogue owner rulings 2026-09-05', () => {
     expect(indexOf('geo-carry-strat')).toBeLessThan(indexOf('geo-surfaces'))
   })
 
+  it('2026-09-06: draw the canal bed on the Data stage before building the surfaces', () => {
+    const step = stepById('geo-bed')
+    expect(step?.stage).toBe('data')
+    expect(step?.anchor).toBe('data-toolbar-bed-level')
+    expect(step?.done).toEqual({ state: 'bedOverrideExists' })
+    expect(indexOf('geo-bed')).toBeLessThan(indexOf('geo-surfaces'))
+  })
+
   it('litho + geotech editing chains through the sections axis pill (axis switch)', () => {
     expect(stepById('litho-suggest')?.anchors).toContain('axis-litho')
     expect(stepById('litho-correlate')?.anchors).toContain('axis-litho')
@@ -257,6 +265,7 @@ describe('tutorialCatalogue owner ruling 1 (2026-09-06): do-it steps auto-advanc
     ['import-open', 'importMenuOpen'],
     ['litho-create', 'lithoModelExists'],
     ['litho-axis', 'lithoAxisActive'],
+    ['geo-bed', 'bedOverrideExists'],
     ['geo-surfaces', 'geoSurfacesBuilt'],
     ['geotech-build', 'geotechSolidsBuilt'],
   ]
