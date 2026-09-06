@@ -56,6 +56,7 @@ function emptyState(): TutorialState {
     sectionOpen: false,
     geoSurfacesBuilt: false,
     geotechSolidsBuilt: false,
+    bedOverrideExists: false,
   }
 }
 
