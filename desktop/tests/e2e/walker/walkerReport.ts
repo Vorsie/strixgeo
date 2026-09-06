@@ -1,13 +1,17 @@
 /**
- * Markdown formatter for the walker's findings report -- pure string building.
+ * Markdown formatter for the walker's findings report.
  *
  * The orchestrator enriches each {@link Finding} with the last-ten-steps repro
- * trail and a screenshot path, then this module renders ``findings.md``. Kept
- * pure so the format (including the grep-stable summary line the session main
- * scans for) is unit tested without the app.
+ * trail and a screenshot path, then this module renders ``findings.md``. The
+ * string building is pure (the grep-stable summary line the session main scans
+ * for is unit tested without the app); the one impure step is resolving a
+ * bundled ``assets/<chunk>.js:line:col`` frame in a detail back to its source
+ * line via the emitted ``.map`` (injectable, defaults to reading disk, no-ops
+ * when no map is present — so a mapless run still renders a valid report).
  */
 
 import type { Finding } from './walkerInvariants'
+import { resolveDetailSourceLocation } from './walkerSourceMap'
 
 /** A finding plus the context the report needs to make it reproducible. */
 export interface ReportFinding extends Finding {
@@ -52,9 +56,17 @@ function tally(findings: readonly Finding[]): Array<[string, number]> {
  *
  * @param meta - Run-level facts.
  * @param findings - The enriched findings, in the order they occurred.
+ * @param resolveDetail - Maps a finding detail to one enriched with its source
+ *   location (a bundle frame resolved through the chunk's ``.map``). Injectable
+ *   for tests; defaults to the disk-backed resolver, which returns the detail
+ *   unchanged when there is no frame or no map.
  * @returns The markdown document.
  */
-export function formatReport(meta: RunMeta, findings: readonly ReportFinding[]): string {
+export function formatReport(
+  meta: RunMeta,
+  findings: readonly ReportFinding[],
+  resolveDetail: (detail: string) => string = resolveDetailSourceLocation,
+): string {
   const lines: string[] = []
   lines.push('# Walker scenario pass')
   lines.push('')
@@ -85,7 +97,7 @@ export function formatReport(meta: RunMeta, findings: readonly ReportFinding[]):
     findings.forEach((f, i) => {
       lines.push(`### ${i + 1}. [${f.invariant}] step ${f.step}`)
       lines.push('')
-      lines.push(`- detail: ${f.detail}`)
+      lines.push(`- detail: ${resolveDetail(f.detail)}`)
       if (f.screenshot) lines.push(`- screenshot: ${f.screenshot}`)
       lines.push('- reproduction (last steps, oldest first):')
       if (f.trail.length === 0) {
