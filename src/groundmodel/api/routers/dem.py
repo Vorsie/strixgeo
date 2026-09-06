@@ -14,10 +14,16 @@ this project's CRS" without knowing the mapping.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.schemas.dem import DemSampleLineResponse, DemSamplePointResponse
+from groundmodel.application.load_bed_overrides import load_bed_override_polygons
+from groundmodel.domain.services.bed_override import bed_level_at
+from groundmodel.infrastructure.db.session import get_session
 from groundmodel.infrastructure.dem.dem_provider_factory import (
     NoDemProviderError,
     build_dem_provider,
@@ -48,6 +54,16 @@ async def sample_along_line(
     end_y: float = Query(..., description="Line end Y in the project CRS."),
     epsg: int = Query(..., description="EPSG of the endpoint coordinates."),
     n_samples: int = Query(200, ge=2, le=_MAX_SAMPLES),
+    project_id: UUID | None = Query(
+        None,
+        description=(
+            "Optional project scope. When given, the project's manual bed-level "
+            "overrides are applied — a sample inside a bed polygon reads the bed "
+            "level instead of the DEM, so the section line shows the dredged bed "
+            "where the section crosses the polygon (owner ruling 2026-09-06)."
+        ),
+    ),
+    session: AsyncSession = Depends(get_session),
 ) -> DemSampleLineResponse:
     """Return ``n_samples`` evenly-spaced elevations along the requested line.
 
@@ -170,6 +186,31 @@ async def sample_along_line(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="DEM service returned a malformed response",
         ) from err
+
+    # Apply the project's manual bed-level overrides, if a project was named.
+    # A sample whose (x, y) falls inside a bed polygon reads the drawn bed
+    # level instead of the DEM's water surface — that is what makes the section
+    # DEM line show the bed where the section crosses the polygon.
+    bed_overrides = (
+        await load_bed_override_polygons(session, project_id) if project_id is not None else []
+    )
+    if bed_overrides:
+        # Each sample sits at fraction (along / line length) along the line; the
+        # provider samples the same evenly-spaced points, so recover (x, y)
+        # from the along-distance to test polygon membership.
+        line_length = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5
+        adjusted: list[DemSamplePointResponse] = []
+        for s in samples:
+            frac = (s.along_m / line_length) if line_length > 0 else 0.0
+            x = start_x + frac * (end_x - start_x)
+            y = start_y + frac * (end_y - start_y)
+            level = bed_level_at(bed_overrides, x, y)
+            elevation = level if level is not None else s.elevation_m
+            adjusted.append(DemSamplePointResponse(along_m=s.along_m, elevation_m=elevation))
+        logger.info(
+            f"DEM sample: applied {len(bed_overrides)} bed override(s) for project {project_id}"
+        )
+        return DemSampleLineResponse(source=provider.provider_id, samples=adjusted)
 
     return DemSampleLineResponse(
         source=provider.provider_id,
