@@ -112,7 +112,21 @@ export async function executeAction(
     case 'switchStage':
       if (plan.stage) {
         const id = STAGE_TESTID.get(plan.stage)
-        if (id) await page.getByTestId(id).click(opts).catch(rethrowIfFatal)
+        if (id) {
+          // Run 1 (seed 20260906) stayed on the Data stage for 300 steps: every
+          // switch click was swallowed (a menu or panel under the pointer, an
+          // actionability timeout) and nothing said so. Close whatever is open,
+          // click, and verify the tab actually took; on a miss, force once and
+          // report it, so the run explains its own coverage.
+          await page.keyboard.press('Escape').catch(() => {})
+          await page.getByTestId(id).click({ ...opts, timeout: 5_000 }).catch(rethrowIfFatal)
+          const took = await stageTabPressed(page, id)
+          if (!took) {
+            await page.getByTestId(id).click({ force: true, timeout: 5_000 }).catch(rethrowIfFatal)
+            const tookForced = await stageTabPressed(page, id)
+            console.log(`[walker] stage switch to ${plan.stage}: ${tookForced ? 'took after force' : 'DID NOT TAKE'}`)
+          }
+        }
       }
       break
     case 'resizeWindow':
@@ -246,4 +260,15 @@ async function runFollowUp(page: Page, plan: ActionPlan): Promise<void> {
     default:
       break
   }
+}
+
+/** Whether the stage tab with this testid is the pressed (active) one right now. */
+async function stageTabPressed(page: Page, testid: string): Promise<boolean> {
+  await page.waitForTimeout(300)
+  return page
+    .evaluate(
+      (id: string) => document.querySelector(`[data-testid="${id}"]`)?.getAttribute('aria-pressed') === 'true',
+      testid,
+    )
+    .catch(() => false)
 }
