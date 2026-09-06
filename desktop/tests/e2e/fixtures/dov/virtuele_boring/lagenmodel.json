@@ -1,0 +1,12 @@
+[
+  {
+    "code": "g3dv3_F",
+    "beschrijving": "Geologisch 3D-model v3.1 per formatie",
+    "resoluties": [50, 100]
+  },
+  {
+    "code": "hcovv2_H",
+    "beschrijving": "Hydrogeologische Codering van de Ondergrond v2 - hoofdeenheden",
+    "resoluties": [100]
+  }
+]
