@@ -161,12 +161,20 @@ describe('safe default: TS7 gap0 drilled clay is not flooded by silt (real data)
     }
   })
 
-  maybe('a section the repair still fires on exposes its flags (the correlate-me surface)', () => {
-    // Tie-section 11 is the one section on the current extraction where the flooded-unit repair
-    // still fires (2026-08-18 all-sections scan) — the live pin that the repaired units reach the
-    // UI as review flags. If the engine ever heals this section too, move the pin the same way
-    // this file moved it off TS7 (scan for a section with flags; none left = retire into the
-    // synthetic detection suite alone).
+  maybe('Tie-section 11 no longer needs the repair either — the enclosed-lens flood FP is fixed at source', () => {
+    // FIXTURE HISTORY. TS11 was the LAST section where the flooded-unit repair still fired (the
+    // live pin that a repair reaches the UI as review flags). It fired on a FALSE POSITIVE, the same
+    // shape the owner reported on Cross-section 3 (2026-09-06): the merged KLEI band [4.60..10.89]
+    // ENCLOSES a VEEN lens, and ``detectFloodedUnits`` sampled the band's near-column interior —
+    // which the VEEN lens (hugging the column, apex ~0.45) covered — so it mis-read the KLEI band as
+    // flooded by VEEN and forced it to a lens, emptying the band interior. The fix (a lens is an
+    // enclosed-minority OVERLAY, excluded from the flood check) heals TS11 exactly as it heals CS3:
+    // zero repair flags, and the drilled KLEI band renders KLEI with the VEEN as a lens inside.
+    //
+    // The repair MECHANISM stays pinned by the synthetic detection suite above (a real QUAD flood is
+    // still flagged) and by the always-on ground-truth overpaint gate
+    // (partitionFillV2.groundTruth.diag.test.ts). No real section on the current extraction needs it —
+    // as with TS7, "zero review flags is the truthful state" now that the flood is fixed at source.
     const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
     const sec = raw.sections.find((s) => s.name === 'Tie-section 11')!
     const keep = sec.columns.filter((c) => c.surfaceElevM != null && c.units.length > 0)
@@ -182,13 +190,22 @@ describe('safe default: TS7 gap0 drilled clay is not flooded by silt (real data)
     }))
     const prev = setTwoSidedTerminations(true)
     try {
-      const { reviewFlags } = computeSectionFillV2WithConflicts(columns, edges, undefined, alongM)
-      expect(reviewFlags.length, 'the repaired unit is exposed as a review flag').toBeGreaterThan(0)
-      for (const f of reviewFlags) {
-        expect(typeof f.layerId, 'a flag names its layer').toBe('string')
-        expect(f.side === 'left' || f.side === 'right', 'a flag names its side').toBe(true)
-        expect(Number.isInteger(f.gapIndex), 'a flag names its gap').toBe(true)
-      }
+      const { regions, reviewFlags } = computeSectionFillV2WithConflicts(columns, edges, undefined, alongM)
+      expect(reviewFlags, 'TS11 carries no repair flags — the enclosed-lens flood FP is fixed').toEqual([])
+      const gap0 = regions.filter((r) => r.gapIndex === 0)
+      // The drilled KLEI matrix band survives: a KLEI quad spans the gap over the enclosing band's
+      // elevation (never forced to a lens), with the VEEN drawn as a lens inside it.
+      const kleiSpansGap = gap0.some((r) => {
+        if (r.formationId !== KLEI || r.kind !== 'quad') return false
+        let fMin = Infinity, fMax = -Infinity, eMin = Infinity, eMax = -Infinity
+        for (const p of r.polygon) {
+          fMin = Math.min(fMin, p.fraction); fMax = Math.max(fMax, p.fraction)
+          eMin = Math.min(eMin, p.elevation); eMax = Math.max(eMax, p.elevation)
+        }
+        return fMin <= 0.02 && fMax >= 0.98 && eMin < 6 && eMax > 10
+      })
+      expect(kleiSpansGap, 'the drilled KLEI band spans the gap (not destroyed by a false flood repair)').toBe(true)
+      expect(gap0.some((r) => r.kind === 'lens'), 'the enclosed VEEN renders as a lens inside the band').toBe(true)
     } finally {
       setTwoSidedTerminations(prev)
     }
