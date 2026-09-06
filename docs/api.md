@@ -192,6 +192,8 @@ PATCH  /models/{model_id}/layers/batch-update — All-or-nothing PATCH for N lay
 POST   /models/{model_id}/layers/{layer_id}/link-geo — Link a litho LAYER to the nearest geological contact (A4 cleanup).
 DELETE /models/{model_id}/layers/{layer_id} — Delete one ``litho_layer`` row + reconcile downstream state.
 PATCH  /models/{model_id}/layers/{layer_id} — Partial update on one layer row.
+PATCH  /models/{model_id}/layers/{layer_id}/composition — "Edit composition": repoint one accepted layer to the litho unit for a different (main soil code, admixtures) composition, find-or-create; depths/anchor/status kept, resolver re-runs.
+POST   /models/{model_id}/layers/{layer_id}/split — "Split here": atomically split one accepted layer at ``depth_m`` into two accepted layers sharing the formation (422 when the depth leaves either half below the min thickness).
 ```
 
 **Geology » Surfaces + validation — `geology/surfaces.py`**
