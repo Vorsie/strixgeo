@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from groundmodel.domain.value_objects.admixture_constants import canonical_amount
+
 
 @dataclass(frozen=True)
 class Admixture:
@@ -52,6 +54,8 @@ class Admixture:
         Returns
         -------
         str
-            ``"<soil_code>:<amount>"`` (e.g. ``"KL:Z"``).
+            ``"<soil_code>:<amount>"`` (e.g. ``"KL:Z"``), with the amount folded
+            onto its canonical synonym (``"S"`` reads as ``"V"``: sterk = veel,
+            owner ruling 2026-09-06) so equal compositions compare equal.
         """
-        return f"{self.soil_code}:{self.amount}"
+        return f"{self.soil_code}:{canonical_amount(self.amount)}"
