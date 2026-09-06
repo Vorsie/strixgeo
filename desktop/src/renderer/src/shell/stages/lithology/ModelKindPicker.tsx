@@ -186,6 +186,7 @@ export default function ModelKindPicker(): JSX.Element | null {
           </select>
           <button
             type="button"
+            data-testid="litho-model-create"
             onClick={() => setCreating(true)}
             title={t('litho.newModelHint')}
             aria-label={t('litho.newModel')}
@@ -213,6 +214,7 @@ export default function ModelKindPicker(): JSX.Element | null {
         // axis they must create before picking contacts on sections.
         <button
           type="button"
+          data-testid="litho-model-create"
           onClick={() => setCreating(true)}
           title={t('litho.createModelHint')}
           aria-label={t('litho.createModel')}
