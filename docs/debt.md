@@ -9959,3 +9959,50 @@ per its own guard rather than half-building it.
 **When to revisit.** When a real project's Build is slow enough that the missing
 cancel/progress is a dogfeed complaint, or alongside the next job-system pass —
 whichever comes first. Effort: ~days across API + domain + frontend.
+
+## 283. Fill-engine emission layer rewritten from the 2/1/0 oracle (L — Tier D, post-beta)
+
+**What.** `desktop/src/renderer/src/utils/partitionFillV2/` is 17,000 lines in
+66 files: the owner's rule (2 ties = band, 1 = onlap onto the same unit, 0 =
+lens) is counted correctly in `effectiveCorr.ts`, but the DRAWING after it
+(terminationPlan / the emit* modules / the repair loop) grew as one special
+case on top of another, each pinned by tests written from the code. The owner
+(2026-09-06, after the empty-band-interior bug): "it is a super simple rule,
+I don't get how this goes wrong so often". The fix that day was one line in
+`detectFloodedUnits.ts`; the class of bug is structural. Since 2026-09-06 the
+rule itself is pinned from the owner's side: `oracle210.ts` (his column walk
+as a pure function, tests in his sentences) and `oracle210.conformance.test.ts`
+(every disagreement with the engine on the 14 committed real sections is
+attributed to a named ruling, the test fails on an unexplained one). That, the
+CS1 byte-identical golden, the `HIER_COV` / `GEOTECH_210` conformance gates and
+the real-section fixtures are the acceptance gate a rewrite did not have before.
+The rewrite: keep the classification (oracle + the named rulings: enclosed-lens
+merge, implicit top band, jump-tie bridge, sub-TD substrate, suspended ties),
+replace the emission layer with one pass that draws band / onlap / lens per
+unit per gap from the classified outcome, no repair loop, and make every real
+section render byte-identical (or list the diff for an owner ruling).
+
+**Why deferred.** The owner's ruling: no rewrite before the beta; the cohort's
+feedback is worth more than clean code now. The current engine passes the
+gates; the cost is recurring point fixes, not a broken product.
+
+**When to revisit.** After the first closed-beta feedback round, as ONE
+deliberate slice with the gates above as the acceptance criterion; before any
+Phase-5 feature that touches the fill (true interfingering, sedimentological
+shapes), because those must not be built on the special-case stack.
+
+## 284. Cross-language twins need a shared fixture (S — Tier E)
+
+**What.** Some logic lives once in Python and once in TypeScript by necessity
+(section corridor membership: `infrastructure/gis/section_projection.py` and
+`utils/sectionProjection.ts`; the packing-class key; the admixture canonical
+key). The 2026-09-06 endpoint-tolerance bug had to be fixed on both sides by
+hand, and nothing would have caught a fix landing on one side only. Add one
+shared JSON fixture per twin (inputs + expected outputs, committed once) that
+BOTH test suites load, so a change on either side that drifts fails on the
+other side's suite.
+
+**Why deferred.** Small, but it touches every twin and both test suites; not
+worth the churn during the dogfeed loop.
+
+**When to revisit.** The next time a twin is fixed on one side, or with #283.
