@@ -794,8 +794,10 @@ export const SECTIONS_NL = {
   // FLAG alt: Boring | Bore — compact toggle label for the borehole interpretation streams.
   'sections.header.bore': 'Boring',
   'sections.header.snapHint': 'Indien aan klikt het plaatsen op een boring de laaggrensdiepte vast op de dichtstbijzijnde formele / informele stratigrafiegrens (binnen 8 px)',
-  // FLAG alt: Vastklikken | Kleven | Snap — the click-to-place snap toggle; a compact button label.
-  'sections.header.snap': 'Vastklikken',
+  // "Snap" verbatim — the tutorial calls it the Snap-knop, and BE geotech
+  // practice keeps the English term (owner ruling 5, 2026-09-06). Recorded as
+  // intentionally identical to EN in localeParity's allow-list.
+  'sections.header.snap': 'Snap',
   // FLAG alt: Afstand | Kolomafstand — compact slider label (full term is Kolomafstand elsewhere).
   'sections.header.spacing': 'Afstand',
   'sections.header.scaleH': 'H: {scale} px/m',
