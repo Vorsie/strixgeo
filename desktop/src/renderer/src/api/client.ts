@@ -96,6 +96,13 @@ export type {
   CrossSectionUpdatePayload,
 } from './clients/section'
 
+export type {
+  BedOverrideResponse,
+  BedOverrideCreatePayload,
+  BedOverrideUpdatePayload,
+  BedOverrideVertex,
+} from './clients/bedOverrides'
+
 // ---------------------------------------------------------------------------
 // Geology domain (largest — all geological/litho/body types)
 // ---------------------------------------------------------------------------
@@ -222,6 +229,7 @@ import { cptClient } from './clients/cpt'
 import { boreholeClient } from './clients/borehole'
 import { projectClient, reviewClient } from './clients/project'
 import { demClient, sectionClient } from './clients/section'
+import { bedOverrideClient } from './clients/bedOverrides'
 import { geologyClient } from './clients/geology'
 import { codelistClient, virtueleboringClient } from './clients/codelist'
 
@@ -234,6 +242,7 @@ export const api = {
   geology: geologyClient,
   review: reviewClient,
   section: sectionClient,
+  bedOverrides: bedOverrideClient,
   codelists: codelistClient,
   virtueleBoring: virtueleboringClient,
 }
