@@ -56,3 +56,35 @@ def test_normalisation_applied_both_sides() -> None:
     b = cat.resolve(normalize_formation_key("  koaa "))
     c = cat.resolve(normalize_formation_key("KOAA"))
     assert a is not None and a is b is c
+
+
+# ---------------------------------------------------------------------------
+# Reverse lookup: member name -> DOV code (owner ruling 2026-09-06).
+#
+# When the "Fill from boreholes" dialog lumps a candidate to a DOV member name
+# ("Lid van Merelbeke"), the created formation should carry the DOV code
+# ("GeMe") as its regional_ref where the lexicon knows it — but ONLY when the
+# member name maps to a single code.  A member shared by two formations (Egem
+# = TtEg in Tielt AND HyEg in Hyon) cannot be resolved and must decline.
+# ---------------------------------------------------------------------------
+
+
+def test_member_code_reverse_lookup_unique() -> None:
+    """A member name that maps to exactly one code resolves to that code."""
+    cat = get_formal_stratigraphy()
+    assert cat.member_code(normalize_formation_key("Lid van Merelbeke")) == "GeMe"
+    assert cat.member_code(normalize_formation_key("Lid van Vlierzele")) == "GeVl"
+    assert cat.member_code(normalize_formation_key("Formatie van Boom")) == "Bm"
+
+
+def test_member_code_ambiguous_member_returns_none() -> None:
+    """A member shared by >1 formation resolves to no unique code (no guess)."""
+    cat = get_formal_stratigraphy()
+    # "Lid van Egem" is TtEg (Formatie van Tielt) AND HyEg (Formatie van Hyon).
+    assert cat.member_code(normalize_formation_key("Lid van Egem")) is None
+
+
+def test_member_code_unknown_name_returns_none() -> None:
+    """A name the lexicon does not know is a miss."""
+    cat = get_formal_stratigraphy()
+    assert cat.member_code(normalize_formation_key("Some Engineer Freeform Name")) is None
