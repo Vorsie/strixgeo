@@ -41,6 +41,32 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 _CATALOG_PATH = Path(__file__).resolve().parent / "data" / "dov_formal_stratigraphy.json"
 
 
+def _member_only(full_name: str) -> str:
+    """Reduce a full DOV name to its member/unit name.
+
+    The formal-stratigraphy lexicon names a member as
+    ``"Lid van <member> (Formatie van <formation>)"``.  The member — the text
+    before the first ``" ("`` — is what makes two codes "the same unit"
+    (``TtEg`` and ``HyEg`` both reduce to ``"Lid van Egem"``).  A formation- or
+    group-level name (``"Formatie van Boom"``, ``"Groep van Quartaire
+    afzetting"``) has no parenthetical and is returned unchanged.  This mirrors
+    the desktop ``dovMemberName`` reducer so the dialog's one-click DOV-name
+    target and this reverse lookup agree.
+
+    Parameters
+    ----------
+    full_name : str
+        The verbatim canonical Dutch name from the lexicon.
+
+    Returns
+    -------
+    str
+        The member/unit name (text before the first ``" ("``), trimmed.
+    """
+    idx = full_name.find(" (")
+    return (full_name[:idx] if idx >= 0 else full_name).strip()
+
+
 @dataclass(frozen=True)
 class FormalStratigraphyEntry:
     """One DOV formal-stratigraphy code with its canonical Dutch name.
@@ -118,9 +144,33 @@ class DovFormalStratigraphy(GroundModelLogger):
             # DOV permkeys are unique in the XSD by definition).
             self._by_norm_code.setdefault(norm, entry)
 
+        # Reverse index: normalised MEMBER name -> DOV code, kept ONLY for
+        # members that map to a single code.  The "Fill from boreholes" dialog
+        # lumps a candidate to a member name ("Lid van Merelbeke"); the write
+        # path stamps that member's DOV code as regional_ref where the lexicon
+        # knows it unambiguously (owner ruling 2026-09-06).  A member shared by
+        # two formations (e.g. "Lid van Egem" = TtEg in Formatie van Tielt AND
+        # HyEg in Formatie van Hyon) has >1 code — it is dropped from this index
+        # so the reverse lookup declines rather than guessing which formation a
+        # shared member name belongs to.  The member is the full DOV name's text
+        # before the first " (", the same reduction the dialog applies.
+        member_to_codes: dict[str, set[str]] = {}
+        for entry in self._entries:
+            member = _member_only(entry.full_name_nl)
+            norm_member = normalize_formation_key(member)
+            if not norm_member:
+                continue
+            member_to_codes.setdefault(norm_member, set()).add(entry.code)
+        self._member_to_unique_code: dict[str, str] = {
+            member: next(iter(codes))
+            for member, codes in member_to_codes.items()
+            if len(codes) == 1
+        }
+
         self.debug(
             f"DovFormalStratigraphy catalog loaded: {len(self._entries)} entries "
-            f"({sum(1 for e in self._entries if e.age_rank is not None)} with G3Dv3 age_rank)"
+            f"({sum(1 for e in self._entries if e.age_rank is not None)} with G3Dv3 age_rank; "
+            f"{len(self._member_to_unique_code)} unambiguous member names)"
         )
 
     def resolve(self, normalized_code: str) -> FormalStratigraphyEntry | None:
@@ -144,6 +194,32 @@ class DovFormalStratigraphy(GroundModelLogger):
             not yet decomposed, etc.).
         """
         return self._by_norm_code.get(normalized_code)
+
+    def member_code(self, normalized_member_name: str) -> str | None:
+        """Return the DOV code for a member name, when the lexicon knows exactly one.
+
+        Reverse of :meth:`resolve`: given a normalised MEMBER name (e.g.
+        ``normalize_formation_key("Lid van Merelbeke")``) return the DOV
+        permkey code (``"GeMe"``) when that member maps to a single code.
+        Returns ``None`` for a member shared by more than one formation
+        (ambiguous — the lexicon cannot say which one is meant) and for a name
+        the lexicon does not know.  The caller is responsible for normalising
+        the member name via ``normalize_formation_key`` first; the index key is
+        in the same normal form.
+
+        Parameters
+        ----------
+        normalized_member_name : str
+            The typographically normalised member name (output of
+            ``normalize_formation_key``, member-reduced).
+
+        Returns
+        -------
+        str or None
+            The DOV code (raw XSD casing), or ``None`` on an ambiguous or
+            unknown member name.
+        """
+        return self._member_to_unique_code.get(normalized_member_name)
 
     def all_entries(self) -> list[FormalStratigraphyEntry]:
         """Return every entry in XSD source order.
