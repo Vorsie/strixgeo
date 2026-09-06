@@ -61,6 +61,10 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // "band" (singular) is the same word in BE Dutch as in English; only the
   // plural diverges ("bands" → "banden", geotech.bandsLabel, which is NOT here).
   'geotech.bandLabel',
+  // "Snap" — the click-to-place snap toggle. BE geotech practice keeps the
+  // English term, and the tutorial calls it the Snap-knop (owner ruling 5,
+  // 2026-09-06). Recorded as intentionally identical to EN.
+  'sections.header.snap',
   // Abbreviations shown on space-constrained chrome; expanding them in one
   // locale only would break the spine/track layout.
   'spine.lithology',
