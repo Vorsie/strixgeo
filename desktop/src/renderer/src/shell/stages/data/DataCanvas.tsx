@@ -43,6 +43,9 @@ export default function DataCanvas(): JSX.Element {
   const {
     visibleCpts,
     visibleBoreholes,
+    // Bed overrides (owner ruling 2026-09-06) — optional on the bus; the Data
+    // stage always has it, but read defensively.
+    bedOverrides,
     investigations: {
       detailMap,
       plotMap,
@@ -209,6 +212,10 @@ export default function DataCanvas(): JSX.Element {
             drawSectionMode={drawingSection}
             onSectionLineDrawn={handleSectionLineDrawn}
             onCancelSectionDraw={cancelSectionDraw}
+            drawBedMode={bedOverrides?.drawing ?? false}
+            onBedPolygonDrawn={bedOverrides?.handlePolygonDrawn}
+            onCancelBedDraw={bedOverrides?.cancelDrawing}
+            bedOverrides={bedOverrides?.overrides}
             sections={visibleSections}
             selectedSectionId={selectedSectionId}
             // A click on a section line OPENS the section (owner 2026-09-04):
