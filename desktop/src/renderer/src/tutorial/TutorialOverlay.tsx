@@ -249,7 +249,13 @@ export default function TutorialOverlay({ active, onExit }: TutorialOverlayProps
   const meta = chapterMeta(step.chapter)
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999]" style={{ pointerEvents: 'none' }} data-testid="tutorial-overlay">
+    // z-[2147483647] (int32 max) so the ring + coach card paint ABOVE any modal
+    // dialog (owner ruling 2, 2026-09-06): the shared Modal sits one below at
+    // z-[2147483646], and both are position:fixed portalled to <body>, sharing
+    // one flat root stacking context — so this z alone puts the guide on top,
+    // where its ring can outline a field inside an open dialog. pointer-events
+    // none keeps the dialog beneath fully clickable.
+    <div className="fixed inset-0 z-[2147483647]" style={{ pointerEvents: 'none' }} data-testid="tutorial-overlay">
       <Highlight rect={spotlight} pane={paneRect} />
       <CoachCard
         step={step}
