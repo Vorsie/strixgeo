@@ -73,10 +73,21 @@ POST   /projects/{project_id}/sections/{section_id}/export/dstability — Export
 POST   /projects/{project_id}/sections/{section_id}/export/dsheetpiling — Export a 1-D soil profile through the section as a D-Sheet Piling ``.shi``.
 ```
 
+**Bed overrides — `bed_override.py`**
+
+```
+POST   /projects/{project_id}/bed-overrides — Create a manual bed-level polygon under the project.
+GET    /projects/{project_id}/bed-overrides — List every bed override for a project, newest first.
+PATCH  /projects/{project_id}/bed-overrides/{override_id} — Partial update — only fields present in the body are written.
+DELETE /projects/{project_id}/bed-overrides/{override_id} — Delete a bed override (desktop guards it with a confirm dialog).
+```
+
+A bed override is a polygon drawn on the map with one constant bed elevation (m TAW / NAP). Inside it the ground surface takes that level instead of the DEM — the manual fix for the missing bathymetry over dredged water (owner ruling 2026-09-06). Survey-file bathymetry import stays Phase 5. The stored rows feed the 3-D ground surface, the section DEM line, and the crossing-line formation clip.
+
 **DEM — `dem.py`**
 
 ```
-GET    /dem/sample — Return ``n_samples`` evenly-spaced elevations along the requested line.
+GET    /dem/sample — Return ``n_samples`` evenly-spaced elevations along the requested line. Optional ``project_id`` applies the project's bed overrides (a sample inside a bed polygon reads the bed level, not the DEM), so the section line shows the dredged bed where it crosses a polygon.
 ```
 
 **Investigation reviews + view-state — `investigation_review.py`**
@@ -171,11 +182,11 @@ PATCH  /models/{model_id}/layers/{layer_id} — Partial update on one layer row.
 **Geology » Surfaces + validation — `geology/surfaces.py`**
 
 ```
-POST   /models/{model_id}/surfaces/rebuild — Build the geological model — recompute every formation's TIN cache.
+POST   /models/{model_id}/surfaces/rebuild — Build the geological model — recompute every formation's TIN cache, cutting each surface where it crosses the ground surface (DEM + bed overrides).
 GET    /models/{model_id}/surfaces — Return every cached TIN surface in this model.
 GET    /models/{model_id}/boreholes/{borehole_id}/validate — Check that a borehole's formation contacts form a clean stratigraphy.
 GET    /models/{model_id}/validate/crossings — Check that no two formation surfaces violate stratigraphic order.
-POST   /models/{model_id}/ground-surface/build — Sample the DEM over the model's investigation hull and return a TIN.
+POST   /models/{model_id}/ground-surface/build — Sample the DEM (with the project's bed overrides) over the model's investigation hull and return a TIN.
 ```
 
 **Geology » Bodies + formation absences — `geology/bodies.py`**
