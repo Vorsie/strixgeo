@@ -29,11 +29,37 @@ export function messageForApiCode(code: string | null | undefined, language?: La
 }
 
 /**
- * The message to show for a FastAPI ``detail`` payload: a translated text for a
- * known code, else the server's ``message`` (object shape) or the bare string.
+ * The message to show for a FastAPI ``detail`` payload.
+ *
+ * A ``detail`` arrives in three shapes: a bare string (a plain ``HTTPException``
+ * refusal), a ``{code, message}`` object (our machine-readable guards), or — on
+ * a 422 request-validation failure — a LIST of ``{loc, msg, type}`` entries. The
+ * list shape was previously unhandled, so a refused DOV import box fell straight
+ * to the ``HTTP 422`` fallback; now it reads as the validator's own sentence
+ * ("bounding box east ... must be greater than west ..."), or ``field: message``
+ * for a field-constraint error, so the engineer can act on it.
+ *
+ * Parameters
+ * ----------
+ * detail : unknown
+ *     The ``detail`` field of a non-2xx response body.
+ * fallback : str
+ *     Shown only when ``detail`` carries no usable message.
+ * language : Language, optional
+ *     Overrides the app language when resolving a known ``code``.
+ *
+ * Returns
+ * -------
+ * str
+ *     A human-readable message; ``fallback`` when none can be derived.
  */
 export function messageForDetail(detail: unknown, fallback: string, language?: Language): string {
   if (typeof detail === 'string') return detail
+  // A FastAPI validation error is a list of {loc, msg, type}. Checked before
+  // the object branch because an array is also ``typeof === 'object'``.
+  if (Array.isArray(detail)) {
+    return messageForValidationErrors(detail) ?? fallback
+  }
   if (detail && typeof detail === 'object') {
     const d = detail as { code?: unknown; message?: unknown }
     const known = typeof d.code === 'string' ? messageForApiCode(d.code, language) : null
@@ -41,4 +67,40 @@ export function messageForDetail(detail: unknown, fallback: string, language?: L
     if (typeof d.message === 'string') return d.message
   }
   return fallback
+}
+
+/**
+ * Turn a FastAPI 422 validation-error list into one readable sentence.
+ *
+ * Reads the first entry only — the schema validators here raise on the first
+ * problem, so the first entry is the actionable one. A model-level validator
+ * (``@model_validator``) reports its ``ValueError`` text with a pydantic-added
+ * ``"Value error, "`` prefix and a ``loc`` of just ``["body"]``; that prefix is
+ * stripped and the sentence shown alone. A field-constraint error carries the
+ * field name in ``loc`` (e.g. ``["body", "north"]``) and is shown as
+ * ``"north: <message>"``.
+ *
+ * Parameters
+ * ----------
+ * errors : unknown[]
+ *     The ``detail`` array from a 422 body.
+ *
+ * Returns
+ * -------
+ * str | null
+ *     The message, or ``null`` when the list is empty or the first entry has no
+ *     ``msg`` string (so the caller uses its fallback).
+ */
+function messageForValidationErrors(errors: unknown[]): string | null {
+  const first = errors[0] as { loc?: unknown; msg?: unknown } | undefined
+  if (!first || typeof first.msg !== 'string') return null
+  // pydantic prefixes a raised ValueError with "Value error, " — an internal
+  // detail the engineer should never see.
+  const msg = first.msg.replace(/^Value error,\s*/i, '')
+  // The field name is the last ``loc`` segment that is not the request-body
+  // envelope pydantic wraps every field in. A model-level validator has no
+  // field segment (loc is just ["body"]), so the sentence stands alone.
+  const loc = Array.isArray(first.loc) ? first.loc : []
+  const field = loc.filter(s => typeof s === 'string' && s !== 'body' && s !== 'query').pop()
+  return field ? `${field}: ${msg}` : msg
 }
