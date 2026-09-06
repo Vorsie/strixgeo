@@ -42,6 +42,15 @@
  *     onManualMapChange).
  *   - Apply is the only irreversible action; all row reassignments are
  *     reversible — no per-change confirm dialog.
+ *   - A row mapped to a target COUNTS as a selection (owner dogfeed
+ *     2026-09-06): Apply is enabled whenever any row is mapped (even a
+ *     brand-new candidate whose own checkbox is disabled), and the target's
+ *     effective key is forwarded in ``selectedKeys`` so the backend creates
+ *     (or reuses) the target formation and lumps the candidate into it.
+ *   - The "→ same as" dropdown also offers the model's CURRENT formations (not
+ *     just discovered candidates) — e.g. a formation the user added by hand —
+ *     each badged "in model", so a candidate can be lumped into an existing
+ *     unit by name.
  *
  * Key design rules (from ``docs/geology-stage-architecture.md`` §10.2–§10.4):
  *
@@ -602,16 +611,31 @@ export default function FormationSelectionDialog({
 
   const handleConfirm = useCallback(() => {
     // Compute effective selected keys (see Bug 1 comment above).
+    //
+    // We iterate over ALL candidates, not just ``checked``: a reassigned row
+    // counts as selected via its TARGET even when the row itself was never
+    // checked (a brand-new candidate the user only mapped to a DOV member has
+    // an empty ``checked`` entry — its checkbox is disabled).  Iterating
+    // ``checked`` alone dropped those, which is why a dialog with every row
+    // mapped to a DOV name applied nothing (owner dogfeed 2026-09-06).
     const effectiveKeys = new Set<string>()
-    for (const key of checked) {
-      const target = reassignments.get(key) ?? null
+    for (const candidate of candidates) {
+      const target = reassignments.get(candidate.key) ?? null
       if (target === null) {
-        effectiveKeys.add(key)
+        // Not reassigned → included only when the user checked it.
+        if (checked.has(candidate.key)) effectiveKeys.add(candidate.key)
       } else if (target.kind === 'candidate') {
-        // Replace source key with target key.
+        // Lumped into another candidate → the target candidate is the
+        // surviving formation; its key must be in the selection.
         effectiveKeys.add(target.key)
+      } else {
+        // Lumped into a custom / DOV member name (or an existing model
+        // formation picked by name).  The backend resolves the lump to
+        // normalize(targetName) and creates (or reuses) a formation there, so
+        // the selected-key filter MUST carry that key or the layer is skipped
+        // and nothing is created.
+        effectiveKeys.add(normaliseFormationKey(target.name))
       }
-      // custom reassignment → omit (backend creates it via manualMap).
     }
     onConfirm(effectiveKeys, buildManualMap(reassignments, candidates))
   }, [checked, reassignments, candidates, onConfirm])
@@ -861,6 +885,7 @@ export default function FormationSelectionDialog({
                           candidateKey={candidate.key}
                           candidateName={candidate.name}
                           candidates={candidates}
+                          currentFormations={currentFormations}
                           currentTarget={target}
                           rankedTargets={rankedTargetsByKey.get(candidate.key) ?? []}
                           onSelect={setReassignment}
@@ -977,7 +1002,13 @@ export default function FormationSelectionDialog({
           variant="primary"
           size="md"
           onClick={handleConfirm}
-          disabled={checked.size === 0 && currentFormations.length === 0}
+          // A row mapped to a target counts as a selection — so any
+          // reassignment enables Apply, alongside a checked candidate or an
+          // existing model formation to reconcile against (owner dogfeed
+          // 2026-09-06: every row mapped to a DOV name left Apply disabled).
+          disabled={
+            checked.size === 0 && reassignments.size === 0 && currentFormations.length === 0
+          }
           // reason: autoFocus on the confirm button — this step no longer
           // deletes anything, so Enter cannot cause an irreversible action.
           // eslint-disable-next-line jsx-a11y/no-autofocus
@@ -1020,6 +1051,10 @@ export default function FormationSelectionDialog({
  *     Full candidate list — needed to resolve a ``'candidate'`` target's
  *     display name for the trigger label, and to detect when a typed query
  *     exactly matches an existing candidate name (C1 fix).
+ * currentFormations
+ *     Formations already in the model.  Those not represented by a candidate
+ *     are offered as extra lumping targets (owner ruling 2026-09-06), picked
+ *     as a ``'custom'`` target on the formation name.
  * currentTarget
  *     Currently selected ``ReassignTarget``, or null if "Keep separate".
  * rankedTargets
@@ -1037,6 +1072,7 @@ function RowReassignDropdown({
   candidateKey,
   candidateName,
   candidates,
+  currentFormations,
   currentTarget,
   rankedTargets,
   onSelect,
@@ -1044,6 +1080,7 @@ function RowReassignDropdown({
   candidateKey: string
   candidateName: string
   candidates: FormationCandidate[]
+  currentFormations: GeologicalFormationResponse[]
   currentTarget: ReassignTarget | null
   rankedTargets: FormationCandidate[]
   onSelect: (key: string, target: ReassignTarget | null) => void
@@ -1079,6 +1116,41 @@ function RowReassignDropdown({
     }
     return result
   }, [query, rankedTargets])
+
+  // Existing model formations offered as lumping targets (owner ruling
+  // 2026-09-06).  A formation already represented by a discovered candidate is
+  // omitted — that candidate row IS its target; the rest (e.g. one the user
+  // added by hand via "+ Add formation") are offered so a candidate can be
+  // lumped into an existing unit.  Picking one sets a 'custom' target on the
+  // formation NAME; the backend resolves it to the existing formation by the
+  // shared normalised key.  Ranked/re-ranked like the candidate peers and
+  // NEVER filtered (rank-reorders-never-filters), so every existing formation
+  // stays reachable.
+  const displayedExisting = useMemo<GeologicalFormationResponse[]>(() => {
+    const candidateKeys = new Set(candidates.map(c => normaliseFormationKey(c.key)))
+    const base = currentFormations.filter(f => !candidateKeys.has(formationStableKey(f)))
+    if (base.length === 0) return []
+    const ranked = rankByPartialMatch(query.trim() === '' ? candidateName : query, base.map(f => f.name))
+    const seen = new Set<string>()
+    const result: GeologicalFormationResponse[] = []
+    for (const r of ranked) {
+      for (const f of base) {
+        if (f.name === r.name && !seen.has(f.id)) {
+          seen.add(f.id)
+          result.push(f)
+        }
+      }
+    }
+    return result
+  }, [candidates, currentFormations, candidateName, query])
+
+  // Names of existing formations — used to suppress the "Use <typed name>"
+  // custom row when the typed query already names an existing formation (that
+  // formation is offered directly in its own group below).
+  const existingFormationNames = useMemo(
+    () => new Set(displayedExisting.map(f => f.name)),
+    [displayedExisting],
+  )
 
   const handleOpen = useCallback(() => {
     setOpen(true)
@@ -1247,6 +1319,7 @@ function RowReassignDropdown({
                 does not exactly match any existing candidate's display name */}
             {query.trim() !== '' &&
               !rankedTargets.some(c => c.name === query.trim()) &&
+              !existingFormationNames.has(query.trim()) &&
               query.trim() !== candidateName && (
                 <li
                   role="option"
@@ -1281,6 +1354,42 @@ function RowReassignDropdown({
                   onClick={() => handlePickCandidate(peer.key)}
                 >
                   {peer.name}
+                </li>
+              )
+            })}
+
+            {/* Formations already in the model (not among the candidates) —
+                offered so a candidate can be lumped into a hand-added or
+                prior-run unit.  Each carries an aria-hidden "in model" badge
+                so the user sees which targets already exist; the accessible
+                name stays the bare formation name (aria-label) so it reads
+                like any other option. */}
+            {displayedExisting.map(formation => {
+              const isSelected =
+                currentTarget !== null &&
+                currentTarget.kind === 'custom' &&
+                currentTarget.name === formation.name
+              return (
+                <li
+                  key={`existing-${formation.id}`}
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-label={formation.name}
+                  className={[
+                    'w-full text-left px-3 py-1.5 text-xs transition-colors cursor-pointer',
+                    isSelected
+                      ? 'bg-accent/10 text-accent font-medium'
+                      : 'text-text-primary hover:bg-surface-page',
+                  ].join(' ')}
+                  onClick={() => {
+                    onSelect(candidateKey, { kind: 'custom', name: formation.name })
+                    handleClose()
+                  }}
+                >
+                  {formation.name}
+                  <span aria-hidden="true" className="ml-1.5 text-text-muted">
+                    {t('geology.existingInModelBadge')}
+                  </span>
                 </li>
               )
             })}
