@@ -30,6 +30,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.domain.services.formation_surface_contacts import (
+    contact_feeds_surface,
+)
 from groundmodel.domain.services.tin_surface import (
     ContactPoint3D,
     checksum_contacts,
@@ -46,6 +49,9 @@ from groundmodel.infrastructure.db.models.formation_surface_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
+from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
+    InvestigationReviewRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -57,7 +63,14 @@ class RecomputeFormationSurface(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def execute(self, model_id: UUID, formation_id: UUID, force: bool = False) -> bool:
+    async def execute(
+        self,
+        model_id: UUID,
+        formation_id: UUID,
+        force: bool = False,
+        *,
+        hidden_investigation_ids: set[UUID] | None = None,
+    ) -> bool:
         """Recompute and upsert the surface row.
 
         Parameters
@@ -75,6 +88,13 @@ class RecomputeFormationSurface(GroundModelLogger):
             automatic dedupe path leaves it ``False`` (contacts change
             there, so the checksum differs anyway, and the short-circuit
             is the right perf default for the high-frequency path).
+        hidden_investigation_ids : set[UUID] or None, keyword-only
+            Investigations removed from the project (project-local hide);
+            their contacts do not feed the surface. ``None`` (default)
+            makes this method load the set itself for the model's project
+            — the single-call / auto path. The batch path
+            (:class:`RebuildModelSurfaces`) loads it once and passes it
+            here so every formation in one Build shares the same lookup.
 
         Returns
         -------
@@ -101,37 +121,58 @@ class RecomputeFormationSurface(GroundModelLogger):
             .all()
         )
 
-        # Debt #36: the model's ``excluded_borehole_ids`` is applied at
-        # section-projection time but was NOT applied here, so a borehole
-        # the user excluded from the model still contributed its (x, y,
-        # z) point to the TIN — the surface silently disagreed with what
-        # the section view showed. Drop contacts anchored to an excluded
-        # borehole BEFORE the anchor load + checksum, so excluding a
-        # borehole changes the checksum (→ recompute) and its point
-        # vanishes from the surface. Skip, never delete: the contact row
-        # survives so un-excluding the borehole restores its
-        # contribution (mirrors BuildSectionSnapshot's filter-at-
-        # projection, which also keeps the contacts).
+        # A contact feeds the TIN only when its anchoring investigation is
+        # neither excluded from the model nor removed from the project. Both
+        # filters SKIP (never delete) the contact row so un-excluding /
+        # un-hiding restores its contribution — mirroring
+        # BuildSectionSnapshot's filter-at-projection.
+        #
+        # * ``excluded_borehole_ids`` (debt #36): a borehole the user excluded
+        #   from the model still contributed its (x, y, z) point to the TIN, so
+        #   the surface silently disagreed with the section view. Model-scoped,
+        #   borehole-only.
+        # * ``hidden_investigation_ids`` (owner ruling 2026-09-06): a test
+        #   removed from the PROJECT (project-local hide) kept feeding the
+        #   surface — its Vlierzele / Pleistoceen TIN survived a rebuild with
+        #   no "stale" flag. Project-scoped, CPT and borehole. Loaded here when
+        #   the batch caller did not pass it.
+        model_row = (
+            await self._session.execute(
+                select(
+                    GeologicalModelOrm.app_project_id,
+                    GeologicalModelOrm.excluded_borehole_ids,
+                ).where(GeologicalModelOrm.id == model_id)
+            )
+        ).one_or_none()
         excluded_bh_ids: set[UUID] = set(
-            (
-                await self._session.execute(
-                    select(GeologicalModelOrm.excluded_borehole_ids).where(
-                        GeologicalModelOrm.id == model_id
-                    )
-                )
-            ).scalar_one_or_none()
-            or []
+            (model_row.excluded_borehole_ids if model_row is not None else None) or []
         )
-        if excluded_bh_ids:
+        hidden_ids = hidden_investigation_ids
+        if hidden_ids is None:
+            hidden_ids = (
+                await InvestigationReviewRepository(self._session).hidden_investigation_ids(
+                    model_row.app_project_id
+                )
+                if model_row is not None
+                else set()
+            )
+        if excluded_bh_ids or hidden_ids:
             before = len(contacts)
             contacts = [
-                c for c in contacts if c.borehole_id is None or c.borehole_id not in excluded_bh_ids
+                c
+                for c in contacts
+                if contact_feeds_surface(
+                    borehole_id=c.borehole_id,
+                    cpt_id=c.cpt_id,
+                    hidden_investigation_ids=hidden_ids,
+                    excluded_borehole_ids=excluded_bh_ids,
+                )
             ]
             dropped = before - len(contacts)
             if dropped:
                 self.debug(
-                    f"recompute: dropped {dropped} contact(s) anchored to "
-                    f"excluded borehole(s) (model={model_id} formation={formation_id})"
+                    f"recompute: dropped {dropped} contact(s) on excluded / removed "
+                    f"investigation(s) (model={model_id} formation={formation_id})"
                 )
 
         # Bulk-load the unique anchor ids referenced by these contacts.
@@ -223,6 +264,14 @@ class RecomputeFormationSurface(GroundModelLogger):
                 )
             )
 
+        # Fewer than three surviving points cannot triangulate: ``compute_tin``
+        # returns an empty surface, which is upserted as an empty row (0
+        # triangles) rather than deleted — the on-click-build contract keeps
+        # the ``is_stale=False`` row so the section consumer knows the cache is
+        # fresh (see test_geology.test_build_after_contact_create_materialises_surface).
+        # After the hidden / excluded filter above, a formation that drops
+        # below three contacts therefore rebuilds to an EMPTY, non-rendering
+        # surface — which is what removes the removed test's TIN from view.
         new_checksum = checksum_contacts(points)
         existing = (
             await self._session.execute(
@@ -293,7 +342,13 @@ class RecomputeFormationSurface(GroundModelLogger):
         )
         return True
 
-    async def execute_many(self, pairs: Iterable[tuple[UUID, UUID]], force: bool = False) -> int:
+    async def execute_many(
+        self,
+        pairs: Iterable[tuple[UUID, UUID]],
+        force: bool = False,
+        *,
+        hidden_investigation_ids: set[UUID] | None = None,
+    ) -> int:
         """Convenience: recompute multiple (model, formation) pairs.
 
         Returns the number of pairs that actually wrote (no-op
@@ -308,10 +363,19 @@ class RecomputeFormationSurface(GroundModelLogger):
             Forwarded to :meth:`execute` — when ``True`` every pair is
             re-triangulated regardless of the checksum (the manual
             Build path; see :meth:`execute`).
+        hidden_investigation_ids : set[UUID] or None, keyword-only
+            Forwarded to :meth:`execute` so every pair in one batch
+            shares the same project-hidden lookup instead of each pair
+            re-querying it.
         """
         unique = list({(m, f) for m, f in pairs})
         wrote = 0
         for model_id, formation_id in unique:
-            if await self.execute(model_id, formation_id, force=force):
+            if await self.execute(
+                model_id,
+                formation_id,
+                force=force,
+                hidden_investigation_ids=hidden_investigation_ids,
+            ):
                 wrote += 1
         return wrote
