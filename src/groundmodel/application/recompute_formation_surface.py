@@ -22,7 +22,7 @@ Recompute scope rules
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -30,6 +30,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.domain.services.clip_tin_by_ground_surface import (
+    clip_tin_by_ground_surface,
+)
 from groundmodel.domain.services.formation_surface_contacts import (
     contact_feeds_surface,
 )
@@ -70,6 +73,7 @@ class RecomputeFormationSurface(GroundModelLogger):
         force: bool = False,
         *,
         hidden_investigation_ids: set[UUID] | None = None,
+        ground_sampler: Callable[[float, float], float | None] | None = None,
     ) -> bool:
         """Recompute and upsert the surface row.
 
@@ -77,6 +81,16 @@ class RecomputeFormationSurface(GroundModelLogger):
         ----------
         model_id : UUID
         formation_id : UUID
+        ground_sampler : Callable[[float, float], float | None] or None, keyword-only
+            The ground surface to clip the formation TIN against (owner ruling
+            2026-09-06). When provided, the surface is cut along its crossing
+            line with the ground: the part above ground is dropped, the crossing
+            line becomes new TIN vertices, and a surface entirely below ground
+            is unchanged. ``None`` (default) applies no clip — the auto-recompute
+            path, which has no DEM, leaves the surface as triangulated. Only the
+            explicit geological Build (which can build the ground) passes it, so
+            the cut is an on-click-build artifact that shows in the section view
+            and in 3D.
         force : bool, default ``False``
             When ``True``, skip the checksum short-circuit and always
             re-triangulate + upsert. The manual "Build 3D model" path
@@ -302,6 +316,12 @@ class RecomputeFormationSurface(GroundModelLogger):
             return False
 
         surface = compute_tin(points)
+        # Cut the surface along its crossing line with the ground (owner ruling
+        # 2026-09-06). No-op when no ground sampler is supplied (auto path) or
+        # when the surface is entirely below ground (byte-identical), so the
+        # only change is a dredged formation ending where it meets the ground.
+        if ground_sampler is not None:
+            surface = clip_tin_by_ground_surface(surface, ground_sampler)
         # Serialise to plain JSONB-friendly lists.
         vertices_payload = [list(v) for v in surface.vertices]
         triangles_payload = [list(t) for t in surface.triangles]
@@ -348,6 +368,7 @@ class RecomputeFormationSurface(GroundModelLogger):
         force: bool = False,
         *,
         hidden_investigation_ids: set[UUID] | None = None,
+        ground_sampler: Callable[[float, float], float | None] | None = None,
     ) -> int:
         """Convenience: recompute multiple (model, formation) pairs.
 
@@ -367,6 +388,9 @@ class RecomputeFormationSurface(GroundModelLogger):
             Forwarded to :meth:`execute` so every pair in one batch
             shares the same project-hidden lookup instead of each pair
             re-querying it.
+        ground_sampler : Callable[[float, float], float | None] or None, keyword-only
+            Forwarded to :meth:`execute` so every formation in one Build is
+            cut against the same ground surface (owner ruling 2026-09-06).
         """
         unique = list({(m, f) for m, f in pairs})
         wrote = 0
@@ -376,6 +400,7 @@ class RecomputeFormationSurface(GroundModelLogger):
                 formation_id,
                 force=force,
                 hidden_investigation_ids=hidden_investigation_ids,
+                ground_sampler=ground_sampler,
             ):
                 wrote += 1
         return wrote
