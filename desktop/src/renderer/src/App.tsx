@@ -413,6 +413,17 @@ export default function App() {
   // DataToolbar-local) because writer and reader are in different subtrees.
   const [importMenuOpen, setImportMenuOpen] = useState(false)
 
+  // Draft CRS / datum from the OPEN project-settings dialog. Written by
+  // ProjectMetadataDialog (through AppDialogs), read by the guided tutorial via
+  // useTutorialState so the "Set the coordinate system" / "Set the vertical
+  // datum" steps move on the moment a value is selected in the dialog, before
+  // Save (owner ruling 1, 2026-09-06). Lives in App (not dialog-local) because
+  // writer and reader sit in different subtrees, same as importMenuOpen.
+  const [metadataDraftCrsDatum, setMetadataDraftCrsDatum] = useState<{
+    horizontal: number | null
+    vertical: number | null
+  }>({ horizontal: null, vertical: null })
+
   // Geology deep-link target — set from the Sections (litho) canvas when
   // the user picks "Edit in Geology stage" on a geological contact.
   // AppShell watches this, switches to the geology stage, and selects the
@@ -1304,6 +1315,8 @@ export default function App() {
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
     importMenuOpen, setImportMenuOpen,
+    metadataDraftHorizontalEpsg: metadataDraftCrsDatum.horizontal,
+    metadataDraftVerticalEpsg: metadataDraftCrsDatum.vertical,
   })
 
   // ---------------------------------------------------------------------------
@@ -1476,6 +1489,7 @@ export default function App() {
         metadataEditorOpen={metadataEditorOpen}
         setMetadataEditorOpen={setMetadataEditorOpen}
         applyMetadataDraft={applyMetadataDraft}
+        onMetadataDraftCrsDatumChange={setMetadataDraftCrsDatum}
         unsavedDialogOpen={unsavedDialogOpen}
         unsavedSummary={unsavedSummary}
         unsavedSaving={unsavedSaving}
