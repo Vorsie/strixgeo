@@ -112,6 +112,13 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py", "bench_*.py"]
 addopts = "--benchmark-disable"  # benchmarks only run via: uv run pytest tests/benchmarks/ --benchmark-enable
+markers = [
+    # A test that spawns real OS processes / does real I/O, so it is slower than
+    # a pure-logic unit test (still only a couple of seconds). It stays in the
+    # normal unit suite; the marker only labels it, and is registered here so it
+    # does not raise an "unknown mark" warning.
+    "slow: real-process / real-I/O test, slower than a pure-logic unit test",
+]
 
 [tool.ruff]
 line-length = 100
