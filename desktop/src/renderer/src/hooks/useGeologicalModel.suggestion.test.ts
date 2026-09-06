@@ -1184,8 +1184,9 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
           : Promise.resolve([]),
     )
 
-    // updateContact returns 200 (not null) — the dragger survives as a committed contact.
-    geoApi.updateContact.mockResolvedValueOnce(updatedContact)
+    // updateContact returns the survivor outcome (not absorbed) — the dragger
+    // survives as a committed contact; no peers were crossed here.
+    geoApi.updateContact.mockResolvedValueOnce({ contact: updatedContact, deletedContactIds: [] })
 
     const { args } = makeArgs()
     const { result } = renderHook(() => useGeologicalModel(args))
