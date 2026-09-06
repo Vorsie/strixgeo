@@ -45,6 +45,7 @@ metadata editor.
     }
   ],
   "cross_sections": [ ],
+  "bed_overrides": [ ],
   "investigation_reviews": [ ]
 }
 ```
@@ -61,7 +62,9 @@ metadata editor.
   observations + layers + admixtures, samples + 6 lab-test families)
   under ``boreholes``; the interpretation arrays
   (``geological_formations``, ``geological_models``); the project-scoped cross-section definitions
-  (``cross_sections``); and per-(project, investigation) decisions
+  (``cross_sections``); the manual bed-level polygons (``bed_overrides`` —
+  owner ruling 2026-09-06; additive, absent in older files, restores to an
+  empty list); and per-(project, investigation) decisions
   (``investigation_reviews``).
 * **Per-model litho payload (v4):** each ``geological_models[]`` entry
   carries a nested ``contacts`` array AND a nested ``litho_layers``
