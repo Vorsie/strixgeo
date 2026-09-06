@@ -58,6 +58,7 @@ export function useTutorialState(): TutorialState {
       state.sectionOpen,
       state.geoSurfacesBuilt,
       state.geotechSolidsBuilt,
+      state.bedOverrideExists,
     ],
   )
 }
