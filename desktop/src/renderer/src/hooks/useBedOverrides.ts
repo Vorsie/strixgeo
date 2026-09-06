@@ -55,6 +55,14 @@ export interface UseBedOverridesResult {
   remove: (overrideId: string) => Promise<boolean>
   /** Reload the list from the server. */
   refresh: () => void
+  /**
+   * Monotonic counter bumped after every create / update / delete of a bed
+   * override. Carried on the shell bus so the 3-D ground-surface fetch (keyed
+   * on it) re-fires after a bed change without a model switch or reopen (owner
+   * walk of installer #20/#21, 2026-09-06). The section DEM line already
+   * refreshes from ``overrides``; only the 3-D terrain mesh was stale.
+   */
+  groundRefreshNonce: number
 }
 
 /** Arguments for {@link useBedOverrides}. */
@@ -81,6 +89,11 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
   const [pendingPolygon, setPendingPolygon] = useState<BedOverrideVertex[] | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [reloadNonce, setReloadNonce] = useState(0)
+  // Bumped after any bed-override mutation so consumers keyed on it (the 3-D
+  // ground-surface fetch) refetch; distinct from ``reloadNonce`` (which reloads
+  // THIS hook's list). Declared above every effect / early return so the hook's
+  // call order is stable (the hook-order rule).
+  const [groundRefreshNonce, setGroundRefreshNonce] = useState(0)
 
   // Load the list whenever the project changes (or an explicit refresh).
   useEffect(() => {
@@ -110,6 +123,10 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
   }, [projectId, reloadNonce])
 
   const refresh = useCallback(() => setReloadNonce(n => n + 1), [])
+
+  // Signal the ground-adjacent consumers that the bed set changed. Called only
+  // on a SUCCESSFUL mutation, so a failed save never re-fetches the 3-D mesh.
+  const bumpGroundRefresh = useCallback(() => setGroundRefreshNonce(n => n + 1), [])
 
   const startDrawing = useCallback(() => {
     setPendingPolygon(null)
@@ -158,6 +175,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
           })
           setOverrides(prev => prev.map(o => (o.id === updated.id ? updated : o)))
           setEditingId(null)
+          bumpGroundRefresh()
           toast('success', t('bedOverride.updated'))
           return true
         }
@@ -170,6 +188,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
           })
           setOverrides(prev => [created, ...prev])
           setPendingPolygon(null)
+          bumpGroundRefresh()
           toast('success', t('bedOverride.created'))
           return true
         }
@@ -180,7 +199,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
         return false
       }
     },
-    [projectId, epsg, editingId, pendingPolygon, toast],
+    [projectId, epsg, editingId, pendingPolygon, toast, bumpGroundRefresh],
   )
 
   const remove = useCallback(
@@ -190,6 +209,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
         await api.bedOverrides.delete(projectId, overrideId)
         setOverrides(prev => prev.filter(o => o.id !== overrideId))
         if (editingId === overrideId) setEditingId(null)
+        bumpGroundRefresh()
         toast('success', t('bedOverride.deleted'))
         return true
       } catch (err) {
@@ -198,7 +218,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
         return false
       }
     },
-    [projectId, editingId, toast],
+    [projectId, editingId, toast, bumpGroundRefresh],
   )
 
   return useMemo(
@@ -216,6 +236,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
       submit,
       remove,
       refresh,
+      groundRefreshNonce,
     }),
     [
       overrides,
@@ -231,6 +252,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
       submit,
       remove,
       refresh,
+      groundRefreshNonce,
     ],
   )
 }
