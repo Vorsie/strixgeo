@@ -81,6 +81,15 @@ interface Props {
   // of the "Save and close" path on the unsaved-changes prompt.
   onSubmit: (patch: ProjectUpdatePayload) => void
   onCancel: () => void
+  // Report the draft horizontal CRS / vertical datum up to App as the user
+  // picks them, so the guided tutorial's CRS / datum steps advance the moment a
+  // value is selected here, before Save (owner ruling 1, 2026-09-06). Called
+  // with null/null when the dialog is closed so a closed dialog holds no draft.
+  // Optional: nothing else depends on it.
+  onDraftCrsDatumChange?: (draft: {
+    horizontal: number | null
+    vertical: number | null
+  }) => void
 }
 
 // Per-field dirty flags driven by the form-vs-saved comparison. Used
@@ -251,6 +260,7 @@ export default function ProjectMetadataDialog({
   saved,
   onSubmit,
   onCancel,
+  onDraftCrsDatumChange,
 }: Props) {
   const t = useT()
   const [state, setState] = useState<FormState | null>(null)
@@ -268,6 +278,20 @@ export default function ProjectMetadataDialog({
     const timer = setTimeout(() => nameRef.current?.focus(), 0)
     return () => clearTimeout(timer)
   }, [open, project])
+
+  // Report the draft CRS / datum up to App so the guided tutorial's CRS and
+  // datum steps advance the moment a value is selected here, before Save (owner
+  // ruling 1, 2026-09-06). Fires on every draft change; reports null/null when
+  // the dialog is closed (``state`` is null once the re-seed effect above runs),
+  // so a closed dialog holds no draft and the steps fall back to the SAVED
+  // project's CRS / datum. ``onDraftCrsDatumChange`` is a stable App setter, so
+  // it never re-fires this on its own identity.
+  useEffect(() => {
+    onDraftCrsDatumChange?.({
+      horizontal: state?.default_horizontal_epsg ?? null,
+      vertical: state?.default_vertical_epsg ?? null,
+    })
+  }, [onDraftCrsDatumChange, state?.default_horizontal_epsg, state?.default_vertical_epsg])
 
   // Save commits the form's diff to the live project state via the
   // caller's onSubmit (App-level applyMetadataDraft). No API call here
