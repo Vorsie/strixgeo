@@ -5,11 +5,20 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FormationContactResponse(BaseModel):
-    """API representation of a FormationContact row."""
+    """API representation of a FormationContact row.
+
+    On the PATCH (update) endpoint the response also carries
+    ``deleted_contact_ids`` — the peer contacts a cross-merge deleted on the
+    way to this survivor (empty on a plain update).  The renderer prunes those
+    ids from the section at once so a crossed boundary never lingers as a row
+    the user can only "delete" into a 404 (installer #20 dogfeed 2026-09-06).
+    The field is additive and defaults to empty everywhere else the schema is
+    reused (list / create responses).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -36,3 +45,8 @@ class FormationContactResponse(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+    # Peer contacts a cross-merge deleted to produce this survivor (drag-up:
+    # crossed peers; plain update: empty).  Additive, populated only by the
+    # update endpoint; from_attributes falls back to this default for the
+    # list / create responses whose ORM rows carry no such attribute.
+    deleted_contact_ids: list[UUID] = Field(default_factory=list)
