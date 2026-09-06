@@ -43,6 +43,32 @@ export interface TutorialState {
   cptOpen: boolean
   /** A borehole detail is open — a row was clicked and its log is showing. */
   boreholeOpen: boolean
+
+  // --- owner ruling 1 (2026-09-06): facts that let every do-it step "move on
+  // by itself when the user does what it says". Each is derived from real shell
+  // state (no DOM polling). ---------------------------------------------------
+
+  /** The project-settings (metadata) dialog is open. */
+  projectSettingsOpen: boolean
+  /** The project has a horizontal CRS chosen. */
+  crsSet: boolean
+  /** The project has a vertical datum chosen. */
+  datumSet: boolean
+  /** The Data-stage Import menu is open. */
+  importMenuOpen: boolean
+  /** A lithological model exists (its own active-model handle — distinct from
+   *  the geological and geotechnical ones). */
+  lithoModelExists: boolean
+  /** The sections toolbar axis is on Litho. */
+  lithoAxisActive: boolean
+  /** The sections toolbar axis is on Geotech. */
+  geotechAxisActive: boolean
+  /** A cross-section is open (selected on the sections toolbar). */
+  sectionOpen: boolean
+  /** The geological formation surfaces have been built. */
+  geoSurfacesBuilt: boolean
+  /** The geotechnical 3-D body solids have been built. */
+  geotechSolidsBuilt: boolean
 }
 
 /**
@@ -66,6 +92,16 @@ export function emptyTutorialState(): TutorialState {
     geotechModelExists: false,
     cptOpen: false,
     boreholeOpen: false,
+    projectSettingsOpen: false,
+    crsSet: false,
+    datumSet: false,
+    importMenuOpen: false,
+    lithoModelExists: false,
+    lithoAxisActive: false,
+    geotechAxisActive: false,
+    sectionOpen: false,
+    geoSurfacesBuilt: false,
+    geotechSolidsBuilt: false,
   }
 }
 
@@ -78,32 +114,57 @@ export function emptyTutorialState(): TutorialState {
  * a test can build a fact object by hand in a few lines.
  */
 export interface TutorialShellFacts {
-  /** The active project, or `null` on the welcome gate. */
-  project: unknown
+  /** The active project, or `null` on the welcome gate. Only its default CRS /
+   *  datum EPSG codes are read (crsSet / datumSet). */
+  project: {
+    readonly default_horizontal_epsg: number | null
+    readonly default_vertical_epsg: number | null
+  } | null
   /** The manifest-filtered visible CPT list. */
   visibleCpts: readonly unknown[]
   /** The manifest-filtered visible borehole list. */
   visibleBoreholes: readonly unknown[]
   /** The cross-sections slice (`sections.sections` is the list). */
-  sections: { readonly sections: readonly unknown[] }
+  sections: {
+    readonly sections: readonly unknown[]
+    /** The selected cross-section id, or `null` when none is open. */
+    readonly selectedSectionId: string | null
+    /** The sections toolbar's active model axis. */
+    readonly sectionModelAxis: string
+  }
   /** The geological-model slice. */
   geoModel: {
     /** Active geological model handle, or `null`. */
     activeGeologicalModel: unknown
+    /** Active lithological model handle, or `null` (distinct axis). */
+    activeLithoModel: unknown
     /** Formation contacts. */
     contacts: readonly unknown[]
     /** Litho layers, each carrying a `status`. */
     lithoLayers: readonly { readonly status: string }[]
     /** Whether litho 3-D solids have been built. */
     hasLithoSolids: boolean
+    /** Whether geotech 3-D solids have been built. */
+    hasGeotechSolids: boolean
+    /** Formation surfaces keyed by formation id — non-empty once built. */
+    surfacesByFormationId: { readonly size: number }
     /** Active geotechnical model handle, or `null`. */
     activeGeotechModel: unknown
   }
-  /** The project lifecycle slice (carries the stratigraphy lumping snapshot). */
-  lifecycle: { readonly currentLumping: { readonly map: Record<string, string> } | null }
+  /** The project lifecycle slice (lumping snapshot + the metadata-dialog flag). */
+  lifecycle: {
+    readonly currentLumping: { readonly map: Record<string, string> } | null
+    /** Whether the project-settings (metadata) dialog is open. */
+    readonly metadataEditorOpen: boolean
+  }
   /** The selection coordinator slice — a selected CPT / borehole means its
-   *  detail view (chart / log) is open (owner ruling 7). */
-  coordinator: { readonly selectedId: string | null; readonly selectedBoreholeId: string | null }
+   *  detail view (chart / log) is open (owner ruling 7); `importMenuOpen` is the
+   *  Data-stage Import dropdown's open state (owner ruling 1, 2026-09-06). */
+  coordinator: {
+    readonly selectedId: string | null
+    readonly selectedBoreholeId: string | null
+    readonly importMenuOpen?: boolean
+  }
 }
 
 /**
@@ -121,8 +182,9 @@ export interface TutorialShellFacts {
  */
 export function deriveTutorialState(facts: TutorialShellFacts): TutorialState {
   const lumping = facts.lifecycle.currentLumping
+  const project = facts.project
   return {
-    projectOpen: facts.project != null,
+    projectOpen: project != null,
     cptCount: facts.visibleCpts.length,
     boreholeCount: facts.visibleBoreholes.length,
     sectionCount: facts.sections.sections.length,
@@ -135,5 +197,17 @@ export function deriveTutorialState(facts: TutorialShellFacts): TutorialState {
     geotechModelExists: facts.geoModel.activeGeotechModel != null,
     cptOpen: facts.coordinator.selectedId != null,
     boreholeOpen: facts.coordinator.selectedBoreholeId != null,
+    projectSettingsOpen: facts.lifecycle.metadataEditorOpen,
+    // "chosen" = the project carries the EPSG code; the dialog writes it to the
+    // project on Save, so this turns true once a CRS / datum is committed.
+    crsSet: project != null && project.default_horizontal_epsg != null,
+    datumSet: project != null && project.default_vertical_epsg != null,
+    importMenuOpen: facts.coordinator.importMenuOpen === true,
+    lithoModelExists: facts.geoModel.activeLithoModel != null,
+    lithoAxisActive: facts.sections.sectionModelAxis === 'lithostratigraphic',
+    geotechAxisActive: facts.sections.sectionModelAxis === 'geotechnical',
+    sectionOpen: facts.sections.selectedSectionId != null,
+    geoSurfacesBuilt: facts.geoModel.surfacesByFormationId.size > 0,
+    geotechSolidsBuilt: facts.geoModel.hasGeotechSolids,
   }
 }
