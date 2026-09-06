@@ -74,6 +74,9 @@ export interface TutorialState {
   geoSurfacesBuilt: boolean
   /** The geotechnical 3-D body solids have been built. */
   geotechSolidsBuilt: boolean
+  /** At least one manual bed-level override polygon exists (owner ruling
+   *  2026-09-06). The "Draw the canal bed" step reads this. */
+  bedOverrideExists: boolean
 }
 
 /**
@@ -108,6 +111,7 @@ export function emptyTutorialState(): TutorialState {
     sectionOpen: false,
     geoSurfacesBuilt: false,
     geotechSolidsBuilt: false,
+    bedOverrideExists: false,
   }
 }
 
@@ -178,6 +182,11 @@ export interface TutorialShellFacts {
     /** The draft vertical datum EPSG chosen in the open dialog, same lifecycle. */
     readonly metadataDraftVerticalEpsg?: number | null
   }
+  /** The bed-override slice (`bedOverrides.overrides` is the list). Optional on
+   *  the bus, so read defensively (owner ruling 2026-09-06). */
+  bedOverrides?: {
+    readonly overrides: readonly unknown[]
+  }
 }
 
 /**
@@ -230,5 +239,6 @@ export function deriveTutorialState(facts: TutorialShellFacts): TutorialState {
     sectionOpen: facts.sections.selectedSectionId != null,
     geoSurfacesBuilt: facts.geoModel.surfacesByFormationId.size > 0,
     geotechSolidsBuilt: facts.geoModel.hasGeotechSolids,
+    bedOverrideExists: (facts.bedOverrides?.overrides.length ?? 0) > 0,
   }
 }
