@@ -255,11 +255,11 @@ def test_sub_centimetre_overlap_within_tolerance_is_not_a_crossing() -> None:
     assert issues == []
 
 
-def test_equal_mean_elevation_pairs_are_skipped() -> None:
-    """Two formations with identical mean surface elevation have no
-    defined superposition relationship — the validator skips the
-    pair rather than guessing which is older. (display_order is
-    NOT consulted; geological age derives from the data.)
+def test_equal_display_order_pairs_are_skipped() -> None:
+    """Two formations with the SAME ``display_order`` have no defined
+    superposition relationship (the UI breaks such ties by name only),
+    so the validator skips the pair rather than guessing which is
+    older — even when their surfaces genuinely overlap.
     """
     a = _surface(
         "A",
@@ -269,9 +269,9 @@ def test_equal_mean_elevation_pairs_are_skipped() -> None:
     )
     b = _surface(
         "B",
-        display_order=10,
-        # Identical mean elevation (= 5.0) — different vertices but
-        # the same area-averaged depth.
+        # Same display_order as A — order ambiguous, nothing to validate,
+        # even though b dips below a at (0, 0).
+        display_order=5,
         vertices=[(0.0, 0.0, 4.0), (10.0, 0.0, 5.0), (5.0, 10.0, 6.0)],
         triangles=_UNIT_TRIANGLES,
     )
@@ -279,40 +279,78 @@ def test_equal_mean_elevation_pairs_are_skipped() -> None:
     assert issues == []
 
 
-def test_validator_ignores_display_order_uses_mean_elevation() -> None:
-    """Regression: ``display_order`` describes UI list order, NOT
-    geological age. A natural top-down workflow assigns
-    ``display_order = 0`` to the youngest formation (the surface unit
-    encountered first when describing a borehole). Under that
-    convention every project would false-flag a crossing.
+def test_uses_display_order_not_mean_elevation() -> None:
+    """The validator orients pairs by ``display_order``, not by surface
+    mean elevation (owner ruling 2026-09-06).
 
-    Fixture: the SHALLOWER surface carries the LOWER ``display_order``
-    (i.e. user's "top-down" creation order) — opposite to any
-    "lower = older" convention. The data is geologically consistent
-    (deeper surface IS older). The validator must produce zero
-    issues.
+    Fixture where the two axes DISAGREE: the older formation (lower
+    ``display_order``) carries the HIGHER surface, the younger (higher
+    ``display_order``) the lower surface, so the younger sits entirely
+    below the older — a genuine superposition violation. Mean
+    elevation would relabel the deeper surface as the older one and
+    report no crossing; ``display_order`` reports the violation. The
+    validator must follow ``display_order`` and flag it.
     """
-    # display_order says this is OLDEST (=0), but the surface sits
-    # NEAR THE TOP (high elevation = young in reality).
-    shallow_but_labelled_old = _surface(
-        "Antropogeen",
+    older = _surface(
+        "Older",
         display_order=0,
-        vertices=[(0.0, 0.0, 9.5), (10.0, 0.0, 9.6), (5.0, 10.0, 9.7)],
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
         triangles=_UNIT_TRIANGLES,
     )
-    # display_order says this is YOUNGEST (=3), but it sits DEEP
-    # (low elevation = old in reality).
-    deep_but_labelled_young = _surface(
-        "Roubaix",
-        display_order=3,
-        vertices=[(0.0, 0.0, -15.0), (10.0, 0.0, -14.8), (5.0, 10.0, -15.2)],
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (5.0, 10.0, 0.0)],
         triangles=_UNIT_TRIANGLES,
     )
-    issues = GeologyValidator().validate_no_crossings(
-        [shallow_but_labelled_old, deep_but_labelled_young]
+    issues = GeologyValidator().validate_no_crossings([older, younger])
+    assert [i.kind for i in issues] == ["formation_crossing"]
+    assert issues[0].formation_ids == (older.formation_id, younger.formation_id)
+
+
+def test_vlierzele_below_antropogeen_is_not_a_crossing() -> None:
+    """Owner ruling 2026-09-06: "Antropogeen is younger than Pleistoceen and
+    Pleistoceen is younger than Vlierzele, so a Vlierzele surface below
+    Antropogeen is NOT a crossing warning".
+
+    The age axis is ``display_order`` (lower = older, higher = younger — the
+    same convention the InterpretationPane, the section bands and Build's
+    ``_reorder_by_age`` use). Antropogeen carries the HIGHER ``display_order``
+    (youngest, pinned by the anthropogenic rule), Vlierzele a lower one, so
+    Vlierzele sitting beneath Antropogeen is correct superposition, not a
+    violation.
+
+    The trap the old mean-elevation heuristic fell into: the site was dredged
+    near the canal, so Antropogeen fill spans a low zone that drags its MEAN
+    surface elevation *below* Vlierzele's (Vlierzele survives only on the high
+    ground). Mean elevation then mislabels Antropogeen as the older formation
+    and flags the (correct) Vlierzele-below-Antropogeen geometry as a crossing.
+    """
+    # Antropogeen (youngest, display_order 4): high over the shared footprint
+    # (z=3, above Vlierzele) PLUS a dredged low lobe far to the east (z=-20)
+    # that pulls its mean elevation below Vlierzele's.
+    antropogeen = _surface(
+        "Antropogeen",
+        display_order=4,
+        vertices=[
+            (0.0, 0.0, 3.0),
+            (10.0, 0.0, 3.0),
+            (5.0, 10.0, 3.0),
+            (100.0, 0.0, -20.0),
+            (110.0, 0.0, -20.0),
+            (105.0, 10.0, -20.0),
+        ],
+        triangles=[(0, 1, 2), (3, 4, 5)],
     )
-    # Zero crossings — the data is geologically consistent regardless
-    # of the inverted display_order labels.
+    # Lid van Vlierzele (older, display_order 2): a moderate surface (z=1) that
+    # sits BELOW Antropogeen everywhere in the shared footprint.
+    vlierzele = _surface(
+        "Lid van Vlierzele",
+        display_order=2,
+        vertices=[(0.0, 0.0, 1.0), (10.0, 0.0, 1.0), (5.0, 10.0, 1.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([antropogeen, vlierzele])
     assert issues == []
 
 
