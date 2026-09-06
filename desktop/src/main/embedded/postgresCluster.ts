@@ -12,6 +12,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { killProcessTreeSync } from '../killProcessTree'
 import type { EmbeddedLayout } from './embeddedPaths'
 import type { InstallSecrets } from './installSecrets'
 
@@ -358,4 +359,65 @@ export function stopCluster(
     return
   }
   log('[pg] stopped cleanly')
+}
+
+/**
+ * Ask the server to stop with a fast checkpoint, bounded by ``graceMs``.
+ *
+ * The quit-path half of the split shutdown (``shutdownSequencer.ts``): a clean
+ * ``-m fast`` checkpoint means the next boot skips WAL replay, but it must not
+ * block the main thread for the old ``-t 30``'s worth of seconds. ``graceMs`` is
+ * the whole-tree hard deadline; ``pg_ctl -t`` is in seconds, so it is rounded up
+ * to at least one. The engine's connections are already gone (its tree is killed
+ * first), so a fast checkpoint normally completes well inside the window.
+ *
+ * @param layout - Resolved install paths.
+ * @param log - Log sink.
+ * @param graceMs - Maximum time to wait for the clean stop, in milliseconds.
+ * @returns True when the server confirmed stopped; false when it did not stop in
+ *   time (the caller then force-kills its tree via {@link forceStopCluster}).
+ */
+export function stopClusterClean(
+  layout: EmbeddedLayout,
+  log: LogLine,
+  graceMs: number,
+): boolean {
+  const seconds = Math.max(1, Math.ceil(graceMs / 1000))
+  log(`[pg] stopping (fast checkpoint, up to ${seconds}s)`)
+  const result = spawnSync(
+    join(layout.pgsqlRoot, 'bin', 'pg_ctl.exe'),
+    ['stop', '-D', layout.dataDir, '-m', 'fast', '-w', '-t', String(seconds)],
+    { encoding: 'utf8' },
+  )
+  if (result.status === 0) {
+    log('[pg] stopped cleanly')
+    return true
+  }
+  log(`[pg] fast stop returned ${result.status} - will force`)
+  return false
+}
+
+/**
+ * Force the server's whole process tree down.
+ *
+ * The fallback when {@link stopClusterClean} did not finish in time, and the
+ * only path on a main-process crash. ``taskkill /PID <postmaster> /T /F`` takes
+ * the postmaster AND its per-connection backends and background workers in one
+ * shot - ``child.kill()`` alone is ``TerminateProcess`` on the postmaster only,
+ * leaving orphaned ``postgres.exe`` holding the data directory locked against the
+ * next launch. A ``/F`` kill skips the checkpoint, so the next boot replays WAL
+ * (PostgreSQL is crash-safe - this is the same as a ``-m immediate`` stop, only
+ * without waiting on a server that already proved it would not stop politely).
+ *
+ * @param cluster - The running server, or null when nothing is up (a no-op).
+ * @param log - Log sink.
+ */
+export function forceStopCluster(cluster: RunningCluster | null, log: LogLine): void {
+  const pid = cluster?.process.pid
+  if (pid == null) {
+    log('[pg] force stop: no running postmaster to kill')
+    return
+  }
+  log(`[pg] force stop - taskkill /T /F the postmaster tree (pid ${pid})`)
+  killProcessTreeSync(pid, log)
 }
