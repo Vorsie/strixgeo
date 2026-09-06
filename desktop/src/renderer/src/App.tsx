@@ -407,6 +407,12 @@ export default function App() {
   // ones). Soft coupling via the bus; cleared on project change.
   const [hoveredTestId, setHoveredTestId] = useState<string | null>(null)
 
+  // Data-stage Import dropdown open state — written by DataToolbar, read by the
+  // guided tutorial via useTutorialState so the "Open the Import menu" step
+  // moves on by itself (owner ruling 1, 2026-09-06). Lives in App (not
+  // DataToolbar-local) because writer and reader are in different subtrees.
+  const [importMenuOpen, setImportMenuOpen] = useState(false)
+
   // Geology deep-link target — set from the Sections (litho) canvas when
   // the user picks "Edit in Geology stage" on a geological contact.
   // AppShell watches this, switches to the geology stage, and selects the
@@ -1297,6 +1303,7 @@ export default function App() {
     parametersActiveTab, setParametersActiveTab,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
     requestBodyRecompute, handleSelectWithoutView, markMutated,
+    importMenuOpen, setImportMenuOpen,
   })
 
   // ---------------------------------------------------------------------------
