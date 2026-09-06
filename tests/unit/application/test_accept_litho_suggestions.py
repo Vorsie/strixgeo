@@ -25,7 +25,9 @@ import pytest
 
 from groundmodel.application.accept_litho_suggestions import (
     AcceptLithoSuggestions,
-    _canonical_admixture_signature,
+)
+from groundmodel.application.litho_formation_lookup import (
+    canonical_admixture_signature as _canonical_admixture_signature,
 )
 from groundmodel.application.litho_geo_link_helpers import (
     nearest_geo_contact_within_tolerance,
