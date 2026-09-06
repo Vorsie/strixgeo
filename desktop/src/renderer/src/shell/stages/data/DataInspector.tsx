@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react'
 
+import BedOverrideList from './BedOverrideList'
 import { VirtualRowList } from './dataInspectorVirtualList'
 import { useShell } from '../../ShellContext'
 import { EmptyState as SharedEmptyState } from '../../EmptyState'
@@ -681,6 +682,10 @@ export default function DataInspector(): JSX.Element {
           </button>
         )}
       </div>
+
+      {/* Bed-level overrides (owner ruling 2026-09-06) — the manual bathymetry
+          polygons, drawn with the Bed level tool on the map. */}
+      <BedOverrideList />
     </div>
   )
 }
