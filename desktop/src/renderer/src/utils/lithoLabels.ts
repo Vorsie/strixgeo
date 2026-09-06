@@ -289,6 +289,79 @@ export const ADMIXTURE_AMOUNT_OPTIONS: ReadonlyArray<{ code: string; label: stri
 ]
 
 /**
+ * Capitalise the first letter of a vocabulary word.
+ *
+ * The NL admixture tables store lowercase field words ("kleiig" / "veel"); a
+ * dropdown option row reads better with a leading capital. Presentation-only;
+ * the raw token is unchanged.
+ *
+ * @param word - the word to capitalise.
+ * @returns the word with its first character upper-cased.
+ */
+function capitaliseFirst(word: string): string {
+  return word.length === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)
+}
+
+/**
+ * Curated admixture-SOIL dropdown options in the active interface language.
+ *
+ * The ghost composition editor shows one soil per admixture row. The option
+ * VALUE stays the raw DOV code; the visible LABEL is translated at the
+ * presentation boundary (owner ruling 2026-09-06, the dialog rendered English
+ * "Clay (KL)" in the Dutch UI). Under ``'nl'`` the word is the existing NL
+ * admixture adjective (``ADMIXTURE_SOIL_NL``, e.g. "kleiig"), with the English
+ * adjective as the graceful fallback for the long-tail codes the NL table does
+ * not curate; every other locale is byte-identical to ``ADMIXTURE_SOIL_OPTIONS``.
+ * The raw code stays in the label parens AND is repeated as the option's
+ * ``title`` tooltip so a domain expert can verify the mapping (CLAUDE.md §UX).
+ *
+ * @param language - locale to render in; defaults to the active language.
+ * @returns option rows: raw ``code``, translated ``label``, raw-token ``title``.
+ */
+export function admixtureSoilOptions(
+  language: Language = getLanguage(),
+): ReadonlyArray<{ code: string; label: string; title: string }> {
+  return ADMIXTURE_SOIL_OPTIONS.map(opt => ({
+    code: opt.code,
+    label:
+      language === 'nl'
+        ? `${capitaliseFirst(ADMIXTURE_SOIL_NL[opt.code] ?? admixtureSoilLabel(opt.code))} (${opt.code})`
+        : opt.label,
+    title: opt.code,
+  }))
+}
+
+/**
+ * Curated admixture-AMOUNT dropdown options in the active interface language.
+ *
+ * Same presentation-boundary rule as {@link admixtureSoilOptions}: the value
+ * stays the raw DOV amount code, the label is translated (NL from
+ * ``ADMIXTURE_AMOUNT_NL``, e.g. "veel"), the raw token is the ``title`` tooltip.
+ * The leading "unspecified" row has no code, so it carries no tooltip and reads
+ * "Onbepaald" under ``'nl'``.
+ *
+ * @param language - locale to render in; defaults to the active language.
+ * @returns option rows: raw ``code``, translated ``label``, raw-token ``title``.
+ */
+export function admixtureAmountOptions(
+  language: Language = getLanguage(),
+): ReadonlyArray<{ code: string; label: string; title: string }> {
+  return ADMIXTURE_AMOUNT_OPTIONS.map(opt => {
+    if (opt.code === '') {
+      return { code: '', label: language === 'nl' ? 'Onbepaald' : opt.label, title: '' }
+    }
+    return {
+      code: opt.code,
+      label:
+        language === 'nl'
+          ? `${capitaliseFirst(ADMIXTURE_AMOUNT_NL[opt.code] ?? opt.code)} (${opt.code})`
+          : opt.label,
+      title: opt.code,
+    }
+  })
+}
+
+/**
  * Look up the English adjective for an admixture soil code, with a
  * graceful fallback for unknown codes.  Used by ``formatLithoDisplayName``
  * AND by the dialog when it needs to label a stored value that isn't
