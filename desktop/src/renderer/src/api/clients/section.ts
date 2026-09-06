@@ -167,6 +167,10 @@ export const demClient = {
     endY: number
     epsg: number
     nSamples?: number
+    /** When set, the project's manual bed overrides are applied: a sample
+     *  inside a bed polygon reads the bed level, not the DEM, so the section
+     *  line shows the dredged bed where it crosses the polygon. */
+    projectId?: string
   }): Promise<DemSampleLineResponse> => {
     const q = new URLSearchParams({
       start_x: String(params.startX),
@@ -176,6 +180,7 @@ export const demClient = {
       epsg: String(params.epsg),
       n_samples: String(params.nSamples ?? 200),
     })
+    if (params.projectId) q.set('project_id', params.projectId)
     return get(`/dem/sample?${q.toString()}`)
   },
 }
