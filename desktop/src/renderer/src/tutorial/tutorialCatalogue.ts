@@ -198,7 +198,8 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('section-persist', 3, ['stage-tab-sections', 'section-view-reset'], 'next', 'sections'),
   // Sections toolbar verbs the flow does not otherwise touch.
   mkc('section-undo', 3, ['stage-tab-sections', 'sections-undo'], 'next', 'sections'),
-  mkc('section-tie', 3, ['stage-tab-sections', 'suggest-tie-sections'], 'next', 'sections'),
+  // section-tie moved to chapter 4 (owner ruling 3, 2026-09-06): the tie-sections
+  // explanation must come AFTER the second profile is drawn, never before.
   mkc('section-delete', 3, ['stage-tab-sections', 'sections-delete'], 'next', 'sections'),
   mkc('section-export', 3, ['stage-tab-sections', 'sections-toolbar-export-dropdown'], 'next', 'sections'),
   // The sections right pane: the section list + its Build / Seed / Dedupe verbs.
@@ -215,7 +216,12 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('geo-dedupe', 4, ['stage-tab-geology', 'geology-dedupe'], 'next', 'geology'),
   mkc('geo-reset-delete', 4, ['stage-tab-geology', 'geology-delete-stratigraphy'], 'next', 'geology'),
   // Draw a second cross-section so the surfaces have 3-D data (owner walk).
-  mkc('geo-second-section', 4, ['stage-tab-sections', 'section-create'], 'next', 'sections'),
+  // Do-it on twoSectionsExist (owner ruling 3, 2026-09-06) so it completes the
+  // instant a second profile exists and never asks for one that already exists.
+  mkc('geo-second-section', 4, ['stage-tab-sections', 'section-create'], { state: 'twoSectionsExist' }, 'sections'),
+  // Tie-sections come AFTER the second profile (owner ruling 3): only with two
+  // profiles can the walk suggest the links where they cross.
+  mkc('section-tie', 4, ['stage-tab-sections', 'suggest-tie-sections'], 'next', 'sections'),
   // Carry the borehole stratigraphy onto the CPTs before building (owner ruling 9).
   mkc('geo-carry-strat', 4, ['stage-tab-sections', 'sections-canvas'], 'next', 'sections'),
   // Do-it: ticks once the formation surfaces are built (owner ruling 1).
@@ -232,12 +238,18 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   // the axis is on Litho (owner ruling 1).
   mkc('litho-axis', 5, ['stage-tab-sections', 'axis-litho'], { state: 'lithoAxisActive' }, 'sections'),
   mkc('litho-suggest', 5, ['stage-tab-sections', 'axis-litho', 'litho-suggest'], 'next', 'sections'),
-  mkc('litho-accept', 5, ['stage-tab-sections', 'axis-litho', 'litho-accept-all'], { state: 'lithoAcceptedCount' }, 'sections'),
+  // Adapt the suggestions BEFORE accepting them (owner ruling 2, 2026-09-06):
+  // the adjust-gestures step and the admixtures step both come before Accept, and
+  // the accept step's copy tells the user to adjust first, accept after.
   mkc('litho-adjust', 5, ['stage-tab-sections', 'axis-litho'], 'next', 'sections'),
+  mkc('litho-admixtures', 5, ['stage-tab-sections', 'axis-litho', 'litho-admixtures-dropdown'], 'next', 'sections'),
+  mkc('litho-accept', 5, ['stage-tab-sections', 'axis-litho', 'litho-accept-all'], { state: 'lithoAcceptedCount' }, 'sections'),
   mkc('litho-correlate', 5, ['stage-tab-sections', 'axis-litho', 'correlate-mode'], 'next', 'sections'),
   mkc('litho-bodies', 5, ['stage-tab-sections', 'axis-litho', 'litho-bodies-dropdown'], 'next', 'sections'),
-  mkc('litho-admixtures', 5, ['stage-tab-sections', 'axis-litho', 'litho-admixtures-dropdown'], 'next', 'sections'),
-  mkc('litho-second-section', 5, ['stage-tab-sections', 'section-create'], 'next', 'sections'),
+  // Do-it on twoSectionsExist (owner ruling 3, 2026-09-06): by chapter 5 a second
+  // profile usually exists already, so this completes instantly and never asks
+  // for a profile the user has drawn.
+  mkc('litho-second-section', 5, ['stage-tab-sections', 'section-create'], { state: 'twoSectionsExist' }, 'sections'),
   mkc('litho-build', 5, ['stage-tab-lithology', 'litho-build-model-button'], { state: 'lithoSolidsBuilt' }, 'lithology'),
   mkc('litho-fence', 5, ['stage-tab-lithology', 'litho-export-fence-button'], 'next', 'lithology'),
   // The litho right pane: model picker, roster, resolve, boreholes-in-model.
