@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 
-import { api } from '../api/client'
+import { api, isApiStatus } from '../api/client'
 import type {
   AcceptLithoSuggestionsResponse,
   BatchAcceptLithoSuggestionsResponse,
@@ -977,17 +977,27 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         description,
         revert: async () => {
           // Contacts first — contact.formation_id FK references formation.
+          //
+          // SEQUENTIAL, not Promise.all: each litho contact delete serialises on
+          // the model's body-partition lock and re-runs ResolveLithoInstances, so
+          // firing N in parallel produced a 22-wide lock-contention storm (47–625
+          // ms each) and raced the debounced RecomputeBodies (installer #21,
+          // owner 2026-09-06). A 404 means the contact is already gone — most
+          // often an earlier delete's resolver/cascade removed it — so swallow it
+          // as already-done (no toast), mirroring the geo delete branch
+          // (useContactCrud handleDeleteContact, e7d17a3f7).
           for (const op of ops) {
-            await Promise.all(
-              op.createdContactIds.map(id =>
-                api.geology.deleteContact(projectId, lithoModelId, id),
-              ),
-            )
-            await Promise.all(
-              op.createdFormationIds.map(id =>
-                api.geology.deleteFormation(projectId, id),
-              ),
-            )
+            for (const id of op.createdContactIds) {
+              try {
+                await api.geology.deleteContact(projectId, lithoModelId, id)
+              } catch (err) {
+                if (!isApiStatus(err, 404)) throw err
+                log.debug('geology', `accept-undo: contact ${id} already gone (404) — skipping`)
+              }
+            }
+            for (const id of op.createdFormationIds) {
+              await api.geology.deleteFormation(projectId, id)
+            }
           }
           setAccepted(false)
           refetchLithoContacts()
