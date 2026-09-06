@@ -80,6 +80,7 @@ BUNDLE_COLLECTION_KEYS: tuple[str, ...] = (
     "body_boundary_shapes",
     "body_boundary_nodes",
     "litho_solids",
+    "bed_overrides",
 )
 
 # Bundle key → the keyword ``_restore_project_bundle_impl`` accepts it under.
