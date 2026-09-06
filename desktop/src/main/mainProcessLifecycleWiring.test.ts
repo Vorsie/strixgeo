@@ -11,16 +11,16 @@ import { describe, expect, it } from 'vitest'
 
 const MAIN_SOURCE = readFileSync(join(__dirname, 'index.ts'), 'utf-8').replace(/\r\n/g, '\n')
 
-describe('H3(c) — the uncaught-exception handler stops children before exiting', () => {
-  it('calls stopApi() before process.exit(1)', () => {
+describe('H3(c) - the uncaught-exception handler kills the child trees before exiting', () => {
+  it('a crash exit still kills the children - runShutdown(crash) runs before process.exit(1)', () => {
     const handler = MAIN_SOURCE.slice(MAIN_SOURCE.indexOf("process.on('uncaughtException'"))
-    const stopAt = handler.indexOf('stopApi()')
+    const killAt = handler.indexOf("runShutdown('crash')")
     const exitAt = handler.indexOf('process.exit(1)')
-    expect(stopAt).toBeGreaterThanOrEqual(0)
+    expect(killAt).toBeGreaterThanOrEqual(0)
     expect(exitAt).toBeGreaterThanOrEqual(0)
-    // A bare process.exit(1) would orphan the uvicorn child + the Postgres
-    // cluster; the stop must run first.
-    expect(stopAt).toBeLessThan(exitAt)
+    // A bare process.exit(1) would orphan the uvicorn child + its parse-pool
+    // grandchildren + the Postgres cluster; the tree kill must run first.
+    expect(killAt).toBeLessThan(exitAt)
   })
 })
 
