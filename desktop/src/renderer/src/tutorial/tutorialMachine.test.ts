@@ -45,6 +45,16 @@ function emptyState(): TutorialState {
     geotechModelExists: false,
     cptOpen: false,
     boreholeOpen: false,
+    projectSettingsOpen: false,
+    crsSet: false,
+    datumSet: false,
+    importMenuOpen: false,
+    lithoModelExists: false,
+    lithoAxisActive: false,
+    geotechAxisActive: false,
+    sectionOpen: false,
+    geoSurfacesBuilt: false,
+    geotechSolidsBuilt: false,
   }
 }
 
