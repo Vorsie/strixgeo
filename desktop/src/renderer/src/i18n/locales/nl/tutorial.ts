@@ -114,7 +114,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Ongedaan maken loopt terug door je modelbewerkingen, ook een aanvaarde litholaag. Het zit ook op Ctrl+Z; de knop maakt de stapel zichtbaar.',
   'tutorial.section-tie.title': 'Profielen koppelen',
   'tutorial.section-tie.body':
-    'Met meer dan een profiel stelt Koppelprofielen voorstellen korte koppelingen voor waar ze elkaar kruisen, en de caret aanvaardt ze in een keer. De koppelingen geven de 3D-bouw gegevens om tussen je lijnen te interpoleren.',
+    'Er is geen apart koppelprofiel-type. Een koppelprofiel is gewoon een dwarsprofiel dat je met “Nieuw dwarsprofiel” tussen twee proeven tekent, waar je lijnen elkaar kruisen. Nu er een tweede profiel bestaat, stelt Koppelprofielen voorstellen die korte koppelingen voor en de caret aanvaardt ze in een keer; de koppelingen geven de 3D-bouw de gegevens om tussen je lijnen te interpoleren. Hernoem een profiel door op zijn naam in de profiellijst rechts te klikken.',
   'tutorial.section-delete.title': 'Een dwarsprofiel verwijderen',
   'tutorial.section-delete.body':
     'Verwijderen haalt het geselecteerde dwarsprofiel weg. Het is onomkeerbaar, dus het vraagt altijd eerst bevestiging; de onderliggende sonderingen en boringen blijven ongemoeid.',
@@ -153,12 +153,12 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.litho-axis.title': 'Schakel naar de litho-as',
   'tutorial.litho-axis.body':
     'Open een dwarsprofiel en zet de as op Litho. De Litho-pil ontgrendelt zodra het lithomodel bestaat, dus je bereikt ze meteen na het aanmaken van het model. Hetzelfde profiel bewerkt nu het lithomodel in plaats van de stratigrafie, en elk voorstel en elke correlatie die je hier maakt, hoort bij het lithomodel.',
-  'tutorial.litho-accept.title': 'Aanvaard de voorstellen',
-  'tutorial.litho-accept.body':
-    'De segmenter stelt lithologische lagen voor op elke kolom en leest de sondering met een Robertson-classificatie. Aanvaard die welke overeenkomen met wat je ziet. Dit is ondersteund werk, geen automatische correlatie, dus jij houdt elke laag in de hand. Deze stap vinkt af zodra je je eerste voorstel aanvaardt.',
-  'tutorial.litho-adjust.title': 'Lagen samenvoegen en bijstellen',
+  'tutorial.litho-adjust.title': 'Pas de voorstellen aan',
   'tutorial.litho-adjust.body':
-    'Aanvaarde lagen kan je verfijnen. Sleep een grens om ze te verplaatsen; Shift+slepen voorbij het midden van de buur neemt die op; Alt+slepen kopieert de samenstelling van een laag naar een andere kolom; rechtsklik een laag voor “Lagen samenvoegen” en meer.',
+    'De segmenter stelt lithologische lagen voor op elke kolom en leest de sondering met een Robertson-classificatie. Pas ze aan voor je aanvaardt: sleep een spookgrens om ze te verplaatsen, of sleep ze op de buur en laat los om de twee lagen samen te voegen. Rechtsklik de grens tussen twee voorstellen voor “Lagen samenvoegen”. Alt+slepen kopieert de samenstelling van een voorstel naar een andere kolom, en rechtsklik een voorstel voor de rest: “Samenstelling bewerken…”, “Laag verwerpen”, en meer.',
+  'tutorial.litho-accept.title': 'Eerst aanpassen, dan aanvaarden',
+  'tutorial.litho-accept.body':
+    'Pas de voorstellen eerst aan, aanvaard ze daarna. Sleep een spookgrens om ze te verplaatsen, rechtsklik de grens tussen twee voorstellen voor “Lagen samenvoegen”, verwerp een voorstel dat je niet wilt met haar × (of rechtsklik voor “Laag verwerpen”), en stel haar bijmengingen in met rechtsklik, “Samenstelling bewerken…”. Ziet een kolom er goed uit, dubbelklik dan een voorstel om het te aanvaarden, of klik “Alles aanvaarden” om alle overige in een keer vast te leggen. Dit is ondersteund werk, geen automatische correlatie, dus jij houdt elke laag in de hand. Deze stap vinkt af zodra je je eerste voorstel aanvaardt.',
   'tutorial.litho-correlate.title': 'Correleer de lagen',
   'tutorial.litho-correlate.body':
     'Voor je bouwt, correleer je een laag op de ene kolom met dezelfde laag op de volgende, zodat het model weet dat ze één lichaam zijn. Correleren bovenaan de lithowerkbalk activeert het gebaar met twee klikken; Automatisch correleren stelt de koppelingen over het hele model voor, die je dan aanvaardt.',
