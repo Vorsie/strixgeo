@@ -257,6 +257,12 @@ export function suggestTieSections(
         corridorIds.add(item.id)
       }
     }
+    // A tie must pass through at least two DISTINCT tests — you cannot
+    // correlate with only one (owner ruling 2026-09-06). The rung already
+    // holds >= 2 members, but they collapse to a single investigation id when
+    // the same site sits on two walls (a CPT + borehole at one location); drop
+    // that degenerate one-test line here rather than propose it.
+    if (corridorIds.size < 2) continue
     candidates.push({
       tie,
       corridorIds,
