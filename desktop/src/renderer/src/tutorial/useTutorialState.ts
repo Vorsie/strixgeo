@@ -47,6 +47,16 @@ export function useTutorialState(): TutorialState {
       state.geotechModelExists,
       state.cptOpen,
       state.boreholeOpen,
+      state.projectSettingsOpen,
+      state.crsSet,
+      state.datumSet,
+      state.importMenuOpen,
+      state.lithoModelExists,
+      state.lithoAxisActive,
+      state.geotechAxisActive,
+      state.sectionOpen,
+      state.geoSurfacesBuilt,
+      state.geotechSolidsBuilt,
     ],
   )
 }
