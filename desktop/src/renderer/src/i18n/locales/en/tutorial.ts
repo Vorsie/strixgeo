@@ -139,6 +139,9 @@ export const TUTORIAL = {
   'tutorial.geo-second-section.title': 'Draw a second cross-section',
   'tutorial.geo-second-section.body':
     'Before you build the surfaces, draw a second cross-section across the site. One line gives each surface a single profile; a second line gives it the 3-D data to interpolate between. Draw it the same way you drew the first.',
+  'tutorial.geo-bed.title': 'Draw the canal bed',
+  'tutorial.geo-bed.body':
+    'Over water the DEM is the water surface, not the bed. Where a canal or river was dredged, that is metres too high. Open the Data stage, pick the Bed level tool on the map, draw a polygon over the water and type the bed elevation in m TAW. Inside the polygon the ground surface takes that level, so the surfaces you build next are cut at the real bed. This step ticks once a bed level exists.',
   'tutorial.geo-surfaces.title': 'Build the surfaces',
   'tutorial.geo-surfaces.body':
     'Build the formation surfaces from the contacts. StrixGeo fits one surface through each formation top. Then check the crossings the validator reports, because the formations have to stay in order for the model to be valid. This step ticks once the surfaces are built.',
