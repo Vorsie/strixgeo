@@ -31,6 +31,13 @@ Per-permkey observation XML (grain-size):
   ``GET https://www.dov.vlaanderen.be/xdov/proxy/export/observatie/<permkey>``
   → ``fixture_root/observatie/<permkey>``
 
+Virtuele Boring lagenmodel catalogue (model-picker dropdown):
+  ``GET https://services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel``
+  → ``fixture_root/virtuele_boring/lagenmodel.json``
+  (a different host than the WFS routes; serves a small deterministic catalogue
+  so the offline harness populates the DOV model picker instead of 502-ing on
+  the unreachable live catalogue).
+
 Layer name → file-system slug mapping
 --------------------------------------
 The WFS ``typeNames`` parameter contains colons and hyphens that are
@@ -72,6 +79,10 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from groundmodel.infrastructure.parsers.dov.virtuele_boring_constants import (
+    DOV_VIRTUELE_BORING_BASE_URL,
+    DOV_VIRTUELE_BORING_LAGENMODEL_PATH,
+)
 from groundmodel.shared.config import settings
 
 # ---------------------------------------------------------------------------
@@ -100,6 +111,16 @@ _FIXTURE_BBOX_L72_MIN_X = 148_900.0
 _FIXTURE_BBOX_L72_MIN_Y = 191_900.0
 _FIXTURE_BBOX_L72_MAX_X = 149_500.0
 _FIXTURE_BBOX_L72_MAX_Y = 192_300.0
+
+# Virtuele Boring lagenmodel catalogue: a DIFFERENT DOV host than the WFS /
+# xdov proxy routes above (``services.dov.vlaanderen.be`` vs
+# ``www.dov.vlaanderen.be``). Host + path are derived from the same constants
+# the client builds its URL from (``virtuele_boring_client.fetch_lagenmodel_catalog``:
+# ``f"{BASE_URL}{LAGENMODEL_PATH}"``), so a future DOV path change is picked up
+# here without drift.
+_VB_CATALOG_URL = urlparse(f"{DOV_VIRTUELE_BORING_BASE_URL}{DOV_VIRTUELE_BORING_LAGENMODEL_PATH}")
+_DOV_VIRTUELE_BORING_HOST = _VB_CATALOG_URL.hostname  # "services.dov.vlaanderen.be"
+_VB_LAGENMODEL_PATH = _VB_CATALOG_URL.path  # "/virtueleboringserver/base/lagenmodel"
 
 # Per-resource proxy URL prefixes (path-only, without host).
 _CPT_PATH_PREFIX = "/xdov/proxy/export/sondering/"
@@ -331,6 +352,16 @@ def _build_fixture_transport(fixture_root: Path) -> httpx.MockTransport:
             permkey = path[len(_OBS_PATH_PREFIX) :].rstrip("/")
             fixture_path = fixture_root / "observatie" / permkey
             return _serve_fixture(fixture_path, "text/xml; charset=utf-8")
+
+        # ------------------------------------------------------------------
+        # Route 6: Virtuele Boring lagenmodel catalogue (model-picker).
+        # A different DOV host than the WFS / xdov routes above. Serving it
+        # keeps the offline harness from 502-ing on the unreachable live DOV
+        # catalogue (walker findings 1-9, 2026-09-06).
+        # ------------------------------------------------------------------
+        if parsed.hostname == _DOV_VIRTUELE_BORING_HOST and path == _VB_LAGENMODEL_PATH:
+            fixture_path = fixture_root / "virtuele_boring" / "lagenmodel.json"
+            return _serve_fixture(fixture_path, "application/json")
 
         # ------------------------------------------------------------------
         # Unmatched route — 404 so missing fixtures fail loudly.
