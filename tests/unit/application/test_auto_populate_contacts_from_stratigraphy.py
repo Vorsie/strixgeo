@@ -359,6 +359,91 @@ async def test_execute_selected_keys_filters_unselected_layers():
 
 
 @pytest.mark.asyncio
+async def test_execute_lump_to_dov_member_creates_formation_with_dov_code_regional_ref():
+    """A candidate lumped to a DOV member name (not itself a candidate) is
+    created as a formation with that name, and — where the lexicon knows the
+    member unambiguously — the DOV code as ``regional_ref`` (owner ruling
+    2026-09-06).
+
+    The source layer is informal-only, so the derived ``regional_ref`` is
+    ``None``; the created formation must still carry ``GeMe`` (the DOV code for
+    "Lid van Merelbeke") because the lump target is a known DOV member.  This
+    also pins that the backend ACCEPTS a target not present as a raw layer key:
+    the layer's raw key ("boom klei") is NOT in ``selected_keys`` but the
+    effective (lumped) key IS, so the formation is created.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    # Informal-only borehole → derived regional_ref is None for its layer.
+    layer = _layer(top_m=0.0, base_m=5.0, description="Boom Klei")
+    bh = _borehole([_observation(ObservationType.INFORMAL_STRATIGRAPHY, [layer])])
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [bh]
+    empty_formations_result = MagicMock()
+    empty_formations_result.scalars.return_value.all.return_value = []
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = 0
+    empty_contacts_result = MagicMock()
+    empty_contacts_result.all.return_value = []
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return empty_formations_result
+        if call_count == 3:
+            return max_order_result
+        return empty_contacts_result
+
+    added_objects: list = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock(side_effect=added_objects.append)
+    session.new = added_objects
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh.id],
+            # The candidate ("boom klei") is lumped to the DOV member name; the
+            # frontend sends the effective key of the target in selected_keys.
+            selected_keys=["lid van merelbeke"],
+            manual_map={"boom klei": "Lid van Merelbeke"},
+        )
+
+    assert len(outcome.created_formation_ids) == 1
+    formations = [f for f in added_objects if isinstance(f, GeologicalFormationOrm)]
+    assert len(formations) == 1
+    created = formations[0]
+    # Applying creates the member as a formation with that name...
+    assert created.name == "Lid van Merelbeke"
+    # ...and stamps the DOV code the lexicon knows for the member as regional_ref
+    # (NOT None, which is what the informal-only source layer derived).
+    assert created.regional_ref == "GeMe"
+
+
+@pytest.mark.asyncio
 async def test_execute_selected_keys_none_processes_all():
     """When selected_keys is None, all layers are processed (existing behaviour)."""
     from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
