@@ -133,20 +133,26 @@ export default function Modal({
   // of <body> the scrim covers the entire window above all chrome and the
   // UI is genuinely cleared.
   return createPortal(
-    // Max z-index — NOT z-[1100]. `#root` is position:static / z-index:
+    // Near-max z-index — NOT z-[1100]. `#root` is position:static / z-index:
     // auto, so it does NOT form a stacking context: every z-index in the
     // app lives in ONE flat root stacking context, shared with this
     // body-portaled overlay. z-[1100] therefore competes directly with
     // app-wide values, and some exceed it (e.g. BoreholeLog's z-[1200]),
     // so Inspector-subtree content painted OVER the scrim — the reported
-    // "map dimmed, right panel crisp". 2147483647 (int32 max) sits above
-    // anything any component can reasonably set, in the flat context.
+    // "map dimmed, right panel crisp". 2147483646 (one below int32 max) sits
+    // above anything any component can reasonably set, in the flat context.
+    //
+    // Why one BELOW int32 max: the guided-tutorial overlay claims the true
+    // max (z-[2147483647], TutorialOverlay.tsx) so its coach card + spotlight
+    // ring paint above an open dialog (owner ruling 2, 2026-09-06). The
+    // tutorial is pointer-events-none, so the dialog stays fully interactive
+    // beneath it.
     //
     // Scrim strength: bg-black/30 was invisible over the dark basemap +
     // dark theme; bg-black/70 + backdrop-blur-sm is the unambiguous
     // "UI is blocked" signal on any theme.
     <div
-      className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={() => !busy && onCancel()}
     >
       <div
