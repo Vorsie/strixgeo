@@ -184,10 +184,16 @@ _ENGINE_DOMAIN_SERVICES = [
     "groundmodel.domain.services.auto_correlate_contact_edges",
     "groundmodel.domain.services.auto_correlate_contact_edges_constants",
     "groundmodel.domain.services.auto_correlate_helpers",
+    # Manual bed-level override geometry (owner ruling 2026-09-06): point-in-
+    # polygon + the ground sampler that reads the drawn bed inside a polygon.
+    "groundmodel.domain.services.bed_override",
     "groundmodel.domain.services.body_fact_translation",
     "groundmodel.domain.services.body_geo_label",
     "groundmodel.domain.services.borehole_flank_donors",
     "groundmodel.domain.services.borehole_packing_fill",
+    # Crossing-line clip of a formation TIN against the ground surface (owner
+    # ruling 2026-09-06): a formation ends where it crosses the ground.
+    "groundmodel.domain.services.clip_tin_by_ground_surface",
     "groundmodel.domain.services.dem_clip",
     "groundmodel.domain.services.dem_clip_constants",
     "groundmodel.domain.services.detect_crossing_pinch_outs",
