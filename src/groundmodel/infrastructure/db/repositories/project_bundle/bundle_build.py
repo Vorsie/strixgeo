@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.infrastructure.db.models.bed_override_orm import BedOverrideOrm
 from groundmodel.infrastructure.db.models.body_boundary_node_orm import BodyBoundaryNodeOrm
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
@@ -174,6 +175,7 @@ async def _build_project_bundle_impl(
         )
     )
     sections_stmt = select(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project.id)
+    bed_overrides_stmt = select(BedOverrideOrm).where(BedOverrideOrm.app_project_id == project.id)
     reviews_stmt = select(InvestigationReviewOrm).where(
         InvestigationReviewOrm.app_project_id == project.id
     )
@@ -282,6 +284,7 @@ async def _build_project_bundle_impl(
     formations = (await session.execute(formations_stmt)).scalars().all()
     models = (await session.execute(models_stmt)).scalars().all()
     sections = (await session.execute(sections_stmt)).scalars().all()
+    bed_overrides = (await session.execute(bed_overrides_stmt)).scalars().all()
     reviews = (await session.execute(reviews_stmt)).scalars().all()
     lenses = (await session.execute(lenses_stmt)).scalars().all()
     absences = (await session.execute(absences_stmt)).scalars().all()
@@ -360,6 +363,7 @@ async def _build_project_bundle_impl(
         "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
         "geological_models": [_geological_model_to_dict(m) for m in models],
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
+        "bed_overrides": [_column_to_json(b, _SKIP_COLUMNS) for b in bed_overrides],
         "investigation_reviews": [_column_to_json(r, _SKIP_COLUMNS) for r in reviews],
         # Body rows (slice 4.1 rename from litho_lenses). Each row carries the
         # core BodyOrm column set: id, model_id, formation_id, body_ordinal,
