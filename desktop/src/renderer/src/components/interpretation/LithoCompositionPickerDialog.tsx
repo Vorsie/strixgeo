@@ -36,42 +36,30 @@ import { Plus, X } from 'lucide-react'
 import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
 import { log } from '../../utils/log'
 import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR } from '../../utils/lithoConstants'
-import { lithoBaseLabel, lithoDisplayName } from '../../utils/lithoLabels'
+import {
+  admixtureAmountOptions,
+  admixtureSoilOptions,
+  lithoBaseLabel,
+  lithoDisplayName,
+} from '../../utils/lithoLabels'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
 import { useT } from '../../i18n/translate'
+import { useLanguage } from '../../i18n/languageSelect'
 
 // ---------------------------------------------------------------------------
-// Domain vocabulary — English labels at the presentation boundary, raw
-// DOV codes shown in parentheses so engineers can cross-check against
-// source data. The label table is imported from utils/lithoConstants so
-// every consumer (picker, composition editor, ghost overlay) reads from
-// one source of truth (LITHOLOGY_LABELS).
+// Domain vocabulary — the base-lithology labels come from
+// utils/lithoConstants (LITHOLOGY_LABELS) and the admixture soil / amount
+// dropdown options from the shared ``admixtureSoilOptions`` /
+// ``admixtureAmountOptions`` helpers, so every consumer (picker, ghost
+// composition editor) reads one source of truth AND follows the UI language
+// (owner ruling 2026-09-06 — the picker rendered English "Clay (KL)" in the
+// Dutch UI). The option VALUE stays the raw DOV code; the label is translated
+// at the presentation boundary and the raw token is the option tooltip.
 // ---------------------------------------------------------------------------
 
 const MAIN_SOIL_CODES = ['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN'] as const
 type MainSoilCode = (typeof MAIN_SOIL_CODES)[number]
-
-// Admixture soil-code options — DOV vocabulary codes with English label
-// plus the raw code in parens (the code IS the lookup key for the
-// admixture row, so showing it keeps the user oriented).
-const ADMIXTURE_SOIL_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: 'GL', label: 'Gravel (GL)' },
-  { code: 'ZN', label: 'Sand (ZN)' },
-  { code: 'SL', label: 'Silt (SL)' },
-  { code: 'KL', label: 'Clay (KL)' },
-  { code: 'VE', label: 'Peat (VE)' },
-]
-
-// Admixture amount-code options.
-const ADMIXTURE_AMOUNT_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: '', label: '— (unspecified)' },
-  { code: 'Z', label: 'Weakly (Z)' },
-  { code: 'W', label: 'Slightly (W)' },
-  { code: 'M', label: 'Moderately (M)' },
-  { code: 'V', label: 'Very (V)' },
-  { code: 'S', label: 'Strongly (S)' },
-]
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -219,6 +207,13 @@ export default function LithoCompositionPickerDialog({
   onCancel,
 }: LithoCompositionPickerProps): JSX.Element | null {
   const t = useT()
+  // The active language, subscribed so the dropdowns re-render on a language
+  // flip. The admixture soil / amount options are localised at the presentation
+  // boundary (owner ruling 2026-09-06): the raw DOV code is the option value,
+  // the label follows the UI language, and the raw token is the option tooltip.
+  const language = useLanguage()
+  const soilOptions = admixtureSoilOptions(language)
+  const amountOptions = admixtureAmountOptions(language)
   // Debt #151 dogfeed refinement 2026-05-27 — filter to litho units
   // within the geological formation at the click depth.  Non-null
   // ``parentFormationId`` narrows the roster; null falls back to the
@@ -486,7 +481,7 @@ export default function LithoCompositionPickerDialog({
                         className="inline-block w-3 h-3 rounded-sm shrink-0"
                         style={{ backgroundColor: color }}
                       />
-                      {lithoBaseLabel(code)}
+                      {lithoBaseLabel(code, language)}
                     </button>
                   )
                 })}
@@ -507,8 +502,8 @@ export default function LithoCompositionPickerDialog({
                       className="min-w-0 flex-1 text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
                       aria-label={t('composition.admixtureSoilCode')}
                     >
-                      {ADMIXTURE_SOIL_OPTIONS.map(opt => (
-                        <option key={opt.code} value={opt.code}>
+                      {soilOptions.map(opt => (
+                        <option key={opt.code} value={opt.code} title={opt.title}>
                           {opt.label}
                         </option>
                       ))}
@@ -521,8 +516,8 @@ export default function LithoCompositionPickerDialog({
                       className="min-w-0 flex-1 text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
                       aria-label={t('composition.admixtureAmount')}
                     >
-                      {ADMIXTURE_AMOUNT_OPTIONS.map(opt => (
-                        <option key={opt.code} value={opt.code}>
+                      {amountOptions.map(opt => (
+                        <option key={opt.code} value={opt.code} title={opt.title}>
                           {opt.label}
                         </option>
                       ))}
