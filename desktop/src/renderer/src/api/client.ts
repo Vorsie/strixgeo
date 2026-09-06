@@ -119,6 +119,7 @@ export type {
   ContactSource,
   ContactConfidence,
   FormationContactResponse,
+  ContactUpdateOutcome,
   FormationContactCreatePayload,
   FormationContactUpdatePayload,
   FormationContactBatchUpdateEntry,
