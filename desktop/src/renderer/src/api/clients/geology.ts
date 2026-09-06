@@ -59,6 +59,8 @@ import type {
   LithoLayerResponse,
   LithoLayerUpdatePayload,
   LithoLayerCreateItem,
+  LithoLayerCompositionPayload,
+  LithoLayerSplitResponse,
   LithoLayerBoundaryMovePayload,
   LithoLayerBoundaryMoveResponse,
   LithoLayerBatchUpdateItem,
@@ -393,6 +395,34 @@ export const geologyClient = {
     if (!text || text === 'null') return null
     return JSON.parse(text)
   },
+
+  /** PATCH /models/{mid}/layers/{lid}/composition — "Edit composition": repoint
+   *  one accepted layer to a different composition's litho unit (installer #21). */
+  editLayerComposition: (
+    projectId: string,
+    modelId: string,
+    layerId: string,
+    payload: LithoLayerCompositionPayload,
+  ): Promise<LithoLayerResponse> =>
+    patch(
+      `/projects/${projectId}/geology/models/${modelId}/layers/${layerId}/composition`,
+      payload,
+      'editLayerComposition failed',
+    ),
+
+  /** POST /models/{mid}/layers/{lid}/split — "Split here": cut one accepted
+   *  layer at a depth into two same-composition layers (installer #21). */
+  splitLayer: (
+    projectId: string,
+    modelId: string,
+    layerId: string,
+    depthM: number,
+  ): Promise<LithoLayerSplitResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${modelId}/layers/${layerId}/split`,
+      { depth_m: depthM },
+      'splitLayer failed',
+    ),
 
   createContact: async (
     projectId: string,
