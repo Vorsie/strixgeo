@@ -141,7 +141,7 @@ export const TUTORIAL = {
     'Before you build the surfaces, draw a second cross-section across the site. One line gives each surface a single profile; a second line gives it the 3-D data to interpolate between. Draw it the same way you drew the first.',
   'tutorial.geo-surfaces.title': 'Build the surfaces',
   'tutorial.geo-surfaces.body':
-    'Build the formation surfaces from the contacts. StrixGeo fits one surface through each formation top. Then check the crossings the validator reports, because the formations have to stay in order for the model to be valid.',
+    'Build the formation surfaces from the contacts. StrixGeo fits one surface through each formation top. Then check the crossings the validator reports, because the formations have to stay in order for the model to be valid. This step ticks once the surfaces are built.',
 
   // 5 · Lithostratigraphic model --------------------------------------------
   'tutorial.litho-open.title': 'Open the Lithology stage',
@@ -149,10 +149,10 @@ export const TUTORIAL = {
     'The lithological model refines the stratigraphic backbone into lithological units. Think sand, clay, silt, gravel and peat, with their admixtures. You build it along your cross-sections, one column at a time.',
   'tutorial.litho-create.title': 'Create a lithological model',
   'tutorial.litho-create.body':
-    'The litho model is a separate ground-model axis under the stratigraphic one. Create it first, until it exists there is nothing to pick litho contacts onto. Give it a name and it becomes the active litho model.',
+    'The litho model is a separate ground-model axis under the stratigraphic one. Create it first: until it exists the Litho and Geotech axis pills stay locked and there is nothing to pick litho contacts onto. Give it a name and it becomes the active litho model; this step ticks once the model exists.',
   'tutorial.litho-axis.title': 'Switch to the litho axis',
   'tutorial.litho-axis.body':
-    'Open a cross-section and switch its axis to Litho. The same section now edits the litho model instead of the stratigraphy, every suggestion and correlation you make from here belongs to the litho model.',
+    'Open a cross-section and switch its axis to Litho. The Litho pill unlocks the moment the litho model exists, so you reach it right after creating the model. The same section now edits the litho model instead of the stratigraphy, and every suggestion and correlation you make from here belongs to it.',
   'tutorial.litho-accept.title': 'Accept the suggestions',
   'tutorial.litho-accept.body':
     'The segmenter proposes litho layers on each column, reading the CPT with a Robertson classification. Accept the ones that match what you see. This is assisted work, not automatic correlation, so you stay in control of every layer. This step ticks once you accept your first suggestion.',
@@ -175,7 +175,7 @@ export const TUTORIAL = {
     'The geotechnical model subdivides the litho units into NAD packing classes. It reads CPT-derived indicators like qc and relative density, so these are characterisation estimates, not design values. Your design numbers come later, in your design tool.',
   'tutorial.geotech-subdivide.title': 'Run the packing pipeline',
   'tutorial.geotech-subdivide.body':
-    'On a cross-section, switch to the Geotech axis and open the packing pipeline. It runs in four steps: subdivide the CPTs so each litho unit splits into its packing classes, propose and accept the packing correlations, then divide the boreholes to carry the classes across. This step ticks once the geotechnical model exists.',
+    'On a cross-section, switch to the Geotech axis and open the packing pipeline. The Geotech pill unlocks once a litho model exists, because the pipeline builds the geotechnical model from the litho units. It runs in four steps: subdivide the CPTs so each litho unit splits into its packing classes, propose and accept the packing correlations, then divide the boreholes to carry the classes across. This step ticks once the geotechnical model exists.',
   'tutorial.geotech-bodies.title': 'Recompute and group bodies',
   'tutorial.geotech-bodies.body':
     'Recompute the bodies to settle which masses count as one geotechnical body. Use Join with to group similar masses, so you carry more data and fewer export classes. Use Un-join to lift a body back out of a group. Then Build the 3-D geotechnical model.',
@@ -235,7 +235,7 @@ export const TUTORIAL = {
     'Reset view flies the 3-D camera back to the model and collapses a split viewport. Delete stratigraphy removes the whole model, every formation, contact and surface, so it always confirms first.',
   'tutorial.geo-carry-strat.title': 'Carry the stratigraphy onto the CPTs',
   'tutorial.geo-carry-strat.body':
-    'Hold Shift and drag a borehole contact sideways across the neighbouring CPT columns. It paints a copy of that contact onto every column you pass over, so the CPTs carry the same subdivision. Do this before you build the surfaces.',
+    'Hold Shift and drag a borehole contact sideways across the neighbouring CPT columns; it paints a copy onto every column you pass over, so the CPTs carry the same subdivision. To carry several boundaries at once, Shift-click the bottom contact to select the whole range first (or Shift-drag over them), then drag the group across together. Set the contacts right before you build the model, and do this on both cross-sections.',
   'tutorial.litho-suggest.title': 'Suggest litho layers',
   'tutorial.litho-suggest.body':
     'Suggest reads the focused column with a Robertson classification and proposes litho layers as ghost boundaries. The caret offers the bulk variants: suggest for the whole section, or only for new tests.',
@@ -262,7 +262,7 @@ export const TUTORIAL = {
     'The Display menu toggles what the geotech axis draws: the packing fill, the built-model fill, the litho fill underneath, the borehole preview and the correlation ribbons.',
   'tutorial.geotech-build.title': 'Build the geotech model',
   'tutorial.geotech-build.body':
-    'On the Geotech stage, Build model turns the accepted packing bands into 3-D NAD body solids. A pre-flight asks about any test that carries litho but no bands before it builds.',
+    'On the Geotech stage, Build model turns the accepted packing bands into 3-D NAD body solids. A pre-flight asks about any test that carries litho but no bands before it builds. This step ticks once the geotech solids exist.',
   'tutorial.geotech-fence.title': 'Export the geotech fence',
   'tutorial.geotech-fence.body':
     'Once the geotech solids exist, Export fence writes the 3-D fence diagram to DXF, the same way the litho stage does. It refuses with a warning unless the view is in Fence mode.',
