@@ -21,6 +21,7 @@ from groundmodel.application.formal_code_count import FormalCodeCount
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
     FormalStratigraphyEntry,
+    _member_only,
     get_formal_stratigraphy,
 )
 from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_constants import (
@@ -250,6 +251,39 @@ def _resolve_codelist_canonical(raw_key: str) -> str | None:
         if left is not None and right is not None:
             return f"{left.full_name_nl} {RELATION_WORD[tokens[1]]} {right.full_name_nl}"
     return None
+
+
+def member_code_for_name(name: str) -> str | None:
+    """Return the DOV code for a member name, when the lexicon knows exactly one.
+
+    The "Fill from boreholes" dialog lets the user lump a candidate to a DOV
+    member name ("Lid van Merelbeke").  When the write path creates that
+    formation it stamps the member's DOV code ("GeMe") as ``regional_ref``
+    where the lexicon knows it unambiguously (owner ruling 2026-09-06) — so the
+    created formation carries the stable cross-borehole key of the TARGET unit
+    rather than the raw description of whichever source layer happened to
+    create it first.
+
+    The name is reduced to its member (text before the first ``" ("``) before
+    the lookup, so a full ``"Lid van Egem (Formatie van Tielt)"`` and the bare
+    ``"Lid van Egem"`` resolve the same way the dialog offers them.  A member
+    shared by more than one formation (Egem = TtEg in Tielt AND HyEg in Hyon)
+    and a free-form target the lexicon does not know both return ``None`` — the
+    caller then keeps the derived ``regional_ref`` (never invents a code).
+
+    Parameters
+    ----------
+    name : str
+        The lump target's display name (a DOV member, a formation/group name,
+        or a free-form name the user typed).
+
+    Returns
+    -------
+    str or None
+        The DOV code (raw XSD casing) when the reduced member name maps to a
+        single code; ``None`` when ambiguous or unknown.
+    """
+    return get_formal_stratigraphy().member_code(normalize_formation_key(_member_only(name)))
 
 
 def _resolve_bridge_key(
