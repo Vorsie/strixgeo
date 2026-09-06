@@ -168,6 +168,61 @@ describe('deriveTutorialState', () => {
     expect(datum.datumSet).toBe(true)
   })
 
+  it('crsSet / datumSet move on as soon as a value is SELECTED in the dialog, before Save (owner ruling 1, 2026-09-06)', () => {
+    // Owner's words: "the CRS step moves on as soon as a CRS is selected in the
+    // dialog, before Save." The saved project still carries no horizontal CRS;
+    // the dialog's DRAFT holds the chosen value, and that is enough.
+    const crsDraft = deriveTutorialState({
+      ...emptyFacts(),
+      project: openProject(),
+      lifecycle: { currentLumping: null, metadataEditorOpen: true },
+      coordinator: {
+        selectedId: null,
+        selectedBoreholeId: null,
+        metadataDraftHorizontalEpsg: 31370,
+        metadataDraftVerticalEpsg: null,
+      },
+    })
+    expect(crsDraft.crsSet).toBe(true)
+    // The datum step has NOT been touched yet — its draft is still empty.
+    expect(crsDraft.datumSet).toBe(false)
+    // Selecting a vertical datum in the dialog advances the datum step the same
+    // way, before Save.
+    const datumDraft = deriveTutorialState({
+      ...emptyFacts(),
+      project: openProject(),
+      lifecycle: { currentLumping: null, metadataEditorOpen: true },
+      coordinator: {
+        selectedId: null,
+        selectedBoreholeId: null,
+        metadataDraftHorizontalEpsg: null,
+        metadataDraftVerticalEpsg: 5710,
+      },
+    })
+    expect(datumDraft.datumSet).toBe(true)
+  })
+
+  it('flags twoSectionsExist only once a SECOND cross-section exists (owner ruling 3, 2026-09-06)', () => {
+    // Owner ruling 3: the second-profile steps "must not ask for a second
+    // profile that already exists". twoSectionsExist gates them — false at 0 or
+    // 1 section, true at 2+, so the step completes instantly when two exist.
+    expect(deriveTutorialState(emptyFacts()).twoSectionsExist).toBe(false)
+    const one = deriveTutorialState({
+      ...emptyFacts(),
+      sections: { sections: [{ id: 's1' }], selectedSectionId: null, sectionModelAxis: 'geological' },
+    })
+    expect(one.twoSectionsExist).toBe(false)
+    const two = deriveTutorialState({
+      ...emptyFacts(),
+      sections: {
+        sections: [{ id: 's1' }, { id: 's2' }],
+        selectedSectionId: null,
+        sectionModelAxis: 'geological',
+      },
+    })
+    expect(two.twoSectionsExist).toBe(true)
+  })
+
   it('flags importMenuOpen from the coordinator', () => {
     expect(deriveTutorialState(emptyFacts()).importMenuOpen).toBe(false)
     expect(
