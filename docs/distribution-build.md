@@ -293,6 +293,22 @@ renderer's "could not start the data service" message pointing at the same log.
 > integration test. If you change the migrator's env contract, change both the
 > launcher's `buildBackendEnv` and `boot_migration.run_boot_migration`.
 
+> **Maintenance note - the parse-pool workers self-exit if the engine dies.**
+> The engine's DOV parse pool (`api/main.py`, a `ProcessPoolExecutor` of `spawn`
+> workers) is created with `initializer=start_parent_watchdog,
+> initargs=(os.getpid(),)`. Every worker, the moment it spawns, starts a
+> one-second daemon watchdog (`groundmodel.shared.parent_watchdog`) on the
+> engine's pid and calls `os._exit(0)` the instant that pid is gone. This is the
+> in-engine second layer behind the desktop's process-tree kill
+> (`desktop/src/main/shutdownSequencer.ts`): an engine crash, or a tree-kill that
+> misses a worker, can no longer leave a stranded `python.exe` holding files in
+> the install folder, the state that made a reinstall report "StrixGeo is nog
+> actief" (owner diagnosis 2026-09-06). On a clean lifespan exit the pool is shut
+> down with `wait=False, cancel_futures=True`, so the stop never blocks on an
+> in-flight parse and the idle workers take their shutdown sentinel. If you add
+> another `spawn` child anywhere in the engine, wire the same initializer so it
+> inherits the watchdog.
+
 ### Per-install generated secrets
 
 `<userData>/pgcredentials.json`, written on first launch:
@@ -384,6 +400,8 @@ which makes `initdb` refuse a non-empty target).
 
 Uninstall therefore removes the program and leaves `%APPDATA%\StrixGeo\`. To
 reclaim the space, or to force a clean first-run, delete that folder by hand.
+
+**Reinstalling over a running app.** A stranded parse-pool worker can no longer block a reinstall as "StrixGeo is nog actief": a normal close kills the engine tree (`shutdownSequencer.ts`) and, as a backstop, each worker self-exits once the engine is gone (`groundmodel.shared.parent_watchdog`, wired as the pool initializer in `api/main.py`).
 
 **`toolsets: { winCodeSign: "1.1.0" }` is load-bearing, not cosmetic.** The
 legacy default fetches ONE archive holding every platform's signing tools,
