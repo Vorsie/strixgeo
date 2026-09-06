@@ -82,6 +82,29 @@ function isSlowMutation(url: string): boolean {
 }
 
 /**
+ * GET endpoints the backend proxies from a flaky EXTERNAL service, whose
+ * failure is an expected degraded state rather than a bug in our code.
+ *
+ * Today this is only the DOV Virtuele Boring model catalogue, an
+ * informative-only overlay. When DOV is unreachable the endpoint answers
+ * 502/503/504; the picker already shows "DOV layer models unavailable", and
+ * ``useVirtueleBoringCatalog`` session-caches the failure so it is not
+ * re-asked on every CPT / borehole open. A failure here therefore logs at
+ * WARN ("degraded but continuing") and is NOT captured as an ``api-error``
+ * diagnostic: nothing about an unreachable third-party host is actionable in
+ * a user's crash bundle. (walker findings 1-9, 2026-09-06: a down DOV host
+ * logged nine identical 502 ERRORs in one session.)
+ */
+const DEGRADABLE_GET_PATHS = ['/dov/virtuele-boring/lagenmodellen'] as const
+
+/** Whether a failed request is a GET to a degradable external-overlay endpoint. */
+function isDegradableGet(method: string, path: string): boolean {
+  if (method.toUpperCase() !== 'GET') return false
+  const clean = stripQuery(path)
+  return DEGRADABLE_GET_PATHS.some(p => clean === p)
+}
+
+/**
  * Attach a timeout abort signal to a mutating request that has none.
  *
  * GET/HEAD are left untouched (a read that hangs is annoying, not a stuck busy
@@ -397,29 +420,36 @@ export async function request(
     // Surface the server's `detail` (e.g. the 409 "delete the dependent
     // model first" guard) instead of an opaque "→ 409".
     const detail = await res.json().catch(() => ({}))
-    log.error('api', method, stripQuery(path), res.status, detail.detail)
-    // #16 — a 5xx is a bug nobody else witnesses (the traceback stays in the
-    // backend log on the user's own machine), captured as an error. A 4xx is
-    // the backend REFUSING something the user did (a 409 refresh confirmation,
-    // a 422 validation) — the app working, but "it refused to delete the
-    // contact" needs a file trace too (audit L2), so it is captured as a
-    // warning-severity ``api-refusal`` carrying the machine ``code``.
-    if (res.status >= 500) {
-      captureDiagnostic({
-        kind: 'api-error',
-        scope: 'api',
-        message: `${method} ${stripQuery(path)} → ${res.status}`,
-        httpStatus: res.status,
-      })
-    } else if (res.status >= 400) {
-      const code = detailCode(detail.detail)
-      captureDiagnostic({
-        kind: 'api-refusal',
-        severity: 'warning',
-        scope: 'api',
-        message: `${method} ${stripQuery(path)} → ${res.status}${code ? ` (${code})` : ''}`,
-        httpStatus: res.status,
-      })
+    const cleanPath = stripQuery(path)
+    if (isDegradableGet(method, path)) {
+      // Degraded external-overlay state (DOV unreachable): WARN, no
+      // diagnostic. See DEGRADABLE_GET_PATHS for the full rationale.
+      log.warn('api', method, cleanPath, res.status, detail.detail)
+    } else {
+      log.error('api', method, cleanPath, res.status, detail.detail)
+      // #16 — a 5xx is a bug nobody else witnesses (the traceback stays in the
+      // backend log on the user's own machine), captured as an error. A 4xx is
+      // the backend REFUSING something the user did (a 409 refresh confirmation,
+      // a 422 validation) — the app working, but "it refused to delete the
+      // contact" needs a file trace too (audit L2), so it is captured as a
+      // warning-severity ``api-refusal`` carrying the machine ``code``.
+      if (res.status >= 500) {
+        captureDiagnostic({
+          kind: 'api-error',
+          scope: 'api',
+          message: `${method} ${cleanPath} → ${res.status}`,
+          httpStatus: res.status,
+        })
+      } else if (res.status >= 400) {
+        const code = detailCode(detail.detail)
+        captureDiagnostic({
+          kind: 'api-refusal',
+          severity: 'warning',
+          scope: 'api',
+          message: `${method} ${cleanPath} → ${res.status}${code ? ` (${code})` : ''}`,
+          httpStatus: res.status,
+        })
+      }
     }
     // A known refusal code shows in the app's language; anything else keeps the
     // server's own message (apiCodeMessages.ts).
