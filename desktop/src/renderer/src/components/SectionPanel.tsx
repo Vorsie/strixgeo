@@ -62,6 +62,7 @@ import type {
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { log } from '../utils/log'
+import { resolveLithoLayerAtClick } from '../utils/resolveLithoLayerAtClick'
 import { computeScrubBounds } from '../utils/scrubBounds'
 import { sectionLength, type ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
@@ -729,6 +730,18 @@ interface Props {
    */
   onNameBody?: (bodyId: string) => void
   /**
+   * Edit an ACCEPTED litho layer's composition (installer #21). Fired from the
+   * body context menu's "Edit composition…" with the clicked layer id. Litho
+   * axis only — the caller opens the composition editor and PATCHes the layer.
+   */
+  onEditLithoComposition?: (layerId: string) => void
+  /**
+   * Split an ACCEPTED litho layer at the clicked depth (installer #21). Fired
+   * from the body context menu's "Split here" with the clicked layer id + the
+   * clicked depth (m). Litho axis only.
+   */
+  onSplitLithoLayer?: (layerId: string, depthM: number) => void
+  /**
    * Dissolve a body (delete both its defining correlation edges so the
    * detector no longer reconstructs it). Fired from the ``BodyContextMenu``
    * when the user picks "Dissolve body".
@@ -818,6 +831,8 @@ export default function SectionPanel({
   onCorrelateBoundary,
   onDeleteLens,
   onNameBody,
+  onEditLithoComposition,
+  onSplitLithoLayer,
   onDissolveBody,
   onJoinBodies,
   onDisjoinBody,
@@ -2665,6 +2680,47 @@ export default function SectionPanel({
     [warpAnchors, xToScreen, scaleH],
   )
 
+  // The ACCEPTED litho layer + clicked depth under an open body context menu
+  // (installer #21) — the target of the litho-axis "Edit composition…" /
+  // "Split here" verbs. Litho axis only; null unless a single accepted layer
+  // resolves under the right-click. Columns come from the projected
+  // investigations; the vertical inverse (screenToLevel) gives the depth, and
+  // the column is picked by warped screen-X so it follows column-spacing nudging.
+  const clickedLithoLayer = useMemo(() => {
+    if (bodyCtxMenu === null || axisMode === 'geotechnical' || !onEditLithoComposition) {
+      return null
+    }
+    const columns = [
+      ...projectedCpts.map(p => ({
+        investigationId: p.item.id,
+        alongM: p.along,
+        surfaceElevM: p.item.elevation_m,
+      })),
+      ...projectedBoreholes.map(p => ({
+        investigationId: p.item.id,
+        alongM: p.along,
+        surfaceElevM: p.item.elevation_m,
+      })),
+    ]
+    return resolveLithoLayerAtClick({
+      columns,
+      layers: lithoLayers ?? [],
+      svgX: bodyCtxMenu.svgX,
+      svgY: bodyCtxMenu.svgY,
+      alongToScreenX: warpedXToScreen,
+      screenToLevelM: screenToLevel,
+    })
+  }, [
+    bodyCtxMenu,
+    axisMode,
+    onEditLithoComposition,
+    projectedCpts,
+    projectedBoreholes,
+    lithoLayers,
+    warpedXToScreen,
+    screenToLevel,
+  ])
+
   // Warp-aware screen→along inverse for BodyExtentOverlay (dogfeed
   // 2026-05-31 follow-up).  Earlier version lived above ``warpAnchors``
   // and read ``warpAnchorsRef.current``, but React updates refs in a
@@ -4045,6 +4101,24 @@ export default function SectionPanel({
                   onNameBody?.(bodyId)
                   dismissBodyCtxMenu()
                 }}
+                // Accepted-layer verbs (installer #21) — offered only when a single
+                // accepted litho layer resolved under the click (litho axis only).
+                onEditComposition={
+                  clickedLithoLayer && onEditLithoComposition
+                    ? () => {
+                        onEditLithoComposition(clickedLithoLayer.layerId)
+                        dismissBodyCtxMenu()
+                      }
+                    : undefined
+                }
+                onSplitLayer={
+                  clickedLithoLayer && onSplitLithoLayer
+                    ? () => {
+                        onSplitLithoLayer(clickedLithoLayer.layerId, clickedLithoLayer.depthM)
+                        dismissBodyCtxMenu()
+                      }
+                    : undefined
+                }
                 // Dissolve is withheld (no item) where its handler is absent —
                 // the geotech axis (Dissolve stays litho-only, R5).
                 onDissolveBody={
