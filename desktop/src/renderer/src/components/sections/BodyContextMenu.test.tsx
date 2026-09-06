@@ -335,4 +335,62 @@ describe('BodyContextMenu', () => {
     fireEvent.mouseLeave(first)
     expect(onUnjoinHover).toHaveBeenLastCalledWith(null)
   })
+
+  // Accepted-layer verbs (installer #21): the owner was blocked — an accepted
+  // silt could only be deleted, not recomposed or split. These verbs appear on
+  // the accepted-band menu only when wired (litho axis, a single accepted layer
+  // resolved under the click); the caller already captured the layer + depth,
+  // so the callbacks take no args.
+  it('BCM23 — "Edit composition…" fires onEditComposition when wired', () => {
+    const onEditComposition = vi.fn()
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onEditComposition={onEditComposition}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    fireEvent.click(screen.getByTestId(TESTIDS.editComposition))
+    expect(onEditComposition).toHaveBeenCalledOnce()
+  })
+
+  it('BCM24 — "Split here" fires onSplitLayer when wired', () => {
+    const onSplitLayer = vi.fn()
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onSplitLayer={onSplitLayer}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    fireEvent.click(screen.getByTestId(TESTIDS.splitLayer))
+    expect(onSplitLayer).toHaveBeenCalledOnce()
+  })
+
+  it('BCM25 — neither verb renders when unwired (no-affordance rule)', () => {
+    render(
+      <svg>
+        <BodyContextMenu
+          x={10}
+          y={10}
+          body={makeBody()}
+          onNameBody={vi.fn()}
+          onDissolveBody={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </svg>,
+    )
+    expect(screen.queryByTestId(TESTIDS.editComposition)).toBeNull()
+    expect(screen.queryByTestId(TESTIDS.splitLayer)).toBeNull()
+  })
 })
