@@ -50,6 +50,7 @@ import type {
   GeologicalModelCreatePayload,
   GeologicalModelUpdatePayload,
   FormationContactResponse,
+  ContactUpdateOutcome,
   FormationContactCreatePayload,
   FormationContactUpdatePayload,
   FormationContactBatchUpdateEntry,
@@ -431,11 +432,15 @@ export const geologyClient = {
     modelId: string,
     contactId: string,
     body: FormationContactUpdatePayload,
-  ): Promise<FormationContactResponse | null> => {
-    // 204 No Content = drag-down cross-merge absorbed the dragger.
-    // The generic patch<T> helper unconditionally calls res.json() which
-    // throws a SyntaxError on an empty body — handle 204 explicitly here
-    // so callers can detect absorption and prune local state.
+  ): Promise<ContactUpdateOutcome> => {
+    // The response names any peers a cross-merge deleted so the caller prunes
+    // them from local state at once (installer #20 dogfeed 2026-09-06):
+    //   * survivor  → the contact row, whose deleted_contact_ids lists the
+    //     boundaries a drag-up crossed (empty on a plain update).
+    //   * absorbed  → 200 {absorbed: true, deleted_contact_ids: [...]} when a
+    //     drag-down cross-merge absorbed the dragger (contact = null).
+    // A legacy 204 (older backend) still maps to an absorbed outcome with no
+    // named peers, so a version-skewed build degrades to the refetch-only path.
     log.debug('api', '[api.updateContact] →', { contactId, modelId, patch: body })
     const res = await fetchTracked(
       `${_base}/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
@@ -450,8 +455,16 @@ export const geologyClient = {
       const detail = await res.json().catch(() => ({}))
       throw new Error(detailMessage(detail.detail) ?? `PATCH contacts/${contactId} → ${res.status}`)
     }
-    if (res.status === 204) return null
-    return res.json()
+    // Legacy empty-body absorbed response (pre-installer-#21 backend).
+    if (res.status === 204) return { contact: null, deletedContactIds: [] }
+    const data = await res.json()
+    if (data && data.absorbed === true) {
+      return { contact: null, deletedContactIds: data.deleted_contact_ids ?? [] }
+    }
+    return {
+      contact: data as FormationContactResponse,
+      deletedContactIds: data?.deleted_contact_ids ?? [],
+    }
   },
 
   deleteContact: (projectId: string, modelId: string, contactId: string): Promise<void> =>
