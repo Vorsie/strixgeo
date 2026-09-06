@@ -78,6 +78,12 @@ if ($existing) {
     exit 1
 }
 
+# Emit renderer sourcemaps for THIS build so a walker (or any spec's) page error
+# resolves from ``assets/<chunk>.js:line:col`` back to ``src/...`` in the report.
+# electron.vite.config.ts reads this; production ``npm run dist`` never sets it,
+# so shipped installers still carry no maps.
+$env:E2E_SOURCEMAP = "1"
+
 # Build the renderer + main + preload to desktop/out/ BEFORE launching, so the
 # Electron app under test always runs the CURRENT code. electron-vite does not
 # rebuild on launch, so without this step a stale out/ silently tests old code
