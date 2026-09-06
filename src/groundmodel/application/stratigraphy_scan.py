@@ -21,11 +21,13 @@ from groundmodel.application.stratigraphy_bridge import (
     _derive_layer_names_and_key,
     _find_observation,
     _resolve_lumped_key,
+    build_formal_code_counts,
 )
 from groundmodel.application.stratigraphy_candidate import StratigraphyCandidate
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.shared.formation_key import normalize_formation_key
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 _logger = LoggerFactory.get_logger(__name__)
@@ -108,6 +110,11 @@ async def scan_stratigraphy_candidates(
     # Collision detection: per borehole, track (effective_key → list of (top_m, raw_name)).
     # Used to find cases where ≥2 layers in one borehole map to the same formation.
     borehole_key_layers: dict[UUID, dict[str, list[tuple[float, str]]]] = {}
+    # DOV formal codes behind each candidate (owner dogfeed 2026-09-05): per
+    # effective_key, which normalised formal codes the boreholes paired it with,
+    # the distinct boreholes per code, and the first raw casing of each code.
+    key_to_formal_bhs: dict[str, dict[str, set[UUID]]] = {}
+    key_to_formal_raw: dict[str, dict[str, str]] = {}
 
     for borehole in boreholes:
         formal_obs = _find_observation(borehole.observations, ObservationType.FORMAL_STRATIGRAPHY)
@@ -164,6 +171,20 @@ async def scan_stratigraphy_candidates(
                 key_to_data[effective_key] = (display_name, regional_ref, set())
             key_to_data[effective_key][2].add(borehole.id)
 
+            # Record the DOV formal code (if any) this borehole pairs the
+            # candidate with, so the dialog can show it and expose a
+            # formal↔informal disagreement.  regional_ref is the formal code
+            # when the primary stream was formal; None on informal-only layers.
+            if regional_ref:
+                norm_code = normalize_formation_key(regional_ref)
+                if norm_code:
+                    key_to_formal_bhs.setdefault(effective_key, {}).setdefault(
+                        norm_code, set()
+                    ).add(borehole.id)
+                    key_to_formal_raw.setdefault(effective_key, {}).setdefault(
+                        norm_code, regional_ref.strip()
+                    )
+
             # Track per-borehole layer positions for collision detection.
             borehole_layers.setdefault(effective_key, []).append((layer.top_m, primary_desc))
 
@@ -205,6 +226,10 @@ async def scan_stratigraphy_candidates(
                     regional_ref=regional_ref,
                     key=key,
                     borehole_count=len(bids),
+                    formal_codes=build_formal_code_counts(
+                        key_to_formal_bhs.get(key, {}),
+                        key_to_formal_raw.get(key, {}),
+                    ),
                 )
                 for key, (name, regional_ref, bids) in key_to_data.items()
             ],
@@ -233,12 +258,9 @@ _DEFAULT_FORMATION_COLOURS = (
 )
 
 
-
 def _palette_colour_for(name: str) -> str:
     """Stable hue from the formation name — same string → same colour."""
     h = 0
     for ch in name:
         h = (h * 31 + ord(ch)) & 0xFFFFFFFF
     return _DEFAULT_FORMATION_COLOURS[h % len(_DEFAULT_FORMATION_COLOURS)]
-
-
