@@ -140,6 +140,60 @@ matrix, and the lens region is dropped — one simple sand mass, no seam, no len
 enclosed by a DIFFERENT lithology (a real interbed) is never same-formation, so it stays a lens; the
 pass is inert (CS1 golden byte-identical) unless a genuine same-litho same-body carved lens exists.
 
+## Narrowed top band + cross-lithology seam (owner ruling 2026-09-07)
+
+Three coupled parts, from the installer #22 dogfeed of the worked example (Cross-section 2,
+GEO-19/081-S5 sand top hand-tied to GEO-61/2891-C silt top; and Cross-section 1 gap 1 of the
+dev project, a B4 silt top tied to a B6 silt top). Owner's words are quoted; pinned in
+`partitionFillV2/ownerRulings.test.ts` (Ruling 5) and `partitionFillV2/firstUnitTopBand.test.ts`.
+
+* **Part 1 — narrow the implicit top band.** *"removing top tie = narrow, only when the user
+  has tied the top, no extra top tie is emitted; if only left top is bound no left top is
+  emitted, if only right top is bound no right top is emitted, if both are correlated, then
+  both are not emitted."* The 8d-rev implicit top-band tie is dropped for a gap once the user
+  hand-ties EITHER column's FIRST unit top across that gap (`effectiveCorr.gapTopBandSuppressed`
+  → `topBandTied` false for the gap's first units), so each first unit falls back to its own
+  2/1/0 outcome instead of a top-band flood: *"above my tie, on the CPTs nothing can flood.
+  There are no ties to the borehole column, so they all become lenses and are closed loops ...
+  except for of course the unit right above the top tie that onlaps also."* The ground line
+  (`surface:gi`) is STILL emitted — it is the physical top boundary the vacancy closure closes
+  against (dropping it leaves the wedge above a narrowed first unit unbounded, a hole); only the
+  implicit top-band TIE is narrowed, never the ground line.
+* **Part 2 — a cross-lithology tie draws a vertical seam.** *"a tie whose two layers differ in
+  lithology makes both units band along the ties and meet at a vertical seam at the column."*
+  In `emitEnclosingFlood.closeInterval` the coarse `bandFids` (formationId) guard is lifted for
+  a `crossLithoDeclaredMeeting` — a tie whose left endpoint IS this interval's left enclosing
+  unit and whose right endpoint IS its right enclosing unit, the two differing in lithology.
+  The test is the TIE's own two layers (DIRECT unit-index match, never the shared-contact
+  derivation `tieLandsOn` gives a same-litho tie landing on the unit above it), so a real
+  same-formation band is untouched and the geotech jump-tie run (H9) is not seamed. Litho pass
+  only (`allowFirstUnitTopSeam`, threaded `computeSectionFillV2 → emitCurves → emitEnclosingFlood`);
+  the geotech constructive fill draws its own seams and never reaches this tiler.
+* **Part 3 — the clay onlaps, the units above are lenses, and the wedge above the tie stays EMPTY.**
+  *"the clay onlaps, the sand above is a lens on cs2. 2/1/0 rule again, that sand has no ties. it
+  should be empty."* The unit whose base is the tied contact onlaps the tie to mid-gap (the ordinary
+  1-tie onlap); every unit ABOVE it with no ties is a closed lens pinching INSIDE the gap; and the
+  space above the tie past those lenses is left EMPTY (white) — no far litho, and no vacancy fill,
+  floods it. Two mechanisms make the wedge empty where the facing borehole is SHORT (its ground below
+  the units the tall test logged):
+    - ``emitContinuation.terminationRun`` SPLITS the 2026-08-21 "a column that read nothing is not a
+      boundary" law. A facing column whose GROUND is below the unit — the unit sits ABOVE its collar,
+      only sky there — is now a BOUNDARY: the unit pinches its ordinary lens TOWARD it (not across the
+      blind short test to a far tall one). A column that read nothing because the unit is BELOW its TD
+      (it may carry the unit deeper) STILL crosses to the first reading test.
+    - ``emitSurfaceCurves`` skips the ground-line (``surface:gi``) closing for exactly that shape (a
+      hand-tied first-unit top AND a unit entirely above the facing collar), so the wedge above the
+      tie is left untraced (empty) instead of ``labelFaces`` stamping it with the tall test's shallow
+      lithology. Every other gap keeps its ground line (an interior minority under a same-height
+      converging band is byte-identical).
+  On the same-lithology case (dev CS1 gap 1) the two silt tops band (no seam) and the B6 clay onlaps
+  halfway — *"just follow the 2/1/0 rule ... it onlaps on that correlation band halfway"* — with the
+  white wedge under the ground accepted as the unlogged top of the short test (owner, approved).
+
+The CS1 golden legitimately moves where CS1's first-unit-top ties reshape the litho the geotech
+fill is framed on (the B6 clay onlaps to mid-gap; a cross-litho tie splits a silt band) — a
+downstream reshape, not a change to the geotech engine (H9 unchanged, no new holes/overlaps).
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
