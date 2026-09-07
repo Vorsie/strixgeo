@@ -52,6 +52,10 @@ import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../ut
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
+import {
+  filterAnchorsWithNoLithoContacts,
+  investigationHasLithoContacts,
+} from '../utils/newTestFilter'
 
 // ---- Parameter interface ---------------------------------------------------
 
@@ -876,6 +880,19 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     async (anchorKind: 'cpt' | 'borehole', anchorId: string): Promise<void> => {
       const model = activeLithoModelRef.current
       if (!project || !model) return
+      // Owner ruling 2026-09-07: do not suggest over a column that already
+      // carries accepted litho layers (on ANY section). The engineer edits /
+      // splits the accepted unit instead of re-segmenting it. Model-wide check
+      // (lithoContacts holds every accepted layer in the model, not just the
+      // open section's), so the skip holds regardless of where it was accepted.
+      if (investigationHasLithoContacts(anchorId, lithoContacts)) {
+        log.debug(
+          'geology',
+          `handleSuggestLitho skipped ${anchorKind} ${anchorId} — already has accepted litho layers`,
+        )
+        toast('warning', t('litho.suggestSkippedColumn'))
+        return
+      }
       log.debug(
         'geology',
         `handleSuggestLitho entry kind=${anchorKind} anchor=${anchorId} model=${model.id}`,
@@ -918,7 +935,9 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         setLithoSuggesting(false)
       }
     },
-    [project, clearLithoSuggestions, toast],
+    // lithoContacts drives the accepted-column skip (owner 2026-09-07); listing
+    // it keeps the callback reading the latest committed set.
+    [project, clearLithoSuggestions, toast, lithoContacts],
   )
 
   // ---- Undo support for the accept-litho-suggestions paths ----------
@@ -1376,10 +1395,25 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     ): Promise<void> => {
       const model = activeLithoModelRef.current
       if (!project || !model || anchors.length === 0) return
+      // Owner ruling 2026-09-07: suggest-all skips every column that already
+      // carries accepted litho layers (on ANY section). Re-segmenting an
+      // accepted column would drop fresh ghosts on top of the accepted layers —
+      // exactly the "don't do that" the owner reported. Model-wide check via
+      // lithoContacts (every committed layer in the model, not just this
+      // section's), so the skip holds regardless of which section they were
+      // accepted on.
+      const eligible = filterAnchorsWithNoLithoContacts(anchors, lithoContacts)
+      const skippedCount = anchors.length - eligible.length
       log.debug(
         'geology',
-        `handleSuggestAllLitho fan-out anchors=${anchors.length}`,
+        `handleSuggestAllLitho fan-out anchors=${anchors.length} eligible=${eligible.length} skipped=${skippedCount}`,
       )
+      if (eligible.length === 0) {
+        // Nothing to segment — every in-corridor column already has accepted
+        // layers. Report the skip and leave existing ghosts untouched (no wipe).
+        toast('warning', t('litho.suggestAllSkippedAllAccepted', { total: anchors.length }))
+        return
+      }
       // Wipe prior bulk state — confirmation dialog warned the user.
       // Preserve any focused (single) entry so a Suggest-all alongside
       // a focused single doesn't drop the focus (matches prior intent;
@@ -1408,10 +1442,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       // never race on this Map.
       const collected = new Map<string, BulkAnchorGhost>()
       async function worker(): Promise<void> {
-        while (cursor < anchors.length) {
+        while (cursor < eligible.length) {
           const anchorIdx = cursor++
-          if (anchorIdx >= anchors.length) return
-          const { kind, id, surfaceElevationM } = anchors[anchorIdx]
+          if (anchorIdx >= eligible.length) return
+          const { kind, id, surfaceElevationM } = eligible[anchorIdx]
           try {
             const body = buildSuggestBody(kind, id, prefs)
             const resp = await api.geology.suggestLitho(project!.id, model!.id, body)
@@ -1430,7 +1464,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         }
       }
       const workers = Array.from(
-        { length: Math.min(CONCURRENCY, anchors.length) },
+        { length: Math.min(CONCURRENCY, eligible.length) },
         () => worker(),
       )
       try {
@@ -1445,15 +1479,26 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         })
         log.success(
           'geology',
-          `handleSuggestAllLitho done anchors=${anchors.length} failures=${failures.length}`,
+          `handleSuggestAllLitho done eligible=${eligible.length} failures=${failures.length} skipped=${skippedCount}`,
         )
         if (failures.length > 0) {
           toast(
             'error',
             t('litho.suggestedFailures', {
-              ok: anchors.length - failures.length,
-              total: anchors.length,
+              ok: eligible.length - failures.length,
+              total: eligible.length,
               failed: failures.length,
+            }),
+          )
+        }
+        // Report the columns skipped for already carrying accepted layers, so the
+        // count the user saw on the toolbar is explained (owner ruling 2026-09-07).
+        if (skippedCount > 0) {
+          toast(
+            'warning',
+            t('litho.suggestAllSkipped', {
+              ok: eligible.length,
+              skipped: skippedCount,
             }),
           )
         }
@@ -1461,10 +1506,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         setBulkLithoSuggesting(false)
       }
     },
-    // reason: activeLithoModelRef is a ref (stable). Project + toast
-    // are the true deps.
+    // reason: activeLithoModelRef is a ref (stable). project + toast + lithoContacts
+    // (the accepted-column skip source, owner 2026-09-07) are the true deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, toast],
+    [project, toast, lithoContacts],
   )
 
   /**
