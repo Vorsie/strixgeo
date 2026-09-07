@@ -1155,3 +1155,63 @@ def test_grid_floor_reaches_the_deepest_honored_investigation():
     assert all(colp[k] >= 0 for k in range(lo, hi + 1)), (
         "extending the floor invented an interior void in a section column"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bed-override cap — the canal cut-out (owner question 2026-09-07)
+# ---------------------------------------------------------------------------
+#
+# The owner's site was dredged for a canal.  A bed override says the ground
+# under the canal is at the dredged bed level, not the water surface the DEM /
+# the section fill tops out at.  "Does the canal fill also cut out in the litho
+# model?" — ruling: inside a bed polygon nothing lithological is built above the
+# bed level; outside every polygon nothing changes.  ``label_voxels`` takes an
+# optional ``bed_top_at(x, y)`` sampler that returns the bed level inside a
+# polygon and ``None`` everywhere else.
+
+
+def test_bed_override_cap_stops_the_litho_at_the_bed_level_inside_the_polygon():
+    """Inside the canal polygon the 3-D litho model stops at the bed level.
+
+    A bed override puts the dredged bed at -4 m TAW over the footprint's left
+    half (x < 40 m).  Every voxel above -4 m in a column inside the canal must
+    be void, so the shallowest labelled voxel there sits at or below the bed —
+    while a column outside the canal still reaches the full +10 m collar the
+    section partition drew.
+    """
+    domain = _domain_for_two_sections()
+
+    def bed_top_at(x: float, y: float) -> float | None:
+        # The canal covers the left half of the footprint; outside it the
+        # sampler contains no point and returns None (the ground stands).
+        return -4.0 if x < 40.0 else None
+
+    grid = label_voxels(domain, 2.0, [_section_a(), _section_b()], bed_top_at=bed_top_at)
+
+    j = int(np.argmin(np.abs(grid.gy - 20.0)))  # the midline row
+    # Inside the canal (x = 20 m): nothing lithological above the bed level.
+    i_in = int(np.argmin(np.abs(grid.gx - 20.0)))
+    labelled_in = [float(grid.gz[k]) for k in range(len(grid.gz)) if grid.labels[i_in, j, k] >= 0]
+    assert labelled_in, "the canal column lost all its material — it must keep the bed and below"
+    assert max(labelled_in) <= -4.0 + 1e-9, "the litho fill did not stop at the bed level"
+
+    # Outside the canal (x = 60 m): the column still reaches the collar.
+    i_out = int(np.argmin(np.abs(grid.gx - 60.0)))
+    labelled_out = [float(grid.gz[k]) for k in range(len(grid.gz)) if grid.labels[i_out, j, k] >= 0]
+    assert labelled_out and max(labelled_out) > 4.0, (
+        "a column outside every bed polygon must be untouched — it still reaches the collar"
+    )
+
+
+def test_bed_cap_containing_no_point_is_byte_identical_to_no_cap():
+    """A bed sampler that returns None everywhere changes not one voxel.
+
+    This is the outside-every-polygon guarantee AND the no-bed-overrides case
+    (the caller passes ``bed_top_at=None`` then, and a project with a polygon
+    that no grid column falls inside sees the same result): the labelled grid is
+    array-identical to the uncapped build.
+    """
+    domain = _domain_for_two_sections()
+    base = label_voxels(domain, 2.0, [_section_a(), _section_b()])
+    capped = label_voxels(domain, 2.0, [_section_a(), _section_b()], bed_top_at=lambda x, y: None)
+    assert np.array_equal(base.labels, capped.labels)
