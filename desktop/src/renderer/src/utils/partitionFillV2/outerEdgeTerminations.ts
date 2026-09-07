@@ -1,93 +1,58 @@
 /**
- * partitionFillV2/outerEdgeTerminations.ts — which OUTER-column units are zero-tie.
+ * partitionFillV2/outerEdgeTerminations.ts — how an OUTER-column unit terminates at the edge.
  *
- * OWNER RULING 2026-09-04 ("zero ties = lens"), on the packaged build: a unit at the
- * bottom of the section's FIRST column, with no correlation on either side and no
- * further column beyond it, was drawn as an OPEN half-band running out to the section
- * boundary. Under "zero ties = lens" it must pinch out toward the edge as a LENS — the
- * same closed shape a zero-tie unit gets between two columns — never a band to the
- * boundary. A unit that DOES have a tie inward keeps extending outward to the boundary.
+ * OWNER RULING 2026-09-07 (installer #22 dogfeed), verbatim: "the basal clay on 20/034-S5
+ * emits a lens to the left; it is a test on the utter left side, it should band left, like
+ * all the other columns." A unit on the section's FIRST or LAST column has no neighbouring
+ * test on the outward side — the oracle classifies that side ``edge-of-section`` — so there
+ * is no data beyond it and the interpretation carries the last known layer flat to the
+ * section boundary: EVERY unit on an outermost column bands to the edge, whatever its tie
+ * count on the inner side.
  *
- * The section's outer edges (left of the first column, right of the last) are NOT gaps,
- * so the arrangement engine emits nothing there — the outward extension is drawn by the
- * overlay's open-end stub (``PartitionFillOverlay``). This module hands that render the
- * ONE thing it cannot see for itself: the ENGINE'S OWN 2/1/0 classification of each
- * outer-column unit toward the interior. The overlay pinches a unit iff it is here.
+ * This REVERSES, at the outer edge only, the earlier "zero ties = lens" behaviour (owner
+ * 2026-09-04) which pinched a zero-tie basal outer unit toward the boundary as a lens. That
+ * pinch made the utter-left basal clay a lens while its siblings banded — exactly the
+ * inconsistency the owner objected to. Interior zero-tie lenses BETWEEN two columns are a
+ * different case and are unchanged (they still pinch inside their gap).
  *
- * REUSE, NOT REIMPLEMENTATION: the classification is ``effectiveCorrForSide`` — the same
- * single 2/1/0 source the termination sweep and the conformance gate consume. This module
- * only points it at the two outward sides (the first column looking right, the last column
- * looking left) and collects the corr-0 layer ids.
+ * The section's outer edges are NOT gaps, so the arrangement engine emits nothing there — the
+ * outward extension is drawn by the overlay's open-end stub (``PartitionFillOverlay``). This
+ * module tells that render which outer-column units to PINCH rather than band. Under the ruling
+ * above no outer-column unit pinches, so it returns the EMPTY set; the overlay bands every
+ * outer unit flat to the boundary.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { effectiveCorrForSide } from './effectiveCorr'
-import { resolveTies } from './emitCurves'
-import { buildSectionInput } from './sectionGeom'
 import { type CorrelationEdge, type PartitionColumn } from '../sectionPartition'
 
 /**
- * The layer ids of the OUTER columns' units that are zero-tie (corr 0) toward the
- * interior — the units the open-end stub must pinch out as a lens rather than extend
- * flat to the section boundary.
+ * The layer ids of outer-column units the open-end stub must PINCH out toward the section
+ * boundary rather than band flat to it.
  *
- * Only the FIRST column's rightward look and the LAST column's leftward look are
- * classified: those are the two sides whose outward extension the overlay draws. An
- * interior column is never an outer edge, so its units are untouched here.
- *
- * The ties are the DIRECT adjacent correlation edges (``resolveTies``) — the deliberate
- * light path so this runs cheaply on every render (pan/zoom included) without the full
- * arrangement pass. It therefore does not fold jump-tie bridge anchors or crossing-tie
- * suspension; both are rare at an outer column and only shift the OUTER-stub shape of a
- * single unit (a suspended tie would pinch rather than extend). The interior fill, which
- * the engine owns, is unaffected.
+ * Under owner ruling 2026-09-07 every unit on an outermost column bands to the section edge,
+ * so this is ALWAYS the empty set. The signature is preserved (the overlay still calls it) so
+ * the render path is untouched — it now receives an empty set and bands every outer unit.
  *
  * Parameters
  * ----------
  * columns : readonly PartitionColumn[]
- *     The section's litho columns, left→right (units shallow→deep).
+ *     The section's litho columns, left→right (units shallow→deep). Unused now — kept for the
+ *     stable call site and in case a future ruling reintroduces a per-unit outer termination.
  * edges : readonly CorrelationEdge[]
- *     Approved correlation edges (layer-id pairs, side-aware).
- * alongM : optional real along-section metres, 1:1 with ``columns``.
+ *     Approved correlation edges. Unused now (see above).
+ * alongM : optional real along-section metres, 1:1 with ``columns``. Unused now (see above).
  *
  * Returns
  * -------
  * Set<string>
- *     Layer ids of outer-column units with zero effective ties toward the interior.
+ *     Always empty — no outer-column unit pinches; the overlay bands them all to the edge.
  */
 export function outerColumnZeroTieLayerIds(
-  columns: readonly PartitionColumn[],
-  edges: readonly CorrelationEdge[] = [],
-  alongM?: readonly number[],
+  _columns: readonly PartitionColumn[],
+  _edges: readonly CorrelationEdge[] = [],
+  _alongM?: readonly number[],
 ): Set<string> {
-  const out = new Set<string>()
-  if (columns.length < 2) return out
-  const section = buildSectionInput(columns, edges, undefined, alongM)
-  const g = section.columns
-  if (g.length < 2) return out
-  const ties = resolveTies(section)
-
-  // FIRST column looks RIGHT into gap 0 (it is that gap's LEFT column, side 'left').
-  const firstCorr = effectiveCorrForSide(0, 'left', g[0], g[1], g[0], g[1], ties)
-  g[0].units.forEach((u, ui) => {
-    if (firstCorr[ui]?.corr === 0) out.add(u.layerId)
-  })
-
-  // LAST column looks LEFT into gap N-2 (it is that gap's RIGHT column, side 'right').
-  const lastGap = g.length - 2
-  const lastCorr = effectiveCorrForSide(
-    lastGap,
-    'right',
-    g[g.length - 1],
-    g[g.length - 2],
-    g[g.length - 2],
-    g[g.length - 1],
-    ties,
-  )
-  g[g.length - 1].units.forEach((u, ui) => {
-    if (lastCorr[ui]?.corr === 0) out.add(u.layerId)
-  })
-
-  return out
+  // Owner 2026-09-07: the outermost column always bands to the section edge — nothing pinches.
+  return new Set<string>()
 }
