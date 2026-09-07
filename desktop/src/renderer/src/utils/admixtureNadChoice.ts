@@ -36,14 +36,34 @@ const SAND_ADMIXTURE_CODES: ReadonlySet<string> = new Set(['XZ', 'ZN', 'Z', 'FZ'
 const SILT_CLAY_ADMIXTURE_CODES: ReadonlySet<string> = new Set(['SI', 'KL', 'LE', 'SL'])
 
 /**
+ * Glauconite admixture code (GL = glauconiet). Owner ruling walk22b: a
+ * glauconitic SAND asks the geotech admixture question, so glauconite joins
+ * silt/clay as a coarse-SAND fork. Ported from ``_GLAUCONITE_ADMIXTURE_CODES``.
+ * The NAD table (NBN EN 1997-1 ANB Tabel 2.1) has no dedicated glauconitic-sand
+ * line, so "with admixture" routes into the existing silt-/kleihoudend
+ * secondary column (classes 9-12) — the owner confirms the target column.
+ */
+const GLAUCONITE_ADMIXTURE_CODES: ReadonlySet<string> = new Set(['GL'])
+
+/**
+ * The sand secondary-fork set: silt/clay (silt-/kleihoudend) PLUS glauconite.
+ * Ported from ``_SAND_SECONDARY_ADMIXTURE_CODES``.
+ */
+const SAND_SECONDARY_ADMIXTURE_CODES: ReadonlySet<string> = new Set([
+  ...SILT_CLAY_ADMIXTURE_CODES,
+  ...GLAUCONITE_ADMIXTURE_CODES,
+])
+
+/**
  * Main soil → the admixture code set whose presence forks it into the secondary
- * NAD column. Coarse soils fork on silt/clay; fines fork on sand. Ported from
- * ``_SECONDARY_ADMIXTURE_CODES``. VEEN is intentionally ABSENT: its secondary
- * NAD column mirrors its clean one, so no fork exists and it is never prompted.
+ * NAD column. Sand forks on silt/clay/glauconite; gravel on silt/clay; fines on
+ * sand. Ported from ``_SECONDARY_ADMIXTURE_CODES``. VEEN is intentionally
+ * ABSENT: its secondary NAD column mirrors its clean one, so no fork exists and
+ * it is never prompted.
  */
 const SECONDARY_ADMIXTURE_CODES: Readonly<Record<string, ReadonlySet<string>>> = {
   GRIND: SILT_CLAY_ADMIXTURE_CODES,
-  ZAND: SILT_CLAY_ADMIXTURE_CODES,
+  ZAND: SAND_SECONDARY_ADMIXTURE_CODES,
   SILT: SAND_ADMIXTURE_CODES,
   KLEI: SAND_ADMIXTURE_CODES,
 }
