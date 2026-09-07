@@ -40,6 +40,7 @@ import type { BulkAnchorGhost, LithoSuggestionEdit } from './useGeologicalModel'
 import type {
   AcceptLithoSuggestionsResponse,
   CrossSectionResponse,
+  FormationContactResponse,
   GeologicalModelResponse,
   LithoLayerSuggestion,
   ProjectResponse,
@@ -170,6 +171,17 @@ function makeParams(over: Partial<UseLithoSuggestionsParams> = {}): UseLithoSugg
 }
 
 const acceptSpy = api.geology.acceptLithoSuggestions as unknown as ReturnType<typeof vi.fn>
+const suggestSpy = api.geology.suggestLitho as unknown as ReturnType<typeof vi.fn>
+
+/** A committed litho contact anchored to one investigation — proves the column
+ *  already carries accepted layers in the model. */
+function makeLithoContact(anchor: { cpt_id?: string; borehole_id?: string }): FormationContactResponse {
+  return {
+    id: `lc-${anchor.cpt_id ?? anchor.borehole_id}`,
+    cpt_id: anchor.cpt_id ?? null,
+    borehole_id: anchor.borehole_id ?? null,
+  } as unknown as FormationContactResponse
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -618,5 +630,118 @@ describe('active-litho-model change clears the ghost overlay', () => {
     const seed = new Map([[ANCHOR_ID, makeGhost()]])
     const next = applyLastGhostUpdater(setSpy, seed)
     expect(next.has(ANCHOR_ID)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Skip columns that already carry accepted litho layers (owner ruling
+// 2026-09-07, installer #22 dogfeed). "Don't do that" — after accepting a
+// test's layers on the first profile, Suggest-all on the second profile
+// suggested new ghosts over the accepted layers. The skip is MODEL-WIDE: a
+// column counts as accepted regardless of which section it was accepted on.
+// ---------------------------------------------------------------------------
+describe('handleSuggestAllLitho — skips columns with accepted layers', () => {
+  it('SK1: a column with accepted layers gets no new suggestions from suggest-all', async () => {
+    suggestSpy.mockResolvedValue({ layers: [makeSuggestion()] })
+    // CPT-1 already carries an accepted litho contact in the model; CPT-2 is fresh.
+    const params = makeParams({
+      lithoContacts: [makeLithoContact({ cpt_id: 'CPT-1' })],
+      // No focused single entry, so the start-wipe keeps nothing.
+      focusedSuggestAnchorId: null,
+      focusedSuggestAnchorIdRef: { current: null },
+    })
+    const { result } = renderHook(() => useLithoSuggestions(params))
+
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'CPT-1', surfaceElevationM: 10 },
+        { kind: 'cpt', id: 'CPT-2', surfaceElevationM: 10 },
+      ])
+    })
+
+    // Only the fresh column CPT-2 was segmented; the accepted column CPT-1 was skipped.
+    expect(suggestSpy).toHaveBeenCalledTimes(1)
+    const body = suggestSpy.mock.calls[0][2]
+    expect(body.cpt_id ?? body.borehole_id).toBe('CPT-2')
+  })
+
+  it('SK2: the toast says how many columns were skipped for carrying accepted layers', async () => {
+    suggestSpy.mockResolvedValue({ layers: [makeSuggestion()] })
+    const params = makeParams({
+      lithoContacts: [makeLithoContact({ cpt_id: 'CPT-1' })],
+      focusedSuggestAnchorId: null,
+      focusedSuggestAnchorIdRef: { current: null },
+    })
+    const { result } = renderHook(() => useLithoSuggestions(params))
+
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'CPT-1', surfaceElevationM: 10 },
+        { kind: 'cpt', id: 'CPT-2', surfaceElevationM: 10 },
+      ])
+    })
+
+    const toast = params.toast as ReturnType<typeof vi.fn>
+    const messages = toast.mock.calls.map(c => String(c[1]))
+    expect(messages.some(m => /skip/i.test(m))).toBe(true)
+  })
+
+  it('SK4: when every column already has accepted layers, nothing is segmented', async () => {
+    suggestSpy.mockResolvedValue({ layers: [makeSuggestion()] })
+    const params = makeParams({
+      lithoContacts: [
+        makeLithoContact({ cpt_id: 'CPT-1' }),
+        makeLithoContact({ cpt_id: 'CPT-2' }),
+      ],
+      focusedSuggestAnchorId: null,
+      focusedSuggestAnchorIdRef: { current: null },
+    })
+    const { result } = renderHook(() => useLithoSuggestions(params))
+
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'CPT-1', surfaceElevationM: 10 },
+        { kind: 'cpt', id: 'CPT-2', surfaceElevationM: 10 },
+      ])
+    })
+
+    expect(suggestSpy).not.toHaveBeenCalled()
+    const toast = params.toast as ReturnType<typeof vi.fn>
+    const messages = toast.mock.calls.map(c => String(c[1]))
+    expect(messages.some(m => /skip/i.test(m))).toBe(true)
+  })
+})
+
+describe('handleSuggestLitho — per-column skip when the column has accepted layers', () => {
+  it('SK3: a Suggest on a column that already carries accepted layers does not fetch', async () => {
+    suggestSpy.mockResolvedValue({ layers: [makeSuggestion()] })
+    const params = makeParams({
+      lithoContacts: [makeLithoContact({ cpt_id: 'CPT-1' })],
+    })
+    const { result } = renderHook(() => useLithoSuggestions(params))
+
+    await act(async () => {
+      await result.current.handleSuggestLitho('cpt', 'CPT-1')
+    })
+
+    expect(suggestSpy).not.toHaveBeenCalled()
+    expect(params.toast as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      'warning',
+      expect.any(String),
+    )
+  })
+
+  it('SK3b: a Suggest on a fresh column still fetches', async () => {
+    suggestSpy.mockResolvedValue({ layers: [makeSuggestion()] })
+    const params = makeParams({
+      lithoContacts: [makeLithoContact({ cpt_id: 'CPT-1' })],
+    })
+    const { result } = renderHook(() => useLithoSuggestions(params))
+
+    await act(async () => {
+      await result.current.handleSuggestLitho('cpt', 'CPT-2')
+    })
+
+    expect(suggestSpy).toHaveBeenCalledTimes(1)
   })
 })
