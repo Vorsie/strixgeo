@@ -60,8 +60,11 @@ import {
 // ---------------------------------------------------------------------------
 
 const ADMIXTURE_SOIL_EN: Record<string, string> = {
-  // Core five soils (most common as bijmenging).
-  GL: 'gravelly',
+  // Common bijmenging. NB GL is glauconiet (glauconite), a mineral — NOT gravel.
+  // The DOV codelist (codetabel_hoofdnaam.csv) is unambiguous: GL = glauconiet,
+  // gravel = XG (with FG/MG/GG grain variants). GL was mislabelled "gravelly"
+  // here, which also hid it from the geotech admixture prompt (walk22b fix).
+  GL: 'glauconitic',
   KL: 'clayey',
   SL: 'silty',
   ZN: 'sandy',
@@ -217,8 +220,9 @@ const ADMIXTURE_AMOUNT_QUANTITY_EN: Record<string, string> = {
  * the dropdown said "Gravel" but the preview showed "very om Silt".
  */
 export const ADMIXTURE_SOIL_OPTIONS: ReadonlyArray<{ code: string; label: string }> = [
-  // Core
-  { code: 'GL', label: 'Gravel (GL)' },
+  // Common. GL = glauconiet (a mineral, common in the BE Neogene) — NOT gravel;
+  // gravel is selectable below as "Gravel, generic (XG)".
+  { code: 'GL', label: 'Glauconite (GL)' },
   { code: 'ZN', label: 'Sand (ZN)' },
   { code: 'SL', label: 'Silt (SL)' },
   { code: 'KL', label: 'Clay (KL)' },
