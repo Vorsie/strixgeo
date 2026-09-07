@@ -24,6 +24,7 @@ import { _electron as electron, type ElectronApplication, type Page } from '@pla
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
+import { spawnSync } from 'child_process'
 
 // The electron package ships its own path.txt pointing at the local
 // electron.exe (Windows) / electron (Linux/macOS). We resolve it the
@@ -243,6 +244,7 @@ ${err.stack ?? ''}
  *   The application handle returned by ``launchApp``.
  */
 export async function closeApp(app: ElectronApplication): Promise<void> {
+  const mainPid = app.process().pid ?? -1
   // ``app.close()`` requests an app quit. On a DIRTY project (a test that
   // committed contacts / left unsaved session-imports) the renderer intercepts
   // the quit with the unsaved-changes prompt and BLOCKS until a button is
@@ -268,6 +270,26 @@ export async function closeApp(app: ElectronApplication): Promise<void> {
     ])
   }
   await closing
+  // A spec that failed mid-flow, or a renderer that never answered the quit,
+  // can leave the Electron tree alive after app.close() resolves (2026-09-07:
+  // one survived for an hour holding the suite's localStorage lock). Give it
+  // five seconds, then kill the tree; only this launch's pid is touched.
+  if (mainPid > 0 && process.platform === 'win32') {
+    const alive = (): boolean => {
+      try {
+        process.kill(mainPid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const deadline = Date.now() + 5_000
+    while (alive() && Date.now() < deadline) await new Promise(r => setTimeout(r, 250))
+    if (alive()) {
+      console.warn(`[e2e] electron ${mainPid} survived close(); killing its tree`)
+      spawnSync('taskkill', ['/PID', String(mainPid), '/T', '/F'], { stdio: 'ignore' })
+    }
+  }
 }
 
 /**
