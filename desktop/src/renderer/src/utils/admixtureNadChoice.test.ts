@@ -20,8 +20,13 @@ import {
 const SILTY: AdmixtureItem[] = [{ soil_code: 'KL', amount: 'M', locally: false }]
 const SANDY: AdmixtureItem[] = [{ soil_code: 'XZ', amount: 'M', locally: false }]
 // A gravel admixture (owner ruling 2026-09-05: "if it is gravel it does not
-// count and it should default to normal sand").
-const GRAVELLY: AdmixtureItem[] = [{ soil_code: 'GL', amount: 'M', locally: false }]
+// count and it should default to normal sand"). NB the DOV code for gravel is
+// XG, not GL — GL is glauconiet. The earlier test used GL here by mistake,
+// conflating the mislabelled front-end label with the gravel ruling.
+const GRAVELLY: AdmixtureItem[] = [{ soil_code: 'XG', amount: 'M', locally: false }]
+// A glauconite admixture (owner ruling walk22b: glauconite in a sand triggers
+// the geotech admixture question, exactly like a silt/clay admixture).
+const GLAUCONITIC: AdmixtureItem[] = [{ soil_code: 'GL', amount: 'M', locally: false }]
 
 describe('unitAdmixtureIsAmbiguous', () => {
   it('a silty sand is ambiguous — pure sand (5-8) or silty sand (9-12)', () => {
@@ -65,8 +70,17 @@ describe('unitAdmixtureIsAmbiguous', () => {
   it('a GRAVELLY sand does not count — gravel is not the coarse-soil fork', () => {
     // Owner ruling 2026-09-05: "you can also have gravel as admixture, but that
     // is not what we mean … if it is gravel it does not count and it should
-    // default to normal sand." Only silt/clay forks a sand; gravel never does.
+    // default to normal sand." Only silt/clay (and glauconite) forks a sand;
+    // gravel never does.
     expect(unitAdmixtureIsAmbiguous('ZAND', GRAVELLY)).toBe(false)
+  })
+
+  it('a sand with a glauconite admixture asks the admixture question in the geotech stage', () => {
+    // Owner ruling walk22b: "I want to be able to add glauconiet as bijmenging;
+    // it should also trigger admixture in sand in geotech." A glauconitic sand
+    // is ambiguous — pure sand (5-8) or with-admixture (9-12) — just like a
+    // silty/clayey sand, so the prompt must ask about it.
+    expect(unitAdmixtureIsAmbiguous('ZAND', GLAUCONITIC)).toBe(true)
   })
 })
 
@@ -81,6 +95,10 @@ describe('forkingAdmixtures', () => {
 
   it('drops a gravel admixture on sand — it is not a fork', () => {
     expect(forkingAdmixtures('ZAND', GRAVELLY)).toEqual([])
+  })
+
+  it('returns the glauconite admixture that forks a sand', () => {
+    expect(forkingAdmixtures('ZAND', GLAUCONITIC)).toEqual(GLAUCONITIC)
   })
 
   it('keeps only the forking codes when several admixtures are present', () => {
