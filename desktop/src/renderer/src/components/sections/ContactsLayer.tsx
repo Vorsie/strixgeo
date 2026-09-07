@@ -41,7 +41,14 @@
  *     boreholes that disagree).
  */
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { log } from '../../utils/log'
 
@@ -449,6 +456,27 @@ interface Props {
    * in this layer reads bodies.
    */
   lithoBodyIdByLayerId?: ReadonlyMap<string, string | null>
+  /**
+   * Right-click on an accepted litho band → "Edit composition…" — repoint the
+   * clicked accepted litho layer to a different composition's unit (owner ruling
+   * 2026-09-07: the verbs must live on the accepted unit's OWN menu, not only the
+   * body menu the owner never opens here). The band's ``contactId`` IS its litho
+   * layer id (the UUID-preserving A2.5 backfill), so the item passes it straight
+   * through. Absent → the item is not offered (the no-affordance rule; litho axis
+   * only). Mirrors ``BodyContextMenu.onEditComposition``.
+   */
+  onEditLithoComposition?: (layerId: string) => void
+  /**
+   * Right-click on an accepted litho band → "Split here" — split the clicked
+   * accepted litho layer at the right-click depth into two same-composition
+   * layers (owner ruling 2026-09-07). ``layerId`` is the band's ``contactId``;
+   * ``depthM`` is the click depth below the column surface, mm-rounded (same math
+   * as the left-click "Insert" gesture). Absent → the item is not offered.
+   * Mirrors ``BodyContextMenu.onSplitLayer`` but carries the depth the band menu
+   * captures directly (no ``resolveLithoLayerAtClick`` needed — the band already
+   * names its own layer).
+   */
+  onSplitLithoLayer?: (layerId: string, depthM: number) => void
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -663,6 +691,24 @@ const PACKING_BOUNDARY_LINE_COLOR = '#94a3b8'
 // no commit, no state change. Mirrors the existing "zero-delta release"
 // no-op rule on the depth-only drag.
 const CLICK_TO_DRAG_THRESHOLD_PX = 3
+// Shared base style for the litho-band right-click menu's item buttons (Edit
+// composition / Split here / Remove / Add). Each button spreads this and sets
+// only its own ``color`` (danger vs primary) and an optional ``borderTop``
+// divider — extracted once the menu grew past two items (owner ruling
+// 2026-09-07 added Edit composition + Split here).
+const LITHO_MENU_ITEM_BASE_STYLE: CSSProperties = {
+  display: 'block',
+  width: '100%',
+  padding: '6px 12px',
+  textAlign: 'left',
+  fontSize: 12,
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+}
+// The menu-item divider (used to set apart the danger Remove verb and the
+// navigate-away Unit statistics jump from the edit verbs above them).
+const LITHO_MENU_ITEM_DIVIDER = '1px solid var(--color-border-default, #334155)'
 
 export default function ContactsLayer({
   contacts: rawContacts,
@@ -703,6 +749,8 @@ export default function ContactsLayer({
   onRequestAddLithoSuggestion,
   onShowLithoUnitStatistics,
   lithoBodyIdByLayerId,
+  onEditLithoComposition,
+  onSplitLithoLayer,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -795,6 +843,12 @@ export default function ContactsLayer({
         formationId: string
         /** The band's resolver body (body-scope ruling 2026-08-27); null when unknown. */
         bodyId: string | null
+        /**
+         * Click depth below the column surface (m, mm-rounded) — the split point for
+         * "Split here" (owner ruling 2026-09-07). Captured at right-click time from the
+         * band's own depth axis, the same math the left-click "Insert" gesture uses.
+         */
+        depthM: number
       }
     | {
         clientX: number
@@ -1400,13 +1454,32 @@ export default function ContactsLayer({
   function lithoBandContextMenuHandler(
     band: PerColumnLithoBand,
   ): ((e: ReactMouseEvent<SVGRectElement>) => void) | undefined {
-    // Either item justifies the menu; each item still gates on its OWN
-    // handler. Both absent (the geotech axis) → no handler, so the
-    // right-click passes through to the packing-band overlay above.
-    if (!onDeleteContact && !onShowLithoUnitStatistics) return undefined
+    // Any of the four items justifies the menu; each item still gates on its OWN
+    // handler. All absent (the geotech axis) → no handler, so the right-click
+    // passes through to the packing-band overlay above. Edit composition / Split
+    // here joined the gate (owner ruling 2026-09-07) so the menu opens for them
+    // even where delete + statistics are not wired.
+    if (
+      !onDeleteContact &&
+      !onShowLithoUnitStatistics &&
+      !onEditLithoComposition &&
+      !onSplitLithoLayer
+    )
+      return undefined
     return e => {
       e.preventDefault()
       e.stopPropagation()
+      // Click depth below the column surface (m), mm-rounded to the stored
+      // precision — the split point for "Split here". Mirrors the left-click
+      // "Insert" gesture's depth math (svg-Y → depth via the band's own axis);
+      // getBoundingClientRect returns 0s in jsdom, which still yields a valid
+      // (test-stable) number. Falls back to the band top when the SVG root is
+      // missing.
+      const svg = e.currentTarget.ownerSVGElement
+      const svgRect = svg?.getBoundingClientRect()
+      const svgY = svgRect ? e.clientY - svgRect.top : band.anchorSurfaceY
+      const rawDepthM = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
+      const depthM = Math.round(rawDepthM * 1000) / 1000
       setLithoBandMenu({
         clientX: e.clientX,
         clientY: e.clientY,
@@ -1416,6 +1489,7 @@ export default function ContactsLayer({
         formationId: band.formationId,
         // The contact id IS the layer id, so the body map keys on it.
         bodyId: lithoBodyIdByLayerId?.get(band.contactId) ?? null,
+        depthM,
       })
     }
   }
@@ -3382,8 +3456,46 @@ export default function ContactsLayer({
           >
             {lithoBandMenu.mode === 'remove' ? (
               <>
-                {/* Each item gates on its OWN handler — the menu opens when
-                    either is wired (see ``lithoBandContextMenuHandler``). */}
+                {/* Each item gates on its OWN handler — the menu opens when any
+                    is wired (see ``lithoBandContextMenuHandler``). Edit
+                    composition + Split here come first: they recompose / split
+                    THIS accepted unit (owner ruling 2026-09-07 — the owner could
+                    only delete an accepted litho, not recompose or split it). The
+                    band's contact id IS its litho layer id. */}
+                {onEditLithoComposition && (
+                  <button
+                    type="button"
+                    data-testid="litho-band-edit-composition"
+                    onClick={() => {
+                      if (lithoBandMenu.mode !== 'remove') return
+                      onEditLithoComposition(lithoBandMenu.contactId)
+                      setLithoBandMenu(null)
+                    }}
+                    style={{
+                      ...LITHO_MENU_ITEM_BASE_STYLE,
+                      color: 'var(--color-text-primary, #e2e8f0)',
+                    }}
+                  >
+                    {t('sections.menu.editComposition')}
+                  </button>
+                )}
+                {onSplitLithoLayer && (
+                  <button
+                    type="button"
+                    data-testid="litho-band-split-here"
+                    onClick={() => {
+                      if (lithoBandMenu.mode !== 'remove') return
+                      onSplitLithoLayer(lithoBandMenu.contactId, lithoBandMenu.depthM)
+                      setLithoBandMenu(null)
+                    }}
+                    style={{
+                      ...LITHO_MENU_ITEM_BASE_STYLE,
+                      color: 'var(--color-text-primary, #e2e8f0)',
+                    }}
+                  >
+                    {t('sections.menu.splitHere')}
+                  </button>
+                )}
                 {onDeleteContact && (
                   <button
                     type="button"
@@ -3397,15 +3509,13 @@ export default function ContactsLayer({
                       setLithoBandMenu(null)
                     }}
                     style={{
-                      display: 'block',
-                      width: '100%',
-                      padding: '6px 12px',
-                      textAlign: 'left',
-                      fontSize: 12,
+                      ...LITHO_MENU_ITEM_BASE_STYLE,
                       color: 'var(--color-text-danger, #f87171)',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
+                      // Divide the danger verb from the edit verbs above it.
+                      borderTop:
+                        onEditLithoComposition || onSplitLithoLayer
+                          ? LITHO_MENU_ITEM_DIVIDER
+                          : undefined,
                     }}
                   >
                     {t('sections.menu.removeLithoUnit')}
@@ -3418,7 +3528,9 @@ export default function ContactsLayer({
                   bodyId={lithoBandMenu.bodyId}
                   onShow={onShowLithoUnitStatistics}
                   onClose={() => setLithoBandMenu(null)}
-                  topBorder={Boolean(onDeleteContact)}
+                  topBorder={Boolean(
+                    onDeleteContact || onEditLithoComposition || onSplitLithoLayer,
+                  )}
                   testid="litho-band-menu-unit-statistics"
                 />
               </>
@@ -3438,15 +3550,8 @@ export default function ContactsLayer({
                   setLithoBandMenu(null)
                 }}
                 style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 12px',
-                  textAlign: 'left',
-                  fontSize: 12,
+                  ...LITHO_MENU_ITEM_BASE_STYLE,
                   color: 'var(--color-text-primary, #e2e8f0)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
                 }}
               >
                 {t('sections.menu.addSuggestionHere')}
