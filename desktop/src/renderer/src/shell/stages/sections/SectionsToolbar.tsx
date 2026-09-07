@@ -67,6 +67,7 @@ import { sectionsRevealPendingTieCallback } from './pendingTieRevealBridge'
 import type { PendingTieRevealOutcome } from './useGeotechPendingTieReveal'
 import SectionsAxisPill from './SectionsAxisPill'
 import SectionsToolbarDialogs from './SectionsToolbarDialogs'
+import GeotechAdmixtureChoiceDialog from '../geotechnical/GeotechAdmixtureChoiceDialog'
 import { buildLithoToolbarItems } from './sectionsLithoToolbarItems'
 import { buildGeotechToolbarItems } from './sectionsGeotechToolbarItems'
 import { buildTailToolbarItems } from './sectionsTailToolbarItems'
@@ -174,6 +175,12 @@ export default function SectionsToolbar(): JSX.Element {
       handleSubdivideAllBodies,
       // "Divide boreholes" toolbar verb — post-SAB borehole TIN-division.
       handleDivideBoreholes,
+      // Admixture NAD-family gate (walk22b): the Subdivide press asks the same
+      // question the Geotech-stage Build does. Needs the project formations, the
+      // active model's litho layers (the scope) and the persist handler.
+      formations,
+      lithoLayers,
+      handleSetNadAdmixtureChoices,
       // The active geotech model's layer rows (model-wide). Read here only for
       // the hand-edit count in the re-subdivide confirmation — the rows carry
       // ``source``, so the warning needs no extra fetch.
@@ -694,6 +701,12 @@ export default function SectionsToolbar(): JSX.Element {
     pressSubdivide,
     handleReSubdivideCancel,
     handleReSubdivideConfirm,
+    askingAdmixtures,
+    admixtureSelections,
+    selectAdmixture,
+    confirmAdmixtures,
+    cancelAdmixtures,
+    admixtureBusy,
   } = useGeotechSubdivideVerbs({
     activeLithoModel,
     geotechBandsStale,
@@ -702,6 +715,9 @@ export default function SectionsToolbar(): JSX.Element {
     handleSubdivideAllBodies,
     refreshTieStatus,
     subdivideScope,
+    formations,
+    lithoLayers,
+    handleSetNadAdmixtureChoices,
   })
 
   const suggestPrimaryMode: 'focused' | 'all' | 'disabled' = canSuggest
@@ -953,6 +969,17 @@ export default function SectionsToolbar(): JSX.Element {
         onResetBoundariesConfirm={() => {
           void handleResetManualBoundaries()
         }}
+      />
+      {/* Admixture NAD-family prompt (walk22b): the Sections-stage Subdivide
+          asks the same question the Geotech-stage Build does, before it runs. */}
+      <GeotechAdmixtureChoiceDialog
+        open={askingAdmixtures !== null}
+        units={askingAdmixtures ?? []}
+        selections={admixtureSelections}
+        onSelect={selectAdmixture}
+        onConfirm={() => void confirmAdmixtures()}
+        onCancel={cancelAdmixtures}
+        busy={admixtureBusy}
       />
     </>
   )
