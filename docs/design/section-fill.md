@@ -96,6 +96,36 @@ always empty, so nothing pinches. This REVERSES, at the outer edge only, the ear
 are unchanged. (Owner: *"the basal clay on 20/034-S5 emits a lens to the left; it is
 a test on the utter left side, it should band left, like all the other columns."*)
 
+## Bottom-tie onlap below a shallow test (owner rulings R3/R4, 2026-09-07)
+
+When a deep test's unit TOP is tied to the FACING (shallow) column's DEEPEST contact — its TD — the
+tie is that shallow test's **bottom tie** (a mixed base↔top tie the base↔base
+`emitBottomTieSubstrate` never sees). Two coupled behaviours follow, both flag-ON:
+
+* The tied unit ONLAPS all the way to that bottom-tie point on the shallow column (reach 1.0), filling
+  the sub-TD wedge, instead of pinching at `INTERIOR_PINCH_FRACTION` and letting `emitFloodWedge` invent
+  a facing litho below the shallow TD. Implemented as `drawTermination`'s `bottomTieToTd` gate in
+  `emitOnlap` (top-tied, facing endpoint == facing TD, own free base below that TD, no free-draw
+  override) — every ordinary onlap stays byte-identical. Owner: *"below a shallow test, the tied sand
+  onlaps its bottom tie."*
+* The single untied unit BELOW the bottom tie fills the remaining sub-TD triangle as ONE hole-free
+  wedge (`emitBottomTieWedge`, gated in `emitSubTdLenses` on `facingTdTied`): its flanks ride the onlap
+  base-flank line so no gap opens under the rising onlap, and it pinches short of the apex column (a
+  visible LENS, never a full-width flood). The space past the pinch is the §8-Q3 no-data void. Owner:
+  *"the untied clay lenses ... it leaves the no-data void below its own pinch."* The wedge flanks carry
+  an `oflank` prefix so `channelMatrix.isEnclosingFloodFace` treats the face as the unit's own closed
+  loop (immune) — the apex rides into the tied unit's elevation band, which the channel-matrix vacancy
+  rule would otherwise repaint to the tied litho.
+
+**Scope guard:** the wedge is the CLEAN single-untied-unit case (the TS4 clay). A multi-unit /
+interspersed sub-TD config is NOT general to the shared-apex wedge (it can overpaint an interspersed
+unit and it is where the 2026-08-21 continuous-band ruling lives, e.g. CS1 S7), so those units fall
+back to the ORIGINAL sub-TD path (flat continuation to the edge, else the ordinary lens) — byte-
+identical to the pre-R3 behaviour. So `facingTdTied` only ever reshapes the clean single wedge.
+
+Pinned in the owner's words in `partitionFillV2/ownerRulings.test.ts` (rulings 3 + 4, Tie-section 4);
+the CS1 golden's gap 18 legitimately moves where the same bottom-tie config occurs there.
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
