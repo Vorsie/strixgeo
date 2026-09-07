@@ -148,8 +148,12 @@ or delete them from the list in the right pane.
 
 The bed level feeds every consumer of the ground surface: the 3-D ground
 surface, the section DEM line (which shows the bed where the section crosses the
-polygon), and the surface clip described next. A surveyed test collar still wins
-over the bed at the test's own location, the same elevation-trust rule as above.
+polygon), and the surface clip described next. The lithological and
+geotechnical models follow it too: inside a bed polygon the section fill and the
+3-D litho model stop at the bed level, so nothing lithological is drawn or built
+above the dredged bed (outside the polygon nothing changes). A surveyed test
+collar still wins over the bed at the test's own location, the same
+elevation-trust rule as above.
 
 When a formation surface meets the ground: the crossing-line clip
 -----------------------------------------------------------------
