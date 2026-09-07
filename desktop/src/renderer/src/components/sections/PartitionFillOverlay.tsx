@@ -196,6 +196,14 @@ export interface GeotechLithoFrame {
    * one body"*).
    */
   packingClassByFormationId: ReadonlyMap<string, string>
+  /**
+   * Geotech formation id → SEAM identity key (``buildSeamClassOf``:
+   * ``SOIL|CLASS|ADMIXTURE``). The SEAM pass compares this instead of the
+   * class-only fill identity, so two same-class bands of different composition
+   * (a clean sand on a clay-bearing sand, both NAD 12) still draw their
+   * contact (owner walk22b). Absent → the seam falls back to the fill identity.
+   */
+  seamClassByFormationId?: ReadonlyMap<string, string>
 }
 
 /**
@@ -2119,17 +2127,31 @@ export default function PartitionFillOverlay({
     [packingClassByFormationId],
   )
 
+  // SEAM identity — admixture-aware, so two touching geotech bands of the same
+  // packing class but DIFFERENT soil composition still draw their contact
+  // (owner walk22b, GEO-61/2891-C: a clean ZAND-12 on a clay-bearing ZAND-12).
+  // The FILL keeps the class-only ``identityOf`` above, so the two bands still
+  // paint as one mass (same NAD colour) — only the LINE splits. Falls back to
+  // the fill identity where no seam key is known (litho axis, unclassified
+  // rows), so those paths are byte-identical to before.
+  const seamClassByFormationId = lithoFrame?.seamClassByFormationId
+  const seamIdentityOf = useCallback(
+    (formationId: string): string =>
+      seamClassByFormationId?.get(formationId) ?? identityOf(formationId),
+    [seamClassByFormationId, identityOf],
+  )
+
   const seamStrokes = useMemo(
     (): { undercol: string[]; regions: string[] } =>
       computeSectionSeamStrokes(
-        underColumnFills.map((f) => ({ points: f.pts, formationId: identityOf(f.formationId) })),
+        underColumnFills.map((f) => ({ points: f.pts, formationId: seamIdentityOf(f.formationId) })),
         screenRegions.map((sr) => ({
           points: sr.points,
-          formationId: identityOf(sr.region.formationId),
+          formationId: seamIdentityOf(sr.region.formationId),
         })),
-        columnStrips.map((s) => ({ points: s.pts, formationId: identityOf(s.formationId) })),
+        columnStrips.map((s) => ({ points: s.pts, formationId: seamIdentityOf(s.formationId) })),
       ),
-    [underColumnFills, screenRegions, columnStrips, identityOf],
+    [underColumnFills, screenRegions, columnStrips, seamIdentityOf],
   )
 
   // ---- DISSOLVED FILL GROUPS (S61 — owner clause 5, app-render half). --------
