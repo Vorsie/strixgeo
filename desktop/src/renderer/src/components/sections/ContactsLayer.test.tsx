@@ -1042,6 +1042,59 @@ describe('ContactsLayer', () => {
     ).toBe(1)
   })
 
+  it('a contact I dragged below a test\'s TD can be clicked and deleted', () => {
+    // Owner ruling (walk22b): a contact placed below a column's TD is a real
+    // contact row (extrapolated below-TD) and stays clickable, draggable and
+    // deletable — it must NOT render as a projected line with no hit-target.
+    // Borehole TD = 30 m (makeBoreholePlaced default), contact at 35 m sits
+    // BELOW the recorded bottom, so its slab is degenerate and the old code
+    // dropped it in the projection step — no hit-strip, only the polyline line.
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-belowtd', borehole_id: 'bh-1', depth_top_m: 35 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'Boom' })],
+      [makeBoreholePlaced('bh-1', 100 /* nudgedX */, 10 /* elevation */)],
+      undefined,
+      {
+        onDeleteContact,
+        onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+      },
+    )
+    // Clickable: the below-TD contact has a hit-strip carrying its id.
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-belowtd"]',
+    )
+    expect(strip).not.toBeNull()
+    // Flagged as extrapolated below-TD: its line is dashed.
+    const line = container.querySelector(
+      '[data-testid="contact-line-c-belowtd"]',
+    )
+    expect(line).not.toBeNull()
+    expect(line?.getAttribute('stroke-dasharray')).toBeTruthy()
+    // Deletable: right-click → menu → confirm → onDeleteContact fires.
+    act(() => {
+      strip!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    })
+    const menu = document.body.querySelector('[data-testid="contact-context-menu"]')!
+    const menuDeleteBtn = Array.from(menu.querySelectorAll('button')).find(
+      b => b.textContent?.trim() === 'Delete contact',
+    )!
+    act(() => {
+      fireEvent.click(menuDeleteBtn)
+    })
+    const dialogDeleteBtn = Array.from(
+      document.body.querySelectorAll('button'),
+    ).find(b => b.textContent?.trim() === 'Delete contact')!
+    act(() => {
+      fireEvent.click(dialogDeleteBtn)
+    })
+    expect(onDeleteContact).toHaveBeenCalledTimes(1)
+    expect(onDeleteContact.mock.calls[0][0]).toBe('c-belowtd')
+  })
+
   it('right-click + confirm-dialog confirms fires onDeleteContact with the contact id', () => {
     const onDeleteContact = vi.fn().mockResolvedValue(undefined)
     const contacts = [makeContact({ id: 'c-7', borehole_id: 'bh-1' })]
