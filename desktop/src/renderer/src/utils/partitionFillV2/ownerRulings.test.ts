@@ -141,27 +141,41 @@ describe('Ruling 1 — a unit on the outermost test bands to the section edge', 
 })
 
 /*
- * Ruling 2 — a same-lithology lens inside its host is absorbed.
- *   Owner (Tie-section 3): "why is this sand lens not absorbed into the bigger sand body?" A
- *   zero-tie unit enclosed by units of the same lithology (same formation identity) is one body,
- *   not a lens. The body-identity half of this is checked here; see the report for the residual
- *   lens-SHAPE half (the visible ZAND lens on GEO-20/034-S2 is silt-enclosed on its own column
- *   yet faces the big sand — whether the thin silt lenses out is a geology call needing the
- *   owner's screenshot, not guessable from the decoded stacks).
+ * Ruling 2 — a sand pocket enclosed by sand of the same lithology is ONE MASS, not a lens.
+ *   Owner (Tie-section 3, 2026-09-07): "the sand pocket keeping its lens shape means that
+ *   something is wrong in the merge step after the fill." The pocket (GEO-20/034-S2 u1 ZAND) and
+ *   the facing big sand (GEO-19/081-S3 u1 ZAND) are the same lithology and — after the post-fill
+ *   body merge — one body. The engine must therefore draw ONE sand mass: the pocket is absorbed
+ *   into the enclosing sand region, so it is no longer emitted as a separate lens region and no
+ *   region boundary (hence no litho outline) separates it from the facing sand. (The earlier pin
+ *   checked only the body-id half; the owner's ruling is the SHAPE — one mass.)
  */
-describe('Ruling 2 — a sand pocket enclosed by sand is one sand body', () => {
-  const TS3_SAND_LENS = '01a07acb-e237-70be-...'.length ? 'e237a2' : '' // GEO-20/034-S2 u1 ZAND (the lens)
-  const TS3_BIG_SAND = '4e6f0f' // GEO-19/081-S3 u1 big ZAND
+describe('Ruling 2 — a sand pocket enclosed by sand is one sand mass', () => {
+  const TS3_SAND_LENS = 'e237a2' // GEO-20/034-S2 u1 ZAND (the enclosed pocket)
+  const TS3_BIG_SAND = '4e6f0f' // GEO-19/081-S3 u1 big ZAND (the facing sand)
 
-  it('the enclosed sand lens and the bigger sand carry ONE body id (Tie-section 3)', () => {
+  it('the enclosed sand pocket is NOT emitted as a separate lens region (Tie-section 3)', () => {
     const { columns, alongM, edges } = prepare('Tie-section 3')
     const g0 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 0)
     const zandLens = g0.find((r) => r.kind === 'lens' && (r.layerIds ?? []).some((l) => l.endsWith(TS3_SAND_LENS)))
-    const bigSand = g0.find((r) => r.kind === 'quad' && (r.layerIds ?? []).some((l) => l.endsWith(TS3_BIG_SAND)))
-    expect(zandLens, 'the enclosed sand lens region exists').toBeTruthy()
-    expect(bigSand, 'the bigger sand region exists').toBeTruthy()
-    // "one sand body": the sand pocket and the bigger sand share the SAME body id.
-    expect(zandLens?.bodyId, 'the sand pocket and the bigger sand are ONE body').toBe(bigSand?.bodyId)
+    // The owner: one mass, no lens shape — the pocket must not carry its own lens polygon.
+    expect(zandLens, 'the enclosed sand pocket must not be a separate lens region').toBeFalsy()
+  })
+
+  it('the enclosed sand pocket and the facing sand are ONE shape: the facing sand covers the pocket and carries its layer, one body (Tie-section 3)', () => {
+    const { columns, alongM, edges } = prepare('Tie-section 3')
+    const g0 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 0)
+    const bigSand = g0.find((r) => r.kind !== 'lens' && (r.layerIds ?? []).some((l) => l.endsWith(TS3_BIG_SAND)))
+    expect(bigSand, 'the facing sand region exists').toBeTruthy()
+    // The pocket's layer is now part of the sand mass (absorbed), not a separate region — one body.
+    expect(
+      (bigSand?.layerIds ?? []).some((l) => l.endsWith(TS3_SAND_LENS)),
+      'the pocket layer is carried by the facing sand mass',
+    ).toBe(true)
+    // No region boundary separates them: the facing sand covers the pocket's own location
+    // (frac 0.1, elevation 4.73 mTAW — inside the old lens triangle), so there is no seam.
+    const covered = crossAt(bigSand!.polygon, 0.1).some(([lo, hi]) => lo <= 4.73 && 4.73 <= hi)
+    expect(covered, 'the facing sand mass covers the pocket location — no gap, no seam').toBe(true)
   })
 })
 
