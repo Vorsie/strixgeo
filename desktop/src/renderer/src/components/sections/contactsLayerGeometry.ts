@@ -134,6 +134,13 @@ export interface RenderedLayer {
   /** Original (un-dragged) depth, kept on the layer so the drag
    * commit can no-op when the user releases at the same depth. */
   originalDepthM: number
+  /** True when the contact sits BELOW the column's recorded TD, so its
+   * slab is degenerate (top deeper than the TD-capped bottom). The
+   * contact row is real (paint-through / manual pick persist it), so it
+   * stays clickable / draggable / deletable — the render flags it as an
+   * extrapolated below-TD contact (dashed line, no fill body) instead of
+   * dropping it silently (owner ruling walk22b). */
+  belowTd: boolean
 }
 
 /** Projected polyline vertex — adds screen Y on top of the data form. */
