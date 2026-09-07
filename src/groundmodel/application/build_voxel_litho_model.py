@@ -64,7 +64,7 @@ import hashlib
 import struct
 import time
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import Any
 from uuid import UUID
@@ -80,11 +80,13 @@ from groundmodel.application.litho_solid_persistence import (
     _SolidMeta,
     storage_body_id,
 )
+from groundmodel.application.load_bed_overrides import load_bed_override_polygons
 from groundmodel.application.packing_class_key_loader import load_packing_class_key
 from groundmodel.application.view_state_helpers import (
     load_project_view_state,
     read_view_state_float,
 )
+from groundmodel.domain.services.bed_override import bed_level_at
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.voxel_litho.build_domain_from_sections import (
     build_domain_from_sections,
@@ -107,6 +109,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
     SectionPartitionInput,
     SectionReconciliation,
 )
+from groundmodel.domain.value_objects.bed_override_polygon import BedOverridePolygon
 from groundmodel.domain.value_objects.litho_body_mesh import LithoBodyMesh
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
@@ -176,6 +179,7 @@ def _partition_checksum(
     *,
     vertical_spacing_m: float | None = None,
     honor_radius_m: float = 0.0,
+    bed_overrides: Sequence[BedOverridePolygon] = (),
 ) -> bytes:
     """Model-wide BLAKE2b-16 digest over the voxel build inputs.
 
@@ -227,6 +231,12 @@ def _partition_checksum(
         so the cubic digest is byte-stable with the pre-anisotropy form; a set
         value is folded after a domain-separator byte so an anisotropy change
         rebuilds.
+    bed_overrides : Sequence of BedOverridePolygon, optional
+        The project's manual bed-override polygons (the canal cut-out).  Folded
+        in ONLY when the project has one, after its own domain separator, so a
+        project with no bed override keeps the exact pre-bed digest; drawing,
+        re-levelling or moving a polygon busts the cache so the on-open
+        ``force=false`` path rebuilds with the new cap.  Defaults to ``()``.
 
     Returns
     -------
@@ -248,6 +258,20 @@ def _partition_checksum(
     if honor_radius_m:
         h.update(b"\x04")
         h.update(struct.pack("<d", float(honor_radius_m)))
+    # Bed overrides (the canal cut-out, owner ruling 2026-09-07): fold each
+    # polygon's level + ring ONLY when the project has one, after its own domain
+    # separator, so a project with no bed override keeps the exact pre-bed digest
+    # (no one-time cache bust) while drawing, re-levelling or moving a polygon
+    # busts the cache and rebuilds the 3-D model on the on-open force=false path —
+    # the labelling voids every voxel above the bed inside the polygon.
+    if bed_overrides:
+        h.update(b"\x05")
+        for poly in bed_overrides:
+            h.update(poly.label.encode("utf-8"))
+            h.update(struct.pack("<d", poly.level_m))
+            h.update(struct.pack("<i", len(poly.vertices)))
+            for vx, vy in poly.vertices:
+                h.update(struct.pack("<dd", vx, vy))
     for s in sections:
         h.update(struct.pack("<dddd", s.start_x, s.start_y, s.end_x, s.end_y))
         for c in s.columns:
@@ -674,6 +698,34 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             await heal_repo.rederive_geotech_parent_litho_layers(model_id)
             await heal_repo.restamp_geotech_parent_litho_bodies(model_id)
 
+        # --- Manual bed-override cap (owner ruling 2026-09-07 — the canal cut-out)
+        # Inside a bed-override polygon nothing lithological is built above the
+        # dredged bed (the DEM over the water carries the water surface, and the
+        # section fill tops out at the collar — neither is the bed).  So the
+        # labeller voids every voxel above the bed level there.  Loaded ONCE here,
+        # for both the checksum (an override edit must bust the cache) and the
+        # ``label_voxels`` call below.  A project with no override yields an empty
+        # list → ``bed_top_at`` stays ``None`` → the build is byte-identical, and
+        # the checksum is byte-stable, so nothing without a canal is disturbed.
+        bed_overrides: list[BedOverridePolygon] = (
+            await load_bed_override_polygons(self._session, model.app_project_id)
+            if model is not None
+            else []
+        )
+        bed_top_at: Callable[[float, float], float | None] | None = None
+        if bed_overrides:
+
+            def _bed_top_at(x: float, y: float) -> float | None:
+                """Bed level inside a polygon, ``None`` outside every one of them.
+
+                The cap is restricted to inside-polygon cells: ``bed_level_at``
+                returns ``None`` outside every polygon, so a column beyond the
+                canal is left exactly as the labeller drew it.
+                """
+                return bed_level_at(bed_overrides, x, y)
+
+            bed_top_at = _bed_top_at
+
         if not sections:
             self.warning(f"BuildVoxelLithoModel: model={model_id} — no sections; clearing cache")
             return await self._handle_empty(
@@ -884,6 +936,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
             investigation_columns,
             vertical_spacing_m=vertical_spacing_m,
             honor_radius_m=honor_radius_m,
+            bed_overrides=bed_overrides,
         )
         existing_by_body = await self._load_existing(model_id)
         if (
@@ -952,6 +1005,7 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                         vertical_spacing_m=vertical_spacing_m,
                         investigation_columns=investigation_columns,
                         honor_radius_m=honor_radius_m,
+                        bed_top_at=bed_top_at,
                         should_cancel=should_cancel,
                         progress=label_progress,
                     )
