@@ -3478,6 +3478,17 @@ export default function SectionPanel({
               onShowLithoUnitStatistics={
                 axisMode === 'lithostratigraphic' ? onShowLithoUnitStatistics : undefined
               }
+              // Edit composition / Split here on the ACCEPTED litho unit's own
+              // right-click menu (owner ruling 2026-09-07). Litho axis only — same
+              // gate as the statistics jump, and the same handlers the body menu
+              // uses, so the two menus stay in step. The band names its own layer,
+              // so no resolveLithoLayerAtClick is needed here.
+              onEditLithoComposition={
+                axisMode === 'lithostratigraphic' ? onEditLithoComposition : undefined
+              }
+              onSplitLithoLayer={
+                axisMode === 'lithostratigraphic' ? onSplitLithoLayer : undefined
+              }
               lithoBodyIdByLayerId={lithoBodyIdByLayerId}
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
