@@ -81,6 +81,52 @@ exists now.
   `bed_overrides` (no `format_version` bump; old files restore to an empty
   list).
 
+## Ruling 3 — the bed cuts the litho model too (owner ruling 2026-09-07)
+
+Ruling 1 clips the *geological formation surfaces*. It does NOT touch the
+lithostratigraphic / geotechnical model: the 2-D litho fill tops at each
+column's collar, and the voxel top is the section region envelope, never the
+ground sampler (the 2026-07-30 ruling: the voxel top is section-derived). So the
+answer to "does the canal fill also cut out in the litho model?" was *no* — the
+litho fill and the 3-D litho solids still reached the water surface under the
+canal.
+
+The ruling: a **BED-ONLY clip**, exactly what a bed polygon means — inside a bed
+polygon nothing lithological is drawn or built above the bed level; outside every
+bed polygon nothing changes. It is deliberately NOT a DEM clip everywhere and
+NOT a change to the collar-derived fill top or the section-derived voxel top; a
+project with no bed override renders and builds byte-identically (every voxel
+golden unchanged).
+
+* **2-D (render-layer clip, no engine change).** The partition fill overlay
+  (`PartitionFillOverlay` + its seam strokes) is clipped to the section's
+  ground+bed line where the section crosses a bed polygon. The pure builder
+  `desktop/.../sections/sectionBedClip.ts` (`buildBedClipPath`) reconstructs each
+  DEM sample's map `(x, y)` from its along-distance — exactly as `GET /dem/sample`
+  does — tests polygon membership (a port of `bed_level_at` / `_point_in_ring`),
+  and returns an SVG clip-path whose top edge dips to the bed line over the
+  in-polygon along-ranges and stays at the plot top everywhere else. It returns
+  `null` when the section crosses no bed polygon, so no clip is applied and the
+  render (incl. the CS1 golden) is byte-identical. `SectionPanel` builds the path
+  from the SAME `demSamples` the surface line draws and the SAME
+  `warpedXToScreen` / `levelToScreen` transforms the fill uses, so the cut lines
+  up pixel-for-pixel, and wraps the overlay in a `<g clipPath>`. The DEM line
+  already carries the bed (fetched with `project_id`), so this needs no new
+  fetch; the bed polygons reach the section view from `ShellContext.bedOverrides`
+  via `SectionsCanvas` (filtered to the section's CRS).
+* **3-D (labelling-top cap, the single place the top is decided).**
+  `label_voxels` takes an optional `bed_top_at(x, y)` cap. For a voxel column
+  inside a bed polygon it voids every voxel above the bed level; outside every
+  polygon the sampler returns `None` and the column is untouched. The cap is
+  applied per column AFTER both the section-blend and honored-log write paths and
+  BEFORE the empty-column tally, so it caps both alike and the tally stays
+  honest. `BuildVoxelLithoModel` builds the sampler from `bed_level_at` over the
+  project's bed overrides (restricted to inside-polygon cells), passes it to
+  `label_voxels`, and folds the overrides into the partition checksum (byte-stable
+  when there are none) so drawing or re-levelling a polygon busts the cache and
+  the on-open `force=false` path rebuilds. Both the litho and geotech voxel
+  builds go through this one path.
+
 ## What the owner sees on the worked example
 
 He draws a polygon over the canal and types the dredged bed level (say -4 m
@@ -88,3 +134,7 @@ TAW). The 3-D ground surface and the section DEM line drop to -4 m across the
 polygon. On the next Build the Vlierzele and Pleistoceen surfaces are cut where
 they cross that bed: they are present on the two flanks and gone under the
 canal, and Merelbeke (below the bed everywhere) keeps its own top unchanged.
+**And now the litho model follows:** on the section, the litho / geotech fill
+under the canal stops at the -4 m bed line instead of the water surface, and the
+next 3-D Build stops the litho solids at the bed there too — while the flanks and
+every project without a canal are unchanged.
