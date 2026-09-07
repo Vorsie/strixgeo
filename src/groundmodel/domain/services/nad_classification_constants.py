@@ -21,10 +21,13 @@ the Phase-5 NEN parameter port and has no role in packing classification.
 
 A variant is ``"clean"`` or ``"secondary"``. ``"secondary"`` means the soil
 carries its single admixture variant that the NAD table defines:
-sand/gravel → silt-/kleihoudend, silt/clay → zandhoudend. Any other admixture
-(e.g. gravelly sand) is NOT a NAD variant and falls to ``"clean"`` (spec §5,
-exact matching). VEEN has no secondary variant in the table (its ``secondary``
-row mirrors ``clean``).
+sand/gravel → silt-/kleihoudend, silt/clay → zandhoudend. A glauconite
+admixture in a SAND also forks to ``"secondary"`` (owner ruling walk22b): the
+NAD table has no dedicated glauconitic-sand line, so a glauconitic sand marked
+"with admixture" is routed into the silt-/kleihoudend column (ZAND 9-12). Any
+other admixture (e.g. gravelly sand) is NOT a NAD variant and falls to
+``"clean"`` (spec §5, exact matching). VEEN has no secondary variant in the
+table (its ``secondary`` row mirrors ``clean``).
 """
 
 from __future__ import annotations
@@ -83,12 +86,26 @@ _SAND_ADMIXTURE_CODES = frozenset({"XZ", "ZN", "Z", "FZ", "MZ", "GZ"})
 # DOV ``SI``; tracked separately.)
 _SILT_CLAY_ADMIXTURE_CODES = frozenset({"SI", "KL", "LE", "SL"})
 
+# Glauconite bijmenging code (GL = glauconiet in the DOV codelist
+# codetabel_hoofdnaam.csv — a mineral, NOT gravel). Owner ruling walk22b: a
+# glauconitic SAND triggers the pure-vs-with-admixture choice, so glauconite
+# joins silt/clay as a sand secondary fork. The NAD table (NBN EN 1997-1 ANB
+# Tabel 2.1) has no dedicated glauconitic-sand line, so a glauconitic sand the
+# engineer marks "with admixture" is routed into the existing silt-/kleihoudend
+# secondary column (ZAND classes 9-12) — the owner confirms the target column
+# (there is no distinct glauconite qc band to fabricate).
+_GLAUCONITE_ADMIXTURE_CODES = frozenset({"GL"})
+
+# Sand secondary-fork set: silt/clay (silt-/kleihoudend) PLUS glauconite.
+_SAND_SECONDARY_ADMIXTURE_CODES = _SILT_CLAY_ADMIXTURE_CODES | _GLAUCONITE_ADMIXTURE_CODES
+
 # Which admixture soil_codes map to the "secondary" NAD variant per main soil
-# (spec §5). Coarse soils (sand/gravel) go secondary on a silt/clay admixture;
-# fines (silt/clay/peat) go secondary on a sand admixture ("zandhoudend").
+# (spec §5). Sand goes secondary on a silt/clay/glauconite admixture; gravel on
+# a silt/clay admixture; fines (silt/clay/peat) go secondary on a sand admixture
+# ("zandhoudend").
 _SECONDARY_ADMIXTURE_CODES: dict[BaseLithology, frozenset[str]] = {
     "GRIND": _SILT_CLAY_ADMIXTURE_CODES,
-    "ZAND": _SILT_CLAY_ADMIXTURE_CODES,
+    "ZAND": _SAND_SECONDARY_ADMIXTURE_CODES,
     "SILT": _SAND_ADMIXTURE_CODES,
     "KLEI": _SAND_ADMIXTURE_CODES,
     "VEEN": _SAND_ADMIXTURE_CODES,
