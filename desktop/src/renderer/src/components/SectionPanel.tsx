@@ -125,7 +125,7 @@ import {
 import GeotechBandEditOverlay from './sections/GeotechBandEditOverlay'
 import GeotechBoreholePreviewGhosts from './sections/GeotechBoreholePreviewGhosts'
 import PartitionFillOverlay, { type GeotechLithoFrame } from './sections/PartitionFillOverlay'
-import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
+import { buildPackingClassOf, buildSeamClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
 import { toSeparatedPairs } from '../utils/partitionFillV2/separationConstraint'
 import { useSectionScope } from './sections/SectionScopeContext'
 import { useT } from '../i18n/translate'
@@ -1067,6 +1067,9 @@ export default function SectionPanel({
       lithoSoilByFormationId: geotechModel.lithoSoilByFormationId,
       geotechSoilByFormationId,
       packingClassByFormationId: buildPackingClassOf(geotechModel.nadMeta),
+      // Admixture-aware SEAM identity (walk22b): draws the contact between two
+      // same-class bands of different composition while the fill stays one mass.
+      seamClassByFormationId: buildSeamClassOf(geotechModel.nadMeta),
     }
   }, [axisMode, geotechModel, fillSelection.showLithoFillInstead, lithoLayers, contactEdges])
   // Cannot-link pairs threaded into the fill (the paint-seam guard). DORMANT
