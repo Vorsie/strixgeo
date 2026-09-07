@@ -428,6 +428,14 @@ export const MODELS = {
   'litho.acceptSuggestionFailed': 'Could not accept the litho suggestion.',
   'litho.acceptAllFailed': 'Could not accept all litho suggestions.',
   'litho.suggestedFailures': 'Suggested {ok}/{total} — {failed} failed.',
+  // Owner ruling 2026-09-07: suggest never runs over a column that already has
+  // accepted litho layers (on any section). These report the skip.
+  'litho.suggestSkippedColumn':
+    'This column already has accepted litho layers, so nothing was suggested. Edit or split the accepted units instead.',
+  'litho.suggestAllSkipped':
+    'Suggested {ok}, skipped {skipped} that already have accepted layers.',
+  'litho.suggestAllSkippedAllAccepted':
+    'Skipped all {total} columns: they already have accepted layers, nothing to suggest.',
   'litho.acceptLayersFailed': 'Could not accept litho layers.',
   'litho.acceptedAnchorsInference': 'Accepted {n} {anchorWord} — inference updated.',
   'litho.acceptedAnchors': 'Accepted {n} {anchorWord}.',
