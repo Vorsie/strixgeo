@@ -62,6 +62,37 @@ export function filterAnchorsWithNoLithoContacts<T extends { id: string }>(
 }
 
 /**
+ * Whether one investigation already carries a committed litho contact (i.e. an
+ * ACCEPTED litho layer) in the model.  The single-anchor companion to
+ * ``filterAnchorsWithNoLithoContacts`` — the Suggest verbs use it to skip a
+ * column that was already segmented and accepted, on ANY section (owner ruling
+ * 2026-09-07: "don't suggest over columns that already carry accepted layers").
+ *
+ * Synthetic contacts (``cpt_id`` and ``borehole_id`` both null — pinch-out
+ * wedges) never match, so they cannot make a column "accepted".
+ *
+ * Parameters
+ * ----------
+ * investigationId
+ *     The CPT or borehole id to test.
+ * lithoContacts
+ *     All contacts in the active litho model (model-wide, not section-scoped).
+ *
+ * Returns
+ * -------
+ * boolean
+ *     ``true`` when at least one contact is anchored to the investigation.
+ */
+export function investigationHasLithoContacts(
+  investigationId: string,
+  lithoContacts: readonly FormationContactResponse[],
+): boolean {
+  return lithoContacts.some(
+    c => c.cpt_id === investigationId || c.borehole_id === investigationId,
+  )
+}
+
+/**
  * Borehole ids with NO contacts in the given geology model.  Used by
  * the section "Seed for new tests" verb to scope the seed-from-
  * stratigraphy bulk call to boreholes that have not had any geology
