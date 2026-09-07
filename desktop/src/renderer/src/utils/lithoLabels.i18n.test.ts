@@ -63,7 +63,8 @@ describe('admixture dropdown options — Dutch labels, raw token tooltip (owner 
     expect(soilBy('KL')).toEqual({ code: 'KL', label: 'Kleiig (KL)', title: 'KL' })
     expect(soilBy('ZN')).toEqual({ code: 'ZN', label: 'Zandig (ZN)', title: 'ZN' })
     expect(soilBy('SL')).toEqual({ code: 'SL', label: 'Siltig (SL)', title: 'SL' })
-    expect(soilBy('GL')).toEqual({ code: 'GL', label: 'Grindig (GL)', title: 'GL' })
+    // GL = glauconiet (glauconite), NOT grind — walk22b label fix.
+    expect(soilBy('GL')).toEqual({ code: 'GL', label: 'Glauconiethoudend (GL)', title: 'GL' })
     expect(soilBy('VE')).toEqual({ code: 'VE', label: 'Venig (VE)', title: 'VE' })
   })
 
