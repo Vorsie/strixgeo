@@ -149,6 +149,8 @@ function renderLayer(
     correlateMode?: boolean
     onShowLithoUnitStatistics?: (formationId: string, bodyId?: string | null) => void
     lithoBodyIdByLayerId?: ReadonlyMap<string, string | null>
+    onEditLithoComposition?: (layerId: string) => void
+    onSplitLithoLayer?: (layerId: string, depthM: number) => void
   } = {},
 ) {
   return render(
@@ -185,6 +187,8 @@ function renderLayer(
         correlateMode={extras.correlateMode}
         onShowLithoUnitStatistics={extras.onShowLithoUnitStatistics}
         lithoBodyIdByLayerId={extras.lithoBodyIdByLayerId}
+        onEditLithoComposition={extras.onEditLithoComposition}
+        onSplitLithoLayer={extras.onSplitLithoLayer}
       />
     </svg>,
   )
@@ -2160,6 +2164,90 @@ describe('ContactsLayer', () => {
     expect(onShowLithoUnitStatistics).toHaveBeenCalledWith('f-sand', null)
     // The jump closes the menu.
     expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
+  })
+
+  // Owner ruling (installer #22 dogfeed 2026-09-07): "I can't split or change
+  // lithology on accepted lithos through the right-click menu." Edit composition
+  // and Split here must live on the ACCEPTED litho unit's OWN right-click menu,
+  // not only the body menu (which the owner never opens here).
+  it('LB-EDIT1: right-clicking an accepted litho unit offers Edit composition and Split here', () => {
+    const onEditLithoComposition = vi.fn()
+    const onSplitLithoLayer = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onEditLithoComposition, onSplitLithoLayer },
+    )
+    // The FIRST band is the SAND unit (between c-1 and c-2); its contact id (c-1)
+    // IS its litho layer id (the UUID-preserving A2.5 backfill).
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+
+    expect(screen.getByTestId('litho-band-edit-composition')).toBeTruthy()
+    expect(screen.getByTestId('litho-band-split-here')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('litho-band-edit-composition'))
+    expect(onEditLithoComposition).toHaveBeenCalledWith('c-1')
+    expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
+  })
+
+  it('LB-EDIT2: Split here fires onSplitLithoLayer with the layer id and the clicked depth', () => {
+    const onSplitLithoLayer = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onSplitLithoLayer },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-split-here'))
+    // The layer id is the clicked band's contact id; the depth is a number.
+    expect(onSplitLithoLayer).toHaveBeenCalledTimes(1)
+    expect(onSplitLithoLayer.mock.calls[0][0]).toBe('c-1')
+    expect(typeof onSplitLithoLayer.mock.calls[0][1]).toBe('number')
+    expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
+  })
+
+  it('LB-EDIT3: neither verb appears when its handler is absent (no-affordance rule)', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onDeleteContact: vi.fn().mockResolvedValue(undefined) },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    expect(screen.queryByTestId('litho-band-edit-composition')).toBeNull()
+    expect(screen.queryByTestId('litho-band-split-here')).toBeNull()
   })
 
   it('LB-US5: with the body map wired the jump reports the clicked band\'s BODY', () => {
