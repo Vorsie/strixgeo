@@ -141,10 +141,10 @@ export interface EmittedCurves {
  *     ``curves`` for ``buildArrangement``, plus ``conflicts`` and the surviving
  *     ``activeTies`` (for face labelling).
  */
-export function emitCurves(section: SectionInput): EmittedCurves {
+export function emitCurves(section: SectionInput, allowFirstUnitTopSeam = true): EmittedCurves {
   const curves: InputCurve[] = []
   emitColumnVerticals(section.columns, curves)
-  emitSurfaceCurves(section.columns, curves)
+  emitSurfaceCurves(section.columns, section.edges, curves)
 
   // ONE crossing-conflict pass over EVERY approved edge — adjacent ties AND
   // jump-tie bridges canonicalised into gap-local segments (owner §8 Q4, design
@@ -317,7 +317,7 @@ export function emitCurves(section: SectionInput): EmittedCurves {
     const corr0Diamonds: Corr0Diamond[] = []
     emitTerminationSweep(survivingSection, ties, bridgeAnchored, bridgeGapAnchored, lensLabels, curves, plans, corr0Diamonds)
     collectEnclosedLensDiamonds(survivingSection, ties, corr0Diamonds)
-    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves, corr0Diamonds, bridgeGapAnchored)
+    emitEnclosingFlood(survivingSection, ties, bridgeAnchored, lensLabels, curves, corr0Diamonds, bridgeGapAnchored, allowFirstUnitTopSeam)
     // S41.c (ruling 8p / finding F1): the asymmetric ``emitRuledBands`` pass is DELETED. It
     // invented same-formation band contours from formation-OVERLAP authority (a unit's own
     // contact ↔ HALF a facing same-formation run), NOT from the two actual bracket ties bounding
@@ -474,10 +474,33 @@ const CONTOUR_MATCH_EPS = 0.001
  * FLOOR is deliberately NOT emitted: the sub-TD void below a shallow column stays open
  * (unfilled) until the deep-to-deep substrate bridges.
  */
-function emitSurfaceCurves(columns: readonly ColumnGeom[], out: InputCurve[]): void {
+function emitSurfaceCurves(
+  columns: readonly ColumnGeom[],
+  edges: readonly CorrelationEdge[],
+  out: InputCurve[],
+): void {
   for (let gi = 0; gi + 1 < columns.length; gi++) {
     const left = columns[gi]
     const right = columns[gi + 1]
+    // OWNER RULING 2026-09-07 (Cross-section 2): the space ABOVE a drawn first-unit-top tie, where one
+    // borehole is SHORT (its ground sits below units the tall test logged), stays EMPTY — each CPT
+    // unit above the tie is its own lens, nothing floods the void above the short test's collar.
+    // Skipping the ground-line closing there leaves that wedge untraced (empty) instead of labelFaces
+    // stamping it with the tall test's shallow lithology. Scoped to exactly that shape (a hand-tied
+    // first-unit top AND a unit sitting entirely above the facing collar); every other gap — an
+    // interior minority under a same-height converging band, a gap with no such tie — keeps its ground
+    // line byte-identical.
+    const skipGround =
+      (firstUnitTopTiedRaw(left, right, edges) || firstUnitTopTiedRaw(right, left, edges)) &&
+      (hasUnitAboveFacingGround(left, right) || hasUnitAboveFacingGround(right, left))
+    if (skipGround) continue
+    // The top-band (surface) line is ALWAYS emitted: it is the physical GROUND boundary that closes
+    // the top of the gap, so the vacancy closure has something to close against (removing it leaves
+    // the wedge above a narrowed first unit unbounded — a hole). Owner ruling 2026-09-07 part 1
+    // narrows only the implicit top-band TIE (the corr, ``effectiveCorr.gapTopBandSuppressed``), not
+    // this ground line: once a first-unit top is hand-tied the first units read their real 2/1/0
+    // outcome (a 0-tie first unit becomes a lens instead of a top-band flood), while this line still
+    // bounds the top and the vacancy closure fills the wedge between it and the lenses.
     out.push({
       id: `surface:${gi}`,
       kind: 'closing',
@@ -487,6 +510,38 @@ function emitSurfaceCurves(columns: readonly ColumnGeom[], out: InputCurve[]): v
       ],
     })
   }
+}
+
+/**
+ * Does the user's hand-drawn correlation tie ``col``'s FIRST unit's TOP contact to a layer on the
+ * facing column? (Owner ruling 2026-09-07 — raw-edge form for ``emitSurfaceCurves``, which runs
+ * before ties are resolved to unit indices; matches on ``layerId`` against the facing column's layer
+ * set, so it counts only a tie that actually spans THIS gap.)
+ */
+/**
+ * Does ``col`` carry a unit sitting ENTIRELY ABOVE the facing column's ground (its first-litho top)?
+ * That is the "short facing borehole" shape (owner ruling 2026-09-07, Cross-section 2): the facing
+ * collar is below what this column logged, so the space above it is unlogged void, not lateral fill.
+ */
+function hasUnitAboveFacingGround(col: ColumnGeom, facing: ColumnGeom): boolean {
+  if (col.units.length === 0 || facing.units.length === 0) return false
+  const facingGround = facing.units[0].topElev
+  return col.units.some((u) => u.baseElev >= facingGround - 1e-6)
+}
+
+function firstUnitTopTiedRaw(
+  col: ColumnGeom,
+  facing: ColumnGeom,
+  edges: readonly CorrelationEdge[],
+): boolean {
+  if (col.units.length === 0) return false
+  const first = col.units[0].layerId
+  const facingLayers = new Set(facing.units.map((u) => u.layerId))
+  for (const e of edges) {
+    if (e.a === first && (e.aSide ?? 'top') === 'top' && facingLayers.has(e.b)) return true
+    if (e.b === first && (e.bSide ?? 'top') === 'top' && facingLayers.has(e.a)) return true
+  }
+  return false
 }
 
 /**
