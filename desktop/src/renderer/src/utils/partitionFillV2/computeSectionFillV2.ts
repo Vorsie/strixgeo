@@ -26,6 +26,7 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { absorbEnclosedSameLithoLens } from './absorbEnclosedSameLithoLens'
 import { buildArrangement } from './arrangement'
 import { detectFloodedUnits } from './detectFloodedUnits'
 import { emitCurves, type TieConflict } from './emitCurves'
@@ -246,7 +247,12 @@ export function classifyOverrideOutcome(
       // RULING 8j "MERGE AFTER FILL" (2026-07-17): after the fill, same-litho regions that TOUCH merge
       // into one body — a body-only relabel (never moves a vertex, so holes/overlaps/conformance are
       // invariant). Gated on the hoist flag so flag-OFF stays the frozen v1-seam baseline byte-identical.
-      const merged = twoSidedTerminationsEnabled() ? mergeTouchingBodies(sliced, section.columns) : sliced
+      // RULING 2 SHAPE HALF (2026-09-07): then absorb a same-litho, same-body enclosed lens into its
+      // enclosing sand mass — the pocket the merge welded to one body must also read as one SHAPE (no
+      // lens polygon, no seam). Inert unless such a carved notch exists, so every other fill is unchanged.
+      const merged = twoSidedTerminationsEnabled()
+        ? absorbEnclosedSameLithoLens(mergeTouchingBodies(sliced, section.columns))
+        : sliced
       return { sliced, merged, conflicts, sectionColumns: section.columns }
     }
     let result = onePass()
