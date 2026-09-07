@@ -1,11 +1,12 @@
 /**
- * outerEdgeTerminations.test.ts — the OUTER-column zero-tie classifier (owner 2026-09-04).
+ * outerEdgeTerminations.test.ts — the OUTER-column termination rule (owner 2026-09-07).
  *
- * "zero ties = lens": a unit on the section's outer column with zero ties pinches out
- * toward the edge as a lens, never as an open band to the boundary. This gate pins the
- * ENGINE half of that ruling — which outer-column units the overlay's open-end stub must
- * pinch — by asserting ``outerColumnZeroTieLayerIds`` reports exactly the corr-0 units and
- * NOT the correlated / top-band ones on the same outer column.
+ * "the basal clay on 20/034-S5 emits a lens to the left; it is a test on the utter left side,
+ * it should band left, like all the other columns." Every unit on an outermost column bands to
+ * the section edge, whatever its tie count on the inner side — so ``outerColumnZeroTieLayerIds``
+ * (the set the overlay's open-end stub pinches) is always EMPTY. This REVERSES, at the outer
+ * edge only, the earlier "zero ties = lens" pinch (owner 2026-09-04); interior zero-tie lenses
+ * between two columns are unchanged.
  *
  * Flag-ON path (``setTwoSidedTerminations(true)``, restored in ``finally``).
  */
@@ -47,11 +48,11 @@ function withFlip<T>(fn: () => T): T {
 
 afterEach(() => setTwoSidedTerminations(false))
 
-describe('outerColumnZeroTieLayerIds — the zero-tie rule at the section edge', () => {
-  it('reports the outer-column zero-tie unit and NOT the correlated / top-band unit on the same column', () => {
-    // Two columns. Each carries a top SAND (a first unit, top-band tied → corr 1) and a
-    // bottom CLAY with no correlation on either side (corr 0). The CLAY is the "open end"
-    // the owner objected to; the SAND keeps extending to the boundary.
+describe('outerColumnZeroTieLayerIds — the outermost column bands to the edge', () => {
+  it('a zero-tie basal clay on an outer column is NOT pinched — it bands to the edge', () => {
+    // Two columns, a top SAND over a bottom CLAY with no correlation anywhere. The bottom clay is
+    // zero-tie on its inner side, but it lives on an OUTERMOST column → it bands to the section
+    // edge (owner 2026-09-07), never a lens.
     const columns: PartitionColumn[] = [
       col('L', 10, [
         { top: 0, base: 5, f: SAND, layerId: 'a1' },
@@ -63,18 +64,10 @@ describe('outerColumnZeroTieLayerIds — the zero-tie rule at the section edge',
       ]),
     ]
     const zero = withFlip(() => outerColumnZeroTieLayerIds(columns, [], [0, 100]))
-
-    // Both outer columns' bottom clays are zero-tie → pinch out as a lens.
-    expect(zero.has('a2'), 'first column bottom clay is zero-tie').toBe(true)
-    expect(zero.has('b2'), 'last column bottom clay is zero-tie').toBe(true)
-    // The top sand is top-band tied (corr 1) → NOT a lens; it keeps reaching the boundary.
-    expect(zero.has('a1'), 'first column top sand has a tie (top band)').toBe(false)
-    expect(zero.has('b1'), 'last column top sand has a tie (top band)').toBe(false)
+    expect([...zero], 'every outer-column unit bands — nothing pinches').toEqual([])
   })
 
-  it('a unit correlated to the next column is NOT reported (it bands, keeps extending)', () => {
-    // Tie the two bottom clays base-to-base AND top-to-top → a full band (corr 2). A banded
-    // outer unit keeps its flat extension; it must not be flagged for a pinch.
+  it('a banded outer unit is also not pinched (unchanged)', () => {
     const columns: PartitionColumn[] = [
       col('L', 10, [
         { top: 0, base: 5, f: SAND, layerId: 'a1' },
@@ -90,7 +83,6 @@ describe('outerColumnZeroTieLayerIds — the zero-tie rule at the section edge',
       { a: 'a2', b: 'b2', aSide: 'base', bSide: 'base' },
     ]
     const zero = withFlip(() => outerColumnZeroTieLayerIds(columns, edges, [0, 100]))
-    expect(zero.has('a2'), 'a banded clay is not a zero-tie lens').toBe(false)
-    expect(zero.has('b2'), 'a banded clay is not a zero-tie lens').toBe(false)
+    expect([...zero]).toEqual([])
   })
 })
