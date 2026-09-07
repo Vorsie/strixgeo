@@ -71,6 +71,17 @@ export function terminationRun(
   let last = nearIndex
   for (let i = nearIndex + dir; i >= 0 && i < columns.length; i += dir) {
     last = i
+    // OWNER RULING 2026-09-07 (Cross-section 2): a facing column whose GROUND is BELOW this unit —
+    // the unit sits entirely ABOVE the first thing that column logged, i.e. above its collar, where
+    // there is only sky — is a BOUNDARY, not a blind column to pass through. The unit pinches its
+    // ordinary lens TOWARD that column and the space beyond stays EMPTY (no facing matrix to flood).
+    // This SPLITS the 2026-08-21 "a column that read nothing is not a boundary" law, which folded two
+    // cases together ("the ground over there is below its TD, OR above the first thing it logged"):
+    // the "below its TD" case (the column may carry the unit deeper) STILL crosses to the first
+    // reading column; the "above the first thing it logged" case now terminates here. Owner: *"the
+    // sand above the clay has no ties, it is a lens, the space above the tie stays empty."*
+    const groundTop = columns[i].units.length > 0 ? columns[i].units[0].topElev : -Infinity
+    if (groundTop < lo - OVERLAP_EPS) return span(i, true)
     for (const fu of columns[i].units) {
       if (Math.min(fu.topElev, hi) - Math.max(fu.baseElev, lo) > OVERLAP_EPS) return span(i, true)
     }
