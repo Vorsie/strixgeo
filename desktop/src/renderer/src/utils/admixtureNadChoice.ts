@@ -170,3 +170,25 @@ export function ambiguousAdmixtureUnits(
 export function hasUnansweredAdmixtureUnits(units: readonly AdmixtureUnit[]): boolean {
   return units.some(u => u.choice === null)
 }
+
+/**
+ * The answer the prompt pre-checks for one unit, or null when the engineer must
+ * decide from scratch.
+ *
+ * A stored answer always wins. Otherwise only a unit forked by glauconite ALONE
+ * gets a default: the with-admixture (clayey / silty sand) column, because the
+ * NAD table has no glauconitic-sand line and the owner ruled 2026-09-07
+ * "glauconitic sand can default to clay sand, but we need to prompt the user on
+ * subdivide". A silt / clay fork keeps NO default (owner ruling 2026-09-04: the
+ * engineer decides), and that stricter rule wins when both admixtures are present.
+ *
+ * @param unit - one admixture-ambiguous litho unit the prompt lists.
+ * @returns the pre-checked choice, or null for an open question.
+ */
+export function defaultAdmixtureChoice(unit: AdmixtureUnit): NadAdmixtureChoice | null {
+  if (unit.choice != null) return unit.choice
+  const glauconiteOnly =
+    unit.matchedAdmixtures.length > 0 &&
+    unit.matchedAdmixtures.every(a => GLAUCONITE_ADMIXTURE_CODES.has(a.soil_code))
+  return glauconiteOnly ? 'with_admixture' : null
+}
