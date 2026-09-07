@@ -82,6 +82,20 @@ Layered dogfeed fixes, ALL gate-guarded:
   of lensing (`facingBandTd` / `reanchorBandToFacing` — band top from the
   correlation, base owned by the substrate).
 
+## Outer-edge terminations (owner ruling 2026-09-07)
+
+The section's outer edges — left of the first column, right of the last — are NOT
+gaps, so the arrangement engine emits nothing there; the outward extension is drawn
+by `PartitionFillOverlay`'s open-end stub. **Every unit on an outermost column bands
+flat to the section edge, whatever its tie count on the inner side** — there is no
+data beyond the edge, so the interpretation carries the last known layer out. The
+engine expresses this in `outerColumnZeroTieLayerIds` (partitionFillV2), which the
+overlay consults for the set of outer units to PINCH: under this ruling the set is
+always empty, so nothing pinches. This REVERSES, at the outer edge only, the earlier
+"zero ties = lens" pinch (2026-09-04); interior zero-tie lenses between two columns
+are unchanged. (Owner: *"the basal clay on 20/034-S5 emits a lens to the left; it is
+a test on the utter left side, it should band left, like all the other columns."*)
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
