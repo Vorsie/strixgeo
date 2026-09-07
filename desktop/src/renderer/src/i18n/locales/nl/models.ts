@@ -458,6 +458,15 @@ export const MODELS_NL = {
   'litho.acceptSuggestionFailed': 'Kon het lithovoorstel niet aanvaarden.',
   'litho.acceptAllFailed': 'Kon niet alle lithovoorstellen aanvaarden.',
   'litho.suggestedFailures': '{ok}/{total} voorgesteld — {failed} mislukt.',
+  // Eigenaarsbeslissing 2026-09-07: voorstellen loopt nooit over een kolom die
+  // al aanvaarde litho-lagen heeft (op welke doorsnede dan ook). Deze melden de
+  // overgeslagen kolommen.
+  'litho.suggestSkippedColumn':
+    'Deze kolom heeft al aanvaarde litho-lagen, dus er is niets voorgesteld. Bewerk of splits de aanvaarde eenheden.',
+  'litho.suggestAllSkipped':
+    '{ok} voorgesteld, {skipped} overgeslagen die al aanvaarde lagen hebben.',
+  'litho.suggestAllSkippedAllAccepted':
+    'Alle {total} kolommen overgeslagen: ze hebben al aanvaarde lagen, niets voor te stellen.',
   'litho.acceptLayersFailed': 'Kon de litholagen niet aanvaarden.',
   'litho.acceptedAnchorsInference': '{n} {anchorWord} aanvaard — inferentie bijgewerkt.',
   'litho.acceptedAnchors': '{n} {anchorWord} aanvaard.',
