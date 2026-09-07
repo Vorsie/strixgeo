@@ -126,6 +126,20 @@ identical to the pre-R3 behaviour. So `facingTdTied` only ever reshapes the clea
 Pinned in the owner's words in `partitionFillV2/ownerRulings.test.ts` (rulings 3 + 4, Tie-section 4);
 the CS1 golden's gap 18 legitimately moves where the same bottom-tie config occurs there.
 
+## Same-litho enclosed lens is one mass (owner ruling 2, 2026-09-07)
+
+`mergeTouchingBodies` welds a same-lithology enclosed lens and its enclosing matrix under one body
+but never moves a vertex, so the pocket kept its own closed lens polygon (a distinct shape + lens
+outline) inside the facing sand. Owner: *"the sand pocket keeping its lens shape means that
+something is wrong in the merge step after the fill."* A post-merge pass
+(`absorbEnclosedSameLithoLens`, run right after `mergeTouchingBodies` on the flag-ON path) ABSORBS
+such a lens: when a `kind:'lens'` region is the SAME `formationId` and SAME `bodyId` as an enclosing
+non-lens region whose ring carries the lens's carved notch (its interior vertices are an exact
+contiguous run in that ring), the matrix's notch is filled, the lens's `layerIds` fold into the
+matrix, and the lens region is dropped — one simple sand mass, no seam, no lens outline. A lens
+enclosed by a DIFFERENT lithology (a real interbed) is never same-formation, so it stays a lens; the
+pass is inert (CS1 golden byte-identical) unless a genuine same-litho same-body carved lens exists.
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
