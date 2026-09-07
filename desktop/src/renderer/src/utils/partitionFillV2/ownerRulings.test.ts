@@ -240,17 +240,28 @@ describe('Ruling 4 — the fill has no hole under a shallow test', () => {
 })
 
 /*
- * Ruling 5 — a sand tied to a silt across two columns draws a vertical seam at the column.
- *   Owner (Cross-section 2, screenshot 10:00): the sand on GEO-19/081-S5 tied to the silt on
- *   GEO-61/2891-C draws no seam; the sand runs on unbroken and the silt floods over it. A
- *   cross-lithology tie must terminate each unit at a seam, not let the far silt flood full width
- *   over the near sand.
+ * Ruling 5 — a sand tied to a silt across two columns draws a vertical seam at the column
+ *   (owner 2026-09-07, three parts; his words in the test names).
+ *
+ *   PART 1 — narrow the implicit top band: "removing top tie = narrow, only when the user has tied
+ *     the top, no extra top tie is emitted." The user tied GEO-19/081-S5's sand top to the
+ *     GEO-61/2891-C silt top (a first-unit top on the borehole side), so the implicit top-band tie
+ *     is dropped for that gap and nothing above the drawn tie floods.
+ *   PART 2 — "a tie whose two layers differ in lithology makes both units band along the ties and
+ *     meet at a vertical seam at the column." The sand bands from S5, the silt from the borehole
+ *     column, meeting at a vertical seam; the far silt does not flood over the near sand.
+ *   PART 3 — "above my tie, on the CPTs nothing can flood. There are no ties to the borehole
+ *     column, so they all become lenses and are closed loops ... except for of course the unit
+ *     right above the top tie that onlaps also." The S5 clay (base = the tied sand top) onlaps the
+ *     tie and ends halfway; every other unit above the tie is a closed lens; no silt floods above
+ *     the tie.
  */
 describe('Ruling 5 — a sand tied to a silt across two columns draws a vertical seam at the column', () => {
   const CS2_SAND = '01a07acb-dfd2-7d85-bd22-07a5bde34662' // GEO-19/081-S5 u3 ZAND (tied to the silt)
-  const CS2_SILT = '01a07acb-e017-75b4-948e-c6e7f116ce12' // GEO-61/2891-C u0 SILT
+  const CS2_SILT = '01a07acb-e017-75b4-948e-c6e7f116ce12' // GEO-61/2891-C u0 SILT (borehole first unit)
+  const CS2_CLAY = '01a07acb-dfd1-7a58-b81a-49a6d6226466' // GEO-19/081-S5 u2 KLEI (base = the tied sand top)
 
-  it.fails('the far silt does not flood full width over the near sand (a seam terminates it)', () => {
+  it('the far silt does not flood full width over the near sand (a seam terminates it)', () => {
     const { columns, alongM, edges } = prepare('Cross-section 2')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
     const silt = regionsForLayer(g1, CS2_SILT)
@@ -260,5 +271,63 @@ describe('Ruling 5 — a sand tied to a silt across two columns draws a vertical
     // buries the sand and erases the seam the owner drew).
     const widestSilt = Math.max(...silt.map(fracSpan))
     expect(widestSilt, 'the cross-litho silt terminates at a seam, it does not flood full width').toBeLessThan(0.98)
+  })
+
+  it('the sand bands from its own column and the silt from the borehole column, meeting at a vertical seam', () => {
+    const { columns, alongM, edges } = prepare('Cross-section 2')
+    const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
+    const sand = regionsForLayer(g1, CS2_SAND)
+    const silt = regionsForLayer(g1, CS2_SILT)
+    // The sand reaches the seam from the left; the silt reaches it from the right. They meet in the
+    // gap interior (a vertical seam), neither running the full width over the other.
+    const sandMaxFrac = Math.max(...sand.flatMap((r) => r.polygon.map((p) => p.fraction)))
+    const siltInBand = silt.filter((r) => Math.min(...r.polygon.map((p) => p.elevation)) > -5)
+    const siltMinFrac = Math.min(...siltInBand.flatMap((r) => r.polygon.map((p) => p.fraction)))
+    expect(sandMaxFrac, 'the tied sand bands across to the seam').toBeGreaterThan(0.45)
+    expect(siltMinFrac, 'the tied silt bands back to the seam, it does not run past it to the sand column').toBeGreaterThan(0.45)
+  })
+
+  it('the S5 clay onlaps the tie and ends halfway, and no silt floods the wedge above the tie', () => {
+    const { columns, alongM, edges } = prepare('Cross-section 2')
+    const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
+    const clay = regionsForLayer(g1, CS2_CLAY)
+    expect(clay.length, 'the S5 clay is drawn').toBeGreaterThan(0)
+    // The clay onlaps the silt-top to sand-top tie and terminates near mid-gap (it does not reach
+    // the borehole column), the engine's ordinary 1-tie onlap.
+    const clayMaxFrac = Math.max(...clay.flatMap((r) => r.polygon.map((p) => p.fraction)))
+    expect(clayMaxFrac, 'the clay onlaps to mid-gap, not the far column').toBeGreaterThan(0.4)
+    expect(clayMaxFrac, 'the clay onlaps to mid-gap, not the far column').toBeLessThan(0.7)
+    // No silt FLOODS the top of the gap: before this ruling the S5 top silt flooded full width at
+    // ~1.3-3.0 mTAW, burying the clay and the sand-above. Now every silt above elevation 0 is a
+    // closed shape (the S5 top silt is a lens at ~5.3 mTAW; the tied silt band is seamed to the
+    // borehole half) — none spans the gap.
+    const floodedSiltAtTop = g1.some(
+      (r) =>
+        raw.formationNames[r.formationId] === 'SILT' &&
+        Math.min(...r.polygon.map((p) => p.elevation)) > 0 &&
+        fracSpan(r) > 0.95,
+    )
+    expect(floodedSiltAtTop, 'no silt floods full width above the sand/silt band').toBe(false)
+  })
+
+  it('the sand above the clay has no ties, it is a lens, the space above the tie stays empty', () => {
+    // Owner 2026-09-07 (his words): *"the clay onlaps, the sand above is a lens on cs2. 2/1/0 rule
+    // again, that sand has no ties. it should be empty."* The GEO-19/081-S5 sand ABOVE the clay
+    // (u1, no ties) pinches as a closed lens inside the gap; the wedge above the drawn tie, past the
+    // lens apex, is NOT filled with sand — it stays EMPTY, the same unlogged void the shorter borehole
+    // leaves above its collar.
+    const CS2_SAND_ABOVE = '01a07acb-dfcf-7995-9f52-4e408fe54b7e' // GEO-19/081-S5 u1 ZAND (above the clay)
+    const { columns, alongM, edges } = prepare('Cross-section 2')
+    const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
+    const sandAbove = regionsForLayer(g1, CS2_SAND_ABOVE)
+    expect(sandAbove.length, 'the sand above the clay is drawn').toBeGreaterThan(0)
+    // A LENS pinching inside the gap (no ties) — it does not reach across toward the far tall test.
+    const reach = Math.max(...sandAbove.flatMap((r) => r.polygon.map((p) => p.fraction)))
+    expect(reach, 'the untied sand pinches as a lens inside the gap, it does not reach the far column').toBeLessThan(0.6)
+    // The wedge above the tie, past the lens apex, stays EMPTY: at f 0.6, elevation 2.5 mTAW (above
+    // the sand/silt tie and below the ground, beyond the lens) nothing covers it.
+    const coveredAt = (frac: number, elev: number): boolean =>
+      g1.some((r) => crossAt(r.polygon, frac).some(([lo, hi]) => lo - 1e-6 <= elev && elev <= hi + 1e-6))
+    expect(coveredAt(0.6, 2.5), 'the space above the tie past the lens stays empty (no sand flood)').toBe(false)
   })
 })
