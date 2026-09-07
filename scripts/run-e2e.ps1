@@ -43,7 +43,20 @@ $PlaywrightArgs = $args
 # novice-user fuzz pass, not part of the deterministic suite, so its spec skips
 # unless WALKER is set. Passing "walker" as the filter selects AND enables it, so
 # `.\scripts\run-e2e.ps1 walker` runs it; the default full suite leaves it off.
-if ($PlaywrightArgs -match 'walker') { $env:WALKER = '1' }
+# A spec that fails mid-flow can leave the e2e Electron tree alive (2026-09-07: a
+# failed golden kept the suite's localStorage lock for an hour). Only the e2e
+# binary under desktop
+ode_modules is touched; the dev and packaged apps are not.
+$stale = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.ExecutablePath -like '*\desktop
+ode_modules\electron\*' }
+if ($stale) { Write-Host "==> killing $($stale.Count) lingering e2e electron process(es)"; $stale | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
+
+if ($PlaywrightArgs -match 'walker') {
+  $env:WALKER = '1'
+  # The walker's chaos must not leak persisted UI chrome (a collapsed inspector
+  # rail broke four deterministic specs on 2026-09-07): it gets its own store.
+  $env:E2E_USER_DATA_SUFFIX = '-walker'
+}
 
 $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
 
