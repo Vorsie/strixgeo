@@ -236,6 +236,13 @@ All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
   accepted edges (Â§2) â€” no separate connect module;
 * (C) `ReSubdivideConfirmDialog` prompts before a re-subdivide clears the open
   section's connections â€” and only when that section has bands to lose (Â§4);
+* (C2) the **admixture NAD-family gate** (`useAdmixtureChoiceGate.ts`, walk22b)
+  is the FIRST gate of a subdivide: a sand unit carrying a qualifying admixture
+  (clayey / silty / **glauconite**) with no stored `nad_admixture_choice` opens
+  `GeotechAdmixtureChoiceDialog` before the subdivide runs. It is the SAME hook
+  behind BOTH entry points now — the Geotech-stage **Build** preflight AND the
+  Sections-toolbar **Subdivide** press — so the two cannot ask differently (the
+  Sections Subdivide silently reused the last choice before walk22b);
 * (D) manual "Correlate packing" gesture reusing the litho correlate machine
   pointed at the geotech model (`useGeotechPackingCorrelation.ts`,
   `requestGeotechLayersRefetch` nonce, toolbar verb). The client-side
