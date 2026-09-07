@@ -115,6 +115,7 @@ export function emitEnclosingFlood(
   out: InputCurve[],
   corr0Diamonds: readonly Corr0Diamond[] = [],
   bridgeGapAnchored?: ReadonlySet<string>,
+  allowFirstUnitTopSeam = true,
 ): void {
   void bridgeAnchored
   void lensLabels
@@ -139,7 +140,7 @@ export function emitEnclosingFlood(
     // SHARE bends that ONE shared ``bandc`` contour so both bands follow (design §8 line 88). Empty
     // when no override targets a shared contact → the no-override contour is byte-identical.
     const contactBends = collectContactBends(gi, left, right, activeTies, section.lensApexOverrides)
-    emitGapFlood(gi, left, right, activeTies, bands, contactBends, section.lensApexOverrides, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds, bridgeGapAnchored)
+    emitGapFlood(gi, left, right, activeTies, bands, contactBends, section.lensApexOverrides, nextFloodId, nextBandId, nextBandSeamId, out, corr0Diamonds, bridgeGapAnchored, allowFirstUnitTopSeam)
   }
 }
 
@@ -158,6 +159,7 @@ function emitGapFlood(
   out: InputCurve[],
   corr0Diamonds: readonly Corr0Diamond[],
   bridgeGapAnchored: ReadonlySet<string> | undefined,
+  allowFirstUnitTopSeam: boolean,
 ): void {
   const leftTD = left.units[left.units.length - 1].baseElev
   const rightTD = right.units[right.units.length - 1].baseElev
@@ -253,7 +255,7 @@ function emitGapFlood(
     const top = uniq[bi]
     const base = uniq[bi + 1]
     if (mid(top) <= shallowTD + ELEV_EPS) continue // fully sub-TD — substrate owns it
-    closeInterval(left, right, top, base, bandFids, activeTies, closure, nextBandSeamId, nextFloodId, out, gapIndex, overrides)
+    closeInterval(left, right, top, base, bandFids, activeTies, closure, nextBandSeamId, nextFloodId, out, gapIndex, overrides, allowFirstUnitTopSeam)
   }
 
   // Close the flood from below at the shallow TD floor (sub-TD stays empty — substrate owns it).
@@ -332,13 +334,36 @@ function closeInterval(
   out: InputCurve[],
   gapIndex = -1,
   overrides?: ReadonlyMap<string, LensApexOverride>,
+  allowFirstUnitTopSeam = true,
 ): void {
   const leftEncl = enclosingFormationAt(left, (top.leftElev + base.leftElev) / 2)
   const rightEncl = enclosingFormationAt(right, (top.rightElev + base.rightElev) / 2)
   if (leftEncl === null || rightEncl === null) return
+  // Owner ruling 2026-09-07 part 2: a tie whose two LAYERS differ in lithology makes BOTH enclosing
+  // masses band to their own column and MEET AT A VERTICAL SEAM AT THE COLUMN — even when one of the
+  // two shares a formation with a matched-pair band elsewhere in this gap (owner, Cross-section 2:
+  // the S5 sand tied to the 2891-C silt; the sand is ZAND, which bands lower down, so the coarse
+  // formationId band guard below would suppress the honest seam and let the far silt flood the strip).
+  // The TEST is the TIE's own two layers (owner's words): a tie whose left endpoint is exactly THIS
+  // interval's left enclosing unit and whose right endpoint is THIS interval's right enclosing unit,
+  // with the two differing in lithology. That DIRECT match is what makes it cross-lithology — a tie
+  // that only ``tieLandsOn`` an enclosing unit through the shared-contact derivation (H9's SAND-SAND
+  // tie landing on the clay base above it) is a SAME-litho tie and must NOT lift the guard. This is
+  // the LITHO pass only (``allowFirstUnitTopSeam``); the geotech constructive fill draws its own
+  // seams and never reaches this tiler.
+  const crossLithoDeclaredMeeting =
+    allowFirstUnitTopSeam &&
+    leftEncl.formationId !== rightEncl.formationId &&
+    activeTies.some(
+      (t) =>
+        t.gapIndex === gapIndex &&
+        t.leftUnitIndex === leftEncl.unitIndex &&
+        t.rightUnitIndex === rightEncl.unitIndex,
+    )
   // A band-formation enclosing means the interval is INSIDE a matched-pair band (its contour +
-  // tie own the face) — no seam (the band is one full-width face by construction).
-  if (bandFids.has(leftEncl.formationId) || bandFids.has(rightEncl.formationId)) return
+  // tie own the face) — no seam (the band is one full-width face by construction). Lifted only for
+  // the cross-lithology declared meeting above.
+  if (!crossLithoDeclaredMeeting && (bandFids.has(leftEncl.formationId) || bandFids.has(rightEncl.formationId))) return
   // Shared enclosing formation → one full-width face; the sweep's minority holes carve into it.
   if (leftEncl.formationId === rightEncl.formationId) return
   // A MID-GAP FENCE STANDS WHERE THE TWO MASSES WERE DECLARED TO MEET — nowhere else.
