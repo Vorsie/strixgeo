@@ -46,7 +46,10 @@ a fine soil ("zandhoudend"). A gravel admixture in a sand does not count; a
 gravelly sand is treated as plain sand and classified in the clean column. The
 NAD table has no separate glauconitic-sand line, so a glauconitic sand you mark
 "with admixture" is placed in the same with-admixture (silt-/kleihoudend)
-column; the choice stays yours to make.
+column. For a sand whose only qualifying admixture is glauconite that answer is
+pre-selected in the dialog, since it is the closest line in the table; you can
+still switch it to clean sand before you divide. A sand with a silty or clayey
+admixture keeps an open question: nothing is pre-selected.
 
 To keep the choice an explicit engineering decision rather than a silent guess,
 StrixGeo asks you, but **only for a unit that actually carries a qualifying
