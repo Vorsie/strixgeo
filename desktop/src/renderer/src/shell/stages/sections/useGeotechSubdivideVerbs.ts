@@ -10,9 +10,19 @@
 
 import { useState } from 'react'
 
-import type { GeologicalModelResponse } from '../../../api/client'
+import type {
+  GeologicalFormationResponse,
+  GeologicalModelResponse,
+  LithoLayerResponse,
+} from '../../../api/client'
 import type { UseGeologicalModelResult } from '../../../hooks/useGeologicalModel'
 import type { GeotechStatistic } from '../../../utils/geotechStatistic'
+import {
+  useAdmixtureChoiceGate,
+  type AdmixtureSelections,
+} from '../../../hooks/useAdmixtureChoiceGate'
+import type { AdmixtureUnit } from '../../../utils/admixtureNadChoice'
+import type { NadAdmixtureChoice } from '../../../api/clients/geology.types'
 
 /** What the subdivide verbs need from the shell bus + sibling derivations. */
 export interface UseGeotechSubdivideVerbsDeps {
@@ -28,15 +38,30 @@ export interface UseGeotechSubdivideVerbsDeps {
     modelBandCount: number
     modelHandEditCount: number
   }
+  // Admixture NAD-family gate (walk22b): the Subdivide press asks the same
+  // question the Geotech-stage Build does, for a sand unit with a qualifying
+  // admixture and no stored answer.
+  formations: readonly GeologicalFormationResponse[] | undefined
+  lithoLayers: readonly LithoLayerResponse[] | undefined
+  handleSetNadAdmixtureChoices: UseGeologicalModelResult['handleSetNadAdmixtureChoices']
 }
 
-/** The subdivide busy flag, dialog open state + the four verbs. */
+/** The subdivide busy flag, dialog open state + the verbs + the admixture gate. */
 export interface UseGeotechSubdivideVerbsResult {
   subdividingBodies: boolean
   reSubdivideConfirmOpen: boolean
   pressSubdivide: (sectionId: string | null) => void
   handleReSubdivideCancel: () => void
   handleReSubdivideConfirm: () => void
+  // ---- Admixture NAD-family prompt (walk22b) ----
+  hasAmbiguousAdmixtureUnits: boolean
+  askingAdmixtures: readonly AdmixtureUnit[] | null
+  admixtureSelections: AdmixtureSelections
+  admixtureBusy: boolean
+  selectAdmixture: (formationId: string, choice: NadAdmixtureChoice) => void
+  confirmAdmixtures: () => Promise<void>
+  cancelAdmixtures: () => void
+  openAdmixtureChoices: () => void
 }
 
 /**
@@ -61,7 +86,17 @@ export function useGeotechSubdivideVerbs({
   handleSubdivideAllBodies,
   refreshTieStatus,
   subdivideScope,
+  formations,
+  lithoLayers,
+  handleSetNadAdmixtureChoices,
 }: UseGeotechSubdivideVerbsDeps): UseGeotechSubdivideVerbsResult {
+  // The admixture NAD-family gate — the SAME one the Geotech-stage Build runs
+  // (walk22b), so the two subdivide entry points cannot ask differently.
+  const admixtureGate = useAdmixtureChoiceGate({
+    formations,
+    lithoLayers,
+    handleSetNadAdmixtureChoices,
+  })
   const [subdividingBodies, setSubdividingBodies] = useState(false)
   const [reSubdivideConfirmOpen, setReSubdivideConfirmOpen] = useState(false)
   // Which scope the pending re-subdivide will run with once the confirmation
@@ -120,8 +155,10 @@ export function useGeotechSubdivideVerbs({
    * still covers the first-ever run, which has no bands anywhere. The chosen
    * scope is parked until the dialog answers.
    */
-  function pressSubdivide(sectionId: string | null): void {
-    if (subdividingBodies || !activeLithoModel) return
+  // The subdivide itself, once any admixture answer is settled. Split out so the
+  // admixture prompt can hand control back to exactly this point after saving —
+  // the re-subdivide confirmation still stands in front of a destructive re-run.
+  function proceedSubdivide(sectionId: string | null): void {
     // The statistic re-run clears MODEL-WIDE, so its confirmation gates on the
     // MODEL's bands — an open section without bands must not slip a model-wide
     // clear past the dialog (owner 2026-08-18).
@@ -132,6 +169,15 @@ export function useGeotechSubdivideVerbs({
       return
     }
     runSubdivideAllBodies(sectionId)
+  }
+
+  function pressSubdivide(sectionId: string | null): void {
+    if (subdividingBodies || !activeLithoModel) return
+    // FIRST gate (walk22b): a sand unit carrying an admixture the NAD table can
+    // read two ways must be answered before the subdivide classifies it — the
+    // same question the Geotech-stage Build asks. A fully-answered (or
+    // admixture-free) model goes straight through to the re-subdivide gate.
+    admixtureGate.runGated(() => proceedSubdivide(sectionId))
   }
 
   function handleReSubdivideCancel(): void {
@@ -149,5 +195,15 @@ export function useGeotechSubdivideVerbs({
     pressSubdivide,
     handleReSubdivideCancel,
     handleReSubdivideConfirm,
+    hasAmbiguousAdmixtureUnits: admixtureGate.hasAmbiguousAdmixtureUnits,
+    askingAdmixtures: admixtureGate.askingAdmixtures,
+    admixtureSelections: admixtureGate.admixtureSelections,
+    admixtureBusy: admixtureGate.admixtureBusy,
+    selectAdmixture: admixtureGate.selectAdmixture,
+    confirmAdmixtures: admixtureGate.confirmAdmixtures,
+    cancelAdmixtures: admixtureGate.cancelAdmixtures,
+    // Re-open the prompt to review / change answers; confirm re-subdivides.
+    openAdmixtureChoices: () =>
+      admixtureGate.openAdmixtureChoices(() => proceedSubdivide(null)),
   }
 }
