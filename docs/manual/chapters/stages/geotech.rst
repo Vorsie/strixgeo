@@ -40,16 +40,23 @@ The admixture choice
 
 The NAD table has a **clean** column and a **with-admixture** column for each
 soil. What counts as an admixture here is specific: a **clayey or silty**
-admixture in a sand or gravel ("silt- or kleihoudend"), or a **sand** admixture
-in a fine soil ("zandhoudend"). A gravel admixture in a sand does not count; a
-gravelly sand is treated as plain sand and classified in the clean column.
+admixture in a sand or gravel ("silt- or kleihoudend"), a **glauconite**
+admixture in a sand (common in the Belgian Neogene), or a **sand** admixture in
+a fine soil ("zandhoudend"). A gravel admixture in a sand does not count; a
+gravelly sand is treated as plain sand and classified in the clean column. The
+NAD table has no separate glauconitic-sand line, so a glauconitic sand you mark
+"with admixture" is placed in the same with-admixture (silt-/kleihoudend)
+column; the choice stays yours to make.
 
 To keep the choice an explicit engineering decision rather than a silent guess,
-StrixGeo asks you at the start of the geotech build, but **only for a unit that
-actually carries a clayey or silty admixture**, whether it is pure sand or sand
-with admixture. A unit with no such admixture is not asked about. Your answer is
-remembered and forces the column: "pure" classifies into the clean column, "with
-admixture" into the with-admixture column.
+StrixGeo asks you, but **only for a unit that actually carries a qualifying
+admixture** (clayey, silty, or glauconitic in a sand; sand in a fine soil),
+whether it is pure or with admixture. A unit with no such admixture is not asked
+about. The question appears the first time you subdivide. Whether you press
+**Subdivide** on the Sections toolbar or **Build** on the geotech stage, both
+ask the same question before they run. Your answer is remembered and forces the
+column: "pure" classifies into the clean column, "with admixture" into the
+with-admixture column.
 
 How boreholes are subdivided
 ----------------------------
