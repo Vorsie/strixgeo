@@ -63,7 +63,13 @@ const MAIN_ENTRY = path.join(DESKTOP_ROOT, 'out', 'main', 'index.js')
  * launches WITHIN a run, and one of them says so explicitly
  * (``flow_parameters_cpt_profile`` re-expands a panel a previous run collapsed).
  */
-const E2E_USER_DATA_DIR = path.join(os.tmpdir(), 'strix-e2e-userdata')
+// The naive-engineer walker (run-e2e.ps1 sets E2E_USER_DATA_SUFFIX=-walker) gets
+// its own store: its chaos toggled the inspector rail closed and that persisted
+// localStorage chrome broke four deterministic specs afterwards (2026-09-07).
+const E2E_USER_DATA_DIR = path.join(
+  os.tmpdir(),
+  `strix-e2e-userdata${process.env.E2E_USER_DATA_SUFFIX ?? ''}`,
+)
 
 /**
  * Discard the FIXTURE project's crash-recovery slots before a launch.
