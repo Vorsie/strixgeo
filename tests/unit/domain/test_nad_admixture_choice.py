@@ -18,8 +18,11 @@ from groundmodel.domain.value_objects.admixture import Admixture
 # The qualifying admixtures: silt/clay for coarse soils, sand for fine soils.
 SILTY = (Admixture(soil_code="KL", amount="M"),)  # clay admixture (silt-/kleihoudend)
 SANDY = (Admixture(soil_code="XZ", amount="M"),)  # sand admixture (zandhoudend)
-# A gravel admixture — NOT the coarse-soil fork (owner ruling 2026-09-05).
-GRAVELLY = (Admixture(soil_code="GL", amount="M"),)
+# A gravel admixture — NOT the coarse-soil fork (owner ruling 2026-09-05). NB the
+# DOV gravel code is XG, not GL — GL is glauconiet.
+GRAVELLY = (Admixture(soil_code="XG", amount="M"),)
+# A glauconite admixture — forks a SAND to secondary (owner ruling walk22b).
+GLAUCONITIC = (Admixture(soil_code="GL", amount="M"),)
 
 
 class TestUnitAdmixtureIsAmbiguous:
@@ -58,6 +61,13 @@ class TestUnitAdmixtureIsAmbiguous:
         fork (silt/clay is), so a gravelly sand is never prompted — it classifies
         as plain sand."""
         assert unit_admixture_is_ambiguous("ZAND", GRAVELLY) is False
+
+    def test_glauconitic_sand_asks_the_admixture_question(self):
+        """Owner ruling walk22b: *"I want to be able to add glauconiet as
+        bijmenging; it should also trigger admixture in sand in geotech."* A
+        glauconitic sand forks clean (5-8) vs secondary (9-12), so it is
+        prompted exactly like a silty/clayey sand."""
+        assert unit_admixture_is_ambiguous("ZAND", GLAUCONITIC) is True
 
     def test_silty_silt_is_not_ambiguous_the_table_has_no_such_variant(self):
         """A silt/clay admixture on SILT is not the fine-soil fork (sand is);
