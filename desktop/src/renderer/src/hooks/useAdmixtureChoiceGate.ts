@@ -28,11 +28,7 @@ import type {
   LithoLayerResponse,
   NadAdmixtureChoice,
 } from '../api/clients/geology.types'
-import {
-  ambiguousAdmixtureUnits,
-  hasUnansweredAdmixtureUnits,
-  type AdmixtureUnit,
-} from '../utils/admixtureNadChoice'
+import { defaultAdmixtureChoice, ambiguousAdmixtureUnits, hasUnansweredAdmixtureUnits, type AdmixtureUnit } from '../utils/admixtureNadChoice'
 
 /** Per-unit answer while the prompt is open (null = not yet chosen). */
 export type AdmixtureSelections = Record<string, NadAdmixtureChoice | null>
@@ -90,9 +86,10 @@ type GatePhase =
       onProceed: () => void
     }
 
-/** Seed the prompt's per-unit selection from each unit's stored answer. */
+/** Seed the prompt's per-unit selection from each unit's stored answer, else its
+ *  default (a glauconite-only fork pre-checks the with-admixture column). */
 function initSelections(units: readonly AdmixtureUnit[]): AdmixtureSelections {
-  return Object.fromEntries(units.map(u => [u.formationId, u.choice]))
+  return Object.fromEntries(units.map(u => [u.formationId, defaultAdmixtureChoice(u)]))
 }
 
 /**
