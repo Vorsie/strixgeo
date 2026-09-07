@@ -168,6 +168,9 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.litho-second-section.title': 'Een tweede profiel voor 3D',
   'tutorial.litho-second-section.body':
     'Net als bij de stratigrafie draagt één profiel maar één doorsnede. Teken een tweede dwarsprofiel zodat de litholichamen de 3D-gegevens hebben om over je profielen heen te verbinden.',
+  'tutorial.litho-every-section.title': 'Doe dit op elk profiel',
+  'tutorial.litho-every-section.body':
+    'Je hebt de litho-lagen op één doorsnede voorgesteld, aangepast, aanvaard en gecorreleerd. Selecteer nu elke andere doorsnede en verbindingsdoorsnede en herhaal dezelfde stappen: voorstellen, aanpassen, aanvaarden en dan correleren. Elke doorsnede met sonderingen of boringen heeft aanvaarde lagen nodig voor je bouwt, want de 3D-lichamen verbinden over doorsneden en een onafgewerkte doorsnede laat een gat.',
   // FLAG alt: lithobodies | 3D-bodies, de gepubliceerde models-catalogus gebruikt "lichamen"; het skelet gebruikte "lithobodies"
   'tutorial.litho-build.title': 'Bouw de litholichamen',
   'tutorial.litho-build.body':
@@ -262,6 +265,12 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.geotech-correlate.title': 'Pakking met de hand correleren',
   'tutorial.geotech-correlate.body':
     'Pakking correleren verbindt een pakkingsband met dezelfde klasse op een buur, de geotech-tegenhanger van litho Correleren. Klik twee banden van dezelfde klasse om ze te koppelen; rechtsklik een koppeling om ze te ontkoppelen.',
+  'tutorial.geotech-divide.title': 'Verdeel de boringen',
+  'tutorial.geotech-divide.body':
+    'Stap 4 van de pijplijn. Verdeel de boringen draagt de pakkingsklassen van de sonderingen over op de boringen, zodat een boring haar NAD-pakkingsbanden krijgt in plaats van één onverdeelde litho-eenheid. Voer dit uit nadat de pakkingscorrelaties zijn aanvaard, want verdelen op niet-nagekeken voorstellen gooit het bewijs weg dat een verbinding had toegevoegd.',
+  'tutorial.geotech-every-section.title': 'Doe dit op elke doorsnede en verbindingsdoorsnede',
+  'tutorial.geotech-every-section.body':
+    'Net als in de litho-fase werkt de pakkingspijplijn per doorsnede. Onderverdeel, correleer en verdeel de boringen op elke doorsnede en elke verbindingsdoorsnede voor je bouwt, zodat de 3D-geotech-lichamen overal waar ze verbinden aanvaarde pakking hebben.',
   'tutorial.geotech-display.title': 'Weergaveopties geotech',
   'tutorial.geotech-display.body':
     'Het menu Weergave schakelt wat de geotech-as tekent: de pakkingsvulling, de gebouwde-modelvulling, de lithovulling eronder, de boringsvoorbeeldweergave en de correlatielinten.',
