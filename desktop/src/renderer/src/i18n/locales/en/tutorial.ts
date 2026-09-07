@@ -168,6 +168,9 @@ export const TUTORIAL = {
   'tutorial.litho-second-section.title': 'A second section for 3-D',
   'tutorial.litho-second-section.body':
     'As with the stratigraphy, a single section carries only one profile. Draw a second cross-section so the litho bodies have the 3-D data to connect between your sections.',
+  'tutorial.litho-every-section.title': 'Do this on every profile',
+  'tutorial.litho-every-section.body':
+    'You have suggested, adjusted, accepted and correlated the litho layers on one section. Now select each of your other cross-sections and tie-sections in turn and repeat the same flow: suggest, adjust, accept, then correlate. Every section that carries tests needs accepted layers before you build, because the 3-D bodies connect across sections and a section left un-accepted leaves a gap.',
   'tutorial.litho-build.title': 'Build the litho bodies',
   'tutorial.litho-build.body':
     'Build turns the accepted, correlated layers into connected litho bodies in 3-D. Each mass that joins across your sections becomes one body. This step ticks once the litho solids exist.',
@@ -260,6 +263,12 @@ export const TUTORIAL = {
   'tutorial.geotech-correlate.title': 'Correlate packing by hand',
   'tutorial.geotech-correlate.body':
     'Correlate packing connects a packing band to the same class on a neighbour, the geotech twin of the litho Correlate. Click two same-class bands to tie them; right-click a tie to disconnect it.',
+  'tutorial.geotech-divide.title': 'Divide the boreholes',
+  'tutorial.geotech-divide.body':
+    'Step 4 of the pipeline. Divide the boreholes carries the packing classes from the CPTs onto the boreholes, so a borehole gets its NAD packing bands instead of one undivided litho unit. Run it after the packing correlations are accepted, because dividing off unreviewed proposals throws away the evidence a tie would have added.',
+  'tutorial.geotech-every-section.title': 'Do this on every cross-section and tie-section',
+  'tutorial.geotech-every-section.body':
+    'Just like the litho stage, the packing pipeline is per-section. Subdivide, correlate and divide the boreholes on every cross-section and every tie-section before you build, so the 3-D geotech bodies have accepted packing everywhere they connect.',
   'tutorial.geotech-display.title': 'Geotech view options',
   'tutorial.geotech-display.body':
     'The Display menu toggles what the geotech axis draws: the packing fill, the built-model fill, the litho fill underneath, the borehole preview and the correlation ribbons.',
