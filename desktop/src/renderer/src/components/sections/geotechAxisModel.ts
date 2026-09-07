@@ -18,6 +18,13 @@ export interface GeotechFormationMeta {
   nadClass: number | null
   /** The formation's main soil code (e.g. ``ZAND``), or null. */
   soilCode: string | null
+  /**
+   * The formation's admixture soil codes (e.g. ``['KL']``). The SEAM pass
+   * compares soil + class + admixtures so two same-class bands of different
+   * composition still draw their contact (owner walk22b); the FILL ignores it
+   * and merges on class. Absent/empty for a clean unit.
+   */
+  admixtureCodes?: readonly string[]
 }
 
 /** Everything the geotech axis reads about the active geotech model. */
