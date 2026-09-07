@@ -189,7 +189,7 @@ export function useLithoSuggestVerbs(deps: UseLithoSuggestVerbsDeps): UseLithoSu
   // the project's full count, not the section's. Route through
   // ``investigationsOnSection`` the same way SectionOverlays and
   // useSectionData do.
-  const bulkAnchors = useMemo(() => {
+  const bulkAnchorsInCorridor = useMemo(() => {
     if (!selectedSection) return [] as {
       kind: 'cpt' | 'borehole'
       id: string
@@ -213,10 +213,24 @@ export function useLithoSuggestVerbs(deps: UseLithoSuggestVerbsDeps): UseLithoSu
     return out
   }, [selectedSection, visibleCpts, visibleBoreholes])
 
+  // Owner ruling 2026-09-07: "Suggest all" skips every column that already
+  // carries accepted litho layers (on ANY section). So the count the user sees
+  // (and the disable gate + confirm dialog) is the ELIGIBLE set — the columns a
+  // run would actually segment. The full in-corridor set is kept above so the
+  // handler can report how many it skipped for that reason. Model-wide via
+  // lithoContacts (every committed layer in the model, section-independent).
+  const bulkAnchors = useMemo(
+    () => filterAnchorsWithNoLithoContacts(bulkAnchorsInCorridor, lithoContacts),
+    [bulkAnchorsInCorridor, lithoContacts],
+  )
+
   async function handleBulkSuggestConfirm(): Promise<void> {
     setBulkConfirmOpen(false)
     if (bulkAnchors.length === 0) return
-    await handleSuggestAllLitho(bulkAnchors)
+    // Pass the FULL in-corridor set: the handler re-derives eligible and reports
+    // how many columns it skipped for already carrying accepted layers, so the
+    // toast explains the reduced count the user saw on the toolbar.
+    await handleSuggestAllLitho(bulkAnchorsInCorridor)
   }
 
   // Debt #92: "Suggest for new tests" — same fan-out as "Suggest all"
@@ -226,8 +240,8 @@ export function useLithoSuggestVerbs(deps: UseLithoSuggestVerbsDeps): UseLithoSu
   // already-handled CPT/borehole.
   const newTestAnchors = useMemo(() => {
     if (!activeLithoModel) return [] as typeof bulkAnchors
-    return filterAnchorsWithNoLithoContacts(bulkAnchors, lithoContacts)
-  }, [bulkAnchors, lithoContacts, activeLithoModel])
+    return filterAnchorsWithNoLithoContacts(bulkAnchorsInCorridor, lithoContacts)
+  }, [bulkAnchorsInCorridor, lithoContacts, activeLithoModel])
 
   async function handleSuggestNewTests(): Promise<void> {
     // Defensive guard — button is disabled at zero count (per ux-review
