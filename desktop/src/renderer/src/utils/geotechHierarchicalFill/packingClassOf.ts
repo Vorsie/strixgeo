@@ -22,6 +22,13 @@ export interface PackingClassMeta {
   nadClass: number | null
   /** The formation's main soil code (e.g. ``ZAND``), or null. */
   soilCode: string | null
+  /**
+   * The formation's admixture soil codes (e.g. ``['KL']`` for a clay-bearing
+   * sand). Read only by {@link buildSeamClassOf}; ``buildPackingClassOf``
+   * ignores it so the FILL still merges on class alone. Absent/empty for a
+   * clean unit.
+   */
+  admixtureCodes?: readonly string[]
 }
 
 /**
@@ -44,6 +51,42 @@ export function buildPackingClassOf(
   for (const [formationId, meta] of entries) {
     if (meta.nadClass === null || meta.soilCode === null) continue
     out.set(formationId, `${meta.soilCode}|${meta.nadClass}`)
+  }
+  return out
+}
+
+/**
+ * Build the formation-id → SEAM identity map: ``SOIL|CLASS|ADMIXTURE``.
+ *
+ * The FILL merges same-class rows into one mass ({@link buildPackingClassOf},
+ * class-only), which is right when the rows differ only in litho/geological
+ * PARENT (the 2026-08-21 "one mass one body" weld). But two bands of the same
+ * class that differ in SOIL COMPOSITION — a clean sand vs a clay-bearing sand,
+ * both NAD 12 — are different geotech units, and the class-only identity hid
+ * the contact between them (owner walk22b, GEO-61/2891-C at 28.06 m). The SEAM
+ * pass therefore compares an admixture-aware identity: same soil + class + set
+ * of admixture kinds ⇒ one seam identity (the weld's SILT·SF stays merged),
+ * different admixtures ⇒ different identities so the contact is stroked. Only
+ * the LINE splits; the fill still paints one mass (same NAD colour).
+ *
+ * The admixture signature is the deduplicated, sorted list of admixture soil
+ * codes — order-independent and amount-independent, so it distinguishes "has a
+ * clay admixture" from "clean" without splitting on intensity.
+ *
+ * A formation missing EITHER its class or its soil code gets NO entry, exactly
+ * as {@link buildPackingClassOf} — it keeps row identity downstream.
+ *
+ * @param entries Formation id → meta pairs (any iterable — a ``Map`` works).
+ * @returns Formation id → ``SOIL|CLASS|ADMIXTURE`` for every fully-known row.
+ */
+export function buildSeamClassOf(
+  entries: Iterable<readonly [string, PackingClassMeta]>,
+): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const [formationId, meta] of entries) {
+    if (meta.nadClass === null || meta.soilCode === null) continue
+    const sig = [...new Set(meta.admixtureCodes ?? [])].sort().join(',')
+    out.set(formationId, `${meta.soilCode}|${meta.nadClass}|${sig}`)
   }
   return out
 }
