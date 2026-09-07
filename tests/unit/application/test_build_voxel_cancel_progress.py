@@ -92,6 +92,7 @@ def _patches(label_side_effect: Any):
     return [
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
