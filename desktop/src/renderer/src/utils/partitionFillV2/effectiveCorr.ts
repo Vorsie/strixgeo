@@ -178,6 +178,52 @@ export function topBandTies(ui: number): boolean {
   return ui === 0
 }
 
+/**
+ * NARROWED TOP BAND (owner ruling 2026-09-07, part 1): the implicit top-band tie is emitted
+ * for a first unit ONLY when the user did NOT hand-draw a correlation on that unit's top
+ * contact. When the user tied the first unit's top (a real edge on ``ui === 0`` top of this
+ * gap side), the top follows THAT tie polyline, not the top-band surface — so no extra
+ * implicit top tie is added on that side. Owner: *"removing top tie = narrow, only when the
+ * user has tied the top, no extra top tie is emitted; if only left top is bound no left top
+ * is emitted, if only right top is bound no right top is emitted, if both are correlated,
+ * then both are not emitted."* Per gap side.
+ *
+ * Returns true iff an active tie in ``gapIndex`` lands on unit 0's TOP contact on ``side``.
+ */
+export function firstUnitTopUserTied(
+  gapIndex: number,
+  side: 'left' | 'right',
+  activeTies: readonly ResolvedTie[],
+): boolean {
+  for (const t of activeTies) {
+    if (t.gapIndex !== gapIndex) continue
+    const ui = side === 'left' ? t.leftUnitIndex : t.rightUnitIndex
+    const s = side === 'left' ? t.leftSide : t.rightSide
+    if (ui === 0 && s === 'top') return true
+  }
+  return false
+}
+
+/**
+ * Is the gap's implicit TOP BAND suppressed (owner ruling 2026-09-07 part 1)? The top-band
+ * (``surface:gi``) polyline is a single per-GAP line joining the two columns' first-litho tops;
+ * once the user hand-ties EITHER column's first unit top across this gap, that line no longer
+ * describes the top (the drawn tie does), so the whole line is dropped and NEITHER first unit in
+ * the gap rides an implicit top tie — each first unit falls back to its own 2/1/0 outcome (a
+ * 0-tie first unit becomes a lens, a base-tied one an onlap). Owner: *"above my tie, on the CPTs
+ * nothing can flood. There are no ties to the borehole column, so they all become lenses and are
+ * closed loops."* A gap with no hand-tied first-unit top keeps the top band exactly as before.
+ */
+export function gapTopBandSuppressed(
+  gapIndex: number,
+  activeTies: readonly ResolvedTie[],
+): boolean {
+  return (
+    firstUnitTopUserTied(gapIndex, 'left', activeTies) ||
+    firstUnitTopUserTied(gapIndex, 'right', activeTies)
+  )
+}
+
 /** Does any active tie in the gap touch this unit's own contact (top or base), direct? */
 export function unitHasDirectTie(
   gapIndex: number,
@@ -278,7 +324,12 @@ export function effectiveCorrForUnit(
   void bands
   const direct = flags[ui] ?? { top: false, base: false }
   const derived = derivedBandTies(gapIndex, side, ui, col, facing, activeTies)
-  const topBandTied = topBandTies(ui)
+  // Owner ruling 2026-09-07 part 1: narrow the 8d-rev implicit top band — once the user hand-ties
+  // either column's first-unit top across this gap, the top-band line is dropped for the whole gap
+  // (``gapTopBandSuppressed``), so NO first unit here rides an implicit top tie; each falls back to
+  // its own 2/1/0 outcome (a 0-tie first unit becomes a lens, not a top-band flood). A gap with no
+  // hand-tied first-unit top keeps the top band as before.
+  const topBandTied = topBandTies(ui) && !gapTopBandSuppressed(gapIndex, activeTies)
   // RULING 8d-rev (owner, 2026-07-16 evening; design §8 8d-rev). The TOP BAND is an implicit tie
   // for the FIRST unit, so it feeds ``topTied`` (a first unit whose only tie is the top band reads
   // topTied → corr 1 → surface-riding onlap). This survives UNCHANGED under 8l: the top band is
