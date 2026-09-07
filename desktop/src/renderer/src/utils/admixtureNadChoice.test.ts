@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { AdmixtureItem, GeologicalFormationResponse } from '../api/clients/geology.types'
 import {
   ambiguousAdmixtureUnits,
+  defaultAdmixtureChoice,
   forkingAdmixtures,
   hasUnansweredAdmixtureUnits,
   unitAdmixtureIsAmbiguous,
@@ -206,5 +207,34 @@ describe('hasUnansweredAdmixtureUnits', () => {
         },
       ]),
     ).toBe(false)
+  })
+})
+
+describe('defaultAdmixtureChoice', () => {
+  // Owner ruling 2026-09-07: "glauconitic sand can default to clay sand, but we
+  // need to prompt the user on subdivide". The prompt still opens; the
+  // with-admixture (clayey / silty sand) radio is the pre-checked answer.
+  const unit = (soilCode: string, matched: AdmixtureItem[], choice: 'pure' | 'with_admixture' | null) => ({
+    formationId: 'f1',
+    name: 'Zand',
+    soilCode,
+    matchedAdmixtures: matched,
+    choice,
+  })
+
+  it('a glauconitic sand defaults to the clayey sand column, the engineer can still switch', () => {
+    expect(defaultAdmixtureChoice(unit('ZAND', GLAUCONITIC, null))).toBe('with_admixture')
+  })
+
+  it('a silty sand has no default: the engineer decides (owner ruling 2026-09-04)', () => {
+    expect(defaultAdmixtureChoice(unit('ZAND', SILTY, null))).toBeNull()
+  })
+
+  it('a sand that is both glauconitic and silty has no default: the silt rule is stricter', () => {
+    expect(defaultAdmixtureChoice(unit('ZAND', [...GLAUCONITIC, ...SILTY], null))).toBeNull()
+  })
+
+  it('a stored answer always wins over the default', () => {
+    expect(defaultAdmixtureChoice(unit('ZAND', GLAUCONITIC, 'pure'))).toBe('pure')
   })
 })
