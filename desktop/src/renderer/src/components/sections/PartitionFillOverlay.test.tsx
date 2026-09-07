@@ -1188,51 +1188,32 @@ describe('PartitionFillOverlay', () => {
   })
 
   // --------------------------------------------------------------------------
-  // EDGELENS — owner ruling 2026-09-04 ("zero ties = lens"). A unit on the
-  // section's OUTER column with zero ties pinches out toward the edge as a
-  // lens (a closed triangle), never an open band to the boundary. A unit that
-  // DOES have a tie inward (here the top sand, top-band tied) keeps extending
-  // outward to the boundary as a full rect stub.
+  // EDGEBAND — owner ruling 2026-09-07 (installer #22 dogfeed): "the basal clay
+  // on 20/034-S5 emits a lens to the left; it is a test on the utter left side,
+  // it should band left, like all the other columns." EVERY unit on an outermost
+  // column bands flat to the section edge as a rect stub, whatever its inner-side
+  // tie count — nothing pinches. This REVERSES the 2026-09-04 "zero ties = lens"
+  // outer pinch (interior zero-tie lenses between two columns are unchanged).
   //
   // Base fixture: L = sand(0-5)/clay(5-10), R = sand(0-6)/clay(6-10), NO edges.
-  // Both bottom clays are corr-0 (zero ties); both top sands are corr-1 (top
-  // band). So each outer column pinches its clay and rects its sand.
+  // The bottom clay is corr-0 on its inner side, but it is on an OUTER column, so
+  // it bands to the edge exactly like the top sand.
   // --------------------------------------------------------------------------
-  it('EDGELENS — a zero-tie outer-column unit pinches out as a lens; a tied unit stays a full rect stub', () => {
+  it('EDGEBAND — every outer-column unit bands to the edge as a rect stub, none pinches', () => {
     renderOverlay()
-    // The bottom clay (ui=1) on the FIRST column (edgeIdx 0, inv L) is zero-tie:
-    // it must render as a CLOSED pinch triangle, NOT a rect to the boundary.
-    const clayPinch = document.querySelector(
-      '[data-testid="partition-edge-lens-0-L-1"]',
-    ) as SVGPolygonElement | null
-    expect(clayPinch, 'zero-tie clay renders an outer lens pinch').toBeTruthy()
-    expect(clayPinch?.tagName.toLowerCase()).toBe('polygon')
-    // A closed pinch is a triangle: two points on the column edge + one apex.
-    const pts = (clayPinch?.getAttribute('points') ?? '')
-      .trim()
-      .split(/\s+/)
-      .map((p) => p.split(',').map(Number))
-    expect(pts.length, 'the pinch is a 3-vertex triangle').toBe(3)
-    // The apex is the single vertex OFF the column edge (leftX = -20). It sits
-    // strictly inside the open-end margin — past the edge, short of the far end
-    // (edgeX -20, outerX -84) — so the unit closes rather than reaching the edge.
-    const edgeX = -20
-    const outerX = -84
-    const apexes = pts.filter(([x]) => Math.abs(x - edgeX) > 0.5)
-    expect(apexes.length, 'exactly one apex off the column edge').toBe(1)
-    const apexX = apexes[0][0]
-    expect(apexX).toBeLessThan(edgeX)
-    expect(apexX).toBeGreaterThan(outerX)
-
-    // The clay must NOT also render the old full rect stub (no open band).
+    // The bottom clay (ui=1) on the FIRST column (edgeIdx 0, inv L) no longer
+    // pinches to a lens — it bands to the section edge as a full rect stub.
     expect(
-      document.querySelector('[data-testid="partition-edge-0-L-1"]'),
-      'the zero-tie clay no longer draws an open band rect',
+      document.querySelector('[data-testid="partition-edge-lens-0-L-1"]'),
+      'the outer clay no longer pinches to a lens (it bands to the edge)',
     ).toBeNull()
+    const clayStub = document.querySelector('[data-testid="partition-edge-0-L-1"]')
+    expect(clayStub, 'the outer clay bands to the edge as a rect stub').toBeTruthy()
+    expect(clayStub?.tagName.toLowerCase()).toBe('rect')
 
-    // The top sand (ui=0) HAS a tie (top band) → it keeps its full rect stub.
+    // The top sand (ui=0) also bands to the edge as a full rect stub (unchanged).
     const sandStub = document.querySelector('[data-testid="partition-edge-0-L-0"]')
-    expect(sandStub, 'tied sand keeps its full rect stub').toBeTruthy()
+    expect(sandStub, 'the outer sand bands to the edge as a rect stub').toBeTruthy()
     expect(sandStub?.tagName.toLowerCase()).toBe('rect')
   })
 
