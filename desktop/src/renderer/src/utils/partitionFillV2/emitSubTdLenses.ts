@@ -50,7 +50,8 @@
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
-import { effectiveCorrForSide, tiedFlags } from './effectiveCorr'
+import { effectiveCorrForSide, tiedFlags, type EffectiveCorr } from './effectiveCorr'
+import { emitBottomTieWedge } from './emitBottomTieWedge'
 import { tieRefFarElev } from './drawTermination'
 import { emitContinuation, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
@@ -236,6 +237,25 @@ function emitSideSubTd(
   out: InputCurve[],
 ): void {
   const facingTD = columnTD(facing)
+  // RULING R3 (owner 2026-09-07) — the untied clay LENSES below a shallow test. When a BOTTOM TIE
+  // closes the sub-TD wedge (a tie in this gap lands on the FACING column's TD — its deepest contact),
+  // the tied unit above onlaps to that point (``drawTermination`` bottomTieToTd) and the untied units
+  // below PINCH toward the shallow column rather than running FLAT to it (``emitContinuation``). Owner:
+  // "below a shallow test ... the untied clay lenses." Absent a bottom tie the 2026-08-21 continuous-
+  // band law stands: a unit whose direction never meets a reading column runs flat to the edge.
+  const facingTdTied =
+    Number.isFinite(facingTD) &&
+    activeTies.some((t) => {
+      if (t.gapIndex !== gapIndex) return false
+      const facingElev = side === 'left' ? t.right.y : t.left.y
+      if (Math.abs(facingElev - facingTD) > ELEV_EPS) return false
+      // The near (deep) unit carrying this bottom tie must EXTEND BELOW the facing TD — a genuine
+      // onlapping deep unit that reaches the shallow column (the ``drawTermination`` bottomTieToTd
+      // partner), never a shallow tie that merely lands near the facing TD. Without this the gate
+      // would fire on the ordinary continuous-band case (CS1 S7 gaps 16/17) and convert it to a wedge.
+      const nearElev = side === 'left' ? t.left.y : t.right.y
+      return col.units.some((u) => Math.abs(u.topElev - nearElev) <= ELEV_EPS && u.baseElev < facingTD - ELEV_EPS)
+    })
   const left = side === 'left' ? col : facing
   const right = side === 'left' ? facing : col
   // Ruling 8i(e): the SAME bridge-fed corr the sweep uses — a bridge-anchored deep unit reads
@@ -250,6 +270,12 @@ function emitSideSubTd(
   const colX = col.x
   const facingX = facing.x
   const units = col.units
+  // RULING R3/R4: when a bottom tie closes the sub-TD wedge, the corr-0 units below it are collected
+  // and drawn as ONE hole-free wedge (``emitBottomTieWedge``) whose flanks ride the onlap base-flank
+  // line — not per-unit symmetric-diamond lenses (which gap under the rising onlap) nor a flat flood.
+  // The wedge is the CLEAN single-untied-unit case (the TS4 clay); a multi-unit / interspersed config
+  // falls back to the ordinary sub-TD lens per unit (the shared-apex wedge is not general to it).
+  const wedgeUnits: { pu: UnitGeom; hostUnitIndex: number; eff: EffectiveCorr }[] = []
   for (let ui = 0; ui < units.length; ui++) {
     const hostEff = corr[ui]
     if (!hostEff) continue
@@ -275,6 +301,14 @@ function emitSideSubTd(
         // facing test read nothing BY DEFINITION, so this pass is where the relocation bites hardest:
         // the lens is measured against the first column that DID read these levels — however many
         // blind columns lie between — and only a run that never meets one closes flat at the edge.
+        // RULING R3/R4: below a bottom tie the untied units belong to the shared sub-TD wedge (drawn
+        // after the loop) — a single contiguous run tiles the sub-TD triangle hole-free, riding the
+        // onlap base-flank line. A non-clean config (more than one collected unit) falls back to the
+        // ordinary sub-TD lens below (the wedge is not general to interspersed corr-1 units).
+        if (facingTdTied) {
+          wedgeUnits.push({ pu, hostUnitIndex: piece.hostUnitIndex, eff })
+          continue
+        }
         const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev)
         if (!run.reads && emitContinuation(pu, colX, run.column.x, lensLabels, nextId, out)) continue
         emitCorr0Termination(
@@ -293,6 +327,26 @@ function emitSideSubTd(
       if (eff.corr === 1 && plan) {
         emitSubTdOnlap(pu, plan, side, colX, facingX, lensLabels, nextOflankId, out)
       }
+    }
+  }
+  // RULING R3/R4: a SINGLE untied unit below the bottom tie is the clean wedge (the TS4 clay) — it
+  // rides the onlap base-flank line and tiles the sub-TD triangle hole-free. A multi-unit / non-clean
+  // config is NOT general to the shared-apex wedge (it can overpaint an interspersed unit and it is
+  // where the 2026-08-21 continuous-band ruling lives, e.g. CS1 S7), so each such unit falls back to
+  // the ORIGINAL sub-TD path (flat continuation to the edge when no reading column, else the ordinary
+  // lens) — byte-identical to the pre-R3 behaviour, so ``facingTdTied`` only ever reshapes the clean
+  // single-untied-unit wedge.
+  if (wedgeUnits.length === 1) {
+    emitBottomTieWedge([wedgeUnits[0].pu], colX, facingX, facingTD, lensLabels, nextId, out)
+  } else {
+    for (const w of wedgeUnits) {
+      const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, w.pu.topElev, w.pu.baseElev)
+      if (!run.reads && emitContinuation(w.pu, colX, run.column.x, lensLabels, nextId, out)) continue
+      emitCorr0Termination(
+        w.pu, w.hostUnitIndex, w.eff, col, run.reads ? run.column : facing, side, colX,
+        run.reads ? run.column.x : facingX, gapIndex, Infinity,
+        activeTies, lensLabels, nextId, nextFloodId, out, true,
+      )
     }
   }
 }
