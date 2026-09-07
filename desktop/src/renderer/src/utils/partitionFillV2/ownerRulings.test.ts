@@ -178,15 +178,12 @@ describe('Ruling 3 — below a shallow test, the tied sand onlaps its bottom tie
   const T4_SAND = '01a07acb-e044-713c-adee-dde01a53ae85' // GEO-20/034-S5 u8 ZAND (KL:V)
   const T4_CLAY = '01a07acb-e04b-7590-9cf1-7360cfaf13db' // GEO-20/034-S5 u9 KLEI
 
-  // PENDING the deep sub-TD rewrite (diagnosed, not landed — see the slice report). The engine
-  // ALREADY classifies these correctly (effectiveCorr: the sand reads corr 1 onlap, the clay reads
-  // corr 0 lens); the defect is purely in the EMISSION geometry: the onlap pinches at
-  // INTERIOR_PINCH_FRACTION (0.5) instead of onlapping to the shallow column's bottom-tie point,
-  // and ``emitFloodWedge`` invents KLEI to flood the vacated wedge below the shallow TD. Fixing it
-  // is a coordinated change to emitTerminationSweep + emitFloodWedge + emitSubTdLenses (the
-  // CS1-guarded core), so it is pinned RED here and left for a visual-verified session. Remove
-  // ``.fails`` when the fix lands (it will flip these red, forcing the conversion).
-  it.fails('the deepest clay does NOT flood the sub-TD full width (it lenses)', () => {
+  // LANDED (walk22d, 2026-09-07). The bottom-tie onlap now reaches the shallow column
+  // (``drawTermination`` ``bottomTieToTd``, no invented flood) and the untied units below fill the
+  // sub-TD wedge as one hole-free construction riding the onlap base-flank line (``emitBottomTieWedge``,
+  // gated in ``emitSubTdLenses`` on a genuine bottom tie). Verified: TS4 gap1 hole 0, overlap 0, KLEI
+  // correctly labelled.
+  it('the deepest clay does NOT flood the sub-TD full width (it lenses)', () => {
     const { columns, alongM, edges } = prepare('Tie-section 4')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
     const clay = regionsForLayer(g1, T4_CLAY)
@@ -196,7 +193,7 @@ describe('Ruling 3 — below a shallow test, the tied sand onlaps its bottom tie
     expect(widest, 'the untied sub-TD clay lenses, it does not flood full width').toBeLessThan(0.98)
   })
 
-  it.fails('the tied sand onlaps toward the shallow column (it does not pinch mid-gap)', () => {
+  it('the tied sand onlaps toward the shallow column (it does not pinch mid-gap)', () => {
     const { columns, alongM, edges } = prepare('Tie-section 4')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
     const sand = regionsForLayer(g1, T4_SAND)
@@ -213,7 +210,7 @@ describe('Ruling 3 — below a shallow test, the tied sand onlaps its bottom tie
  *   TDs. Every point between a gap's shallowest top and its deepest floor must be covered.
  */
 describe('Ruling 4 — the fill has no hole under a shallow test', () => {
-  it.fails('Tie-section 4 gap1 has no coverage hole below the shallow test TD', () => {
+  it('Tie-section 4 gap1 has no coverage hole below the shallow test TD', () => {
     const { columns, alongM, edges } = prepare('Tie-section 4')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
     const worst = biggestHoleInGap(g1)
