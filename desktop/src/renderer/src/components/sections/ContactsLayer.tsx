@@ -964,7 +964,19 @@ export default function ContactsLayer({
               plotTop,
               plotBottom,
             )
-      if (bodyBottomY < bodyTopY) continue
+      // A contact stamped BELOW the column's TD gives a degenerate slab
+      // (the TD-capped bottom sits ABOVE the contact top), so bodyBottomY
+      // < bodyTopY. The row is real — paint-through and manual picks both
+      // persist it, and the backend accepts it — so instead of dropping
+      // the slab (which left a projected polyline with no hit-target: not
+      // clickable, draggable or deletable), keep it and flag it as an
+      // extrapolated below-TD contact. Its label auto-hides (negative
+      // piece height) and its line renders dashed; the hit-strip still
+      // renders at segY so it stays fully interactive (owner ruling
+      // walk22b). NB the drop only ever fired for this below-TD case:
+      // contacts are sorted ascending, so bottomDepthM < topDepthM can
+      // only happen when the TD cap is shallower than the contact.
+      const belowTd = bodyBottomY < bodyTopY
       // px-per-metre derived from levelToScreen — deeper points map
       // to larger Y in the flipped section transform. Needed both at
       // render time (to draw the segment after a drag override) and
@@ -991,6 +1003,7 @@ export default function ContactsLayer({
         pxPerMetre,
         surfaceY,
         originalDepthM: slab.topDepthM,
+        belowTd,
       })
     }
 
@@ -2926,8 +2939,12 @@ export default function ContactsLayer({
         // screen y-coords, pick the tallest.
         const ghostHoles = pendingGhostRangesByAnchorId?.get(layer.anchorId) ?? []
         let labelY = (layer.bodyTopY + layer.bodyBottomY) / 2
+        // A below-TD contact has a DEGENERATE slab (bodyBottomY < bodyTopY), so
+        // its piece height is negative and its label hides — the extrapolated
+        // contact renders as a dashed line only. Skip the ghost-subtraction math
+        // too: it assumes top < base and would run on an inverted range.
         let labelPieceHeight = layer.bodyBottomY - layer.bodyTopY
-        if (ghostHoles.length > 0) {
+        if (!layer.belowTd && ghostHoles.length > 0) {
           // Convert the slab's bodyTopY / bodyBottomY back to depth in
           // metres (the geometric inverse of levelToScreen) so we can
           // subtract ghost holes in depth-space, then convert each
@@ -3088,8 +3105,10 @@ export default function ContactsLayer({
                         : layer.color
                   }
                   strokeWidth={lineWidth}
-                  strokeDasharray={isPackingBoundary ? '5 4' : undefined}
-                  strokeOpacity={isPackingBoundary ? 0.9 : 0.95}
+                  strokeDasharray={
+                    isPackingBoundary ? '5 4' : layer.belowTd ? '4 3' : undefined
+                  }
+                  strokeOpacity={layer.belowTd ? 0.55 : isPackingBoundary ? 0.9 : 0.95}
                   pointerEvents="none"
                 />
                 {/* GEOTECH — the padlock, shown only while the cursor is on THIS
