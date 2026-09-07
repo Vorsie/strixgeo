@@ -126,9 +126,14 @@ describe('ruling 8m — follow-the-tie same-litho onlap suppression', () => {
 
     const section = buildSectionInput(columns, edges, undefined, alongM)
     const { curves } = withFlip(() => emitCurves(section))
-    // ZERO onlap flanks at L (x = 0): the same-litho CLAY base tie AND the same-litho SAND surface
-    // onlap are BOTH followed → skipped (merge-equivalent).
-    expect(oflankCountAtColumn(curves, 0)).toBe(0)
+    // ZERO onlap flanks at L's FREE CONTACTS (elev 7 = L CLAY top and L SAND base): the same-litho
+    // CLAY base tie AND the same-litho SAND surface onlap are BOTH followed → skipped (merge-
+    // equivalent). Checked at the contact (not the whole column) because ruling R3 (owner 2026-09-07)
+    // makes R SILT — which sits below L's TD (elev 3) and is tied to L CLAY's base (= L's TD) — onlap
+    // to that bottom-tie point on the shallow column L (``drawTermination`` bottomTieToTd), so a
+    // legitimate R-SILT flank now touches L at (0, 3); the 8m suppression this test pins lives at the
+    // elev-7 contacts, which stay flank-free.
+    expect(oflankCountAtContact(curves, 0, 7)).toBe(0)
 
     // The final render: the CLAY fills the gap (flood) and the 8j merge welds it into ONE body
     // spanning the full width (the always-draw+merge result — merge-equivalence).
