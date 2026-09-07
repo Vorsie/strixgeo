@@ -1774,6 +1774,7 @@ def label_voxels(
     honor_radius_m: float = 0.0,
     measured_pinch: bool = False,
     reach_to_evidence: bool = True,
+    bed_top_at: Callable[[float, float], float | None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> LabelGrid:
@@ -1853,6 +1854,18 @@ def label_voxels(
         exact / 0 wrong, contact-error p90 moves 0.123 → 0.125 m, triangles drop
         8.2 %, and 52,602 m3 goes void → filled with NOT ONE cell going the other way.
         Pass ``False`` to rebuild the old midline behaviour for comparison.
+    bed_top_at : callable of (x, y) -> float or None, or None, optional
+        The manual bed-override cap (owner ruling 2026-09-07 — the canal cut-out).
+        For a column at ``(x, y)`` INSIDE a bed-override polygon it returns that
+        polygon's bed level, and every voxel whose centre is ABOVE the bed is
+        voided: inside a bed polygon nothing lithological is built above the bed
+        level (the DEM / the section fill top out at the water surface, which is
+        not the dredged bed).  Outside every polygon it returns ``None`` and the
+        column is untouched, so a project with no bed overrides passes ``None``
+        here and the labelling is byte-identical to before this parameter
+        existed.  Kept a plain callable (never the value objects) so this module
+        stays free of the bed-override types — the application layer builds the
+        sampler from ``bed_level_at``.
     should_cancel : callable of () -> bool, or None, optional
         Cooperative-cancel predicate, checked once per x-column (row) of the
         grid.  When it returns ``True`` the loop stops at the next column and
@@ -2130,6 +2143,18 @@ def label_voxels(
                 )
             elif stack:
                 labels[i, j, :] = labeller(stack, gz, body_index, none_body_ids)
+            # Bed-override cap (owner ruling 2026-09-07 — the canal cut-out).
+            # Inside a bed polygon nothing lithological exists above the dredged
+            # bed, so void every voxel of this column above it — applied AFTER
+            # both write paths so it caps the section blend and an honored log
+            # alike, and BEFORE the empty-column tally so a fully-capped column
+            # is counted as empty honestly.  Outside every polygon ``bed_top_at``
+            # returns None (or is None when the project has no overrides), and the
+            # column is left exactly as labelled — the byte-identical guarantee.
+            if bed_top_at is not None:
+                cap = bed_top_at(x, y)
+                if cap is not None:
+                    labels[i, j, gz > cap] = -1
             # Measure the WRITTEN column, not a proxy for it: a non-empty ``stack``
             # whose every body sits in ``none_body_ids`` still labels real voxels, and
             # (rarer) an honored investigation with no intervals of its own can leave
