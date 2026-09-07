@@ -114,6 +114,7 @@ async def _run(
     vertical_spacing_m: float | None = None,
     sections: list[SectionPartitionInput] | None = None,
     picks: list[BodyLayerPick] | None = None,
+    bed_overrides: list[Any] | None = None,
 ) -> None:
     """Execute the use case with every heavy collaborator patched.
 
@@ -121,7 +122,9 @@ async def _run(
     ``captured``.  When ``vertical_spacing_m`` is set, it is forwarded to
     ``execute`` so the anisotropy pass-through can be asserted.  ``sections``
     replaces the default one-gap payload and ``picks`` the (default empty)
-    honored picks, so a test can drive the true-position re-seat.
+    honored picks, so a test can drive the true-position re-seat.  ``bed_overrides``
+    (default none) is what the patched loader returns, so a test can drive the
+    bed-cap wiring.
     """
 
     def _capture_label(*args: Any, **kwargs: Any) -> LabelGrid:
@@ -135,6 +138,10 @@ async def _run(
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(
+            f"{_PATH}.load_bed_override_polygons",
+            new=AsyncMock(return_value=list(bed_overrides or [])),
+        ),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -257,6 +264,83 @@ def test_changing_vertical_spacing_busts_the_partition_checksum() -> None:
     assert fine != finer  # changing the vertical spacing busts the cache
 
 
+def test_no_bed_overrides_is_byte_stable_with_the_pre_bed_checksum() -> None:
+    """An empty bed-override list hashes exactly like omitting the keyword.
+
+    A project with no canal must not be spuriously re-meshed when the bed cap is
+    introduced: the digest with the keyword omitted and with it explicitly empty
+    must be identical.
+    """
+    sections = [_section()]
+    legacy = _partition_checksum(sections, 2.0)
+    explicit_empty = _partition_checksum(sections, 2.0, bed_overrides=[])
+    assert legacy == explicit_empty
+
+
+def test_bed_overrides_bust_the_partition_checksum() -> None:
+    """Drawing or re-levelling a canal bed rebuilds on the on-open force=false path.
+
+    The bed-override cap voids the litho above the dredged bed inside a polygon
+    (owner ruling 2026-09-07), so a change to the polygons changes the labelling
+    and must move the digest — otherwise a project that gained a canal would keep
+    its pre-canal 3-D model until the next forced Build.
+    """
+    from groundmodel.domain.value_objects.bed_override_polygon import BedOverridePolygon
+
+    sections = [_section()]
+    canal = BedOverridePolygon(
+        label="Canal", level_m=-4.0, vertices=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
+    )
+    deeper = BedOverridePolygon(label="Canal", level_m=-6.0, vertices=canal.vertices)
+
+    none = _partition_checksum(sections, 2.0)
+    with_bed = _partition_checksum(sections, 2.0, bed_overrides=[canal])
+    relevelled = _partition_checksum(sections, 2.0, bed_overrides=[deeper])
+
+    assert none != with_bed  # adding a bed override busts the cache
+    assert with_bed != relevelled  # changing its level busts the cache
+
+
+@pytest.mark.asyncio
+async def test_a_bed_override_hands_the_labeller_a_cap_at_the_bed_level() -> None:
+    """A canal bed override reaches ``label_voxels`` as a bed_top_at cap.
+
+    Wiring pin for the owner's question "does the canal fill also cut out in the
+    litho model?": when the project carries a bed override, the builder must pass
+    the labeller a sampler that returns the dredged bed level INSIDE the polygon
+    (so the 3-D litho stops there) and ``None`` outside (so the rest is untouched).
+    """
+    from groundmodel.domain.value_objects.bed_override_polygon import BedOverridePolygon
+
+    canal = BedOverridePolygon(
+        label="Canal",
+        level_m=-4.0,
+        vertices=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+    )
+    captured: dict[str, Any] = {}
+
+    await _run(_make_use_case(), captured, bed_overrides=[canal])
+
+    bed_top_at = captured["kwargs"]["bed_top_at"]
+    assert bed_top_at is not None
+    assert bed_top_at(5.0, 5.0) == -4.0  # inside the canal → the dredged bed level
+    assert bed_top_at(50.0, 50.0) is None  # outside every polygon → untouched
+
+
+@pytest.mark.asyncio
+async def test_no_bed_override_hands_the_labeller_no_cap() -> None:
+    """With no bed override the builder passes ``bed_top_at=None`` (byte-identical).
+
+    The guard half of the wiring: a project without a canal must send the labeller
+    exactly what it sent before this feature — no cap.
+    """
+    captured: dict[str, Any] = {}
+
+    await _run(_make_use_case(), captured)
+
+    assert captured["kwargs"]["bed_top_at"] is None
+
+
 # ---------------------------------------------------------------------------
 # The model footprint must reach the drilled positions
 # ---------------------------------------------------------------------------
@@ -310,6 +394,7 @@ async def _run_capturing_domain(
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(f"{_PATH}.build_domain_from_sections", side_effect=_capture_domain),
         patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
         patch(f"{_PATH}.extract_body_solids", return_value=[]),
@@ -458,6 +543,7 @@ async def test_the_investigation_kind_reaches_the_labeller() -> None:
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -530,6 +616,7 @@ async def test_investigations_outside_the_footprint_ride_out_on_the_outcome() ->
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -584,6 +671,7 @@ async def _run_empty(
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         domain_patch,
         patch(f"{_PATH}.label_voxels", return_value=_empty_grid()),
         patch(f"{_PATH}.extract_body_solids", return_value=meshes),
@@ -647,6 +735,7 @@ async def test_a_build_that_produced_bodies_carries_no_empty_reason() -> None:
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -696,6 +785,7 @@ async def test_a_successful_build_carries_its_gapless_report_into_write_generati
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -806,6 +896,7 @@ async def test_a_crash_inside_the_gate_does_not_take_the_build_down_with_it() ->
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -863,6 +954,7 @@ async def test_the_checksum_skip_path_reports_the_3d_clauses_not_evaluated() -> 
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -931,6 +1023,7 @@ async def test_another_request_is_served_while_the_labelling_runs() -> None:
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -991,6 +1084,7 @@ async def test_a_second_build_waits_instead_of_labelling_alongside_the_first() -
     with (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
@@ -1031,6 +1125,7 @@ def _heal_patches(repo: Any) -> Any:
     return (
         patch(f"{_PATH}.LithoLayerRepository", return_value=repo),
         patch(f"{_PATH}.load_project_view_state", new=AsyncMock(return_value={})),
+        patch(f"{_PATH}.load_bed_override_polygons", new=AsyncMock(return_value=[])),
         patch(
             f"{_PATH}.build_domain_from_sections",
             return_value=SimpleNamespace(
