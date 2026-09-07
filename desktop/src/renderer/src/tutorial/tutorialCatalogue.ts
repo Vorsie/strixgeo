@@ -254,6 +254,13 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   // profile usually exists already, so this completes instantly and never asks
   // for a profile the user has drawn.
   mkc('litho-second-section', 5, ['stage-tab-sections', 'section-create'], { state: 'twoSectionsExist' }, 'sections'),
+  // Do the litho flow on EVERY profile before building (owner ruling 2026-09-07):
+  // suggest, adjust, accept and correlate on the second cross-section and on every
+  // tie-section, not just the first. Anchored at the Litho Suggest verb (the
+  // per-section entry point) on the sections axis; 'next' rather than a state
+  // fact because "every section that carries tests has accepted layers" needs the
+  // per-section corridor→layer mapping, which is not on the tutorial bus.
+  mkc('litho-every-section', 5, ['stage-tab-sections', 'axis-litho', 'litho-suggest'], 'next', 'sections'),
   mkc('litho-build', 5, ['stage-tab-lithology', 'litho-build-model-button'], { state: 'lithoSolidsBuilt' }, 'lithology'),
   mkc('litho-fence', 5, ['stage-tab-lithology', 'litho-export-fence-button'], 'next', 'lithology'),
   // The litho right pane: model picker, roster, resolve, boreholes-in-model.
@@ -265,8 +272,18 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('geotech-statistic', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-statistic-menu'], 'next', 'sections'),
   mkc('geotech-subdivide', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-pipeline'], { state: 'geotechModelExists' }, 'sections'),
   mkc('geotech-correlate', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-correlate-packing'], 'next', 'sections'),
+  // Pipeline step 4 — Divide boreholes (owner ruling 2026-09-07: "je slaat de
+  // divide-boreholes stap over in de geotech stage tutorial?"). Carries the
+  // packing classes from the CPTs onto the boreholes. The verb lives inside the
+  // packing pipeline dropdown on the sections geotech axis. 'next' — there is no
+  // observable "boreholes divided" fact on the tutorial bus.
+  mkc('geotech-divide', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-pipeline', 'geotech-divide-boreholes'], 'next', 'sections'),
   mkc('geotech-display', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-display-menu'], 'next', 'sections'),
   mkc('geotech-bodies', 6, ['stage-tab-sections', 'axis-geotech', 'sections-recompute-bodies'], 'next', 'sections'),
+  // Do the packing pipeline on EVERY profile before building (owner ruling
+  // 2026-09-07: "here you should say the user should do all cross and tie
+  // sections"). Anchored at the pipeline dropdown on the geotech axis.
+  mkc('geotech-every-section', 6, ['stage-tab-sections', 'axis-geotech', 'geotech-pipeline'], 'next', 'sections'),
   // Do-it: ticks once the geotech 3-D solids are built (owner ruling 1).
   mkc('geotech-build', 6, ['stage-tab-geotechnical', 'geotech-build-model-button'], { state: 'geotechSolidsBuilt' }, 'geotechnical'),
   mkc('geotech-fence', 6, ['stage-tab-geotechnical', 'geotech-export-fence-button'], 'next', 'geotechnical'),
