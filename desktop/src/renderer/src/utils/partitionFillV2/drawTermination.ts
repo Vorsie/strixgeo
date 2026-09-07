@@ -538,7 +538,23 @@ function emitOnlap(
   // (0 = left column, 1 = right column); convert to the own-column apex-x the same way ``emitLenses``
   // does — a left look uses ``f`` directly, a right look mirrors it (``1 − f``).
   const ov = terminationApexOverride(overrides, u.bodyId, gapIndex)
-  const apexFrac = ov ? (side === 'left' ? ov.fraction : 1 - ov.fraction) : INTERIOR_PINCH_FRACTION
+  // RULING R3 (owner 2026-09-07) — BOTTOM-TIE ONLAP TO THE SHALLOW COLUMN. When a deep unit's TOP is
+  // tied to the FACING column's DEEPEST contact (its own TD) and the unit extends BELOW that TD, the
+  // tie IS the shallow test's bottom tie: the unit onlaps ALL THE WAY to that tie point on the shallow
+  // column (reach 1.0), filling the sub-TD wedge, rather than pinching mid-gap at
+  // INTERIOR_PINCH_FRACTION and letting ``emitFloodWedge`` invent a facing litho below the shallow TD.
+  // Owner's words: "below a shallow test, the tied sand onlaps its bottom tie and the untied clay
+  // lenses." Gated tightly to the bottom-tie geometry (top-tied, facing endpoint == facing TD, own
+  // free base below that TD, no free-draw override) so every ordinary onlap stays byte-identical.
+  let facingTD = Infinity
+  for (const fu of facing.units) if (fu.baseElev < facingTD) facingTD = fu.baseElev
+  const bottomTieToTd =
+    !ov &&
+    !baseTied &&
+    Number.isFinite(facingTD) &&
+    Math.abs(facingTiedElev - facingTD) <= ELEV_EPS &&
+    u.baseElev < facingTD - ELEV_EPS
+  const apexFrac = ov ? (side === 'left' ? ov.fraction : 1 - ov.fraction) : bottomTieToTd ? 1 : INTERIOR_PINCH_FRACTION
   const apexX = colX + apexFrac * (facingX - colX)
   // The apex elevation ALWAYS rides the TIE line interpolated at the apex fraction — an onlap laps
   // its tie BY DEFINITION (the tied side of the onlap face is bounded by that exact tie line art).
@@ -607,6 +623,11 @@ function emitOnlap(
   // (skip 'top'). The wedge anchors on the tie/apex, NOT on the removed flank, so removing the
   // duplicate tied flank leaves the flood geometry unchanged. Rides the sloping bracket (Front 2).
   const skip: 'top' | 'base' = baseTied ? 'base' : 'top'
+  // RULING R3: a bottom-tie onlap already reaches the shallow column (apex ON the facing column at the
+  // tie point), so there is NO vacated width past the apex — the wedge would be zero-width and would
+  // invent a facing litho below the shallow TD (the ``floodsw`` KLEI defect). Skip it; the untied unit
+  // below lenses (``emitSubTdLenses``) and the space below the tie point is the §8-Q3 no-data void.
+  if (bottomTieToTd) return true
   // The SILT flood boundary rides the SAME ruling-8g detour as the onlap flank (they are the same
   // undirected segment — matrix on one side, flood on the other), so the enclosed lens closes as a
   // hole in BOTH. A straight flood flank would re-cut the diamond the onlap flank detoured around.
