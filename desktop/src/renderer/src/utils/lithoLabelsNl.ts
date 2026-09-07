@@ -14,8 +14,10 @@
 
 /** Admixture soil code → Dutch adjective ("kleiig") or "met X" noun phrase. */
 export const ADMIXTURE_SOIL_NL: Record<string, string> = {
-  // Core five soils.
-  GL: 'grindig',
+  // Common bijmenging. GL = glauconiet (a mineral, common in the BE Neogene) —
+  // NOT grind; gravel is grindig via G / XG below. GL was mislabelled 'grindig'
+  // here, which also hid it from the geotech admixture prompt (walk22b fix).
+  GL: 'glauconiethoudend',
   KL: 'kleiig',
   SL: 'siltig',
   ZN: 'zandig',
