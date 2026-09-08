@@ -1,11 +1,18 @@
-// User-facing copy for the two close-flow outcomes that keep the project open.
+// User-facing copy for the close-flow outcomes that keep the project open.
 //
 // Audit 2026-08-02: a failed save and a refused revert both ended in a
 // ``log.error`` and nothing else. The dialog stayed up with no explanation and
 // Ctrl+S looked like a no-op, so "the app ate my afternoon" reports had no
-// on-screen evidence at all. These builders are pure so the wording is
-// testable without rendering a dialog, and shared so the toast and the dialog
-// body cannot say different things about the same event.
+// on-screen evidence at all. These builders keep the wording in one place so
+// the toast and the dialog body cannot say different things about the same
+// event.
+//
+// ``refusedRevertMessage`` now feeds the force-revert CONFIRMATION dialog
+// (owner ruling, installer #26 2026-09-08) rather than a dead-end toast, so it
+// is translated (EN + NL) — the owner dogfeeds in Dutch and this is a prominent
+// destructive prompt. The remaining two stay pure English toasts (unchanged).
+
+import { t } from '../i18n/translate'
 
 /** Last path segment of a Windows or POSIX path (the file's display name). */
 function baseName(path: string): string {
@@ -40,12 +47,14 @@ export function failedSaveMessage(filePath: string | null): string {
 }
 
 /**
- * Copy for a Discard whose revert was refused by the save-anchor gate.
+ * Body for the force-revert confirmation dialog (owner ruling, installer #26).
  *
- * The refusal is the SAFE outcome, so the copy has to explain why nothing
- * happened rather than read as a failure the engineer should retry: the file
- * on disk is not this project's latest save, so replaying it would delete work
- * it never contained.
+ * The .strix on disk is not this project's latest save, so replaying it would
+ * delete work it never contained. Rather than dead-ending (the old behaviour,
+ * which trapped the user into Task Manager), the close flow now names the file
+ * and spells out the loss, then offers the destructive revert or Save. This is
+ * that named-loss copy — translated (EN + NL) via the ``{file}`` placeholder,
+ * because it is a prominent destructive prompt the owner reads in Dutch.
  *
  * Parameters
  * ----------
@@ -55,15 +64,14 @@ export function failedSaveMessage(filePath: string | null): string {
  * Returns
  * -------
  * string
- *     One sentence pair naming the file and the two ways out.
+ *     The dialog body, naming the file and the loss, in the active language.
  */
 export function refusedRevertMessage(filePath: string | null): string {
-  const target = filePath === null ? 'The project file' : baseName(filePath)
-  return (
-    `${target} is not this project's latest save, so discarding by reverting to it ` +
-    `would delete work that file never contained. Nothing was changed — save the ` +
-    `project, or point it at the right file, before closing.`
-  )
+  // A refused revert only happens for a SAVED project, so filePath is non-null
+  // in practice; the fallback is defensive (this value is never shown when the
+  // prompt stays closed).
+  const file = filePath === null ? 'the project file' : baseName(filePath)
+  return t('project.closeForceRevertBody', { file })
 }
 
 /**
