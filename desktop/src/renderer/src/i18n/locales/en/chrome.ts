@@ -123,6 +123,16 @@ export const CHROME = {
   'project.discardChanges': 'Discard all changes',
   'project.discardBody':
     'Discarding cannot be undone. Cancel keeps the project open so you can save.',
+  // Force-revert confirmation (owner ruling, installer #26 2026-09-08). Shown
+  // when a Discard is refused because the .strix on disk is not this project's
+  // latest save — the user can still throw his session away, but the loss is
+  // named first so the consent is real (docs/ux.md destructive-action rule).
+  'project.closeForceRevertTitle': 'Revert to file and lose changes?',
+  'project.closeForceRevertBody':
+    "{file} is not this project's latest save. Reverting to it will permanently " +
+    "delete this session's work and everything saved to the project since that " +
+    'file was written.',
+  'project.closeForceRevertConfirm': 'Revert to file and close',
 
   // -------------------------------------------------------------------------
   // spine + shell landmarks — the stage rail down the left edge.
