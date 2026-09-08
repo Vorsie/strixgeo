@@ -426,8 +426,18 @@ export interface ShellContextValue {
    *  exist to write the close-without-save dialog's body copy, which App
    *  renders directly via AppDialogs. No stage reads either, and carrying
    *  them here would oblige every stage test fixture to fabricate values it
-   *  never uses. */
-  lifecycle: Omit<UseProjectLifecycleResult, 'unsavedSummary' | 'unsavedError'>
+   *  never uses. The force-revert prompt fields are omitted for the same
+   *  reason — App renders that confirmation via AppDialogs, no stage reads it. */
+  lifecycle: Omit<
+    UseProjectLifecycleResult,
+    | 'unsavedSummary'
+    | 'unsavedError'
+    | 'forceRevertPromptOpen'
+    | 'forceRevertMessage'
+    | 'handleForceRevertConfirm'
+    | 'handleForceRevertSave'
+    | 'handleForceRevertCancel'
+  >
   /** CPT + borehole data, import flows, hide/restore, elevation edits.
    *
    *  The refresh-confirmation trio is omitted for the same reason as
