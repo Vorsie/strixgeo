@@ -49,6 +49,7 @@ import { geotechRowColorOverride } from './geotechRowColorOverride'
 import { formatLithoDisplayName, lithoDisplayName } from './lithoLabels'
 import {
   NAD_SOIL_FAMILY_ORDER,
+  geotechUnitColor,
   nadClassColor,
   nadClassName,
   nadClassQualifier,
@@ -337,8 +338,16 @@ export function buildGeotechLegendTree(
       .map(([classKey, { nadClass, units }]) => {
         // The pick has to win in the legend too (owner ruling 2026-08-26) or
         // the swatch stops identifying the body it stands for. Shared with the
-        // units pane so the two cannot disagree about the same class.
-        const color = geotechRowColorOverride(units) ?? nadClassColor(nadClass)
+        // units pane so the two cannot disagree about the same class. Routed
+        // through ``geotechUnitColor`` (with the family's soil) so an
+        // unclassified GRAVEL swatch reads as gravel, matching the section fill
+        // (owner ruling, installer #26) rather than the null grey.
+        const color =
+          geotechRowColorOverride(units) ??
+          geotechUnitColor({
+            nad_class: nadClass,
+            litho_main_soil_code: units[0]?.litho_main_soil_code ?? null,
+          })
         // A class row shared by several units would otherwise show "#0" twice —
         // the same identical-text disease the tree exists to kill — so the body
         // label names its unit exactly when the row is ambiguous.
