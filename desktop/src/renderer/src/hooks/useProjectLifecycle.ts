@@ -73,6 +73,22 @@ export interface UseProjectLifecycleResult {
   /** "Cancel" branch — aborts the close / quit. */
   handleUnsavedCancel: () => void
   /**
+   * The force-revert confirmation prompt is open (owner ruling, installer #26).
+   * Opened when a Discard's revert is refused because the .strix on disk is not
+   * this project's latest save — instead of dead-ending, the user is offered a
+   * named, destructive replace-restore (or Save) so his session is never
+   * trapped requiring Task Manager.
+   */
+  forceRevertPromptOpen: boolean
+  /** The prompt body — names the file and spells out the loss, translated. */
+  forceRevertMessage: string
+  /** Force the replace-restore from the file (bypasses the anchor gate) + close. */
+  handleForceRevertConfirm: () => Promise<void>
+  /** Save-and-close from the force-revert prompt — the non-destructive way out. */
+  handleForceRevertSave: () => Promise<void>
+  /** Dismiss the force-revert prompt and abort the close entirely. */
+  handleForceRevertCancel: () => void
+  /**
    * Stage a lumping snapshot in-memory and mark the project dirty.
    * Called after a Fill-from-boreholes Apply confirm succeeds — the
    * lumping is persisted when the user File→Saves, and is lost on
@@ -259,7 +275,7 @@ export function useProjectLifecycle({
   // never-saved project, where the caller deletes the session creates).
   hasUnsavedMutations: boolean
   setHasUnsavedMutations: (v: boolean) => void
-  revertToLastSaved: () => Promise<RevertToLastSavedResult>
+  revertToLastSaved: (force?: boolean) => Promise<RevertToLastSavedResult>
   // True once the project has a .gmproj path. A never-saved project has no
   // snapshot to revert to, so Discard deletes the session creates instead —
   // the close dialog has to say which of the two it will do.
@@ -309,6 +325,13 @@ export function useProjectLifecycle({
   // Why the last Save / Discard did not close the project. Cleared whenever a
   // new attempt starts so a stale reason never sits under a fresh click.
   const [unsavedError, setUnsavedError] = useState<string | null>(null)
+  // The force-revert confirmation prompt (owner ruling, installer #26
+  // 2026-09-08). A refused revert — the .strix on disk is not this project's
+  // latest save — used to dead-end with a toast and a re-opened dialog, so a
+  // user who wanted his session GONE had no way out but Task Manager. This
+  // opens instead: a named, destructive confirmation that replaces the DB from
+  // the file regardless of the anchor, plus Save as the other way out.
+  const [forceRevertPromptOpen, setForceRevertPromptOpen] = useState(false)
 
   // ---------------------------------------------------------------------------
   // Dirty flag
@@ -617,13 +640,25 @@ export function useProjectLifecycle({
     if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(false)
     const outcome = await revertToLastSaved()
     noteCloseFlow(`revertToLastSaved outcome: ${outcome}`)
-    if (outcome === 'refused-not-latest-save' || outcome === 'failed') {
-      // Abort the close. Deleting the session's creates here would throw away
-      // work the file on disk does not hold, and closing would hide it.
-      const message =
-        outcome === 'refused-not-latest-save'
-          ? refusedRevertMessage(projectFilePath)
-          : failedRevertMessage(projectFilePath)
+    if (outcome === 'refused-not-latest-save') {
+      // NOT a dead-end (owner ruling, installer #26 2026-09-08: "I don't want
+      // to save, I want the changes to be gone"). The .strix on disk is not
+      // this project's latest save, so a blind revert would delete work it
+      // never held — but the user must still be able to throw his session away
+      // without Task Manager. Offer the named, destructive force-revert prompt
+      // (with Save as the other way out) instead of trapping him. The quit is
+      // left PENDING — no notifyQuitDecision yet — until he answers the prompt.
+      noteCloseFlow('refused revert — opening the force-revert prompt')
+      // Bring the window back so the prompt is visible on the quit path.
+      if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(true)
+      setForceRevertPromptOpen(true)
+      return
+    }
+    if (outcome === 'failed') {
+      // A genuine FAULT (unreadable / truncated / newer container), not a
+      // decision — the retry dead-end stands: change nothing, re-open the
+      // dialog, name the failure. Forcing cannot fix an unreadable file.
+      const message = failedRevertMessage(projectFilePath)
       setUnsavedError(message)
       toast('error', message)
       // The close is aborted, so the window has to come back — the dialog is about to
@@ -677,6 +712,85 @@ export function useProjectLifecycle({
     setUnsavedDialogOpen(false)
     if (unsavedDialogMode === 'quit-app') {
       void window.electron.notifyQuitDecision(false)
+    }
+  }, [unsavedDialogMode])
+
+  // "Revert to file and close" from the force-revert prompt (owner ruling,
+  // installer #26 2026-09-08). The user has SEEN the file named and the loss
+  // spelled out, and chosen it — so the replace-restore runs with ``force`` and
+  // bypasses the save-anchor gate that refused the plain Discard. Then the
+  // session is gone and the project closes, exactly as a normal Discard would.
+  const handleForceRevertConfirm = useCallback(async () => {
+    noteCloseFlow(`force-revert confirmed (mode=${unsavedDialogMode})`)
+    setForceRevertPromptOpen(false)
+    // The forced replace-restore is the slow part; on the quit path hide the
+    // window the user already told to go (brought back only on a fault).
+    if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(false)
+    const outcome = await revertToLastSaved(true)
+    noteCloseFlow(`force revert outcome: ${outcome}`)
+    if (outcome === 'failed') {
+      // Even forced, the file could not be read back — a fault, not a decision.
+      // Change nothing, name it, and re-open the unsaved dialog for a retry.
+      const message = failedRevertMessage(projectFilePath)
+      setUnsavedError(message)
+      toast('error', message)
+      if (unsavedDialogMode === 'quit-app') void window.electron.setWindowVisible(true)
+      setUnsavedDialogOpen(true)
+      if (unsavedDialogMode === 'quit-app') {
+        void window.electron.notifyQuitDecision(false)
+        setUnsavedDialogMode('close-project')
+      }
+      return
+    }
+    // The forced revert applied (or there was no snapshot, defensively). The
+    // session is gone: clear tracking, drop the recovery file, then close.
+    if (outcome === 'reverted') {
+      resetSessionImportSets()
+    } else {
+      discardSessionImports()
+    }
+    setHasUnsavedMutations(false)
+    await clearRecoveryNow()
+    if (unsavedDialogMode === 'quit-app') {
+      void window.electron.notifyQuitDecision(true)
+    } else {
+      closeProject()
+    }
+    // reason: ``toast`` is ref-stable (see useToasts) and deliberately kept out
+    // of dep arrays.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    revertToLastSaved,
+    resetSessionImportSets,
+    discardSessionImports,
+    setHasUnsavedMutations,
+    closeProject,
+    unsavedDialogMode,
+    clearRecoveryNow,
+    projectFilePath,
+  ])
+
+  // "Save" from the force-revert prompt — the non-destructive way out. Closes
+  // the prompt and runs the normal save-and-close path; a failed save keeps the
+  // unsaved dialog open (its retry surface) with the reason named.
+  const handleForceRevertSave = useCallback(async () => {
+    setForceRevertPromptOpen(false)
+    // Open the unsaved dialog first so a save FAILURE has a visible retry
+    // surface — ``handleUnsavedSave`` closes it again on success (and shows the
+    // in-flight spinner meanwhile).
+    setUnsavedDialogOpen(true)
+    await handleUnsavedSave()
+  }, [handleUnsavedSave])
+
+  // "Cancel" from the force-revert prompt — abort the close entirely. The
+  // project stays open with the session intact; on the quit path tell main the
+  // quit is aborted.
+  const handleForceRevertCancel = useCallback(() => {
+    noteCloseFlow(`force-revert cancelled (mode=${unsavedDialogMode})`)
+    setForceRevertPromptOpen(false)
+    if (unsavedDialogMode === 'quit-app') {
+      void window.electron.notifyQuitDecision(false)
+      setUnsavedDialogMode('close-project')
     }
   }, [unsavedDialogMode])
 
@@ -816,6 +930,13 @@ export function useProjectLifecycle({
     handleUnsavedSave,
     handleUnsavedDiscard,
     handleUnsavedCancel,
+    forceRevertPromptOpen,
+    // Recomputed each render (t() reads the active language) so the prompt body
+    // names the file in the interface language — cheap, only shown while open.
+    forceRevertMessage: refusedRevertMessage(projectFilePath),
+    handleForceRevertConfirm,
+    handleForceRevertSave,
+    handleForceRevertCancel,
     stageLumping,
     currentLumping,
   }
