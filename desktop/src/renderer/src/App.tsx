@@ -798,6 +798,11 @@ export default function App() {
     handleUnsavedSave,
     handleUnsavedDiscard,
     handleUnsavedCancel,
+    forceRevertPromptOpen,
+    forceRevertMessage,
+    handleForceRevertConfirm,
+    handleForceRevertSave,
+    handleForceRevertCancel,
   } = useProjectLifecycle({
     project,
     metadataDirty,
@@ -1505,6 +1510,11 @@ export default function App() {
         handleUnsavedSave={handleUnsavedSave}
         handleUnsavedDiscard={handleUnsavedDiscard}
         handleUnsavedCancel={handleUnsavedCancel}
+        forceRevertPromptOpen={forceRevertPromptOpen}
+        forceRevertMessage={forceRevertMessage}
+        handleForceRevertConfirm={handleForceRevertConfirm}
+        handleForceRevertSave={handleForceRevertSave}
+        handleForceRevertCancel={handleForceRevertCancel}
         closeConfirmOpen={closeConfirmOpen}
         setCloseConfirmOpen={setCloseConfirmOpen}
         closeProject={closeProjectAndClearRecovery}
