@@ -2876,16 +2876,26 @@ export default function SectionPanel({
     ) {
       return null;
     }
+    // Half the rendered strip width per column — the "Split here" / "Edit
+    // composition" verbs act on the accepted unit AT THE TEST, so
+    // resolveLithoLayerAtClick refuses a click farther than this from the
+    // column's screen-X (the gap fill between columns is not a column). Owner
+    // ruling, installer #26 2026-09-08.
+    const halfWidthById = new Map<string, number>(
+      placedColumns.map((c) => [c.proj.item.id, c.width / 2]),
+    );
     const columns = [
       ...projectedCpts.map((p) => ({
         investigationId: p.item.id,
         alongM: p.along,
         surfaceElevM: p.item.elevation_m,
+        halfWidthPx: halfWidthById.get(p.item.id),
       })),
       ...projectedBoreholes.map((p) => ({
         investigationId: p.item.id,
         alongM: p.along,
         surfaceElevM: p.item.elevation_m,
+        halfWidthPx: halfWidthById.get(p.item.id),
       })),
     ];
     return resolveLithoLayerAtClick({
@@ -2902,6 +2912,7 @@ export default function SectionPanel({
     onEditLithoComposition,
     projectedCpts,
     projectedBoreholes,
+    placedColumns,
     lithoLayers,
     warpedXToScreen,
     screenToLevel,
