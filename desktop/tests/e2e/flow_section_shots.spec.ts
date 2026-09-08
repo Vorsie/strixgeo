@@ -45,6 +45,10 @@ const SPACING = process.env.SECTION_SHOTS_SPACING ?? ''
 // ``SECTION_SHOTS_PX_PER_M`` (env): keep zooming (cursor-anchored on the gap's ground level) until
 // the header's vertical scale reads at least this many px per metre, so a thin shallow zone is readable.
 const PX_PER_M = Number(process.env.SECTION_SHOTS_PX_PER_M ?? '')
+// ``SECTION_SHOTS_AXIS`` (env): which model axis to render — ``Litho`` (default) or ``Geotech``. The
+// geotech axis is where the class-change seam ruling (2026-09-08) is seen, so the capture must be able
+// to click the Geotech radio instead of the Litho one.
+const AXIS = (process.env.SECTION_SHOTS_AXIS ?? 'Litho').trim() === 'Geotech' ? 'Geotech' : 'Litho'
 const VEX_MIN = 0.5
 const VEX_MAX = 50.0
 const SAMPLE = process.env.SECTION_SHOTS_FILE
@@ -134,7 +138,9 @@ async function zoomOnGap(page: Page, svg: ReturnType<Page['locator']>, spec: str
     const cb = cols.find(c => c.name === b)
     return ca && cb ? (ca.x <= cb.x ? [ca, cb] : [cb, ca]) : null
   }
-  for (let i = 0; i < 18; i++) {
+  // A dense section (CS1 = 24 columns) needs more, bigger wheel steps to spread one gap to ~half the
+  // canvas than a sparse one (CS2 = 5 columns); 18 x -240 was not enough and left CS1 un-zoomed.
+  for (let i = 0; i < 28; i++) {
     const pair = await pick()
     if (!pair) {
       console.log(`[section-shots] zoom target "${spec}" not found among the columns`)
@@ -149,15 +155,24 @@ async function zoomOnGap(page: Page, svg: ReturnType<Page['locator']>, spec: str
     const rx = r.x + r.w / 2
     const gl = await groundYAt(page, lx)
     const gr = await groundYAt(page, rx)
-    const ground = gl !== null && gr !== null ? Math.max(gl, gr) : (gl ?? gr)
+    // Anchor on the SHALLOWER (higher-elevation) of the two collars — the smaller screen y — so a
+    // SHORT facing borehole (its collar far below the tall test, e.g. CS2 GEO-61/2891-C) does not
+    // drag the anchor down and push the tall test's upper units off the top of the frame. Both
+    // columns' shallow zones then stay in view, which is exactly the zone the owner's upper-silt and
+    // thin-geotech-unit rulings are about.
+    const ground = gl !== null && gr !== null ? Math.min(gl, gr) : (gl ?? gr)
     if (ground === null) {
       console.log('[section-shots] no litho band found at the target columns; zoom skipped')
       return
     }
     // Anchor a little below the ground so the surface sits near the top of the frame.
     const cy = Math.min(svgBox.y + svgBox.height * 0.9, ground + svgBox.height * 0.12)
-    await page.mouse.move((lx + rx) / 2, cy)
-    await page.mouse.wheel(0, -240)
+    // Clamp the wheel point INSIDE the svg box: the gap's columns can sit at/just past the svg's own
+    // edge (a wide section whose reset overflows), and a wheel outside the canvas is a no-op (``span``
+    // never changes). Keeping the anchor at the near edge still grows the view around the gap.
+    const cx = Math.max(svgBox.x + 10, Math.min(svgBox.x + svgBox.width - 10, (lx + rx) / 2))
+    await page.mouse.move(cx, cy)
+    await page.mouse.wheel(0, -320)
     await page.waitForTimeout(200)
   }
 }
@@ -186,8 +201,8 @@ test.describe('section shots — owner ruling render capture', () => {
           .first()
         await expect(row, `section "${name}" is in the list`).toBeVisible({ timeout: 20_000 })
         await row.click()
-        // The litho axis is the surface the owner's rulings are about.
-        await page.getByRole('radio', { name: 'Litho' }).click()
+        // The axis the owner's ruling is about — Litho by default, Geotech for the class-change seam.
+        await page.getByTestId(AXIS === 'Geotech' ? 'axis-geotech' : 'axis-litho').click()
         // The open section's SVG carries no testid of its own; find it through the marquee
         // background it always renders, and fall back to the whole window.
         const panelSvg = page.locator('svg', { has: page.getByTestId('section-marquee-bg') }).first()
