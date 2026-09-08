@@ -642,19 +642,45 @@ export function fillGap(input: GapFillInput): GapFillResult {
    * the stack order decided it: S6's own thin silt lost its own log to the big
    * silt above it (S16c, at f=0.9 beside S6).
    */
+  // OWNER RULING 2026-09-08 (geotech class-change seam — installer #25 dogfeed): *"it should emit a
+  // vertical seam in the middle because the packing class changes, this is an established rule."*
+  // Where a seam splits two SPANNING masses of DIFFERENT class reaching into each other, the NEARER
+  // test owns each half. The ownership tiebreak below prefers the class whose OWN FLAT extent contains
+  // the face sample; a THIN top-tied unit whose quad PLUNGES below its own base (CS3 gap4 VEEN cls29
+  // vs the thicker cls30; TS11 gap0 SILT cls16 vs cls15) then lost the whole quad to the thicker
+  // class, which drew nothing but the flood. The near-side priority applies ONLY to the spanning tier
+  // and ONLY when such a cross-column different-class meeting exists, so the same-column
+  // disambiguation (S16c) and every single-spanning gap stay byte-identical.
+  const spanningSeamSplit =
+    run !== null &&
+    spanning.some((c) => c.band.ci === run.left.ci) &&
+    spanning.some((c) => c.band.ci === run.right.ci) &&
+    new Set(spanning.map((c) => massKeyOf(c.band))).size > 1
   const constructOwner = (x: number, y: number): RunBand | null => {
-    for (const tier of FILL_ORDER.map((step) =>
-      step === 'lens' ? lenses : step === 'onlap' ? onlaps : spanning,
-    )) {
-      let best: [number, number] | null = null
+    for (const [step, tier] of [
+      ['lens', lenses],
+      ['onlap', onlaps],
+      ['remainder', spanning],
+    ] as const) {
+      const nearSideRule = step === 'remainder' && spanningSeamSplit && run !== null
+      let best: [number, number, number] | null = null
       let band: RunBand | null = null
       for (const construct of tier) {
         if (!claims(construct, x, y)) continue
-        const rank: [number, number] = [
+        // near = 1 when the construct's own column is on the SAME side of the seam middle as the
+        // sample (or off it / bridged) — the nearer test. A constant 1 off the seam case, so the
+        // [ownExtent, distance] order is untouched everywhere else.
+        const near = nearSideRule ? ((construct.band.x - middleX) * (x - middleX) >= 0 ? 1 : 0) : 1
+        const rank: [number, number, number] = [
+          near,
           y <= construct.band.top && y >= construct.band.base ? 1 : 0,
           -Math.abs(construct.band.x - x),
         ]
-        if (best === null || rank[0] > best[0] || (rank[0] === best[0] && rank[1] > best[1])) {
+        const better =
+          best === null ||
+          rank[0] > best[0] ||
+          (rank[0] === best[0] && (rank[1] > best[1] || (rank[1] === best[1] && rank[2] > best[2])))
+        if (better) {
           best = rank
           band = construct.band
         }
