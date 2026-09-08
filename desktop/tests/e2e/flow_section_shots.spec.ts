@@ -104,7 +104,11 @@ async function verticalPxPerM(page: Page): Promise<number> {
 }
 
 /** Screen y of a level (mTAW), interpolated from two numeric tick labels of the level axis. */
-async function yOfLevel(page: Page, svgBox: { x: number; width: number }, level: number): Promise<number | null> {
+async function yOfLevel(
+  page: Page,
+  svgBox: { x: number; y: number; width: number; height: number },
+  level: number,
+): Promise<number | null> {
   const texts = page.locator('svg text')
   const n = await texts.count()
   const ticks: { v: number; y: number }[] = []
@@ -115,6 +119,8 @@ async function yOfLevel(page: Page, svgBox: { x: number; width: number }, level:
     const box = await t.boundingBox().catch(() => null)
     // Only the level axis strip at the far left: the CPT headers print bare numbers too (2, 10).
     if (!box || box.x + box.width > svgBox.x + 90) continue
+    // The along-axis origin label sits in the same strip at the very bottom: not a level tick.
+    if (box.y > svgBox.y + svgBox.height - 60) continue
     ticks.push({ v: Number(raw), y: box.y + box.height / 2 })
   }
   if (ticks.length < 2) return null
