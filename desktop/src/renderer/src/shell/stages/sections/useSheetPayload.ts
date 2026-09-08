@@ -66,6 +66,8 @@ export interface AssembleInput {
     nad_class?: number | null
     /** The engineer's colour pick on the units pane, honoured on the geotech axis. */
     color_override?: string | null
+    /** Main soil — only read for the unclassified-gravel colour exception. */
+    litho_main_soil_code?: string | null
   }[]
   basemapId: string
   settings: SheetSettings
@@ -158,6 +160,7 @@ export function assembleSheetPayload(input: AssembleInput): SheetPayload {
       // class, which the drawing ignores in favour of the stored colour + name.
       nadClass: u.nad_class ?? null,
       colorOverride: u.color_override ?? null,
+      mainSoilCode: u.litho_main_soil_code ?? null,
     })),
     levelMaxM,
     levelMinM,
