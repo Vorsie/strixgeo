@@ -69,6 +69,7 @@ import { markBoreholesStale } from "../../../utils/boreholesStaleStore";
 import { log } from "../../../utils/log";
 import { apiFailureMessage } from "../../../utils/apiFailureMessage";
 import { buildRestatedContactUndoCommand } from "./restatedContactUndo";
+import { buildSplitLayerUndoCommand } from "./splitLayerUndo";
 import { useFlaggedTiePrompt } from "./useFlaggedTiePrompt";
 import { useGeotechBandEdit } from "./useGeotechBandEdit";
 import { joinErrorToastKey } from "./joinErrorToastKey";
@@ -1732,14 +1733,15 @@ export default function SectionsCanvas(): JSX.Element {
   const handleSplitAcceptedLithoLayer = useCallback(
     async (layerId: string, depthM: number): Promise<void> => {
       if (!activeLithoModel) return;
+      const modelId = activeLithoModel.id;
       log.info(
         "section",
         `split-accepted-litho-layer: layer=${layerId} depth=${depthM.toFixed(3)}m`,
       );
       try {
-        await api.geology.splitLayer(
+        const result = await api.geology.splitLayer(
           project.id,
-          activeLithoModel.id,
+          modelId,
           layerId,
           depthM,
         );
@@ -1747,6 +1749,30 @@ export default function SectionsCanvas(): JSX.Element {
         refetchLithoContacts();
         requestBodyRecompute("litho");
         toast("success", t("sections.canvasToast.layerSplit"));
+        // Undo wiring (owner ruling, installer #26 2026-09-08: "should be
+        // revertible with ctrl z or the button"). The builder owns the inverse
+        // (delete the new bottom half; the FC->LL mirror re-merges the halves in
+        // one transaction) + the redo (re-split, re-anchoring on the fresh row).
+        undoStack.push(
+          buildSplitLayerUndoCommand(
+            {
+              projectId: project.id,
+              modelId,
+              topLayerId: result.top.id,
+              bottomLayerId: result.bottom.id,
+              splitDepthM: depthM,
+            },
+            {
+              splitLayer: api.geology.splitLayer,
+              deleteLayer: api.geology.deleteLayer,
+            },
+            async () => {
+              markMutated();
+              refetchLithoContacts();
+              requestBodyRecompute("litho");
+            },
+          ),
+        );
       } catch (err) {
         log.warn("section", "handleSplitLithoLayer: failed", err);
         toast("error", t("sections.canvasToast.layerSplitFailed"));
@@ -1759,6 +1785,7 @@ export default function SectionsCanvas(): JSX.Element {
       refetchLithoContacts,
       requestBodyRecompute,
       toast,
+      undoStack,
     ],
   );
 
