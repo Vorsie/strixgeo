@@ -31,7 +31,14 @@ import type { SheetFill, SheetPayload, SheetUnit } from './sheetPayload'
  */
 export function unitFillColour(unit: SheetUnit, fill: SheetFill): string {
   if (fill === 'geotech' && unit.nadClass !== undefined) {
-    return geotechUnitColor({ nad_class: unit.nadClass, color_override: unit.colorOverride ?? null })
+    // ``mainSoilCode`` lets an unclassified GRAVEL region read as gravel (its
+    // lithology amber) rather than the null grey that clashes with clay, exactly
+    // as the section fill does (owner ruling, installer #26).
+    return geotechUnitColor({
+      nad_class: unit.nadClass,
+      color_override: unit.colorOverride ?? null,
+      litho_main_soil_code: unit.mainSoilCode ?? null,
+    })
   }
   return unit.colour
 }
