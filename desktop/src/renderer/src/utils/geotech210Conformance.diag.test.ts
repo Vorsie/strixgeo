@@ -19,15 +19,15 @@
  *    report. Without the twin a "green" gate proves only that the audit found
  *    nothing, never that it can still find something.
  *
- * BASELINE, and what is knowingly RED. Frozen 2026-08-21 at all-zero except
- * Cross-section 3 ``nospan=1``. That one is PRE-EXISTING and stays: its band
- * carries a fan of two ties on a SINGLE contact, so this gate counts ties (reads
- * 2 -> must span) while the constructor counts tied contacts (reads 1 ->
- * pinching onlap). The owner's S12 sentence ("it has a top and bottom tie to the
- * right though?") reads as contacts, but he has not ruled; when he does, either
- * the gate re-scopes or the constructor changes. Do not chase it as a defect,
- * and do not absorb it into the baseline either — it is the open question's own
- * marker.
+ * BASELINE. Frozen 2026-08-21 at ALL-ZERO. The two rows that read ``nospan=1``
+ * for a while — Cross-section 3 (GEO-05/040-S3 VEEN class 29) and Tie-section 11
+ * (1411-GEO-23/126-B4 SILT class 16) — were RESOLVED by the owner ruling 2026-09-08
+ * (*"it should emit a vertical seam in the middle because the packing class changes"*):
+ * a thin band tied on both contacts to a same-soil DIFFERENT-class neighbour must
+ * band to mid-gap and meet the far class at a vertical seam, not draw nothing while
+ * the thicker class floods. The fill now draws it (``fillGap`` ``constructOwner``
+ * near-side rule; ``geotechHierarchicalFill/classChangeSeam.test.ts``), so the audit
+ * reads all-zero again and matches the frozen baseline with NO re-freeze.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
