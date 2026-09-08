@@ -218,6 +218,42 @@ describe('geotechUnitColor', () => {
     expect(geotechUnitColor({ nad_class: 8, color_override: picked })).toBe(picked)
     expect(geotechUnitColor({ nad_class: 8 })).toBe(nadClassColor(8))
   })
+
+  // Owner ruling (installer #26, 2026-09-08): "is gravel grey in color, seems
+  // too close to clay for me?". An unclassified gravel unit fell to the neutral
+  // null grey, which is confusable with clay's blue-greys. Gravel is routinely
+  // unclassifiable (CPTs refuse in gravel), so it should read as GRAVEL, not as
+  // a missing-CPT exception — colour it by its lithology instead of grey.
+  it('UC4 — an unclassified GRAVEL unit is NOT the null grey (it reads as gravel)', () => {
+    const grey = nadClassColor(null)
+    const gravel = geotechUnitColor({
+      nad_class: null,
+      color_override: null,
+      litho_main_soil_code: 'GRIND',
+    })
+    // It is no longer the grey that clashes with clay…
+    expect(gravel).not.toBe(grey)
+    // …and it is a real hex colour, distinct from an unclassified clay unit,
+    // which keeps the neutral grey.
+    expect(gravel).toMatch(HEX_RE)
+    const clay = geotechUnitColor({
+      nad_class: null,
+      color_override: null,
+      litho_main_soil_code: 'KLEI',
+    })
+    expect(gravel).not.toBe(clay)
+    expect(clay).toBe(grey)
+  })
+
+  it('UC5 — a colour the engineer picked still wins on an unclassified gravel unit', () => {
+    expect(
+      geotechUnitColor({
+        nad_class: null,
+        color_override: '#ff00ff',
+        litho_main_soil_code: 'GRIND',
+      }),
+    ).toBe('#ff00ff')
+  })
 })
 
 // ---- NAD_CLASS_NAMES dictionary completeness --------------------------------
