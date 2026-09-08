@@ -155,6 +155,90 @@ describe('useProjectLifecycle — two-stage save (#160)', () => {
   })
 })
 
+// Owner ruling (installer #26, 2026-09-08): "I don't want to save, I want the
+// changes to be gone." A refused revert (the .strix on disk is not this
+// project's latest save) must NOT dead-end — it must offer a way to throw the
+// session away without Task Manager. The confirmation preserves the audit
+// protection by making the loss explicit and named before it happens.
+describe('useProjectLifecycle — refused revert offers a force-revert, never traps', () => {
+  it('a refused revert opens the force-revert confirmation instead of closing or deleting', async () => {
+    const revertToLastSaved = vi
+      .fn()
+      .mockResolvedValue('refused-not-latest-save')
+    const closeProject = vi.fn()
+    const setHasUnsavedMutations = vi.fn()
+    const args = makeArgs({
+      revertToLastSaved,
+      closeProject,
+      setHasUnsavedMutations,
+    })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+
+    // The gate refused: nothing was deleted, nothing closed — but the user is
+    // NOT stuck. The prompt that lets him throw the session away is now open.
+    expect(result.current.forceRevertPromptOpen).toBe(true)
+    expect(closeProject).not.toHaveBeenCalled()
+    expect(setHasUnsavedMutations).not.toHaveBeenCalled()
+  })
+
+  it('confirming force-revert replaces the DB from the file and closes — no Task Manager', async () => {
+    // First call (no force) refuses; the forced call reverts.
+    const revertToLastSaved = vi
+      .fn()
+      .mockImplementation(async (force?: boolean) =>
+        force ? 'reverted' : 'refused-not-latest-save',
+      )
+    const closeProject = vi.fn()
+    const setHasUnsavedMutations = vi.fn()
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const args = makeArgs({
+      revertToLastSaved,
+      closeProject,
+      setHasUnsavedMutations,
+      clearRecoveryNow,
+    })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+    await act(async () => {
+      await result.current.handleForceRevertConfirm()
+    })
+
+    // The forced revert bypassed the anchor gate…
+    expect(revertToLastSaved).toHaveBeenLastCalledWith(true)
+    // …and the changes are gone: mutations cleared, recovery cleared, closed.
+    expect(setHasUnsavedMutations).toHaveBeenCalledWith(false)
+    expect(clearRecoveryNow).toHaveBeenCalled()
+    expect(closeProject).toHaveBeenCalledTimes(1)
+    expect(result.current.forceRevertPromptOpen).toBe(false)
+  })
+
+  it('cancelling the force-revert prompt keeps the project open and deletes nothing', async () => {
+    const revertToLastSaved = vi
+      .fn()
+      .mockResolvedValue('refused-not-latest-save')
+    const closeProject = vi.fn()
+    const args = makeArgs({ revertToLastSaved, closeProject })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    await act(async () => {
+      await result.current.handleUnsavedDiscard()
+    })
+    act(() => {
+      result.current.handleForceRevertCancel()
+    })
+
+    expect(result.current.forceRevertPromptOpen).toBe(false)
+    expect(closeProject).not.toHaveBeenCalled()
+  })
+})
+
 // The close-without-save dialog names what a Discard takes. One OR'd
 // projectDirty boolean cannot carry that, so the hook also publishes the
 // itemised view the dialog reads.
@@ -577,11 +661,14 @@ describe('useProjectLifecycle — Discard acts on WHICH revert outcome it got', 
     // The recovery file protects exactly the work that was NOT discarded.
     expect(clearRecoveryNow).not.toHaveBeenCalled()
     expect(setHasUnsavedMutations).not.toHaveBeenCalledWith(false)
-    // The dialog comes back with copy naming the file.
-    expect(result.current.unsavedDialogOpen).toBe(true)
-    expect(result.current.unsavedError).toContain('site-backup-0801.strix')
-    expect(toast).toHaveBeenCalledTimes(1)
-    expect(toast.mock.calls[0][0]).toBe('error')
+    // NEW (owner ruling, installer #26): the refusal is no longer a dead-end
+    // toast — it opens the force-revert prompt so the user is never trapped.
+    // The named-file body reaches the dialog through ``forceRevertMessage``.
+    expect(result.current.forceRevertPromptOpen).toBe(true)
+    expect(result.current.forceRevertMessage).toContain('site-backup-0801.strix')
+    // No error toast now — the prompt IS the surface.
+    expect(toast).not.toHaveBeenCalled()
+    expect(result.current.unsavedDialogOpen).toBe(false)
   })
 
   it('aborts the close when the revert threw, and keeps the session work', async () => {
