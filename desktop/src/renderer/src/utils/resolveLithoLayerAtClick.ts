@@ -18,6 +18,16 @@ export interface ClickColumn {
   alongM: number
   /** Surface elevation of the column (mTAW); null columns are skipped. */
   surfaceElevM: number | null
+  /**
+   * Half the column's rendered strip width in px. When present, a click whose
+   * horizontal distance from the column's screen-X exceeds this is treated as
+   * NOT on the column and resolves nothing — the "Split here" / "Edit
+   * composition" verbs are for a click ON the test's own column strip, not for
+   * the gap fill between columns (owner ruling, installer #26 2026-09-08). Left
+   * ``undefined`` by legacy callers, which keeps the old nearest-column-wins
+   * behaviour at any distance.
+   */
+  halfWidthPx?: number
 }
 
 /** The subset of a litho layer this resolver reads. */
@@ -77,6 +87,16 @@ export function resolveLithoLayerAtClick(params: {
     }
   }
   if (nearest === null || nearest.surfaceElevM === null) return null
+
+  // Column-strip gate (owner ruling, installer #26): the per-layer verbs act on
+  // the accepted unit AT THE TEST, so a click farther from the column's screen-X
+  // than its rendered half-width is in the gap fill between columns, not on a
+  // column — resolve nothing. ``halfWidthPx`` undefined preserves the legacy
+  // nearest-column-wins behaviour (the unit tests that omit it, and any caller
+  // that has not opted in).
+  if (nearest.halfWidthPx !== undefined && nearestDx > nearest.halfWidthPx) {
+    return null
+  }
 
   // Click Y → depth below the column surface, mm-rounded to the stored precision.
   const depthM = Math.round((nearest.surfaceElevM - screenToLevelM(svgY)) * 1000) / 1000
