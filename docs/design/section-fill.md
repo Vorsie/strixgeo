@@ -159,16 +159,24 @@ dev project, a B4 silt top tied to a B6 silt top). Owner's words are quoted; pin
   (`surface:gi`) is STILL emitted — it is the physical top boundary the vacancy closure closes
   against (dropping it leaves the wedge above a narrowed first unit unbounded, a hole); only the
   implicit top-band TIE is narrowed, never the ground line.
-* **Part 2 — a cross-lithology tie draws a vertical seam.** *"a tie whose two layers differ in
+* **Part 2 — a cross-lithology TOP-to-TOP tie draws a vertical seam.** *"a tie whose two layers differ in
   lithology makes both units band along the ties and meet at a vertical seam at the column."*
   In `emitEnclosingFlood.closeInterval` the coarse `bandFids` (formationId) guard is lifted for
   a `crossLithoDeclaredMeeting` — a tie whose left endpoint IS this interval's left enclosing
-  unit and whose right endpoint IS its right enclosing unit, the two differing in lithology.
+  unit and whose right endpoint IS its right enclosing unit, the two differing in lithology,
+  **and both endpoints on the TOP side** (`leftSide === 'top' && rightSide === 'top'`).
   The test is the TIE's own two layers (DIRECT unit-index match, never the shared-contact
   derivation `tieLandsOn` gives a same-litho tie landing on the unit above it), so a real
-  same-formation band is untouched and the geotech jump-tie run (H9) is not seamed. Litho pass
+  same-formation band is untouched and the geotech jump-tie run (H9) is not seamed. The top-to-top
+  restriction (owner 2026-09-08, installer #25) keeps the seam OFF a MIXED base↔top tie — a bottom
+  tie into a shallow test's TD, R3/R4 territory whose onlap + `emitBottomTieWedge` already fill the
+  sub-TD wedge: lifting the guard there drew a mid-gap fence that SPLIT the bottom-tie onlap (its
+  facing half vanished), opening a coverage hole under a bottom-test correlation (dev CS1 gap 18
+  GEO-23/125-S7 → S6, gap 19 S6 → S5A; owner CS2/TS4 at the deepest TD). Litho pass
   only (`allowFirstUnitTopSeam`, threaded `computeSectionFillV2 → emitCurves → emitEnclosingFlood`);
-  the geotech constructive fill draws its own seams and never reaches this tiler.
+  the geotech constructive fill draws its own seams and never reaches this tiler. Pinned in
+  `partitionFillV2/bottomTieRenderHole.test.ts` (*"no gap in the render under a bottom test correlation"*),
+  a permanent band-capped-hole scan over every gap of both real fixtures.
 * **Part 3 — the clay onlaps, the units above are lenses, and the wedge above the tie stays EMPTY.**
   *"the clay onlaps, the sand above is a lens on cs2. 2/1/0 rule again, that sand has no ties. it
   should be empty."* The unit whose base is the tied contact onlaps the tie to mid-gap (the ordinary
@@ -193,6 +201,25 @@ dev project, a B4 silt top tied to a B6 silt top). Owner's words are quoted; pin
 The CS1 golden legitimately moves where CS1's first-unit-top ties reshape the litho the geotech
 fill is framed on (the B6 clay onlaps to mid-gap; a cross-litho tie splits a silt band) — a
 downstream reshape, not a change to the geotech engine (H9 unchanged, no new holes/overlaps).
+
+## A first-unit lens facing a short borehole closes at its own band (owner ruling 2026-09-08)
+
+Installer #25 dogfeed of the worked example (Cross-section 2, the top silts of GEO-19/081-S5 and
+GEO-20/034-S2 facing the short borehole GEO-61/2891-C). Owner: *"still unhappy with those upper
+silts on cs2, why do they droop down and not lens horizontally? 0 correlation to the right side for
+the left test, so emit lens at mid band level."*
+
+A FIRST (top) 0-tie unit takes the watertight SURFACE boundary lens (`emitBoundaryLens`), whose apex
+rides the top-band polyline — which slopes down to the FACING collar (its first-litho top). When the
+facing is a SHORT borehole whose collar sits far below the unit (the `terminationRun` short-facing
+boundary), that ride dragged the apex DOWN past the unit's own band (measured: the +5.53..+5.29 silt
+apex rode to +3.76, the ground line to the +1.60 collar). The fix (`emitBoundaryLens`, surface branch):
+when — and only when — the ridden apex would fall BELOW the unit's own base, lift it to the unit's mid
+band level so the lens closes HORIZONTALLY at its own level, a closed loop like every other 0-tie lens;
+the space vacated past it is the enclosing flood's (empty above a hand-tied short-collar tie, ruling 5).
+A strict NO-OP when the apex already sits in the band (an ordinary near-flat ground line — a facing
+collar just below the base, e.g. dev CS2 gap 15, is byte-identical) and never applied to a user
+free-draw override or the TD boundary lens. Pinned in `partitionFillV2/ownerRulings.test.ts` (Ruling 6).
 
 ## The arbiter — the CS1 real-data gate
 
