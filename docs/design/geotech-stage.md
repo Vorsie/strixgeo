@@ -135,6 +135,24 @@ Before this rule, every same-class tie across a geological boundary read
 "different mass": both sides emitted onlaps, met at a mid-gap vertical seam
 (the owner's "bug with vertical lines", 8 seams on CS1), and the DB body split.
 
+**A class-change seam splits the gap — the nearer test owns each half** (owner
+2026-09-08, installer #25 dogfeed: *"it should emit a vertical seam in the
+middle because the packing class changes, this is an established rule."*). Two
+SAME-lithology bands of DIFFERENT class, tied on both contacts, each emit
+"nothing" (`emitKernel`) and reach into each other; the meeting is the vertical
+seam at mid-gap (`seamMeets`). The seam LINE was already drawn, but a THIN
+top-tied band whose quad PLUNGES below its own flat base lost the whole quad to
+the thicker facing class: `fillGap`'s `constructOwner` tiebreak preferred the
+class whose OWN FLAT extent contained a drooping face sample (the thin class
+drew nothing while the thick one flooded — CS3 gap 4 VEEN class 29 vs 30, TS11
+gap 0 SILT class 16 vs 15, both flagged as GEOTECH_210 `nospan`). The fix adds a
+NEAR-SIDE priority to `constructOwner`'s spanning tier, applied ONLY when a
+cross-column different-class spanning meeting exists: the band whose own column
+is on the sample's side of the seam wins, so each class owns its half. The
+same-column disambiguation (S16c) and every single-spanning gap stay byte-
+identical. Pinned in `geotechHierarchicalFill/classChangeSeam.test.ts` against
+the two real cases; the GEOTECH_210 gate then reads all-zero.
+
 **The fill sweep crosses families** (owner ruling 2026-08-21, option 3 of the
 `gap0_lens_dissolve_choice` page â€” *"option 3 ofcourse"*): a closed lens
 touching a same-class mass from ANOTHER litho family welds into it, **no tie
