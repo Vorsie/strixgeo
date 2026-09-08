@@ -28,7 +28,7 @@
  * unsaved-state indicator throughout the Strix UI.
  */
 
-import { LITHOLOGY_LABELS, LITHOLOGY_LABELS_NL } from './lithoConstants'
+import { LITHOLOGY_COLORS, LITHOLOGY_LABELS, LITHOLOGY_LABELS_NL } from './lithoConstants'
 import { getLanguage } from '../i18n/languageSelect'
 import type { Language } from '../i18n/i18n_constants'
 import {
@@ -465,14 +465,35 @@ export function nadClassColor(n: number | null | undefined): string {
  * copied from the source litho unit at create, a machine default that says
  * nothing about intent.
  *
- * @param unit  A geotech unit (``nad_class`` + optional ``color_override``).
+ * UNCLASSIFIED GRAVEL is the exception to the null grey (owner ruling, installer
+ * #26 2026-09-08: *"is gravel grey in color, seems too close to clay for me?"*).
+ * A null-class band normally reads neutral grey — "no CPT covers this, classify
+ * it". Gravel, though, is routinely UN-classifiable: CPTs refuse in gravel, so a
+ * gravel band expected to stay unclassified drawn in the same grey as clay's
+ * blue-greys is a confusion, not a to-do. So an unclassified gravel unit is
+ * drawn in its LITHOLOGY colour (amber) instead — it reads as gravel, distinct
+ * from clay. Every other soil keeps the neutral grey, where "unclassified" IS a
+ * missing-CPT exception worth flagging. An engineer's ``color_override`` still
+ * wins over both.
+ *
+ * @param unit  A geotech unit — ``nad_class`` + optional ``color_override`` and
+ *              ``litho_main_soil_code`` (the soil; only read for the null-class
+ *              gravel exception).
  * @returns  A ``#rrggbb`` colour.
  */
 export function geotechUnitColor(unit: {
   nad_class: number | null | undefined
   color_override?: string | null
+  litho_main_soil_code?: string | null
 }): string {
-  return unit.color_override ?? nadClassColor(unit.nad_class)
+  if (unit.color_override != null) return unit.color_override
+  // Unclassified gravel reads as gravel (its lithology amber), not the null
+  // grey that clashes with clay — CPTs cannot penetrate gravel, so its
+  // unclassified state is expected, not a missing-CPT exception.
+  if (unit.nad_class == null && unit.litho_main_soil_code === 'GRIND') {
+    return LITHOLOGY_COLORS.GRIND
+  }
+  return nadClassColor(unit.nad_class)
 }
 
 /**
