@@ -252,8 +252,11 @@ interface UseProjectActions {
    *  project's children match the file EXACTLY — session creates, mutations,
    *  and deletes are all undone. Backs the "Don't Save" close-flow branch.
    *  See ``RevertToLastSavedResult`` for what each outcome obliges the caller
-   *  to do — only ``'no-snapshot'`` licenses deleting the session's creates. */
-  revertToLastSaved: () => Promise<RevertToLastSavedResult>
+   *  to do — only ``'no-snapshot'`` licenses deleting the session's creates.
+   *  ``force`` skips the save-anchor gate (the user confirmed the destructive
+   *  replace in the force-revert dialog); without it a file that is not this
+   *  project's latest save returns ``'refused-not-latest-save'``. */
+  revertToLastSaved: (force?: boolean) => Promise<RevertToLastSavedResult>
   /** Put the lumping's staged slot (DB + in-memory) back onto the saved
    *  snapshot — the "discard means discard" tail shared by the close dialog's
    *  Discard (via ``revertToLastSaved``) and the recovery prompt's Delete
@@ -1315,7 +1318,7 @@ export function useProject(
   // ``RevertToLastSavedResult``. ``'no-snapshot'`` (never-saved project) is
   // the only one that licenses the caller to delete the session's creates;
   // a refusal or a thrown failure means the caller must change nothing.
-  const revertToLastSaved = useCallback(async (): Promise<RevertToLastSavedResult> => {
+  const revertToLastSaved = useCallback(async (force = false): Promise<RevertToLastSavedResult> => {
     if (project === null || filePath === null) return 'no-snapshot'
     try {
       const readResult = await window.electron.readProjectFile(filePath)
@@ -1355,12 +1358,25 @@ export function useProject(
       // behaves exactly as it did before anchors existed.
       const dbAnchor = dbAnchorRef.current
       const fileAnchor = saveAnchorOfFile(parsed)
-      if (dbAnchor !== null && fileAnchor !== dbAnchor) {
-        log.error(
+      // ``force`` skips the gate: the user has confirmed, in the close-flow
+      // force-revert dialog, that he wants THIS file's state back even though it
+      // is not the latest save (owner ruling, installer #26 2026-09-08 — "I
+      // don't want to save, I want the changes to be gone"). The dialog named
+      // the file and the loss, so the destructive replace-restore is consented.
+      if (!force && dbAnchor !== null && fileAnchor !== dbAnchor) {
+        // WARNING, not error: a refusal is a safe DECISION, not a fault. Both
+        // anchors + the file path are logged so the next occurrence is
+        // diagnosable — the DB anchor advances past the file's on a save whose
+        // file write failed (saveProject stamps the row before writing the
+        // .strix), or when a stale/older copy of the .strix is opened against a
+        // DB row a later save moved on (the bundled build's DB persists across
+        // sessions).
+        log.warn(
           'project',
           `revertToLastSaved REFUSED for ${filePath}: this file is not ${project.name}'s ` +
             `latest save (file anchor ${String(fileAnchor)}, project row ${dbAnchor}). ` +
-            `Replacing the database from it would delete everything saved since.`,
+            `Replacing the database from it would delete everything saved since; ` +
+            `the force-revert dialog offers to do it anyway or to save first.`,
         )
         return 'refused-not-latest-save'
       }
