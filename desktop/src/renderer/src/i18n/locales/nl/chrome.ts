@@ -136,6 +136,13 @@ export const CHROME_NL = {
   'project.discardChanges': 'Alle wijzigingen verwerpen',
   'project.discardBody':
     'Verwerpen kan niet ongedaan gemaakt worden. Met Annuleren blijft het project open zodat je kan opslaan.',
+  // Bevestiging voor terugzetten naar bestand (eigenaarsbeslissing, installer #26).
+  'project.closeForceRevertTitle': 'Terugzetten naar bestand en wijzigingen verliezen?',
+  'project.closeForceRevertBody':
+    '{file} is niet de laatste opgeslagen versie van dit project. Terugzetten wist ' +
+    'het werk van deze sessie en alles wat sindsdien in het project is opgeslagen ' +
+    'definitief.',
+  'project.closeForceRevertConfirm': 'Terugzetten naar bestand en sluiten',
 
   // -------------------------------------------------------------------------
   // spine + shell
