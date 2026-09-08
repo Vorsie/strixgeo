@@ -45,6 +45,9 @@ const SPACING = process.env.SECTION_SHOTS_SPACING ?? ''
 // ``SECTION_SHOTS_PX_PER_M`` (env): keep zooming (cursor-anchored on the gap's ground level) until
 // the header's vertical scale reads at least this many px per metre, so a thin shallow zone is readable.
 const PX_PER_M = Number(process.env.SECTION_SHOTS_PX_PER_M ?? '')
+// ``SECTION_SHOTS_LEVEL`` (env, mTAW): anchor the zoom at this level instead of the columns' ground,
+// read off the level axis tick labels, so a deep zone (a sub-TD wedge) can be framed.
+const LEVEL = Number(process.env.SECTION_SHOTS_LEVEL ?? '')
 // ``SECTION_SHOTS_AXIS`` (env): which model axis to render — ``Litho`` (default) or ``Geotech``. The
 // geotech axis is where the class-change seam ruling (2026-09-08) is seen, so the capture must be able
 // to click the Geotech radio instead of the Litho one.
@@ -98,6 +101,27 @@ async function verticalPxPerM(page: Page): Promise<number> {
   const text = await page.getByTestId('section-scale-v').textContent().catch(() => null)
   const m = text?.match(/V:\s*([0-9.]+)/)
   return m ? Number(m[1]) : 0
+}
+
+/** Screen y of a level (mTAW), interpolated from two numeric tick labels of the level axis. */
+async function yOfLevel(page: Page, svgBox: { x: number; width: number }, level: number): Promise<number | null> {
+  const texts = page.locator('svg text')
+  const n = await texts.count()
+  const ticks: { v: number; y: number }[] = []
+  for (let i = 0; i < n; i++) {
+    const t = texts.nth(i)
+    const raw = ((await t.textContent().catch(() => '')) ?? '').trim()
+    if (!/^-?\d+(\.\d+)?$/.test(raw)) continue
+    const box = await t.boundingBox().catch(() => null)
+    if (!box || box.x > svgBox.x + svgBox.width * 0.12) continue
+    ticks.push({ v: Number(raw), y: box.y + box.height / 2 })
+  }
+  if (ticks.length < 2) return null
+  ticks.sort((a, b) => a.v - b.v)
+  const lo = ticks[0]
+  const hi = ticks[ticks.length - 1]
+  if (hi.v === lo.v) return null
+  return lo.y + ((level - lo.v) * (hi.y - lo.y)) / (hi.v - lo.v)
 }
 
 /** Ground level (screen y) at a column: the top of its highest accepted litho band, else null. */
@@ -165,8 +189,13 @@ async function zoomOnGap(page: Page, svg: ReturnType<Page['locator']>, spec: str
       console.log('[section-shots] no litho band found at the target columns; zoom skipped')
       return
     }
-    // Anchor a little below the ground so the surface sits near the top of the frame.
-    const cy = Math.min(svgBox.y + svgBox.height * 0.9, ground + svgBox.height * 0.12)
+    // Anchor a little below the ground so the surface sits near the top of the frame, or at the
+    // requested level when one is given.
+    let cy = Math.min(svgBox.y + svgBox.height * 0.9, ground + svgBox.height * 0.12)
+    if (Number.isFinite(LEVEL)) {
+      const y = await yOfLevel(page, svgBox, LEVEL)
+      if (y !== null) cy = Math.max(svgBox.y + 4, Math.min(svgBox.y + svgBox.height - 4, y))
+    }
     // Clamp the wheel point INSIDE the svg box: the gap's columns can sit at/just past the svg's own
     // edge (a wide section whose reset overflows), and a wheel outside the canvas is a no-op (``span``
     // never changes). Keeping the anchor at the near edge still grows the view around the gap.
