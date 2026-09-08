@@ -70,6 +70,12 @@ export interface SheetUnit {
   nadClass?: number | null
   /** The engineer's colour pick on the units pane; honoured over the NAD ramp on the geotech axis. */
   colorOverride?: string | null
+  /**
+   * Main soil token (GRIND / ZAND / …). Only read for the unclassified-gravel
+   * colour exception (owner ruling, installer #26): an unclassified gravel
+   * region reads as gravel, not the null grey that clashes with clay.
+   */
+  mainSoilCode?: string | null
 }
 
 export interface SheetMapPoint {
