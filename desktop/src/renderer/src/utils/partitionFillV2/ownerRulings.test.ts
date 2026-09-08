@@ -90,6 +90,29 @@ function biggestHoleInGap(regs: readonly SectionRegion[]): { frac: number; gap: 
   return worst
 }
 
+/** Like ``biggestHoleInGap`` but only counts uncovered stretches whose top lies below ``ceiling`` (mTAW). */
+function biggestHoleInGapBelow(regs: readonly SectionRegion[], ceiling: number): { frac: number; gap: number } {
+  let worst = { frac: -1, gap: 0 }
+  for (let f = 0.04; f < 0.97; f += 0.04) {
+    const ivs: [number, number][] = []
+    for (const r of regs) ivs.push(...crossAt(r.polygon, f))
+    if (ivs.length === 0) continue
+    ivs.sort((a, b) => a[0] - b[0])
+    const merged: [number, number][] = []
+    for (const iv of ivs) {
+      const last = merged[merged.length - 1]
+      if (last && iv[0] <= last[1] + 5e-3) last[1] = Math.max(last[1], iv[1])
+      else merged.push([...iv])
+    }
+    for (let k = 0; k + 1 < merged.length; k++) {
+      if (merged[k + 1][0] > ceiling) continue
+      const gap = merged[k + 1][0] - merged[k][1]
+      if (gap > worst.gap) worst = { frac: f, gap }
+    }
+  }
+  return worst
+}
+
 /** Regions in one gap that carry ``layerId`` in their provenance. */
 function regionsForLayer(regs: readonly SectionRegion[], layerId: string): SectionRegion[] {
   return regs.filter((r) => (r.layerIds ?? []).includes(layerId))
@@ -231,11 +254,15 @@ describe('Ruling 4 — the fill has no hole under a shallow test', () => {
     expect(worst.gap, `no hole in Tie-section 4 gap1 (worst ${worst.gap.toFixed(2)}m at f=${worst.frac})`).toBeLessThan(0.5)
   })
 
-  it.fails('Cross-section 2 gap2 has no coverage hole below the shallow tests TD', () => {
+  // Cross-section 2 gap 2 (GEO-61/2891-C to GEO-20/034-S2): the only uncovered stretch is the
+  // wedge above the drawn tie, between the stacked lenses of S2, which the owner ruled empty on
+  // 2026-09-07 ("it should be empty"). So the no-hole rule applies below the tie only; the earlier
+  // whole-gap pin measured that intended wedge as a hole and is retired here.
+  it('Cross-section 2 gap2 has no coverage hole below the drawn tie (the wedge above it stays empty)', () => {
     const { columns, alongM, edges } = prepare('Cross-section 2')
     const g2 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 2)
-    const worst = biggestHoleInGap(g2)
-    expect(worst.gap, `no hole in Cross-section 2 gap2 (worst ${worst.gap.toFixed(2)}m at f=${worst.frac})`).toBeLessThan(0.5)
+    const worst = biggestHoleInGapBelow(g2, 0.9)
+    expect(worst.gap, `no hole below the tie in Cross-section 2 gap2 (worst ${worst.gap.toFixed(2)}m at f=${worst.frac})`).toBeLessThan(0.5)
   })
 })
 
