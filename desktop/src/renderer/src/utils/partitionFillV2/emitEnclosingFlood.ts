@@ -351,12 +351,23 @@ function closeInterval(
   // tie landing on the clay base above it) is a SAME-litho tie and must NOT lift the guard. This is
   // the LITHO pass only (``allowFirstUnitTopSeam``); the geotech constructive fill draws its own
   // seams and never reaches this tiler.
+  // The seam is a TOP-to-TOP cross-lithology meeting (ruling 5, CS2: the S5 sand top tied to the
+  // 2891-C silt top). A MIXED base<->top tie is a BOTTOM tie into a shallow test's TD (the R3/R4
+  // territory: its onlap + ``emitBottomTieWedge`` already fill the sub-TD wedge). Lifting the band
+  // guard for such a mixed tie drew a mid-gap fence through the sub-TD interval that SPLIT the
+  // bottom-tie onlap (its left half vanished), opening the coverage hole the owner reported under a
+  // bottom-test correlation (dev CS1 gap18 S7->S6, gap19 S6->S5A). So the seam fires only when BOTH
+  // endpoints are TOP-side ties (owner 2026-09-08: *"you introduced a gap in the render ... it
+  // happens for bottom test correlations"*); a base-involved tie never lifts the guard, restoring the
+  // pre-ruling-5 band/onlap fill of the sub-TD wedge.
   const crossLithoDeclaredMeeting =
     allowFirstUnitTopSeam &&
     leftEncl.formationId !== rightEncl.formationId &&
     activeTies.some(
       (t) =>
         t.gapIndex === gapIndex &&
+        t.leftSide === 'top' &&
+        t.rightSide === 'top' &&
         t.leftUnitIndex === leftEncl.unitIndex &&
         t.rightUnitIndex === rightEncl.unitIndex,
     )
