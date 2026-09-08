@@ -172,6 +172,22 @@ export function emitBoundaryLens(
   }
   if (apex === null) return false // no reach fits — physical no-op (the enclosing flood covers it)
 
+  // OWNER RULING 2026-09-08 (Cross-section 2 upper silts): a SURFACE lens apex rides the top-band
+  // polyline, which slopes down to the FACING collar (its first-litho top). When that collar sits far
+  // BELOW this unit, the ride drags the apex DOWN past the unit's own band (measured on CS2 gap1: the
+  // +5.53..+5.29 silt apex rode to +3.76, the ground line to the short 2891-C collar +1.60 — the
+  // droop the owner points at). Owner: *"0 correlation to the right side for the left test, so emit
+  // lens at mid band level."* When (and only when) the ridden apex would fall below the unit's own
+  // base, lift it to the unit's mid band level so the lens closes HORIZONTALLY at its own level, like
+  // every other 0-tie lens; the space vacated past it is the enclosing flood's (empty above a hand-
+  // tied short-collar tie, ruling 5). A NO-OP whenever the apex already sits in the band (an ordinary
+  // near-flat ground line, e.g. a facing collar just below the base) — byte-identical there — and NOT
+  // applied to a user free-draw override (the drawn apex is explicit). The TD boundary is untouched
+  // (its floor is a true horizontal, never a droop).
+  if (boundary === 'surface' && !ov && apex.y < freeElev - APEX_MARGIN) {
+    apex = { x: apex.x, y: (nearBandElev + freeElev) / 2 }
+  }
+
   // The FREE flank — a ``term`` phase-1 lens flank from the apex (ON the boundary polyline)
   // to the FREE contact corner, carrying the unit's OWN litho. Audit-visible (``isLensFlankId``
   // counts ``term`` at the unit's contact) so the boundary lens reads PRESENT. The lens face
