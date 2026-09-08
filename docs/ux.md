@@ -199,6 +199,24 @@ confirmation whose copy under-states the damage is worse than none,
 because it buys consent under a false premise. When you change what a
 destructive handler does, re-read its dialog copy in the same commit.
 
+**A safety rail must never become a trap.** The Discard's replace-restore
+first passes a **save-anchor gate**: if the `.strix` on disk is not this
+project's latest save, a blind revert would delete work the file never
+held, so the gate refuses. That refusal used to dead-end — a toast, the
+dialog re-opened, and a user who wanted his session *gone* had no way out
+but Task Manager (owner report, installer #26). The refusal now opens a
+**force-revert confirmation** (`ConfirmDialog` in `AppDialogs.tsx`, wired
+from `useProjectLifecycle`): Cancel default-focused; a destructive,
+named **"Revert to file and close"** that replaces the DB from the file
+*regardless* of the anchor (`revertToLastSaved(true)`); and **Save** as
+the non-destructive way out. The named-loss obligation still holds — the
+body names the file and spells out that this session and everything saved
+since are gone — so the protection is preserved by making the loss
+explicit and consented, not by trapping the user. The gate logs both
+anchors + the file path at WARNING when it refuses, so the divergence
+(a save whose file write failed, or a stale copy opened against a DB the
+bundled build persisted) is diagnosable from the log.
+
 ## Dark mode
 
 * **Strategy**: `darkMode: 'class'` in Tailwind. The `useTheme` hook
