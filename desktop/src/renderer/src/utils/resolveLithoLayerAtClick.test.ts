@@ -76,4 +76,58 @@ describe('resolveLithoLayerAtClick', () => {
     })
     expect(hit).toBeNull()
   })
+
+  // Owner ruling (installer #26, 2026-09-08): "hier splitsen should only work on
+  // columns". The body-fill menu's Split here / Edit composition resolve through
+  // this function, and the gap fill between two columns must NOT resolve the
+  // nearest column's layer — a right-click there is not ON a column.
+  describe('column-strip gate — Split here only works on the column', () => {
+    // Same two columns, now carrying the rendered half-width of their strip.
+    const STRIP_COLUMNS: ClickColumn[] = [
+      { investigationId: 'cpt-A', alongM: 0, surfaceElevM: 10, halfWidthPx: 8 },
+      { investigationId: 'cpt-B', alongM: 100, surfaceElevM: 8, halfWidthPx: 8 },
+    ]
+
+    it('resolves the layer when the right-click lands on the column strip', () => {
+      // svgX = 55 → 5 px from column A's screen-X (50): inside the 8 px strip.
+      const hit = resolveLithoLayerAtClick({
+        columns: STRIP_COLUMNS,
+        layers: LAYERS,
+        svgX: 55,
+        svgY: 13,
+        alongToScreenX,
+        screenToLevelM,
+      })
+      expect(hit?.layerId).toBe('A-silt')
+    })
+
+    it('resolves nothing in the gap fill between two columns', () => {
+      // svgX = 100 is 50 px from BOTH columns (screen-X 50 and 150): the gap
+      // fill, well outside either 8 px strip. No column is under the click, so
+      // Split here / Edit composition are not offered.
+      const hit = resolveLithoLayerAtClick({
+        columns: STRIP_COLUMNS,
+        layers: LAYERS,
+        svgX: 100,
+        svgY: 13,
+        alongToScreenX,
+        screenToLevelM,
+      })
+      expect(hit).toBeNull()
+    })
+
+    it('keeps resolving anywhere when no half-width is supplied (legacy callers)', () => {
+      // Columns without ``halfWidthPx`` behave as before — nearest column wins
+      // at any distance — so the existing callers/tests are untouched.
+      const hit = resolveLithoLayerAtClick({
+        columns: COLUMNS,
+        layers: LAYERS,
+        svgX: 100,
+        svgY: 13,
+        alongToScreenX,
+        screenToLevelM,
+      })
+      expect(hit?.layerId).toBe('A-silt')
+    })
+  })
 })
