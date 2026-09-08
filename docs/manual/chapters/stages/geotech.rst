@@ -93,6 +93,24 @@ that recorded no sleeve friction still classifies for packing. The soil-behaviou
 index and the relative density, which do need the friction, are simply not part
 of the packing lookup.
 
+How the packing colours read
+----------------------------
+
+Each packing class has its own colour: a lightness ramp within each soil family,
+so a denser class of a soil is a darker shade of that soil's hue. A band that has
+**no** packing class yet is drawn in a neutral grey and carries the "No CPT"
+badge, telling you it still needs a cone resistance to classify.
+
+.. admonition:: Gravel is the exception
+
+   Gravel is drawn in its own amber even without a packing class, rather than the
+   neutral grey. A CPT cannot penetrate gravel, so a gravel band is *expected* to
+   stay unclassified; painting it the same grey as an unclassified clay band read
+   as a to-do it can never resolve, and the two greys were too close to tell
+   apart. Amber says "this is gravel, and gravel does not classify from a CPT" —
+   not "a CPT is missing here". Every other soil keeps the grey, where an
+   unclassified band genuinely means a CPT has not yet reached it.
+
 The fill follows the same 2 / 1 / 0 rule
 ----------------------------------------
 
