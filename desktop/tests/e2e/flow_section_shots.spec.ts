@@ -113,7 +113,8 @@ async function yOfLevel(page: Page, svgBox: { x: number; width: number }, level:
     const raw = ((await t.textContent().catch(() => '')) ?? '').trim()
     if (!/^-?\d+(\.\d+)?$/.test(raw)) continue
     const box = await t.boundingBox().catch(() => null)
-    if (!box || box.x > svgBox.x + svgBox.width * 0.12) continue
+    // Only the level axis strip at the far left: the CPT headers print bare numbers too (2, 10).
+    if (!box || box.x + box.width > svgBox.x + 90) continue
     ticks.push({ v: Number(raw), y: box.y + box.height / 2 })
   }
   if (ticks.length < 2) return null
