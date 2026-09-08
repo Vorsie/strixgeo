@@ -331,3 +331,38 @@ describe('Ruling 5 — a sand tied to a silt across two columns draws a vertical
     expect(coveredAt(0.6, 2.5), 'the space above the tie past the lens stays empty (no sand flood)').toBe(false)
   })
 })
+
+/*
+ * Ruling 6 — the upper silts on Cross-section 2 lens HORIZONTALLY at their own mid band level.
+ *   Owner (installer #25 dogfeed, 2026-09-08, on the top silts of GEO-19/081-S5 and GEO-20/034-S2,
+ *   both facing the short borehole GEO-61/2891-C): "still unhappy with those upper silts on cs2, why
+ *   do they droop down and not lens horizontally? 0 correlation to the right side for the left test,
+ *   so emit lens at mid band level." A first (top) unit with zero ties whose FACING column is a short
+ *   borehole (its collar sits below the unit) must lens like every other 0-tie unit — a closed loop
+ *   at its OWN mid band level — not ride the ground line down to the short collar.
+ */
+describe('Ruling 6 — the upper silts on Cross-section 2 lens at their own mid band level, they do not droop', () => {
+  const S5_TOP_SILT = '01a07acb-dfce-773b-b24e-84dcddc2a791' // GEO-19/081-S5 u0 SILT, +5.53..+5.29 mTAW
+  const S2_TOP_SILT = '01a07acb-dfe6-7ee8-8a90-29d723155553' // GEO-20/034-S2 u0 SILT, +5.58..+5.24 mTAW
+
+  it('the top silt of GEO-19/081-S5 stays at its own band, it does not droop toward the short borehole (gap1)', () => {
+    const { columns, alongM, edges } = prepare('Cross-section 2')
+    const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
+    const silt = regionsForLayer(g1, S5_TOP_SILT)
+    expect(silt.length, 'the top silt is drawn').toBeGreaterThan(0)
+    // The unit is +5.53..+5.29 mTAW; a horizontal lens at its own mid keeps every vertex in its band.
+    // Before the fix the apex rode the ground line down to +3.76 (the short collar +1.60), well below
+    // the unit's own base +5.29 — the droop the owner points at.
+    const lowest = Math.min(...silt.flatMap((r) => r.polygon.map((p) => p.elevation)))
+    expect(lowest, 'the top silt does not droop below its own base (+5.29)').toBeGreaterThan(5.29 - 0.05)
+  })
+
+  it('the top silt of GEO-20/034-S2 stays at its own band, it does not droop toward the short borehole (gap2)', () => {
+    const { columns, alongM, edges } = prepare('Cross-section 2')
+    const g2 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 2)
+    const silt = regionsForLayer(g2, S2_TOP_SILT)
+    expect(silt.length, 'the top silt is drawn').toBeGreaterThan(0)
+    const lowest = Math.min(...silt.flatMap((r) => r.polygon.map((p) => p.elevation)))
+    expect(lowest, 'the top silt does not droop below its own base (+5.24)').toBeGreaterThan(5.24 - 0.05)
+  })
+})
