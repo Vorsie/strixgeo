@@ -16,6 +16,7 @@ import type { UnsavedWorkSummary } from '../utils/unsavedWorkSummary'
 import NewProjectDialog from './NewProjectDialog'
 import ProjectMetadataDialog from './ProjectMetadataDialog'
 import UnsavedChangesDialog from './UnsavedChangesDialog'
+import ConfirmDialog from './ui/ConfirmDialog'
 import Modal from './ui/Modal'
 import Button from './ui/Button'
 import { useT } from '../i18n/translate'
@@ -61,6 +62,17 @@ export interface AppDialogsProps {
   handleUnsavedSave: () => Promise<void>
   handleUnsavedDiscard: () => void
   handleUnsavedCancel: () => void
+  /**
+   * Force-revert confirmation (owner ruling, installer #26 2026-09-08). Opened
+   * when a Discard is refused because the .strix on disk is not this project's
+   * latest save — instead of trapping the user, it names the file + the loss and
+   * offers a destructive replace-restore or Save. Never a dead end.
+   */
+  forceRevertPromptOpen: boolean
+  forceRevertMessage: string
+  handleForceRevertConfirm: () => Promise<void>
+  handleForceRevertSave: () => Promise<void>
+  handleForceRevertCancel: () => void
   closeConfirmOpen: boolean
   setCloseConfirmOpen: (open: boolean) => void
   closeProject: () => void
@@ -99,6 +111,11 @@ export default function AppDialogs({
   handleUnsavedSave,
   handleUnsavedDiscard,
   handleUnsavedCancel,
+  forceRevertPromptOpen,
+  forceRevertMessage,
+  handleForceRevertConfirm,
+  handleForceRevertSave,
+  handleForceRevertCancel,
   closeConfirmOpen,
   setCloseConfirmOpen,
   closeProject,
@@ -181,6 +198,34 @@ export default function AppDialogs({
         onSave={() => void handleUnsavedSave()}
         onDiscard={handleUnsavedDiscard}
         onCancel={handleUnsavedCancel}
+      />
+      {/* Force-revert confirmation — the way OUT of a refused Discard (owner
+          ruling, installer #26). Cancel is default-focused (docs/ux.md); the
+          destructive "Revert to file and close" is the named danger button;
+          Save is the non-destructive alternative. Replaces the old dead-end
+          that forced a Task-Manager kill. */}
+      <ConfirmDialog
+        open={forceRevertPromptOpen}
+        labelledBy="force-revert-title"
+        title={tr('project.closeForceRevertTitle')}
+        titleTestid="force-revert-title"
+        body={forceRevertMessage}
+        busy={unsavedSaving}
+        onCancel={handleForceRevertCancel}
+        cancelTestid="force-revert-cancel"
+        secondary={{
+          label: tr('common.save'),
+          onClick: () => void handleForceRevertSave(),
+          variant: 'primary',
+          testid: 'force-revert-save',
+        }}
+        confirm={{
+          label: tr('project.closeForceRevertConfirm'),
+          onClick: () => void handleForceRevertConfirm(),
+          variant: 'danger',
+          testid: 'force-revert-confirm',
+        }}
+        testid="force-revert-dialog"
       />
       <Modal
         open={closeConfirmOpen}
