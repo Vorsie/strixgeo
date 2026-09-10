@@ -930,7 +930,7 @@ export const SECTIONS_NL = {
   'sections.canvasToast.bodyDissolved': 'Lichaam ontbonden.',
   'sections.canvasToast.bodyDissolveFailed': 'Lichaam ontbinden mislukt.',
   // Accepted-layer edit / split (installer #21).
-  'sections.canvasToast.compositionUpdated': 'Samenstelling van de laag bijgewerkt.',
+  'sections.canvasToast.compositionUpdated': 'Samenstelling van de laag bijgewerkt: {composition}.',
   'sections.canvasToast.compositionUpdateFailed': 'Kon de samenstelling van de laag niet bijwerken — probeer opnieuw.',
   'sections.canvasToast.layerSplit': 'Laag gesplitst.',
   'sections.canvasToast.layerSplitFailed': 'Kon de laag niet splitsen — het splitspunt ligt mogelijk te dicht bij een grens.',
