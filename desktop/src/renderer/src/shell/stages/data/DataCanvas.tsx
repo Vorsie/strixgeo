@@ -167,10 +167,14 @@ export default function DataCanvas(): JSX.Element {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Map / Chart view-tab switcher — only shown when something is
-          selected in the non-section flow. The section panel (S5) has its
-          own header strip; this tab bar is irrelevant when a section is active. */}
-      {hasSelection && selectedSectionId === null && (
+      {/* Map / Chart view-tab switcher — shown whenever a detail is open.
+          It used to hide while a cross-section was selected (a leftover of
+          the S5 era, when the section panel lived on this canvas), so a
+          detail opened FROM a section — double-click a column, right-click
+          → Open detail — had no way back to the map: Esc lands on the
+          section. Owner 2026-09-10: "there is a chart/map button, it should
+          always be clickable." */}
+      {hasSelection && (
         <div className="flex items-center gap-1 px-3 py-1 border-b border-border-subtle bg-surface-card">
           <ViewTab
             icon={<MapIcon size={13} />}
