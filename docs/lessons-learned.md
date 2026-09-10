@@ -557,3 +557,17 @@ Rule: when a new mutation verb lands, re-read every derived check's exclusion
 list and ask which exclusion the verb has just turned from "cannot happen" into
 "happens silently". A derived check may exclude a case only while no verb can
 produce it.
+
+
+## A dialog must not hand its initial focus to a control that changes a value on a keypress (2026-09-10)
+
+The composition editor let the modal's default focus land on its first control,
+the main-soil dropdown. On a focused native select one ArrowUp moves to the
+option above; Gravel sits directly above Sand. A key meant for the section
+canvas turned a sand piece on a borehole into GRIND, Save wrote it, the toast
+said only "updated.", and two days later the owner met "the seam bug is back":
+a correct gravel|sand contact around a unit he never made. Rule: a dialog's
+initial focus goes to a button (Cancel), never to a select, radio group or
+number field; and a toast that reports a save names the value it saved. The
+regression test asserts document.activeElement on open, because jsdom cannot
+reproduce the key on the select — the focus is the whole mechanism.
