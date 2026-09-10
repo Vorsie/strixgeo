@@ -6,8 +6,8 @@ const PARENT = { formationId: 'f-A', topDepthM: 2, baseDepthM: 8 }
 describe('a packing band must sit inside the litho unit it subdivides', () => {
   it('PF1 — bands within their parent are not stale', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parent: PARENT },
-      { cptId: 'cpt-1', topDepthM: 5, baseDepthM: 8, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parentMissingOnColumn: false, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 5, baseDepthM: 8, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual([])
   })
 
@@ -15,14 +15,14 @@ describe('a packing band must sit inside the litho unit it subdivides', () => {
     // The contact moved to 4 m; the band still claims 2–5 m, so it now pokes
     // into the unit above. Nothing is stored — the overhang IS the staleness.
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parent: { ...PARENT, topDepthM: 4 } },
+      { columnId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parentMissingOnColumn: false, parent: { ...PARENT, topDepthM: 4 } },
     ])).toEqual(['cpt-1'])
   })
 
   it('PF3 — each column is reported once however many bands overhang', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parent: { ...PARENT, topDepthM: 4 } },
-      { cptId: 'cpt-1', topDepthM: 5, baseDepthM: 9, parent: { ...PARENT, topDepthM: 4 } },
+      { columnId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parentMissingOnColumn: false, parent: { ...PARENT, topDepthM: 4 } },
+      { columnId: 'cpt-1', topDepthM: 5, baseDepthM: 9, parentMissingOnColumn: false, parent: { ...PARENT, topDepthM: 4 } },
     ])).toEqual(['cpt-1'])
   })
 
@@ -30,7 +30,7 @@ describe('a packing band must sit inside the litho unit it subdivides', () => {
     // A missing parent is a data-integrity problem, not "re-derive me". Saying
     // stale here would send the engineer to a verb that cannot fix it.
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parent: null },
+      { columnId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parentMissingOnColumn: false, parent: null },
     ])).toEqual([])
   })
 
@@ -41,7 +41,7 @@ describe('a packing band must sit inside the litho unit it subdivides', () => {
   // parent's base, and half the rule was untested.
   it('PF5 — a band hanging below its parent base marks that column stale', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 2, baseDepthM: 9, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 2, baseDepthM: 9, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual(['cpt-1'])
   })
 
@@ -55,25 +55,25 @@ describe('a packing band must sit inside the litho unit it subdivides', () => {
   // Subdivide on ground where nothing has moved — silently, with the suite still green.
   it('PF6 — a top overhang of 1.0 mm is inside the rounding, not staleness', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 1.999, baseDepthM: 5, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 1.999, baseDepthM: 5, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual([])
   })
 
   it('PF7 — a top overhang of 1.2 mm is a real overhang', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 1.9988, baseDepthM: 5, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 1.9988, baseDepthM: 5, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual(['cpt-1'])
   })
 
   it('PF8 — a base overhang of 1.0 mm is inside the rounding, not staleness', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 5, baseDepthM: 8.001, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 5, baseDepthM: 8.001, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual([])
   })
 
   it('PF9 — a base overhang of 1.2 mm is a real overhang', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-1', topDepthM: 5, baseDepthM: 8.0012, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 5, baseDepthM: 8.0012, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual(['cpt-1'])
   })
 
@@ -83,9 +83,9 @@ describe('a packing band must sit inside the litho unit it subdivides', () => {
   // looking at, left to right, so the order has to be the order the bands arrived in.
   it('PF10 — stale columns are reported in the order they are first seen', () => {
     expect(columnsNeedingRederive([
-      { cptId: 'cpt-2', topDepthM: 2, baseDepthM: 5, parent: { ...PARENT, topDepthM: 4 } },
-      { cptId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parent: PARENT },
-      { cptId: 'cpt-1', topDepthM: 5, baseDepthM: 9, parent: PARENT },
+      { columnId: 'cpt-2', topDepthM: 2, baseDepthM: 5, parentMissingOnColumn: false, parent: { ...PARENT, topDepthM: 4 } },
+      { columnId: 'cpt-1', topDepthM: 2, baseDepthM: 5, parentMissingOnColumn: false, parent: PARENT },
+      { columnId: 'cpt-1', topDepthM: 5, baseDepthM: 9, parentMissingOnColumn: false, parent: PARENT },
     ])).toEqual(['cpt-2', 'cpt-1'])
   })
 })
