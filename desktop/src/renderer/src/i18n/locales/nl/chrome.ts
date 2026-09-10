@@ -143,6 +143,12 @@ export const CHROME_NL = {
     'het werk van deze sessie en alles wat sindsdien in het project is opgeslagen ' +
     'definitief.',
   'project.closeForceRevertConfirm': 'Terugzetten naar bestand en sluiten',
+  'project.discardBackupForceRevertTitle': 'Terugzetten naar bestand en back-up verwijderen?',
+  'project.discardBackupForceRevertBody':
+    '{file} is niet de laatste opgeslagen versie van dit project. Toch terugzetten wist ' +
+    'de gecrashte sessie en alles wat sindsdien in het project is opgeslagen definitief; ' +
+    'Annuleren behoudt de back-up.',
+  'project.discardBackupForceRevertConfirm': 'Terugzetten naar bestand en back-up verwijderen',
 
   // -------------------------------------------------------------------------
   // spine + shell
