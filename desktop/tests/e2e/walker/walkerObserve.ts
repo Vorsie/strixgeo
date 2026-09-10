@@ -158,9 +158,19 @@ export async function checkSectionRows(page: Page, projectId: string, step: numb
   // "server has 2 but the view rendered 0" findings from step 28 on, all the
   // rail the walker had closed at step 3.
   const railCollapsed = (await page.getByRole('button', { name: 'Expand inspector' }).count().catch(() => 0)) > 0
+  // Same for the "Cross-sections (n)" group inside the rail: its header is a
+  // button with aria-expanded, and a folded group renders no rows while its
+  // count still names them (run 2026-09-10T17-06, seed 7: 41 findings from
+  // step 114, the group the walker had folded at step 113).
+  const groupFolded =
+    (await page
+      .locator('button[aria-expanded="false"]')
+      .filter({ hasText: /cross-sections/i })
+      .count()
+      .catch(() => 0)) > 0
   return [
     ...checkPhantomRows('section', domIds, apiIds, step),
-    ...checkEmptyView('section', domIds.length, apiIds.length, !railCollapsed, step),
+    ...checkEmptyView('section', domIds.length, apiIds.length, !railCollapsed && !groupFolded, step),
   ]
 }
 
