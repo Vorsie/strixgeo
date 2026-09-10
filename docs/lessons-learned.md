@@ -520,3 +520,22 @@ dependency; `rm` plus `git checkout -- <file>` for a working-copy flip;
 move a corrupt loose object aside and `git fetch --refetch origin`; then
 `git fsck`. Keep the `--group compile` dependency group in every `uv sync`
 on the main tree or the installer's native step loses Nuitka.
+
+
+## A write that can CREATE a row must refetch the list the renderer keys on (2026-09-10)
+
+"Edit composition" repoints an accepted litho layer through a find-or-create on
+(soil, admixtures); when nothing matched it created a new formation row. The
+save refetched the litho layers (which now pointed at the new id) but not the
+formations, and every renderer map that derives from the formation list
+(`lithoSoilByFormationId`, the colour map, the litho unit filter) resolved the
+layer to nothing until the next project open. On the geotech axis that read
+as a black outline around one sand wedge: `lithoOutlineEdges` dissolves an
+edge only when the soil on both sides is known and equal, so an unknown
+formation strokes its whole ring. The owner saw "seams we already fixed";
+nothing in the outline pass had regressed. Rule: when a mutation's backend
+path contains a find-or-CREATE, the renderer handler refetches the created
+kind's list before the rows that reference it, in that order. The accept
+flow already did (`refetchFormations` after accept); the newer verb did not.
+The test is a SectionsCanvas mount that saves the composition and asserts the
+formation refetch, not a test of the outline pass.
