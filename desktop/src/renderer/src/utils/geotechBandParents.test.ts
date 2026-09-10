@@ -8,8 +8,8 @@
 //   BP4  A band that overlaps NO occurrence is still paired (with the first),
 //        because "the contact was dragged clean past it" is the worst kind of
 //        staleness, not an unresolvable parent.
-//   BP5  Borehole-anchored bands are dropped: "Subdivide CPTs" cannot re-derive
-//        a borehole.
+//   BP5  Borehole-anchored bands are paired like a CPT's (owner 2026-09-10 —
+//        a re-composed piece under a borehole's band read as up to date).
 //   BP6  A band whose geotech unit is missing from the roster, or whose unit
 //        names no litho parent, is paired with null.
 //   BP7  A litho row hung off a BOREHOLE is never a CPT band's parent.
@@ -49,14 +49,14 @@ function layer(
   }
 }
 
-/** A litho unit occupying `top`→`base` on `cptId`. */
-function unit(cptId: string, top: number, base: number, formationId = LITHO_FORMATION_ID) {
-  return layer({ cpt_id: cptId, formation_id: formationId, depth_top_m: top, depth_base_m: base })
+/** A litho unit occupying `top`→`base` on `columnId`. */
+function unit(columnId: string, top: number, base: number, formationId = LITHO_FORMATION_ID) {
+  return layer({ cpt_id: columnId, formation_id: formationId, depth_top_m: top, depth_base_m: base })
 }
 
-/** A packing band on `cptId`. */
-function band(cptId: string, top: number, base: number, formationId = GEOTECH_FORMATION_ID) {
-  return layer({ cpt_id: cptId, formation_id: formationId, depth_top_m: top, depth_base_m: base })
+/** A packing band on `columnId`. */
+function band(columnId: string, top: number, base: number, formationId = GEOTECH_FORMATION_ID) {
+  return layer({ cpt_id: columnId, formation_id: formationId, depth_top_m: top, depth_base_m: base })
 }
 
 /** The geotech unit roster: one NAD unit pointing at its litho parent. */
@@ -92,10 +92,11 @@ describe('pairBandsWithLithoParents', () => {
     const paired = pairBandsWithLithoParents([band('cpt-A', 2, 5)], [unit('cpt-A', 2, 8)], ROSTER)
     expect(paired).toEqual([
       {
-        cptId: 'cpt-A',
+        columnId: 'cpt-A',
         topDepthM: 2,
         baseDepthM: 5,
         parent: { formationId: LITHO_FORMATION_ID, topDepthM: 2, baseDepthM: 8 },
+        parentMissingOnColumn: false,
       },
     ])
   })
@@ -140,7 +141,9 @@ describe('pairBandsWithLithoParents', () => {
     expect(paired[0].parent).not.toBeNull()
   })
 
-  it('BP5 — a borehole-anchored band is dropped', () => {
+  it("BP5 — a borehole-anchored band is paired like a CPT's (owner 2026-09-10)", () => {
+    // Boreholes were skipped until the owner re-composed a piece under a
+    // borehole's band and nothing said the column was out of date.
     const boreholeBand = layer({
       cpt_id: null,
       borehole_id: 'bh-1',
@@ -148,9 +151,17 @@ describe('pairBandsWithLithoParents', () => {
       depth_top_m: 2,
       depth_base_m: 10,
     })
-    expect(
-      pairBandsWithLithoParents([boreholeBand], [unit('cpt-A', 2, 8)], ROSTER),
-    ).toEqual([])
+    const boreholeUnit = layer({
+      cpt_id: null,
+      borehole_id: 'bh-1',
+      formation_id: LITHO_FORMATION_ID,
+      depth_top_m: 2,
+      depth_base_m: 8,
+    })
+    const paired = pairBandsWithLithoParents([boreholeBand], [boreholeUnit], ROSTER)
+    expect(paired).toHaveLength(1)
+    expect(paired[0].columnId).toBe('bh-1')
+    expect(paired[0].parent).toEqual({ formationId: LITHO_FORMATION_ID, topDepthM: 2, baseDepthM: 8 })
   })
 
   it('BP6 — an unresolvable geotech unit pairs with null', () => {
