@@ -856,7 +856,9 @@ export const SECTIONS = {
   'sections.canvasToast.bodyDissolved': 'Body dissolved.',
   'sections.canvasToast.bodyDissolveFailed': 'Failed to dissolve body.',
   // Accepted-layer edit / split (installer #21).
-  'sections.canvasToast.compositionUpdated': 'Layer composition updated.',
+  // Names the soil it saved (owner 2026-09-10: a stray key had turned a sand
+  // piece into gravel and the old "updated." said nothing about it).
+  'sections.canvasToast.compositionUpdated': 'Layer composition updated: {composition}.',
   'sections.canvasToast.compositionUpdateFailed': 'Could not update the layer’s composition — try again.',
   'sections.canvasToast.layerSplit': 'Layer split.',
   'sections.canvasToast.layerSplitFailed': 'Could not split the layer — the split point may be too close to a boundary.',
