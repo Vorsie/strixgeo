@@ -75,6 +75,27 @@ export function refusedRevertMessage(filePath: string | null): string {
 }
 
 /**
+ * Body of the force-revert question asked by "Delete backup" in the
+ * crash-recovery prompt (owner 2026-09-10): the same refusal as
+ * :func:`refusedRevertMessage`, but the loss named here is the crashed session
+ * plus the backup, and Cancel keeps the backup.
+ *
+ * Parameters
+ * ----------
+ * filePath : string | null
+ *     The project's file path, or null when it is somehow absent.
+ *
+ * Returns
+ * -------
+ * string
+ *     The dialog body in the active language.
+ */
+export function discardBackupRevertMessage(filePath: string | null): string {
+  const file = filePath === null ? 'the project file' : baseName(filePath)
+  return t('project.discardBackupForceRevertBody', { file })
+}
+
+/**
  * Copy for a Discard whose revert threw.
  *
  * Deliberately distinct from :func:`refusedRevertMessage`: a refusal is a
