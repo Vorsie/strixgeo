@@ -539,3 +539,21 @@ kind's list before the rows that reference it, in that order. The accept
 flow already did (`refetchFormations` after accept); the newer verb did not.
 The test is a SectionsCanvas mount that saves the composition and asserts the
 formation refetch, not a test of the outline pass.
+
+
+## A deliberate exclusion in a derived check turns into a silent gap when a new verb lands (2026-09-10)
+
+The band-fit staleness rule skipped borehole columns on purpose ("Subdivide
+CPTs cannot re-derive a borehole, so naming one sends the engineer to a verb
+that cannot help") and filed a band whose litho parent had no row left on the
+column as "unresolvable, not stale" (a data-integrity problem, re-deriving
+cannot fix it). Both were sound when written. Then Edit composition shipped:
+the owner turned a borehole's sand piece into gravel, the geotech band over it
+kept reading sand, and nothing said the column was out of date, because the
+provenance stamps that were supposed to cover "re-classified" did not exist on
+his legacy model. What he saw was "the seam bug is back" — it was a correct
+contact around a unit he had made, on a column nobody had told him to re-divide.
+Rule: when a new mutation verb lands, re-read every derived check's exclusion
+list and ask which exclusion the verb has just turned from "cannot happen" into
+"happens silently". A derived check may exclude a case only while no verb can
+produce it.
