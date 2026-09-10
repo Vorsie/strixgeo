@@ -14,7 +14,11 @@ single detection point, keyed on the open project's id), `hooks/useRecoveryResto
 restoring" moves the file to a second **declined slot** the autosave scheduler never
 writes, so the next launch offers the same unsaved work again; the prompt's **Discard**
 is the only thing that destroys it. See §4's clearing table for the two deletes that
-implements.
+implements. Discard first replays the last save over the database; when the file on
+disk is NOT this project's latest save that replay is refused and the app **asks**
+("Revert to file and delete backup?", Cancel focused — `utils/discardBackupRevert.ts`)
+instead of toasting a refusal and keeping the backup (owner 2026-09-10: the toast
+was a dead end).
 Load before touching autosave, the recovery file, or the stratigraphy lumping map.
 
 ---
