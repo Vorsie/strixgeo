@@ -236,6 +236,12 @@ test.describe('walker scenario pass', () => {
           reopenCount,
         }
         const plan = decideAction(ctx, seed)
+        // WALKER_TRACE=1: one line per step BEFORE the action, so a run that
+        // hangs (run 14, 2026-09-10: 20 min of silence after a stage switch)
+        // names the step and the control it was on.
+        if (process.env.WALKER_TRACE === '1') {
+          console.log(`[walker] step ${step} stage=${currentStage ?? '?'} ${plan.kind}: ${plan.note}`)
+        }
 
         const beforeConsole = consoleErrors.length
         const beforeBad = badResponses.length
