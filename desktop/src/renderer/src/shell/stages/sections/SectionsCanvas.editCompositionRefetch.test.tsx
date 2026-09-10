@@ -89,5 +89,10 @@ describe('Edit composition — the section must know the unit it just re-compose
     await waitFor(() => expect(mockEditLayerComposition).toHaveBeenCalledTimes(1))
     expect(mockEditLayerComposition.mock.calls[0][2]).toBe('layer-1')
     await waitFor(() => expect(refetchFormations).toHaveBeenCalled())
+    // The toast names the soil it saved (owner 2026-09-10: a stray key had
+    // turned a sand piece into gravel and "updated." said nothing about it).
+    await waitFor(() =>
+      expect(ctx.toasts.toast).toHaveBeenCalledWith('success', expect.stringMatching(/sand|zand/i)),
+    )
   })
 })
