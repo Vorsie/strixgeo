@@ -30,6 +30,10 @@ import BackendFailedModal from './components/BackendFailedModal'
 import BackendUnreachableBanner from './components/BackendUnreachableBanner'
 import BackendRestartingBanner from './components/BackendRestartingBanner'
 import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
+import ConfirmDialog from './components/ui/ConfirmDialog'
+import { usePromiseConfirm } from './hooks/usePromiseConfirm'
+import { revertBeforeDiscardBackup as revertBeforeDiscardBackupDecision } from './utils/discardBackupRevert'
+import { discardBackupRevertMessage } from './utils/closeFlowMessages'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
@@ -685,17 +689,23 @@ export default function App() {
   // anchored replace-restore the close dialog's Discard uses. Returning
   // false keeps the backup — after an aborted revert it is the only
   // remaining record of the session the user asked to erase.
-  const revertBeforeDiscardBackup = useCallback(async (): Promise<boolean> => {
-    const outcome = await revertToLastSaved()
-    if (outcome === 'reverted' || outcome === 'no-snapshot') return true
-    toast(
-      'error',
-      outcome === 'refused-not-latest-save'
-        ? tMsg('project.revertNotLatest')
-        : tMsg('project.revertFailed'),
-    )
-    return false
-  }, [revertToLastSaved, toast])
+  //
+  // When the file on disk is not this project's latest save the revert is
+  // refused; that refusal is ASKED, not toasted (owner 2026-09-10: the toast
+  // was a dead end — "users gaan hierop vloeken"). Same question the close
+  // flow asks since installer #26: revert anyway (named, Cancel focused) or
+  // keep the backup.
+  const discardBackupForceRevert = usePromiseConfirm()
+  const revertBeforeDiscardBackup = useCallback(
+    (): Promise<boolean> =>
+      revertBeforeDiscardBackupDecision({
+        revert: revertToLastSaved,
+        askForceRevert: discardBackupForceRevert.ask,
+        toast,
+        message: tMsg,
+      }),
+    [revertToLastSaved, discardBackupForceRevert.ask, toast],
+  )
 
   // After a successful discard, reload the project from its file so the
   // reverted database state is what the user is looking at — the in-memory
@@ -1536,6 +1546,25 @@ export default function App() {
           onDiscard={() => void discardRecoveryOffer()}
         />
       )}
+      {/* "Delete backup" met a file that is not the latest save: ask instead of
+          refusing (owner 2026-09-10). Cancel is default-focused; the danger
+          button names the loss. */}
+      <ConfirmDialog
+        open={discardBackupForceRevert.open}
+        labelledBy="discard-backup-force-revert-title"
+        title={tMsg('project.discardBackupForceRevertTitle')}
+        titleTestid="discard-backup-force-revert-title"
+        body={discardBackupRevertMessage(projectFilePath)}
+        onCancel={() => discardBackupForceRevert.answer(false)}
+        cancelTestid="discard-backup-force-revert-cancel"
+        confirm={{
+          label: tMsg('project.discardBackupForceRevertConfirm'),
+          onClick: () => discardBackupForceRevert.answer(true),
+          variant: 'danger',
+          testid: 'discard-backup-force-revert-confirm',
+        }}
+        testid="discard-backup-force-revert-dialog"
+      />
       {/* App-level Settings dialog. Lives outside AppDialogs because
           it persists into ``project.view_state`` (per-project sections)
           and localStorage (Appearance) rather than through the metadata
