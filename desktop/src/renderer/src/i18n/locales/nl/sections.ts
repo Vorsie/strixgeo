@@ -144,6 +144,8 @@ export const SECTIONS_NL = {
   'sections.syncGeology': 'Stratigrafie synchroniseren',
   'sections.boreholePreview': 'Voorbeeld boringen',
   'sections.virtueleBoringOverlay': 'Overlay Virtuele Boring',
+  'sections.viewTabMap': 'Kaart',
+  'sections.viewTabSection': 'Profiel',
   'sections.closeView': 'Profielweergave sluiten',
   'sections.closeViewHint': 'Profielweergave sluiten (terug naar de kaart)',
   'sections.resetFraming': 'Weergave terugzetten naar de standaarduitsnede',
