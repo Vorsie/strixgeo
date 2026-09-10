@@ -127,7 +127,9 @@ as cancelled and message boxes with their cancel (else default) button
 Playwright cannot dismiss an OS dialog: before this, a walker click on Export
 Plaxis or Save project blocked the run until the 20-minute test timeout, or
 landed a Save window on the owner's screen when he was at the machine
-(2026-09-10).
+(2026-09-10). External links get the same treatment: `shell.openExternal` logs
+the URL and opens nothing, so a walker click on the map's attribution links
+(Leaflet, OpenStreetMap, Digitaal Vlaanderen) no longer opens Chrome windows.
 
 Findings land in `desktop/tests/e2e/_results/walker/<timestamp>-seed<seed>/findings.md`,
 one section per finding (step number, the last steps as the reproduction, the
