@@ -133,6 +133,14 @@ export const CHROME = {
     "delete this session's work and everything saved to the project since that " +
     'file was written.',
   'project.closeForceRevertConfirm': 'Revert to file and close',
+  // The same question on "Delete backup" in the crash-recovery prompt (owner
+  // 2026-09-10: the refusal toast was a dead end "users gaan hierop vloeken").
+  'project.discardBackupForceRevertTitle': 'Revert to file and delete the backup?',
+  'project.discardBackupForceRevertBody':
+    "{file} is not this project's latest save. Reverting to it anyway permanently " +
+    'deletes the crashed session and everything saved to the project since that ' +
+    'file was written; Cancel keeps the backup.',
+  'project.discardBackupForceRevertConfirm': 'Revert to file and delete backup',
 
   // -------------------------------------------------------------------------
   // spine + shell landmarks — the stage rail down the left edge.
