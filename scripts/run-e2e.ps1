@@ -196,6 +196,13 @@ try {
     if ($uvicorn -and -not $uvicorn.HasExited) {
         Stop-Process -Id $uvicorn.Id -Force -ErrorAction SilentlyContinue
     }
+    # Leave no window behind (owner 2026-09-10: "i want the e2e to leave no
+    # markers on my laptop"). A test that hit its timeout skips Playwright's own
+    # closeApp, so the app under test stays open on the owner's screen. Same
+    # filter as the start-of-run sweep: only Electron processes running from
+    # desktop\node_modules, never the packaged StrixGeo.exe or another app.
+    $left = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.ExecutablePath -like '*\desktop\node_modules\electron\*' }
+    if ($left) { Write-Host "==> closing $($left.Count) e2e electron process(es) left behind"; $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
     # Safe to free :8765 here: we aborted up-front if anything was already on
     # it, so any listener now is the backend WE started (uv may spawn uvicorn
     # as a child, so kill by port to catch the worker too).
