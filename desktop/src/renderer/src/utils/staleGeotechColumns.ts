@@ -6,9 +6,11 @@
  *
  * 1. **Fit** — {@link ../utils/geotechParentFit}: a band pokes out of the litho
  *    unit it subdivides. Derived in the renderer from the layers already
- *    loaded, so it is instant, but it is CPT-only and it can only see a unit
- *    that SHRANK. A unit that grew, was re-classified to another soil, or was
- *    deleted leaves every band still fitting.
+ *    loaded, so it is instant. It judges CPT and borehole bands alike, sees a
+ *    unit that SHRANK (the band overhangs) and, since 2026-09-10, a unit that
+ *    was re-composed to another soil or deleted (the band's parent formation
+ *    no longer occurs on the column). A unit that merely GREW leaves every
+ *    band still fitting.
  * 2. **Provenance** — the server compares the litho digest each column's bands
  *    were stamped with against the litho under it now (`GET
  *    .../geotech/litho-staleness`). Covers boreholes as well as CPTs and every
