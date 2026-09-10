@@ -2160,8 +2160,11 @@ separately, because an export guard has to tell "verified current" from "cannot
 say".
 
 **Two signals, one warning.** `utils/geotechParentFit.columnsNeedingRederive` is
-the older renderer-side check that a band overhangs its litho parent: instant,
-CPT-only, and blind to a unit that grew, was re-classified, or was deleted.
+the renderer-side check: instant, judging CPT and borehole bands alike, and
+catching a band that overhangs its litho parent (the unit shrank) or whose parent
+formation has no row left on the column (the unit was re-composed to another
+soil or deleted — owner 2026-09-10, a sand band over a piece turned to GRIND on
+an unstamped model). It stays blind to a unit that merely grew.
 `utils/staleGeotechColumns.unionStaleGeotechColumns` merges it with the
 provenance answer so the axis draws one amber mark per column
 (`StaleColumnMarkers`) and the toolbar shows one count
