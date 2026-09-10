@@ -90,24 +90,27 @@ function pickOccurrence(
 }
 
 /**
- * Pair every CPT-anchored packing band with the litho unit it subdivides.
+ * Pair every packing band — CPT- or borehole-anchored — with the litho unit it
+ * subdivides.
  *
- * Bands anchored on a BOREHOLE are dropped, not paired. The only consumer is the
- * re-derive prompt on "Subdivide CPTs", and that verb rewrites CPT columns only — a
- * borehole's bands are re-derived by "Divide boreholes". Naming a borehole column would
- * send the engineer to a verb that cannot help it, which is the same reason
- * {@link columnsNeedingRederive} refuses to report an unresolvable parent.
+ * Boreholes were skipped until 2026-09-10 on the argument that "Subdivide CPTs" cannot
+ * re-derive one. Then the owner split a borehole's sand under a silt lens and turned
+ * the top piece to GRIND, and the geotech axis kept reading ZAND·MD with nothing saying
+ * the column was out of date. The mark on the drawing is the point; which verb fixes it
+ * (Subdivide for a CPT, Divide boreholes for a borehole) is the tooltip's job.
  *
- * A band whose parent cannot be resolved — its geotech formation is missing from the
- * roster, carries no `source_litho_formation_id`, or that litho formation has no row on
- * this column — is paired with `null`. The rule downstream treats that as a
- * data-integrity problem rather than staleness.
+ * A band whose geotech formation is missing from the roster or carries no
+ * `source_litho_formation_id` is paired with `null` and `parentMissingOnColumn: false`:
+ * a data-integrity problem the rule downstream does not call stale. A band whose litho
+ * parent formation is known but has no row left on this column is paired with `null`
+ * and `parentMissingOnColumn: true`: the unit was re-composed or deleted, which IS
+ * staleness.
  *
  * @param geotechLayers The committed packing bands of the active geotech model.
  * @param lithoLayers The committed rows of the active litho model.
  * @param geotechFormations The project's geotech unit roster; supplies the link from a
  *   band's formation to the litho formation it subdivides.
- * @returns One entry per CPT-anchored band, ready for {@link columnsNeedingRederive}.
+ * @returns One entry per band, ready for {@link columnsNeedingRederive}.
  */
 export function pairBandsWithLithoParents(
   geotechLayers: readonly LithoLayerResponse[],
@@ -117,8 +120,9 @@ export function pairBandsWithLithoParents(
   // (column, litho formation) → every occurrence of that unit on that column.
   const occurrences = new Map<string, BandParent[]>()
   for (const layer of lithoLayers) {
-    if (layer.cpt_id === null) continue
-    const key = keyOf(layer.cpt_id, layer.formation_id)
+    const columnId = layer.cpt_id ?? layer.borehole_id
+    if (columnId === null) continue
+    const key = keyOf(columnId, layer.formation_id)
     const parent: BandParent = {
       formationId: layer.formation_id,
       topDepthM: layer.depth_top_m,
@@ -135,19 +139,19 @@ export function pairBandsWithLithoParents(
 
   const bands: BandFit[] = []
   for (const layer of geotechLayers) {
-    const cptId = layer.cpt_id
-    if (cptId === null) continue
+    const columnId = layer.cpt_id ?? layer.borehole_id
+    if (columnId === null) continue
     const parentFormationId = parentFormationIdByUnitId.get(layer.formation_id) ?? null
     const candidates =
-      parentFormationId === null ? undefined : occurrences.get(keyOf(cptId, parentFormationId))
+      parentFormationId === null ? undefined : occurrences.get(keyOf(columnId, parentFormationId))
+    const noOccurrence = candidates === undefined || candidates.length === 0
     bands.push({
-      cptId,
+      columnId,
       topDepthM: layer.depth_top_m,
       baseDepthM: layer.depth_base_m,
-      parent:
-        candidates === undefined || candidates.length === 0
-          ? null
-          : pickOccurrence(candidates, layer.depth_top_m, layer.depth_base_m),
+      parent: noOccurrence ? null : pickOccurrence(candidates, layer.depth_top_m, layer.depth_base_m),
+      // Known parent formation, no row of it on the column: re-composed or deleted.
+      parentMissingOnColumn: parentFormationId !== null && noOccurrence,
     })
   }
   return bands
