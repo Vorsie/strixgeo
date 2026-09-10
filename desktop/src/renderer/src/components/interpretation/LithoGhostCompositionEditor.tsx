@@ -128,6 +128,19 @@ export default function LithoGhostCompositionEditor({
   // change. Open-transition gating fixes that without losing the
   // "seed when reopened for a different ghost layer" requirement.
   const wasOpenRef = useRef(false)
+  // Initial focus goes to CANCEL, never to the main-soil <select>. The Modal
+  // otherwise focuses its first control, which is that <select>; on a focused
+  // native select one ArrowUp moves from Sand to Gravel (the option right
+  // above it), so a stray key meant for the canvas rewrote a sand piece on
+  // 1411-GEO-23/126-B4 as GRIND (owner 2026-09-10: "there is no gravel in
+  // that project"). Child effects run before the Modal's own focus effect,
+  // which then sees focus already inside the card and leaves it alone — the
+  // same pre-focus contract ConfirmDialog uses for its Cancel.
+  const footerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    footerRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [open])
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -352,7 +365,10 @@ export default function LithoGhostCompositionEditor({
           </p>
         </div>
 
-        <div className="flex justify-end items-center gap-2 pt-3 border-t border-border-subtle">
+        <div
+          ref={footerRef}
+          className="flex justify-end items-center gap-2 pt-3 border-t border-border-subtle"
+        >
           <Button variant="secondary" size="md" onClick={onCancel}>
             {t('common.cancel')}
           </Button>
