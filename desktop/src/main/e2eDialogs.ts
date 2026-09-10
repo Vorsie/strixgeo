@@ -1,5 +1,6 @@
 /**
- * Native OS dialogs under the e2e harness answer themselves.
+ * Native OS surfaces under the e2e harness: dialogs answer themselves and
+ * external links open nothing.
  *
  * Playwright drives the renderer through CDP and cannot see, let alone
  * dismiss, an OS-level Save / Open / message dialog. The naive-engineer
@@ -99,4 +100,30 @@ export function installE2eDialogStubs(dialog: StubbableDialog, options: E2eDialo
     return response
   }
   log('[e2e] native dialogs stubbed: save/open answer cancelled, message boxes answer cancel/default')
+}
+
+/** The slice of Electron's ``shell`` the external-link handlers call. */
+export interface StubbableShell {
+  openExternal(url: string, ...rest: unknown[]): Promise<void>
+}
+
+/**
+ * Swallow external links under the harness: log the URL, open nothing.
+ *
+ * The walker clicks the map's attribution links (Leaflet, OpenStreetMap,
+ * Digitaal Vlaanderen) like any control, and the external-link handler hands
+ * them to the OS browser — Chrome windows piling up on the owner's screen
+ * during a gate run (2026-09-10: "also stop opening leaflet windows in
+ * chrome"). The handler's decision (allow / deny / external) is unchanged; only
+ * the final ``shell.openExternal`` call is replaced.
+ *
+ * @param shell Electron's ``shell`` (or a fake in tests); mutated in place.
+ * @param options The e2e flag and the log sink.
+ */
+export function installE2eShellStubs(shell: StubbableShell, options: E2eDialogStubOptions): void {
+  if (!options.e2e) return
+  const { log } = options
+  shell.openExternal = async (url: string) => {
+    log(`[e2e] external link suppressed (not opened): ${url}`)
+  }
 }
