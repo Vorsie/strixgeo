@@ -1711,6 +1711,14 @@ export default function SectionsCanvas(): JSX.Element {
           },
         );
         markMutated();
+        // The PATCH may have CREATED the composition unit it repointed the
+        // layer to (find-or-create on soil + admixtures). Until the formation
+        // list carries that row the litho frame resolves the layer to no
+        // soil and strokes its whole ring black on the geotech axis (owner
+        // 2026-09-10, the wedge under B4's silt lens on test.strix), and the
+        // litho axis paints it the fallback colour. Formations first, then
+        // the layers that point at them.
+        await refetchFormations();
         refetchLithoContacts();
         requestBodyRecompute("litho");
         toast("success", t("sections.canvasToast.compositionUpdated"));
@@ -1724,6 +1732,7 @@ export default function SectionsCanvas(): JSX.Element {
       compositionEditTarget,
       project.id,
       markMutated,
+      refetchFormations,
       refetchLithoContacts,
       requestBodyRecompute,
       toast,
