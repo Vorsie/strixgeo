@@ -266,3 +266,26 @@ describe('LithoGhostCompositionEditor', () => {
     expect(screen.getByText(/edit suggestion composition/i)).toBeTruthy()
   })
 })
+
+describe('LithoGhostCompositionEditor — a stray key cannot change the soil (owner 2026-09-10)', () => {
+  // On the packaged build a sand piece on 1411-GEO-23/126-B4 became GRIND
+  // through Edit composition without the owner ever choosing gravel: the
+  // dialog handed keyboard focus to the main-soil dropdown on open, and on a
+  // focused dropdown one ArrowUp moves from Sand to Gravel, the option right
+  // above it. Opening must not focus the soil field; Cancel takes the focus,
+  // as every destructive-capable dialog in the app does.
+  it('E6 — opening focuses Cancel, never the main-soil field', () => {
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
+    expect(document.activeElement).not.toBe(main)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /cancel|annuleren/i }))
+  })
+})
