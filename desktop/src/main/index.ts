@@ -103,6 +103,7 @@ import { activationBlocksLaunch } from './activation'
 import { activationBaseUrl, createActivationRepository } from './activationConfig'
 import { resolveDeviceIdentity } from './deviceIdentity'
 import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
+import { installE2eDialogStubs } from './e2eDialogs'
 import { registerPrototypeIpc } from './prototypeIpc'
 import { checkForUpdatesOnLaunch, configureUpdater } from './updaterService'
 
@@ -1334,6 +1335,12 @@ ipcMain.on('launch:flags', (event) => {
     packaged: app.isPackaged,
   }
 })
+
+// Under the e2e harness (STRIX_E2E, unpackaged only) the native Save / Open /
+// message dialogs answer themselves: Playwright cannot dismiss an OS dialog,
+// so a walker click on Export or Save otherwise blocks the run — or lands the
+// dialog on the owner's screen (2026-09-10). See e2eDialogs.ts.
+installE2eDialogStubs(dialog, { e2e: e2eLaunchFlag(process.env, app.isPackaged), log: writeMainLog })
 
 ipcMain.handle('dialog:open-file', async (_event, filters: Electron.FileFilter[]) => {
   const result = await dialog.showOpenDialog({
