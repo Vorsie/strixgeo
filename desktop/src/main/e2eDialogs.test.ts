@@ -12,7 +12,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { installE2eDialogStubs, type StubbableDialog } from './e2eDialogs'
+import { installE2eDialogStubs, installE2eShellStubs, type StubbableDialog } from './e2eDialogs'
 
 function fakeDialog(): StubbableDialog {
   return {
@@ -58,5 +58,27 @@ describe('native dialogs under the e2e harness', () => {
     installE2eDialogStubs(dialog, { e2e: false, log: vi.fn() })
     expect(dialog.showSaveDialog).toBe(original)
     await expect(dialog.showSaveDialog({})).resolves.toEqual({ canceled: false, filePath: 'C:/real.strix' })
+  })
+})
+
+describe('external links under the e2e harness', () => {
+  // Owner 2026-09-10: "also stop opening leaflet windows in chrome" — the
+  // walker clicks the map's attribution links (Leaflet, OpenStreetMap,
+  // Digitaal Vlaanderen) and the external-link handler opens the OS browser.
+  it('shell.openExternal is logged and swallowed, never opened', async () => {
+    const shell = { openExternal: vi.fn(async (_url: string) => undefined) }
+    const original = shell.openExternal
+    const log = vi.fn()
+    installE2eShellStubs(shell, { e2e: true, log })
+    await shell.openExternal('https://leafletjs.com')
+    expect(original).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/\[e2e\].*external link.*leafletjs\.com/i))
+  })
+
+  it('outside e2e shell.openExternal is left untouched', () => {
+    const shell = { openExternal: vi.fn(async (_url: string) => undefined) }
+    const original = shell.openExternal
+    installE2eShellStubs(shell, { e2e: false, log: vi.fn() })
+    expect(shell.openExternal).toBe(original)
   })
 })
