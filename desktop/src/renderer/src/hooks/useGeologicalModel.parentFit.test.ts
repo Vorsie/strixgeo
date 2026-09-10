@@ -9,14 +9,16 @@
 //   PFH2  A band whose litho parent's top moved BELOW the band top → exactly
 //         that column is reported.
 //   PFH3  The parent is looked up per COLUMN: a litho row for the same
-//         formation on a DIFFERENT column never judges this column's bands.
+//         formation on a DIFFERENT column never judges this column's bands —
+//         and a column with NO row of the band's formation left is out of
+//         date on its own account (the unit was re-composed or deleted).
 //   PFH4  A litho formation that occurs more than once on one column (the norm
 //         on the owner's model — 119 of 199 column/formation pairs) is matched
 //         occurrence by occurrence: each band is judged against the occurrence
 //         it actually overlaps, not against whichever row came last.
-//   PFH5  A borehole-anchored band is never reported — "Subdivide CPTs" cannot
-//         re-derive a borehole, so naming its column would send the engineer to
-//         a verb that cannot help.
+//   PFH5  A borehole-anchored band is judged and reported like a CPT's (owner
+//         2026-09-10: a re-composed piece under a borehole's band read as up to
+//         date); "Divide boreholes" is the verb for it.
 //   PFH6  A band whose litho parent cannot be resolved is not reported (the
 //         rule's own ruling: a data-integrity problem is not staleness).
 //
@@ -345,14 +347,17 @@ describe('columnsNeedingRederive (parent fit, derived from the live layers)', ()
     ).toEqual(['cpt-A'])
   })
 
-  it('PFH3 — the same formation on another column never judges this one', async () => {
+  it('PFH3 — the same formation on another column never judges this one; its own unit gone = out of date', async () => {
     // cpt-A carries the band; the only litho row for its formation is on
-    // cpt-B, where the unit sits far deeper. Matching on formation alone would
-    // compare across columns and report cpt-A as stale; the columns are
-    // separate boreholes in the ground and say nothing about each other.
+    // cpt-B, where the unit sits far deeper. The columns are separate holes in
+    // the ground and say nothing about each other, so cpt-B's depths never
+    // judge cpt-A. But cpt-A has NO row of the band's formation left at all:
+    // the unit the band was derived from is gone (re-composed or deleted), and
+    // that is exactly "out of date" (owner 2026-09-10) — reported for cpt-A on
+    // its own account, never against cpt-B.
     expect(
       await stale([lithoRow('l1', 'cpt-B', 20, 28)], [band('b1', 'cpt-A', 2, 5)]),
-    ).toEqual([])
+    ).toEqual(['cpt-A'])
   })
 
   it('PFH4 — a formation that recurs on one column is matched occurrence by occurrence', async () => {
@@ -369,12 +374,16 @@ describe('columnsNeedingRederive (parent fit, derived from the live layers)', ()
     ).toEqual([])
   })
 
-  it('PFH5 — a borehole band that overhangs is not reported', async () => {
-    // The band hangs 2 m below its parent, but "Subdivide CPTs" re-derives
-    // CPT columns only — a borehole is re-derived by "Divide boreholes".
+  it("PFH5 — a borehole band is judged like a CPT's and reported (owner 2026-09-10)", async () => {
+    // Boreholes were skipped because "Subdivide CPTs" cannot re-derive one.
+    // Then the owner re-composed a piece under a borehole's band and the
+    // geotech axis kept reading the old soil with nothing saying the column
+    // was out of date. The mark is the point; "Divide boreholes" is the verb.
+    // Here bh-1 carries the band and no litho row of its formation: its unit
+    // is gone, so bh-1 is out of date.
     expect(
       await stale([lithoRow('l1', 'cpt-A', 2, 8)], [boreholeBand('b1', 'bh-1', 2, 10)]),
-    ).toEqual([])
+    ).toEqual(['bh-1'])
   })
 
   it('PFH6 — a band whose parent cannot be resolved is not reported', async () => {
