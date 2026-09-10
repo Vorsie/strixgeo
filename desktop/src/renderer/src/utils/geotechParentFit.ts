@@ -55,8 +55,8 @@ export interface BandParent {
 
 /** One packing band, paired with the litho unit it claims to subdivide. */
 export interface BandFit {
-  /** The column the band sits on; the id reported when it is stale. */
-  cptId: string
+  /** The column the band sits on (a CPT or a borehole id); the id reported when it is stale. */
+  columnId: string
   /** The band's top, as it was derived. */
   topDepthM: number
   /** The band's base, as it was derived. */
@@ -65,9 +65,17 @@ export interface BandFit {
    * The unit the band subdivides, or `null` when none could be resolved.
    *
    * A null parent is a data-integrity problem, not "re-derive me" — see
-   * {@link columnsNeedingRederive}.
+   * {@link columnsNeedingRederive} — unless {@link BandFit.parentMissingOnColumn}
+   * says the parent formation simply has no row left on the column.
    */
   parent: BandParent | null
+  /**
+   * The band's litho parent formation is known (roster and link intact) but has no
+   * row left on this column: the engineer re-composed or deleted the unit the band was
+   * derived from (owner 2026-09-10 — B4's sand piece turned to GRIND under a ZAND band).
+   * That IS staleness, and re-deriving the column is what fixes it.
+   */
+  parentMissingOnColumn: boolean
 }
 
 /**
@@ -97,24 +105,30 @@ function overhangs(band: BandFit, parent: BandParent): boolean {
  * nothing is written: the comparison between the bands and the units they subdivide is
  * the whole answer.
  *
- * A band whose parent is `null` is NOT counted. A band with no resolvable unit is a
- * data-integrity problem — a deleted formation, an unmapped body — and re-deriving the
- * column cannot fix it. Reporting it here would send the engineer to a verb that cannot
- * help, and would keep saying so after every attempt.
+ * A band whose parent formation has no row left on its column (`parentMissingOnColumn`)
+ * IS counted: the unit it was derived from was re-composed to another soil or deleted,
+ * and re-deriving the column is exactly what fixes it (owner 2026-09-10 — a sand band
+ * over a piece he had turned to GRIND read as up to date, on a borehole the rule did not
+ * even judge). A band whose parent is `null` for any OTHER reason is NOT counted: a
+ * geotech unit missing from the roster or carrying no litho link is a data-integrity
+ * problem, and reporting it here would send the engineer to a verb that cannot help,
+ * and would keep saying so after every attempt.
  *
  * @param bands Every packing band to judge, each already paired with its current parent.
- *   Bands from many columns may be mixed freely.
- * @returns Each stale column's id, once however many of its bands overhang, in the order
- *   the columns are first seen in `bands`. Empty when everything fits.
+ *   Bands from many columns — CPTs and boreholes alike — may be mixed freely.
+ * @returns Each stale column's id, once however many of its bands are out of date, in
+ *   the order the columns are first seen in `bands`. Empty when everything fits.
  */
 export function columnsNeedingRederive(bands: readonly BandFit[]): string[] {
   const stale: string[] = []
   const seen = new Set<string>()
   for (const band of bands) {
-    if (band.parent === null || seen.has(band.cptId)) continue
-    if (!overhangs(band, band.parent)) continue
-    seen.add(band.cptId)
-    stale.push(band.cptId)
+    if (seen.has(band.columnId)) continue
+    const outOfDate =
+      band.parent === null ? band.parentMissingOnColumn : overhangs(band, band.parent)
+    if (!outOfDate) continue
+    seen.add(band.columnId)
+    stale.push(band.columnId)
   }
   return stale
 }
