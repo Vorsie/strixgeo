@@ -42,6 +42,7 @@ import LithoGeoSnapDialog from "../../../components/LithoGeoSnapDialog";
 import FlaggedTiesPromptDialog from "../../../components/sections/FlaggedTiesPromptDialog";
 import MoveRestatedContactDialog from "../../../components/MoveRestatedContactDialog";
 import { findGeoSnapCandidates } from "../../../utils/lithoGeoSnap";
+import { lithoBaseLabel } from "../../../utils/lithoLabels";
 import { readLithoSegmenterPrefs } from "../../../utils/lithoSegmenterPrefs";
 import { readGeotechSubdivisionPrefs } from "../../../utils/geotechSubdivisionPrefs";
 import { unionStaleGeotechColumns } from "../../../utils/staleGeotechColumns";
@@ -1722,7 +1723,14 @@ export default function SectionsCanvas(): JSX.Element {
         await refetchFormations();
         refetchLithoContacts();
         requestBodyRecompute("litho");
-        toast("success", t("sections.canvasToast.compositionUpdated"));
+        // Name the soil that was saved: an accidental change (a stray key on
+        // the dialog's soil field, 2026-09-10) must be visible, not "updated.".
+        toast(
+          "success",
+          t("sections.canvasToast.compositionUpdated", {
+            composition: lithoBaseLabel(mainSoilCode),
+          }),
+        );
       } catch (err) {
         log.warn("section", "handleSaveLithoComposition: failed", err);
         toast("error", t("sections.canvasToast.compositionUpdateFailed"));
