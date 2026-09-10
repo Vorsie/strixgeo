@@ -22,7 +22,8 @@
 // useShell() and delegates.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Route } from "lucide-react";
+import { Loader2, Map as MapIcon, Route } from "lucide-react";
+import ViewTab from "../../../components/ui/ViewTab";
 
 import { api } from "../../../api/client";
 import { useT } from "../../../i18n/translate";
@@ -2951,6 +2952,31 @@ export default function SectionsCanvas(): JSX.Element {
             render is deliberate — nothing below is React.memo, and skipping
             useMemo removes the stale-dep-array failure mode. See
             SectionScopeContext.tsx. */}
+        {/* Map | Section view tabs — the labelled way back to the map. Owner
+            2026-09-10: "waar is het knopje om terug te gaan naar map view voor
+            cross sections?" — the header's icon-only X was never found. Same
+            strip the Data stage shows for an open detail (ViewTab). */}
+        <div className="flex flex-col h-full w-full">
+          <div
+            className="flex items-center gap-1 px-3 py-1 border-b border-border-subtle bg-surface-card"
+            data-testid="sections-view-tabs"
+          >
+            <ViewTab
+              icon={<MapIcon size={13} />}
+              label={t("sections.viewTabMap")}
+              active={false}
+              onClick={clearSectionSelection}
+              testid="sections-view-tab-map"
+            />
+            <ViewTab
+              icon={<Route size={13} />}
+              label={t("sections.viewTabSection")}
+              active
+              onClick={() => undefined}
+              testid="sections-view-tab-section"
+            />
+          </div>
+          <div className="relative flex-1 min-h-0 min-w-0">
         <SectionScopeContext.Provider
           value={{
             // Phase B (debt #201): the core per-section data slices moved off
@@ -3344,6 +3370,8 @@ export default function SectionsCanvas(): JSX.Element {
             }
           />
         </SectionScopeContext.Provider>
+          </div>
+        </div>
         {/* "Edit composition…" for an ACCEPTED litho layer (installer #21) — the
             SAME editor the pending-ghost menu uses, prefilled from the layer's
             current unit; the main soil code is editable (silt → sand). */}
