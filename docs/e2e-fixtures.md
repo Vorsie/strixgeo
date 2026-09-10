@@ -117,6 +117,17 @@ spec skips. Env knobs:
 - `WALKER_SEED` -- the printed integer seed; set it to replay a finding exactly.
 - `WALKER_STEPS` -- action budget (default 300).
 - `WALKER_TIME_BUDGET_S` -- wall-clock budget in seconds (default 900).
+- `WALKER_TRACE=1` -- one `[walker] step N stage=... kind: note` line per step,
+  printed BEFORE the action, so a run that hangs names the control it was on.
+
+**Native OS dialogs never open under the harness.** `STRIX_E2E` (unpackaged
+only) makes the main process answer `dialog.showSaveDialog` / `showOpenDialog`
+as cancelled and message boxes with their cancel (else default) button
+(`desktop/src/main/e2eDialogs.ts`), logging `[e2e] native ... suppressed`.
+Playwright cannot dismiss an OS dialog: before this, a walker click on Export
+Plaxis or Save project blocked the run until the 20-minute test timeout, or
+landed a Save window on the owner's screen when he was at the machine
+(2026-09-10).
 
 Findings land in `desktop/tests/e2e/_results/walker/<timestamp>-seed<seed>/findings.md`,
 one section per finding (step number, the last steps as the reproduction, the
