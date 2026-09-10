@@ -142,6 +142,11 @@ export const SECTIONS = {
   'sections.virtueleBoringOverlay': 'Virtuele Boring overlay',
   'sections.closeView': 'Close section view',
   'sections.closeViewHint': 'Close section view (back to map)',
+  // Map | Section view tabs above an open section (owner 2026-09-10: "waar is
+  // het knopje om terug te gaan naar map view voor cross sections?") — the
+  // same strip the Data stage shows for a detail.
+  'sections.viewTabMap': 'Map',
+  'sections.viewTabSection': 'Section',
   'sections.resetFraming': 'Reset view to default framing',
   'sections.exitFocus': 'Exit focus mode',
   'sections.exitFocusHint': 'Exit focus mode (Esc)',
