@@ -151,9 +151,16 @@ export async function checkSectionRows(page: Page, projectId: string, step: numb
     .catch(() => null)
   if (apiIds === null) return []
   const domIds = await domIdsFor(page, 'section-row-')
+  // The section rows live in the inspector rail. A collapsed rail (the toggle
+  // then reads "Expand inspector", and the preference survives a reload) is
+  // not an empty view — the map still draws every section — so rows are only
+  // expected while the rail is open. Run 2026-09-10T16-56 (seed 7): 52
+  // "server has 2 but the view rendered 0" findings from step 28 on, all the
+  // rail the walker had closed at step 3.
+  const railCollapsed = (await page.getByRole('button', { name: 'Expand inspector' }).count().catch(() => 0)) > 0
   return [
     ...checkPhantomRows('section', domIds, apiIds, step),
-    ...checkEmptyView('section', domIds.length, apiIds.length, true, step),
+    ...checkEmptyView('section', domIds.length, apiIds.length, !railCollapsed, step),
   ]
 }
 
