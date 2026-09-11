@@ -12,7 +12,7 @@
 // export / delete) gets the affordance for free.
 
 import { ChevronDown, RefreshCw } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type React from 'react'
 
@@ -240,6 +240,16 @@ export interface ToolbarDropdownItem {
    * (hook + dispatcher), and a fill toggled twice is a fill that never moves.
    */
   shortcutHint?: string
+  /**
+   * Small non-interactive heading drawn ABOVE this row, naming the group the
+   * rows from here on belong to ("Model", "Section", "Export").
+   *
+   * Stamped by ``ResponsiveToolbarRow`` on the FIRST row of each group when
+   * the stage declares ``overflowGroups``; a menu whose caller declares none
+   * never carries it and renders exactly as it always has. It is not a menu
+   * item: a keyboard walk skips it and it fires nothing.
+   */
+  groupHeader?: string
 }
 
 /**
@@ -367,38 +377,50 @@ export function PortalMenu({
       aria-label={ariaLabel}
     >
       {items.map((item, i) => (
-        <button
-          key={i}
-          type="button"
-          role="menuitem"
-          disabled={item.disabled}
-          title={item.title}
-          onClick={() => {
-            if (item.disabled) return
-            item.onClick()
-            onClose()
-          }}
-          data-testid={item.testid}
-          className={[
-            'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
-            item.disabled
-              ? 'text-text-muted cursor-not-allowed'
-              : 'text-text-primary hover:bg-surface-page',
-          ].join(' ')}
-        >
-          {item.icon}
-          <span className="flex-1">
-            {item.label}
-            {(item.shortcut ?? item.shortcutHint) && (
-              <span className="text-text-muted"> ({item.shortcut ?? item.shortcutHint})</span>
-            )}
-          </span>
-          {item.tag && (
-            <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">
-              {item.tag}
-            </span>
+        <Fragment key={i}>
+          {item.groupHeader !== undefined && (
+            // role="presentation" keeps it out of the menu's item list: the
+            // heading names the rows below it, it is not one of them.
+            <div
+              role="presentation"
+              data-testid="toolbar-menu-group-header"
+              className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted first:pt-1"
+            >
+              {item.groupHeader}
+            </div>
           )}
-        </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={item.disabled}
+            title={item.title}
+            onClick={() => {
+              if (item.disabled) return
+              item.onClick()
+              onClose()
+            }}
+            data-testid={item.testid}
+            className={[
+              'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
+              item.disabled
+                ? 'text-text-muted cursor-not-allowed'
+                : 'text-text-primary hover:bg-surface-page',
+            ].join(' ')}
+          >
+            {item.icon}
+            <span className="flex-1">
+              {item.label}
+              {(item.shortcut ?? item.shortcutHint) && (
+                <span className="text-text-muted"> ({item.shortcut ?? item.shortcutHint})</span>
+              )}
+            </span>
+            {item.tag && (
+              <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">
+                {item.tag}
+              </span>
+            )}
+          </button>
+        </Fragment>
       ))}
     </div>,
     document.body,
