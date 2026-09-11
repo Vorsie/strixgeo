@@ -172,7 +172,17 @@ export default function SectionsAxisPill({
           token (defined in index.css as --color-text-muted, used in
           SectionsInspector, GeologyInspector, EmptyState, etc.). */}
       {activeLithoModel === null && (
-        <p className="text-xs text-text-muted whitespace-nowrap">
+        // ``min-w-0 truncate`` (not ``whitespace-nowrap``): the hint is the
+        // one toolbar child that is neither a verb nor foldable, so at a
+        // narrow window it used to push the row past its width and the
+        // toolbar answered with a horizontal scroll bar (owner 2026-09-11:
+        // "scroll bar appeared, i dont like that"). Now it gives way first;
+        // the full sentence stays on hover.
+        <p
+          className="text-xs text-text-muted min-w-0 truncate"
+          title={t('sections.toolbar.noLithoModel')}
+          data-testid="sections-no-litho-hint"
+        >
           {t('sections.toolbar.noLithoModel')}
         </p>
       )}
