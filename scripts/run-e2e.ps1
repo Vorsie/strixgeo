@@ -45,10 +45,12 @@ $PlaywrightArgs = $args
 # `.\scripts\run-e2e.ps1 walker` runs it; the default full suite leaves it off.
 # A spec that fails mid-flow can leave the e2e Electron tree alive (2026-09-07: a
 # failed golden kept the suite's localStorage lock for an hour). Only the e2e
-# binary under desktop
-ode_modules is touched; the dev and packaged apps are not.
-$stale = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.ExecutablePath -like '*\desktop
-ode_modules\electron\*' }
+# binary under desktop\node_modules is touched; the dev and packaged apps are not.
+# (2026-09-11: the comment above and the filter below carried a literal line
+# break where "\n" of "\node_modules" should have been -- a heredoc had turned
+# the escape into a newline -- so this sweep never matched and every run
+# printed an "ode_modules is not recognized" error before carrying on.)
+$stale = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.ExecutablePath -like '*\desktop\node_modules\electron\*' }
 if ($stale) { Write-Host "==> killing $($stale.Count) lingering e2e electron process(es)"; $stale | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
 
 if ($PlaywrightArgs -match 'walker') {
