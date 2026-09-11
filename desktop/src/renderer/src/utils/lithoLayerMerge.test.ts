@@ -9,7 +9,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost } from '../hooks/useGeologicalModel'
-import { absorbLithoLayer, applyCrossMergeOnDrag, canMergeAt, mergeLithoLayers } from './lithoLayerMerge'
+import {
+  absorbLithoLayer,
+  absorbThroughLayer,
+  applyCrossMergeOnDrag,
+  canMergeAt,
+  mergeLithoLayers,
+} from './lithoLayerMerge'
 
 function L(top: number, base: number, overrides?: Partial<LithoLayerSuggestion>): LithoLayerSuggestion {
   return {
@@ -553,5 +559,114 @@ describe('applyCrossMergeOnDrag', () => {
     expect(result.edits.get(0)?.depth_top_m).toBe(0)
     // Stale edit on the absorbed pending (idx=0) is gone.
     expect(result.edits.get(0)?.depth_base_m).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Owner dogfeed 2026-09-11 (installer #32) — "a whole suggestion disappeared"
+// ---------------------------------------------------------------------------
+// "i split, renamed (added admixture) then tried to pull up the boundary and
+// then it went wrong ... a whole suggestion disappeared and i can't redo it
+// any more."
+//
+// The drag commit fires TWO edits for a shared boundary: the dragger's own
+// depth, then the partner's ``_propagateOnly`` depth so the partner's facing
+// edge follows the seam. When the first edit absorbs the partner, the second
+// edit's index no longer points at the partner — it points at the MERGED layer.
+// Applying it there sets the merged layer's far edge to the released depth and
+// the suggestion the user just split and renamed collapses to a sliver.
+//
+// SEQ1 / SEQ2 replay the two emissions in order on the pure helpers. The pin is
+// the survivor's thickness: a merge must never make a layer thinner than the
+// two layers it merged.
+
+describe('applyCrossMergeOnDrag — a propagate edit must never collapse the layer it lands on', () => {
+  it('SEQ1 — after an absorb-up, the stale partner propagate leaves the merged layer spanning BOTH layers', () => {
+    // Three layers 0→2, 2→5, 5→8. Drag idx=1's TOP up to 0.05 — inside layer
+    // 0's absorb sliver window (threshold = max(0.1, 0.15 * 2) = 0.3), so the
+    // first edit absorbs layer 0. The commit then fires the partner edit at the
+    // pre-absorb index 0, which is now the merged layer.
+    const g = ghost([L(0, 2), L(2, 5), L(5, 8)])
+    const afterPrimary = applyCrossMergeOnDrag(g, 1, { depth_top_m: 0.05 })
+    expect(afterPrimary.suggestions).toHaveLength(2)
+    const afterPartner = applyCrossMergeOnDrag(afterPrimary, 0, {
+      depth_base_m: 0.05,
+      _propagateOnly: true,
+    })
+    // The merged layer still runs from the absorbed layer's top (0) to its own
+    // base (5) — it did not shrink to a 5 cm sliver and leave a hole behind.
+    const top = afterPartner.edits.get(0)?.depth_top_m ?? afterPartner.suggestions[0].depth_top_m
+    const base = afterPartner.edits.get(0)?.depth_base_m ?? afterPartner.suggestions[0].depth_base_m
+    expect(top).toBeCloseTo(0, 6)
+    expect(base).toBeCloseTo(5, 6)
+  })
+
+  it('SEQ2 — the merged layer keeps the composition the user typed into it', () => {
+    // Same sequence, but the dragger carries the composition edit the user made
+    // in the ghost composition editor (an added admixture). The collapse must
+    // not be able to take the renamed layer off the column.
+    const edits = new Map([
+      [1, {
+        suggested_lithology: 'ZAND',
+        suggested_admixtures: [{ soil_code: 'KH', amount: 'weinig', locally: false }],
+      }],
+    ])
+    const g = ghost([L(0, 2), L(2, 5), L(5, 8)], { edits })
+    const afterPrimary = applyCrossMergeOnDrag(g, 1, { depth_top_m: 0.05 })
+    const afterPartner = applyCrossMergeOnDrag(afterPrimary, 0, {
+      depth_base_m: 0.05,
+      _propagateOnly: true,
+    })
+    expect(afterPartner.edits.get(0)?.suggested_admixtures).toHaveLength(1)
+    const top = afterPartner.edits.get(0)?.depth_top_m ?? afterPartner.suggestions[0].depth_top_m
+    const base = afterPartner.edits.get(0)?.depth_base_m ?? afterPartner.suggestions[0].depth_base_m
+    expect(base - top).toBeGreaterThan(0.5)
+  })
+
+  it('SEQ3 — a propagate edit that would invert a layer (base above its top) is refused', () => {
+    // Defence in depth, independent of which index the commit aimed at: a
+    // propagate that puts a layer's base ABOVE its own top is never a legal
+    // shared-boundary move, so the layer keeps its depths.
+    const g = ghost([L(0, 2), L(2, 5)])
+    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 6, _propagateOnly: true })
+    const top = result.edits.get(1)?.depth_top_m ?? result.suggestions[1].depth_top_m
+    const base = result.edits.get(1)?.depth_base_m ?? result.suggestions[1].depth_base_m
+    expect(base - top).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Structural helpers must never empty an anchor's ghost list
+// ---------------------------------------------------------------------------
+// The same dogfeed: whatever goes wrong mid-gesture, the column must keep its
+// suggestions. A stale index (the class that crashed applyCrossMergeOnDrag in
+// 2026-05-26) must make the helper a no-op, never a wipe and never a throw.
+
+describe('structural helpers — an anchor never loses its whole ghost list', () => {
+  it('GUARD1 — mergeLithoLayers with no lower neighbour returns the ghost unchanged', () => {
+    const g = ghost([L(0, 2), L(2, 5)])
+    expect(() => mergeLithoLayers(g, 1)).not.toThrow()
+    expect(mergeLithoLayers(g, 1)).toBe(g)
+  })
+
+  it('GUARD2 — mergeLithoLayers with an out-of-range index returns the ghost unchanged', () => {
+    const g = ghost([L(0, 2), L(2, 5)])
+    expect(mergeLithoLayers(g, 7)).toBe(g)
+    expect(mergeLithoLayers(g, -1)).toBe(g)
+  })
+
+  it('GUARD3 — absorbLithoLayer with no neighbour in the direction returns the ghost unchanged', () => {
+    const g = ghost([L(0, 2), L(2, 5)])
+    expect(() => absorbLithoLayer(g, 0, 'up')).not.toThrow()
+    expect(absorbLithoLayer(g, 0, 'up')).toBe(g)
+    expect(absorbLithoLayer(g, 1, 'down')).toBe(g)
+  })
+
+  it('GUARD4 — absorbThroughLayer never removes the last remaining layer', () => {
+    // A one-layer anchor has nothing to absorb; the range maths must not be
+    // able to empty the column.
+    const g = ghost([L(0, 2)])
+    expect(absorbThroughLayer(g, 0, 0, 'up')).toBe(g)
+    expect(absorbThroughLayer(g, 0, 0, 'down')).toBe(g)
   })
 })
