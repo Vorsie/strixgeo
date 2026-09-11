@@ -149,12 +149,12 @@ function renderHost(
       setLithoCrossingPinchOuts: vi.fn(),
       ghostsByAnchor: ghosts,
       focusedSuggestAnchorId: ANCHOR_ID,
-      // Deliberately null: the hook's model-change effect calls
-      // clearLithoSuggestions() once on mount, which DELETES the focused
-      // anchor's entry from the Map. With the ref null that effect is a no-op,
-      // so the fixture's seeded column survives to the first act() — which is
-      // the state the section editor is in when the user reaches for the menu.
-      focusedSuggestAnchorIdRef: { current: null },
+      // The focused column, as the section editor has it when the user reaches
+      // for the menu. (Before the 2026-09-11 model-ownership fix this had to be
+      // null: the model effect ran clearLithoSuggestions() on MOUNT and deleted
+      // the focused anchor's entry. Mounting no longer touches the ghosts —
+      // pinned as MS2 in useLithoSuggestions.ghostWorkspace.test.ts.)
+      focusedSuggestAnchorIdRef: { current: ANCHOR_ID },
       lithoSuggestions: initial?.suggestions ?? [],
       lithoSuggestionEdits: new Map(),
       lithoSuggestionRejected: new Set<number>(),
