@@ -19,9 +19,16 @@ import { Undo2 } from 'lucide-react'
 import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import { ToolbarButton } from '../../ToolbarPrimitives'
-import ResponsiveToolbarRow, { type ToolbarItemSpec } from '../../ResponsiveToolbarRow'
+import ResponsiveToolbarRow, {
+  type ToolbarItemSpec,
+  type ToolbarOverflowGroup,
+} from '../../ResponsiveToolbarRow'
 import { useToolbarShortcuts } from '../../useToolbarShortcuts'
-import { AXIS_PILL_COMPACT_PX, AXIS_PILL_FULL_PX } from './sectionsToolbar_constants'
+import {
+  AXIS_PILL_COMPACT_PX,
+  AXIS_PILL_FULL_PX,
+  SECTIONS_OVERFLOW_GROUP,
+} from './sectionsToolbar_constants'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { inCorridorInvestigationIds } from '../../../utils/sectionClassification'
 import type { SectionModelAxis } from '../../../hooks/useSections'
@@ -748,6 +755,9 @@ export default function SectionsToolbar(): JSX.Element {
       priority: 'medium',
       kind: 'button',
       label: t('sections.toolbar.undo'),
+      // Under "Section" in the ⋯ menu: it reverses the last edit made while
+      // this cross-section was open, whichever axis that edit belonged to.
+      overflowGroup: SECTIONS_OVERFLOW_GROUP.section,
       overflowItems: [
         {
           label: t('sections.toolbar.undoHint'),
@@ -922,6 +932,15 @@ export default function SectionsToolbar(): JSX.Element {
   })
 
   const rowItems = [...headItems, ...lithoItems, ...geotechItems, ...tailItems]
+  // The ⋯ menu's three headings, in reading order (owner 2026-09-11: *"the more
+  // menu is too populated"*). The ids are shared with the item builders through
+  // ``SECTIONS_OVERFLOW_GROUP``; only the words are decided here, because only
+  // here is there a translator.
+  const overflowGroups: ToolbarOverflowGroup[] = [
+    { id: SECTIONS_OVERFLOW_GROUP.model, label: t('sections.moreGroup.model') },
+    { id: SECTIONS_OVERFLOW_GROUP.section, label: t('sections.moreGroup.section') },
+    { id: SECTIONS_OVERFLOW_GROUP.export, label: t('sections.moreGroup.export') },
+  ]
   // Bare-key shortcuts for dropdown verbs that declare one (today: the geotech
   // pipeline steps 1-4). Fires whether or not the menu is open; obeys each
   // item's own disabled gate. Display half: "(4)" after the label.
@@ -933,6 +952,7 @@ export default function SectionsToolbar(): JSX.Element {
       <ResponsiveToolbarRow
         items={rowItems}
         overflowMenuLabel={t('sections.moreActions')}
+        overflowGroups={overflowGroups}
       />
       <SectionsToolbarDialogs
         sheetDialogOpen={sheetDialogOpen}
