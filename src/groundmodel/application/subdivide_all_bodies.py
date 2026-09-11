@@ -896,16 +896,18 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
         skipped_empty_plan_count = 0
 
         for group_idx, (group_key, group_segs) in enumerate(groups.items()):
-            body_id_str, source_geo_fid = group_key
+            body_id_str, source_geo_fid, litho_fid_str = group_key
             self.debug(
                 f"[{group_idx + 1}/{len(groups)}] "
                 f"SubdivideAllBodies: body={body_id_str} "
-                f"geo_formation={source_geo_fid} "
+                f"geo_formation={source_geo_fid} litho_formation={litho_fid_str} "
                 f"{len(group_segs)} segment(s)"
             )
 
-            # Identify the litho formation for this group (all segs share one).
-            source_litho_fid = UUID(group_segs[0].formation_id)
+            # The litho formation of this group — part of its key, so a body
+            # that welds two admixture variants of one soil is planned as the
+            # two units it is (owner 2026-09-11, his b13 glauconitic sand).
+            source_litho_fid = UUID(litho_fid_str)
 
             # Collect CPT members of the group.
             cpt_segs = [s for s in group_segs if anchor_kind.get(s.investigation_id) == "cpt"]
