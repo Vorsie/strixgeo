@@ -113,14 +113,29 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         self,
         segments: list[BodyLayerPick],
         geo_surfaces: list[_GeoSurface],
-    ) -> dict[tuple[str, UUID | None], list[BodyLayerPick]]:
-        """Group litho picks by ``(body_id, source_geo_formation_id)``.
+    ) -> dict[tuple[str, UUID | None, str], list[BodyLayerPick]]:
+        """Group litho picks by ``(body_id, source_geo_formation_id, formation_id)``.
 
         The picks arrive WHOLE — nothing has cut them at a geological surface
         since the owner dropped that wall (2026-08-26). This pass is where the
         geological model gets its say, and its say is a LABEL: each pick is
         attributed to the geological unit it mostly lies in
         (:meth:`_geo_formation_at_midpoint`), never divided by one.
+
+        The LITHO FORMATION is part of the key because both presses read the
+        group's first segment as THE litho formation of every band they mint
+        from it, and a body does not identify one: the resolver merges
+        admixture variants of the same soil into a single body
+        (``resolve_litho_instances.same_mass`` — *"Admixture variants of the
+        SAME soil (different formation rows, same litho_main_soil_code) still
+        merge"*).  Owner dogfeed 2026-09-11, borehole GEO-52/110/14-b13: his
+        clean sand and the glauconitic sand below it shared a body, so every
+        band of both took the CLEAN sand's formation; the merge-back then read
+        one litho unit either side of his 14.52 m contact and joined two dense
+        bands straight through it, and the split he had drawn appeared to have
+        moved up to 12.93 m.  A packing band belongs to ONE litho unit,
+        admixture included — the rule the CPT axis has followed since
+        2026-09-07 (seam identity = soil | class | admixture).
 
         Parameters
         ----------
@@ -132,13 +147,15 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
 
         Returns
         -------
-        dict[tuple[str, UUID | None], list[BodyLayerPick]]
-            Keyed by ``(body_id_str, source_geo_formation_id)``.
+        dict[tuple[str, UUID | None, str], list[BodyLayerPick]]
+            Keyed by ``(body_id_str, source_geo_formation_id,
+            litho_formation_id_str)``.  Every pick in a group shares one litho
+            formation, which is what both presses assume of it.
         """
-        groups: dict[tuple[str, UUID | None], list[BodyLayerPick]] = defaultdict(list)
+        groups: dict[tuple[str, UUID | None, str], list[BodyLayerPick]] = defaultdict(list)
         for seg in segments:
             geo_fid = self._geo_formation_at_midpoint(seg, geo_surfaces)
-            groups[(seg.body_id, geo_fid)].append(seg)
+            groups[(seg.body_id, geo_fid, seg.formation_id)].append(seg)
         return dict(groups)
 
     # ------------------------------------------------------------------
