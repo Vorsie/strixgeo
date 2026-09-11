@@ -263,6 +263,30 @@ export default function SectionsInspector(): JSX.Element {
       )}
 
       {/* ------------------------------------------------------------------ */}
+      {/* Representative qc — the note that used to sit at the top of the     */}
+      {/* toolbar's statistic menu, and from there in the ⋯ More menu's rows  */}
+      {/* (owner 2026-09-11: "the more menu is too populated"). It is         */}
+      {/* information about the choice, not a verb, so it reads here; the     */}
+      {/* PICKER stays on the toolbar, where the choice is made before        */}
+      {/* subdividing. No value is repeated here on purpose: the toolbar      */}
+      {/* label is the one read-out, and a second copy could disagree with it */}
+      {/* while a pre-model choice is still parked in the renderer.           */}
+      {/* ------------------------------------------------------------------ */}
+      {sectionModelAxis === 'geotechnical' && (
+        <InspectorSection
+          id="geotech-statistic"
+          label={t('sections.inspector.representativeQc')}
+        >
+          <p
+            className="text-xs text-text-muted px-1"
+            data-testid="sections-inspector-statistic-note"
+          >
+            {t('sections.toolbar.applyNextSubdivide')}
+          </p>
+        </InspectorSection>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
       {/* Borehole packing preview — the hatched-ghost legend + clamped-band  */}
       {/* notice, moved here from the toolbar (owner dogfeed 2026-08-05: the  */}
       {/* prose overflowed the bar). Rendered only while the overlay actually */}
