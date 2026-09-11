@@ -9,7 +9,7 @@ export const SHEET_NL = {
   'sheet.fill.litho': 'Lithologie',
   'sheet.fill.geotech': 'Geotechnisch',
   'sheet.scaleMode': 'Schaal',
-  'sheet.scaleMode.fit': 'Passend op A3-hoogte',
+  'sheet.scaleMode.fit': 'Passend op A3',
   'sheet.scaleMode.explicit': 'Schalen instellen (1:H, 1:V)',
   'sheet.scaleReadout': 'H 1:{hs} · V 1:{vs}',
   'sheet.hScale': 'Horizontaal 1 :',
