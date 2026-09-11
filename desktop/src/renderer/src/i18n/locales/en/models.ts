@@ -436,6 +436,11 @@ export const MODELS = {
     'Suggested {ok}, skipped {skipped} that already have accepted layers.',
   'litho.suggestAllSkippedAllAccepted':
     'Skipped all {total} columns: they already have accepted layers, nothing to suggest.',
+  // Owner dogfeed 2026-09-11: a split / merge / absorb that cannot be honoured
+  // keeps every suggested layer on the column and says so, instead of dropping
+  // them silently.
+  'litho.ghostEditRefused':
+    'That change could not be applied, so the suggested layers were left as they are.',
   'litho.acceptLayersFailed': 'Could not accept litho layers.',
   'litho.acceptedAnchorsInference': 'Accepted {n} {anchorWord} — inference updated.',
   'litho.acceptedAnchors': 'Accepted {n} {anchorWord}.',
