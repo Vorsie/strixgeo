@@ -441,6 +441,17 @@ export const MODELS = {
   // them silently.
   'litho.ghostEditRefused':
     'That change could not be applied, so the suggested layers were left as they are.',
+  // Owner ruling 2026-09-11 ("fix that trap too"): suggestions belong to the
+  // model they were made on. Switching model sets them aside instead of
+  // deleting them, and says so in both directions.
+  'litho.ghostsSetAsideOne':
+    'Set aside 1 column with pending suggestions on {model}. It comes back when that model is active again.',
+  'litho.ghostsSetAsideMany':
+    'Set aside {n} columns with pending suggestions on {model}. They come back when that model is active again.',
+  'litho.ghostsRestoredOne': 'Restored 1 column with pending suggestions on {model}.',
+  'litho.ghostsRestoredMany': 'Restored {n} columns with pending suggestions on {model}.',
+  'litho.ghostUndoOtherModel':
+    'That step belongs to the suggestions on another model. Switch back to that model to undo it there.',
   'litho.acceptLayersFailed': 'Could not accept litho layers.',
   'litho.acceptedAnchorsInference': 'Accepted {n} {anchorWord} — inference updated.',
   'litho.acceptedAnchors': 'Accepted {n} {anchorWord}.',
