@@ -88,23 +88,20 @@ export interface GeotechToolbarItemsDeps {
   exitCorrelateMode: UseSectionsResult['exitCorrelateMode']
 }
 
-/** The "qc: <statistic>" dropdown menu. */
-export function buildGeotechStatisticMenuItems(
+/**
+ * The statistic PICKER rows — the four tokens, and nothing else.
+ *
+ * Split out of the menu below because the ⋯ More menu takes these rows but not
+ * the explanatory note above them (owner 2026-09-11: the note is information,
+ * not a verb; it reads in the Sections inspector instead).
+ */
+export function buildGeotechStatisticPickerItems(
   deps: GeotechToolbarItemsDeps,
 ): ToolbarDropdownItem[] {
   const { t, isGeotech, geotechStatistic, handleSetGeotechStatistic } = deps
   // Built only on the geotech axis: these initialisers read
   // axis-scoped state the other axes never populate.
   return !isGeotech ? [] : [
-              {
-                // Stated inside the menu as well as in the tooltip. A tooltip is not
-                // read before a click, and the one thing that surprises here is that
-                // picking a statistic changes NOTHING on screen by itself.
-                label: t('sections.toolbar.applyNextSubdivide'),
-                disabled: true,
-                testid: 'geotech-statistic-note',
-                onClick: () => {},
-              },
               // NOT gated on the geotech model existing (owner 2026-08-15:
               // "i can't choose harmonic qc before first subdivide, that's
               // friction we don't need?"). Before step 1 there is no row to
@@ -123,6 +120,26 @@ export function buildGeotechStatisticMenuItems(
                 testid: `geotech-statistic-${token}`,
                 onClick: () => handleSetGeotechStatistic(token),
               })),
+            ]
+}
+
+/** The "qc: <statistic>" dropdown menu — the note, then the picker rows. */
+export function buildGeotechStatisticMenuItems(
+  deps: GeotechToolbarItemsDeps,
+): ToolbarDropdownItem[] {
+  const { t, isGeotech } = deps
+  const picker = buildGeotechStatisticPickerItems(deps)
+  return !isGeotech ? [] : [
+              {
+                // Stated inside the menu as well as in the tooltip. A tooltip is not
+                // read before a click, and the one thing that surprises here is that
+                // picking a statistic changes NOTHING on screen by itself.
+                label: t('sections.toolbar.applyNextSubdivide'),
+                disabled: true,
+                testid: 'geotech-statistic-note',
+                onClick: () => {},
+              },
+              ...picker,
             ]
 }
 
