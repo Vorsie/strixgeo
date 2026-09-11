@@ -630,27 +630,69 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [],
   )
 
+  /**
+   * Report a ghost transform the pure helper REFUSED.
+   *
+   * Every structural helper returns the same ghost object (by identity) when it
+   * cannot honour the request — a stale index, a missing neighbour, a range
+   * that would empty the column, or a shared-boundary propagation that would
+   * collapse the layer it lands on. Refusing keeps the layers, but a silent
+   * refusal is how the owner's 2026-09-11 dogfeed became a mystery, so every
+   * one of them says so.
+   *
+   * @param verb Which gesture was refused (log detail).
+   * @param anchorId The anchor whose ghost column was left unchanged.
+   * @param detail Index / direction detail for the log line.
+   * @param userFacing Whether to raise a toast — true for gestures the user
+   *   deliberately invoked from a menu, false for internal drag follow-ups
+   *   where the visible half of the gesture did land.
+   */
+  const reportRefusedGhostEdit = useCallback(
+    (verb: string, anchorId: string, detail: string, userFacing: boolean): void => {
+      log.warn(
+        'geology',
+        `litho ghost ${verb} refused on anchor=${anchorId} ${detail} — layers kept unchanged`,
+      )
+      if (userFacing) toast('warning', t('litho.ghostEditRefused'))
+    },
+    [toast],
+  )
+
   const handleEditBulkLitho = useCallback(
     (
       anchorId: string,
       idx: number,
       edit: LithoSuggestionEdit,
     ): void => {
+      // Refusal pre-check on the render's snapshot. It has to happen OUTSIDE
+      // the updater: a setState updater must stay pure (StrictMode runs it
+      // twice), so it can neither log nor toast.
+      const snapshot = ghostsByAnchor.get(anchorId)
+      if (snapshot !== undefined && applyCrossMergeOnDrag(snapshot, idx, edit) === snapshot) {
+        reportRefusedGhostEdit(
+          'depth/composition edit',
+          anchorId,
+          `idx=${idx} propagateOnly=${edit._propagateOnly === true}`,
+          false,
+        )
+      }
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         // applyCrossMergeOnDrag detects whether the depth edit crossed a
         // pending neighbour's boundary (plain-drag cross-merge — no Shift
-        // required). When a cross occurred it returns absorbLithoLayer's
+        // required). When a cross occurred it returns absorbThroughLayer's
         // result (neighbour removed, dragger extended); when not, it
         // returns a plain depth-edit ghost identical to the prior merge.
+        // When it REFUSES it returns ``existing`` — the layers stay put.
         const updated = applyCrossMergeOnDrag(existing, idx, edit)
+        if (updated === existing) return prev
         const next = new Map(prev)
         next.set(anchorId, updated)
         return next
       })
     },
-    [],
+    [ghostsByAnchor, reportRefusedGhostEdit],
   )
 
   /**
@@ -696,16 +738,22 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // splitLithoLayer; the hook only plugs it into setGhostsByAnchor.
   const handleSplitLithoLayer = useCallback(
     (anchorId: string, idx: number): void => {
+      const snapshot = ghostsByAnchor.get(anchorId)
+      if (snapshot !== undefined && splitLithoLayer(snapshot, idx) === snapshot) {
+        reportRefusedGhostEdit('split', anchorId, `idx=${idx}`, true)
+        return
+      }
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         const updated = splitLithoLayer(existing, idx)
+        if (updated === existing) return prev
         const next = new Map(prev)
         next.set(anchorId, updated)
         return next
       })
     },
-    [],
+    [ghostsByAnchor, reportRefusedGhostEdit],
   )
 
   // Debt #102: merge two adjacent same-lithology pending layers into
@@ -714,16 +762,22 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // the action when canMergeAt returns true.
   const handleMergeLithoLayers = useCallback(
     (anchorId: string, upperIdx: number): void => {
+      const snapshot = ghostsByAnchor.get(anchorId)
+      if (snapshot !== undefined && mergeLithoLayers(snapshot, upperIdx) === snapshot) {
+        reportRefusedGhostEdit('merge', anchorId, `upperIdx=${upperIdx}`, true)
+        return
+      }
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         const updated = mergeLithoLayers(existing, upperIdx)
+        if (updated === existing) return prev
         const next = new Map(prev)
         next.set(anchorId, updated)
         return next
       })
     },
-    [],
+    [ghostsByAnchor, reportRefusedGhostEdit],
   )
 
   // Dogfeed 2026-05-25: Shift+drag absorb gesture. Mirrors
@@ -731,16 +785,30 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // index-shift math; the drag handler gates on cursor past midpoint.
   const handleAbsorbLithoLayer = useCallback(
     (anchorId: string, draggerIdx: number, direction: 'up' | 'down'): void => {
+      const snapshot = ghostsByAnchor.get(anchorId)
+      if (
+        snapshot !== undefined &&
+        absorbLithoLayer(snapshot, draggerIdx, direction) === snapshot
+      ) {
+        reportRefusedGhostEdit(
+          'absorb',
+          anchorId,
+          `draggerIdx=${draggerIdx} direction=${direction}`,
+          true,
+        )
+        return
+      }
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         const updated = absorbLithoLayer(existing, draggerIdx, direction)
+        if (updated === existing) return prev
         const next = new Map(prev)
         next.set(anchorId, updated)
         return next
       })
     },
-    [],
+    [ghostsByAnchor, reportRefusedGhostEdit],
   )
 
   // Left-click on the LITHO axis creates a zero-thickness ghost layer
