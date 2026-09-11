@@ -206,6 +206,63 @@ describe('useBoundaryDrag lifecycle', () => {
     expect(h.onEdit).toHaveBeenCalledTimes(1)
   })
 
+  // BD9 / BD10 — owner dogfeed 2026-09-11, installer #32: "i split, renamed
+  // (added admixture) then tried to pull up the boundary and then it went
+  // wrong ... a whole suggestion disappeared".
+  //
+  // The parent reducer absorbs a neighbour as soon as the released edge has
+  // eaten it down to a SLIVER (absorbRemainderThresholdM: 10 cm, or 15 % of the
+  // neighbour's thickness). handleUp's own "will the partner be absorbed?"
+  // prediction only looked for a FULL cross (released AT or past the far edge).
+  // Between those two rules sits a window at least 10 cm wide in which the
+  // reducer absorbs the partner AND handleUp still fires the partner's
+  // shared-boundary propagate edit — at an index the absorb has just shifted,
+  // which is now the merged layer itself. The merged layer's base is set to the
+  // released depth, collapsing the suggestion the user just split and renamed
+  // down to a sliver: it disappears from the column and leaves a hole.
+  //
+  // The pin: releasing anywhere the reducer would absorb must suppress the
+  // partner edit, exactly as BD8 pins for the full-cross case.
+
+  it('BD9: a top drag that stops a few cm short of the partner far edge still absorbs, so the partner propagate edit is suppressed', () => {
+    // s0 top=0 base=2 (the neighbour above), s1 top=2 base=5 (the dragger).
+    // Absorb threshold for s0 = max(0.1, 0.15 * 2) = 0.3 m, so releasing the
+    // dragged TOP at 0.05 m absorbs s0 in the reducer. The drag is clamped at
+    // s0's far edge (0), so 0.05 is a perfectly ordinary release depth.
+    const h = renderHarness({
+      suggestions: [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 5 }),
+      ],
+    })
+    startDrag(h, { idx: 1, edge: 'top', initialDepthM: 2, boundsAboveM: 0, boundsBelowM: 5 })
+    moveToDepth(0.05, 2)
+    releaseMouse()
+
+    expect(h.onEdit).toHaveBeenCalledWith(1, { depth_top_m: expect.closeTo(0.05, 6) })
+    expect(h.onEdit).not.toHaveBeenCalledWith(0, expect.anything())
+    expect(h.onEdit).toHaveBeenCalledTimes(1)
+  })
+
+  it('BD10: a base drag that stops a few cm short of the partner far edge also suppresses the partner propagate edit', () => {
+    // Mirror of BD9 downward. s0 top=0 base=2 (dragger), s1 top=2 base=4
+    // (neighbour below). Threshold for s1 = max(0.1, 0.15 * 2) = 0.3 m, so
+    // releasing the dragged BASE at 3.95 m absorbs s1 in the reducer.
+    const h = renderHarness({
+      suggestions: [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+    })
+    startDrag(h, { idx: 0, edge: 'base', initialDepthM: 2, boundsAboveM: 0, boundsBelowM: 4 })
+    moveToDepth(3.95, 2)
+    releaseMouse()
+
+    expect(h.onEdit).toHaveBeenCalledWith(0, { depth_base_m: expect.closeTo(3.95, 6) })
+    expect(h.onEdit).not.toHaveBeenCalledWith(1, expect.anything())
+    expect(h.onEdit).toHaveBeenCalledTimes(1)
+  })
+
   it('BD3: mouseup clears the live drag state', () => {
     const h = renderHarness()
     startDrag(h, { idx: 0, edge: 'base', initialDepthM: 4 })
