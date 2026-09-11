@@ -24,6 +24,12 @@ export const SECTIONS_NL = {
   'sections.properties': 'Eigenschappen van het profiel',
   'sections.modelActions': 'Modelacties',
   'sections.moreActions': 'Meer profielacties',
+  // Koppen van het ⋯ Meer-menu. "Model" en "Export" zijn in het BE-Nederlands
+  // dezelfde woorden als in het Engels (zie INTENTIONALLY_IDENTICAL in
+  // localeParity.test.ts); "Section" wordt "Profiel", zoals overal elders.
+  'sections.moreGroup.model': 'Model',
+  'sections.moreGroup.section': 'Profiel',
+  'sections.moreGroup.export': 'Export',
   'sections.geoVerbHint':
     'Schakel naar de stratigrafie-as — Bouwen / Vullen / Ontdubbelen / Plaxis-3D werken op het stratigrafisch model',
   'sections.undoTitle': 'Maak de laatste modelbewerking ongedaan (Ctrl+Z)',
@@ -56,6 +62,7 @@ export const SECTIONS_NL = {
   'sections.inspector.noCrossSectionForContact':
     'Geen enkel dwarsprofiel bevat de betreffende laaggrens — teken er een door de boring of sondering om ze te bekijken.',
   'sections.inspector.staleBadge': '{n} verouderd',
+  'sections.inspector.representativeQc': 'Representatieve qc',
   'sections.inspector.geologicalModel': 'Stratigrafisch model',
   'sections.inspector.previewLegend':
     'Gearceerde banden = voorbeeld. Rechtsklik een ghost-kolom om enkel die boring te verdelen, of druk op “4 · Boringen verdelen” om ze allemaal vast te leggen.',
