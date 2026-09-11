@@ -45,6 +45,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -64,6 +65,8 @@ import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import type { ContactDragRelease } from './geotechSnapTargets'
 import { UnitStatisticsItem } from './unitStatisticsMenuItem'
+import type { ColumnMenuVerb } from './columnMenuVerbs'
+import { lithoMenuTargetAt } from './lithoMenuTargetAt'
 import { useMenuDismissOnZoomOrEsc } from './useMenuDismiss'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
@@ -477,6 +480,25 @@ interface Props {
    * names its own layer).
    */
   onSplitLithoLayer?: (layerId: string, depthM: number) => void
+  /**
+   * The COLUMN verbs of the test the litho menu was opened on — the rows that
+   * head the merged menu (owner dogfeed 2026-09-11, verbatim: "i get two
+   * different menus if i right click once or right click twice, can't we just
+   * merge them in one dropdown menu on right click????").
+   *
+   * WHY A CALLBACK and not a plain array: the verbs are per-test (focus THIS
+   * test, hide THIS column), and which test the menu belongs to is only known
+   * once the engineer right-clicks. The section owns the handlers (focus mode,
+   * the detail route, the exclude PATCH), so it hands down a resolver and this
+   * layer only renders what comes back.
+   *
+   * Absent → the menu opens with its litho verbs alone, exactly as before.
+   */
+  columnMenuVerbs?: (anchor: {
+    kind: 'cpt' | 'borehole'
+    id: string
+    name: string
+  }) => readonly ColumnMenuVerb[]
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -709,6 +731,17 @@ const LITHO_MENU_ITEM_BASE_STYLE: CSSProperties = {
 // The menu-item divider (used to set apart the danger Remove verb and the
 // navigate-away Unit statistics jump from the edit verbs above them).
 const LITHO_MENU_ITEM_DIVIDER = '1px solid var(--color-border-default, #334155)'
+// Upper bound on the menu's own height in px — header + up to four column
+// verbs + the group rule + up to four unit verbs, at ~29 px a row.
+//
+// WHY A CONSTANT rather than a measurement: the menu opens AT the cursor, so a
+// measure-then-reposition pass would show it in the wrong place for one frame.
+// The bound is only consulted to decide whether the menu still fits below the
+// pointer; over-estimating flips it upward slightly earlier near the bottom
+// screen edge, which is the harmless direction. It became load-bearing when the
+// column verbs joined the menu (owner 2026-09-11) and roughly doubled its
+// height — before that the four rows nearly always fit.
+const LITHO_MENU_MAX_HEIGHT_PX = 300
 
 export default function ContactsLayer({
   contacts: rawContacts,
@@ -751,6 +784,7 @@ export default function ContactsLayer({
   lithoBodyIdByLayerId,
   onEditLithoComposition,
   onSplitLithoLayer,
+  columnMenuVerbs,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -816,6 +850,12 @@ export default function ContactsLayer({
     isCoupledToGeo?: boolean
   } | null>(null)
 
+  // The layer's own root group — its ``ownerSVGElement`` is how the dismiss
+  // backdrop (which is portalled OUT of the SVG, into document.body) converts a
+  // viewport point back into canvas coordinates when it re-resolves a second
+  // right-click.
+  const rootGRef = useRef<SVGGElement | null>(null)
+
   // Pending-delete confirmation state (debt #62 item 1). Set when the
   // user picks "Delete contact" from the context menu; the dialog
   // renders while non-null. Replaces the prior naked window.confirm
@@ -839,6 +879,15 @@ export default function ContactsLayer({
         mode: 'remove'
         contactId: string
         formationName: string
+        /**
+         * The TEST the clicked band stands on. Carried since the merged menu
+         * (owner 2026-09-11) heads its rows with that test's column verbs —
+         * both menus now answer one right-click, so both need to know which
+         * column the engineer aimed at.
+         */
+        anchorKind: 'cpt' | 'borehole'
+        anchorId: string
+        anchorName: string
         /** The band's litho unit — what the statistics jump is scoped to (R1). */
         formationId: string
         /** The band's resolver body (body-scope ruling 2026-08-27); null when unknown. */
@@ -1464,6 +1513,89 @@ export default function ContactsLayer({
   // never drift apart in behaviour (extract-on-second-copy).
   type PerColumnLithoBand = (typeof perColumnLithoBands)[number]
 
+  /**
+   * The menu payload for a right-click on one accepted-unit band.
+   *
+   * Shared by the band's own right-click AND by the dismiss backdrop's
+   * re-resolve (owner 2026-09-11): the second right-click must open the SAME
+   * menu the first did, which is only true by construction if both build the
+   * state here.
+   *
+   * @param band - The band under the pointer.
+   * @param clientX - Pointer x in viewport coordinates (where the menu opens).
+   * @param clientY - Pointer y in viewport coordinates.
+   * @param svgTop - Top of the section SVG in viewport coordinates; the click
+   *   depth is measured against the band's own axis from it.
+   * @returns The ``remove``-mode menu state.
+   */
+  function bandMenuStateFor(
+    band: PerColumnLithoBand,
+    clientX: number,
+    clientY: number,
+    svgTop: number | null,
+  ): Extract<NonNullable<typeof lithoBandMenu>, { mode: 'remove' }> {
+    // Click depth below the column surface (m), mm-rounded to the stored
+    // precision — the split point for "Split here". Mirrors the left-click
+    // "Insert" gesture's depth math (svg-Y → depth via the band's own axis);
+    // getBoundingClientRect returns 0s in jsdom, which still yields a valid
+    // (test-stable) number. Falls back to the band top when the SVG root is
+    // missing.
+    const svgY = svgTop === null ? band.anchorSurfaceY : clientY - svgTop
+    const rawDepthM = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
+    return {
+      clientX,
+      clientY,
+      mode: 'remove',
+      contactId: band.contactId,
+      formationName: band.formationName,
+      anchorKind: band.anchorKind,
+      anchorId: band.anchorId,
+      anchorName: band.anchorName,
+      formationId: band.formationId,
+      // The contact id IS the layer id, so the body map keys on it.
+      bodyId: lithoBodyIdByLayerId?.get(band.contactId) ?? null,
+      depthM: Math.round(rawDepthM * 1000) / 1000,
+    }
+  }
+
+  /**
+   * The menu payload for a right-click on a column where no accepted-unit band
+   * covers the pointer — the "Add new suggestion here" escape.
+   *
+   * Shared by the per-column capture rect AND the dismiss backdrop's
+   * re-resolve, for the same reason as ``bandMenuStateFor``.
+   *
+   * @param col - The column card under the pointer.
+   * @param clientX - Pointer x in viewport coordinates.
+   * @param clientY - Pointer y in viewport coordinates.
+   * @param svgY - Pointer y in SVG coordinates (the depth axis's own space).
+   * @returns The ``add``-mode menu state, or ``null`` when the column has no
+   *   usable depth axis or the pointer sits above the collar.
+   */
+  function addMenuStateFor(
+    col: PlacedColumn,
+    clientX: number,
+    clientY: number,
+    svgY: number,
+  ): Extract<NonNullable<typeof lithoBandMenu>, { mode: 'add' }> | null {
+    const item = col.proj.item as { id: string; name: string; elevation_m: number | null }
+    if (item.elevation_m === null) return null
+    const surface = surfaceYForColumn(col, levelToScreen)
+    if (surface.surfaceElevationM === null || surface.pxPerMetre === 0) return null
+    const depth = (svgY - surface.surfaceY) / surface.pxPerMetre
+    if (depth < 0) return null
+    return {
+      clientX,
+      clientY,
+      mode: 'add',
+      anchorKind: col.kind,
+      anchorId: item.id,
+      anchorName: item.name,
+      elevationM: item.elevation_m,
+      depth_m: depth,
+    }
+  }
+
   function lithoBandContextMenuHandler(
     band: PerColumnLithoBand,
   ): ((e: ReactMouseEvent<SVGRectElement>) => void) | undefined {
@@ -1482,28 +1614,10 @@ export default function ContactsLayer({
     return e => {
       e.preventDefault()
       e.stopPropagation()
-      // Click depth below the column surface (m), mm-rounded to the stored
-      // precision — the split point for "Split here". Mirrors the left-click
-      // "Insert" gesture's depth math (svg-Y → depth via the band's own axis);
-      // getBoundingClientRect returns 0s in jsdom, which still yields a valid
-      // (test-stable) number. Falls back to the band top when the SVG root is
-      // missing.
-      const svg = e.currentTarget.ownerSVGElement
-      const svgRect = svg?.getBoundingClientRect()
-      const svgY = svgRect ? e.clientY - svgRect.top : band.anchorSurfaceY
-      const rawDepthM = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
-      const depthM = Math.round(rawDepthM * 1000) / 1000
-      setLithoBandMenu({
-        clientX: e.clientX,
-        clientY: e.clientY,
-        mode: 'remove',
-        contactId: band.contactId,
-        formationName: band.formationName,
-        formationId: band.formationId,
-        // The contact id IS the layer id, so the body map keys on it.
-        bodyId: lithoBodyIdByLayerId?.get(band.contactId) ?? null,
-        depthM,
-      })
+      const svgRect = e.currentTarget.ownerSVGElement?.getBoundingClientRect()
+      setLithoBandMenu(
+        bandMenuStateFor(band, e.clientX, e.clientY, svgRect ? svgRect.top : null),
+      )
     }
   }
 
@@ -2573,9 +2687,66 @@ export default function ContactsLayer({
     }
   }
 
+  // (a) of the merged menu: the column verbs for the test the open menu belongs
+  // to. Empty when the section wired none — the menu then reads exactly as it
+  // did before the merge.
+  const menuColumnVerbs: readonly ColumnMenuVerb[] =
+    lithoBandMenu && columnMenuVerbs
+      ? columnMenuVerbs({
+          kind: lithoBandMenu.anchorKind,
+          id: lithoBandMenu.anchorId,
+          name: lithoBandMenu.anchorName,
+        })
+      : []
+
+  /**
+   * Right-click while the menu is open: re-aim the gesture at the surface the
+   * dismiss backdrop is covering.
+   *
+   * The pointer is over the backdrop, so the browser cannot hit-test the band
+   * beneath it — ``lithoMenuTargetAt`` does that from the same geometry the
+   * bands and the capture rect were rendered from. A hit re-opens the same menu
+   * at the new position (owner: "a second right-click just re-opens the same
+   * menu"); a miss dismisses and lets the event travel on, exactly as a
+   * right-click on empty canvas does with no menu open.
+   *
+   * @param e - The backdrop's contextmenu event.
+   */
+  function handleMenuBackdropContextMenu(e: ReactMouseEvent<HTMLDivElement>): void {
+    e.preventDefault()
+    const svgRect = rootGRef.current?.ownerSVGElement?.getBoundingClientRect()
+    const svgTop = svgRect ? svgRect.top : null
+    const target = lithoMenuTargetAt({
+      bands: perColumnLithoBands,
+      columns: placedColumns,
+      svgX: e.clientX - (svgRect ? svgRect.left : 0),
+      svgY: e.clientY - (svgTop ?? 0),
+      plotTop,
+      plotBottom,
+    })
+    if (target === null) {
+      setLithoBandMenu(null)
+      return
+    }
+    // A hit is this menu's own gesture — never let it reach the section's
+    // catch-all, which would open a second, different menu.
+    e.stopPropagation()
+    if (target.kind === 'band') {
+      setLithoBandMenu(bandMenuStateFor(target.band, e.clientX, e.clientY, svgTop))
+      return
+    }
+    if (!onRequestAddLithoSuggestion) {
+      setLithoBandMenu(null)
+      return
+    }
+    setLithoBandMenu(
+      addMenuStateFor(target.column, e.clientX, e.clientY, e.clientY - (svgTop ?? 0)),
+    )
+  }
+
   return (
     <>
-    <g>
+    <g ref={rootGRef}>
       {/* ---- Geological backdrop (litho axis only) ----------------
           Read-only slice-of-TIN for the reference geological model,
           rendered BEFORE the active litho layer so the geological
@@ -2719,18 +2890,9 @@ export default function ContactsLayer({
                 e.stopPropagation()
                 const rect = e.currentTarget.getBoundingClientRect()
                 const svgY = plotTop + (e.clientY - rect.top)
-                const depth = (svgY - surface.surfaceY) / surface.pxPerMetre
-                if (depth < 0) return
-                setLithoBandMenu({
-                  clientX: e.clientX,
-                  clientY: e.clientY,
-                  mode: 'add',
-                  anchorKind: col.kind,
-                  anchorId: item.id,
-                  anchorName: item.name,
-                  elevationM: item.elevation_m as number,
-                  depth_m: depth,
-                })
+                const next = addMenuStateFor(col, e.clientX, e.clientY, svgY)
+                if (next === null) return
+                setLithoBandMenu(next)
               }}
             />
           )
@@ -3444,27 +3606,46 @@ export default function ContactsLayer({
         })()}
     </g>
 
-    {/* Debt #151 — litho band right-click menu (Remove only).
-        Portalled to document.body so it sits above all section
-        chrome.  Add gesture moved to LEFT-click on the band itself
-        (dogfeed refinement 2026-05-27). */}
+    {/* Debt #151 — the litho axis's right-click menu on a test column.
+        Portalled to document.body so it sits above all section chrome.
+        Since the owner's 2026-09-11 ruling this is THE menu a right-click on
+        a test opens: the column verbs head it, a rule divides the groups, and
+        the accepted-unit verbs (or the Add escape) follow. */}
     {lithoBandMenu
       && createPortal(
         <>
+          {/* Dismiss backdrop. A right-click on it does NOT simply close: it
+              re-resolves what the pointer is over and re-opens the SAME menu
+              there, because the backdrop covers the canvas and the browser can
+              no longer hit-test the band beneath it. Before that, closing let
+              the event bubble on (a React portal bubbles up the REACT tree) to
+              the section's ``<svg onContextMenu>`` catch-all, which opened the
+              COLUMN menu — the "two different menus" the owner reported. */}
           <div
+            data-testid="litho-band-context-menu-backdrop"
             style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
             onClick={() => setLithoBandMenu(null)}
-            onContextMenu={e => {
-              e.preventDefault()
-              setLithoBandMenu(null)
-            }}
+            onContextMenu={handleMenuBackdropContextMenu}
           />
           <div
             data-testid="litho-band-context-menu"
+            // A right-click landing on the open menu itself keeps it — without
+            // this it would bubble to the section canvas and open the column
+            // menu on top of this one.
+            onContextMenu={e => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
             style={{
               position: 'fixed',
               left: lithoBandMenu.clientX,
-              top: lithoBandMenu.clientY,
+              // Open downward from the pointer, or upward when the menu would
+              // otherwise run off the bottom of the window — the merged menu is
+              // tall enough that a right-click low on the canvas would clip its
+              // last verbs (owner 2026-09-11).
+              ...(lithoBandMenu.clientY + LITHO_MENU_MAX_HEIGHT_PX > window.innerHeight
+                ? { bottom: Math.max(0, window.innerHeight - lithoBandMenu.clientY) }
+                : { top: lithoBandMenu.clientY }),
               zIndex: 2147483647,
               background: 'var(--color-surface-overlay, #1e293b)',
               border: '1px solid var(--color-border-default, #334155)',
@@ -3473,6 +3654,50 @@ export default function ContactsLayer({
               minWidth: 200,
             }}
           >
+            {/* (a) The COLUMN verbs for the test under the pointer, headed by
+                its name so "Remove from this section" can never be read as
+                acting on the unit below it (owner 2026-09-11). */}
+            {menuColumnVerbs.length > 0 && (
+              <>
+                <div
+                  data-testid="litho-band-context-menu-header"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 11,
+                    color: 'var(--color-text-secondary, #94a3b8)',
+                    borderBottom: LITHO_MENU_ITEM_DIVIDER,
+                  }}
+                >
+                  {lithoBandMenu.anchorName}
+                </div>
+                {menuColumnVerbs.map(verb => (
+                  <button
+                    key={verb.key}
+                    type="button"
+                    data-testid={verb.testid}
+                    onClick={() => {
+                      verb.onClick()
+                      setLithoBandMenu(null)
+                    }}
+                    style={{
+                      ...LITHO_MENU_ITEM_BASE_STYLE,
+                      color: verb.danger
+                        ? 'var(--color-text-danger, #f87171)'
+                        : 'var(--color-text-primary, #e2e8f0)',
+                      ...(verb.topBorder ? { borderTop: LITHO_MENU_ITEM_DIVIDER } : {}),
+                    }}
+                  >
+                    {verb.label}
+                  </button>
+                ))}
+                {/* The group rule the owner asked for between (a) and (b). */}
+                <div
+                  role="separator"
+                  data-testid="litho-band-context-menu-group-rule"
+                  style={{ borderTop: LITHO_MENU_ITEM_DIVIDER }}
+                />
+              </>
+            )}
             {lithoBandMenu.mode === 'remove' ? (
               <>
                 {/* Each item gates on its OWN handler — the menu opens when any
