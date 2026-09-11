@@ -17,6 +17,7 @@ import {
 } from '../../ToolbarPrimitives'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 import type { ToolbarItemSpec } from '../../ResponsiveToolbarRow'
+import { SECTIONS_OVERFLOW_GROUP } from './sectionsToolbar_constants'
 import type {
   GeologicalModelResponse,
   CrossSectionResponse,
@@ -217,6 +218,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       kind: 'button',
       label: creating ? t('sections.busy.creating') : t('sections.tail.newSection'),
       separatorBefore: true,
+      overflowGroup: SECTIONS_OVERFLOW_GROUP.section,
       overflowItems: [
         {
           label: t('sections.tail.newSection'),
@@ -259,6 +261,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       priority: 'medium',
       kind: 'split',
       label: tieSectionsLabel,
+      overflowGroup: SECTIONS_OVERFLOW_GROUP.section,
       overflowItems: [
         {
           icon: <Network size={12} />,
@@ -308,6 +311,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       label: deleting ? t('sections.busy.deleting') : t('sections.tail.delete'),
       iconOnly: false,
       separatorBefore: true,
+      overflowGroup: SECTIONS_OVERFLOW_GROUP.section,
       overflowItems: [
         {
           label: t('sections.tail.deleteSectionMenu'),
@@ -352,6 +356,7 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       kind: 'dropdown',
       label: t('sections.toolbar.export'),
       separatorBefore: true,
+      overflowGroup: SECTIONS_OVERFLOW_GROUP.export,
       overflowItems: exportMenuItems,
       render: p => (
         <ToolbarDropdown
@@ -387,6 +392,9 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
             priority: 'low' as const,
             kind: 'button' as const,
             label: recomputingBodies ? t('sections.busy.recomputing') : t('sections.tail.recompute'),
+            // Under "Model": it recomputes the ACTIVE axis's model identity,
+            // not anything about the cross-section it is pressed from.
+            overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
             overflowItems: [
               {
                 label: t('sections.tail.recompute'),
