@@ -467,6 +467,11 @@ export const MODELS_NL = {
     '{ok} voorgesteld, {skipped} overgeslagen die al aanvaarde lagen hebben.',
   'litho.suggestAllSkippedAllAccepted':
     'Alle {total} kolommen overgeslagen: ze hebben al aanvaarde lagen, niets voor te stellen.',
+  // Dogfeed eigenaar 2026-09-11: een splitsing / samenvoeging / opname die niet
+  // kan worden uitgevoerd laat elke voorgestelde laag op de kolom staan en meldt
+  // dat, in plaats van ze stil te laten verdwijnen.
+  'litho.ghostEditRefused':
+    'Die wijziging kon niet worden toegepast; de voorgestelde lagen zijn ongewijzigd gebleven.',
   'litho.acceptLayersFailed': 'Kon de litholagen niet aanvaarden.',
   'litho.acceptedAnchorsInference': '{n} {anchorWord} aanvaard — inferentie bijgewerkt.',
   'litho.acceptedAnchors': '{n} {anchorWord} aanvaard.',
