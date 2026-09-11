@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeSheetGeometry } from './sheetGeometry'
+import { computeSheetGeometry, pageFillingVex, VEX_SLIDER_MAX } from './sheetGeometry'
 import {
   COLUMN_HALF_WIDTH_MAX_MM, COLUMN_HALF_WIDTH_MM,
   DRAWING_HEIGHT_FIT_MM, PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM, PAPER_MIN_WIDTH_MM,
@@ -92,5 +92,29 @@ describe('computeSheetGeometry — the sheet fits the profile', () => {
     const g = computeSheetGeometry({ ...base, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 50_000 }], scaleMode: 'explicit', hScale: 100, vScale: 100, vex: 1, spacing: 1 })
     expect(g.paperWidthMm).toBeGreaterThan(PAPER_MAX_WIDTH_MM)
     expect(g.overCap).toBe(true)
+  })
+})
+
+// Owner 2026-09-11 on the first fit-to-width sheet: "a lot of white space on
+// the pdf report no? Can't we give a better page fit to start?" At 1x a
+// 900 m by 25 m profile is a strip along the top of the page. The sheet opens
+// at the exaggeration that fills the page height on the A3 width.
+describe('pageFillingVex — the exaggeration that fills the page', () => {
+  const long = { ...base, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 450 }, { id: 'c', alongM: 900 }] }
+  it('at the page-filling exaggeration the drawing is exactly the page height on the A3 width', () => {
+    const vex = pageFillingVex(long)
+    const g = computeSheetGeometry({ ...long, scaleMode: 'fit', hScale: null, vScale: null, vex, spacing: 1 })
+    expect(g.drawingHeightMm).toBeCloseTo(DRAWING_HEIGHT_FIT_MM, 3)
+    expect(g.paperWidthMm).toBe(PAPER_MIN_WIDTH_MM)
+    expect(vex).toBeGreaterThan(1)
+  })
+  it('a short deep profile fills the page at no exaggeration and is never asked to go below 1x', () => {
+    const short = { ...base, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 20 }] }
+    expect(pageFillingVex(short)).toBe(1)
+  })
+  it('the value is rounded to a tenth and capped at the slider maximum', () => {
+    const vast = { ...base, levelMaxM: 0, levelMinM: -1, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 100000 }] }
+    expect(pageFillingVex(vast)).toBe(VEX_SLIDER_MAX)
+    expect(Number.isInteger(pageFillingVex(long) * 10)).toBe(true)
   })
 })
