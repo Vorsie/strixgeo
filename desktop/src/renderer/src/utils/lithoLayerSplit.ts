@@ -39,12 +39,20 @@ import type { BulkAnchorGhost, LithoSuggestionEdit } from '../hooks/useGeologica
  * Returns
  * -------
  * BulkAnchorGhost
- *     A new ghost with the layer split + indices shifted.
+ *     A new ghost with the layer split + indices shifted, or the SAME ghost
+ *     (by identity) when ``idx`` is not on the column — the caller detects
+ *     that identity and reports the refusal.
  */
 export function splitLithoLayer(
   ghost: BulkAnchorGhost,
   idx: number,
 ): BulkAnchorGhost {
+  // Refuse rather than throw (owner dogfeed 2026-09-11 — "a whole suggestion
+  // disappeared"). A stale index — a menu click resolved against a ghost list
+  // that has since been replaced or shortened — used to read
+  // ``undefined.depth_top_m`` inside the setGhostsByAnchor updater, and a throw
+  // there takes the whole stage down with it.
+  if (ghost.suggestions[idx] === undefined) return ghost
   const raw = ghost.suggestions[idx]
   const edit = ghost.edits.get(idx)
 
