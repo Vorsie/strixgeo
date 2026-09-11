@@ -78,9 +78,14 @@ export interface ParameterTreeNode {
    */
   orphanCount?: number
   /**
-   * The manual-group number (debt #278 D1) on a GEOTECH-BODY leaf joined into a
-   * multi-member group; ``null``/``undefined`` on every other node and on an
-   * ungrouped body. Drives the "(group N)" leaf tag.
+   * The manual-group number (debt #278 D1) on the row that STANDS FOR a geotech
+   * body joined into a multi-member group — a geotech-body leaf, or a class row
+   * that collapsed its lone geotech body into itself. ``null``/``undefined`` on
+   * every other node and on an ungrouped body. Drives the "(group N)" tag.
+   *
+   * Owner dogfeed 2026-09-11 (verbatim: "i just want to group and then directly
+   * see which are grouped, i don't need another hierarchical deeper level"): the
+   * tag rides the row the user ALREADY sees; grouping never grows a level.
    */
   groupNumber?: number | null
   /**
@@ -105,6 +110,17 @@ export interface ParameterTreeNode {
    * leaf (its own label is already unique) and every non-groupable row.
    */
   groupableBodyParentLabel?: string
+  /**
+   * The geotech FORMATION id of ``groupableBodyId`` — the ``unitId`` a
+   * ``geotech-body`` / ``geotech-group`` scope built from this row carries.
+   *
+   * Set wherever ``groupableBodyId`` is. A geotech-body leaf has it on its own
+   * scope, but a collapsed sole-body class row's scope is the CLASS (it keeps
+   * pooling the class's ground, unchanged), so the pane would otherwise have no
+   * formation id for the group scope a click on a grouped row selects (owner
+   * 2026-09-11: "show the whole group together in the parameter pane").
+   */
+  groupableBodyUnitId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -413,25 +429,28 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
                 groupNumber: input.groupByBodyId?.get(bodyId) ?? null,
                 // The leaf's checkbox groups THIS body (owner finding 2026-09-04).
                 groupableBodyId: bodyId,
+                groupableBodyUnitId: scope.unitId,
               }
             })
 
-          // A grouped SOLE body must NOT collapse (debt #278 D1/D2): it has to
-          // stay a selectable leaf so its "(group N)" tag shows AND selecting it
-          // pools the group. Otherwise the lone geotech-body ordinal folds into
-          // the class row exactly as before.
-          const children =
-            geotechBodyNodes.length === 1 && (geotechBodyNodes[0].groupNumber ?? null) !== null
-              ? geotechBodyNodes
-              : collapseSingleLeafChild(geotechBodyNodes)
+          // A lone geotech body ALWAYS folds into its class row — grouped or
+          // not. Owner dogfeed 2026-09-11, verbatim: "instead of just lumping
+          // and putting the group name behind the level, it created a level even
+          // deeper which i can then group again. i just want to group and then
+          // directly see which are grouped, i don't need another hierarchical
+          // deeper level in the right hand pane." A group is a LABEL on the row
+          // he already has, never a new level.
+          const children = collapseSingleLeafChild(geotechBodyNodes)
 
           // When the class row collapsed its ONE geotech body into itself, the
-          // row still stands for exactly that body — carry the body id so the
-          // checkbox appears on the class row and it can be grouped across litho
-          // parents (owner finding 2026-09-04). A multi-body class row groups its
-          // children individually, so it carries no id of its own.
-          const collapsedSoleBodyId =
-            children.length === 0 && bodyIds.size === 1 ? [...bodyIds][0] : undefined
+          // row still stands for exactly that body — carry the body's checkbox
+          // identity, its geotech unit and its group tag, so it can be grouped
+          // across litho parents (owner finding 2026-09-04), shows "(group N)"
+          // itself, and a click on it can pool the whole group. A multi-body
+          // class row groups its children individually, so it carries none.
+          const soleBody = children.length === 0 ? geotechBodyNodes[0] : undefined
+          const collapsedSoleBodyId = soleBody?.groupableBodyId
+          const collapsedSoleBodyUnitId = soleBody?.groupableBodyUnitId
 
           const scope: ParameterUnitScope = {
             kind: 'geotech-class',
@@ -447,6 +466,10 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
             coneBandCount: counts.coneBandCount,
             children,
             groupableBodyId: collapsedSoleBodyId,
+            groupableBodyUnitId: collapsedSoleBodyUnitId,
+            // The collapsed row wears its body's group tag — "directly see which
+            // are grouped" on the level the owner already sees (2026-09-11).
+            groupNumber: soleBody?.groupNumber ?? undefined,
             // Disambiguate the collapsed row's checkbox by its litho parent
             // (ux-reviewer 2026-09-04) — the same label the sibling litho-body
             // node carries, so the two never disagree.
