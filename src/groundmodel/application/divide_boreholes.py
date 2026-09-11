@@ -2110,8 +2110,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         divided_borehole_count = 0
         single_band_borehole_count = 0
 
-        for (body_id_str, source_geo_fid), group_segs in groups.items():
-            source_litho_fid = UUID(group_segs[0].formation_id) if group_segs else uuid7()
+        for (body_id_str, source_geo_fid, litho_fid_str), group_segs in groups.items():
+            # The group IS one litho unit — the key carries its formation, so
+            # this cannot be the formation of a neighbouring unit welded into
+            # the same body (owner 2026-09-11, his b13 glauconitic sand).
+            source_litho_fid = UUID(litho_fid_str)
 
             in_scope_bh_segs = [
                 s
@@ -2205,7 +2208,12 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
 
             self.debug(
                 f"DivideBoreholes: group body={body_id_str} "
-                f"soil={soil_code} abs_min_nad={litho_abs_min_class} "
+                # The litho unit, not just the body: two admixture variants of
+                # one soil share a body, and a log that names only the body
+                # cannot show which of them a band belongs to.
+                f"litho_formation={source_litho_fid} "
+                f"soil={soil_code} admixtures={unit_admixtures or '-'} "
+                f"abs_min_nad={litho_abs_min_class} "
                 f"borehole_segs={len(borehole_segs)} cpt_segs={len(cpt_segs)}"
             )
 
