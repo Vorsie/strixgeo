@@ -12,6 +12,7 @@ import type { CrossSectionResponse } from '../../../api/clients/section'
 import { useT } from '../../../i18n/translate'
 import { sheetGeometryOf } from '../../../sheet/SectionSheet'
 import { PX_PER_MM } from '../../../sheet/sheetConstants'
+import { pageFillingVex, VEX_SLIDER_MAX } from '../../../sheet/sheetGeometry'
 import type { SheetPayload, SheetSettings } from '../../../sheet/sheetPayload'
 import {
   defaultSheetSettings,
@@ -54,6 +55,11 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
   } = useShell()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const paneRef = useRef<HTMLDivElement>(null)
+  // Once per open: the first built payload sets the fit-mode exaggeration to
+  // the value that fills the page (owner 2026-09-11: "a lot of white space on
+  // the pdf report no? Can't we give a better page fit to start?"). Later
+  // rebuilds (a fill-axis switch) must not undo what the engineer dragged.
+  const fillSeededRef = useRef(false)
   const [settings, setSettings] = useState<SheetSettings | null>(null)
   const [payload, setPayload] = useState<SheetPayload | null>(null)
   const [busy, setBusy] = useState<'build' | 'print' | null>(null)
@@ -87,6 +93,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
     // (or be read by a test) while this one is still building.
     setNoFill(false)
     setPayload(null)
+    fillSeededRef.current = false
     setSettings(readSheetSettings(p.section.view_state, fallback))
     // reason: ``t`` is stable per language; re-seeding on a language switch
     // mid-dialog would discard the engineer's typed fields.
@@ -104,6 +111,13 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
         if (!cancelled) {
           setNoFill(pl === null)
           setPayload(pl)
+          // Fit mode opens filling the page. A stored exaggeration is
+          // overridden here on purpose: "fit" now means the page, and the
+          // slider still takes the engineer wherever he wants from there.
+          if (pl && !fillSeededRef.current) {
+            fillSeededRef.current = true
+            setSettings(s => (s && s.scaleMode === 'fit' ? { ...s, vex: pageFillingVex(pl) } : s))
+          }
         }
       })
       .catch(err => {
@@ -362,8 +376,8 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
             <input
               type="range"
               min={1}
-              max={20}
-              step={0.5}
+              max={VEX_SLIDER_MAX}
+              step={0.1}
               value={settings.vex}
               disabled={settings.scaleMode === 'explicit'}
               onChange={e => set({ vex: Number(e.target.value) })}
