@@ -52,6 +52,7 @@ import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../ut
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
+import { useLithoGhostWorkspace } from './useLithoGhostWorkspace'
 import {
   filterAnchorsWithNoLithoContacts,
   investigationHasLithoContacts,
@@ -630,33 +631,21 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [],
   )
 
-  /**
-   * Report a ghost transform the pure helper REFUSED.
-   *
-   * Every structural helper returns the same ghost object (by identity) when it
-   * cannot honour the request — a stale index, a missing neighbour, a range
-   * that would empty the column, or a shared-boundary propagation that would
-   * collapse the layer it lands on. Refusing keeps the layers, but a silent
-   * refusal is how the owner's 2026-09-11 dogfeed became a mystery, so every
-   * one of them says so.
-   *
-   * @param verb Which gesture was refused (log detail).
-   * @param anchorId The anchor whose ghost column was left unchanged.
-   * @param detail Index / direction detail for the log line.
-   * @param userFacing Whether to raise a toast — true for gestures the user
-   *   deliberately invoked from a menu, false for internal drag follow-ups
-   *   where the visible half of the gesture did land.
-   */
-  const reportRefusedGhostEdit = useCallback(
-    (verb: string, anchorId: string, detail: string, userFacing: boolean): void => {
-      log.warn(
-        'geology',
-        `litho ghost ${verb} refused on anchor=${anchorId} ${detail} — layers kept unchanged`,
-      )
-      if (userFacing) toast('warning', t('litho.ghostEditRefused'))
-    },
-    [toast],
-  )
+  // The ghost workspace — synchronous writes, an undo command per gesture, and
+  // model-scoped ownership of the pending suggestions. Extracted to its own
+  // sub-hook (debt #201): the rules are one subject and this file is already
+  // far past the 500-line mark. See ``useLithoGhostWorkspace`` for the three
+  // rules it enforces.
+  const { runGhostGesture } = useLithoGhostWorkspace({
+    ghostsByAnchor,
+    setGhostsByAnchor,
+    setFocusedSuggestAnchorId,
+    setLithoSuggesting,
+    focusedSuggestAnchorIdRef,
+    activeLithoModel,
+    pushUndo,
+    toast,
+  })
 
   const handleEditBulkLitho = useCallback(
     (
@@ -664,35 +653,26 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       idx: number,
       edit: LithoSuggestionEdit,
     ): void => {
-      // Refusal pre-check on the render's snapshot. It has to happen OUTSIDE
-      // the updater: a setState updater must stay pure (StrictMode runs it
-      // twice), so it can neither log nor toast.
-      const snapshot = ghostsByAnchor.get(anchorId)
-      if (snapshot !== undefined && applyCrossMergeOnDrag(snapshot, idx, edit) === snapshot) {
-        reportRefusedGhostEdit(
-          'depth/composition edit',
-          anchorId,
-          `idx=${idx} propagateOnly=${edit._propagateOnly === true}`,
-          false,
-        )
-      }
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
-        // applyCrossMergeOnDrag detects whether the depth edit crossed a
-        // pending neighbour's boundary (plain-drag cross-merge — no Shift
-        // required). When a cross occurred it returns absorbThroughLayer's
-        // result (neighbour removed, dragger extended); when not, it
-        // returns a plain depth-edit ghost identical to the prior merge.
-        // When it REFUSES it returns ``existing`` — the layers stay put.
-        const updated = applyCrossMergeOnDrag(existing, idx, edit)
-        if (updated === existing) return prev
-        const next = new Map(prev)
-        next.set(anchorId, updated)
-        return next
-      })
+      // applyCrossMergeOnDrag detects whether the depth edit crossed a pending
+      // neighbour's boundary (plain-drag cross-merge — no Shift required). When
+      // a cross occurred it returns absorbThroughLayer's result (neighbour
+      // removed, dragger extended); when not, a plain depth-edit ghost. When it
+      // REFUSES it returns the same ghost and the layers stay put.
+      const isFollowUp = edit._propagateOnly === true
+      const movesABoundary = edit.depth_top_m !== undefined || edit.depth_base_m !== undefined
+      runGhostGesture(
+        anchorId,
+        movesABoundary ? 'Move litho boundary' : 'Edit litho layer composition',
+        'depth/composition edit',
+        `idx=${idx} propagateOnly=${isFollowUp}`,
+        ghost => applyCrossMergeOnDrag(ghost, idx, edit),
+        {
+          coalesceWithPrevious: isFollowUp,
+          leaveOpenForFollowUp: movesABoundary && !isFollowUp,
+        },
+      )
     },
-    [ghostsByAnchor, reportRefusedGhostEdit],
+    [runGhostGesture],
   )
 
   /**
@@ -708,10 +688,10 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [handleEditBulkLitho],
   )
 
-  // Debt #85: insert a new pending litho layer at the shared boundary
-  // between layers ``afterIdx`` and ``afterIdx+1``. The mutation is a
-  // pure helper (insertLithoLayer) so the index-shift math has its own
-  // unit test; this hook just plugs it into setGhostsByAnchor.
+  // Debt #85: insert a new pending litho layer at the shared boundary between
+  // layers ``afterIdx`` and ``afterIdx+1``. The mutation is a pure helper
+  // (insertLithoLayer) so the index-shift math has its own unit test; the
+  // workspace runner writes it and makes it undoable.
   const handleInsertLithoLayer = useCallback(
     (
       anchorId: string,
@@ -721,94 +701,52 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
       },
     ): void => {
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
-        const updated = insertLithoLayer(existing, afterIdx, composition)
-        const next = new Map(prev)
-        next.set(anchorId, updated)
-        return next
-      })
+      runGhostGesture(
+        anchorId,
+        'Insert litho layer',
+        'insert',
+        `afterIdx=${afterIdx}`,
+        ghost => insertLithoLayer(ghost, afterIdx, composition),
+      )
     },
-    [],
+    [runGhostGesture],
   )
 
   // Debt #98: split a pending litho ghost layer in two at its midpoint.
-  // Mirrors handleInsertLithoLayer — the mutation is the pure helper
-  // splitLithoLayer; the hook only plugs it into setGhostsByAnchor.
   const handleSplitLithoLayer = useCallback(
     (anchorId: string, idx: number): void => {
-      const snapshot = ghostsByAnchor.get(anchorId)
-      if (snapshot !== undefined && splitLithoLayer(snapshot, idx) === snapshot) {
-        reportRefusedGhostEdit('split', anchorId, `idx=${idx}`, true)
-        return
-      }
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
-        const updated = splitLithoLayer(existing, idx)
-        if (updated === existing) return prev
-        const next = new Map(prev)
-        next.set(anchorId, updated)
-        return next
-      })
+      runGhostGesture(anchorId, 'Split litho layer', 'split', `idx=${idx}`, ghost =>
+        splitLithoLayer(ghost, idx),
+      )
     },
-    [ghostsByAnchor, reportRefusedGhostEdit],
+    [runGhostGesture],
   )
 
-  // Debt #102: merge two adjacent same-lithology pending layers into
-  // one. Mirrors handleSplitLithoLayer — pure helper mergeLithoLayers
-  // does the index-shift math; the component-level menu only offers
-  // the action when canMergeAt returns true.
+  // Debt #102: merge two adjacent same-lithology pending layers into one. The
+  // component-level menu only offers the action when canMergeAt returns true;
+  // mergeLithoLayers refuses anything that slips past that gate.
   const handleMergeLithoLayers = useCallback(
     (anchorId: string, upperIdx: number): void => {
-      const snapshot = ghostsByAnchor.get(anchorId)
-      if (snapshot !== undefined && mergeLithoLayers(snapshot, upperIdx) === snapshot) {
-        reportRefusedGhostEdit('merge', anchorId, `upperIdx=${upperIdx}`, true)
-        return
-      }
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
-        const updated = mergeLithoLayers(existing, upperIdx)
-        if (updated === existing) return prev
-        const next = new Map(prev)
-        next.set(anchorId, updated)
-        return next
-      })
+      runGhostGesture(anchorId, 'Merge litho layers', 'merge', `upperIdx=${upperIdx}`, ghost =>
+        mergeLithoLayers(ghost, upperIdx),
+      )
     },
-    [ghostsByAnchor, reportRefusedGhostEdit],
+    [runGhostGesture],
   )
 
-  // Dogfeed 2026-05-25: Shift+drag absorb gesture. Mirrors
-  // handleMergeLithoLayers — pure helper absorbLithoLayer does the
-  // index-shift math; the drag handler gates on cursor past midpoint.
+  // Dogfeed 2026-05-25: the absorb gesture. The drag handler gates on the
+  // cursor passing the midpoint; absorbLithoLayer does the index-shift math.
   const handleAbsorbLithoLayer = useCallback(
     (anchorId: string, draggerIdx: number, direction: 'up' | 'down'): void => {
-      const snapshot = ghostsByAnchor.get(anchorId)
-      if (
-        snapshot !== undefined &&
-        absorbLithoLayer(snapshot, draggerIdx, direction) === snapshot
-      ) {
-        reportRefusedGhostEdit(
-          'absorb',
-          anchorId,
-          `draggerIdx=${draggerIdx} direction=${direction}`,
-          true,
-        )
-        return
-      }
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
-        const updated = absorbLithoLayer(existing, draggerIdx, direction)
-        if (updated === existing) return prev
-        const next = new Map(prev)
-        next.set(anchorId, updated)
-        return next
-      })
+      runGhostGesture(
+        anchorId,
+        'Absorb litho layer',
+        'absorb',
+        `draggerIdx=${draggerIdx} direction=${direction}`,
+        ghost => absorbLithoLayer(ghost, draggerIdx, direction),
+      )
     },
-    [ghostsByAnchor, reportRefusedGhostEdit],
+    [runGhostGesture],
   )
 
   // Left-click on the LITHO axis creates a zero-thickness ghost layer
@@ -926,20 +864,15 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [ghostsByAnchor, lithoContacts],
   )
 
-  // B-1 (senior-review, data-integrity): a ghost overlay left showing
-  // when the active litho model SWITCHES would accept onto the new
-  // model (activeLithoModelRef points at the new one) while the
-  // suggestion/anchor still reference the old investigation — a
-  // contact written to the wrong model. The litho-data effect in the
-  // composer calls setGhostsByAnchor/setFocusedSuggestAnchorId directly
-  // (bypassing clearLithoSuggestions) to avoid the TDZ that motivated
-  // this guard being placed here. Keyed on the model ID (a primitive) NOT the object, so a
-  // refreshModels that returns a new-but-same model object does not
-  // wipe an in-progress overlay; only a real model change clears it.
-  const activeLithoModelId = activeLithoModel?.id ?? null
-  useEffect(() => {
-    clearLithoSuggestions()
-  }, [activeLithoModelId, clearLithoSuggestions])
+  // B-1 (senior-review, data-integrity) now lives in ``useLithoGhostWorkspace``:
+  // a ghost overlay left showing when the active litho model SWITCHES would
+  // accept onto the NEW model (activeLithoModelRef points at it) while the
+  // suggestion still describes the old one. The guard used to be a
+  // ``clearLithoSuggestions()`` here, which deleted the focused anchor's
+  // pending work outright (and fired on mount, and left bulk ghosts exposed).
+  // The workspace sets the outgoing model's columns aside instead and brings
+  // them back when the user returns to that model (owner ruling 2026-09-11:
+  // "fix that trap too").
 
   // Fetch suggestions for one investigation against the active litho model.
   // Replaces any prior single-anchor focus + writes the new entry into
