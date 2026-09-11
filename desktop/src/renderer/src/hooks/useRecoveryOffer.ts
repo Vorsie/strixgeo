@@ -89,6 +89,8 @@ export interface UseRecoveryOfferResult {
   dismissOffer: () => Promise<void>
   /** "Discard unsaved work" — deletes the file. Irreversible. */
   discardOffer: () => Promise<void>
+  /** True while Discard reverts the database and deletes the file (the prompt shows busy). */
+  discarding: boolean
 }
 
 /**
@@ -106,6 +108,11 @@ export function useRecoveryOffer({
   onAfterDiscard,
 }: UseRecoveryOfferOptions): UseRecoveryOfferResult {
   const [offer, setOffer] = useState<RecoveryOffer | null>(null)
+  // True while Discard is reverting the database and deleting the file, so the
+  // prompt can show it is busy instead of sitting there unchanged for the
+  // seconds a forced replace-restore takes (owner 2026-09-11: "the dialog
+  // window stays too long on screen").
+  const [discarding, setDiscarding] = useState(false)
 
   // Which project ids have already been answered this session. Without it,
   // any App re-render that re-runs the effect would resurrect a prompt the
@@ -324,6 +331,7 @@ export function useRecoveryOffer({
   const discardOffer = useCallback(async (): Promise<void> => {
     const current = offer
     if (current === null || !claimAnswer(current.projectId)) return
+    setDiscarding(true)
     try {
       // Owner ruling 2026-08-03: Delete backup = the crashed session never
       // happened. The caller reverts the DATABASE to the last save first;
@@ -396,9 +404,10 @@ export function useRecoveryOffer({
       // which is the safe direction to fail in.
       log.warn('recovery', `could not delete the recovery file for ${current.projectId}`, err)
     } finally {
+      setDiscarding(false)
       closeOffer(current.projectId)
     }
   }, [offer, claimAnswer, closeOffer, onDiscardResidue, onBeforeDiscard, onAfterDiscard])
 
-  return { offer, restoreOffer, dismissOffer, discardOffer }
+  return { offer, restoreOffer, dismissOffer, discardOffer, discarding }
 }
