@@ -78,6 +78,11 @@ export default function WelcomeScreen({
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [recent, setRecent] = useState<RecentEntry[]>([])
+  // The start screen shows at most four of each list (owner 2026-09-11:
+  // "recent project should max out on 4 suggestions plz, same for restored,
+  // so a max of 8"). The main process keeps its longer recent list for the
+  // File menu; the cut is presentational.
+  const WELCOME_LIST_MAX = 4
   const [recovered, setRecovered] = useState<RecoveredEntry[]>([])
   const [openError, setOpenError] = useState<string | null>(null)
 
@@ -306,7 +311,7 @@ export default function WelcomeScreen({
               {t('welcome.recoveredWorkBody')}
             </p>
             <ul className="flex flex-col gap-1 -mx-2">
-              {recovered.map(entry => (
+              {recovered.slice(0, WELCOME_LIST_MAX).map(entry => (
                 <li key={entry.projectId}>
                   <button
                     onClick={() => void handleRecovered(entry)}
@@ -350,7 +355,7 @@ export default function WelcomeScreen({
               </h2>
             </div>
             <ul className="flex flex-col gap-1 overflow-y-auto max-h-80 -mx-2">
-              {recent.map(entry => (
+              {recent.slice(0, WELCOME_LIST_MAX).map(entry => (
                 <li key={entry.path}>
                   <button
                     onClick={() => void handleRecent(entry.path)}
