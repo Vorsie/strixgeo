@@ -149,7 +149,7 @@ def test_nc4_a_straddling_band_is_labelled_by_the_unit_it_mostly_lies_in() -> No
 
     groups = _grouper()._group_segments(picks, surfaces)
 
-    ((_body_id, geo_formation_id),) = groups.keys()
+    ((_body_id, geo_formation_id, _litho_formation_id),) = groups.keys()
     assert geo_formation_id == GEO_LOWER_ID
 
 
@@ -168,7 +168,7 @@ def test_nc5_a_body_keeps_one_identity_across_a_geological_surface() -> None:
 
     groups = _grouper()._group_segments(picks, surfaces)
 
-    assert {body_id for body_id, _geo in groups} == {"BODY-CLAY"}
+    assert {key[0] for key in groups} == {"BODY-CLAY"}
 
 
 def test_nc6_a_band_above_every_surface_is_labelled_the_open_shallow_band() -> None:
@@ -178,7 +178,7 @@ def test_nc6_a_band_above_every_surface_is_labelled_the_open_shallow_band() -> N
 
     groups = _grouper()._group_segments(picks, surfaces)
 
-    ((_body_id, geo_formation_id),) = groups.keys()
+    ((_body_id, geo_formation_id, _litho_formation_id),) = groups.keys()
     assert geo_formation_id is None
 
 
@@ -188,6 +188,6 @@ def test_nc7_with_no_geological_model_every_pick_still_reaches_the_classifier() 
 
     groups = _grouper()._group_segments(picks, [])
 
-    assert list(groups) == [("BODY-CLAY", None)]
+    assert list(groups) == [("BODY-CLAY", None, "F-CLAY")]
     ((segments),) = groups.values()
     assert (segments[0].top_depth_m, segments[0].base_depth_m) == (0.05, 1.48)
