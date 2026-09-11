@@ -472,6 +472,17 @@ export const MODELS_NL = {
   // dat, in plaats van ze stil te laten verdwijnen.
   'litho.ghostEditRefused':
     'Die wijziging kon niet worden toegepast; de voorgestelde lagen zijn ongewijzigd gebleven.',
+  // Eigenaarsbeslissing 2026-09-11: voorstellen horen bij het model waarop ze
+  // gemaakt zijn. Van model wisselen zet ze opzij in plaats van ze te
+  // verwijderen, en meldt dat in beide richtingen.
+  'litho.ghostsSetAsideOne':
+    '1 kolom met openstaande voorstellen op {model} is opzijgezet. Die komt terug zodra dat model weer actief is.',
+  'litho.ghostsSetAsideMany':
+    '{n} kolommen met openstaande voorstellen op {model} zijn opzijgezet. Ze komen terug zodra dat model weer actief is.',
+  'litho.ghostsRestoredOne': '1 kolom met openstaande voorstellen op {model} hersteld.',
+  'litho.ghostsRestoredMany': '{n} kolommen met openstaande voorstellen op {model} hersteld.',
+  'litho.ghostUndoOtherModel':
+    'Die stap hoort bij de voorstellen op een ander model. Schakel terug naar dat model om hem daar ongedaan te maken.',
   'litho.acceptLayersFailed': 'Kon de litholagen niet aanvaarden.',
   'litho.acceptedAnchorsInference': '{n} {anchorWord} aanvaard — inferentie bijgewerkt.',
   'litho.acceptedAnchors': '{n} {anchorWord} aanvaard.',
