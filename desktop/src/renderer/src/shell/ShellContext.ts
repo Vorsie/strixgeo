@@ -66,9 +66,12 @@ export type ParameterUnitScope =
   | { kind: 'litho-body'; unitId: string; bodyId: string }
   | { kind: 'geotech-class'; lithoUnitId: string; lithoBodyId: string; nadClass: number }
   | { kind: 'geotech-body'; unitId: string; bodyId: string }
-  // The manual-group aggregate (D2): NOT a tree node and never on the deep-link
-  // bus — the canvas DERIVES it when a selected ``geotech-body`` is in a
-  // multi-member "Join with…" group, then pools every member's bands.
+  // The manual-group aggregate (D2): not a tree node of its own and never on the
+  // deep-link bus, but it IS a selection — the unit-list pane picks it when a
+  // row that stands for a grouped body is clicked (owner 2026-09-11: "show the
+  // whole group together in the parameter pane"), and the canvas still DERIVES
+  // it for a deep-link-arrived ``geotech-body``. Either way it pools every
+  // member's bands.
   | { kind: 'geotech-group'; unitId: string; groupNumber: number; memberBodyIds: readonly string[] }
   | { kind: 'geotech-unit'; unitId: string }
 
