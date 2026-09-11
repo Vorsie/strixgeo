@@ -6,11 +6,22 @@
 //                           dragger's depth_top/depth_base extends to absorb the
 //                           neighbour in the given direction; neighbour is removed;
 //                           dragger's composition wins.
-//   applyCrossMergeOnDrag — plain-drag cross-merge: detects whether a mouseup
-//                           depth-edit crossed a pending neighbour's boundary
-//                           and, if so, calls absorbLithoLayer automatically.
-//                           No Shift required — fires on release when a cross
-//                           actually happened.
+//   absorbThroughLayer    — absorb a contiguous RANGE up to a target neighbour
+//   applyCrossMergeOnDrag — plain-drag cross-merge: asks ``lithoAbsorbRule``
+//                           whether a mouseup depth-edit crossed a pending
+//                           neighbour's boundary and, if so, absorbs through to
+//                           it. No Shift required — fires on release when a
+//                           cross actually happened.
+//
+// REFUSAL CONTRACT (owner dogfeed 2026-09-11 — "a whole suggestion
+// disappeared"): every transform here returns the SAME ghost object, by
+// identity, when it cannot honour the request — a stale index, a missing
+// neighbour, a range that would empty the column, or a shared-boundary
+// propagation that would collapse the layer it lands on. It never throws (a
+// throw inside the setGhostsByAnchor updater takes the whole stage down with
+// it) and never drops layers. The hook wrappers compare identity and report
+// the refusal: a warning log always, plus a toast for the gestures the user
+// invoked by hand.
 //
 // All functions are kept module-level + pure (no I/O, no logging, no class
 // state) so the index-shift math has a tight unit test surface without
@@ -20,24 +31,19 @@
 
 import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost, LithoSuggestionEdit } from '../hooks/useGeologicalModel'
+import { ZERO_THICKNESS_M } from './lithoBoundaryHelpers'
+import {
+  absorbRemainderThresholdM,
+  crossMergeAbsorbTarget,
+  effectiveEdgeOf,
+} from './lithoAbsorbRule'
 
-/**
- * The absorb threshold shared by every drag-up-to-collapse gesture.
- *
- * When a drag eats a neighbour down to a sliver — less than
- * ``max(0.1 m, 15 % of the neighbour's ORIGINAL thickness)`` remaining — the
- * gesture finishes the absorb instead of leaving a visible sliver (dogfeed
- * 2026-05-31: strict "fully crossed" was too tight — a release a few px short
- * of the far edge left a near-zero band). Exported because the GEOTECH
- * boundary drag uses the SAME rule (owner decision 2026-08-07: "Absorb, like
- * litho"); one helper means the two axes' absorb feel can never drift.
- *
- * @param originalThicknessM The neighbour's thickness before the drag (m).
- * @returns The remaining-thickness threshold below which the absorb fires (m).
- */
-export function absorbRemainderThresholdM(originalThicknessM: number): number {
-  return Math.max(0.1, originalThicknessM * 0.15)
-}
+// The absorb rule moved to ``lithoAbsorbRule`` (owner dogfeed 2026-09-11) so
+// the drag COMMIT and this reducer share one definition of "far enough to
+// merge". Re-exported here because the geotech boundary drag and its rules test
+// already import the threshold from this module.
+export { absorbRemainderThresholdM } from './lithoAbsorbRule'
+export type { CrossMergeAbsorbTarget } from './lithoAbsorbRule'
 
 /**
  * Whether the boundary between layers ``upperIdx`` and ``upperIdx+1``
@@ -110,6 +116,19 @@ export function mergeLithoLayers(
   upperIdx: number,
 ): BulkAnchorGhost {
   const lowerIdx = upperIdx + 1
+  // Refuse rather than throw or wipe (owner dogfeed 2026-09-11 — "a whole
+  // suggestion disappeared"). A stale index reaching a structural helper used
+  // to read ``undefined.depth_base_m`` and blow up inside the setState updater,
+  // which takes the whole stage down with it. Returning the ghost UNCHANGED (by
+  // identity, so the caller can detect and report the refusal) keeps every
+  // layer on the column.
+  if (
+    upperIdx < 0 ||
+    ghost.suggestions[upperIdx] === undefined ||
+    ghost.suggestions[lowerIdx] === undefined
+  ) {
+    return ghost
+  }
   const lower = ghost.suggestions[lowerIdx]
   const lowerEdit = ghost.edits.get(lowerIdx)
   const lowerEffectiveBase = lowerEdit?.depth_base_m ?? lower.depth_base_m
@@ -195,6 +214,15 @@ export function absorbLithoLayer(
   direction: 'up' | 'down',
 ): BulkAnchorGhost {
   const absorbedIdx = direction === 'down' ? draggerIdx + 1 : draggerIdx - 1
+  // Same refusal contract as ``mergeLithoLayers`` — a missing dragger or a
+  // missing neighbour in the asked-for direction returns the ghost unchanged
+  // instead of throwing (owner dogfeed 2026-09-11).
+  if (
+    ghost.suggestions[draggerIdx] === undefined ||
+    ghost.suggestions[absorbedIdx] === undefined
+  ) {
+    return ghost
+  }
   const absorbed = ghost.suggestions[absorbedIdx]
   const absorbedEdit = ghost.edits.get(absorbedIdx)
 
@@ -310,6 +338,22 @@ export function absorbThroughLayer(
   throughIdx: number,
   direction: 'up' | 'down',
 ): BulkAnchorGhost {
+  // Refusal contract (owner dogfeed 2026-09-11): a stale / same-side index, or
+  // a range that would consume the anchor's LAST layer, returns the ghost
+  // unchanged. A ghost column with zero layers is never a legal state — the
+  // overlay renders nothing and the user has no way back to the suggestion.
+  const removeStartGuard = direction === 'up' ? throughIdx : draggerIdx + 1
+  const removeEndGuard = direction === 'up' ? draggerIdx - 1 : throughIdx
+  if (
+    ghost.suggestions[draggerIdx] === undefined ||
+    ghost.suggestions[throughIdx] === undefined ||
+    removeStartGuard > removeEndGuard ||
+    removeStartGuard < 0 ||
+    removeEndGuard >= ghost.suggestions.length ||
+    removeEndGuard - removeStartGuard + 1 >= ghost.suggestions.length
+  ) {
+    return ghost
+  }
   const through = ghost.suggestions[throughIdx]
   const throughEdit = ghost.edits.get(throughIdx)
   const newOuterDepth =
@@ -374,32 +418,39 @@ export function absorbThroughLayer(
 // applyCrossMergeOnDrag
 // ---------------------------------------------------------------------------
 
+
 /**
- * Resolve the effective depth for one edge of a layer, applying any
- * existing edit over the raw suggestion value.
+ * Whether a shared-boundary propagation would leave the layer it lands on a
+ * sliver (or inverted) — in which case it is never a legal move.
  *
- * Returns ``null`` when ``idx`` is out of bounds for the ghost's
- * suggestions array. Callers MUST handle the null case — a stale idx
- * crossing this boundary used to crash with
- * ``Cannot read properties of undefined (reading 'depth_top_m')``
- * right after Suggest-all replaced the anchor's suggestions while a
- * deferred edit still carried the pre-replace idx (dogfeed
- * 2026-05-26).
+ * A legal propagation moves the PARTNER's facing edge onto the released depth,
+ * so the partner shrinks at most to the point where the absorb rule would have
+ * fired instead. Anything thinner means the edit landed on the wrong layer —
+ * the owner's 2026-09-11 failure, where the post-absorb index pointed at the
+ * merged layer and wrote the released depth onto its far edge.
+ *
+ * Measured with the SAME sliver rule the absorb uses so the two can never
+ * disagree about what a sliver is.
  */
-function effectiveEdge(
+function propagateWouldCollapse(
   ghost: BulkAnchorGhost,
   idx: number,
-  edge: 'depth_top_m' | 'depth_base_m',
-): number | null {
-  const suggestion = ghost.suggestions[idx]
-  if (suggestion === undefined) return null
-  return ghost.edits.get(idx)?.[edge] ?? suggestion[edge]
+  edit: LithoSuggestionEdit,
+): boolean {
+  const preTop = effectiveEdgeOf(ghost.suggestions, ghost.edits, idx, 'depth_top_m')
+  const preBase = effectiveEdgeOf(ghost.suggestions, ghost.edits, idx, 'depth_base_m')
+  if (preTop === null || preBase === null) return false
+  const nextTop = edit.depth_top_m ?? preTop
+  const nextBase = edit.depth_base_m ?? preBase
+  const nextThicknessM = nextBase - nextTop
+  if (nextThicknessM <= ZERO_THICKNESS_M) return true
+  return nextThicknessM <= absorbRemainderThresholdM(preBase - preTop)
 }
 
 /**
  * Apply a depth-edit to one ghost layer and detect whether the edit
  * crossed a pending neighbour's boundary.  When a cross is detected,
- * the neighbour is absorbed via ``absorbLithoLayer`` so the ghost stack
+ * the neighbour is absorbed via ``absorbThroughLayer`` so the ghost stack
  * collapses in one atomic step — identical to the Shift+drag absorb
  * gesture but triggered automatically on plain drag release.
  *
@@ -409,14 +460,10 @@ function effectiveEdge(
  * collapses onto its own opposite edge (self-collapse) is handled by the
  * existing snap-to-collapse path in the component and is NOT re-handled here.
  *
- * Cross detection:
- *   - TOP boundary dragged UP (new top < old top):
- *       Cross when new top is at or above the effective base of the
- *       nearest pending neighbour ABOVE.
- *   - BASE boundary dragged DOWN (new base > old base):
- *       Cross when new base is at or below the effective top of the
- *       nearest pending neighbour BELOW.
- *   - No cross → returns a plain depth-edit ghost (no layer removed).
+ * Cross detection lives in ``crossMergeAbsorbTarget`` (``lithoAbsorbRule``) —
+ * the SAME predicate the drag commit consults before deciding whether to fire
+ * the shared-boundary partner edit, so the two can never disagree (owner
+ * dogfeed 2026-09-11).
  *
  * Parameters
  * ----------
@@ -434,29 +481,22 @@ function effectiveEdge(
  * BulkAnchorGhost
  *     Updated ghost.  When no cross occurred: the edit is merged into
  *     the edits Map exactly as before.  When a cross occurred:
- *     ``absorbLithoLayer`` result with the crossed neighbour removed and
- *     the dragger's depth extended to the neighbour's outer edge.
+ *     ``absorbThroughLayer``'s result, with the crossed neighbour removed and
+ *     the dragger's depth extended to the neighbour's outer edge.  The SAME
+ *     ghost object (by identity) when the edit is REFUSED — an out-of-range
+ *     index, or a propagation that would collapse the layer it lands on; the
+ *     hook wrapper detects that identity and reports it.
  */
 export function applyCrossMergeOnDrag(
   ghost: BulkAnchorGhost,
   idx: number,
   edit: LithoSuggestionEdit,
 ): BulkAnchorGhost {
-  // Guard against invalid invocations (dogfeed 2026-05-26). Three
-  // failure modes the prior wiring let through silently and that
-  // crashed effectiveEdge inside Suggest-all's setState reducer:
-  //   1. ``idx`` is out of bounds for the current suggestions array
-  //      (stale idx survived a Suggest-all that replaced the anchor's
-  //      suggestions list with a shorter / different one).
-  //   2. ``edit`` carries no depth field at all (composition-only
-  //      paste from the Alt-drag cross-column gesture). Cross-merge
-  //      has nothing to detect — but the edit still has to land in
-  //      the edits Map so the composition override is recorded.
-  //   3. ``edit`` carries a depth field equal to the current
-  //      effective depth (no-op depth change). No cross can happen;
-  //      fall through to the simple merge so we don't waste cycles
-  //      on the neighbour scan.
+  // Guard against invalid invocations (dogfeed 2026-05-26): a stale ``idx``
+  // that survived a Suggest-all replacing the anchor's suggestions list with a
+  // shorter one used to crash the edge lookup inside the setState reducer.
   if (ghost.suggestions[idx] === undefined) return ghost
+
   // Shared-boundary propagation path (double-absorb fix, dogfeed 2026-05-26).
   // When ``handleUp`` fires the secondary ``onEdit`` for the partner of the
   // dragged layer (shared-boundary commit), it marks the edit with
@@ -467,6 +507,12 @@ export function applyCrossMergeOnDrag(
   // in the wrong direction — the double-absorb bug. Fall through to the plain
   // merge to store only the propagated depth.
   if (edit._propagateOnly) {
+    // Safety net for the owner's 2026-09-11 dogfeed: when the primary edit
+    // absorbed a neighbour, this index no longer points at the partner — it
+    // points at the MERGED layer, and writing the released depth onto its far
+    // edge collapses the suggestion the user just built. Refuse the write and
+    // keep the layer; the caller reports the refusal.
+    if (propagateWouldCollapse(ghost, idx, edit)) return ghost
     const nextEdits = new Map(ghost.edits)
     const prior = nextEdits.get(idx) ?? {}
     // Strip _propagateOnly so it doesn't accumulate in the stored edits Map.
@@ -474,87 +520,35 @@ export function applyCrossMergeOnDrag(
     nextEdits.set(idx, { ...prior, ...cleanEdit })
     return { ...ghost, edits: nextEdits }
   }
-  // Resolve pre-edit effective depths so we can detect direction.
-  // Both calls are guaranteed non-null by the bounds check above.
-  const preTop = effectiveEdge(ghost, idx, 'depth_top_m') as number
-  const preBase = effectiveEdge(ghost, idx, 'depth_base_m') as number
-  const newTop = edit.depth_top_m ?? preTop
-  const newBase = edit.depth_base_m ?? preBase
 
-  const topDragged = edit.depth_top_m !== undefined && newTop !== preTop
-  const baseDragged = edit.depth_base_m !== undefined && newBase !== preBase
-
-  // Composition-only or no-op depth edit — skip the neighbour scan
-  // and just merge the edit into the edits Map. This preserves the
-  // Alt-drag cross-column paste path (composition without depth).
-  if (!topDragged && !baseDragged) {
-    const nextEdits = new Map(ghost.edits)
-    const prior = nextEdits.get(idx) ?? {}
-    nextEdits.set(idx, { ...prior, ...edit })
-    return { ...ghost, edits: nextEdits }
+  const target = crossMergeAbsorbTarget(
+    ghost.suggestions,
+    ghost.edits,
+    ghost.accepted,
+    ghost.rejected,
+    idx,
+    edit,
+  )
+  if (target !== null) {
+    const withEdit = new Map(ghost.edits)
+    withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
+    // absorbThroughLayer consumes the inclusive range between the dragger and
+    // the target: the pending target AND any rejected layers the scan skipped
+    // past. Pre-2026-05-31 this was ``absorbLithoLayer(ghost, idx, dir)``,
+    // which hardcoded the immediate neighbour and absorbed the rejected
+    // in-between layer instead of the target — leaving the target alive as a
+    // phantom band with overlapping bounds ("two sand bands + sliver").
+    return absorbThroughLayer(
+      { ...ghost, edits: withEdit },
+      idx,
+      target.targetIdx,
+      target.direction,
+    )
   }
 
-  // Absorb threshold (dogfeed 2026-05-31) — the shared
-  // absorbRemainderThresholdM rule; see its doc comment.
-  const absorbThresholdAbove = (
-    neighbourTop: number,
-    neighbourBase: number,
-  ): number => absorbRemainderThresholdM(neighbourBase - neighbourTop)
-  const absorbThresholdBelow = (
-    neighbourTop: number,
-    neighbourBase: number,
-  ): number => absorbRemainderThresholdM(neighbourBase - neighbourTop)
-
-  if (topDragged && newTop < preTop) {
-    // TOP dragged UP — absorb the neighbour above when the dragger
-    // has eaten the neighbour down to a sliver (or fully crossed).
-    for (let i = idx - 1; i >= 0; i--) {
-      if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
-      if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
-      const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
-      const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
-      if (neighbourTop === null || neighbourBase === null) break
-      const threshold = absorbThresholdAbove(neighbourTop, neighbourBase)
-      if (newTop <= neighbourTop + threshold) {
-        const withEdit = new Map(ghost.edits)
-        withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
-        // absorbThroughLayer consumes the inclusive range
-        // [i, idx-1]: the pending target AND any rejected layers
-        // the loop's ``continue`` skipped past. Pre-fix this was
-        // ``absorbLithoLayer(ghost, idx, 'up')`` which hardcoded
-        // ``absorbedIdx = idx - 1`` and absorbed the rejected
-        // in-between layer instead of the target — leaving the
-        // target alive as a phantom band with overlapping bounds
-        // (dogfeed 2026-05-31, "two sand bands + sliver").
-        return absorbThroughLayer({ ...ghost, edits: withEdit }, idx, i, 'up')
-      }
-      break // Only the immediately adjacent pending neighbour.
-    }
-  }
-
-  if (baseDragged && newBase > preBase) {
-    // BASE dragged DOWN — mirror of top-up.
-    const total = ghost.suggestions.length
-    for (let i = idx + 1; i < total; i++) {
-      if (ghost.rejected.has(i)) continue
-      if (ghost.accepted.has(i)) break
-      const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
-      const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
-      if (neighbourTop === null || neighbourBase === null) break
-      const threshold = absorbThresholdBelow(neighbourTop, neighbourBase)
-      if (newBase >= neighbourBase - threshold) {
-        const withEdit = new Map(ghost.edits)
-        withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
-        // Mirror of the up-case: through-absorb consumes the
-        // inclusive range [idx+1, i] (target + any rejected
-        // between).
-        return absorbThroughLayer({ ...ghost, edits: withEdit }, idx, i, 'down')
-      }
-      break
-    }
-  }
-
-  // No cross — plain depth edit, merge into the edits Map as before.
+  // No cross — plain depth / composition edit, merged into the edits Map as
+  // before (this is also where composition-only and no-op depth edits land,
+  // which keeps the Alt-drag cross-column paste path working).
   const nextEdits = new Map(ghost.edits)
   const prior = nextEdits.get(idx) ?? {}
   nextEdits.set(idx, { ...prior, ...edit })
