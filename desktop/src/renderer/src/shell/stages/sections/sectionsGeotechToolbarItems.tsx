@@ -18,8 +18,10 @@ import {
   staleGeotechChipLabel,
   staleGeotechChipTitle,
 } from '../../../utils/staleGeotechColumns'
+import { SECTIONS_OVERFLOW_GROUP } from './sectionsToolbar_constants'
 import {
   buildGeotechStatisticMenuItems,
+  buildGeotechStatisticPickerItems,
   buildGeotechPipelineMenuItems,
   buildGeotechDisplayMenuItems,
   type GeotechToolbarItemsDeps,
@@ -64,6 +66,10 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
   } = deps
 
   const geotechStatisticMenuItems = buildGeotechStatisticMenuItems(deps)
+  // The ⋯ menu takes the PICKER rows only: the note above them explains the
+  // choice rather than doing anything, and it reads in the Sections inspector
+  // now (owner 2026-09-11, on the over-full ⋯ menu).
+  const geotechStatisticOverflowItems = buildGeotechStatisticPickerItems(deps)
   const geotechPipelineMenuItems = buildGeotechPipelineMenuItems(deps)
   const geotechDisplayMenuItems = buildGeotechDisplayMenuItems(deps)
 
@@ -101,7 +107,8 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           label: t('sections.geotech.qcLabel', { statistic: geotechStatistic }),
           iconOnly: false,
           separatorBefore: true,
-          overflowItems: geotechStatisticMenuItems,
+          overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
+          overflowItems: geotechStatisticOverflowItems,
           render: () => (
             <ToolbarDropdown
               icon={<FlaskConical size={13} />}
@@ -127,6 +134,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           priority: 'high',
           kind: 'dropdown',
           label: geotechPipelineLabel,
+          overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
           overflowItems: geotechPipelineMenuItems,
           render: p => (
             <ToolbarDropdown
@@ -237,6 +245,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           kind: 'button',
           label: correlateMode ? t('sections.litho.correlateActive') : t('sections.geotech.correlatePacking'),
           iconOnly: false,
+          overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
           overflowItems: [
             {
               icon: <GitMerge size={12} />,
@@ -276,13 +285,23 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
             verbs used occasionally). Same testids, same behaviour.
 
             'medium' — pure view state; hiding it costs the engineer a click,
-            never a step of the pipeline. */
+            never a step of the pipeline.
+
+            EMPTY ``overflowItems`` (owner 2026-09-11, on the over-full ⋯
+            menu): the seven switches were more than a quarter of that menu's
+            rows, so they leave it and live only here. The empty list is also
+            what keeps them reachable — ``ResponsiveToolbarRow`` never folds a
+            control with no menu rows, so this trigger stays in the bar at
+            every width (icon-only at the narrowest) and the switches are
+            always two clicks away. A ⋯ row that re-opened this dropdown would
+            be the alternative, but a menu cannot open a second menu from
+            inside itself today. */
         {
           id: 'geotech-display-menu',
           priority: 'medium',
           kind: 'dropdown',
           label: t('sections.toolbar.display'),
-          overflowItems: geotechDisplayMenuItems,
+          overflowItems: [],
           render: p => (
             <ToolbarDropdown
               iconOnly={p === 'icon'}
