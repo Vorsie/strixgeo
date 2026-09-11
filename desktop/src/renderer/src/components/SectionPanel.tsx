@@ -99,6 +99,7 @@ import {
   type ContactDragRelease,
 } from "./sections/geotechSnapTargets";
 import { useColumnContextMenu } from "./sections/useColumnContextMenu";
+import { buildColumnMenuVerbs } from "./sections/columnMenuVerbs";
 import {
   useSectionKeyboardShortcuts,
   useSectionWheelZoom,
@@ -2605,6 +2606,40 @@ export default function SectionPanel({
     ],
   );
 
+  // The column verbs for one test, handed to ContactsLayer so its litho menu
+  // can head itself with them (owner dogfeed 2026-09-11: one right-click on a
+  // test, one menu). Built from the SAME shared builder ColumnContextMenu uses,
+  // so the two surfaces cannot offer different verbs for the same column.
+  // "Clear subdivision" is deliberately not passed: it is a geotech-axis verb
+  // and this menu only ever opens on the litho axis.
+  const lithoMenuColumnVerbs = useCallback(
+    (anchor: { kind: "cpt" | "borehole"; id: string; name: string }) =>
+      buildColumnMenuVerbs(t, {
+        onFocus: () => enterFocus(anchor),
+        onOpenDetail:
+          anchor.kind === "cpt"
+            ? onSelectCpt
+              ? () => onSelectCpt(anchor.id)
+              : undefined
+            : onSelectBorehole
+              ? () => onSelectBorehole(anchor.id)
+              : undefined,
+        onRemoveFromSection: onPatch
+          ? () => {
+              void handleRemoveFromSection(anchor.kind, anchor.id);
+            }
+          : undefined,
+      }),
+    [
+      t,
+      enterFocus,
+      onSelectCpt,
+      onSelectBorehole,
+      onPatch,
+      handleRemoveFromSection,
+    ],
+  );
+
   // Esc peel cascade — extracted to ``useSectionKeyboardShortcuts``
   // (debt #201 Move 4). Lives after the useColumnContextMenu / focus
   // hooks because it consumes contextMenu + focusedColumn; the open/
@@ -3796,6 +3831,19 @@ export default function SectionPanel({
               onSplitLithoLayer={
                 axisMode === "lithostratigraphic"
                   ? onSplitLithoLayer
+                  : undefined
+              }
+              // ONE menu per right-click (owner dogfeed 2026-09-11). The litho
+              // axis's bands + per-column capture rect cover the whole card, so
+              // they — not the section's own catch-all — are what a right-click
+              // on a test reaches. Handing the column verbs down is what keeps
+              // "Focus this test" / "Open detail" / "Remove from this section"
+              // reachable there instead of hiding behind a second right-click.
+              // Litho axis only: the geotech + geological axes never open this
+              // menu, and the ColumnContextMenu still answers them unchanged.
+              columnMenuVerbs={
+                axisMode === "lithostratigraphic"
+                  ? lithoMenuColumnVerbs
                   : undefined
               }
               lithoBodyIdByLayerId={lithoBodyIdByLayerId}
