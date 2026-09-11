@@ -454,19 +454,28 @@ export function useInvestigationData({
   // Hidden-set reload
   // ---------------------------------------------------------------------------
 
-  // Reload from the server whenever the project changes. The .gmproj-
-  // restore path pushes saved is_hidden state into the DB before this
-  // fires; the GET picks up exactly what should be hidden. Empty fallback
-  // on failure so the user sees ALL rows rather than nothing.
+  // Reload from the server whenever the project OPENS — keyed on the id, not
+  // the object. The .gmproj-restore path pushes saved is_hidden state into the
+  // DB before this fires; the GET picks up exactly what should be hidden.
+  // Empty fallback on failure so the user sees ALL rows rather than nothing.
+  //
+  // WHY the id: every PATCH of the project (view state, metadata, a new
+  // section) re-identifies the project object. Keyed on the object this
+  // effect re-ran on each of them and REPLACED the hidden set with the
+  // server's answer — a seed fetched before the hide upserts had landed put
+  // the boreholes the engineer had just removed straight back on the section
+  // (owner 2026-09-11: "i added boreholes, deleted some, made a section and
+  // the deleted boreholes showed up on the section").
+  const projectId = project?.id ?? null
   useEffect(() => {
-    if (!project) {
+    if (projectId === null) {
       setRemovedCptIds(new Set())
       setRemovedBoreholeIds(new Set())
       return
     }
     let cancelled = false
     api.review
-      .list(project.id)
+      .list(projectId)
       .then(reviews => {
         if (cancelled) return
         const cptHidden = new Set<string>()
@@ -480,12 +489,12 @@ export function useInvestigationData({
         setRemovedBoreholeIds(bhHidden)
       })
       .catch(err => {
-        log.warn('reviews', `load failed for project ${project.id}`, err)
+        log.warn('reviews', `load failed for project ${projectId}`, err)
       })
     return () => {
       cancelled = true
     }
-  }, [project])
+  }, [projectId])
 
   // Drop every project-scoped cache the instant the active project changes
   // (Codex 3). Without this, project A's list rows, detail and plot caches
