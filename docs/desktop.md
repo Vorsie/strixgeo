@@ -161,6 +161,9 @@ desktop/src/
     │   ├── useInvestigationData.ts  CPT + borehole detail fetch (scope-guarded).
     │   ├── useCrossingsValidation.ts  Surface-crossing validator hook.
     │   ├── useBoundaryDrag.ts     Shared boundary-drag state machine.
+    │   ├── useLithoGhostWorkspace.ts  Pending litho suggestions: synchronous writes, one
+    │   │                          undo command per gesture (a drag = one step), set aside
+    │   │                          per litho model on a switch and restored on return.
     │   ├── useDovImportStream.ts  SSE-backed import progress hook.
     │   └── useShellContextValue.ts  Shell context value memoisation.
     ├── utils/
