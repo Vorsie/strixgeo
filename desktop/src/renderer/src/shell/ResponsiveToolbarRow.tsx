@@ -34,6 +34,21 @@ import { useT } from '../i18n/translate'
 /** Presentations a control can actually be asked to render. */
 export type ToolbarRenderPresentation = Exclude<ToolbarPresentation, 'overflow'>
 
+/**
+ * One named section of the ⋯ menu.
+ *
+ * A stage that declares groups gets its folded rows laid out under a small
+ * heading per group, in the order declared here (owner 2026-09-11: *"the more
+ * menu is too populated"* — the rows did not shrink, they stopped being one
+ * undifferentiated list). A stage that declares none keeps the flat menu.
+ */
+export interface ToolbarOverflowGroup {
+  /** Matches ``ToolbarItemSpec.overflowGroup``. */
+  id: string
+  /** Already-translated heading text. */
+  label: string
+}
+
 /** One control in a stage toolbar. */
 export interface ToolbarItemSpec extends ToolbarItemSizing {
   /**
@@ -55,6 +70,13 @@ export interface ToolbarItemSpec extends ToolbarItemSizing {
    * instead of vanishing.
    */
   overflowItems: readonly ToolbarDropdownItem[]
+  /**
+   * Which ⋯-menu group this control's rows belong to — the ``id`` of one of
+   * the row's ``overflowGroups``. Omitted (or naming a group the stage did
+   * not declare) puts the rows at the TOP of the menu with no heading, which
+   * is conspicuous on purpose: a verb is never dropped for a missing label.
+   */
+  overflowGroup?: string
   /** Draw a vertical rule before this control when it is visible. */
   separatorBefore?: boolean
 }
@@ -64,6 +86,12 @@ export interface ResponsiveToolbarRowProps {
   items: readonly ToolbarItemSpec[]
   /** aria-label for the ⋯ menu. Names the stage so two open menus differ. */
   overflowMenuLabel?: string
+  /**
+   * Headed sections of the ⋯ menu, in the order they should read. Omitted
+   * leaves the menu flat and in declaration order (what every stage did
+   * before the Sections stage asked for groups).
+   */
+  overflowGroups?: readonly ToolbarOverflowGroup[]
   /**
    * How the row learns its width. Injected so tests (and any host that
    * measures differently) can drive the planner without a real layout pass.
@@ -84,6 +112,8 @@ export interface ResponsiveToolbarRowProps {
  *     The stage's controls, left to right.
  * overflowMenuLabel
  *     Accessible name for the ⋯ menu.
+ * overflowGroups
+ *     Headed sections of the ⋯ menu, in reading order; see the interface.
  * measureWidth
  *     Width source; see ``ResponsiveToolbarRowProps``.
  * metrics
@@ -97,6 +127,7 @@ export interface ResponsiveToolbarRowProps {
 export default function ResponsiveToolbarRow({
   items,
   overflowMenuLabel,
+  overflowGroups,
   measureWidth = defaultMeasureWidth,
   metrics = DEFAULT_TOOLBAR_METRICS,
 }: ResponsiveToolbarRowProps): JSX.Element {
@@ -150,9 +181,10 @@ export default function ResponsiveToolbarRow({
 
   const overflowIds = new Set(plan.overflowIds)
   const visible = items.filter(i => !overflowIds.has(i.id))
-  const menuItems = items
-    .filter(i => overflowIds.has(i.id))
-    .flatMap(i => i.overflowItems)
+  const menuItems = groupOverflowRows(
+    items.filter(i => overflowIds.has(i.id)),
+    overflowGroups,
+  )
 
   return (
     <div ref={rowRef} className="flex items-center gap-1 flex-1 min-w-0">
@@ -218,4 +250,52 @@ export default function ResponsiveToolbarRow({
 /** Default width source — the row's own content box. */
 function defaultMeasureWidth(el: HTMLElement): number {
   return el.clientWidth
+}
+
+/**
+ * Lay the folded controls' rows out as the ⋯ menu's item list.
+ *
+ * With no groups declared this is the flat concatenation the menu has always
+ * been. With groups it is the same rows re-ordered into the declared group
+ * order, the first row of each group carrying that group's heading.
+ *
+ * Rows whose control names no group — or names one the stage did not declare —
+ * lead the menu unheaded rather than being dropped: the owner's invariant is
+ * that every verb stays reachable at every width, and a forgotten group label
+ * must cost a heading, never a verb.
+ *
+ * Parameters
+ * ----------
+ * folded
+ *     The controls the planner sent to the ⋯ menu, in declaration order.
+ * groups
+ *     The stage's declared groups, in reading order; ``undefined`` for a
+ *     stage that wants the flat menu.
+ *
+ * Returns
+ * -------
+ * ToolbarDropdownItem[]
+ *     The menu's rows, top to bottom.
+ */
+function groupOverflowRows(
+  folded: readonly ToolbarItemSpec[],
+  groups: readonly ToolbarOverflowGroup[] | undefined,
+): ToolbarDropdownItem[] {
+  const rowsOf = (specs: readonly ToolbarItemSpec[]): ToolbarDropdownItem[] =>
+    specs.flatMap(spec => [...spec.overflowItems])
+
+  if (groups === undefined || groups.length === 0) return rowsOf(folded)
+
+  const declared = new Set(groups.map(g => g.id))
+  const ungrouped = folded.filter(
+    spec => spec.overflowGroup === undefined || !declared.has(spec.overflowGroup),
+  )
+
+  const rows = rowsOf(ungrouped)
+  for (const group of groups) {
+    const groupRows = rowsOf(folded.filter(spec => spec.overflowGroup === group.id))
+    if (groupRows.length === 0) continue
+    rows.push({ ...groupRows[0], groupHeader: group.label }, ...groupRows.slice(1))
+  }
+  return rows
 }
