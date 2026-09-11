@@ -59,6 +59,41 @@ export interface SheetGeometry {
   overCap: boolean
 }
 
+/** Upper bound of the sheet's exaggeration slider (mirrors the section view's VEX_MAX). */
+export const VEX_SLIDER_MAX = 50
+
+/** The horizontal scale (mm per m) that fits the profile length into the A3 drawing width. */
+function fitWidthScaleH(columns: readonly { alongM: number }[]): number {
+  const lengthM = Math.max(1e-3, (columns[columns.length - 1]?.alongM ?? 0) - (columns[0]?.alongM ?? 0))
+  // The first and last columns are drawn at up to the capped half-width on
+  // either side of their centres, so that reach is taken off the fit width
+  // too — otherwise a long profile lands 2 × 18 mm past A3.
+  const availableWidthMm =
+    PAPER_MIN_WIDTH_MM - MARGIN_MM - AXIS_GUTTER_MM - PROFILE_TRAILING_MM - GUTTER_MM - RIGHT_COLUMN_MM - MARGIN_MM
+    - 2 * COLUMN_HALF_WIDTH_MAX_MM
+  return availableWidthMm / lengthM
+}
+
+/**
+ * The exaggeration at which a fit-mode sheet fills the page: the drawing is
+ * exactly the page height on the A3 width. The sheet opens here (owner
+ * 2026-09-11: "a lot of white space on the pdf report no? Can't we give a
+ * better page fit to start?" — at 1× a 900 m by 25 m profile was a strip along
+ * the top). Never below 1× (a short deep profile already fills the page at
+ * true scale), never above the slider's maximum, rounded to a tenth so the
+ * readout and the slider agree.
+ */
+export function pageFillingVex(input: {
+  levelMaxM: number
+  levelMinM: number
+  /** Only the along-section metres matter; a payload column fits as well as a geometry column. */
+  columns: readonly { alongM: number }[]
+}): number {
+  const rangeM = Math.max(1e-3, input.levelMaxM - input.levelMinM)
+  const raw = DRAWING_HEIGHT_FIT_MM / (rangeM * fitWidthScaleH(input.columns))
+  return Math.min(VEX_SLIDER_MAX, Math.max(1, Math.round(raw * 10) / 10))
+}
+
 export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
   const rangeM = Math.max(1e-3, input.levelMaxM - input.levelMinM)
   let scaleV: number
@@ -81,17 +116,7 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     // to the page and derived H from V / vex, so raising the exaggeration
     // made the section SHORTER on paper and the columns narrower with it.
     const vex = Math.max(1e-6, input.vex)
-    const lengthM = Math.max(
-      1e-3,
-      (input.columns[input.columns.length - 1]?.alongM ?? 0) - (input.columns[0]?.alongM ?? 0),
-    )
-    // The first and last columns are drawn at up to the capped half-width on
-    // either side of their centres, so that reach is taken off the fit width
-    // too — otherwise a long profile lands 2 × 18 mm past A3.
-    const availableWidthMm =
-      PAPER_MIN_WIDTH_MM - MARGIN_MM - AXIS_GUTTER_MM - PROFILE_TRAILING_MM - GUTTER_MM - RIGHT_COLUMN_MM - MARGIN_MM
-      - 2 * COLUMN_HALF_WIDTH_MAX_MM
-    const widthFitH = availableWidthMm / lengthM
+    const widthFitH = fitWidthScaleH(input.columns)
     const heightFitH = DRAWING_HEIGHT_FIT_MM / (rangeM * vex)
     scaleH = Math.min(widthFitH, heightFitH)
     scaleV = scaleH * vex
