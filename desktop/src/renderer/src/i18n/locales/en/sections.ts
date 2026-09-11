@@ -27,6 +27,12 @@ export const SECTIONS = {
   'sections.properties': 'Section properties',
   'sections.modelActions': 'Model actions',
   'sections.moreActions': 'More section actions',
+  // Headings of the ⋯ More menu (owner 2026-09-11: "the more menu is too
+  // populated"). Three groups, in this reading order: what acts on the model,
+  // what acts on the cross-section itself, what leaves the app.
+  'sections.moreGroup.model': 'Model',
+  'sections.moreGroup.section': 'Section',
+  'sections.moreGroup.export': 'Export',
   'sections.geoVerbHint':
     'Switch to the Stratigraphy axis — Build / Seed / Dedupe / Plaxis-3D act on the stratigraphic model',
   'sections.undoTitle': 'Undo the last model edit (Ctrl+Z)',
@@ -56,6 +62,10 @@ export const SECTIONS = {
   'sections.inspector.noCrossSectionForContact':
     'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
   'sections.inspector.staleBadge': '{n} stale',
+  // The representative-qc explanation, moved out of the ⋯ menu rows (owner
+  // 2026-09-11): it is information about the choice, not a verb, so it reads
+  // here while the picker itself stays on the toolbar.
+  'sections.inspector.representativeQc': 'Representative qc',
   'sections.inspector.geologicalModel': 'Stratigraphic model',
   'sections.inspector.previewLegend':
     'Hatched bands = preview. Right-click a ghost column to divide just that borehole, or press “4 · Divide boreholes” to commit them all.',
