@@ -19,7 +19,8 @@
  * click-outside / Esc.
  */
 
-import ContextMenu, { type ContextMenuItem } from '../ui/ContextMenu'
+import ContextMenu from '../ui/ContextMenu'
+import { buildColumnMenuVerbs } from './columnMenuVerbs'
 import { useT } from '../../i18n/translate'
 
 interface Props {
@@ -67,22 +68,22 @@ export default function ColumnContextMenu({
   // 2026-09-01: the menu stayed English in Dutch mode). English is the default
   // without a provider, so the smoke tests still see the English copy.
   const t = useT()
-  const items: (ContextMenuItem | false | undefined)[] = [
-    { label: t('sections.menu.focusTest'), onClick: onFocus },
-    onOpenDetail && { label: t('sections.menu.openDetail'), onClick: onOpenDetail, topBorder: true },
-    onClearSubdivision && {
-      label: t('sections.menu.clearSubdivision'),
-      onClick: onClearSubdivision,
-      danger: true,
-      topBorder: true,
-    },
-    onRemoveFromSection && {
-      label: t('sections.menu.removeFromSection'),
-      onClick: onRemoveFromSection,
-      danger: true,
-      topBorder: true,
-    },
-  ]
+  // The rows come from the SHARED builder (owner ruling 2026-09-11): the litho
+  // axis's unit menu offers the same column verbs above its own, and two
+  // hand-written copies of this list would drift the moment one gains a verb.
+  const items = buildColumnMenuVerbs(t, {
+    onFocus,
+    onOpenDetail,
+    onClearSubdivision,
+    onRemoveFromSection,
+  }).map(v => ({
+    key: v.key,
+    label: v.label,
+    onClick: v.onClick,
+    danger: v.danger,
+    topBorder: v.topBorder,
+    testid: v.testid,
+  }))
   return (
     <ContextMenu
       portal="absolute"
