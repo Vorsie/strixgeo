@@ -126,3 +126,16 @@ describe('SheetPreviewDialog — live scale readout (owner finding 4)', () => {
     })
   })
 })
+
+describe('SheetPreviewDialog — the sheet opens filling the page', () => {
+  // Owner 2026-09-11 on the first fit-to-width sheet: "a lot of white space on
+  // the pdf report no? Can't we give a better page fit to start?" The section
+  // carries 5x on screen; the stub profile (100 m long, 25 m deep) fills the
+  // A3 page at 4.2x, so that is where the sheet must open.
+  it("opens at the exaggeration that fills the page, not the screen's", async () => {
+    renderDialog()
+    const slider = (await screen.findByTestId('sheet-vex')) as HTMLInputElement
+    await waitFor(() => expect(slider.value).toBe('4.2'))
+    expect(Number(slider.max)).toBeGreaterThanOrEqual(50)
+  })
+})
