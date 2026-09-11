@@ -69,9 +69,33 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     scaleV = 1000 / input.vScale
     drawingHeightMm = Math.max(MIN_DRAWING_HEIGHT_MM, rangeM * scaleV)
   } else {
-    scaleV = DRAWING_HEIGHT_FIT_MM / rangeM
-    scaleH = scaleV / Math.max(1e-6, input.vex)
-    drawingHeightMm = DRAWING_HEIGHT_FIT_MM
+    // Fit = the profile fits an A3 sheet in BOTH directions at the chosen
+    // exaggeration. The horizontal scale fills the A3 drawing width; the
+    // vertical follows the exaggeration, so more exaggeration makes the
+    // drawing TALLER — until the page height is reached, after which the
+    // whole drawing shrinks together to keep the exaggeration honest.
+    //
+    // Owner 2026-09-11 (sheet on the geotech axis): "columns do not rescale
+    // with height exaggeration ... fit mode, i expected them to stretch taller
+    // too and of course wider." The previous rule pinned the drawing height
+    // to the page and derived H from V / vex, so raising the exaggeration
+    // made the section SHORTER on paper and the columns narrower with it.
+    const vex = Math.max(1e-6, input.vex)
+    const lengthM = Math.max(
+      1e-3,
+      (input.columns[input.columns.length - 1]?.alongM ?? 0) - (input.columns[0]?.alongM ?? 0),
+    )
+    // The first and last columns are drawn at up to the capped half-width on
+    // either side of their centres, so that reach is taken off the fit width
+    // too — otherwise a long profile lands 2 × 18 mm past A3.
+    const availableWidthMm =
+      PAPER_MIN_WIDTH_MM - MARGIN_MM - AXIS_GUTTER_MM - PROFILE_TRAILING_MM - GUTTER_MM - RIGHT_COLUMN_MM - MARGIN_MM
+      - 2 * COLUMN_HALF_WIDTH_MAX_MM
+    const widthFitH = availableWidthMm / lengthM
+    const heightFitH = DRAWING_HEIGHT_FIT_MM / (rangeM * vex)
+    scaleH = Math.min(widthFitH, heightFitH)
+    scaleV = scaleH * vex
+    drawingHeightMm = Math.max(MIN_DRAWING_HEIGHT_MM, rangeM * scaleV)
   }
   const drawingLeftMm = MARGIN_MM + AXIS_GUTTER_MM
   const layoutColumns = input.columns.map(c => ({
