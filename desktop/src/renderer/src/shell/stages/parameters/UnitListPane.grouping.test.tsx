@@ -41,6 +41,7 @@ let mockLithoLayers: unknown[] = []
 let mockGeotechLayers: unknown[] = []
 let mockActiveGeotechModel: { id: string } | null = null
 let mockGeotechNonce = 0
+let mockSelectedUnit: unknown = null
 
 vi.mock('../../ShellContext', () => ({
   useShell: () => ({
@@ -56,7 +57,7 @@ vi.mock('../../ShellContext', () => ({
       requestGeotechLayersRefetch,
     },
     coordinator: {
-      selectedParameterUnit: null,
+      selectedParameterUnit: mockSelectedUnit,
       setSelectedParameterUnit,
       bodyRecomputeLithoNonce: 0,
       bodyRecomputeGeotechNonce: mockGeotechNonce,
@@ -184,6 +185,7 @@ afterEach(() => {
   mockGeotechLayers = []
   mockActiveGeotechModel = null
   mockGeotechNonce = 0
+  mockSelectedUnit = null
 })
 
 describe('UnitListPane — grouping in the right pane', () => {
@@ -354,5 +356,79 @@ describe('UnitListPane — grouping in the right pane', () => {
     expect(
       screen.queryByTestId('parameters-node-checked-inside-litho-body:zand:zb2'),
     ).toBeNull()
+  })
+})
+
+// The owner's 2026-09-11 dogfeed on installer #30, verbatim: "parameters
+// grouping, instead of just lumping and putting the group name behind the level,
+// it created a level even deeper which i can then group again. i just want to
+// group and then directly see which are grouped ... and of course if i click a
+// unit from that group, it should highlight the whole group in the right hand
+// pane and show the whole group together in the parameter pane."
+describe('UnitListPane — a group is shown on the rows the owner already sees', () => {
+  /** The loose sands under Zand #0 and Zand #2, joined into group 1. */
+  function seedGroupedLooseSands() {
+    seedTwoParentCollapsedScene()
+    listBodyUnions.mockResolvedValue([unionItem('u1', 'gLos0', 'gLos2')])
+  }
+
+  it('PG9 — "i don\'t need another hierarchical deeper level": after grouping, both loose-sand rows stay leaves and show "(group 1)" behind the label', async () => {
+    seedGroupedLooseSands()
+    render(<UnitListPane />)
+    expandBothZandBodies()
+
+    const tag0 = await screen.findByTestId('parameters-node-group-geotech-class:zand:zb0:5')
+    expect(tag0.textContent).toContain('(group 1)')
+    expect(
+      screen.getByTestId('parameters-node-group-geotech-class:zand:zb2:5').textContent,
+    ).toContain('(group 1)')
+
+    // No deeper level: no chevron on either row, and no geotech-body row below.
+    expect(screen.queryByTestId('parameters-node-expander-geotech-class:zand:zb0:5')).toBeNull()
+    expect(screen.queryByTestId('parameters-node-expander-geotech-class:zand:zb2:5')).toBeNull()
+    expect(screen.queryByTestId('parameters-node-geotech-body:zand-los:gLos0')).toBeNull()
+    expect(screen.queryByTestId('parameters-node-geotech-body:zand-los:gLos2')).toBeNull()
+
+    // The row keeps its own counts ("1 band · 1 with cone") and its checkbox.
+    expect(
+      screen.getByTestId('parameters-node-count-geotech-class:zand:zb0:5').textContent,
+    ).toContain('1 band')
+    expect(screen.getByTestId('parameters-node-check-geotech-class:zand:zb0:5')).toBeTruthy()
+  })
+
+  it('PG10 — clicking a unit from that group shows the whole group together in the parameter pane and highlights the whole group in the right hand pane', async () => {
+    seedGroupedLooseSands()
+    const view = render(<UnitListPane />)
+    expandBothZandBodies()
+    await screen.findByTestId('parameters-node-group-geotech-class:zand:zb0:5')
+
+    fireEvent.click(screen.getByTestId('parameters-node-geotech-class:zand:zb0:5'))
+    // The parameter pane is scoped to the GROUP — both members pooled.
+    expect(setSelectedParameterUnit).toHaveBeenCalledWith({
+      kind: 'geotech-group',
+      unitId: 'zand-los',
+      groupNumber: 1,
+      memberBodyIds: ['gLos0', 'gLos2'],
+    })
+
+    // With that selection live, BOTH member rows read selected — including the
+    // one under the other litho parent, whose path opens to show it.
+    mockSelectedUnit = {
+      kind: 'geotech-group',
+      unitId: 'zand-los',
+      groupNumber: 1,
+      memberBodyIds: ['gLos0', 'gLos2'],
+    }
+    view.rerender(<UnitListPane />)
+    expect(
+      screen.getByTestId('parameters-node-geotech-class:zand:zb0:5').getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(
+      screen.getByTestId('parameters-node-geotech-class:zand:zb2:5').getAttribute('aria-selected'),
+    ).toBe('true')
+    // The litho parents above them are not themselves the selection.
+    expect(
+      screen.getByTestId('parameters-node-litho-body:zand:zb0').getAttribute('aria-selected'),
+    ).toBe('false')
   })
 })
