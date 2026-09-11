@@ -34,6 +34,11 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'export.dSheetPiling',
   'export.title', // "Exports" is the plural used in BE Dutch too
   'sections.toolbar.export',
+  // ⋯ More menu headings: "Model" and "Export" are the same words in BE Dutch.
+  // The third heading, sections.moreGroup.section, becomes "Profiel" and is NOT
+  // here. The Export heading matches the bar's own Export dropdown above it.
+  'sections.moreGroup.model',
+  'sections.moreGroup.export',
   // D-Series export rows carry the product + file-extension name verbatim.
   'sections.export.dstability',
   'sections.export.dsheetpiling',
