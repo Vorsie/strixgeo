@@ -719,6 +719,7 @@ export default function App() {
     restoreOffer,
     dismissOffer: dismissRecoveryOffer,
     discardOffer: discardRecoveryOffer,
+    discarding: discardingRecovery,
   } = useRecoveryOffer({
     projectId: project?.id ?? null,
     projectName: project?.name ?? null,
@@ -1544,6 +1545,7 @@ export default function App() {
           onRestore={() => void restoreOffer()}
           onOpenWithoutRestoring={() => void dismissRecoveryOffer()}
           onDiscard={() => void discardRecoveryOffer()}
+          busy={discardingRecovery}
         />
       )}
       {/* "Delete backup" met a file that is not the latest save: ask instead of
