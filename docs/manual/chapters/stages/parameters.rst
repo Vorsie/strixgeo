@@ -70,6 +70,11 @@ be pooling two different things. A grouped unit's statistics header reads
 "group of N" and lists the source bodies, so the provenance of the pooled sample
 stays visible.
 
+Grouping adds no extra level to the pane. The "(group N)" label appears behind the
+unit you already had, on the same row, and that row keeps its own counts. Click any
+member and the whole group is selected: every member row is highlighted, wherever
+it sits in the tree, and the statistics show the members pooled together.
+
 From the numbers to the geometry
 --------------------------------
 
