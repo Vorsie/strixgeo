@@ -608,28 +608,35 @@ describe('reject / unreject litho suggestion', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Model-switch effect — B-1 data-integrity: clear stale ghosts on model change
+// Model-switch effect — B-1 data-integrity, re-ruled by the owner 2026-09-11
+// ("fix that trap too"). The guard used to DELETE the focused anchor's pending
+// work. It now takes the whole live map off screen so nothing can be accepted
+// onto the model the user just switched to, and the columns are set aside for
+// the model they belong to. The round trip (switch away, switch back, the
+// suggestions are still there) is pinned in
+// ``useLithoSuggestions.ghostWorkspace.test.ts`` (MS1-MS3), which drives the
+// hook against a REAL ghost Map instead of a setter spy.
 // ---------------------------------------------------------------------------
 
-describe('active-litho-model change clears the ghost overlay', () => {
-  it('B5: switching the active model clears the focused anchor ghost', () => {
+describe('active-litho-model change takes the ghost overlay off screen', () => {
+  it('B5: switching the active model leaves no ghosts on the new model', () => {
     const params = makeParams()
     const { rerender } = renderHook((p: UseLithoSuggestionsParams) => useLithoSuggestions(p), {
       initialProps: params,
     })
     const setSpy = params.setGhostsByAnchor as ReturnType<typeof vi.fn>
-    // Drop the mount-time clear so we observe only the model-switch effect.
-    setSpy.mockClear()
+    // Mounting no longer clears anything, so nothing should have been written
+    // yet — the owner's trap was exactly this firing on mount.
+    expect(setSpy).not.toHaveBeenCalled()
 
     const model2 = { id: 'M-litho-2', kind: 'lithostratigraphic' } as unknown as GeologicalModelResponse
     rerender({ ...params, activeLithoModel: model2 })
 
-    // The effect fired: the focused anchor's ghost entry is deleted so an
-    // accept can never fire against the OLD anchor into the NEW model.
+    // The effect fired and replaced the live map wholesale: an accept can never
+    // fire against the OLD anchor into the NEW model.
     expect(setSpy).toHaveBeenCalled()
-    const seed = new Map([[ANCHOR_ID, makeGhost()]])
-    const next = applyLastGhostUpdater(setSpy, seed)
-    expect(next.has(ANCHOR_ID)).toBe(false)
+    const written = setSpy.mock.calls.at(-1)?.[0] as ReadonlyMap<string, BulkAnchorGhost>
+    expect(written.size).toBe(0)
   })
 })
 
