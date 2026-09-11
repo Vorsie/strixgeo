@@ -111,7 +111,13 @@ desktop/src/
     │       │                  labels split into parameterScopeLabels.ts + the path header
     │       │                  into parameterScopeHeader.ts (500-line cap). A geotech band's
     │       │                  litho body is derived live through litho_layer.parent_litho_
-    │       │                  layer_id (Slice A). Per-unit CANVAS = UnitStatisticsCanvas for
+    │       │                  layer_id (Slice A). GROUPS ADD NO LEVEL (owner 2026-09-11):
+    │       │                  a lone geotech body always folds into its class row, grouped
+    │       │                  or not — that row wears "(group N)" and its checkbox; a click
+    │       │                  on a grouped row selects the geotech-group scope
+    │       │                  (unitTreeView.selectionScopeForNode) and EVERY member row
+    │       │                  renders selected (unitTreeView.isRowSelected), its path opened.
+    │       │                  Per-unit CANVAS = UnitStatisticsCanvas for
     │       │                  the scoped coordinator.selectedParameterUnit — a five-kind
     │       │                  union (litho-unit / litho-body / geotech-class / geotech-body /
     │       │                  geotech-unit; a litho scope pools the whole unit, all packing
