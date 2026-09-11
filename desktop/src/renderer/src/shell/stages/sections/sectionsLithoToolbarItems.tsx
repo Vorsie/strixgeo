@@ -10,6 +10,7 @@ import { Sparkles, Eraser, GitMerge, FlaskConical, Layers } from 'lucide-react'
 
 import { ToolbarButton, ToolbarDropdown, SplitToolbarButton } from '../../ToolbarPrimitives'
 import type { ToolbarItemSpec } from '../../ResponsiveToolbarRow'
+import { SECTIONS_OVERFLOW_GROUP } from './sectionsToolbar_constants'
 import {
   buildLithoSuggestMenuItems,
   buildLithoCorrelateMenuItems,
@@ -97,6 +98,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         kind: 'split',
         label: suggestLabel,
         separatorBefore: true,
+        overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
         overflowItems: [
           {
             label: suggestLabel,
@@ -164,6 +166,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               priority: 'high' as const,
               kind: 'button' as const,
               label: acceptingAll ? t('sections.busy.accepting') : t('sections.litho.acceptAll'),
+              overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
               overflowItems: [
                 {
                   label: t('sections.toolbar.acceptAllSuggestions'),
@@ -196,6 +199,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               priority: 'high' as const,
               kind: 'button' as const,
               label: t('sections.litho.clear'),
+              overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
               overflowItems: [
                 {
                   label: t('sections.toolbar.clearLithoSuggestions'),
@@ -222,6 +226,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               priority: 'high' as const,
               kind: 'button' as const,
               label: acceptingAllBulk ? t('sections.busy.accepting') : t('sections.litho.acceptAllBulk'),
+              overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
               overflowItems: [
                 {
                   label: t('sections.toolbar.acceptAllBulkSuggestions'),
@@ -259,6 +264,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
               priority: 'high' as const,
               kind: 'button' as const,
               label: t('sections.litho.clearBulk'),
+              overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
               overflowItems: [
                 {
                   label: t('sections.toolbar.clearBulkGhosts'),
@@ -298,6 +304,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         kind: 'split',
         label: correlateMode ? t('sections.litho.correlateActive') : t('sections.litho.correlate'),
         iconOnly: false,
+        overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
         overflowItems: [
           {
             icon: <GitMerge size={12} />,
@@ -353,13 +360,21 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
           opens a confirmation modal (irreversible).
 
           'medium' — view switches and one-off body maintenance, reached a
-          few times per section rather than per column. */
+          few times per section rather than per column.
+
+          EMPTY ``overflowItems`` (owner 2026-09-11, on the over-full ⋯ menu):
+          this is the litho axis's display menu, the twin of the geotech
+          "Display" one, and its switches leave the ⋯ menu with them. The empty
+          list is what keeps every switch reachable — a control with no menu
+          rows is never folded, so the trigger stays in the bar at every width
+          (icon-only at the narrowest) and Reset manual points, which lives
+          here too, travels with it. */
       {
         id: 'litho-bodies-dropdown',
         priority: 'medium',
         kind: 'dropdown',
         label: t('sections.toolbar.bodies'),
-        overflowItems: lithoBodiesMenuItems,
+        overflowItems: [],
         render: p => (
           <ToolbarDropdown
             iconOnly={p === 'icon'}
@@ -390,6 +405,7 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         priority: 'low',
         kind: 'dropdown',
         label: t('sections.toolbar.admixtures'),
+        overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
         overflowItems: lithoAdmixtureMenuItems,
         render: p => (
           <ToolbarDropdown
