@@ -80,6 +80,14 @@ def build_litho_formation_lookup(
     """
     lookup: dict[tuple[str, str], GeologicalFormationOrm] = {}
     for f in project_formations:
+        # Geotech provenance rows (the NAD units and the borehole materialiser's
+        # "<unit> (geotech)" rows) INHERIT the litho soil code, so the soil code
+        # alone does not tell a litho unit from its derivatives. They carry
+        # ``source_litho_formation_id``; a litho row never does (the renderer's
+        # ``isLithoUnit`` rule). Without this guard an Edit composition repointed
+        # a litho layer to "ZAND (geotech)" (owner 2026-09-11, packaged #30).
+        if getattr(f, "source_litho_formation_id", None) is not None:
+            continue
         if f.litho_main_soil_code is not None:
             sig = canonical_admixture_signature(
                 tuple(
