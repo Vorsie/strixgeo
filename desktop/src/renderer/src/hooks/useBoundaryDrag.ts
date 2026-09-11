@@ -35,6 +35,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormationContactResponse, LithoLayerSuggestion } from '../api/client'
 import type { LithoSuggestionEdit } from './useGeologicalModel'
 import { log } from '../utils/log'
+import { crossMergeAbsorbTarget } from '../utils/lithoAbsorbRule'
 import {
   ZERO_THICKNESS_M,
   effectiveDepths,
@@ -522,31 +523,36 @@ export function useBoundaryDrag(
       // suppressed (dogfeed 2026-05-26 — bottom layer turning into
       // the dragger's lithology after a drag-up): (1) the secondary
       // onEdit on the partner, (2) the chain onMergeLayers.
-      let partnerWillBeAbsorbed = false
+      //
+      // The prediction asks the reducer's OWN predicate
+      // (``crossMergeAbsorbTarget``) rather than re-deriving one here. Owner
+      // dogfeed 2026-09-11, installer #32 — "i split, renamed (added
+      // admixture) then tried to pull up the boundary and then it went wrong
+      // ... a whole suggestion disappeared": the local copy tested for a FULL
+      // cross (released at or past the partner's far edge) while the reducer
+      // absorbs as soon as the partner is eaten down to a sliver
+      // (absorbRemainderThresholdM — at least 10 cm). In that window the
+      // reducer merged and this commit still fired the partner edit, at an
+      // index the merge had just shifted onto the merged layer itself, whose
+      // far edge was then written onto its own near edge. Two rules that must
+      // agree now have one definition.
+      const absorbTarget = crossMergeAbsorbTarget(
+        suggestions,
+        edits,
+        acceptedIndices,
+        effectivelyRejectedIndices,
+        drag.idx,
+        drag.edge === 'top' ? { depth_top_m: final } : { depth_base_m: final },
+      )
+      const partnerWillBeAbsorbed = absorbTarget !== null
       if (drag.edge === 'top') {
         const visible = nearestVisibleIndexAbove(drag.idx, effectivelyRejectedIndices)
-        partnerWillBeAbsorbed = (() => {
-          if (visible === null) return false
-          if (acceptedIndices.has(visible)) return false
-          const partner = suggestions[visible]
-          if (partner === undefined) return false
-          const partnerTop = edits?.get(visible)?.depth_top_m ?? partner.depth_top_m
-          return final <= partnerTop
-        })()
         if (onEdit) onEdit(drag.idx, { depth_top_m: final })
         if (!partnerWillBeAbsorbed && visible !== null && !acceptedIndices.has(visible) && onEdit) {
           onEdit(visible, { depth_base_m: final, _propagateOnly: true })
         }
       } else {
         const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, effectivelyRejectedIndices)
-        partnerWillBeAbsorbed = (() => {
-          if (visible === null) return false
-          if (acceptedIndices.has(visible)) return false
-          const partner = suggestions[visible]
-          if (partner === undefined) return false
-          const partnerBase = edits?.get(visible)?.depth_base_m ?? partner.depth_base_m
-          return final >= partnerBase
-        })()
         if (onEdit) onEdit(drag.idx, { depth_base_m: final })
         if (!partnerWillBeAbsorbed && visible !== null && !acceptedIndices.has(visible) && onEdit) {
           onEdit(visible, { depth_top_m: final, _propagateOnly: true })
