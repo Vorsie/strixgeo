@@ -1,0 +1,75 @@
+// The representative-qc note in the Sections inspector.
+//
+// Owner, 2026-09-11, on the over-full ⋯ menu: the "qc" explanation is
+// information, not a verb, so it leaves the menu rows and is shown in the
+// inspector instead. The PICKER stays in the toolbar where the choice is made.
+//
+// Claims pinned:
+//   SN1  the statistic note lives in the inspector, not the More menu
+//   SN2  it is a muted line, not a button — nothing here is pressable
+//   SN3  it is a geotech-axis block: the litho axis does not carry it
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { ShellContext } from '../../ShellContext'
+import type { ShellContextValue } from '../../ShellContext'
+import type { SectionModelAxis } from '../../../hooks/useSections'
+import SectionsInspector from './SectionsInspector'
+import { makeShellCtx } from './__fixtures__/sectionsShellContext'
+
+vi.mock('../../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    setBaseUrl: vi.fn(),
+    api: {
+      geology: {
+        validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+      },
+      virtueleBoring: { getModels: vi.fn().mockResolvedValue([]) },
+    },
+  }
+})
+
+vi.mock('../../../utils/log', () => ({
+  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), success: vi.fn() },
+}))
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+function renderInspector(axis: SectionModelAxis): void {
+  const ctx: ShellContextValue = makeShellCtx(axis)
+  render(
+    <ShellContext.Provider value={ctx}>
+      <SectionsInspector />
+    </ShellContext.Provider>,
+  )
+}
+
+describe('the Sections inspector explains the representative qc', () => {
+  it('SN1 — the statistic note lives in the inspector', () => {
+    renderInspector('geotechnical')
+
+    const note = screen.getByTestId('sections-inspector-statistic-note')
+    expect(note.textContent ?? '').toMatch(/next subdivide/i)
+    expect(note.textContent ?? '').toMatch(/nothing re-runs/i)
+  })
+
+  it('SN2 — it is a muted line, not a button', () => {
+    renderInspector('geotechnical')
+
+    const note = screen.getByTestId('sections-inspector-statistic-note')
+    expect(note.tagName).toBe('P')
+    expect(note.className).toContain('text-text-muted')
+  })
+
+  it('SN3 — the litho axis does not carry the geotech note', () => {
+    renderInspector('lithostratigraphic')
+
+    expect(screen.queryByTestId('sections-inspector-statistic-note')).toBeNull()
+  })
+})
