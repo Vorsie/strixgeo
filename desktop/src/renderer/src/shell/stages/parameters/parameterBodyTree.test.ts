@@ -328,15 +328,35 @@ describe('parameterBodyTree — manual groups (debt #278 D1/D2)', () => {
     expect(class13.children.map(c => c.groupNumber)).toEqual([1, 1])
   })
 
-  it('PT-G2 — a grouped SOLE-body class does NOT collapse, so the body stays a taggable, selectable leaf', () => {
-    // lb2 has ONE geotech body (gb2). Ungrouped it collapses to its class row
-    // (PT2). Grouped, the leaf must survive so it can carry the tag and be the
-    // selection that pools the group.
+  it('PT-G2 — "i don\'t need another hierarchical deeper level": grouping a sole-body class row adds NO child, the row itself puts the group name behind the level (owner dogfeed 2026-09-11)', () => {
+    // lb2 has ONE geotech body (gb2), so its class row is already a leaf (PT2).
+    // Joining that body into a group used to grow a geotech-body child under it
+    // — "instead of just lumping and putting the group name behind the level, it
+    // created a level even deeper which i can then group again". The row the
+    // owner already sees stays the leaf AND carries the tag.
     const tree = buildParameterTree({ ...makeScene(), groupByBodyId: new Map([['gb2', 1]]) })
     const lb2Class = tree[0].children[1].children[0]
-    expect(lb2Class.children).toHaveLength(1)
-    expect(lb2Class.children[0].scope).toMatchObject({ kind: 'geotech-body', bodyId: 'gb2' })
-    expect(lb2Class.children[0].groupNumber).toBe(1)
+    expect(lb2Class.scope).toMatchObject({ kind: 'geotech-class', nadClass: 13 })
+    expect(lb2Class.children).toEqual([])
+    // "directly see which are grouped" — the tag rides the row the user sees.
+    expect(lb2Class.groupNumber).toBe(1)
+    // ...and the row stays that body's checkbox, so it can still be un-joined.
+    expect(lb2Class.groupableBodyId).toBe('gb2')
+  })
+
+  it('PT-G2b — a sole-body class row names the geotech unit of its body, so a click on it can pool the whole group', () => {
+    // The row stands for exactly one geotech body; the group scope a click
+    // selects needs that body's formation id (the scope's ``unitId``), and no
+    // geotech-body child is left to supply it once the row is a leaf.
+    const tree = buildParameterTree({ ...makeScene(), groupByBodyId: new Map([['gb2', 1]]) })
+    const lb2Class = tree[0].children[1].children[0]
+    expect(lb2Class.groupableBodyUnitId).toBe('silt-sf-A')
+    // A geotech-body LEAF carries the same pair (its own scope's unit + body).
+    const gbALeaf = tree[0].children[0].children[0].children[0]
+    expect(gbALeaf.groupableBodyId).toBe('gbA')
+    expect(gbALeaf.groupableBodyUnitId).toBe('silt-sf-A')
+    // A multi-body class row groups its children individually — no pair of its own.
+    expect(tree[0].children[0].children[0].groupableBodyUnitId).toBeUndefined()
   })
 
   it('PT-G3 — an ungrouped geotech-body leaf carries a null group number', () => {
@@ -397,13 +417,15 @@ describe('parameterBodyTree — manual groups (debt #278 D1/D2)', () => {
     // own body id AND render "(group 1)" under its OWN litho parent (the header's
     // both-litho-bodies provenance is pinned separately by HG2).
     const tree = buildParameterTree({ ...makeScene(), groupByBodyId: new Map([['gbA', 1], ['gb2', 1]]) })
+    // gbA shares its class row with gbB, so it renders as its own leaf...
     const gbAUnderLb1 = tree[0].children[0].children[0].children.find(
       c => (c.scope as { bodyId?: string }).bodyId === 'gbA',
     )
-    const gb2UnderLb2 = tree[0].children[1].children[0].children.find(
-      c => (c.scope as { bodyId?: string }).bodyId === 'gb2',
-    )
+    // ...while gb2 is the only body of its class, so ITS row is the class row
+    // itself (no deeper level, owner dogfeed 2026-09-11).
+    const gb2UnderLb2 = tree[0].children[1].children[0]
     expect(gbAUnderLb1?.groupNumber).toBe(1)
-    expect(gb2UnderLb2?.groupNumber).toBe(1)
+    expect(gb2UnderLb2.groupableBodyId).toBe('gb2')
+    expect(gb2UnderLb2.groupNumber).toBe(1)
   })
 })
