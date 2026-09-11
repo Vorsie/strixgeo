@@ -4,8 +4,10 @@
 // here is pure (no React, no ``useShell``), so it is unit-testable on its own
 // and the pane keeps only the state + listbox a11y.
 
+import type { ParameterUnitScope } from '../../ShellContext'
 import type { ParameterTreeNode } from './parameterBodyTree'
 import { scopeKey } from './parameterBodyTree'
+import { effectiveGroupScope } from './groupScope'
 
 /** One visible tree row after the expand state is applied. */
 export interface FlatRow {
@@ -14,34 +16,105 @@ export interface FlatRow {
 }
 
 /**
- * The keys of every ancestor of the selected node (not the node itself), so a
- * jump-arrived selection expands its whole path (PU17 precedent).
+ * The scope a CLICK on a row selects.
+ *
+ * Owner dogfeed 2026-09-11, verbatim: "if i click a unit from that group, it
+ * should highlight the whole group in the right hand pane and show the whole
+ * group together in the parameter pane." So a row that stands for a body in a
+ * multi-member group selects the GROUP — the aggregate the canvas pools through
+ * ``bandsForScope`` — while every other row keeps selecting its own scope, which
+ * is what the counts on that row already state.
+ *
+ * The body → group hinge is ``effectiveGroupScope``, the SAME one the canvas
+ * used to apply on its own, so the tree and the canvas can never disagree on who
+ * is in a group.
+ *
+ * Parameters
+ * ----------
+ * node
+ *     The clicked row.
+ * groupOrdinals
+ *     ``geotechGroupOrdinals`` map (``body id → group number``); empty when
+ *     nothing is grouped.
+ *
+ * Returns
+ * -------
+ * ParameterUnitScope
+ *     The group scope for a grouped row, else the node's own ``scope``
+ *     (the same reference, so a memo keyed on it does not recompute).
+ */
+export function selectionScopeForNode(
+  node: ParameterTreeNode,
+  groupOrdinals: ReadonlyMap<string, number>,
+): ParameterUnitScope {
+  const bodyId = node.groupableBodyId
+  const unitId = node.groupableBodyUnitId
+  if (bodyId === undefined || unitId === undefined) return node.scope
+  const expanded = effectiveGroupScope({ kind: 'geotech-body', unitId, bodyId }, groupOrdinals)
+  return expanded.kind === 'geotech-group' ? expanded : node.scope
+}
+
+/**
+ * Whether a row renders in the SELECTED style.
+ *
+ * Normally that is scope identity. The exception is a group selection: "it
+ * should highlight the whole group in the right hand pane" (owner 2026-09-11),
+ * so EVERY member row reads selected, not only the one that was clicked — the
+ * members sit under different litho parents, which is exactly why the group
+ * exists.
+ *
+ * Parameters
+ * ----------
+ * node
+ *     The row to judge.
+ * selected
+ *     The stage's selected scope, or ``null`` when nothing is selected.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True when the row is the selection or a member of the selected group.
+ */
+export function isRowSelected(
+  node: ParameterTreeNode,
+  selected: ParameterUnitScope | null,
+): boolean {
+  if (selected === null) return false
+  if (scopeKey(node.scope) === scopeKey(selected)) return true
+  if (selected.kind !== 'geotech-group') return false
+  const bodyId = node.groupableBodyId
+  return bodyId !== undefined && selected.memberBodyIds.includes(bodyId)
+}
+
+/**
+ * The keys of every ancestor of a selected row (never the row itself), so a
+ * jump-arrived selection expands its whole path (PU17 precedent) — and so a
+ * GROUP selection opens the path to every member, since a row that is not
+ * rendered cannot be highlighted (owner 2026-09-11).
  *
  * Parameters
  * ----------
  * nodes
  *     The tree roots.
- * selectedKey
- *     The selected node's ``scopeKey``, or ``null`` when nothing is selected.
+ * isSelectedRow
+ *     Whether a node renders as selected — ``isRowSelected`` bound to the
+ *     current selection. A predicate rather than one key because a group
+ *     selection marks SEVERAL rows, each needing its own path opened.
  *
  * Returns
  * -------
  * ReadonlySet<string>
- *     The ancestor keys; empty when nothing is selected or found.
+ *     The ancestor keys; empty when no row is selected.
  */
 export function ancestorsOfSelection(
   nodes: readonly ParameterTreeNode[],
-  selectedKey: string | null,
+  isSelectedRow: (node: ParameterTreeNode) => boolean,
 ): ReadonlySet<string> {
   const out = new Set<string>()
-  if (selectedKey === null) return out
-  const walk = (node: ParameterTreeNode, ancestors: string[]): boolean => {
-    if (scopeKey(node.scope) === selectedKey) {
-      for (const a of ancestors) out.add(a)
-      return true
-    }
+  const walk = (node: ParameterTreeNode, ancestors: string[]): void => {
+    if (isSelectedRow(node)) for (const a of ancestors) out.add(a)
     const nextAncestors = [...ancestors, scopeKey(node.scope)]
-    return node.children.some(child => walk(child, nextAncestors))
+    node.children.forEach(child => walk(child, nextAncestors))
   }
   nodes.forEach(node => walk(node, []))
   return out
