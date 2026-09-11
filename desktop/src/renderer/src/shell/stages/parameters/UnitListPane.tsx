@@ -18,8 +18,17 @@
 // roster (and its loading race) is GONE. ``parameterBodyTree`` owns the
 // structure, the labels, the counts and the single-child collapse; this file
 // renders it and owns only the expand state + the listbox a11y.
+//
+// GROUPS ADD NO LEVEL (owner dogfeed 2026-09-11, verbatim): "i just want to
+// group and then directly see which are grouped, i don't need another
+// hierarchical deeper level in the right hand pane. and of course if i click a
+// unit from that group, it should highlight the whole group in the right hand
+// pane and show the whole group together in the parameter pane." So a grouped
+// row keeps its place and wears "(group N)"; a click on it selects the GROUP
+// (``selectionScopeForNode``) and every member row reads selected
+// (``isRowSelected``), with the path to each member opened.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Layers } from 'lucide-react'
 
 import { useT } from '../../../i18n/translate'
@@ -36,6 +45,8 @@ import {
   checkedDescendantCount,
   defaultOpenLithoBodyKeys,
   flattenVisible,
+  isRowSelected,
+  selectionScopeForNode,
 } from './unitTreeView'
 import { useBodyUnions } from './useBodyUnions'
 import { useModelBodies } from './useModelBodies'
@@ -153,10 +164,17 @@ export default function UnitListPane(): JSX.Element {
     })
   }
 
-  const selectedKey = selectedParameterUnit === null ? null : scopeKey(selectedParameterUnit)
+  // A row reads selected when it IS the selection or when it is a member of the
+  // selected group (owner 2026-09-11: "it should highlight the whole group in
+  // the right hand pane"), so the path to every member opens too — an unrendered
+  // row cannot be highlighted.
+  const rowSelected = useCallback(
+    (node: ParameterTreeNode): boolean => isRowSelected(node, selectedParameterUnit),
+    [selectedParameterUnit],
+  )
   const ancestorKeys = useMemo(
-    () => ancestorsOfSelection(tree, selectedKey),
-    [tree, selectedKey],
+    () => ancestorsOfSelection(tree, rowSelected),
+    [tree, rowSelected],
   )
   // Single-class litho bodies open by default so their lone packing-class row
   // (the pakkingsdichtheid label) shows without an extra click — owner ruling
@@ -249,10 +267,12 @@ export default function UnitListPane(): JSX.Element {
               key={key}
               node={node}
               depth={depth}
-              selected={selectedKey === key}
+              selected={rowSelected(node)}
               expandable={expandable}
               expanded={expandable && isOpen(key)}
-              onSelect={() => setSelectedParameterUnit(node.scope)}
+              // A grouped row selects the GROUP, so the canvas pools every
+              // member (owner 2026-09-11); every other row selects its own scope.
+              onSelect={() => setSelectedParameterUnit(selectionScopeForNode(node, groupByBodyId))}
               onToggleExpand={() => toggleExpanded(key)}
               checkableBodyId={checkableBodyId}
               checked={checkableBodyId !== null && grouping.isChecked(checkableBodyId)}
