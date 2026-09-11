@@ -571,3 +571,18 @@ initial focus goes to a button (Cancel), never to a select, radio group or
 number field; and a toast that reports a save names the value it saved. The
 regression test asserts document.activeElement on open, because jsdom cannot
 reproduce the key on the select — the focus is the whole mechanism.
+
+
+## A row that inherits a discriminating field is not the thing it inherits from (2026-09-11)
+
+The litho find-or-create lookup keyed every project formation by (soil code,
+admixtures) because "litho rows are the ones with a soil code". Geotech rows
+inherit that soil code from the litho unit they subdivide, so the key collided
+and the last row won: an Edit composition to sand repointed the litho layer to
+"ZAND (geotech)", the litho axis painted the interval in that row's colour and
+the verb could no longer find the layer's unit. The renderer had the right
+rule all along (``isLithoUnit``: soil code present AND no
+``source_litho_formation_id``); the backend copied only half of it. Rule: when
+a derived row inherits a field, that field stops discriminating the parent
+kind — key on what the derivative carries and the parent never does, and keep
+the two implementations of the rule next to each other in the docs.
