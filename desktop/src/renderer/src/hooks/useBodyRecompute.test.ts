@@ -7,7 +7,8 @@
  *   * a response overtaken by a newer schedule is DISCARDED, toast included;
  *   * a null assembly (nothing to send) never POSTs;
  *   * not-yet-loaded inputs never schedule;
- *   * background failures are console-only; the manual verb toasts them;
+ *   * a failed recompute WARNS the user (the recompute is automatic now, owner
+ *     ruling 6 — a failure must still be surfaced);
  *   * a 422 ``empty_recompute_payload`` is a bug signal — never a toast.
  */
 
@@ -151,27 +152,14 @@ describe('useBodyRecompute — debounce + cap + single-flight', () => {
       renamed: ['a', 'b'],
     })
     const { result } = renderHook(() => useBodyRecompute(opts))
+    act(() => result.current.scheduleRecompute('m1'))
     await act(async () => {
-      await result.current.recomputeNow('m1')
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
     })
     expect(opts.toast).toHaveBeenCalledWith(
       'success',
       'Bodies recomputed: 3 merged, 0 split, names displaced: 2',
     )
-  })
-
-  it('a manual press with zero changes still toasts "no changes"', async () => {
-    // Owner ruling 2026-08-31: "yes always toast, when i click something, this
-    // is annoying." A manual toolbar press is a click and must confirm it ran,
-    // even when nothing moved — the click had no visible effect otherwise.
-    const opts = makeOpts()
-    // OK_RESULT carries zero merged / split / renamed — a genuine no-op recompute.
-    const { result } = renderHook(() => useBodyRecompute(opts))
-    await act(async () => {
-      await result.current.recomputeNow('m1')
-    })
-    expect(opts.toast).toHaveBeenCalledTimes(1)
-    expect(opts.toast).toHaveBeenCalledWith('success', 'Bodies recomputed: no changes')
   })
 
   it('a background recompute with zero changes stays silent', async () => {
@@ -209,33 +197,31 @@ describe('useBodyRecompute — debounce + cap + single-flight', () => {
     expect(recomputeBodies).not.toHaveBeenCalled()
   })
 
-  it('a background failure is console-only; the manual verb toasts it', async () => {
+  it('a failed background recompute tells the user', async () => {
+    // Owner ruling 6 (2026-09-12): with the manual verb gone, a failed
+    // background recompute must still surface — a WARNING toast so "identity did
+    // not persist" is not silently swallowed, with a replace key so a burst of
+    // failures updates one toast instead of stacking.
     const opts = makeOpts()
     recomputeBodies.mockRejectedValueOnce(new Error('boom'))
     const { result } = renderHook(() => useBodyRecompute(opts))
-    // Background fire: no toast.
     act(() => result.current.scheduleRecompute('m1'))
     await act(async () => {
       await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
     })
-    expect(opts.toast).not.toHaveBeenCalled()
-    // Manual fire: error toast.
-    recomputeBodies.mockRejectedValueOnce(new Error('boom'))
-    await act(async () => {
-      await result.current.recomputeNow('m1')
-    })
     expect(opts.toast).toHaveBeenCalledTimes(1)
-    expect(opts.toast).toHaveBeenCalledWith('error', 'Recompute bodies failed — see console.')
+    expect(opts.toast).toHaveBeenCalledWith('warning', expect.any(String), expect.any(String))
   })
 
-  it('a 422 empty_recompute_payload is a bug signal — never a toast, even manually', async () => {
+  it('a 422 empty_recompute_payload is a bug signal — never a toast', async () => {
     const opts = makeOpts()
     recomputeBodies.mockRejectedValueOnce(
       new ApiError('empty', 422, { detail: { code: 'empty_recompute_payload' } }),
     )
     const { result } = renderHook(() => useBodyRecompute(opts))
+    act(() => result.current.scheduleRecompute('m1'))
     await act(async () => {
-      await result.current.recomputeNow('m1')
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
     })
     expect(opts.toast).not.toHaveBeenCalled()
   })
