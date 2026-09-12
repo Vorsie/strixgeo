@@ -50,7 +50,7 @@ const GEOTECH_MODEL: GeologicalModelResponse = {
 }
 
 /** The undo entries the hook pushes during a test. */
-type Entry = { description: string; revert: () => Promise<void>; reapply: () => Promise<void> }
+type Entry = { descriptionKey: string; revert: () => Promise<void>; reapply: () => Promise<void> }
 
 function makeDeps(pushed: Entry[]) {
   return {
@@ -89,7 +89,7 @@ describe('handleDeleteGeotechPackingCorrelation — undo', () => {
     })
 
     expect(pushed).toHaveLength(1)
-    expect(pushed[0].description).toMatch(/packing/i)
+    expect(pushed[0].descriptionKey).toBe('undo.disconnectPackingBands')
   })
 
   it('GU2 — undo recreates the same edge, sides and all', async () => {
