@@ -27,6 +27,7 @@ import type {
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { log } from '../../../utils/log'
 import { t } from '../../../i18n/translate'
+import type { UndoCommand } from '../../../hooks/useUndoStack'
 
 /** Everything the two handlers consume from the SectionsCanvas scope. */
 export interface UseGeotechPackingCorrelationDeps {
@@ -63,11 +64,7 @@ export interface UseGeotechPackingCorrelationDeps {
    * and destructive and would throw away every other manual correlation.
    */
   undoStack: {
-    push: (entry: {
-      description: string
-      revert: () => Promise<void>
-      reapply: () => Promise<void>
-    }) => void
+    push: (entry: UndoCommand) => void
   }
 }
 
@@ -275,7 +272,7 @@ export function useGeotechPackingCorrelation(
         // since selected another one.
         const sectionIdAtPush = selectedSectionId
         undoStack.push({
-          description: 'Disconnect packing bands',
+          descriptionKey: 'undo.disconnectPackingBands',
           revert: async () => {
             await api.geology.createContactCorrelation(
               projectId,
