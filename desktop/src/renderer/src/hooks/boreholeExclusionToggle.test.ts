@@ -70,8 +70,8 @@ describe('toggleBoreholeExclusion — the include / exclude decision', () => {
       included: true,
       pushUndo,
       markMutated,
-      includeDescription: 'Include borehole in litho model',
-      excludeDescription: 'Exclude borehole from litho model',
+      includeDescriptionKey: 'undo.includeBoreholeLitho',
+      excludeDescriptionKey: 'undo.excludeBoreholeLitho',
       logLabel: 'litho',
       onSuccessToast,
     })
@@ -105,8 +105,8 @@ describe('toggleBoreholeExclusion — the include / exclude decision', () => {
       included: false,
       pushUndo: vi.fn(),
       markMutated: vi.fn(),
-      includeDescription: 'inc',
-      excludeDescription: 'exc',
+      includeDescriptionKey: 'undo.includeBoreholeGeo',
+      excludeDescriptionKey: 'undo.excludeBoreholeGeo',
       logLabel: 'litho',
     })
 
@@ -136,8 +136,8 @@ describe('toggleBoreholeExclusion — the include / exclude decision', () => {
       included: true,
       pushUndo,
       markMutated: vi.fn(),
-      includeDescription: 'inc',
-      excludeDescription: 'exc',
+      includeDescriptionKey: 'undo.includeBoreholeGeo',
+      excludeDescriptionKey: 'undo.excludeBoreholeGeo',
       logLabel: 'litho',
       onSuccessToast,
     })
