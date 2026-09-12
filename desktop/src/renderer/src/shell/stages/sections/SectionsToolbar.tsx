@@ -56,7 +56,6 @@ import {
 import { useBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { countGeotechHandEdits, geotechBandsInScope } from '../../../utils/geotechHandEdits'
 import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
-import { sectionsBodyRecomputeCallback } from '../../../hooks/useProjectBodyRecompute'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
 import { useGeotechStatistic } from './useGeotechStatistic'
 import { useLithoSuggestVerbs } from './useLithoSuggestVerbs'
@@ -432,34 +431,11 @@ export default function SectionsToolbar(): JSX.Element {
   const isLitho = sectionModelAxis === 'lithostratigraphic'
   const isGeotech = sectionModelAxis === 'geotechnical'
 
-  // Manual "Recompute bodies" verb (slice 5): fires the ACTIVE axis's model
-  // through the shell scheduler's ref (module-ref bridge — the debounced
-  // scheduler lives in useProjectBodyRecompute, mounted in App, which owns the
-  // model/layer state). ``recomputeNow`` toasts its own errors (manual fires
-  // do; background debounce fires stay console-only).
-  const [recomputingBodies, setRecomputingBodies] = useState(false)
-  const recomputeModelId = isGeotech
-    ? (activeGeotechModel?.id ?? null)
-    : isLitho
-      ? (activeLithoModel?.id ?? null)
-      : null
-  const handleRecomputeBodies = useCallback(async (): Promise<void> => {
-    if (recomputeModelId === null || recomputingBodies) return
-    const run = sectionsBodyRecomputeCallback.current
-    if (run === null) {
-      // Unreachable while a project is open (the shell hook assigns the ref
-      // every App render) — fail loud rather than silently doing nothing.
-      log.error('sections', 'recompute-bodies: shell scheduler ref is empty')
-      toast('error', t('sections.recomputeUnavailable'))
-      return
-    }
-    setRecomputingBodies(true)
-    try {
-      await run(recomputeModelId)
-    } finally {
-      setRecomputingBodies(false)
-    }
-  }, [recomputeModelId, recomputingBodies, toast, t])
+  // The manual "Recompute bodies" verb was removed (owner ruling 6,
+  // 2026-09-12). Body identity stays current through the automatic recompute in
+  // ``useProjectBodyRecompute`` (debounced after every mutation + once on
+  // project open); a background failure now warns via a toast, so nothing here
+  // has to drive it by hand.
 
   const hasModel = isLitho
     ? activeLithoModel !== null
@@ -896,8 +872,6 @@ export default function SectionsToolbar(): JSX.Element {
   // -- Verbs shared by every axis -------------------------------------------
   const tailItems = buildTailToolbarItems({
     t,
-    isLitho,
-    isGeotech,
     hasSection,
     hasModel,
     axisLevelLabel,
@@ -917,15 +891,12 @@ export default function SectionsToolbar(): JSX.Element {
     geoVerbHint,
     activeGeologicalModel,
     dseriesExportItems,
-    recomputingBodies,
-    recomputeModelId,
     setAcceptingAllTies,
     setSheetDialogOpen,
     handleNew,
     handleDelete,
     handleExportDxf,
     handleExportPlaxis,
-    handleRecomputeBodies,
     handleAcceptAllTies,
     handleSuggestTies,
     handleClearTieSuggestions,
