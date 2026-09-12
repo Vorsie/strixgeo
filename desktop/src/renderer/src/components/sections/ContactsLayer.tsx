@@ -481,6 +481,22 @@ interface Props {
    */
   onSplitLithoLayer?: (layerId: string, depthM: number) => void
   /**
+   * Right-click an accepted litho band → "Name body…" — name the body the
+   * clicked unit belongs to (owner ruling 13, 2026-09-12: "add it to the column
+   * menu too"). Takes the resolved body id. Reuses the SAME handler the fill's
+   * ``BodyContextMenu`` uses, so the two menus name the same body the same way.
+   * Offered only when the clicked unit resolves to a body (``bodyId`` non-null)
+   * and the handler is wired (litho axis) — the no-affordance rule.
+   */
+  onNameBody?: (bodyId: string) => void
+  /**
+   * Right-click an accepted litho band → "Dissolve body" — dissolve the body the
+   * clicked unit belongs to (owner ruling 13). Same handler as the fill's
+   * ``BodyContextMenu``; destructive, so it is danger-styled. Offered only when
+   * the unit resolves to a body and the handler is wired.
+   */
+  onDissolveBody?: (bodyId: string) => void
+  /**
    * The COLUMN verbs of the test the litho menu was opened on — the rows that
    * head the merged menu (owner dogfeed 2026-09-11, verbatim: "i get two
    * different menus if i right click once or right click twice, can't we just
@@ -784,6 +800,8 @@ export default function ContactsLayer({
   lithoBodyIdByLayerId,
   onEditLithoComposition,
   onSplitLithoLayer,
+  onNameBody,
+  onDissolveBody,
   columnMenuVerbs,
   sectionLine,
   alongMToScreenX,
@@ -1599,16 +1617,19 @@ export default function ContactsLayer({
   function lithoBandContextMenuHandler(
     band: PerColumnLithoBand,
   ): ((e: ReactMouseEvent<SVGRectElement>) => void) | undefined {
-    // Any of the four items justifies the menu; each item still gates on its OWN
+    // Any of these items justifies the menu; each item still gates on its OWN
     // handler. All absent (the geotech axis) → no handler, so the right-click
     // passes through to the packing-band overlay above. Edit composition / Split
-    // here joined the gate (owner ruling 2026-09-07) so the menu opens for them
-    // even where delete + statistics are not wired.
+    // here joined the gate (owner ruling 2026-09-07); Name body / Dissolve body
+    // joined it (owner ruling 13, 2026-09-12) so the menu opens for them even
+    // where delete + statistics are not wired.
     if (
       !onDeleteContact &&
       !onShowLithoUnitStatistics &&
       !onEditLithoComposition &&
-      !onSplitLithoLayer
+      !onSplitLithoLayer &&
+      !onNameBody &&
+      !onDissolveBody
     )
       return undefined
     return e => {
@@ -3765,6 +3786,48 @@ export default function ContactsLayer({
                     {t('sections.menu.removeLithoUnit')}
                   </button>
                 )}
+                {/* Body verbs (owner ruling 13, 2026-09-12: "add it to the
+                    column menu too") — act on the BODY the clicked unit belongs
+                    to, via the SAME handlers the fill's BodyContextMenu uses, so
+                    the two menus name / dissolve the same body identically.
+                    Offered only when the unit resolves to a body. Divided from
+                    the unit verbs above by a rule on the first one. */}
+                {lithoBandMenu.bodyId !== null && onNameBody && (
+                  <button
+                    type="button"
+                    data-testid="litho-band-name-body"
+                    onClick={() => {
+                      if (lithoBandMenu.mode !== 'remove' || lithoBandMenu.bodyId === null) return
+                      onNameBody(lithoBandMenu.bodyId)
+                      setLithoBandMenu(null)
+                    }}
+                    style={{
+                      ...LITHO_MENU_ITEM_BASE_STYLE,
+                      color: 'var(--color-text-primary, #e2e8f0)',
+                      borderTop: LITHO_MENU_ITEM_DIVIDER,
+                    }}
+                  >
+                    {t('sections.menu.nameBody')}
+                  </button>
+                )}
+                {lithoBandMenu.bodyId !== null && onDissolveBody && (
+                  <button
+                    type="button"
+                    data-testid="litho-band-dissolve-body"
+                    onClick={() => {
+                      if (lithoBandMenu.mode !== 'remove' || lithoBandMenu.bodyId === null) return
+                      onDissolveBody(lithoBandMenu.bodyId)
+                      setLithoBandMenu(null)
+                    }}
+                    style={{
+                      ...LITHO_MENU_ITEM_BASE_STYLE,
+                      // Destructive — the fill's Dissolve is danger-styled too.
+                      color: 'var(--color-text-danger, #f87171)',
+                    }}
+                  >
+                    {t('sections.menu.dissolveBody')}
+                  </button>
+                )}
                 {/* Last, under a rule when it has company: everything above
                     EDITS this column, this one navigates away (R1). */}
                 <UnitStatisticsItem
@@ -3773,7 +3836,10 @@ export default function ContactsLayer({
                   onShow={onShowLithoUnitStatistics}
                   onClose={() => setLithoBandMenu(null)}
                   topBorder={Boolean(
-                    onDeleteContact || onEditLithoComposition || onSplitLithoLayer,
+                    onDeleteContact ||
+                      onEditLithoComposition ||
+                      onSplitLithoLayer ||
+                      (lithoBandMenu.bodyId !== null && (onNameBody || onDissolveBody)),
                   )}
                   testid="litho-band-menu-unit-statistics"
                 />
