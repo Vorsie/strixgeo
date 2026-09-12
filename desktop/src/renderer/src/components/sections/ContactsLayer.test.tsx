@@ -151,6 +151,8 @@ function renderLayer(
     lithoBodyIdByLayerId?: ReadonlyMap<string, string | null>
     onEditLithoComposition?: (layerId: string) => void
     onSplitLithoLayer?: (layerId: string, depthM: number) => void
+    onNameBody?: (bodyId: string) => void
+    onDissolveBody?: (bodyId: string) => void
   } = {},
 ) {
   return render(
@@ -189,6 +191,8 @@ function renderLayer(
         lithoBodyIdByLayerId={extras.lithoBodyIdByLayerId}
         onEditLithoComposition={extras.onEditLithoComposition}
         onSplitLithoLayer={extras.onSplitLithoLayer}
+        onNameBody={extras.onNameBody}
+        onDissolveBody={extras.onDissolveBody}
       />
     </svg>,
   )
@@ -2136,7 +2140,9 @@ describe('ContactsLayer', () => {
     fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
     const menu = screen.queryByTestId('litho-band-context-menu')
     expect(menu).not.toBeNull()
-    expect(menu).toHaveTextContent(/remove/i)
+    // The unit-delete verb reads "Delete unit" now (owner ruling 12) — RETARGETS
+    // the old /remove/i assertion that encoded the pre-rename label.
+    expect(menu).toHaveTextContent(/delete unit/i)
   })
 
   it('LB-THIN: a thin band gets invisible donated hit strips inside its fat neighbours (#158)', () => {
@@ -2175,7 +2181,7 @@ describe('ContactsLayer', () => {
     expect(below).not.toBeNull()
     expect(Number(below.getAttribute('height'))).toBeCloseTo(4.5, 1)
     fireEvent.contextMenu(below, { clientX: 100, clientY: 30 })
-    // The menu itself is generic ("Remove this litho unit"); the proof the
+    // The menu itself is generic ("Delete unit"); the proof the
     // strip belongs to the THIN band is the confirm dialog naming CLAY, not
     // the fat SAND the pointer is visually inside.
     fireEvent.click(screen.getByTestId('litho-band-remove'))
@@ -2301,6 +2307,83 @@ describe('ContactsLayer', () => {
     fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
     expect(screen.queryByTestId('litho-band-edit-composition')).toBeNull()
     expect(screen.queryByTestId('litho-band-split-here')).toBeNull()
+  })
+
+  // Owner ruling 13 (2026-09-12): "add it to the column menu too" — Name body…
+  // and Dissolve body must be offered on the unified column menu, acting on the
+  // body of the litho unit under the click, using the same handlers as the fill
+  // (BodyContextMenu). Offered only when the unit belongs to a resolved body.
+  it('name body and dissolve body are on the column menu too', () => {
+    const onNameBody = vi.fn()
+    const onDissolveBody = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      {
+        perColumnBandsFromContacts: true,
+        onDeleteContact: vi.fn().mockResolvedValue(undefined),
+        onNameBody,
+        onDissolveBody,
+        // The SAND band's layer (c-1) resolves to a body.
+        lithoBodyIdByLayerId: new Map<string, string | null>([['c-1', 'body-42']]),
+      },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+
+    expect(screen.getByTestId('litho-band-name-body')).toBeTruthy()
+    expect(screen.getByTestId('litho-band-dissolve-body')).toBeTruthy()
+
+    // Both act on the clicked unit's BODY, via the same handlers the fill uses.
+    fireEvent.click(screen.getByTestId('litho-band-name-body'))
+    expect(onNameBody).toHaveBeenCalledWith('body-42')
+    expect(screen.queryByTestId('litho-band-context-menu')).toBeNull()
+
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-dissolve-body'))
+    expect(onDissolveBody).toHaveBeenCalledWith('body-42')
+  })
+
+  it('the body verbs are withheld when the unit belongs to no resolved body', () => {
+    // No-affordance rule: an unresolved (null-body) accepted unit gets no body
+    // verbs — there is nothing for Name / Dissolve to act on.
+    const onNameBody = vi.fn()
+    const onDissolveBody = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      {
+        perColumnBandsFromContacts: true,
+        onDeleteContact: vi.fn().mockResolvedValue(undefined),
+        onNameBody,
+        onDissolveBody,
+        // No body map → the band resolves to no body.
+      },
+    )
+    const band = container.querySelector('[data-testid^="per-column-litho-band-"]')!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    expect(screen.queryByTestId('litho-band-name-body')).toBeNull()
+    expect(screen.queryByTestId('litho-band-dissolve-body')).toBeNull()
   })
 
   it('LB-US5: with the body map wired the jump reports the clicked band\'s BODY', () => {
