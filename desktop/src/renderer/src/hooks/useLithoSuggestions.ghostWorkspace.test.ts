@@ -438,3 +438,68 @@ describe('switching the model must not throw away my pending suggestions', () =>
     expect(messages.join(' | ')).toContain(MODEL_A.name)
   })
 })
+
+// ---------------------------------------------------------------------------
+// "make it undoable" (owner ruling 9): reject / unreject a pending suggestion,
+// and the left-click that draws a manual ghost, are undoable like the rest.
+// ---------------------------------------------------------------------------
+
+describe('make it undoable — reject, unreject and a manually drawn ghost', () => {
+  it('rejecting a suggestion is one undo step', async () => {
+    const { result } = renderHost(boreholeGhost())
+    act(() => {
+      result.current.hook.handleRejectBulkLitho(ANCHOR_ID, 1)
+    })
+    expect(column(result).rejected.has(1)).toBe(true)
+
+    await pressUndo(result)
+    expect(column(result).rejected.has(1)).toBe(false)
+  })
+
+  it('redo re-rejects the suggestion', async () => {
+    const { result } = renderHost(boreholeGhost())
+    act(() => {
+      result.current.hook.handleRejectBulkLitho(ANCHOR_ID, 1)
+    })
+    await pressUndo(result)
+    expect(column(result).rejected.has(1)).toBe(false)
+
+    await pressRedo(result)
+    expect(column(result).rejected.has(1)).toBe(true)
+  })
+
+  it('unreject too — undoing an unreject puts the rejection back', async () => {
+    const start = boreholeGhost()
+    const { result } = renderHost({ ...start, rejected: new Set<number>([1]) })
+    act(() => {
+      result.current.hook.handleUnrejectBulkLitho(ANCHOR_ID, 1)
+    })
+    expect(column(result).rejected.has(1)).toBe(false)
+
+    await pressUndo(result)
+    expect(column(result).rejected.has(1)).toBe(true)
+  })
+
+  it('a manually drawn ghost can be undone', async () => {
+    const { result } = renderHost(null)
+    act(() => {
+      result.current.hook.handleCreateManualLithoGhost('borehole', ANCHOR_ID, 10, 5, 'F1')
+    })
+    expect(column(result).suggestions).toHaveLength(1)
+
+    await pressUndo(result)
+    expect(result.current.ghosts.has(ANCHOR_ID)).toBe(false)
+  })
+
+  it('redo brings the manually drawn ghost back', async () => {
+    const { result } = renderHost(null)
+    act(() => {
+      result.current.hook.handleCreateManualLithoGhost('borehole', ANCHOR_ID, 10, 5, 'F1')
+    })
+    await pressUndo(result)
+    expect(result.current.ghosts.has(ANCHOR_ID)).toBe(false)
+
+    await pressRedo(result)
+    expect(column(result).suggestions).toHaveLength(1)
+  })
+})
