@@ -359,7 +359,8 @@ describe('handleAcceptLithoSuggestion — undo registration (hasWork guard)', ()
     const push = params.pushUndo as ReturnType<typeof vi.fn>
     expect(push).toHaveBeenCalledTimes(1)
     // The command description names the lithology so Ctrl+Z is legible.
-    expect(push.mock.calls[0][0].description).toContain('ZAND')
+    expect(push.mock.calls[0][0].descriptionKey).toBe('undo.acceptLithoLayer')
+    expect(push.mock.calls[0][0].descriptionParams).toEqual({ soil: 'ZAND' })
   })
 
   it('UN2: a found-only accept registers NO undo (nothing was created to revert)', async () => {
@@ -564,8 +565,13 @@ function applyLastGhostUpdater(
 }
 
 describe('reject / unreject litho suggestion', () => {
+  // Reject / unreject now run through the ghost workspace so each is one undo
+  // step (ruling 9). That path reads the column from the live ghost map, so
+  // these seed the focused anchor and inspect the write the runner emits. The
+  // undoability itself is pinned against a REAL host in
+  // ``useLithoSuggestions.ghostWorkspace.test.ts``.
   it('RJ1: reject adds the index to the focused anchor rejected set', () => {
-    const params = makeParams()
+    const params = makeParams({ ghostsByAnchor: new Map([[ANCHOR_ID, makeGhost()]]) })
     const { result } = renderHook(() => useLithoSuggestions(params))
     const setSpy = params.setGhostsByAnchor as ReturnType<typeof vi.fn>
     setSpy.mockClear() // drop the mount-effect clear call
@@ -580,7 +586,9 @@ describe('reject / unreject litho suggestion', () => {
   })
 
   it('RJ2: unreject removes the index; a non-rejected index is a no-op', () => {
-    const params = makeParams()
+    const params = makeParams({
+      ghostsByAnchor: new Map([[ANCHOR_ID, makeGhost({ rejected: new Set([2]) })]]),
+    })
     const { result } = renderHook(() => useLithoSuggestions(params))
     const setSpy = params.setGhostsByAnchor as ReturnType<typeof vi.fn>
 
@@ -593,17 +601,13 @@ describe('reject / unreject litho suggestion', () => {
     const afterRemove = applyLastGhostUpdater(setSpy, seedRejected)
     expect(afterRemove.get(ANCHOR_ID)?.rejected.has(2)).toBe(false)
 
-    // Unreject an index that is NOT rejected → identity preserved (no-op).
+    // Unreject an index that is NOT rejected → nothing is written, so React
+    // skips a needless re-render and no empty undo step is pushed (#80).
     setSpy.mockClear()
     act(() => {
       result.current.handleUnrejectLithoSuggestion(9)
     })
-    const seedClean = new Map([[ANCHOR_ID, makeGhost()]])
-    const afterNoop = applyLastGhostUpdater(setSpy, seedClean)
-    // Unrejecting a layer that was never rejected changes nothing.
-    expect(afterNoop.get(ANCHOR_ID)?.rejected.has(9)).toBe(false)
-    // ...and preserves Map identity so React skips a needless re-render (#80).
-    expect(afterNoop).toBe(seedClean)
+    expect(setSpy).not.toHaveBeenCalled()
   })
 })
 
