@@ -46,6 +46,7 @@ import { isGeologicalFormation } from '../../../utils/formationKind'
 import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilter'
 import { hashHexColor } from '../../../utils/hashColor'
 import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
+import { useGeotechStatisticValue } from '../../../utils/geotechStatisticStore'
 import { useT, type Translator } from '../../../i18n/translate'
 import { sectionDisplayName } from '../../../utils/sectionDisplayName'
 
@@ -121,6 +122,10 @@ export default function SectionsInspector(): JSX.Element {
   // toolbar-era legend claimed "Hatched = preview" over an empty axis in three
   // real cases). Unconditional hook, above every early return.
   const previewRender = useGeotechPreviewRender()
+  // The statistic token the toolbar's qc dropdown is showing (owner ruling 5).
+  // Unconditional hook, above every early return; the geotech-statistic block
+  // below reads it.
+  const chosenStatistic = useGeotechStatisticValue()
   const t = useT()
 
   // sessionImportSectionIds is now sourced from the coordinator slice
@@ -268,15 +273,25 @@ export default function SectionsInspector(): JSX.Element {
       {/* (owner 2026-09-11: "the more menu is too populated"). It is         */}
       {/* information about the choice, not a verb, so it reads here; the     */}
       {/* PICKER stays on the toolbar, where the choice is made before        */}
-      {/* subdividing. No value is repeated here on purpose: the toolbar      */}
-      {/* label is the one read-out, and a second copy could disagree with it */}
-      {/* while a pre-model choice is still parked in the renderer.           */}
+      {/* subdividing. Owner ruling 5 (2026-09-12: "yes show it in the        */}
+      {/* inspector, especially if we are only showing it once"): the chosen  */}
+      {/* statistic value is shown here too, read from the store the toolbar  */}
+      {/* publishes so it is the SAME token the qc dropdown shows and can     */}
+      {/* never disagree with it (the two windows a model-only read would —   */}
+      {/* a pre-model pending choice, the post-write bridge — are folded into */}
+      {/* the published value). Note underneath, once.                        */}
       {/* ------------------------------------------------------------------ */}
       {sectionModelAxis === 'geotechnical' && (
         <InspectorSection
           id="geotech-statistic"
           label={t('sections.inspector.representativeQc')}
         >
+          <p
+            className="text-xs text-text-primary px-1"
+            data-testid="sections-inspector-statistic-value"
+          >
+            {t('sections.inspector.chosenStatistic', { statistic: chosenStatistic })}
+          </p>
           <p
             className="text-xs text-text-muted px-1"
             data-testid="sections-inspector-statistic-note"
