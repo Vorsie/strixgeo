@@ -83,7 +83,7 @@ export function buildRestatedContactUndoCommand(
     // Plain move: the inverse is the same gesture at the old depth. Band ids are
     // stable across a move, so no re-anchoring is needed.
     return {
-      description: 'Move contact',
+      descriptionKey: 'undo.moveContact',
       revert: async () => {
         await api.moveRestatedContact(projectId, modelId, upperBandId, lowerBandId, preDragDepthM)
         await settle()
@@ -106,7 +106,7 @@ export function buildRestatedContactUndoCommand(
     let pairLowerId = facts.belowBandId
     let nextPairLowerId: string | null = null
     return {
-      description: 'Merge contact down',
+      descriptionKey: 'undo.mergeContactDown',
       revert: async () => {
         // Order is load-bearing: the contact must be back at the old depth BEFORE
         // the split, because the split restores a PACKING boundary inside the lower
@@ -134,7 +134,7 @@ export function buildRestatedContactUndoCommand(
     const aboveBandId = facts.aboveBandId
     let reapplyUpperId: string | null = null
     return {
-      description: 'Merge contact up',
+      descriptionKey: 'undo.mergeContactUp',
       revert: async () => {
         await api.moveRestatedContact(projectId, modelId, aboveBandId, lowerBandId, preDragDepthM)
         const undone = await api.splitGeotechBand(projectId, modelId, aboveBandId, landedDepthM)
