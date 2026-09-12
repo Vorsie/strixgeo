@@ -3833,6 +3833,17 @@ export default function SectionPanel({
                   ? onSplitLithoLayer
                   : undefined
               }
+              // Name body… / Dissolve body on the accepted unit's own menu
+              // (owner ruling 13, 2026-09-12: "add it to the column menu too").
+              // Litho axis only, and the SAME handlers the fill's BodyContextMenu
+              // below uses, so the two menus act on the body identically. The
+              // menu closes itself, so these pass straight through.
+              onNameBody={
+                axisMode === "lithostratigraphic" ? onNameBody : undefined
+              }
+              onDissolveBody={
+                axisMode === "lithostratigraphic" ? onDissolveBody : undefined
+              }
               // ONE menu per right-click (owner dogfeed 2026-09-11). The litho
               // axis's bands + per-column capture rect cover the whole card, so
               // they — not the section's own catch-all — are what a right-click
