@@ -20,7 +20,6 @@ import {
 } from '../../../utils/staleGeotechColumns'
 import { SECTIONS_OVERFLOW_GROUP } from './sectionsToolbar_constants'
 import {
-  buildGeotechStatisticMenuItems,
   buildGeotechStatisticPickerItems,
   buildGeotechPipelineMenuItems,
   buildGeotechDisplayMenuItems,
@@ -65,11 +64,12 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
     exitCorrelateMode,
   } = deps
 
-  const geotechStatisticMenuItems = buildGeotechStatisticMenuItems(deps)
-  // The ⋯ menu takes the PICKER rows only: the note above them explains the
-  // choice rather than doing anything, and it reads in the Sections inspector
-  // now (owner 2026-09-11, on the over-full ⋯ menu).
-  const geotechStatisticOverflowItems = buildGeotechStatisticPickerItems(deps)
+  // The dropdown IS the picker now (owner ruling 4, 2026-09-12: "yes once is
+  // enough"). The note that used to head it is gone from the menu entirely and
+  // reads only in the Sections inspector; the bar dropdown and the ⋯ overflow
+  // therefore render the same rows.
+  const geotechStatisticMenuItems = buildGeotechStatisticPickerItems(deps)
+  const geotechStatisticOverflowItems = geotechStatisticMenuItems
   const geotechPipelineMenuItems = buildGeotechPipelineMenuItems(deps)
   const geotechDisplayMenuItems = buildGeotechDisplayMenuItems(deps)
 
