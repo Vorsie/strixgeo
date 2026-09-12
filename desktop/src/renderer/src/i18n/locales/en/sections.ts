@@ -37,7 +37,11 @@ export const SECTIONS = {
     'Switch to the Stratigraphy axis — Build / Seed / Dedupe / Plaxis-3D act on the stratigraphic model',
   'sections.undoTitle': 'Undo the last model edit (Ctrl+Z)',
   'sections.undoNothing': 'Nothing to undo',
-  'sections.recomputeUnavailable': 'Recompute bodies is unavailable — reopen the project.',
+  // Warning toast when the automatic body-identity recompute fails (owner
+  // ruling 6, 2026-09-12: the manual verb is gone, so a failure must still tell
+  // the user identity did not persist).
+  'sections.recompute.backgroundFailed':
+    'Body identity could not be saved in the background. It is tried again at your next edit.',
   'sections.reset.done':
     'Reset {count} hand-drawn {noun} — bodies returned to their computed shape.',
   'sections.reset.boundaryOne': 'boundary',
@@ -66,6 +70,10 @@ export const SECTIONS = {
   // 2026-09-11): it is information about the choice, not a verb, so it reads
   // here while the picker itself stays on the toolbar.
   'sections.inspector.representativeQc': 'Representative qc',
+  // The chosen statistic, shown once (owner ruling 5, 2026-09-12). The token
+  // (median / harmonic / …) is a technical term shown verbatim, the same value
+  // the toolbar's qc dropdown shows.
+  'sections.inspector.chosenStatistic': 'Statistic: {statistic}',
   'sections.inspector.geologicalModel': 'Stratigraphic model',
   'sections.inspector.previewLegend':
     'Hatched bands = preview. Right-click a ghost column to divide just that borehole, or press “4 · Divide boreholes” to commit them all.',
@@ -191,20 +199,18 @@ export const SECTIONS = {
   'sections.level.litho': 'lithological',
   'sections.level.geotech': 'geotechnical',
   'sections.level.geological': 'stratigraphic',
-  'sections.level.geotechShort': 'geotech',
 
   // Transient busy labels shared by several verbs.
   'sections.busy.accepting': 'Accepting…',
   'sections.busy.creating': 'Creating…',
   'sections.busy.deleting': 'Deleting…',
-  'sections.busy.recomputing': 'Recomputing…',
   'sections.busy.exporting': 'Exporting…',
   'sections.busy.suggesting': 'Suggesting…',
   'sections.busy.subdividing': 'Subdividing…',
   'sections.busy.correlating': 'Correlating…',
   'sections.busy.dividing': 'Dividing…',
 
-  // Tail verbs — New / Delete / Tie-sections / Recompute.
+  // Tail verbs — New / Delete / Tie-sections.
   'sections.tail.newSection': 'New cross-section',
   'sections.tail.newSectionTitle': 'Create a new cross-section (placeholder endpoints)',
   'sections.tail.delete': 'Delete',
@@ -212,10 +218,6 @@ export const SECTIONS = {
   'sections.tail.deleteSelectFirst': 'Select a cross-section to delete it',
   'sections.tail.deleteConfirmMenuTitle': 'Delete "{name}" — asks for confirmation first',
   'sections.tail.deleteTitle': 'Delete "{name}"',
-  'sections.tail.recompute': 'Recompute bodies',
-  'sections.tail.recomputeNone': 'No active {level} model to recompute',
-  'sections.tail.recomputeTitle':
-    'Re-derive the persisted geometric body identity from the current sections now',
 
   // Tie-sections split verb (tail).
   'sections.tie.suggestSections': 'Suggest tie-sections',
@@ -546,7 +548,9 @@ export const SECTIONS = {
   'sections.menu.unlinkFromGeology': 'Unlink from stratigraphy',
   'sections.menu.editInGeology': 'Edit in Stratigraphy stage',
   'sections.menu.mergeLayers': 'Merge layers',
-  'sections.menu.removeLithoUnit': 'Remove this litho unit',
+  // Reads "Delete unit" so it never blurs with the column verb "Remove from
+  // this section" above it in the unified menu (owner ruling 12, 2026-09-12).
+  'sections.menu.removeLithoUnit': 'Delete unit',
   'sections.menu.addSuggestionHere': 'Add new suggestion here',
   'sections.menu.unitStatistics': 'Unit statistics…',
   'sections.menu.insertLayerHere': 'Insert layer here…',
