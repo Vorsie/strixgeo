@@ -13,15 +13,21 @@
 //     queued behind it (mutations during flight coalesce into that one).
 //   * SUPERSEDED RESPONSES ARE DISCARDED, toasts included: a schedule that lands
 //     after a POST started means that POST's answer describes a stale model.
-//   * Background failures log to console only; the MANUAL verb (recomputeNow)
-//     also toasts them. A 422 ``empty_recompute_payload`` is a BUG signal (the
-//     assembly gate must have returned null) — console error, never a toast.
+//   * A FAILED recompute WARNS the user (owner ruling 6, 2026-09-12): with the
+//     manual "Recompute bodies" verb gone, the recompute is entirely automatic,
+//     so a failure has no gesture to answer — but the user must still learn that
+//     body identity did not persist. It is a WARNING toast (the bands on screen
+//     are unchanged, only their durable identity did not save) carrying a REPLACE
+//     KEY so a burst of failures updates one toast instead of stacking. A 422
+//     ``empty_recompute_payload`` is a BUG signal (the assembly gate must have
+//     returned null) — console error, never a toast.
 
 import { useCallback, useEffect, useRef } from 'react'
 
 import { api } from '../api/client'
 import { apiErrorDetail } from '../api/clients/shared'
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
 import type { RecomputeBodiesRequest } from '../utils/buildBodyRecomputePayload'
 
 /** Quiet period after the last mutation before the recompute fires. */
@@ -29,6 +35,12 @@ export const BODY_RECOMPUTE_DEBOUNCE_MS = 2_500
 
 /** Hard ceiling on staleness while the user never pauses editing. */
 export const BODY_RECOMPUTE_MAX_LATENCY_MS = 15_000
+
+/**
+ * Replace key for the background-failure toast, so repeated failures update one
+ * toast instead of stacking (owner's no-flood rule for recurring toasts).
+ */
+export const BODY_RECOMPUTE_TOAST_KEY = 'body-recompute-failed'
 
 /** Everything the recompute scheduler reads (through a ref, at fire time). */
 export interface UseBodyRecomputeOptions {
@@ -42,21 +54,21 @@ export interface UseBodyRecomputeOptions {
    */
   buildPayload: (modelId: string) => Promise<RecomputeBodiesRequest | null>
   /**
-   * Are the model inputs (layers / sections) loaded? While false, schedules and
-   * manual fires do nothing — an assembly from half-loaded state would encode a
-   * partial model.
+   * Are the model inputs (layers / sections) loaded? While false, schedules do
+   * nothing — an assembly from half-loaded state would encode a partial model.
    */
   dataLoaded: boolean
-  /** The app toast fn (success on visible changes; errors only for the manual verb). */
-  toast: (kind: 'success' | 'error', message: string) => void
+  /**
+   * The app toast fn: success on visible changes, a WARNING (with a replace key)
+   * on a failed recompute so the user learns identity did not persist.
+   */
+  toast: (kind: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
 }
 
 /** What the callers get. */
 export interface UseBodyRecomputeResult {
   /** Debounced schedule for one model (the mutation-path entry point). */
   scheduleRecompute: (modelId: string) => void
-  /** Immediate fire for one model (the manual toolbar verb; toasts errors). */
-  recomputeNow: (modelId: string) => Promise<void>
 }
 
 /** Per-model timer pair. */
@@ -80,7 +92,7 @@ interface ModelTimers {
  * Returns
  * -------
  * UseBodyRecomputeResult
- *     ``scheduleRecompute`` + ``recomputeNow``.
+ *     ``scheduleRecompute`` — the automatic mutation-path entry point.
  */
 export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomputeResult {
   // Fire-time reads go through the ref so a timer armed two seconds ago posts
@@ -92,22 +104,23 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
   })
 
   const timersRef = useRef(new Map<string, ModelTimers>())
-  /** Bumped on every schedule/manual ask — the supersede marker POSTs compare against. */
+  /** Bumped on every schedule — the supersede marker POSTs compare against. */
   const genRef = useRef(new Map<string, number>())
   const inFlightRef = useRef(new Set<string>())
   const pendingRefireRef = useRef(new Set<string>())
   const mountedRef = useRef(true)
 
   const cancelTimers = useCallback((modelId: string): void => {
-    const t = timersRef.current.get(modelId)
-    if (!t) return
-    if (t.debounce !== null) clearTimeout(t.debounce)
-    if (t.cap !== null) clearTimeout(t.cap)
+    // ``timers`` not ``t`` — ``t`` is the module-level translator here.
+    const timers = timersRef.current.get(modelId)
+    if (!timers) return
+    if (timers.debounce !== null) clearTimeout(timers.debounce)
+    if (timers.cap !== null) clearTimeout(timers.cap)
     timersRef.current.delete(modelId)
   }, [])
 
   const fire = useCallback(
-    async (modelId: string, manual: boolean): Promise<void> => {
+    async (modelId: string): Promise<void> => {
       cancelTimers(modelId)
       if (!mountedRef.current) return
       if (inFlightRef.current.has(modelId)) {
@@ -155,13 +168,9 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
             `Bodies recomputed: ${result.bodies_merged} merged, ${result.bodies_split} split` +
               (result.renamed.length > 0 ? `, names displaced: ${result.renamed.length}` : ''),
           )
-        } else if (manual) {
-          // A MANUAL toolbar press is a click and must confirm it ran, even on a
-          // no-op (owner ruling 2026-08-31: "yes always toast, when i click
-          // something"). The BACKGROUND debounce stays change-gated above — a
-          // silent recompute that changed nothing is the alarm-fatigue rule.
-          optsRef.current.toast('success', 'Bodies recomputed: no changes')
         }
+        // A no-op recompute stays silent (the alarm-fatigue rule) — with the
+        // manual verb gone there is no click to confirm.
       } catch (err) {
         const detail = apiErrorDetail(err)
         if (detail?.code === 'empty_recompute_payload') {
@@ -175,15 +184,21 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
           )
         } else {
           log.error('body-recompute', `recompute failed for ${modelId}`, err)
-          // Background fires stay console-only (a debounce has no gesture to answer);
-          // the manual verb is a click and gets its error toast.
-          if (manual) optsRef.current.toast('error', 'Recompute bodies failed — see console.')
+          // The recompute is automatic now (owner ruling 6): a failure has no
+          // gesture to answer, but the user must still learn identity did not
+          // persist. WARNING (the bands on screen are unchanged) with a replace
+          // key so a burst of failures updates one toast rather than stacking.
+          optsRef.current.toast(
+            'warning',
+            t('sections.recompute.backgroundFailed'),
+            BODY_RECOMPUTE_TOAST_KEY,
+          )
         }
       } finally {
         inFlightRef.current.delete(modelId)
         if (pendingRefireRef.current.delete(modelId) && mountedRef.current) {
-          // The one queued re-fire runs as a background fire with a fresh assembly.
-          void fire(modelId, false)
+          // The one queued re-fire runs with a fresh assembly.
+          void fire(modelId)
         }
       }
     },
@@ -198,28 +213,19 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
         return
       }
       genRef.current.set(modelId, (genRef.current.get(modelId) ?? 0) + 1)
-      let t = timersRef.current.get(modelId)
-      if (!t) {
-        t = { debounce: null, cap: null }
-        timersRef.current.set(modelId, t)
+      // ``timers`` not ``t`` — ``t`` is the module-level translator here.
+      let timers = timersRef.current.get(modelId)
+      if (!timers) {
+        timers = { debounce: null, cap: null }
+        timersRef.current.set(modelId, timers)
       }
-      if (t.debounce !== null) clearTimeout(t.debounce)
-      t.debounce = setTimeout(() => void fire(modelId, false), BODY_RECOMPUTE_DEBOUNCE_MS)
+      if (timers.debounce !== null) clearTimeout(timers.debounce)
+      timers.debounce = setTimeout(() => void fire(modelId), BODY_RECOMPUTE_DEBOUNCE_MS)
       // The cap arms once per burst and is deliberately NOT reset by later
       // schedules — resetting it would turn it back into a debounce.
-      if (t.cap === null) {
-        t.cap = setTimeout(() => void fire(modelId, false), BODY_RECOMPUTE_MAX_LATENCY_MS)
+      if (timers.cap === null) {
+        timers.cap = setTimeout(() => void fire(modelId), BODY_RECOMPUTE_MAX_LATENCY_MS)
       }
-    },
-    [fire],
-  )
-
-  const recomputeNow = useCallback(
-    async (modelId: string): Promise<void> => {
-      // A manual ask supersedes whatever is in flight (its answer is stale by
-      // definition — the user wants the state as of NOW).
-      genRef.current.set(modelId, (genRef.current.get(modelId) ?? 0) + 1)
-      await fire(modelId, true)
     },
     [fire],
   )
@@ -231,13 +237,13 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
     const timers = timersRef.current
     return () => {
       mountedRef.current = false
-      for (const [, t] of timers) {
-        if (t.debounce !== null) clearTimeout(t.debounce)
-        if (t.cap !== null) clearTimeout(t.cap)
+      for (const [, modelTimers] of timers) {
+        if (modelTimers.debounce !== null) clearTimeout(modelTimers.debounce)
+        if (modelTimers.cap !== null) clearTimeout(modelTimers.cap)
       }
       timers.clear()
     }
   }, [])
 
-  return { scheduleRecompute, recomputeNow }
+  return { scheduleRecompute }
 }
