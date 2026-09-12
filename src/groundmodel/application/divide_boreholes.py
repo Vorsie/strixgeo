@@ -749,12 +749,8 @@ COLUMN_MIN_SOURCE = "column_min"
 """Provenance for a band raised to the loosest class its own column measured."""
 
 
-def apply_column_floor(
-    bands: Sequence[PlannedBand],
-    *,
-    soil_of_formation: Mapping[str, str | None],
-) -> list[PlannedBand]:
-    """Raise an unanswered band to the loosest class ITS COLUMN measured.
+def apply_column_floor(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
+    """Raise an unanswered band to the loosest class ITS COLUMN measured, PER UNIT.
 
     Owner, 2026-08-16: *"when the fallback fires, there is already a sand
     beneath it that does have a higher NAD class.  So we take that NAD class as
@@ -766,7 +762,17 @@ def apply_column_floor(
     reads medium dense or better is a layer the site shows nowhere on that
     column, and packing density feeds strength — so inventing one can drive a
     design on data that does not exist.  What the column itself measured for
-    that soil is the honest floor.
+    that unit is the honest floor.
+
+    **The floor is PER LITHO UNIT, not per soil** (owner 2026-09-12,
+    *"per unit ofcourse"*).  The unit is the band's ``source_litho_formation_id``
+    — its litho formation row, which the litho find-or-create keys on
+    ``(soil, admixtures)``, so a glauconitic sand and a pure sand are two rows
+    and *"behave differently"*.  Keying the floor on the formation is strictly
+    finer than keying on the soil code: a formation is one soil, so the "a sand
+    floors from sand, never from the clay next to it" invariant still holds a
+    fortiori, while the glauconitic sand no longer borrows the clean sand's
+    measured class for an interval it never read.
 
     Runs AFTER the donor rule has answered everything it can, across all of a
     borehole's segments, because it reads those answers.
@@ -775,35 +781,33 @@ def apply_column_floor(
     ----------
     bands : Sequence[PlannedBand]
         Every band planned for ONE borehole, any order.
-    soil_of_formation : Mapping[str, str | None]
-        Soil code per litho formation id — a sand band's floor must come from
-        sand, never from the clay next to it.
 
     Returns
     -------
     list[PlannedBand]
-        The bands in the given order.  An unanswered band whose soil the column
-        did measure is replaced by a copy at that soil's loosest measured class,
-        stamped :data:`COLUMN_MIN_SOURCE`, still at ``low`` confidence — the
-        interval was not read, and the badge must keep saying so.  Never lowers
-        a class: a standing sub-minimum sliver (his ruling of 2026-08-11) keeps
-        its own conservative value.
+        The bands in the given order.  An unanswered band whose OWN litho unit
+        the column did measure is replaced by a copy at that unit's loosest
+        measured class, stamped :data:`COLUMN_MIN_SOURCE`, still at ``low``
+        confidence — the interval was not read, and the badge must keep saying
+        so.  Never lowers a class: a standing sub-minimum sliver (his ruling of
+        2026-08-11) keeps its own conservative value.
     """
+    # Keyed by the band's own litho unit (``source_litho_formation_id``), so a
+    # glauconitic sand's floor comes only from glauconitic-sand readings on this
+    # column, never from a clean sand of the same soil (owner 2026-09-12).
     loosest_measured: dict[str, int] = {}
     for band in bands:
         if band.source in _UNRESOLVED_SOURCES:
             continue
-        soil = soil_of_formation.get(str(band.source_litho_formation_id))
-        if soil is None:
-            continue
-        held = loosest_measured.get(soil)
+        unit = str(band.source_litho_formation_id)
+        held = loosest_measured.get(unit)
         if held is None or band.nad_class < held:
-            loosest_measured[soil] = band.nad_class
+            loosest_measured[unit] = band.nad_class
 
     out: list[PlannedBand] = []
     for band in bands:
-        soil = soil_of_formation.get(str(band.source_litho_formation_id))
-        floor = loosest_measured.get(soil) if soil is not None else None
+        unit = str(band.source_litho_formation_id)
+        floor = loosest_measured.get(unit)
         if (
             band.source not in _UNRESOLVED_SOURCES
             or floor is None
@@ -822,7 +826,7 @@ _WEAKEST_FIRST = ("absolute_min", "body_min", "column_min", "layer_inherited")
 
 
 def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
-    """Collapse two touching bands of one class inside one litho unit into one.
+    """Collapse two touching bands of one class inside ONE litho LAYER into one.
 
     Owner, 2026-08-17: *"we're still emitting geotech bands to the geological
     boundary that was split off, that's the user's decision"*.  He has the
@@ -835,19 +839,23 @@ def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
     piece was classified alone and the two could land on the same class.  His B4
     carried ``0.00-0.60 SILT (NAD 13)`` over ``0.60-5.19 SILT (NAD 13)`` — a
     contact marking no packing change — and each piece then earned its own
-    correlation, which is how one litho tie became two geotech ties.
+    correlation, which is how one litho tie became two geotech ties.  Both pieces
+    come from the SAME litho LAYER, so that is the case this pass exists for.
 
-    That cut was deleted at the source on 2026-08-26 (*"just drop the wall
-    everywhere"*), so the geological route to the duplication is gone.  The
-    pass is KEPT — not as a leftover but as the invariant's guard: two touching
-    litho layers of the SAME formation classify independently and can land on
-    the same class, and that purely-litho route produces exactly the adjacency
-    this merges.  One class, one litho unit, one band — whatever route produced
-    the duplication (GM8/GM9 pin the no-op on post-ruling shapes).
+    **A user "Split here" is NOT this case, and must survive** (owner 2026-09-12,
+    *"if a layer is split into two in the litho then it has to stay split in
+    geotech ofcourse"*).  When the engineer splits one litho layer into two
+    layers of the SAME composition, the two are DIFFERENT ``litho_layer`` rows
+    (different ``source_litho_layer_id``) though they share a formation and can
+    land on the same class.  Welding them back — which this pass used to do,
+    keying only on the formation — moved the split he drew (his b13-style column:
+    two same-class bands become one, the boundary at the split depth vanishes).
+    So the merge now also requires the SAME ``source_litho_layer_id``: only two
+    pieces of ONE litho layer (a geological surface cut inside it) may collapse.
 
-    Merged only when the class AND the litho unit are the same and the two
-    bands touch: the litho model owns its own boundaries whatever the classes
-    are, and a gap is a different defect than a duplication.
+    Merged only when the class, the litho unit AND the source litho LAYER are the
+    same and the two bands touch: the litho model owns its own boundaries
+    whatever the classes are, and a gap is a different defect than a duplication.
 
     Parameters
     ----------
@@ -860,7 +868,8 @@ def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
         Bands top to bottom.  A merged band keeps the SHALLOWER piece's
         geological parent — one band, one parent, and the shallower piece owns
         the contact above it — and the WEAKEST piece's provenance, so merging
-        never claims evidence for ground no donor answered.
+        never claims evidence for ground no donor answered.  A pair sharing a
+        formation but drawn from two litho layers stays two bands.
     """
 
     def weakness(source: str) -> int:
@@ -873,6 +882,11 @@ def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
             held is not None
             and held.nad_class == band.nad_class
             and held.source_litho_formation_id == band.source_litho_formation_id
+            # RULING B (owner 2026-09-12): a band never crosses a litho-layer
+            # contact. Two pieces of ONE litho layer (a geo cut inside it) share
+            # this id and may merge; a user "Split here" makes two layers with
+            # two ids and must stay split.
+            and held.source_litho_layer_id == band.source_litho_layer_id
             and abs(held.depth_base_m - band.depth_top_m) <= _DEPTH_TOL_M
         ):
             weaker = min((held, band), key=lambda item: weakness(item.source))
@@ -2458,10 +2472,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
         raised_count = 0
         for entries in bands_by_borehole.values():
-            raised = apply_column_floor(
-                [entry[2] for entry in entries],
-                soil_of_formation=litho_soil_by_formation,
-            )
+            raised = apply_column_floor([entry[2] for entry in entries])
             for (seg_index, band_index, before), after in zip(entries, raised):
                 if before.source != after.source:
                     band_updates[seg_index][band_index] = after
