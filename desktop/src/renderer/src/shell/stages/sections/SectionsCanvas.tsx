@@ -1257,7 +1257,7 @@ export default function SectionsCanvas(): JSX.Element {
         // SectionsCanvas remount-cycle (Refs not needed â€” these are
         // primitives by value).
         undoStack.push({
-          description: "Correlate contacts",
+          descriptionKey: "undo.correlateContacts",
           revert: async () => {
             await api.geology.deleteContactCorrelation(
               project.id,
@@ -1384,7 +1384,7 @@ export default function SectionsCanvas(): JSX.Element {
         // redo removes it again. Symmetric so a Ctrl-Z + Ctrl-Y
         // round-trip leaves no drift.
         undoStack.push({
-          description: "Uncorrelate contacts",
+          descriptionKey: "undo.uncorrelateContacts",
           revert: async () => {
             await api.geology.createContactCorrelation(
               project.id,
