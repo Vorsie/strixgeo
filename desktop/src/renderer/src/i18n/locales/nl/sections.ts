@@ -34,7 +34,11 @@ export const SECTIONS_NL = {
     'Schakel naar de stratigrafie-as — Bouwen / Vullen / Ontdubbelen / Plaxis-3D werken op het stratigrafisch model',
   'sections.undoTitle': 'Maak de laatste modelbewerking ongedaan (Ctrl+Z)',
   'sections.undoNothing': 'Niets om ongedaan te maken',
-  'sections.recomputeUnavailable': 'Lichamen herberekenen is niet beschikbaar — heropen het project.',
+  // Waarschuwing als de automatische herberekening van de lichaamsidentiteit
+  // mislukt (owner ruling 6): de handmatige knop is weg, dus een mislukking
+  // moet de gebruiker nog steeds melden dat de identiteit niet is bewaard.
+  'sections.recompute.backgroundFailed':
+    'Lichaamsidentiteit kon niet op de achtergrond worden bewaard. Bij je volgende bewerking wordt het opnieuw geprobeerd.',
   'sections.reset.done':
     '{count} handgetekende {noun} hersteld — de lichamen zijn teruggezet naar hun berekende vorm.',
   'sections.reset.boundaryOne': 'grens',
@@ -63,6 +67,10 @@ export const SECTIONS_NL = {
     'Geen enkel dwarsprofiel bevat de betreffende laaggrens — teken er een door de boring of sondering om ze te bekijken.',
   'sections.inspector.staleBadge': '{n} verouderd',
   'sections.inspector.representativeQc': 'Representatieve qc',
+  // De gekozen statistiek, eenmaal getoond (owner ruling 5). De token
+  // (median / harmonic / …) is een technische term die letterlijk wordt
+  // getoond, dezelfde waarde als de qc-keuzelijst in de werkbalk.
+  'sections.inspector.chosenStatistic': 'Statistiek: {statistic}',
   'sections.inspector.geologicalModel': 'Stratigrafisch model',
   'sections.inspector.previewLegend':
     'Gearceerde banden = voorbeeld. Rechtsklik een ghost-kolom om enkel die boring te verdelen, of druk op “4 · Boringen verdelen” om ze allemaal vast te leggen.',
@@ -194,7 +202,6 @@ export const SECTIONS_NL = {
   'sections.level.litho': 'lithologisch',
   'sections.level.geotech': 'geotechnisch',
   'sections.level.geological': 'stratigrafisch',
-  'sections.level.geotechShort': 'geotechnisch',
 
   // ---------------------------------------------------------------------------
   // tijdelijke bezig-labels
@@ -202,7 +209,6 @@ export const SECTIONS_NL = {
   'sections.busy.accepting': 'Aanvaarden…',
   'sections.busy.creating': 'Aanmaken…',
   'sections.busy.deleting': 'Verwijderen…',
-  'sections.busy.recomputing': 'Herberekenen…',
   'sections.busy.exporting': 'Exporteren…',
   'sections.busy.suggesting': 'Voorstellen…',
   'sections.busy.subdividing': 'Onderverdelen…',
@@ -210,7 +216,7 @@ export const SECTIONS_NL = {
   'sections.busy.dividing': 'Verdelen…',
 
   // ---------------------------------------------------------------------------
-  // staartwerkwoorden — Nieuw / Verwijderen / Koppelprofielen / Herberekenen
+  // staartwerkwoorden — Nieuw / Verwijderen / Koppelprofielen
   // ---------------------------------------------------------------------------
   'sections.tail.newSection': 'Nieuw dwarsprofiel',
   'sections.tail.newSectionTitle': 'Een nieuw dwarsprofiel aanmaken (voorlopige eindpunten)',
@@ -219,10 +225,6 @@ export const SECTIONS_NL = {
   'sections.tail.deleteSelectFirst': 'Selecteer een dwarsprofiel om te verwijderen',
   'sections.tail.deleteConfirmMenuTitle': '"{name}" verwijderen — vraagt eerst om bevestiging',
   'sections.tail.deleteTitle': '"{name}" verwijderen',
-  'sections.tail.recompute': 'Lichamen herberekenen',
-  'sections.tail.recomputeNone': 'Geen actief {level} model om te herberekenen',
-  'sections.tail.recomputeTitle':
-    'De vastgelegde geometrische lichaamsidentiteit nu opnieuw afleiden uit de huidige profielen',
 
   // ---------------------------------------------------------------------------
   // koppelprofielen (staart)
@@ -582,7 +584,9 @@ export const SECTIONS_NL = {
   'sections.menu.unlinkFromGeology': 'Loskoppelen van de stratigrafie',
   'sections.menu.editInGeology': 'Bewerken in de stratigrafiestap',
   'sections.menu.mergeLayers': 'Lagen samenvoegen',
-  'sections.menu.removeLithoUnit': 'Deze litho-eenheid verwijderen',
+  // "Eenheid verwijderen" — reads distinct from the column verb "Uit dit
+  // profiel verwijderen" above it in the unified menu (owner ruling 12).
+  'sections.menu.removeLithoUnit': 'Eenheid verwijderen',
   'sections.menu.addSuggestionHere': 'Hier een nieuw voorstel toevoegen',
   'sections.menu.unitStatistics': 'Statistieken van deze eenheid…',
   'sections.menu.insertLayerHere': 'Hier een laag invoegen…',
