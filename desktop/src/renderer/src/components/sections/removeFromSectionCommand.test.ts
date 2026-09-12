@@ -90,8 +90,8 @@ describe('buildRemoveFromSectionCommand', () => {
       { excluded_cpt_ids: [], excluded_borehole_ids: [] },
       () => Promise.resolve(),
     )
-    expect(cmd.undoCmd.description).toContain('cpt-42')
-    expect(cmd.undoCmd.description).toMatch(/remove .*from section/i)
+    expect(cmd.undoCmd.descriptionKey).toBe('undo.removeFromSection')
+    expect(cmd.undoCmd.descriptionParams).toEqual({ id: 'cpt-42' })
   })
 
   it('R5 — snapshot isolation: mutating the caller\'s list after build does not change the captured prev', async () => {
