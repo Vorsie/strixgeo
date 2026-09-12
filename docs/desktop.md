@@ -164,6 +164,10 @@ desktop/src/
     │   ├── useLithoGhostWorkspace.ts  Pending litho suggestions: synchronous writes, one
     │   │                          undo command per gesture (a drag = one step), set aside
     │   │                          per litho model on a switch and restored on return.
+    │   ├── useUndoStack.ts        Ctrl+Z / Ctrl+Y stack. A command carries an i18n KEY
+    │   │                          (`undo.*`, typed against the EN catalogue) plus params,
+    │   │                          never rendered text: the failure toast resolves it at
+    │   │                          display time, so the language can switch mid-session.
     │   ├── useDovImportStream.ts  SSE-backed import progress hook.
     │   └── useShellContextValue.ts  Shell context value memoisation.
     ├── utils/
