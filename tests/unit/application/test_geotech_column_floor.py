@@ -20,10 +20,13 @@ from uuid import UUID
 
 from groundmodel.application.divide_boreholes import PlannedBand, apply_column_floor
 
+# The floor is read PER LITHO UNIT — the band's own ``source_litho_formation_id``.
+# ZAND_F and KLEI_F are two soils; ZAND_GL_F (a glauconitic sand) is a SEPARATE
+# unit from ZAND_F while sharing the SAME soil — the case a per-soil floor lumps
+# and a per-unit floor keeps apart (owner 2026-09-12, *"per unit ofcourse"*).
 ZAND_F = UUID(int=1)
 KLEI_F = UUID(int=2)
-# The soil is read off the band's own litho formation.
-SOIL = {str(ZAND_F): "ZAND", str(KLEI_F): "KLEI"}
+ZAND_GL_F = UUID(int=3)
 
 _ZAND_FLOOR, _MD, _D, _VD = 5, 6, 7, 8
 _KLEI_FLOOR, _KLEI_FIRM = 21, 22
@@ -44,7 +47,7 @@ def _band(top: float, base: float, nad: int, source: str, formation: UUID = ZAND
 
 
 def _classes(bands: list[PlannedBand]) -> list[tuple[int, str]]:
-    out = apply_column_floor(bands, soil_of_formation=SOIL)
+    out = apply_column_floor(bands)
     return [(b.nad_class, b.source) for b in out]
 
 
@@ -74,8 +77,13 @@ def test_cf2_it_never_reaches_past_the_loosest_measured_class() -> None:
     )[0] == (_MD, "column_min")
 
 
-def test_cf3_the_floor_is_read_per_soil() -> None:
-    """A clay band cannot take a sand class, however loose."""
+def test_cf3_the_floor_is_read_per_unit_so_a_clay_cannot_take_a_sand_class() -> None:
+    """A clay band cannot take a sand class, however loose.
+
+    Retargeted 2026-09-12 from "per soil" to "per unit": the clay and the sand
+    here are two litho units (two formations), and a per-unit floor keeps them
+    apart — as it also keeps two same-soil units apart (see CF8).
+    """
     assert _classes(
         [
             _band(0.0, 1.0, _KLEI_FLOOR, "absolute_min", formation=KLEI_F),
@@ -128,3 +136,23 @@ def test_cf7_it_never_makes_a_band_looser() -> None:
             _band(1.0, 2.0, _MD, "cpt_interpolated"),
         ]
     )[0] == (_D, "body_min")
+
+
+def test_cf8_a_glauconitic_sand_and_a_pure_sand_behave_differently_the_floor_is_per_unit() -> None:
+    """Owner, 2026-09-12: *"per unit ofcourse"*.
+
+    A glauconitic sand and a pure sand are DIFFERENT litho units — different
+    formation rows though the same soil — and they *behave differently*, so the
+    floor is per unit, not per soil.  The pure sand this column measured at
+    medium dense says NOTHING about the glauconitic sand's unread interval:
+    that interval keeps the honest table floor, never the clean sand's class.
+    A per-soil floor would lump both ``ZAND`` bands and raise the glauconitic
+    fallback to the clean sand's NAD 6 — a packing the glauconitic unit shows
+    nowhere on this column.
+    """
+    assert _classes(
+        [
+            _band(0.0, 1.0, _ZAND_FLOOR, "absolute_min", formation=ZAND_GL_F),
+            _band(1.0, 2.0, _MD, "cpt_interpolated", formation=ZAND_F),
+        ]
+    )[0] == (_ZAND_FLOOR, "absolute_min")
