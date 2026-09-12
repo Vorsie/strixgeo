@@ -35,6 +35,7 @@ import type {
   VirtueleBoringInvestigationPrediction,
 } from '../../api/client'
 import type { GeotechAxisModel } from './geotechAxisModel'
+import type { UndoCommand } from '../../hooks/useUndoStack'
 
 /** Read-only per-section data slices provided by SectionsCanvas. */
 export interface SectionScope {
@@ -142,11 +143,7 @@ export interface SectionScope {
    * + read-only callers can mount without an undo seam.
    */
   undoStack?: {
-    push: (cmd: {
-      description: string
-      revert: () => Promise<void>
-      reapply: () => Promise<void>
-    }) => void
+    push: (cmd: UndoCommand) => void
   }
   /**
    * Inclusive snap tolerance (m) for the litho↔geological drag-
