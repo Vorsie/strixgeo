@@ -37,20 +37,11 @@ import { useBodyRecompute, type UseBodyRecomputeResult } from './useBodyRecomput
 import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
 
 /**
- * Module-ref bridge to the toolbar's manual "Recompute bodies" verb — the same
- * pattern as ``lithoVoxelRequestCallback``: the shell hook assigns
- * ``recomputeNow`` every render; ``SectionsToolbar`` (which has no access to
- * the scheduler) invokes it with the active axis's model id.
- */
-export const sectionsBodyRecomputeCallback: {
-  current: ((modelId: string) => Promise<void>) | null
-} = {
-  current: null,
-}
-
-/**
- * Module-ref bridge to the toolbar's "4 · Divide boreholes" verb — same pattern
- * as ``sectionsBodyRecomputeCallback`` above.
+ * Module-ref bridge to the toolbar's "4 · Divide boreholes" verb.
+ *
+ * (The sibling bridge to the manual "Recompute bodies" verb was removed with
+ * that verb — owner ruling 6, 2026-09-12. The recompute is fully automatic now;
+ * nothing outside this hook calls it, so the bridge would be dead code.)
  *
  * The divide reads each borehole column off the 2-D geometry it stands in
  * (owner ruling 2026-08-15), and this hook is where the inputs that geometry is
@@ -103,8 +94,9 @@ export interface UseProjectBodyRecomputeArgs {
   bodyRecomputeLithoNonce: number
   /** Coordinator nonce — bumped by every geotech-model mutation site. */
   bodyRecomputeGeotechNonce: number
-  /** The app toast fn (threaded to the scheduler). */
-  toast: (kind: 'success' | 'error', message: string) => void
+  /** The app toast fn (threaded to the scheduler). Includes ``warning`` + an
+   *  optional replace key so the scheduler can surface a failed recompute once. */
+  toast: (kind: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
 }
 
 /**
@@ -119,8 +111,7 @@ export interface UseProjectBodyRecomputeArgs {
  * Returns
  * -------
  * UseBodyRecomputeResult
- *     ``scheduleRecompute`` + ``recomputeNow`` (also exposed to the toolbar via
- *     ``sectionsBodyRecomputeCallback``).
+ *     ``scheduleRecompute`` — the automatic mutation-path entry point.
  */
 export function useProjectBodyRecompute(
   args: UseProjectBodyRecomputeArgs,
@@ -229,32 +220,27 @@ export function useProjectBodyRecompute(
     [projectId, geotechModelId, visibleSections, investigations, geotechLayers, visibleBoreholes],
   )
 
-  const { scheduleRecompute, recomputeNow } = useBodyRecompute({
+  const { scheduleRecompute } = useBodyRecompute({
     projectId,
     buildPayload,
     dataLoaded: visibleSections.length > 0,
     toast,
   })
 
-  // Module-ref bridge for the toolbar's manual verb. Assigned every render so
-  // the ref is always current while the shell is mounted.
-  sectionsBodyRecomputeCallback.current = recomputeNow
+  // Module-ref bridge for the toolbar's "4 · Divide boreholes" verb. Assigned
+  // every render so the ref is always current while the shell is mounted.
   sectionsDividePartitionCallback.current = buildDividePartitionForSection
 
-  // Null the bridge refs on unmount so a toolbar click after this hook tears
-  // down is a no-op rather than a call against a destroyed shell (debt #276).
-  // Each null is GUARDED — it fires only while the module ref still holds THIS
+  // Null the bridge ref on unmount so a toolbar click after this hook tears down
+  // is a no-op rather than a call against a destroyed shell (debt #276). The
+  // null is GUARDED — it fires only while the module ref still holds THIS
   // instance's callback — so an older instance's cleanup cannot wipe a ref a
-  // newer instance has already claimed. ownedRecompute / ownedDivide track the
-  // value written above (both change identity across renders).
-  const ownedRecompute = useRef(recomputeNow)
-  ownedRecompute.current = recomputeNow
+  // newer instance has already claimed. ownedDivide tracks the value written
+  // above (it changes identity across renders).
   const ownedDivide = useRef(buildDividePartitionForSection)
   ownedDivide.current = buildDividePartitionForSection
   useEffect(
     () => () => {
-      if (sectionsBodyRecomputeCallback.current === ownedRecompute.current)
-        sectionsBodyRecomputeCallback.current = null
       if (sectionsDividePartitionCallback.current === ownedDivide.current)
         sectionsDividePartitionCallback.current = null
     },
@@ -329,5 +315,5 @@ export function useProjectBodyRecompute(
     scheduleRecompute(geotechModelId)
   }, [bodyRecomputeGeotechNonce, geotechModelId, visibleSections.length, geotechLayersLoaded, geotechLayers.length, lithoModelId, lithoLayers.length, scheduleRecompute])
 
-  return { scheduleRecompute, recomputeNow }
+  return { scheduleRecompute }
 }
