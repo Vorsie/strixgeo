@@ -91,9 +91,9 @@ export interface GeotechToolbarItemsDeps {
 /**
  * The statistic PICKER rows — the four tokens, and nothing else.
  *
- * Split out of the menu below because the ⋯ More menu takes these rows but not
- * the explanatory note above them (owner 2026-09-11: the note is information,
- * not a verb; it reads in the Sections inspector instead).
+ * This is now the WHOLE qc dropdown (owner ruling 4, 2026-09-12: "yes once is
+ * enough" — the explanatory note is shown ONLY in the Sections inspector, never
+ * repeated inside the dropdown). The ⋯ More menu takes the same rows.
  */
 export function buildGeotechStatisticPickerItems(
   deps: GeotechToolbarItemsDeps,
@@ -120,26 +120,6 @@ export function buildGeotechStatisticPickerItems(
                 testid: `geotech-statistic-${token}`,
                 onClick: () => handleSetGeotechStatistic(token),
               })),
-            ]
-}
-
-/** The "qc: <statistic>" dropdown menu — the note, then the picker rows. */
-export function buildGeotechStatisticMenuItems(
-  deps: GeotechToolbarItemsDeps,
-): ToolbarDropdownItem[] {
-  const { t, isGeotech } = deps
-  const picker = buildGeotechStatisticPickerItems(deps)
-  return !isGeotech ? [] : [
-              {
-                // Stated inside the menu as well as in the tooltip. A tooltip is not
-                // read before a click, and the one thing that surprises here is that
-                // picking a statistic changes NOTHING on screen by itself.
-                label: t('sections.toolbar.applyNextSubdivide'),
-                disabled: true,
-                testid: 'geotech-statistic-note',
-                onClick: () => {},
-              },
-              ...picker,
             ]
 }
 
