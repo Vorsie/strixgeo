@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../../api/client'
 import type { GeologicalModelResponse, ProjectResponse } from '../../../api/client'
 import { DEFAULT_GEOTECH_STATISTIC, type GeotechStatistic } from '../../../utils/geotechStatistic'
+import { publishGeotechStatistic } from '../../../utils/geotechStatisticStore'
 import { t } from '../../../i18n/translate'
 
 /** What the statistic hook needs from the shell bus. */
@@ -119,6 +120,16 @@ export function useGeotechStatistic({
   useEffect(() => {
     if (activeGeotechModel && pendingStatistic !== null) setPendingStatistic(null)
   }, [activeGeotechModel, pendingStatistic])
+
+  // Publish the derived token for the Sections inspector (owner ruling 5,
+  // 2026-09-12: show the chosen statistic in the inspector, once). The inspector
+  // reads this exact value so its "Statistic: …" line can never disagree with
+  // the toolbar's qc dropdown — the two windows where a model-only read would
+  // (a pre-model pending choice, the post-write bridge) are both folded into
+  // ``geotechStatistic`` already.
+  useEffect(() => {
+    publishGeotechStatistic(geotechStatistic)
+  }, [geotechStatistic])
 
   const handleSetGeotechStatistic = useCallback(
     (statistic: GeotechStatistic): void => {
