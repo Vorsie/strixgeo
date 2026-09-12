@@ -5,7 +5,7 @@
 // the panel no edit handlers on that axis. ContactsLayer itself must therefore offer no
 // affordance that needs one — it already gates the drag hit-strip and the band's LEFT-
 // click add on handler presence, but two right-click surfaces were left ungated and kept
-// drawing over geotech packing bands: "Remove this litho unit" on a band, and "Add new
+// drawing over geotech packing bands: "Delete unit" on a band, and "Add new
 // suggestion here" on the per-column capture rect. Both reached a dead end, and before
 // the handlers were gated at all the Remove path really did delete a geotech contact,
 // which the next "Subdivide all bodies" discarded without a word.
