@@ -17,6 +17,10 @@ import type { ShellContextValue } from '../../ShellContext'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import SectionsInspector from './SectionsInspector'
 import { makeShellCtx } from './__fixtures__/sectionsShellContext'
+import {
+  publishGeotechStatistic,
+} from '../../../utils/geotechStatisticStore'
+import { DEFAULT_GEOTECH_STATISTIC } from '../../../utils/geotechStatistic'
 
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
@@ -39,6 +43,9 @@ vi.mock('../../../utils/log', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  // The statistic store is module-global; reset it so a published value cannot
+  // leak into the next test.
+  publishGeotechStatistic(DEFAULT_GEOTECH_STATISTIC)
 })
 
 function renderInspector(axis: SectionModelAxis): void {
@@ -71,5 +78,25 @@ describe('the Sections inspector explains the representative qc', () => {
     renderInspector('lithostratigraphic')
 
     expect(screen.queryByTestId('sections-inspector-statistic-note')).toBeNull()
+  })
+
+  it('the inspector shows the chosen statistic', () => {
+    // Owner ruling 5 (2026-09-12): "yes show it in the inspector, especially if
+    // we are only showing it once." The value is the SAME token the toolbar's qc
+    // dropdown shows, published to the store the inspector reads.
+    publishGeotechStatistic('harmonic')
+    renderInspector('geotechnical')
+
+    const value = screen.getByTestId('sections-inspector-statistic-value')
+    expect(value.textContent ?? '').toContain('harmonic')
+    // The English prefix, so the value never reads as a bare token.
+    expect(value.textContent ?? '').toMatch(/statistic/i)
+  })
+
+  it('the chosen-statistic value is a geotech-axis line only', () => {
+    publishGeotechStatistic('harmonic')
+    renderInspector('lithostratigraphic')
+
+    expect(screen.queryByTestId('sections-inspector-statistic-value')).toBeNull()
   })
 })
