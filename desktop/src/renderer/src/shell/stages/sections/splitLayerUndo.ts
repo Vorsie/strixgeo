@@ -71,7 +71,7 @@ export function buildSplitLayerUndoCommand(
   let topId = facts.topLayerId
   let bottomId = facts.bottomLayerId
   return {
-    description: 'Split layer',
+    descriptionKey: 'undo.splitLayer',
     revert: async () => {
       // Delete the bottom half — the FC->LL mirror closes the column back onto
       // the top layer's original base in the same transaction.
