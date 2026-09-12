@@ -51,7 +51,7 @@ export const TUTORIAL_VERB_TESTIDS: readonly string[] = [
   'litho-suggest', 'litho-accept-all', 'correlate-mode', 'litho-bodies-dropdown',
   'litho-admixtures-dropdown', 'litho-build-model-button', 'litho-export-fence-button',
   'resolve-instances-btn', 'geotech-statistic-menu', 'geotech-pipeline', 'geotech-correlate-packing',
-  'geotech-display-menu', 'sections-recompute-bodies', 'geotech-build-model-button',
+  'geotech-display-menu', 'geotech-build-model-button',
   'geotech-export-fence-button', 'geotech-units-roster', 'parameters-unit-list',
   'parameters-group-action', 'export-canvas-dxf', 'export-canvas-plaxis3d',
 ]
