@@ -405,7 +405,10 @@ export function buildLithoToolbarItems(deps: LithoToolbarItemsDeps): ToolbarItem
         priority: 'low',
         kind: 'dropdown',
         label: t('sections.toolbar.admixtures'),
-        overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
+        // Under "Section" (shown "Profiel" in BE Dutch), owner ruling 6
+        // (2026-09-12: "I'd put admixture under profiel") — it is a per-section
+        // ghost-cleanup pass, not a model-identity verb.
+        overflowGroup: SECTIONS_OVERFLOW_GROUP.section,
         overflowItems: lithoAdmixtureMenuItems,
         render: p => (
           <ToolbarDropdown
