@@ -1274,13 +1274,20 @@ dense.  Which floor, he then corrected the same day:
 
 So the ladder has two rungs (``apply_column_floor``):
 
-1. **The loosest class the COLUMN measured for that soil** (``column_min``).
+1. **The loosest class the COLUMN measured for that LITHO UNIT** (``column_min``).
    The NAD table's floor is not the conservative answer, it is a fictional one:
    a LOOSE sand band dropped into a column whose every measured sand reads
    medium dense or better is a layer the site shows nowhere on that column, and
-   inventing one can drive a design on data that does not exist.
+   inventing one can drive a design on data that does not exist.  The floor is
+   **per unit, not per soil** (owner 2026-09-12, *"per unit ofcourse"*): the
+   unit is the band's ``source_litho_formation_id`` (its litho formation row,
+   keyed by the litho find-or-create on ``(soil, admixtures)``), so a
+   glauconitic sand and a clean sand of the same soil floor independently and
+   *"behave differently"* â€” the glauconitic sand never borrows the clean sand's
+   measured class for an interval it never read.  Keying on the formation is
+   strictly finer than keying on the soil, so a sand still floors only from sand.
 2. **The table floor** ``loosest_class_for(soil, admixtures)`` â€” variant-aware
-   per audit F19 â€” only where the column measured none of that soil
+   per audit F19 â€” only where the column measured none of that unit
    (``absolute_min``).  On the live model that is mostly peat, which no CPT
    reads.
 
@@ -1298,6 +1305,42 @@ measured, where ``column_min`` takes the loosest and is bounded by the column's
 own evidence.  On the live model the ladder reads 138 donor-backed bands, 5 at
 ``column_min`` and 22 at the table floor; ``body_min`` (weakest observed in the
 BODY, across columns) fires zero times.
+
+### 8-0c. A packing band never crosses a litho-LAYER contact (owner, 2026-09-12)
+
+Owner: *"if a layer is split into two in the litho then it has to stay split in
+geotech ofcourse."*  A geotech band belongs to ONE litho LAYER, not merely one
+litho unit.  When the engineer splits one litho layer into two layers of the
+SAME composition (the "Split here" verb), the two are different ``litho_layer``
+rows sharing a formation, and the geotech divide must keep them two bands with a
+boundary at the split depth â€” no band spans it.
+
+The split survives in TWO steps, and both matter because two same-composition
+halves share one formation and so fall in ONE planning group.
+
+* **Emission confines each segment.** The borehole press plans each
+  ``BodyLayerPick`` segment (one litho layer) alone: the fill is derived over
+  that segment's own litho-layer extent (``derive = unit_layer``) and
+  ``clip_bands_to_slice`` trims it to the slice, so no emitted band spans the
+  union of two split halves even when the flanking CPTs read one class straight
+  across the split.  The CPT press does the same by construction â€” each segment
+  becomes its own column plan (``_build_column_plans``).  So the boundary at the
+  split depth already exists before any merge.
+* **The merge is the second guard.** Every band carries its source layer â€” a
+  borehole band stamps ``source_litho_layer_id`` (``unit_layer[0]``), a CPT band
+  ``parent_litho_layer_id`` â€” and ``merge_geo_split_bands`` merges two touching
+  same-class bands only when they ALSO share that layer id, i.e. two pieces of
+  ONE litho layer a geological surface cut, not two layers.  Before this it keyed
+  only on class + formation, so where the flanking CPTs read one class on both
+  sides of the split it welded the two halves into one band running through the
+  litho contact (his b13 defect, same-composition variant); the boundary the
+  engineer drew appeared to move to a tie-interpolation depth.
+
+The grouping key stays ``(body_id, source_geo_formation_id, formation_id)`` on
+BOTH presses: the litho LAYER is not a group key because layer ids are unique
+per column, so keying on one would fragment a unit's cross-column group and
+strand every borehole with no flanking donor.  Layer identity lives on the band
+(and its merge), where the split is actually decided, not on the group.
 
 **Owner ruling, dogfeed of Â§6:** *the borehole's packing must come from the CPT
 to the right and to the left on the cross section.*
