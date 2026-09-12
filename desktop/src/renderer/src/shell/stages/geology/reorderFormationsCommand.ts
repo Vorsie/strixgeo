@@ -156,7 +156,8 @@ export async function reorderFormationsCommand(
     log.success('geology', `reorderFormations ok updates=${changes.length}`)
     const snapshot = changes.slice()
     pushUndoCommand({
-      description: `Reorder ${snapshot.length} formation${snapshot.length === 1 ? '' : 's'}`,
+      descriptionKey: 'undo.reorderFormations',
+      descriptionParams: { n: snapshot.length },
       revert: async () => {
         // Restore BOTH order and the pre-drag pin state (debt #35):
         // a formation that wasn't pinned before the drag must go
