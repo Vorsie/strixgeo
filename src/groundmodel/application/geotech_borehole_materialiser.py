@@ -137,6 +137,19 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
         admixture included — the rule the CPT axis has followed since
         2026-09-07 (seam identity = soil | class | admixture).
 
+        The litho LAYER is deliberately NOT part of the key, even though RULING B
+        (owner 2026-09-12, *"if a layer is split into two in the litho then it
+        has to stay split in geotech"*) also demands that a band never cross a
+        litho-layer contact.  Layer ids are unique per column, so keying on one
+        would split a unit's cross-column group into one group per column and
+        strand every borehole with no flanking donor at all
+        (``test_one_litho_unit_across_three_columns_is_still_one_planning_group``
+        pins this).  RULING B is enforced where the split is actually decided —
+        each band carries its ``source_litho_layer_id`` (borehole) /
+        ``parent_litho_layer_id`` (CPT), ``merge_geo_split_bands`` refuses to
+        weld two bands from different layers, and the CPT press plans each
+        segment alone — not by the group key.
+
         Parameters
         ----------
         segments : list[BodyLayerPick]
