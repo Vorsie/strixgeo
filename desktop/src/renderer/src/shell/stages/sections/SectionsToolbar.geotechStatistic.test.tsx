@@ -262,15 +262,20 @@ describe('the statistic is chosen BEFORE subdividing, and says it changes nothin
     expect(screen.getByTestId('geotech-statistic-menu').textContent).toContain('median')
   })
 
-  it('ST-NOTE — the menu says the choice applies to the NEXT subdivide', () => {
-    // The surprise here is that picking a statistic changes nothing on screen. Saying
-    // so only in a tooltip means it is read after the click that caused the confusion.
+  it('once is enough: the note is only in the inspector, not the qc dropdown', () => {
+    // Owner ruling 4 (2026-09-12): "yes once is enough". The note used to head
+    // the dropdown AND read in the inspector; now it is shown once, in the
+    // inspector. Opening the dropdown must reveal the picker but no note.
+    // (RETARGETS the old ST-NOTE pin, which required the note INSIDE the menu —
+    // the behaviour the owner overturned. The inspector side is pinned by
+    // SectionsInspector.statisticNote.test.tsx SN1.)
     renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
     fireEvent.click(screen.getByTestId('geotech-statistic-menu'))
 
-    const note = screen.getByTestId('geotech-statistic-note').textContent ?? ''
-    expect(note).toMatch(/next subdivide/i)
-    expect(note).toMatch(/nothing re-runs/i)
+    // The picker rows are still there...
+    expect(screen.getByTestId('geotech-statistic-median')).toBeTruthy()
+    // ...but the explanatory note is not.
+    expect(screen.queryByTestId('geotech-statistic-note')).toBeNull()
   })
 })
 
