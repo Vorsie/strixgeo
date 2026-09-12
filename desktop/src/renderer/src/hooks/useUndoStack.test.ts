@@ -4,21 +4,31 @@
 // integration level via the contact mutation handlers.
 
 import { renderHook, act } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useUndoStack, type UndoCommand } from './useUndoStack'
+import { setLanguage } from '../i18n/languageSelect'
 
 function makeCommand(
   description: string,
   overrides: Partial<UndoCommand> = {},
 ): UndoCommand {
   return {
-    description,
+    // ``description`` is a message KEY resolved at display time (ruling 11).
+    // These unit tests pass a bare letter — ``t()`` falls back to the key
+    // itself, so the failure toast still names the action.
+    descriptionKey: description as UndoCommand['descriptionKey'],
     revert: vi.fn().mockResolvedValue(undefined),
     reapply: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
+
+// Every test runs in English by default; the NL failure-toast test flips the
+// device language and must leave it as it found it.
+afterEach(() => {
+  setLanguage('en')
+})
 
 describe('useUndoStack', () => {
   it('starts empty: canUndo and canRedo both false', () => {
@@ -125,6 +135,22 @@ describe('useUndoStack', () => {
     // so the user can correlate the message to their intent.
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('B'))
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('Undo failed'))
+  })
+
+  it('the failure toast is translated to the active language (NL)', async () => {
+    // Ruling 11: the "history cleared" toast is display-time translated, so a
+    // Dutch session reads it in Dutch, not the hardcoded English of before.
+    setLanguage('nl')
+    const onError = vi.fn()
+    const { result } = renderHook(() => useUndoStack({ onError }))
+    const cmd = makeCommand('X', {
+      revert: vi.fn().mockRejectedValue(new Error('boom')),
+    })
+    act(() => result.current.push(cmd))
+    await act(async () => {
+      await result.current.undo()
+    })
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('Ongedaan maken mislukt'))
   })
 
   it('failed reapply also clears both stacks', async () => {
