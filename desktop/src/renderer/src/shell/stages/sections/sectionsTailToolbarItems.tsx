@@ -7,7 +7,7 @@
 // original. The two menus (tie-sections caret, Export items) are declared as
 // locals because each is consumed only by ``tailItems``.
 
-import { Trash2, FileOutput, FileText, Cpu, Plus, Network, RefreshCw } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Plus, Network } from 'lucide-react'
 
 import {
   ToolbarButton,
@@ -32,8 +32,6 @@ export interface TailToolbarItemsDeps {
   /** Active-language translator, threaded from the toolbar so a language flip
    *  re-renders every verb in one pass. */
   t: Translator
-  isLitho: boolean
-  isGeotech: boolean
   hasSection: boolean
   hasModel: boolean
   /** Already-translated model-level word ("lithostratigraphic" → NL
@@ -55,15 +53,12 @@ export interface TailToolbarItemsDeps {
   geoVerbHint: string | null
   activeGeologicalModel: GeologicalModelResponse | null
   dseriesExportItems: ToolbarDropdownItem[]
-  recomputingBodies: boolean
-  recomputeModelId: string | null
   setAcceptingAllTies: (accepting: boolean) => void
   setSheetDialogOpen: (open: boolean) => void
   handleNew: () => Promise<void>
   handleDelete: () => void
   handleExportDxf: () => Promise<void>
   handleExportPlaxis: () => Promise<void>
-  handleRecomputeBodies: () => Promise<void>
   handleAcceptAllTies: UseSectionsResult['handleAcceptAllTies']
   handleSuggestTies: UseSectionsResult['handleSuggestTies']
   handleClearTieSuggestions: UseSectionsResult['handleClearTieSuggestions']
@@ -85,8 +80,6 @@ export interface TailToolbarItemsDeps {
 export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSpec[] {
   const {
     t,
-    isLitho,
-    isGeotech,
     hasSection,
     hasModel,
     axisLevelLabel,
@@ -106,15 +99,12 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
     geoVerbHint,
     activeGeologicalModel,
     dseriesExportItems,
-    recomputingBodies,
-    recomputeModelId,
     setAcceptingAllTies,
     setSheetDialogOpen,
     handleNew,
     handleDelete,
     handleExportDxf,
     handleExportPlaxis,
-    handleRecomputeBodies,
     handleAcceptAllTies,
     handleSuggestTies,
     handleClearTieSuggestions,
@@ -194,15 +184,6 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
           },
           ...dseriesExportItems,
         ]
-
-  const recomputeTitle =
-    recomputeModelId === null
-      ? t('sections.tail.recomputeNone', {
-          level: isGeotech ? t('sections.level.geotechShort') : t('sections.level.litho'),
-        })
-      : recomputingBodies
-        ? t('sections.busy.recomputing')
-        : t('sections.tail.recomputeTitle')
 
   const tailItems: ToolbarItemSpec[] = [
     /* New cross-section — primary entry action, visually distinct from
@@ -376,49 +357,12 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
         />
       ),
     },
-
-    /* Manual body-identity recompute (slice 5) — acts on the ACTIVE axis's
-        model (litho / geotech). The debounced background recompute usually
-        keeps identity current; this is the explicit "do it now" escape hatch
-        (and the one path that toasts recompute errors).
-
-        'low' — an escape hatch for a job that normally runs itself. It is the
-        first control on the whole bar to give up its label, and the first to
-        fold into ⋯ More. */
-    ...(isLitho || isGeotech
-      ? [
-          {
-            id: 'sections-recompute-bodies',
-            priority: 'low' as const,
-            kind: 'button' as const,
-            label: recomputingBodies ? t('sections.busy.recomputing') : t('sections.tail.recompute'),
-            // Under "Model": it recomputes the ACTIVE axis's model identity,
-            // not anything about the cross-section it is pressed from.
-            overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
-            overflowItems: [
-              {
-                label: t('sections.tail.recompute'),
-                icon: <RefreshCw size={12} />,
-                onClick: () => void handleRecomputeBodies(),
-                disabled: recomputeModelId === null || recomputingBodies,
-                title: recomputeTitle,
-              },
-            ],
-            render: (p: 'full' | 'compact' | 'icon') => (
-              <ToolbarButton
-                iconOnly={p === 'icon'}
-                icon={<RefreshCw size={13} />}
-                label={recomputingBodies ? t('sections.busy.recomputing') : t('sections.tail.recompute')}
-                onClick={() => void handleRecomputeBodies()}
-                disabled={recomputeModelId === null || recomputingBodies}
-                busy={recomputingBodies}
-                title={recomputeTitle}
-                testid="sections-recompute-bodies"
-              />
-            ),
-          },
-        ]
-      : []),
+    // The manual "Recompute bodies" verb was removed (owner ruling 6,
+    // 2026-09-12: "Seems like a useless button to me"). Body identity is kept
+    // current by the automatic recompute (debounced after every mutation + once
+    // on project open, in ``useProjectBodyRecompute``); a background failure now
+    // surfaces as a warning toast, so the user still learns when it did not
+    // persist without a button to press.
   ]
 
   return tailItems
