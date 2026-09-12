@@ -30,6 +30,14 @@ SILT_F = UUID(int=1)
 ZAND_F = UUID(int=2)
 GEO_UPPER = UUID(int=11)
 GEO_LOWER = UUID(int=12)
+# The source litho LAYER a band was minted out of. Two touching bands of one
+# class and one litho unit only merge back when they came from the SAME litho
+# layer — a geological surface cut inside it. Two DIFFERENT layers of the same
+# unit are a user "Split here", and that split must survive the geotech divide
+# (owner 2026-09-12). ``LAYER_A`` is the default so every legacy case here is a
+# geo cut inside ONE layer, which is exactly what these cases were always about.
+LAYER_A = UUID(int=21)
+LAYER_B = UUID(int=22)
 
 
 def _band(
@@ -39,6 +47,7 @@ def _band(
     litho: UUID = SILT_F,
     geo: UUID | None = GEO_UPPER,
     source: str = "cpt_interpolated",
+    layer: UUID | None = LAYER_A,
 ) -> PlannedBand:
     """One planned band."""
     return PlannedBand(
@@ -51,6 +60,7 @@ def _band(
         body_id=None,
         source_litho_formation_id=litho,
         source_geo_formation_id=geo,
+        source_litho_layer_id=layer,
     )
 
 
@@ -59,10 +69,19 @@ def _spans(bands: list[PlannedBand]) -> list[tuple[float, float, int]]:
 
 
 def test_gm1_his_b4_silt_becomes_one_band() -> None:
-    """0.00-0.60 and 0.60-5.19, both NAD 13, are one band."""
-    assert _spans([_band(0.00, 0.60, 13, geo=GEO_UPPER), _band(0.60, 5.19, 13, geo=GEO_LOWER)]) == [
-        (0.00, 5.19, 13)
-    ]
+    """0.00-0.60 and 0.60-5.19, both NAD 13, are one band.
+
+    A geological surface passing through ONE litho layer (both pieces carry the
+    same ``source_litho_layer_id``) marks no packing change, so the two pieces
+    are one band. This is the geo-cut-inside-one-layer case the merge still
+    exists for — as opposed to a user "Split here", which is two layers.
+    """
+    assert _spans(
+        [
+            _band(0.00, 0.60, 13, geo=GEO_UPPER, layer=LAYER_A),
+            _band(0.60, 5.19, 13, geo=GEO_LOWER, layer=LAYER_A),
+        ]
+    ) == [(0.00, 5.19, 13)]
 
 
 def test_gm2_the_survivor_keeps_the_upper_piece_s_geological_parent() -> None:
@@ -162,3 +181,39 @@ def test_gm7_provenance_of_the_weaker_piece_does_not_upgrade() -> None:
     )
     assert merged[0].source == "column_min"
     assert merged[0].confidence == "low"
+
+
+def test_gm10_if_a_layer_is_split_into_two_in_the_litho_then_it_stays_split_in_geotech() -> None:
+    """Owner, 2026-09-12: *"if a layer is split into two in the litho then it
+    has to stay split in geotech ofcourse"*.
+
+    Two touching bands of one class and one litho UNIT, but minted out of two
+    DIFFERENT litho layers — a "Split here" the engineer drew — are NOT welded
+    back. The boundary at the split depth survives, and no band spans it. Only a
+    geological cut inside ONE litho layer (same ``source_litho_layer_id``, GM1)
+    is merged.
+    """
+    assert _spans(
+        [
+            _band(0.00, 2.00, 13, litho=SILT_F, layer=LAYER_A),
+            _band(2.00, 5.19, 13, litho=SILT_F, layer=LAYER_B),
+        ]
+    ) == [
+        (0.00, 2.00, 13),
+        (2.00, 5.19, 13),
+    ]
+
+
+def test_gm11_a_geological_cut_inside_one_litho_layer_is_still_merged() -> None:
+    """The regression guard for GM1's route: same LAYER, same class, one band.
+
+    A geological surface splitting one litho layer is not a packing decision, so
+    its two same-class pieces still collapse — the merge must keep doing exactly
+    this while it stops crossing a split (GM10).
+    """
+    assert _spans(
+        [
+            _band(0.00, 0.60, 13, geo=GEO_UPPER, layer=LAYER_A),
+            _band(0.60, 5.19, 13, geo=GEO_LOWER, layer=LAYER_A),
+        ]
+    ) == [(0.00, 5.19, 13)]
