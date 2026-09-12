@@ -619,7 +619,7 @@ export function useSections({
         const projectId = project.id
         let currentId = created.id
         pushUndo({
-          description: 'Create cross-section',
+          descriptionKey: 'undo.createSection',
           revert: async () => {
             await api.section.delete(projectId, currentId)
             setSections(prev => prev.filter(s => s.id !== currentId))
@@ -674,7 +674,7 @@ export function useSections({
         }
         let currentId: string | null = null
         pushUndo({
-          description: 'Delete cross-section',
+          descriptionKey: 'undo.deleteSection',
           revert: async () => {
             const recreated = await api.section.create(projectId, recreatePayload)
             currentId = recreated.id
