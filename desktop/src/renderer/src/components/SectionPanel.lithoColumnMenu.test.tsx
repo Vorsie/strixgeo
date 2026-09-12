@@ -341,12 +341,32 @@ describe('SectionPanel — right-clicking a test on the litho axis gives ONE men
       'Remove from this section',
       'Edit composition…',
       'Split here',
-      'Remove this litho unit',
+      'Delete unit',
       'Unit statistics…',
     ]) {
       expect(labels, `"${verb}" must still be reachable`).toContain(verb)
     }
     expect(new Set(labels).size, 'no verb appears twice').toBe(labels.length)
+    restore()
+  })
+
+  it('the two remove verbs read differently: delete unit', async () => {
+    // Owner ruling 12 (2026-09-12): the unified menu had two "Remove" verbs —
+    // "Remove from this section" (the column) and "Remove this litho unit" (the
+    // unit). Renamed the unit one to "Delete unit" so the two can never be read
+    // for one another.
+    const restore = withFixedSize(900, 500)
+    renderLithoPanel()
+    await settle()
+
+    const { band, columnX, bandY } = topBand()
+    fireEvent.contextMenu(band, { clientX: columnX, clientY: bandY })
+
+    const labels = visibleMenuLabels()
+    expect(labels).toContain('Remove from this section')
+    expect(labels).toContain('Delete unit')
+    // The overturned wording must be gone — otherwise the two read alike again.
+    expect(labels).not.toContain('Remove this litho unit')
     restore()
   })
 
