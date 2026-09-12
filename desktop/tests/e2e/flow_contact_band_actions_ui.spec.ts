@@ -7,7 +7,7 @@
  * bands):
  *   1. Contact → Delete contact — DESTRUCTIVE: drive to the confirm dialog and
  *      Cancel (order-independent; the body's contacts survive).
- *   2. Litho band → Remove this litho unit — DESTRUCTIVE: confirm dialog + Cancel.
+ *   2. Litho band → Delete unit — DESTRUCTIVE: confirm dialog + Cancel.
  *
  * (The body-extent "Open-end layer" gesture was retired in debt #207 — the
  * dead route 404'd silently — so its action test was removed with it.)
@@ -85,7 +85,7 @@ test.describe('flow_contact_band_actions_ui', () => {
     }
   })
 
-  test('Litho band → Remove this litho unit — confirm fires, Cancel keeps the band', async () => {
+  test('Litho band → Delete unit — confirm fires, Cancel keeps the band', async () => {
     test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
