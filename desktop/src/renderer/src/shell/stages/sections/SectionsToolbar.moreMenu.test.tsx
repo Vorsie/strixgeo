@@ -194,4 +194,20 @@ describe('the ⋯ More menu of the Sections stage', () => {
       expect(screen.queryByTestId(testid), `${testid} is unreachable at ${NARROW_PX}px`).not.toBeNull()
     }
   })
+
+  it('admixture sits under Profiel', () => {
+    // Owner ruling 6 (2026-09-12): "I'd put admixture under profiel." The
+    // admixtures dropdown's rows used to fold under the Model header; they now
+    // fold under the Section header (shown "Profiel" in BE Dutch).
+    renderNarrow(makeCtx('lithostratigraphic', { activeLithoModel: makeLithoModel() }))
+    const nodes = openMoreMenu()
+
+    const at = (text: string): number => nodes.findIndex(n => n.text.startsWith(text))
+    // The always-present admixture row sits between the Section and Export heads.
+    expect(at('Strip all admixtures')).toBeGreaterThan(at('Section'))
+    expect(at('Strip all admixtures')).toBeLessThan(at('Export'))
+    // ...and no longer under Model.
+    expect(at('Strip all admixtures')).toBeGreaterThan(at('Model'))
+    expect(at('Strip all admixtures')).toBeGreaterThan(at('Section'))
+  })
 })
