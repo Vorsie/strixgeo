@@ -937,11 +937,26 @@ describe('SectionsToolbar axis pill — never truncated (owner dogfeed 2026-08-2
       'litho-admixtures-dropdown',
       'suggest-tie-sections',
       'sections-toolbar-export-dropdown',
-      'sections-recompute-bodies',
     ]) {
       expect(screen.queryByTestId(testid), `${testid} disappeared`).not.toBeNull()
     }
     // Nothing folded, so no ⋯ trigger.
     expect(screen.queryByTestId('toolbar-overflow-more')).toBeNull()
+  })
+
+  it('recompute bodies is not offered', () => {
+    // Owner ruling 6 (2026-09-12): "wtf does recompute bodies actually do … Seems
+    // like a useless button to me." The manual verb is gone from both axes; the
+    // automatic (debounced + project-open) recompute stays and is what keeps body
+    // identity current. RETARGETS the AP-REACH entry that required it present.
+    for (const axis of ['lithostratigraphic', 'geotechnical'] as const) {
+      const ctx = makeCtx({ activeLithoModel: makeLithoModel(), sectionModelAxis: axis })
+      const { unmount } = renderToolbar(ctx)
+      expect(
+        screen.queryByTestId('sections-recompute-bodies'),
+        `the recompute verb must not be offered on the ${axis} axis`,
+      ).toBeNull()
+      unmount()
+    }
   })
 })
