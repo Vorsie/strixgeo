@@ -246,7 +246,8 @@ export function useGeologicalModelOps({
           let currentContactIds = outcome.created_contact_ids.slice()
           let currentFormationIds = outcome.created_formation_ids.slice()
           pushUndo({
-            description: `Seed from stratigraphy (+${created} contacts)`,
+            descriptionKey: 'undo.seedFromStratigraphy',
+            descriptionParams: { n: created },
             revert: async () => {
               await Promise.all(
                 currentContactIds.map(id =>
@@ -549,8 +550,8 @@ export function useGeologicalModelOps({
         included,
         pushUndo,
         markMutated,
-        includeDescription: 'Include borehole in model',
-        excludeDescription: 'Exclude borehole from model',
+        includeDescriptionKey: 'undo.includeBoreholeGeo',
+        excludeDescriptionKey: 'undo.excludeBoreholeGeo',
         logLabel: 'updateModel',
       })
     },
@@ -574,8 +575,8 @@ export function useGeologicalModelOps({
         included,
         pushUndo,
         markMutated,
-        includeDescription: 'Include borehole in litho model',
-        excludeDescription: 'Exclude borehole from litho model',
+        includeDescriptionKey: 'undo.includeBoreholeLitho',
+        excludeDescriptionKey: 'undo.excludeBoreholeLitho',
         logLabel: 'updateLithoModel',
         onSuccessToast: () =>
           toast(
