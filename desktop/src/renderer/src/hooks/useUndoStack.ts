@@ -32,11 +32,22 @@
 import { useCallback, useRef, useState } from 'react'
 
 import { log } from '../utils/log'
+import { t } from '../i18n/translate'
+import type { MessageKey } from '../i18n/locales/en'
+import type { MessageParams } from '../i18n/translate'
 
-/** One undoable mutation. ``description`` flows into log lines and
- * the (future) Edit menu's "Undo X" / "Redo X" labels. */
+/** One undoable mutation.
+ *
+ * ``descriptionKey`` is an i18n KEY, not rendered text (ruling 11): every
+ * reader resolves it through ``t()`` at display time, so the interface language
+ * can flip mid-session and the "history cleared" toast re-renders in the new
+ * language. Log lines keep the raw key. */
 export interface UndoCommand {
-  description: string
+  /** i18n key naming the action (e.g. ``'undo.moveContact'``). Typed against
+   * the EN catalogue so a typo is a ``tsc`` error at the push site. */
+  descriptionKey: MessageKey
+  /** Optional values for the key's ``{placeholder}`` slots. */
+  descriptionParams?: MessageParams
   /** Reverse the action. Must restore both the server state AND
    * the caller's local state to what it was before ``apply`` /
    * ``reapply`` ran. */
@@ -132,7 +143,7 @@ export function useUndoStack(
       commitUndo(capped)
       // New action invalidates any redo branch.
       commitRedo([])
-      log.debug('undo', `pushed: ${cmd.description}`)
+      log.debug('undo', `pushed: ${cmd.descriptionKey}`)
     },
     [capacity],
   )
@@ -168,20 +179,20 @@ export function useUndoStack(
       try {
         await cmd.revert()
         commitRedo([...redoStackRef.current, cmd])
-        log.debug('undo', `reverted: ${cmd.description}`)
+        log.debug('undo', `reverted: ${cmd.descriptionKey}`)
       } catch (err) {
-        log.error('undo', `revert failed: ${cmd.description}`, err)
+        log.error('undo', `revert failed: ${cmd.descriptionKey}`, err)
         // State is now in an unknown relation to the server.
         // Abandon history rather than risk further corruption.
         commitUndo([])
         commitRedo([])
-        // Include the failed action's ``description`` so the user
-        // can see WHICH undo blew up — dogfeed 2026-05-31: a Ctrl-Z
-        // intended for a manual correlate actually targeted a much
-        // heavier "Delete formation" revert and the opaque toast
-        // hid the mismatch.
+        // Name the failed action in the toast so the user can see WHICH undo
+        // blew up — dogfeed 2026-05-31: a Ctrl-Z intended for a manual
+        // correlate actually targeted a much heavier "Delete formation" revert
+        // and the opaque toast hid the mismatch. Resolved at display time so a
+        // Dutch session reads it in Dutch (ruling 11).
         onErrorRef.current?.(
-          `Undo failed: ${cmd.description} — history cleared to keep state safe.`,
+          t('undo.undoFailed', { action: t(cmd.descriptionKey, cmd.descriptionParams) }),
         )
       }
     })
@@ -201,13 +212,13 @@ export function useUndoStack(
             ? next.slice(next.length - capacity)
             : next
         commitUndo(capped)
-        log.debug('undo', `reapplied: ${cmd.description}`)
+        log.debug('undo', `reapplied: ${cmd.descriptionKey}`)
       } catch (err) {
-        log.error('undo', `reapply failed: ${cmd.description}`, err)
+        log.error('undo', `reapply failed: ${cmd.descriptionKey}`, err)
         commitUndo([])
         commitRedo([])
         onErrorRef.current?.(
-          `Redo failed: ${cmd.description} — history cleared to keep state safe.`,
+          t('undo.redoFailed', { action: t(cmd.descriptionKey, cmd.descriptionParams) }),
         )
       }
     })
