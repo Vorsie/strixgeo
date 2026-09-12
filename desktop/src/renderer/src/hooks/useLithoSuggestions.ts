@@ -18,10 +18,10 @@
 //   ``// eslint-disable-next-line`` annotations and the ``// reason:`` blocks
 //   that accompany them.
 //
-// Internal helper:
-//   ``_updateGhostEntry`` is a shared useCallback used by several handlers.
-//   It is NOT exported (not in the return type) — it is defined inside the
-//   sub-hook and referenced by the handlers that need it.
+// Undo:
+//   Every structural ghost gesture (edit / insert / split / merge / absorb /
+//   reject / unreject / manual draw) runs through the ``useLithoGhostWorkspace``
+//   runners, so each is one before/after undo step (ruling 9).
 
 import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 
@@ -39,6 +39,8 @@ import type {
 } from '../api/client'
 import type { BulkAnchorGhost, LithoSuggestionEdit } from './useGeologicalModel'
 import type { UndoCommand } from './useUndoStack'
+import type { MessageKey } from '../i18n/locales/en'
+import type { MessageParams } from '../i18n/translate'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 import {
@@ -132,7 +134,8 @@ export interface UseLithoSuggestionsResult {
   ) => { ok: boolean; reason?: string }
   handleSuggestLitho: (anchorKind: 'cpt' | 'borehole', anchorId: string) => Promise<void>
   pushAcceptLithoUndo: (
-    description: string,
+    descriptionKey: MessageKey,
+    descriptionParams: MessageParams | undefined,
     lithoModelId: string,
     ops: AcceptLithoUndoOp[],
     onSectionUpdated?: ((s: CrossSectionResponse) => void) | null,
@@ -241,8 +244,7 @@ function applyEditToSuggestion(
  * Returns
  * -------
  * UseLithoSuggestionsResult
- *     Every handler and helper the composer previously owned inline, except
- *     the internal ``_updateGhostEntry`` helper which is not exported.
+ *     Every handler and helper the composer previously owned inline.
  */
 export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLithoSuggestionsResult {
   const {
@@ -566,77 +568,13 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     )
   }, [ghostsByAnchor, toast])
 
-  // Shared helper — apply a partial update to one entry in the
-  // unified Map. Used by every per-anchor update site (single accept,
-  // single reject, bulk accept, bulk reject, edit, ...). The closure
-  // reads no external state besides the setter — stable dep list.
-  //
-  // Two call forms:
-  //   _updateGhostEntry(anchorId, partial)
-  //     — when the new partial is known before the setState call (no
-  //       dependency on existing entry fields).
-  //   _updateGhostEntry(anchorId, existing => partial)
-  //     — when the new partial must be derived from the existing entry
-  //       (e.g. adding an index to an existing Set). The updater runs
-  //       inside setState so it always sees the latest Map snapshot.
-  const _updateGhostEntry = useCallback(
-    (
-      anchorId: string,
-      updater:
-        | Partial<BulkAnchorGhost>
-        | ((existing: BulkAnchorGhost) => Partial<BulkAnchorGhost>),
-    ): void => {
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing) return prev
-        const partial = typeof updater === 'function' ? updater(existing) : updater
-        const next = new Map(prev)
-        next.set(anchorId, { ...existing, ...partial })
-        return next
-      })
-    },
-    [],
-  )
-
-  const handleRejectBulkLitho = useCallback(
-    (anchorId: string, idx: number): void => {
-      _updateGhostEntry(anchorId, existing => {
-        const nextRejected = new Set(existing.rejected)
-        nextRejected.add(idx)
-        return { rejected: nextRejected }
-      })
-    },
-    [_updateGhostEntry],
-  )
-
-  /**
-   * Undo a prior bulk reject — debt #80 mirror of the single-anchor
-   * variant. No-op when idx wasn't rejected on the anchor.
-   */
-  const handleUnrejectBulkLitho = useCallback(
-    (anchorId: string, idx: number): void => {
-      // Direct setState (not _updateGhostEntry): the guard `!rejected.has(idx)`
-      // returns `prev` unchanged, preserving Map identity and skipping a re-render.
-      // _updateGhostEntry always produces a new Map so it cannot short-circuit here.
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        if (!existing || !existing.rejected.has(idx)) return prev
-        const nextRejected = new Set(existing.rejected)
-        nextRejected.delete(idx)
-        const next = new Map(prev)
-        next.set(anchorId, { ...existing, rejected: nextRejected })
-        return next
-      })
-    },
-    [],
-  )
-
   // The ghost workspace — synchronous writes, an undo command per gesture, and
   // model-scoped ownership of the pending suggestions. Extracted to its own
   // sub-hook (debt #201): the rules are one subject and this file is already
   // far past the 500-line mark. See ``useLithoGhostWorkspace`` for the three
-  // rules it enforces.
-  const { runGhostGesture } = useLithoGhostWorkspace({
+  // rules it enforces. Declared before the reject/unreject/manual-draw handlers
+  // below so they can close over ``runGhostGesture`` / ``runGhostCreation``.
+  const { runGhostGesture, runGhostCreation } = useLithoGhostWorkspace({
     ghostsByAnchor,
     setGhostsByAnchor,
     setFocusedSuggestAnchorId,
@@ -646,6 +584,41 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     pushUndo,
     toast,
   })
+
+  // Reject / unreject a pending suggestion. Both run through the ghost
+  // workspace so a reject is ONE undo step (ruling 9, owner 2026-09-11): the
+  // before/after column snapshot flips ``rejected`` on Ctrl+Z / Ctrl+Y. The
+  // ``rejected`` set lives on the column itself, so there is no separate reject
+  // state to reconcile. A change that would be a no-op (already in the target
+  // state) returns early SILENTLY — #80's "skip the needless re-render" — so a
+  // double-reject never pushes an empty undo step or raises the refusal toast.
+  const handleRejectBulkLitho = useCallback(
+    (anchorId: string, idx: number): void => {
+      if (ghostsByAnchor.get(anchorId)?.rejected.has(idx) === true) return
+      runGhostGesture(anchorId, 'undo.rejectSuggestion', 'reject', `idx=${idx}`, ghost => {
+        const nextRejected = new Set(ghost.rejected)
+        nextRejected.add(idx)
+        return { ...ghost, rejected: nextRejected }
+      })
+    },
+    [ghostsByAnchor, runGhostGesture],
+  )
+
+  /**
+   * Undo a prior bulk reject — debt #80 mirror of the single-anchor variant.
+   * A no-op when idx wasn't rejected; a real unreject is undoable (ruling 9).
+   */
+  const handleUnrejectBulkLitho = useCallback(
+    (anchorId: string, idx: number): void => {
+      if (ghostsByAnchor.get(anchorId)?.rejected.has(idx) !== true) return
+      runGhostGesture(anchorId, 'undo.unrejectSuggestion', 'unreject', `idx=${idx}`, ghost => {
+        const nextRejected = new Set(ghost.rejected)
+        nextRejected.delete(idx)
+        return { ...ghost, rejected: nextRejected }
+      })
+    },
+    [ghostsByAnchor, runGhostGesture],
+  )
 
   const handleEditBulkLitho = useCallback(
     (
@@ -662,7 +635,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       const movesABoundary = edit.depth_top_m !== undefined || edit.depth_base_m !== undefined
       runGhostGesture(
         anchorId,
-        movesABoundary ? 'Move litho boundary' : 'Edit litho layer composition',
+        movesABoundary ? 'undo.moveLithoBoundary' : 'undo.editLithoComposition',
         'depth/composition edit',
         `idx=${idx} propagateOnly=${isFollowUp}`,
         ghost => applyCrossMergeOnDrag(ghost, idx, edit),
@@ -703,7 +676,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     ): void => {
       runGhostGesture(
         anchorId,
-        'Insert litho layer',
+        'undo.insertLithoLayer',
         'insert',
         `afterIdx=${afterIdx}`,
         ghost => insertLithoLayer(ghost, afterIdx, composition),
@@ -715,7 +688,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // Debt #98: split a pending litho ghost layer in two at its midpoint.
   const handleSplitLithoLayer = useCallback(
     (anchorId: string, idx: number): void => {
-      runGhostGesture(anchorId, 'Split litho layer', 'split', `idx=${idx}`, ghost =>
+      runGhostGesture(anchorId, 'undo.splitLithoLayer', 'split', `idx=${idx}`, ghost =>
         splitLithoLayer(ghost, idx),
       )
     },
@@ -727,7 +700,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // mergeLithoLayers refuses anything that slips past that gate.
   const handleMergeLithoLayers = useCallback(
     (anchorId: string, upperIdx: number): void => {
-      runGhostGesture(anchorId, 'Merge litho layers', 'merge', `upperIdx=${upperIdx}`, ghost =>
+      runGhostGesture(anchorId, 'undo.mergeLithoLayers', 'merge', `upperIdx=${upperIdx}`, ghost =>
         mergeLithoLayers(ghost, upperIdx),
       )
     },
@@ -740,7 +713,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     (anchorId: string, draggerIdx: number, direction: 'up' | 'down'): void => {
       runGhostGesture(
         anchorId,
-        'Absorb litho layer',
+        'undo.absorbLithoLayer',
         'absorb',
         `draggerIdx=${draggerIdx} direction=${direction}`,
         ghost => absorbLithoLayer(ghost, draggerIdx, direction),
@@ -784,20 +757,17 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         `handleCreateManualLithoGhost anchor=${anchorId} depth=${depth_m.toFixed(3)}m litho=${lithology || '(not found)'}`,
       )
 
-      setGhostsByAnchor(prev => {
-        const existing = prev.get(anchorId)
-        const updated = insertManualGhostLayer(
-          existing,
-          anchorKind,
-          surfaceElevationM,
-          depth_m,
-          lithology,
-          admixtures,
-        )
-        const next = new Map(prev)
-        next.set(anchorId, updated)
-        return next
-      })
+      // Undoable like every ghost gesture (ruling 9): the left-click draw is
+      // one Ctrl+Z away. runGhostCreation handles the "no column yet" case that
+      // runGhostGesture refuses (the first manual ghost on an anchor).
+      runGhostCreation(
+        anchorId,
+        'undo.createManualGhost',
+        'manual-draw',
+        `depth=${depth_m.toFixed(3)}m`,
+        existing =>
+          insertManualGhostLayer(existing, anchorKind, surfaceElevationM, depth_m, lithology, admixtures),
+      )
       // Show the ghost immediately by focusing this anchor.
       setFocusedSuggestAnchorId(anchorId)
 
@@ -806,10 +776,11 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         `handleCreateManualLithoGhost placed ghost at depth=${depth_m.toFixed(3)}m anchor=${anchorId}`,
       )
     },
-    // reason: formations identity changes when server sync completes;
-    // we must read the latest list to look up litho_main_soil_code.
+    // reason: formations identity changes when server sync completes; we must
+    // read the latest list to look up litho_main_soil_code. runGhostCreation
+    // and setFocusedSuggestAnchorId are stable (useCallback / setState).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [formations],
+    [formations, runGhostCreation],
   )
 
   // Extend ghost layer at (anchorId, idx) to the nearest committed litho
@@ -955,7 +926,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
   // Ctrl+Z reverses the whole sweep.
   const pushAcceptLithoUndo = useCallback(
     (
-      description: string,
+      descriptionKey: MessageKey,
+      descriptionParams: MessageParams | undefined,
       lithoModelId: string,
       ops: AcceptLithoUndoOp[],
       onSectionUpdated?: ((s: CrossSectionResponse) => void) | null,
@@ -994,7 +966,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         })
       }
       pushUndo({
-        description,
+        descriptionKey,
+        descriptionParams,
         revert: async () => {
           // Contacts first — contact.formation_id FK references formation.
           //
@@ -1078,7 +1051,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       updatedSection: CrossSectionResponse | null | undefined
       onSectionUpdated: ((s: CrossSectionResponse) => void) | undefined
       marks: readonly AcceptedGhostMark[]
-      undoDescription: string
+      undoDescriptionKey: MessageKey
+      undoDescriptionParams?: MessageParams
       modelId: string
       undoOps: AcceptLithoUndoOp[]
     }): void => {
@@ -1119,7 +1093,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
       refetchLithoContacts()
       refetchFormations()
       pushAcceptLithoUndo(
-        params.undoDescription,
+        params.undoDescriptionKey,
+        params.undoDescriptionParams,
         params.modelId,
         params.undoOps,
         params.onSectionUpdated ?? null,
@@ -1208,7 +1183,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
                   },
                 ]
               : [],
-          undoDescription: `Accept litho layer (${layer.suggested_lithology})`,
+          undoDescriptionKey: 'undo.acceptLithoLayer',
+          undoDescriptionParams: { soil: layer.suggested_lithology },
           modelId: model.id,
           undoOps: [
             {
@@ -1314,7 +1290,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
             focusedAllId !== null
               ? [{ anchorId: focusedAllId, indices: pendingIndices }]
               : [],
-          undoDescription: `Accept all litho layers (${pendingLayers.length})`,
+          undoDescriptionKey: 'undo.acceptAllLithoLayers',
+          undoDescriptionParams: { n: pendingLayers.length },
           modelId: model.id,
           undoOps: [
             {
@@ -1577,7 +1554,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
               contactIdsByIdx: new Map([[idx, allContactIds]]),
             },
           ],
-          undoDescription: `Accept litho layer (${layer.suggested_lithology})`,
+          undoDescriptionKey: 'undo.acceptLithoLayer',
+          undoDescriptionParams: { soil: layer.suggested_lithology },
           modelId: model.id,
           undoOps: [
             {
@@ -1762,9 +1740,8 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
         updatedSection: resp.updated_section,
         onSectionUpdated,
         marks: Array.from(acceptedByAnchor, ([anchorId, indices]) => ({ anchorId, indices })),
-        undoDescription: `Accept all litho layers (${collectedOps.length} investigation${
-          collectedOps.length === 1 ? '' : 's'
-        })`,
+        undoDescriptionKey: 'undo.acceptAllLithoLayersAcrossInvestigations',
+        undoDescriptionParams: { n: collectedOps.length },
         modelId: model.id,
         undoOps: collectedOps,
       })
