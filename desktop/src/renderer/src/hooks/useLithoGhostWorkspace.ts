@@ -33,6 +33,7 @@ import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } fr
 import type { GeologicalModelResponse } from '../api/client'
 import type { BulkAnchorGhost } from './useGeologicalModel'
 import type { UndoCommand } from './useUndoStack'
+import type { MessageKey } from '../i18n/locales/en'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 
@@ -84,15 +85,30 @@ export interface UseLithoGhostWorkspaceResult {
   /**
    * Run one gesture on an anchor's column: transform, write, make it undoable.
    * A transform that returns its input unchanged is reported as a refusal and
-   * nothing is written.
+   * nothing is written. ``descriptionKey`` is an i18n key resolved at display
+   * time (ruling 11).
    */
   runGhostGesture: (
     anchorId: string,
-    description: string,
+    descriptionKey: MessageKey,
     verb: string,
     detail: string,
     transform: (ghost: BulkAnchorGhost) => BulkAnchorGhost,
     options?: { coalesceWithPrevious?: boolean; leaveOpenForFollowUp?: boolean },
+  ) => void
+  /**
+   * Create (or extend) an anchor's column from a builder that accepts the
+   * current column OR ``undefined`` — the left-click "draw a ghost" path,
+   * where the anchor usually has no column yet so ``runGhostGesture``'s
+   * "no existing column" guard would refuse it. Undoable like every gesture
+   * (ruling 9): revert deletes the fresh column, or restores the prior one.
+   */
+  runGhostCreation: (
+    anchorId: string,
+    descriptionKey: MessageKey,
+    verb: string,
+    detail: string,
+    build: (existing: BulkAnchorGhost | undefined) => BulkAnchorGhost,
   ) => void
 }
 
@@ -183,10 +199,57 @@ export function useLithoGhostWorkspace(
   // absorb a shared-boundary follow-up.
   const openUndoRef = useRef<GhostUndoEntry | null>(null)
 
+  // Push one before/after ghost snapshot onto the undo stack, guarded so a
+  // command captured against model A never writes A's column onto model B (the
+  // B-1 hazard arriving through the undo stack). Shared by runGhostGesture and
+  // runGhostCreation, so the model guard and the display-time translation live
+  // in exactly one place.
+  const pushGhostUndo = useCallback(
+    (
+      anchorId: string,
+      before: BulkAnchorGhost | null,
+      after: BulkAnchorGhost | null,
+      descriptionKey: MessageKey,
+    ): GhostUndoEntry => {
+      const entry: GhostUndoEntry = {
+        anchorId,
+        modelId: ownerModelRef.current?.id ?? null,
+        before,
+        after,
+      }
+      const applyIfStillOurModel = (column: BulkAnchorGhost | null): void => {
+        // Resolve WITHOUT throwing when the model has moved on: the undo
+        // stack's safety net clears the entire history on a thrown revert, and
+        // losing every other undo step over a model switch is worse than
+        // declining this one.
+        if (entry.modelId !== (ownerModelRef.current?.id ?? null)) {
+          log.warn(
+            'geology',
+            `litho ghost undo skipped: step belongs to model ${entry.modelId ?? '(none)'}, active is ${ownerModelRef.current?.id ?? '(none)'}`,
+          )
+          toast('warning', t('litho.ghostUndoOtherModel'))
+          return
+        }
+        writeGhostColumn(entry.anchorId, column)
+      }
+      pushUndo({
+        descriptionKey,
+        revert: async () => {
+          applyIfStillOurModel(entry.before)
+        },
+        reapply: async () => {
+          applyIfStillOurModel(entry.after)
+        },
+      })
+      return entry
+    },
+    [pushUndo, toast, writeGhostColumn],
+  )
+
   const runGhostGesture = useCallback(
     (
       anchorId: string,
-      description: string,
+      descriptionKey: MessageKey,
       verb: string,
       detail: string,
       transform: (ghost: BulkAnchorGhost) => BulkAnchorGhost,
@@ -211,39 +274,34 @@ export function useLithoGhostWorkspace(
         open.after = after
         return
       }
-      const entry: GhostUndoEntry = {
-        anchorId,
-        modelId: ownerModelRef.current?.id ?? null,
-        before,
-        after,
-      }
+      const entry = pushGhostUndo(anchorId, before, after, descriptionKey)
       openUndoRef.current = options.leaveOpenForFollowUp === true ? entry : null
-      const applyIfStillOurModel = (column: BulkAnchorGhost | null): void => {
-        // Resolve WITHOUT throwing when the model has moved on: the undo
-        // stack's safety net clears the entire history on a thrown revert, and
-        // losing every other undo step over a model switch is worse than
-        // declining this one.
-        if (entry.modelId !== (ownerModelRef.current?.id ?? null)) {
-          log.warn(
-            'geology',
-            `litho ghost undo skipped: step belongs to model ${entry.modelId ?? '(none)'}, active is ${ownerModelRef.current?.id ?? '(none)'}`,
-          )
-          toast('warning', t('litho.ghostUndoOtherModel'))
-          return
-        }
-        writeGhostColumn(entry.anchorId, column)
-      }
-      pushUndo({
-        description,
-        revert: async () => {
-          applyIfStillOurModel(entry.before)
-        },
-        reapply: async () => {
-          applyIfStillOurModel(entry.after)
-        },
-      })
     },
-    [pushUndo, reportRefusal, toast, writeGhostColumn],
+    [pushGhostUndo, reportRefusal, writeGhostColumn],
+  )
+
+  const runGhostCreation = useCallback(
+    (
+      anchorId: string,
+      descriptionKey: MessageKey,
+      verb: string,
+      detail: string,
+      build: (existing: BulkAnchorGhost | undefined) => BulkAnchorGhost,
+    ): void => {
+      // A creation is a fresh gesture: close any open drag so a stray follow-up
+      // cannot fold into a stale command.
+      openUndoRef.current = null
+      const before = ghostsRef.current.get(anchorId) ?? null
+      const after = build(before ?? undefined)
+      // A builder that returns its input unchanged means "nothing to draw".
+      if (after === before) {
+        reportRefusal(verb, anchorId, detail)
+        return
+      }
+      writeGhostColumn(anchorId, after)
+      pushGhostUndo(anchorId, before, after, descriptionKey)
+    },
+    [pushGhostUndo, reportRefusal, writeGhostColumn],
   )
 
   // The switch itself. The refs it drives are declared above, next to the undo
@@ -320,5 +378,5 @@ export function useLithoGhostWorkspace(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLithoModelId, activeLithoModelName, toast])
 
-  return { runGhostGesture }
+  return { runGhostGesture, runGhostCreation }
 }
