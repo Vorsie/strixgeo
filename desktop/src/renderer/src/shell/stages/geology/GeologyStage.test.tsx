@@ -913,11 +913,11 @@ describe('GeologyInspector colour-swatch override (2026-05-30 spec)', () => {
     expect(formationUpdated).toHaveBeenCalled()
     expect(undoPush).toHaveBeenCalledTimes(1)
     const cmd = undoPush.mock.calls[0][0] as {
-      description: string
+      descriptionKey: string
       revert: () => Promise<void>
       reapply: () => Promise<void>
     }
-    expect(cmd.description).toBe('Recolor formation')
+    expect(cmd.descriptionKey).toBe('undo.recolorFormation')
   })
 
   it('CSW4 — blur with the SAME colour as formation.color is a no-op', async () => {
