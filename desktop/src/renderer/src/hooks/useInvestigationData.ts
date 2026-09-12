@@ -29,6 +29,7 @@ import { dovSubPhaseFailures } from '../utils/dovImportFailures'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 import type { UndoCommand } from './useUndoStack'
+import type { MessageKey } from '../i18n/locales/en'
 import type { DovImportState, PendingPin } from './useDovImportStream'
 import { useDovImportStream } from './useDovImportStream'
 
@@ -213,8 +214,8 @@ function restoreAllInvestigations(
  *     Applies a PATCH response to the kind's list + detail-cache state.
  * cfg.logKind : InvestigationKind
  *     Log channel.
- * cfg.undoDescription : string
- *     Undo-stack entry description.
+ * cfg.undoDescriptionKey : MessageKey
+ *     Undo-stack entry label KEY (resolved at display time, ruling 11).
  * cfg.pushUndo
  *     The undo-stack push.
  */
@@ -231,7 +232,7 @@ async function patchInvestigationElevation<R>(cfg: {
   ) => Promise<R>
   apply: (id: string, resp: R) => void
   logKind: InvestigationKind
-  undoDescription: string
+  undoDescriptionKey: MessageKey
   pushUndo: (cmd: UndoCommand) => void
 }): Promise<void> {
   const { id, projectId, elevationM, zEpsg, before, patch, apply, logKind } = cfg
@@ -243,7 +244,7 @@ async function patchInvestigationElevation<R>(cfg: {
   apply(id, updated)
   log.info(logKind, `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
   cfg.pushUndo({
-    description: cfg.undoDescription,
+    descriptionKey: cfg.undoDescriptionKey,
     revert: async () => {
       const back = await patch(id, projectId, { elevation_m: beforeElev, z_epsg: beforeZ })
       apply(id, back)
@@ -746,7 +747,7 @@ export function useInvestigationData({
         patch: (i, pid, body) => api.cpt.patchElevation(i, pid, body),
         apply,
         logKind: 'cpt',
-        undoDescription: 'Edit CPT elevation',
+        undoDescriptionKey: 'undo.editCptElevation',
         pushUndo,
       })
     },
@@ -790,7 +791,7 @@ export function useInvestigationData({
         patch: (i, pid, body) => api.borehole.patchElevation(i, pid, body),
         apply,
         logKind: 'borehole',
-        undoDescription: 'Edit borehole elevation',
+        undoDescriptionKey: 'undo.editBoreholeElevation',
         pushUndo,
       })
     },
