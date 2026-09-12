@@ -11,7 +11,7 @@
  *      the EMPTY litho model: the per-column capture rect
  *      (``per-column-rclick-capture-{id}``) renders on the litho axis
  *      regardless of contacts, and with no bands its centre is empty space.
- *   2. Litho band → "Remove this litho unit" (``litho-band-remove``). Uses
+ *   2. Litho band → "Delete unit" (``litho-band-remove``). Uses
  *      Section B (pre-seeded bilateral body contacts from the fixture) so
  *      ``per-column-litho-band-{key}`` renders immediately without a build step.
  *   3. Contact strip → contact menu (``contact-context-menu`` with
