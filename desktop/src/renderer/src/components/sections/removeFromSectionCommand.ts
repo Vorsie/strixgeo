@@ -13,6 +13,8 @@
 // fresh read of the section state and isn't worth the wiring for
 // the common single-remove-then-undo case.
 
+import type { UndoCommand } from '../../hooks/useUndoStack'
+
 export interface RemoveFromSectionPatch {
   excluded_cpt_ids?: string[]
   excluded_borehole_ids?: string[]
@@ -25,11 +27,7 @@ export interface RemoveFromSectionCommand {
   firstApply: () => Promise<void>
   /** The undo command to push onto the shared undo stack. ``revert``
    *  restores the pre-remove list; ``reapply`` re-runs the remove. */
-  undoCmd: {
-    description: string
-    revert: () => Promise<void>
-    reapply: () => Promise<void>
-  }
+  undoCmd: UndoCommand
 }
 
 /**
@@ -68,7 +66,8 @@ export function buildRemoveFromSectionCommand(
     return {
       firstApply: () => onPatch({ excluded_cpt_ids: next }),
       undoCmd: {
-        description: `Remove ${id} from section`,
+        descriptionKey: 'undo.removeFromSection',
+        descriptionParams: { id },
         revert: () => onPatch({ excluded_cpt_ids: prev }),
         reapply: () => onPatch({ excluded_cpt_ids: next }),
       },
@@ -79,7 +78,8 @@ export function buildRemoveFromSectionCommand(
   return {
     firstApply: () => onPatch({ excluded_borehole_ids: next }),
     undoCmd: {
-      description: `Remove ${id} from section`,
+      descriptionKey: 'undo.removeFromSection',
+      descriptionParams: { id },
       revert: () => onPatch({ excluded_borehole_ids: prev }),
       reapply: () => onPatch({ excluded_borehole_ids: next }),
     },
