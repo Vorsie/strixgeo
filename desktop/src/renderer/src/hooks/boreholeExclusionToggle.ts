@@ -18,6 +18,7 @@ import { api } from '../api/client'
 import type { GeologicalModelResponse } from '../api/client'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
+import type { MessageKey } from '../i18n/locales/en'
 
 /** Inputs for {@link toggleBoreholeExclusion}. */
 export interface BoreholeExclusionToggleArgs {
@@ -42,10 +43,10 @@ export interface BoreholeExclusionToggleArgs {
   pushUndo: (cmd: UndoCommand) => void
   /** Mark the project dirty — model membership changed. */
   markMutated: () => void
-  /** Undo-stack label for the include direction. */
-  includeDescription: string
-  /** Undo-stack label for the exclude direction. */
-  excludeDescription: string
+  /** Undo-stack label KEY for the include direction (ruling 11). */
+  includeDescriptionKey: MessageKey
+  /** Undo-stack label KEY for the exclude direction (ruling 11). */
+  excludeDescriptionKey: MessageKey
   /** Short label distinguishing the model in the error log ("geo" / "litho"). */
   logLabel: string
   /** Optional confirmation toast, fired ONCE after the PATCH resolves. */
@@ -78,8 +79,8 @@ export async function toggleBoreholeExclusion(args: BoreholeExclusionToggleArgs)
     included,
     pushUndo,
     markMutated,
-    includeDescription,
-    excludeDescription,
+    includeDescriptionKey,
+    excludeDescriptionKey,
     logLabel,
     onSuccessToast,
   } = args
@@ -101,7 +102,7 @@ export async function toggleBoreholeExclusion(args: BoreholeExclusionToggleArgs)
     const beforeList = previousExcluded.slice()
     const afterList = nextExcluded.slice()
     pushUndo({
-      description: included ? includeDescription : excludeDescription,
+      descriptionKey: included ? includeDescriptionKey : excludeDescriptionKey,
       revert: async () => {
         await api.geology.updateModel(projectId, modelId, { excluded_borehole_ids: beforeList })
         setModel(prev => (prev === null ? null : { ...prev, excluded_borehole_ids: beforeList }))
