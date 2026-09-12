@@ -183,7 +183,7 @@ export function useGeologyFormations(
         setEditing(null)
         let currentId = created.id
         pushUndoCommand({
-          description: 'Create formation',
+          descriptionKey: 'undo.createFormation',
           revert: async () => {
             await api.geology.deleteFormation(projectId, currentId)
             setFormations(prev => prev.filter(f => f.id !== currentId))
@@ -233,7 +233,7 @@ export function useGeologyFormations(
           display_order: before.display_order,
         }
         pushUndoCommand({
-          description: 'Edit formation',
+          descriptionKey: 'undo.editFormation',
           revert: async () => {
             const back = await api.geology.updateFormation(
               projectId,
@@ -294,7 +294,7 @@ export function useGeologyFormations(
         )
         handleFormationUpdated()
         pushUndoCommand({
-          description: 'Recolor formation',
+          descriptionKey: 'undo.recolorFormation',
           revert: async () => {
             const back = await api.geology.updateFormation(
               projectId,
@@ -348,7 +348,7 @@ export function useGeologyFormations(
       }
       let currentId: string | null = null
       pushUndoCommand({
-        description: 'Delete formation',
+        descriptionKey: 'undo.deleteFormation',
         revert: async () => {
           const recreated = await api.geology.createFormation(
             projectId,
