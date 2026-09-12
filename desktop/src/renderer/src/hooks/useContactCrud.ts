@@ -314,7 +314,7 @@ export function useContactCrud({
               const upperId = upper.id
               const lowerId = lower.id
               pushUndo({
-                description: 'Move boundary',
+                descriptionKey: 'undo.moveBoundary',
                 revert: async () => {
                   await api.geology.moveLayerBoundary(projectId, modelId, {
                     upper_layer_id: upperId,
@@ -501,7 +501,7 @@ export function useContactCrud({
                 confidence: updated.confidence as 'high' | 'medium' | 'low',
               }
         pushUndo({
-          description: 'Move contact',
+          descriptionKey: 'undo.moveContact',
           revert: async () => {
             if (isLitho) {
               await api.geology.updateLayer(projectId, modelId, contactId, beforeLayerPayload)
@@ -608,7 +608,7 @@ export function useContactCrud({
         const modelId = activeGeologicalModel.id
         let currentId = created.id
         pushUndo({
-          description: 'Create contact',
+          descriptionKey: 'undo.createContact',
           revert: async () => {
             await api.geology.deleteContact(projectId, modelId, currentId)
             setContacts(prev => prev.filter(c => c.id !== currentId))
@@ -858,10 +858,11 @@ export function useContactCrud({
       const createdPayloads = creates.slice()
       const patchedSnapshots = patched.slice()
       pushUndo({
-        description:
+        descriptionKey: patched.length > 0 ? 'undo.copyMoveContacts' : 'undo.copyContacts',
+        descriptionParams:
           patched.length > 0
-            ? `Copy ${created.length}, move ${patched.length} contact(s)`
-            : `Copy ${created.length} contact(s)`,
+            ? { copied: created.length, moved: patched.length }
+            : { copied: created.length },
         revert: async () => {
           await Promise.all(
             currentCreatedIds.map(id =>
@@ -1023,7 +1024,8 @@ export function useContactCrud({
           entries: readonly FormationContactBatchUpdateEntry[],
         ): LithoLayerBatchUpdateItem[] => entries.map(formationContactBatchToLayerItem)
         pushUndo({
-          description: `Update ${updateIds.length} contact(s)`,
+          descriptionKey: 'undo.updateContacts',
+          descriptionParams: { n: updateIds.length },
           revert: async () => {
             if (isLitho) {
               await api.geology.batchUpdateLayers(
@@ -1136,7 +1138,7 @@ export function useContactCrud({
         // revert call re-creates it.
         let currentId: string | null = null
         pushUndo({
-          description: 'Delete contact',
+          descriptionKey: 'undo.deleteContact',
           revert: async () => {
             // A4 slice 3 — litho undo recreates via /layers, taking
             // depth_base_m from the snapshot the layer side captured
