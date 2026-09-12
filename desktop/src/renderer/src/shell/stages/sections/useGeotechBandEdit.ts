@@ -39,6 +39,7 @@ import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { apiFailureMessage } from '../../../utils/apiFailureMessage'
 import { log } from '../../../utils/log'
 import { t } from '../../../i18n/translate'
+import type { UndoCommand } from '../../../hooks/useUndoStack'
 
 /** The edit being previewed, kept so the commit repeats it exactly. */
 type PendingEdit =
@@ -71,11 +72,7 @@ type PendingEdit =
 /** The one slice of the undo stack this hook needs. */
 export interface BandEditUndoStack {
   /** Push a command AFTER its edit succeeded (stack invariant). */
-  push(command: {
-    description: string
-    revert: () => Promise<void>
-    reapply: () => Promise<void>
-  }): void
+  push(command: UndoCommand): void
 }
 
 /** Everything the handlers consume from the SectionsCanvas scope. */
@@ -376,7 +373,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
           // undoable (a re-divide, or another hand class, is the way back).
           if (previousClass !== null) {
             undoStack.push({
-              description: 'Set packing class',
+              descriptionKey: 'undo.setPackingClass',
               revert: async () => {
                 await commit(previousClass)
               },
@@ -465,7 +462,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
       if (edit.kind === 'move') {
         const { upperBandId, lowerBandId, newDepthM, preDragDepthM } = edit
         undoStack.push({
-          description: 'Move packing boundary',
+          descriptionKey: 'undo.movePackingBoundary',
           revert: async () => {
             await api.geology.moveGeotechBoundary(
               projectId,
@@ -495,7 +492,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         let currentLowerId = result.created_layer_ids[0]
         const { bandId, depthM } = edit
         undoStack.push({
-          description: 'Split packing band',
+          descriptionKey: 'undo.splitPackingBand',
           revert: async () => {
             await api.geology.mergeGeotechBands(projectId, modelId, bandId, currentLowerId)
             await settleAfterWrite()
@@ -518,7 +515,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         let currentLensId = edit.lensId
         let currentLowerId = edit.lowerHostId
         undoStack.push({
-          description: 'Absorb packing lens',
+          descriptionKey: 'undo.absorbPackingLens',
           revert: async () => {
             const first = await api.geology.splitGeotechBand(
               projectId,
@@ -552,7 +549,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
       const { upperBandId, lowerBandId, boundaryDepthM } = edit
       let currentLowerId = lowerBandId
       undoStack.push({
-        description: 'Merge packing bands',
+        descriptionKey: 'undo.mergePackingBands',
         revert: async () => {
           const undone = await api.geology.splitGeotechBand(
             projectId,
