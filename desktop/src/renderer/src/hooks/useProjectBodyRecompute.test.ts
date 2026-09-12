@@ -27,7 +27,6 @@ import type { LithoLayerLike } from '../utils/assembleLithoSectionInputs'
 import { BODY_RECOMPUTE_DEBOUNCE_MS, BODY_RECOMPUTE_MAX_LATENCY_MS } from './useBodyRecompute'
 import {
   useProjectBodyRecompute,
-  sectionsBodyRecomputeCallback,
   sectionsDividePartitionCallback,
   type UseProjectBodyRecomputeArgs,
 } from './useProjectBodyRecompute'
@@ -245,16 +244,16 @@ describe('useProjectBodyRecompute — project-open trigger', () => {
 // ---------------------------------------------------------------------------
 
 describe('useProjectBodyRecompute module-ref cleanup on unmount (#276)', () => {
-  // R1 — both bridge refs are null after the hook unmounts.
-  it('R1 — the Recompute and Divide refs are null after the hook unmounts', () => {
+  // R1 — the Divide ref is null after the hook unmounts. (The Recompute bridge
+  // was removed with the manual verb — owner ruling 6, 2026-09-12 — so only the
+  // Divide-partition bridge remains.)
+  it('R1 — the Divide ref is null after the hook unmounts', () => {
     const { unmount } = renderHook(
       (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
       { initialProps: args() },
     )
-    expect(sectionsBodyRecomputeCallback.current).not.toBeNull()
     expect(sectionsDividePartitionCallback.current).not.toBeNull()
     unmount()
-    expect(sectionsBodyRecomputeCallback.current).toBeNull()
     expect(sectionsDividePartitionCallback.current).toBeNull()
   })
 
