@@ -234,6 +234,7 @@ export const SECTIONS = {
   // Export dropdown.
   'sections.export.selectSection': 'Select a section to export',
   'sections.export.dropdownTitle': 'Export the model or this section',
+  'sections.export.hubJumpTitle': 'Open the Export stage with this section selected',
   'sections.export.sectionDxf': 'Section DXF',
   'sections.export.exportingDxf': 'Exporting DXF…',
   'sections.export.noModelContacts': 'No active {level} model — contacts must exist first',
