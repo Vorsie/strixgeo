@@ -23,6 +23,7 @@ import { Plus, X } from 'lucide-react'
 
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
+import Select from '../ui/Select'
 import {
   admixtureAmountOptions,
   admixtureSoilAdjective,
@@ -128,14 +129,16 @@ export default function LithoGhostCompositionEditor({
   // change. Open-transition gating fixes that without losing the
   // "seed when reopened for a different ghost layer" requirement.
   const wasOpenRef = useRef(false)
-  // Initial focus goes to CANCEL, never to the main-soil <select>. The Modal
-  // otherwise focuses its first control, which is that <select>; on a focused
-  // native select one ArrowUp moves from Sand to Gravel (the option right
-  // above it), so a stray key meant for the canvas rewrote a sand piece on
-  // 1411-GEO-23/126-B4 as GRIND (owner 2026-09-10: "there is no gravel in
-  // that project"). Child effects run before the Modal's own focus effect,
-  // which then sees focus already inside the card and leaves it alone — the
-  // same pre-focus contract ConfirmDialog uses for its Cancel.
+  // Initial focus goes to CANCEL, never to the main-soil control. The Modal
+  // otherwise focuses its first control, which is that soil picker; when it was
+  // a native <select>, one ArrowUp on it moved from Sand to Gravel (the option
+  // right above it), so a stray key meant for the canvas rewrote a sand piece on
+  // 1411-GEO-23/126-B4 as GRIND (owner 2026-09-10: "there is no gravel in that
+  // project"). The picker is now an in-app listbox (owner #35) whose closed
+  // trigger ignores arrow keys, but the rule stands: a dialog's initial focus is
+  // a button, never a value control. Child effects run before the Modal's own
+  // focus effect, which then sees focus already inside the card and leaves it
+  // alone — the same pre-focus contract ConfirmDialog uses for its Cancel.
   const footerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -228,6 +231,7 @@ export default function LithoGhostCompositionEditor({
         {/* Main soil code dropdown */}
         <div className="mb-3">
           <label
+            id="ghost-edit-main-code-label"
             htmlFor="ghost-edit-main-code"
             className="block text-xs text-text-secondary mb-1"
           >
@@ -236,27 +240,27 @@ export default function LithoGhostCompositionEditor({
               <span className="ml-1 text-text-muted">{t('composition.fixedByCorrelation')}</span>
             )}
           </label>
-          <select
+          {/* In-app listbox, not a native <select>: the native popup does not
+              open in the packaged Electron window (owner #35). The base soil
+              name is shown in the active UI language (never the raw Dutch token
+              in parens — "Sand (ZAND)" leaked Dutch into an English UI, dogfeed
+              2026-05-23); the picker dialog uses the same rule. */}
+          <Select
             id="ghost-edit-main-code"
             value={mainCode}
-            onChange={e => setMainCode(e.target.value as MainSoilCode)}
+            options={MAIN_SOIL_CODES.map(code => ({
+              value: code,
+              label: lithoBaseLabel(code),
+            }))}
+            onChange={v => setMainCode(v as MainSoilCode)}
             disabled={mainSoilLocked}
+            ariaLabelledBy="ghost-edit-main-code-label"
             className={`w-full text-xs rounded border border-border-default px-2 py-1 text-text-primary ${
               mainSoilLocked
                 ? 'bg-surface-sunken opacity-60 cursor-not-allowed'
                 : 'bg-surface-page'
             }`}
-          >
-            {MAIN_SOIL_CODES.map(code => (
-              <option key={code} value={code}>
-                {/* The base soil name in the active UI language (never the raw
-                    Dutch token in parens — "Sand (ZAND)" leaked Dutch into an
-                    English UI, dogfeed 2026-05-23). The picker dialog uses the
-                    same rule; matched here so the two surfaces stay consistent. */}
-                {lithoBaseLabel(code)}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         {/* Admixture rows */}
@@ -298,30 +302,30 @@ export default function LithoGhostCompositionEditor({
                   ]
               return (
               <div key={row.id} className="flex items-center gap-1.5">
-                <select
+                <Select
                   value={row.soil_code}
-                  onChange={e => updateRow(row.id, { soil_code: e.target.value })}
-                  className="min-w-0 flex-1 text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
-                  aria-label={t('composition.admixtureSoilCode')}
-                >
-                  {soilOptions.map(opt => (
-                    <option key={opt.code} value={opt.code} title={opt.title}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <select
+                  options={soilOptions.map(opt => ({
+                    value: opt.code,
+                    label: opt.label,
+                    title: opt.title,
+                  }))}
+                  onChange={v => updateRow(row.id, { soil_code: v })}
+                  ariaLabel={t('composition.admixtureSoilCode')}
+                  wrapperClassName="min-w-0 flex-1"
+                  className="w-full text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
+                />
+                <Select
                   value={row.amount}
-                  onChange={e => updateRow(row.id, { amount: e.target.value })}
-                  className="min-w-0 flex-1 text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
-                  aria-label={t('composition.admixtureAmount')}
-                >
-                  {amountOptions.map(opt => (
-                    <option key={opt.code} value={opt.code} title={opt.title}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={amountOptions.map(opt => ({
+                    value: opt.code,
+                    label: opt.label,
+                    title: opt.title,
+                  }))}
+                  onChange={v => updateRow(row.id, { amount: v })}
+                  ariaLabel={t('composition.admixtureAmount')}
+                  wrapperClassName="min-w-0 flex-1"
+                  className="w-full text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
+                />
                 <label className="flex shrink-0 items-center gap-1 text-xs text-text-secondary select-none cursor-pointer">
                   <input
                     type="checkbox"
