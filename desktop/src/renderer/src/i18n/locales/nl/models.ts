@@ -671,6 +671,70 @@ export const MODELS_NL = {
   'geotech.reportShowDetail': 'Toon elke garantie en waar ze staat',
   'geotech.reportLess': 'Minder',
   'geotech.reportDetail': 'Details',
+  'geotech.reportWhatToDo': 'Wat te doen:',
+  // Modelcontrole-clausules: titel + "wat dit betekent" + "wat te doen",
+  // samengesteld in de renderer zodat het paneel in de interfacetaal leest en
+  // niet in backend-Engels. Elke clausule draagt een actie, zodat een gemelde
+  // schending altijd zegt wat de gebruiker moet doen (eigenaar 2026-09-13).
+  'geotech.clause.edgeLeft': 'linker',
+  'geotech.clause.edgeRight': 'rechter',
+  'geotech.clause.area-conservation.title':
+    'Ingedeelde en niet-ingedeelde grond vormen samen de lithodekking',
+  'geotech.clause.area-conservation.meaning':
+    'De ingedeelde grond plus de niet-ingedeelde grond moeten samen de grond vormen die het lithomodel voor deze doorsnede tekende.',
+  'geotech.clause.area-conservation.action':
+    'Een klein restant is afronding van een hellend contact door de twee motoren en wordt genegeerd. Is er een leemte benoemd, open ze dan en controleer of de geotechnische banden dezelfde grond dekken als de litholagen, en Bouw opnieuw.',
+  'geotech.clause.area-conservation.entry':
+    '{section}, leemte {gap}: ingedeelde + niet-ingedeelde grond verschilt {diff} m2 van de lithodekking (geotechnisch {geotech} m2; litho {litho} m2)',
+  'geotech.clause.edge-reach.title': 'De 3D-bouw kan de vulling aan elke kolomrand lezen',
+  'geotech.clause.edge-reach.meaning':
+    'De 3D-bouw moet aan beide kolommen van elke leemte een gevulde laag kunnen lezen.',
+  'geotech.clause.edge-reach.action':
+    'Open de benoemde leemte en controleer of beide sonderingen de laag dragen die de lithodekking toont; aanvaard of verbind de ontbrekende laag daar opnieuw en Bouw opnieuw.',
+  'geotech.clause.edge-reach.entry':
+    '{section}, leemte {gap}, {side} kolomrand: de 3D-bouw zou deze rand als lege grond lezen, terwijl de lithodekking daar {cover} m bevat',
+  'geotech.clause.cause-closure.title': 'Elke plek niet-ingedeelde grond heeft een bekende oorzaak',
+  'geotech.clause.cause-closure.meaning':
+    'Elke plek grond die het lithomodel tekende, moet ofwel in een NAD-eenheid ingedeeld zijn, ofwel niet-ingedeeld blijven om een reden die het model kent.',
+  'geotech.clause.cause-closure.action':
+    'Open de benoemde leemte: een niet-beantwoorde plek is meestal een laag die nooit onderverdeeld werd. Verdeel daar de boringen en Bouw opnieuw.',
+  'geotech.clause.cause-closure.entry':
+    '{section}, leemte {gap}: {area} m2 lithodekking is noch ingedeeld noch verklaard ({loops} niet-beantwoorde lus(sen))',
+  'geotech.clause.section-closure.title': 'Elke doorsnede in het model bereikte de bouw',
+  'geotech.clause.section-closure.meaning':
+    'Elke dwarsdoorsnede die het lithomodel omkadert, moet de 3D-bouw bereiken.',
+  'geotech.clause.section-closure.action':
+    'Open de benoemde doorsnede en Bouw het geotechnische model zodat deze doorsnede bijdraagt aan het 3D-model.',
+  'geotech.clause.section-closure.entry':
+    '{section}: omkaderd door het lithologische model maar leverde geen geotechnische bouwuitvoer op',
+  'geotech.clause.column-totality.title': 'Elke kolom binnen de modelvoetafdruk draagt materiaal',
+  'geotech.clause.column-totality.meaning':
+    'Elke kolom binnen de modelvoetafdruk moet materiaal dragen.',
+  'geotech.clause.column-totality.action':
+    'Een lege kolom heeft geen data die haar bereikt. Verbind er een onderzoek overheen, of aanvaard de omliggende correlaties, en Bouw opnieuw.',
+  'geotech.clause.column-totality.entry':
+    '{empty} van {total} kolom(men) binnen de modelvoetafdruk dragen geen enkel gelabeld voxel',
+  'geotech.clause.stack-voids.title': 'Geen kolom bevat een leegte die je kunt aanpakken',
+  'geotech.clause.stack-voids.meaning':
+    'Geen kolom mag tussen zijn lagen een leegte bevatten die groot genoeg is om aan te pakken.',
+  'geotech.clause.stack-voids.action':
+    'Een leegte onder de drempel is afronding en wordt genegeerd. Een grotere leegte is meestal een ontbrekende correlatie tussen twee sonderingen: verbind de lagen erover en Bouw opnieuw.',
+  'geotech.clause.stack-voids.entry':
+    '{count} kolomstapel(s) bevatten een leegte boven {threshold} mm; ergste {worst} mm',
+  'geotech.clause.stack-voids.entryNote':
+    'grootste leegte {worst} mm, onder de actiedrempel van {threshold} mm ({residue} stapel(s), afrondingsrestant)',
+  'geotech.clause.section-reconciliation.title': 'Het 3D-model bevat de grond die zijn doorsneden indeelden',
+  'geotech.clause.section-reconciliation.meaning':
+    'Het 3D-model moet de grond bevatten die elke doorsnede in 2D indeelde, met marge voor het voxelrooster en een uitgebaggerde bodem.',
+  'geotech.clause.section-reconciliation.action':
+    'Open de doorsnede op de benoemde plek en controleer de kolommen daar. Dit is meestal een ontbrekende correlatie of een korte boring; herstel de verbindingen en Bouw opnieuw. Ziet de doorsnede er goed uit, stuur ons dan de .strix.',
+  'geotech.clause.section-reconciliation.entry':
+    'doorsnede {index} ({sx}, {sy}) -> ({ex}, {ey}): het 3D-model bevat {held} m2 van de {classed} m2 die zijn 2D-vulling indeelde (marge {allowance} m2; {where}){outside}',
+  'geotech.clause.section-reconciliation.worstAt':
+    'ergste monster {mm} mm ernaast op {along} m langs de lijn',
+  'geotech.clause.section-reconciliation.noSample': 'geen monster viel binnen de modelvoetafdruk',
+  'geotech.clause.section-reconciliation.outsideNote':
+    '; {n} monster(s) buiten de voetafdruk uitgesloten',
   // Bijmenging → NAD-familie prompt (eigenaarsbeslissing 2026-09-04, verfijnd
   // 2026-09-05: noem de gevonden bijmenging; alleen de klei-/silt- of
   // zandvertakking wordt gevraagd, grind nooit). Gevraagd vóór het onderverdelen.
