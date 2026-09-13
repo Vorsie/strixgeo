@@ -162,7 +162,11 @@ describe('the ⋯ More menu of the Sections stage', () => {
     expect(at('1 · Subdivide CPTs')).toBeLessThan(at('Section'))
     expect(at('New cross-section')).toBeGreaterThan(at('Section'))
     expect(at('New cross-section')).toBeLessThan(at('Export'))
-    expect(at('Section DXF')).toBeGreaterThan(at('Export'))
+    // The Export group now holds the single "Export…" hub-jump verb (installer
+    // #35): its "Export" row sits after the "Export" header.
+    const exportHeaderIdx = nodes.findIndex(n => n.kind === 'header' && n.text === 'Export')
+    expect(exportHeaderIdx).toBeGreaterThanOrEqual(0)
+    expect(nodes.slice(exportHeaderIdx + 1).some(n => n.text === 'Export')).toBe(true)
   })
 
   it('MM4 — the statistic note is not in the More menu, but the picker is', () => {
