@@ -817,6 +817,18 @@ interface Props {
    */
   onSplitLithoLayer?: (layerId: string, depthM: number) => void;
   /**
+   * Copy an accepted litho boundary onto another test (installer #35). Fired by
+   * ContactsLayer on a Shift + cross-column drag of a litho contact; the handler
+   * creates both units on an empty target or splits the spanning layer. Litho
+   * axis only — SectionPanel forwards it to ContactsLayer only in that mode.
+   */
+  onCopyLithoContactToColumn?: (params: {
+    sourceInvestigationId: string;
+    contactDepthM: number;
+    targetInvestigationId: string;
+    targetKind: "cpt" | "borehole";
+  }) => void;
+  /**
    * Dissolve a body (delete both its defining correlation edges so the
    * detector no longer reconstructs it). Fired from the ``BodyContextMenu``
    * when the user picks "Dissolve body".
@@ -909,6 +921,7 @@ export default function SectionPanel({
   onNameBody,
   onEditLithoComposition,
   onSplitLithoLayer,
+  onCopyLithoContactToColumn,
   onDissolveBody,
   onJoinBodies,
   onDisjoinBody,
@@ -3831,6 +3844,15 @@ export default function SectionPanel({
               onSplitLithoLayer={
                 axisMode === "lithostratigraphic"
                   ? onSplitLithoLayer
+                  : undefined
+              }
+              // Shift-drag an accepted litho boundary onto another test to copy
+              // both units (owner ask, installer #35). Litho axis only — the
+              // geological axis keeps its own bare-contact paint-through, the
+              // geotech axis never copies.
+              onCopyLithoContactToColumn={
+                axisMode === "lithostratigraphic"
+                  ? onCopyLithoContactToColumn
                   : undefined
               }
               // Name body… / Dissolve body on the accepted unit's own menu
