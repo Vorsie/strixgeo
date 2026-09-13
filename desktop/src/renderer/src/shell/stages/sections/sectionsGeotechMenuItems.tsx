@@ -25,7 +25,11 @@ import { toggleGeotechModelFill } from '../../../utils/geotechModelFillStore'
 import { toggleLithoFillOnGeotech } from '../../../utils/lithoFillOnGeotechStore'
 import { toggleBoreholePreviewOn } from '../../../utils/boreholePreviewOnStore'
 import { sampleDisplayMenuItems } from './sampleDisplayMenuItems'
-import { GEOTECH_STATISTICS, type GeotechStatistic } from '../../../utils/geotechStatistic'
+import {
+  GEOTECH_STATISTICS,
+  geotechStatisticLabel,
+  type GeotechStatistic,
+} from '../../../utils/geotechStatistic'
 import { dividePendingTag, dividePendingTitle } from '../../../utils/geotechPendingScope'
 import { sectionsDividePartitionCallback } from '../../../hooks/useProjectBodyRecompute'
 import type { GeologicalModelResponse } from '../../../api/client'
@@ -106,10 +110,11 @@ export function buildGeotechStatisticPickerItems(
               // "i can't choose harmonic qc before first subdivide, that's
               // friction we don't need?"). Before step 1 there is no row to
               // write to, so the pick is held in the renderer and handed to
-              // the press that creates the model. The statistic TOKEN itself
-              // (median / harmonic / …) is a technical term shown verbatim.
+              // the press that creates the model. The statistic reads in the
+              // interface language (owner 2026-09-13); the token stays on the
+              // wire and in the testid.
               ...GEOTECH_STATISTICS.map(token => ({
-                label: token,
+                label: geotechStatisticLabel(token),
                 tag: token === geotechStatistic ? t('sections.geotech.currentTag') : undefined,
                 title:
                   token === 'harmonic'
