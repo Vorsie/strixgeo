@@ -290,6 +290,7 @@ export const MODELS = {
   'litho.switchSolidFence': 'Switch between solid TIN surfaces and fence-diagram walls',
   'litho.exportFence': 'Export fence',
   'litho.exportFenceHint': 'Save the 3-D fence diagram as a DXF (switch the view to Fence first)',
+  'litho.exportHubHint': 'Open the Export stage to save the fence diagram and every other export',
   'litho.resetCamera': 'Reset camera',
   'litho.resetCameraHint': 'Collapse any split view and fly the camera back to the model extent',
   'litho.nothingToBuild': 'Nothing to build — accept litho layers on a cross-section, then Build.',
