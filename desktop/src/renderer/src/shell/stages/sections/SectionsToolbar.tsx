@@ -59,7 +59,6 @@ import { useGeotechCorrelationVerbs } from './useGeotechCorrelationVerbs'
 import { useGeotechTieStatus } from './useGeotechTieStatus'
 import { useGeotechStatistic } from './useGeotechStatistic'
 import { useLithoSuggestVerbs } from './useLithoSuggestVerbs'
-import { useSectionExportVerbs } from './useSectionExportVerbs'
 import { useLithoCorrelateVerbs } from './useLithoCorrelateVerbs'
 import { useGeotechSubdivideVerbs } from './useGeotechSubdivideVerbs'
 import { summarisePendingTies } from '../../../utils/geotechPendingScope'
@@ -151,7 +150,6 @@ export default function SectionsToolbar(): JSX.Element {
       // Debt #266 — columns whose litho moved after their bands were made.
       staleLithoGeotechColumns,
       staleLithoGeotechColumnCount,
-      handleExportModelPlaxis3d,
       lithoSuggesting,
       // Phase 2 of debt #77: bus exposes the unified Map + focus flag.
       // Derived below: hasSuggestions, bulkAnchorCount.
@@ -205,7 +203,9 @@ export default function SectionsToolbar(): JSX.Element {
     coordinator: {
       selectedId,
       selectedBoreholeId,
-      handleExportSectionDxf,
+      // Installer #35: the toolbar's single "Export…" verb jumps to the Export
+      // hub scoped to the open section + axis, instead of owning export verbs.
+      setExportDeepLinkTarget,
       // Slice 5: mutation verbs bump the mutated axis's body-identity recompute.
       requestBodyRecompute,
     },
@@ -463,29 +463,14 @@ export default function SectionsToolbar(): JSX.Element {
     isLitho || isGeotech
       ? t('sections.geoVerbHint')
       : null
-  // Section-export verbs (DXF / Plaxis / PDF busy flags + handlers, the PDF
-  // metadata dialog state and the D-Series items), extracted to keep this
-  // component under the god-component threshold (debt #201).
-  const {
-    exportingDxf,
-    exportingPlaxis,
-    sheetDialogOpen,
-    setSheetDialogOpen,
-    handleExportDxf,
-    handleExportPlaxis,
-    dseriesExportItems,
-  } = useSectionExportVerbs({
-    isLitho,
-    isGeotech,
-    activeLithoModel,
-    activeGeotechModel,
-    activeGeologicalModel,
-    selectedSection,
-    project,
-    axisLevelLabel,
-    handleExportSectionDxf,
-    handleExportModelPlaxis3d,
-  })
+  // Installer #35: one "Export…" verb that jumps to the Export hub scoped to the
+  // open section + axis. Every export (DXF, Plaxis 2D/3D, D-Stability, D-Sheet,
+  // PDF, fence) now lives on the Export stage, so the toolbar no longer owns any
+  // export verb or the sheet-preview dialog.
+  const openExportHub = useCallback(() => {
+    if (selectedSection === null) return
+    setExportDeepLinkTarget?.({ sectionId: selectedSection.id, axis: sectionModelAxis })
+  }, [selectedSection, sectionModelAxis, setExportDeepLinkTarget])
   // Litho Suggest / Accept verbs (focused-anchor derivation, ghost counts,
   // bulk anchors, the three busy flags + five handlers), extracted to keep this
   // component under the god-component threshold (debt #201).
@@ -873,8 +858,6 @@ export default function SectionsToolbar(): JSX.Element {
   const tailItems = buildTailToolbarItems({
     t,
     hasSection,
-    hasModel,
-    axisLevelLabel,
     creating,
     deleting,
     canCreate,
@@ -885,18 +868,10 @@ export default function SectionsToolbar(): JSX.Element {
     visibleBoreholes,
     suggestedTies,
     acceptingAllTies,
-    exportingDxf,
-    exportingPlaxis,
-    geoVerbDisabled,
-    geoVerbHint,
-    activeGeologicalModel,
-    dseriesExportItems,
     setAcceptingAllTies,
-    setSheetDialogOpen,
     handleNew,
     handleDelete,
-    handleExportDxf,
-    handleExportPlaxis,
+    onOpenExportHub: openExportHub,
     handleAcceptAllTies,
     handleSuggestTies,
     handleClearTieSuggestions,
@@ -926,10 +901,6 @@ export default function SectionsToolbar(): JSX.Element {
         overflowGroups={overflowGroups}
       />
       <SectionsToolbarDialogs
-        sheetDialogOpen={sheetDialogOpen}
-        onSheetClose={() => setSheetDialogOpen(false)}
-        sheetIsGeotech={isGeotech}
-        sheetHasGeotechModel={activeGeotechModel !== null}
         deleteConfirmOpen={deleteConfirmOpen}
         deleting={deleting}
         selectedSection={selectedSection}
