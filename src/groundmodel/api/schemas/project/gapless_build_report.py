@@ -22,6 +22,8 @@ Every field is additive on both endpoints it touches, so a client that predates
 the gate sends nothing and reads nothing.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from groundmodel.application.gapless_clause_constants import (
@@ -84,6 +86,14 @@ class GaplessClauseEntrySchema(BaseModel):
         (clause 5 names grid columns, which have no section).
     measure : GaplessMeasureSchema or None
         What the finding measured.
+    params : dict or None
+        The finding's raw numbers (section index, areas, counts, along-metres,
+        millimetres) so the RENDERER composes the sentence in the engineer's
+        language — the wire carries data, not English prose.  ``label`` stays
+        populated as the fallback for a client that has no composer for this
+        clause (backwards compatibility); a renderer that knows the clause key
+        prefers ``params``.  ``None`` on a clause that carries no structured
+        numbers.
 
     Notes
     -----
@@ -101,6 +111,7 @@ class GaplessClauseEntrySchema(BaseModel):
     world_x: float | None = None
     world_y: float | None = None
     measure: GaplessMeasureSchema | None = None
+    params: dict[str, Any] | None = None
 
 
 class GaplessClauseInputSchema(BaseModel):
