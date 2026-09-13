@@ -33,7 +33,10 @@ from groundmodel.application.gapless_clause_constants import (
     NO_RECONCILIATION_REASON,
     GaplessClauseKey,
 )
-from groundmodel.domain.services.voxel_litho.voxel_constants import HAIRLINE_LIMIT_M
+from groundmodel.domain.services.voxel_litho.voxel_constants import (
+    HAIRLINE_LIMIT_M,
+    STACK_VOID_ACTIONABLE_M,
+)
 from groundmodel.domain.services.voxel_litho.voxel_types import LabelReport, SectionReconciliation
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -202,25 +205,78 @@ class GaplessBuildReportAssembler(GroundModelLogger):
                 "model footprint carry no labelled voxel"
             ),
             "measure": {"value": float(empty), "unit": "count", "budget": 0.0},
+            "params": {
+                "empty_count": empty,
+                "in_footprint_count": label_report.in_footprint_columns,
+            },
         }
         return self._clause("column-totality", failed=bool(empty), entries=[entry] if empty else [])
 
     def _stack_voids(self, label_report: LabelReport) -> dict[str, Any]:
-        """Clause 6: no column has an interior void above the hairline limit."""
-        count = label_report.hairline_gaps_over_limit
-        entry = {
-            "label": (
-                f"{count} column stack(s) carry an interior void over "
-                f"{HAIRLINE_LIMIT_M * 1000:.0f} mm — worst "
-                f"{label_report.hairline_worst_m * 1000:.1f} mm"
-            ),
-            "measure": {
-                "value": label_report.hairline_worst_m,
-                "unit": "m",
-                "budget": HAIRLINE_LIMIT_M,
-            },
+        """Clause 6: no column has an interior void an engineer can act on.
+
+        The clause fails on the ACTIONABLE count (voids at or above
+        :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.STACK_VOID_ACTIONABLE_M`),
+        not on every gap over the hairline limit.  A void between the hairline
+        limit and the action threshold is real snap-round residue but nothing the
+        engineer can see or act on (owner finding, installer #35: "4 stacks over
+        15 mm, worst 33.5 mm"), so it is carried as a NOTE on a PASSING clause
+        rather than reported as a broken guarantee.  ``params`` carries the raw
+        numbers so the renderer composes the sentence in the engineer's language.
+        """
+        actionable = label_report.hairline_gaps_actionable
+        residue = label_report.hairline_gaps_over_limit
+        worst_m = label_report.hairline_worst_m
+        failed = bool(actionable)
+        params = {
+            "actionable_count": actionable,
+            "residue_count": residue,
+            "worst_mm": worst_m * 1000.0,
+            "action_threshold_mm": STACK_VOID_ACTIONABLE_M * 1000.0,
+            "hairline_limit_mm": HAIRLINE_LIMIT_M * 1000.0,
         }
-        return self._clause("stack-voids", failed=bool(count), entries=[entry] if count else [])
+        entries: list[dict[str, Any]] = []
+        if failed:
+            entries.append(
+                {
+                    "label": (
+                        f"{actionable} column stack(s) carry an interior void over "
+                        f"{STACK_VOID_ACTIONABLE_M * 1000:.0f} mm; worst "
+                        f"{worst_m * 1000:.1f} mm"
+                    ),
+                    "measure": {
+                        "value": worst_m,
+                        "unit": "m",
+                        "budget": STACK_VOID_ACTIONABLE_M,
+                    },
+                    "params": params,
+                }
+            )
+        elif residue:
+            # A passing clause with a residue: shown as a note, never a ✗.
+            entries.append(
+                {
+                    "label": (
+                        f"largest interior gap {worst_m * 1000:.1f} mm, below the "
+                        f"{STACK_VOID_ACTIONABLE_M * 1000:.0f} mm action threshold "
+                        f"(snap-round residue, {residue} stack(s))"
+                    ),
+                    "measure": {
+                        "value": worst_m,
+                        "unit": "m",
+                        "budget": STACK_VOID_ACTIONABLE_M,
+                    },
+                    "params": {**params, "note": True},
+                }
+            )
+        return {
+            "key": "stack-voids",
+            "status": "fail" if failed else "pass",
+            "not_evaluated_reason": None,
+            "entries": entries,
+            "number": _CLAUSE_NUMBER["stack-voids"],
+            "title": GAPLESS_CLAUSE_TITLES["stack-voids"],
+        }
 
     def _section_reconciliation(
         self, reconciliations: tuple[SectionReconciliation, ...]
@@ -249,6 +305,30 @@ class GaplessBuildReportAssembler(GroundModelLogger):
                         f"fill classed (allowance {r.allowance_m2:.2f} m2; {worst_place})"
                         f"{note}"
                     ),
+                    # Coordinates travel so the renderer can resolve the finding to
+                    # its own cross-section row (the reconciliation works on the
+                    # re-seated payload, which carries no DB section id) and offer a
+                    # "Show me" jump; the numbers travel so it composes the sentence
+                    # in the engineer's language.
+                    "world_x": r.start_x,
+                    "world_y": r.start_y,
+                    "params": {
+                        "section_index": r.section_index,
+                        "start_x": r.start_x,
+                        "start_y": r.start_y,
+                        "end_x": r.end_x,
+                        "end_y": r.end_y,
+                        "swept_3d_m2": r.swept_3d_m2,
+                        "swept_2d_m2": r.swept_2d_m2,
+                        "allowance_m2": r.allowance_m2,
+                        "worst_sample_along_m": r.worst_sample_along_m,
+                        "worst_sample_divergence_mm": (
+                            None
+                            if r.worst_sample_along_m is None
+                            else r.worst_sample_divergence_m * 1000.0
+                        ),
+                        "samples_outside_footprint": r.samples_outside_footprint,
+                    },
                     "measure": {
                         "value": r.divergence_m2,
                         "unit": "m2",
