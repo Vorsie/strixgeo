@@ -372,6 +372,8 @@ const ACTIVE_MODEL = {
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }
+const LITHO_MODEL = { ...ACTIVE_MODEL, id: 'litho-1', kind: 'lithostratigraphic' as const }
+const GEOTECH_MODEL = { ...ACTIVE_MODEL, id: 'geotech-1', kind: 'geotechnical' as const }
 
 const SECTION_A = {
   id: 'sec-1',
@@ -399,7 +401,34 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('Export stage canvas (debt #30)', () => {
+// A section that satisfies SectionLike for the section-scoped cards.
+const HUB_SECTION = {
+  id: 'sec-1',
+  app_project_id: 'proj-1',
+  name: 'Quay 7',
+  start_x: 0,
+  start_y: 0,
+  end_x: 100,
+  end_y: 0,
+  horizontal_epsg: 31370,
+  buffer_m: 25,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+} as unknown as ShellContextValue['sections']['sections'][number]
+
+/** Every model level active + a chosen section — the fully-ready hub. */
+function readyCtx(): ShellContextValue {
+  const ctx = makeStubContext()
+  ctx.geoModel.activeGeologicalModel = ACTIVE_MODEL
+  ctx.geoModel.activeLithoModel = LITHO_MODEL
+  ctx.geoModel.activeGeotechModel = GEOTECH_MODEL
+  ctx.sections.sections = [HUB_SECTION]
+  ctx.sections.visibleSections = [HUB_SECTION]
+  ctx.sections.selectedSectionId = 'sec-1'
+  return ctx
+}
+
+describe('the Export hub (installer #35)', () => {
   it('renders without throwing and is not a "coming soon" stub', () => {
     renderCanvas(makeStubContext())
     expect(consoleErrorSpy).not.toHaveBeenCalled()
@@ -407,71 +436,76 @@ describe('Export stage canvas (debt #30)', () => {
     expect(screen.queryByText(/coming soon/i)).toBeNull()
   })
 
-  it('points the user at the Geology stage when no active model exists', () => {
-    renderCanvas(makeStubContext())
-    // Both cards show guidance referencing the Geology stage; no export
-    // buttons are rendered.
-    expect(screen.getAllByText(/Stratigraphy/).length).toBeGreaterThan(0)
-    expect(screen.queryByRole('button', { name: /export dxf/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /export plaxis 3d/i })).toBeNull()
-  })
-
-  it('exposes Plaxis 3D but guides to Sections for DXF when a model exists with no sections', () => {
-    const ctx = makeStubContext()
-    ctx.geoModel.activeGeologicalModel = ACTIVE_MODEL
-    renderCanvas(ctx)
-    // Plaxis 3D only needs a model.
-    expect(screen.getByRole('button', { name: /export plaxis 3d/i })).toBeTruthy()
-    // DXF still blocked â€” guidance points at the Sections stage.
-    expect(screen.getByText(/Sections/)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /export dxf/i })).toBeNull()
-  })
-
-  // Each section-scoped export shares one busy flag (clicking one
-  // disables the others until it settles â€” correct UX). Render fresh
-  // per action so the assertions don't fight that busy state.
-  function readyCtx() {
-    const ctx = makeStubContext()
-    ctx.geoModel.activeGeologicalModel = ACTIVE_MODEL
-    ctx.sections.sections = [SECTION_A]
-    ctx.sections.selectedSectionId = 'sec-1'
-    return ctx
-  }
-
-  it('Export DXF calls the DXF bus handler with the right args', () => {
-    const ctx = readyCtx()
-    const exportDxf = vi.fn().mockResolvedValue(undefined)
-    ctx.coordinator.handleExportSectionDxf = exportDxf
-    renderCanvas(ctx)
-    fireEvent.click(screen.getByRole('button', { name: /export dxf/i }))
-    expect(exportDxf).toHaveBeenCalledWith('proj-1', 'sec-1', 'Quay 7 â€” Aâ€“A', 'model-1')
+  it('every export lives in the Export stage — one card per target, all reachable', () => {
+    renderCanvas(readyCtx())
+    for (const testid of [
+      'export-canvas-dxf', // Cross-section DXF (any axis)
+      'export-canvas-plaxis3d', // Stratigraphy → Plaxis 3D
+      'export-canvas-dstability', // Lithology → D-Stability .stix
+      'export-canvas-plaxis2d', // Lithology → Plaxis 2D
+      'export-canvas-litho-fence', // Lithology → fence DXF
+      'export-canvas-dsheetpiling', // Geotechnical → D-Sheet .shi
+      'export-canvas-geotech-plaxis2d', // Geotechnical → Plaxis 2D
+      'export-canvas-geotech-fence', // Geotechnical → fence DXF
+      'export-canvas-pdf', // Report → PDF sheet
+    ]) {
+      expect(screen.getByTestId(testid)).toBeTruthy()
+    }
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('Export Plaxis 2D calls the section Plaxis-2D bus handler (debt #29)', () => {
+  it('a card with nothing to export tells me what to do first', () => {
+    // No models at all → each card explains the prerequisite; no export buttons.
+    renderCanvas(makeStubContext())
+    expect(screen.getByText(/No stratigraphic model yet/i)).toBeTruthy()
+    expect(screen.getAllByText(/No lithological model yet/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/No geotechnical model yet/i).length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('export-canvas-plaxis3d')).toBeNull()
+    expect(screen.queryByTestId('export-canvas-dstability')).toBeNull()
+    expect(screen.queryByTestId('export-canvas-litho-fence')).toBeNull()
+  })
+
+  it('Cross-section DXF routes the model level the picker is on (audit 2026-08-02)', () => {
     const ctx = readyCtx()
-    const exportPlaxis2d = vi.fn().mockResolvedValue(undefined)
-    ctx.coordinator.handleExportSectionPlaxis2d = exportPlaxis2d
+    const exportDxf = vi.fn().mockResolvedValue(undefined)
+    ctx.coordinator.handleExportSectionDxf = exportDxf
+    ctx.sections.sectionModelAxis = 'geotechnical' // the jump preselected geotech
     renderCanvas(ctx)
-    // The /plaxis 2d/ regex must NOT match the model-wide "Export
-    // Plaxis 3D" button â€” distinct target, distinct bus handler.
-    fireEvent.click(screen.getByRole('button', { name: /export plaxis 2d/i }))
-    expect(exportPlaxis2d).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByTestId('export-canvas-dxf'))
+    // Geotech axis → the geotech model id, never the geological one.
+    expect(exportDxf).toHaveBeenCalledWith(
       'proj-1',
       'sec-1',
-      'Quay 7 â€” Aâ€“A',
-      'model-1',
+      'Quay 7',
+      'geotech-1',
+      expect.any(Function),
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('Export Plaxis 3D calls the model-wide bus handler', () => {
+  it('Plaxis 3D calls the model-wide bus handler', () => {
     const ctx = readyCtx()
     const exportPlaxis3d = vi.fn().mockResolvedValue(undefined)
     ctx.geoModel.handleExportModelPlaxis3d = exportPlaxis3d
     renderCanvas(ctx)
-    fireEvent.click(screen.getByRole('button', { name: /export plaxis 3d/i }))
+    fireEvent.click(screen.getByTestId('export-canvas-plaxis3d'))
     expect(exportPlaxis3d).toHaveBeenCalledTimes(1)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('litho Plaxis 2D calls the section Plaxis-2D bus handler with the litho model', () => {
+    const ctx = readyCtx()
+    const exportPlaxis2d = vi.fn().mockResolvedValue(undefined)
+    ctx.coordinator.handleExportSectionPlaxis2d = exportPlaxis2d
+    renderCanvas(ctx)
+    fireEvent.click(screen.getByTestId('export-canvas-plaxis2d'))
+    expect(exportPlaxis2d).toHaveBeenCalledWith(
+      'proj-1',
+      'sec-1',
+      'Quay 7',
+      'litho-1',
+      expect.any(Function),
+    )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
