@@ -245,6 +245,7 @@ export const SECTIONS_NL = {
   // ---------------------------------------------------------------------------
   'sections.export.selectSection': 'Selecteer een profiel om te exporteren',
   'sections.export.dropdownTitle': 'Exporteer het model of dit profiel',
+  'sections.export.hubJumpTitle': 'Open de Export-stap met dit profiel geselecteerd',
   'sections.export.sectionDxf': 'Profiel-DXF',
   'sections.export.exportingDxf': 'DXF exporteren…',
   'sections.export.noModelContacts': 'Geen actief {level} model — er moeten eerst laaggrenzen bestaan',
