@@ -91,13 +91,19 @@ test.describe('flow_export_section_pdf', () => {
       await expect(size).toContainText('mm', { timeout: 20_000 })
       const before = (await size.textContent()) ?? ''
 
-      // Moving the exaggeration slider re-lays the sheet (no fetch) → the size
-      // label changes.
+      // Moving the exaggeration slider re-lays the sheet (no fetch). In fit mode
+      // the paper STAYS A3 while the drawing re-scales inside it (owner
+      // 2026-09-11: "fit to A3"), so the proof of the re-layout is the slider's
+      // own value, not the paper size; the size label is read again afterwards
+      // for the PDF page comparison below.
       const vex = page.getByTestId('sheet-vex')
       await vex.focus()
+      const vexBefore = await vex.inputValue()
       for (let i = 0; i < 6; i += 1) await page.keyboard.press('ArrowLeft')
-      await expect(size).not.toHaveText(before, { timeout: 10_000 })
+      await expect(vex).not.toHaveValue(vexBefore, { timeout: 10_000 })
+      await expect(size).toContainText('mm', { timeout: 10_000 })
       const after = (await size.textContent()) ?? ''
+      expect(before).toContain('mm')
       const m = after.match(/(\d+) × (\d+) mm/)
       expect(m).not.toBeNull()
       const wMm = Number(m![1])
