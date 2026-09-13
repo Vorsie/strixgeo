@@ -10,6 +10,7 @@
 //
 // All state is sourced from useShell() — no props accepted.
 
+import { geotechStatisticLabel } from '../../../utils/geotechStatistic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
@@ -290,7 +291,7 @@ export default function SectionsInspector(): JSX.Element {
             className="text-xs text-text-primary px-1"
             data-testid="sections-inspector-statistic-value"
           >
-            {t('sections.inspector.chosenStatistic', { statistic: chosenStatistic })}
+            {t('sections.inspector.chosenStatistic', { statistic: geotechStatisticLabel(chosenStatistic) })}
           </p>
           <p
             className="text-xs text-text-muted px-1"
