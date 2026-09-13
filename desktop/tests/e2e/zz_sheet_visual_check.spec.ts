@@ -22,31 +22,45 @@ import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/pro
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 const OUT = process.env.SHEET_VISUAL_OUT ?? join(tmpdir(), 'strix-sheet-visual')
 
+/** Jump from the Sections stage to the Export hub (installer #35). */
+async function openExportHubFromSection(page: Page): Promise<void> {
+  const verb = page.getByTestId('sections-toolbar-export')
+  if (await verb.isVisible()) await verb.click()
+  else {
+    await page.getByTestId('toolbar-overflow-more').click()
+    await page.getByTestId('sections-toolbar-export').click()
+  }
+}
+
+/** On the Export hub, pick the PDF card's axis and open the preview. */
+async function openPdfPreviewOnHub(page: Page, axis: 'Litho' | 'Geotech'): Promise<boolean> {
+  const axisPicker = page.getByTestId('export-pdf-axis')
+  if (!(await axisPicker.isVisible())) return false // PDF card is guidance-only here
+  await axisPicker.selectOption(axis === 'Geotech' ? 'geotechnical' : 'lithostratigraphic')
+  await page.getByTestId('export-canvas-pdf').click()
+  await expect(page.getByTestId('sheet-preview-dialog')).toBeVisible()
+  return true
+}
+
 async function openFirstSectionWithFill(page: Page): Promise<void> {
   // The seeded fixture draws a partition only on some sections/axes (Section A on
   // the litho axis has column strips but no bands), so walk the rows and axes
   // until the sheet dialog reports a paper size, which it does only with a fill.
-  // Returns with the preview dialog OPEN on that section/axis.
-  await goToStage(page, 'Sections')
+  // The PDF sheet now lives on the Export hub (installer #35). Returns with the
+  // preview dialog OPEN on that section/axis (on the Export stage).
   const rows = page.locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
+  await goToStage(page, 'Sections')
   await expect(rows.first()).toBeVisible({ timeout: 10_000 })
   const n = await rows.count()
   for (let i = 0; i < n; i += 1) {
-    await rows.nth(i).click()
     for (const axis of ['Litho', 'Geotech'] as const) {
+      await goToStage(page, 'Sections')
+      await rows.nth(i).click()
       const radio = page.getByRole('radio', { name: axis })
       if (!(await radio.isVisible())) continue
       await radio.click()
-      // The geotech toolbar folds the export verbs under the overflow "More" menu.
-      const dropdown = page.getByTestId('sections-toolbar-export-dropdown')
-      if (await dropdown.isVisible()) await dropdown.click()
-      else {
-        await page.getByTestId('toolbar-overflow-more').click()
-        const nested = page.getByTestId('sections-toolbar-export-dropdown')
-        if (await nested.isVisible()) await nested.click()
-      }
-      await page.getByTestId('export-section-pdf').click()
-      await expect(page.getByTestId('sheet-preview-dialog')).toBeVisible()
+      await openExportHubFromSection(page)
+      if (!(await openPdfPreviewOnHub(page, axis))) continue
       const size = page.getByTestId('sheet-paper-size')
       // Wait for THIS section's build to settle (the label carries data-busy while it runs).
       await expect(size).toHaveAttribute('data-busy', 'false', { timeout: 30_000 })
@@ -85,18 +99,17 @@ test.describe('zz_sheet_visual_check (manual, opt-in)', () => {
       require('fs').writeFileSync(join(OUT, 'diag.txt'), diag.join(String.fromCharCode(10)))
       await page.getByTestId('sheet-close').click()
       await expect(page.getByTestId('sheet-preview-dialog')).toBeHidden({ timeout: 5_000 })
+      // Back to the section for the on-screen capture (the preview + PDF now live
+      // on the Export hub — installer #35 — so the two are on separate stages).
+      await goToStage(page, 'Sections')
       // Let the fill settle before the screen capture.
       await page.waitForTimeout(1500)
       await page.screenshot({ path: join(OUT, 'section-on-screen.png'), fullPage: false })
 
-      const dropdown = page.getByTestId('sections-toolbar-export-dropdown')
-      if (await dropdown.isVisible()) await dropdown.click()
-      else {
-        await page.getByTestId('toolbar-overflow-more').click()
-        const nested = page.getByTestId('sections-toolbar-export-dropdown')
-        if (await nested.isVisible()) await nested.click()
-      }
-      await page.getByTestId('export-section-pdf').click()
+      // Jump to the Export hub and reopen the PDF preview (the axis picker seeds
+      // from the section's axis, which is the one that had the fill).
+      await openExportHubFromSection(page)
+      await page.getByTestId('export-canvas-pdf').click()
       await expect(page.getByTestId('sheet-preview-dialog')).toBeVisible()
       await expect(page.getByTestId('sheet-paper-size')).toContainText('mm', { timeout: 20_000 })
       // The iframe lays itself out after the payload lands; give the map its tile wait.
