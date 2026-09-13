@@ -21,6 +21,7 @@
  * consequence computed with any other statistic would predict a reclassification that
  * never happens.
  */
+import { geotechStatisticLabel } from '../../utils/geotechStatistic'
 import { useEffect, useRef } from 'react'
 
 import type { GeotechBandEditPlanResponse } from '../../api/client'
@@ -87,7 +88,9 @@ export default function GeotechBandEditDialog({
   // the sheet names it — a number labelled bare "representative qc" would
   // read as the median it no longer is.
   const statisticLabel =
-    plan.statistic !== undefined && plan.statistic !== 'median' ? ` (${plan.statistic})` : ''
+    plan.statistic !== undefined && plan.statistic !== 'median'
+      ? ` (${geotechStatisticLabel(plan.statistic)})`
+      : ''
 
   // Focus the ACTION, not Cancel. docs/ux.md puts default-focus on Cancel for irreversible
   // actions; this is not one (a split can be merged back), and defaulting to Cancel here
