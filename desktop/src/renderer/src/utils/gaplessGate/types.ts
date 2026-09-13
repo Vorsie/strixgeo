@@ -135,6 +135,17 @@ export interface GaplessClauseEntry {
   world_y?: number | null
   /** What the finding measured. */
   measure?: GaplessMeasure | null
+  /**
+   * The finding's raw numbers (areas, counts, along-metres, millimetres,
+   * section endpoints), so the renderer composes the sentence in the viewer's
+   * language rather than printing the backend's English {@link label}.
+   *
+   * ``label`` stays the fallback for a clause the renderer has no composer for
+   * (and for a report written before this field existed); a renderer that knows
+   * the clause key prefers ``params``. Absent on a clause that carries no
+   * structured numbers.
+   */
+  params?: Record<string, unknown> | null
 }
 
 /**
