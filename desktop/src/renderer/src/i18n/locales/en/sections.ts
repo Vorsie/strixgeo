@@ -571,6 +571,12 @@ export const SECTIONS = {
   'sections.menu.mergeBands': 'Merge bands',
   'sections.menu.mergeIntoSurrounding': 'Merge into surrounding band',
   'sections.menu.splitBand': 'Split band…',
+  // Owner #35: a borehole band is splittable too, at the right-click depth (no
+  // cursor-following placement — the class is kept, so there is nothing to place).
+  'sections.menu.splitBandHere': 'Split band here',
+  // Owner #35: the packing classes moved off the first menu into a submenu behind
+  // this one row, so the verbs above are no longer pushed below the fold.
+  'sections.menu.packingClass': 'Packing class',
   // Geotech band edit menu — the two "Remove band" directions (were hardcoded in
   // GeotechBandEditOverlay until the 2026-09-01 i18n pass).
   'sections.bandMenu.removeUp': 'Remove band (merge into band above)',
@@ -616,7 +622,8 @@ export const SECTIONS = {
 
   'sections.bands.rightClickBoundary':
     'Right-click to place a new packing boundary or remove this band',
-  'sections.bands.rightClickClass': "Right-click to set this band's NAD class by hand",
+  'sections.bands.rightClickClass':
+    "Right-click to split this band or set its NAD packing class by hand",
   'sections.bands.nothingToSnap':
     'Nothing to snap to on this column — a borehole carries no cone resistance, so there are no packing boundaries here.',
   'sections.bands.acceptGhosts': 'Accept these bands (divide this borehole)',
@@ -776,6 +783,9 @@ export const SECTIONS = {
   'sections.bands.dirAbove': 'above',
   'sections.bands.moveReadout': '{depth} m — release to move, Esc to cancel',
   'sections.bands.currentSuffix': ' (current)',
+  // The "(current: X)" tag on the "Packing class ▸" submenu row (owner #35).
+  'sections.bands.packingClassCurrent': '(current: {label})',
+  'sections.bands.toast.splitHere': 'Band split.',
   'sections.bands.foreignClassSuffix': ' (current — a {family} class on this soil)',
   'sections.bandDialog.moveTitle': 'Move this packing boundary?',
   'sections.bandDialog.mergeTitle': 'Merge these packing bands?',
