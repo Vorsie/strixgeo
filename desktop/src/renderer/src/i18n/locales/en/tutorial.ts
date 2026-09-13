@@ -124,7 +124,7 @@ export const TUTORIAL = {
     'Delete removes the selected cross-section. It is irreversible, so it always confirms first; the underlying CPTs and boreholes are never touched.',
   'tutorial.section-export.title': 'Export this section',
   'tutorial.section-export.body':
-    'The Export dropdown sends the open section to DXF, to Plaxis, to D-Stability or D-Sheet, or to a PDF sheet. Each file carries the model level the axis is on. The Export stage gathers the same targets in one place.',
+    'Export… opens the Export stage with this section and its axis already selected. Every export lives there: DXF, Plaxis, D-Stability, D-Sheet, a PDF sheet and the fence diagram, each carrying the model level the axis is on.',
   'tutorial.section-inspector.title': 'The section panel',
   'tutorial.section-inspector.body':
     'The right panel lists your cross-sections and carries the model verbs for the open axis: Build the surfaces, Seed contacts from stratigraphy, and Dedupe. It is the panel companion to the toolbar verbs.',
@@ -256,7 +256,7 @@ export const TUTORIAL = {
     'The Admixtures menu cleans up the ghost suggestions before you accept them: strip the CPT or borehole admixtures, strip them all, or reseed from the borehole observation log.',
   'tutorial.litho-fence.title': 'Export the litho fence',
   'tutorial.litho-fence.body':
-    'Once the solids are built, Export fence writes the 3-D fence diagram to DXF. It sits next to Build model on this stage and refuses with a warning unless the view is in Fence mode.',
+    'Once the solids are built, Export fence opens the Export stage on the litho fence card, which writes the 3-D fence diagram to DXF. Every export lives in that stage; the button here is only the shortcut to it.',
   'tutorial.litho-pane.title': 'The lithology panel',
   'tutorial.litho-pane.body':
     'The panel carries the model picker, the confidence-fade toggle, the unit roster with its body legend, Resolve instances to refresh the roster, and the boreholes-in-model scope. Clear model wipes the litho contacts after a confirmation.',
@@ -280,7 +280,7 @@ export const TUTORIAL = {
     'On the Geotech stage, Build model turns the accepted packing bands into 3-D NAD body solids. A pre-flight asks about any test that carries litho but no bands before it builds. This step ticks once the geotech solids exist.',
   'tutorial.geotech-fence.title': 'Export the geotech fence',
   'tutorial.geotech-fence.body':
-    'Once the geotech solids exist, Export fence writes the 3-D fence diagram to DXF, the same way the litho stage does. It refuses with a warning unless the view is in Fence mode.',
+    'Once the geotech solids exist, Export fence opens the Export stage on the geotech fence card, the same way the litho stage does. The card writes the 3-D fence diagram to DXF with the packing classes.',
   'tutorial.geotech-pane.title': 'The units panel',
   'tutorial.geotech-pane.body':
     'The panel lists the units as soil, then NAD packing class, then body, and lets you recolour a row. Click a body to select it on the section; the readout names the class and how its qc was assigned.',
