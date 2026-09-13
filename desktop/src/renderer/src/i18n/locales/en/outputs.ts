@@ -306,4 +306,55 @@ export const OUTPUTS = {
   'export.viewFence': 'Fence',
   'export.viewWireframe': 'Wireframe',
   'export.viewWireframeTitle': 'Show the body model as wireframe',
+
+  // --- Export hub (installer #35, the Export stage is the only export surface) ---
+  'export.hubBlurb':
+    'Every export lives here. Pick a cross-section, then export it to the tool you need. Fence diagrams and the 3-D model export from their own cards below.',
+  'export.crossSectionPickerLabel': 'Cross-section to export',
+  'export.axisLabel': 'Model level',
+  'export.axisGeological': 'Stratigraphy',
+  'export.axisLithological': 'Lithology',
+  'export.axisGeotechnical': 'Geotechnical',
+  'export.groupCrossSection': 'Cross-section',
+  'export.groupStratigraphy': 'Stratigraphy',
+  'export.groupLithology': 'Lithology',
+  'export.groupGeotechnical': 'Geotechnical',
+  'export.groupReport': 'Report',
+  'export.cardSectionDxfTitle': 'Cross-section DXF',
+  'export.cardSectionDxfDesc':
+    "One cross-section's layer geometry as an AutoCAD DXF, on the model level you choose.",
+  'export.cardPlaxis3dTitle': 'Stratigraphic model → Plaxis 3D',
+  'export.cardPlaxis3dDesc':
+    'The whole model as a runnable plxscripting script: one placeholder soil + one borehole per investigation.',
+  'export.cardLithoDstabilityDesc':
+    'The lithological cross-section as closed D-Stability polygons (geometry only, no design parameters).',
+  'export.cardLithoPlaxis2dTitle': 'Plaxis 2D',
+  'export.cardLithoPlaxis2dDesc':
+    'The lithological cross-section as a runnable Plaxis 2D plxscripting script, one borehole per column.',
+  'export.cardLithoFenceTitle': 'Fence diagram (DXF)',
+  'export.cardLithoFenceDesc':
+    'The lithological 3-D fence walls as a DXF: one layer per section by unit.',
+  'export.cardGeotechDsheetDesc':
+    'A 1-D soil profile through the geotechnical cross-section as a D-Sheet .shi (geometry only).',
+  'export.cardGeotechPlaxis2dTitle': 'Plaxis 2D (packing classes)',
+  'export.cardGeotechPlaxis2dDesc':
+    'The geotechnical cross-section, with NAD packing classes, as a Plaxis 2D script.',
+  'export.cardGeotechFenceTitle': 'Fence diagram (DXF)',
+  'export.cardGeotechFenceDesc':
+    'The geotechnical 3-D fence walls as a DXF, coloured by NAD packing class.',
+  'export.cardPdfTitle': 'PDF report sheet',
+  'export.cardPdfDesc': 'An A3 drawing sheet of the cross-section: preview it, then print to PDF.',
+  'export.exportFence': 'Export fence',
+  'export.exportStix': 'Export .stix',
+  'export.exportShi': 'Export .shi',
+  'export.openPreview': 'Open preview',
+  'export.lastSaved': 'Last saved: {path}',
+  'export.guideNoStratModel':
+    'No stratigraphic model yet: build formations and contacts on the Stratigraphy stage first.',
+  'export.guideNoLithoModel':
+    'No lithological model yet: create and build one on the Lithology stage first.',
+  'export.guideNoGeotechModel':
+    'No geotechnical model yet: subdivide the lithological units on the Geotechnical stage first.',
+  'export.guideNoSections': 'No cross-sections yet: draw one on the Sections stage first.',
+  'export.guidePickSection': 'Pick a cross-section above to export it.',
 } as const
