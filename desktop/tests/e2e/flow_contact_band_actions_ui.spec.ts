@@ -110,6 +110,43 @@ test.describe('flow_contact_band_actions_ui', () => {
     }
   })
 
+  test('Litho band → Edit composition — the soil dropdown drops on click (owner #35)', async () => {
+    // Regression guard: installer #35 shipped native <select> controls whose OS
+    // popup does not open in the Electron window (arrow keys still worked). The
+    // composition editor now uses an in-app listbox; a click on the soil control
+    // MUST drop it. This asserts the listbox appears in the DOM so the bug
+    // cannot regress silently.
+    test.slow()
+    const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
+    let tmpPath = ''
+    try {
+      tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
+      await openContactSection(page)
+
+      const band = page.locator('[data-testid^="per-column-litho-band-"]').first()
+      await rightClick(page, band)
+      await expect(page.getByTestId('litho-band-context-menu')).toBeVisible({ timeout: 5_000 })
+      await page.getByTestId('litho-band-edit-composition').dispatchEvent('click')
+
+      // The composition editor opens; the main-soil control is the in-app
+      // listbox trigger (id kept from the old native <select>).
+      const trigger = page.locator('#ghost-edit-main-code')
+      await expect(trigger).toBeVisible({ timeout: 5_000 })
+      // Nothing dropped yet.
+      await expect(page.getByRole('listbox')).toHaveCount(0)
+      // A click drops the listbox with the base-soil options.
+      await trigger.click()
+      await expect(page.getByRole('listbox')).toBeVisible({ timeout: 5_000 })
+      expect(await page.getByRole('option').count()).toBeGreaterThan(0)
+
+      // Cancel out — no mutation to the shared fixture.
+      await page.getByRole('button', { name: /^(Cancel|Annuleren)$/ }).first().click()
+    } finally {
+      await closeApp(app)
+      cleanupFixtureFile(tmpPath)
+    }
+  })
+
   test('Empty-space → Add new suggestion — opens the composition picker, Cancel', async () => {
     test.slow()
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
