@@ -16,10 +16,19 @@ Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
   the CLASS, not the hierarchy.
 * **Manual override always wins** — a resulting band thinner than the configured
   minimum is committed with a warning, not blocked.
-* **A borehole is refused** (ruling A) — the class is re-derived from qc, and a
-  borehole has none, so :func:`require_cpt_anchor` rejects the split before
-  anything is written rather than skeletonising a band whose class
-  ``DivideBoreholes`` extrapolated from the surrounding CPTs.
+* **A borehole is split too — both halves KEEP the class** (owner directive, #35
+  dogfeed 2026-09-13, amending ruling A for the split). A borehole records no
+  cone resistance, so there is nothing to re-derive from; rather than refuse the
+  gesture (the owner found no split button on a borehole band), both halves are
+  pointed at the ORIGINAL band's class. The class ``DivideBoreholes`` extrapolated
+  is preserved, not skeletonised. Only the boundary is new, so only the source is
+  stamped ``manual``.
+* **A RESTORE assigns the halves' classes directly** (the merge-undo path, owner
+  #35) — when ``restore`` is set the two halves take the given classes + source
+  verbatim, no qc is read and the anchor is not checked, because the caller is
+  handing back a state that already existed. This is how ctrl+z after a merge
+  brings BOTH bands back exactly, instead of re-deriving them and losing a class
+  the merge had changed or a hand class it never measured.
 
 Row identity on a split: the ORIGINAL row becomes the UPPER half, because its
 top boundary is the one the split leaves untouched, and a NEW row is inserted for
@@ -34,6 +43,7 @@ now, not the segmenter's, and provenance must say so.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,7 +57,6 @@ from groundmodel.application.geotech_band_edit_helpers import (
     geo_parent_for_interval,
     load_geotech_column_context,
     pre_edit_class_snapshot,
-    require_cpt_anchor,
     revalidate_layer_edges,
 )
 from groundmodel.application.geotech_borehole_materialiser import GeotechBoreholeMaterialiser
@@ -86,6 +95,11 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         geotech_model_id: UUID,
         band_id: UUID,
         split_depth_m: float,
+        restore: bool = False,
+        restore_upper_nad_class: int | None = None,
+        restore_lower_nad_class: int | None = None,
+        restore_upper_source: str | None = None,
+        restore_lower_source: str | None = None,
     ) -> GeotechBandEditResult:
         """Split ``band_id`` at ``split_depth_m`` and commit.
 
@@ -99,6 +113,16 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             The band to split.
         split_depth_m : float
             The new boundary depth (metres, positive down).
+        restore : bool
+            When ``True``, ASSIGN the halves' classes from the ``restore_*``
+            arguments instead of re-deriving them from qc, and do not check the
+            anchor. The merge-undo path uses this to bring both pre-merge bands
+            back exactly (owner #35). ``restore_*`` classes may be ``None`` (a
+            skeleton band is a legitimate pre-merge state).
+        restore_upper_nad_class, restore_lower_nad_class : int | None
+            The classes to assign the upper / lower half when ``restore``.
+        restore_upper_source, restore_lower_source : str | None
+            The ``source`` stamps to restore on each half; default ``manual``.
 
         Returns
         -------
@@ -113,6 +137,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         """
         self.info(
             f"SplitGeotechBand: model={geotech_model_id} band={band_id} depth={split_depth_m:.3f} m"
+            f"{' (restore)' if restore else ''}"
         )
         context = await load_geotech_column_context(
             self._session,
@@ -121,7 +146,11 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             geotech_model_id=geotech_model_id,
             band_id=band_id,
         )
-        require_cpt_anchor(context, gesture="Split")
+        # ``plan_split`` validates the hard bounds (ruling 2) for EVERY path and,
+        # for a CPT, re-derives both halves' classes. A borehole carries no qc,
+        # so its re-derived classes come back ``None`` — but the split is not
+        # refused: the class is KEPT (both halves take the original band's class),
+        # so the depth check is all that is wanted from the plan there.
         plan = plan_split(
             bands=context.bands,
             band_id=str(band_id),
@@ -134,6 +163,46 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             statistic=context.statistic,
         )
         upper_outcome, lower_outcome = plan.intervals
+        target_band = next(b for b in context.bands if b.band_id == str(band_id))
+        # Decide the class each half carries and how its provenance is stamped.
+        if restore:
+            # The merge undo: assign the captured pre-merge classes verbatim.
+            upper_class = restore_upper_nad_class
+            lower_class = restore_lower_nad_class
+            upper_source = restore_upper_source or MANUAL_BAND_SOURCE
+            lower_source = restore_lower_source or MANUAL_BAND_SOURCE
+        elif not context.anchor_is_cpt:
+            # A borehole has no qc — keep the original band's class on both halves.
+            upper_class = target_band.nad_class
+            lower_class = target_band.nad_class
+            upper_source = MANUAL_BAND_SOURCE
+            lower_source = MANUAL_BAND_SOURCE
+        else:
+            # A CPT: the re-derived classes are the point of the split.
+            upper_class = upper_outcome.nad_class
+            lower_class = lower_outcome.nad_class
+            upper_source = MANUAL_BAND_SOURCE
+            lower_source = MANUAL_BAND_SOURCE
+        # Make the returned plan honest when the classes were ASSIGNED rather than
+        # re-derived: the response mirrors the preview shape, so it must state the
+        # class each half actually got, not the ``None`` the empty-qc re-derivation
+        # produced for a borehole.
+        if restore or not context.anchor_is_cpt:
+            plan = replace(
+                plan,
+                intervals=(
+                    replace(
+                        upper_outcome,
+                        nad_class=upper_class,
+                        class_changed=upper_class != upper_outcome.previous_nad_class,
+                    ),
+                    replace(
+                        lower_outcome,
+                        nad_class=lower_class,
+                        class_changed=lower_class != lower_outcome.previous_nad_class,
+                    ),
+                ),
+            )
         for warning in plan.warnings:
             self.warning(f"SplitGeotechBand: {warning.code} — {warning.message}")
 
@@ -155,11 +224,11 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         original_base_m = target.depth_base_m
         boundary_m = round(split_depth_m, _DEPTH_DECIMALS)
 
-        # Upper half — the original row, resized and reclassified.
+        # Upper half — the original row, resized and (re)classified.
         upper_formation = await formation_for_class(
             self,
             project_id=project_id,
-            nad_class=upper_outcome.nad_class,
+            nad_class=upper_class,
             source_litho_formation_id=context.source_litho_formation_id,
             # Live-first, so a hand edit heals a stale build-time stamp on touch.
             source_geo_formation_id=geo_parent_for_interval(
@@ -168,13 +237,13 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         )
         target.depth_base_m = boundary_m
         target.formation_id = upper_formation.id
-        target.source = MANUAL_BAND_SOURCE
+        target.source = upper_source
 
         # Lower half — a new row on the SAME column, never on another.
         lower_formation = await formation_for_class(
             self,
             project_id=project_id,
-            nad_class=lower_outcome.nad_class,
+            nad_class=lower_class,
             source_litho_formation_id=context.source_litho_formation_id,
             source_geo_formation_id=geo_parent_for_interval(
                 context, lower_outcome.depth_top_m, lower_outcome.depth_base_m
@@ -187,7 +256,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             depth_top_m=boundary_m,
             depth_base_m=round(original_base_m, _DEPTH_DECIMALS),
             status="accepted",
-            source="manual",
+            source=lower_source,
             confidence="medium",
             cpt_id=context.investigation_id if context.anchor_is_cpt else None,
             borehole_id=None if context.anchor_is_cpt else context.investigation_id,
@@ -200,33 +269,33 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
         await self._session.flush()
 
         # Flag-not-drop (owner 2026-08-07): the upper half's pre-existing ties
-        # are re-judged against its re-derived class — pending mismatches
-        # withdraw, accepted mismatches gain the class_changed flag, restored
-        # matches self-heal. The lower row is new and carries no edges yet;
-        # its entry in the map is a no-op today and correctness insurance the
-        # day something gives new rows edges.
+        # are re-judged against its new class — pending mismatches withdraw,
+        # accepted mismatches gain the class_changed flag, restored matches
+        # self-heal. The lower row is new and carries no edges yet; its entry
+        # in the map is a no-op today and correctness insurance the day
+        # something gives new rows edges.
         revalidation = await revalidate_layer_edges(
             self._session,
             self,
             model_id=geotech_model_id,
             new_class_by_layer_id={
-                target.id: upper_outcome.nad_class,
-                lower_row.id: lower_outcome.nad_class,
+                target.id: upper_class,
+                lower_row.id: lower_class,
             },
             old_class_by_layer_id=pre_edit_class_snapshot(context),
         )
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
-        # Both halves are re-derived, so the pre-split class can end up with no
+        # Both halves can change class, so the pre-split class can end up with no
         # bands left anywhere and its formation with nothing in it.
         await OrphanFormationSweep(self._session).sweep_geotech_units(project_id)
         await self._session.commit()
 
         self.success(
             f"SplitGeotechBand ok: band={band_id} → "
-            f"{target.depth_top_m:.2f}–{boundary_m:.2f} m (class {upper_outcome.nad_class}) + "
-            f"{boundary_m:.2f}–{original_base_m:.2f} m (class {lower_outcome.nad_class}); "
+            f"{target.depth_top_m:.2f}–{boundary_m:.2f} m (class {upper_class}) + "
+            f"{boundary_m:.2f}–{original_base_m:.2f} m (class {lower_class}); "
             f"{len(revalidation.deleted_edge_ids)} tie(s) removed, "
             f"{len(revalidation.flagged_edge_ids)} flagged, "
             f"{len(revalidation.cleared_edge_ids)} flag(s) cleared"
