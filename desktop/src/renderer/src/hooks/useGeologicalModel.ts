@@ -434,7 +434,7 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   handleDedupeContacts: () => Promise<number>
   handleRebuildSurfaces: () => Promise<void>
-  handleExportModelPlaxis3d: () => Promise<void>
+  handleExportModelPlaxis3d: (onSaved?: (path: string) => void) => Promise<void>
   handleToggleBoreholeInModel: (boreholeId: string, included: boolean) => Promise<void>
   /** Include ("Include again") or exclude a borehole in the active LITHO model
    *  (debt #65). Mirror of ``handleToggleBoreholeInModel`` for the litho
