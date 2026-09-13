@@ -123,7 +123,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Verwijderen haalt het geselecteerde dwarsprofiel weg. Het is onomkeerbaar, dus het vraagt altijd eerst bevestiging; de onderliggende sonderingen en boringen blijven ongemoeid.',
   'tutorial.section-export.title': 'Dit profiel exporteren',
   'tutorial.section-export.body':
-    'Het Export-menu stuurt het open profiel naar DXF, naar Plaxis, naar D-Stability of D-Sheet, of naar een PDF-blad. Elk bestand draagt het modelniveau van de actieve as. De Export-stap verzamelt dezelfde bestemmingen op een plek.',
+    'Export… opent de Export-stap met dit profiel en zijn as al geselecteerd. Alle exports staan daar: DXF, Plaxis, D-Stability, D-Sheet, een PDF-blad en het hekkendiagram, elk met het modelniveau van de actieve as.',
   'tutorial.section-inspector.title': 'Het profielpaneel',
   'tutorial.section-inspector.body':
     'Het rechterpaneel toont je dwarsprofielen en draagt de modelacties voor de open as: Bouw de vlakken, Vul contacten vanuit de stratigrafie, en Ontdubbelen. Het is de pendant van de werkbalkacties.',
@@ -258,7 +258,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Het menu Bijmengingen ruimt de spookvoorstellen op voor je ze aanvaardt: strip de bijmengingen van de sondering of de boring, strip ze allemaal, of hervul ze vanuit de observatielog van de boring.',
   'tutorial.litho-fence.title': 'Exporteer de litho-fence',
   'tutorial.litho-fence.body':
-    'Zodra de solids gebouwd zijn, schrijft Fence exporteren het 3D-fencediagram naar DXF. Het staat naast Model bouwen op deze stap en weigert met een waarschuwing tenzij de weergave in Fence-modus staat.',
+    'Zodra de solids gebouwd zijn, opent Fence exporteren de Export-stap op de kaart van het litho-fencediagram, die het 3D-fencediagram naar DXF schrijft. Alle exports staan in die stap; de knop hier is enkel de snelkoppeling ernaartoe.',
   'tutorial.litho-pane.title': 'Het lithologiepaneel',
   'tutorial.litho-pane.body':
     'Het paneel draagt de modelkiezer, de vertrouwensvervaging, de eenhedenlijst met haar lichamenlegende, Instanties oplossen om de lijst te verversen, en de boringen-in-model-selectie. Model wissen wist de lithocontacten na een bevestiging.',
@@ -282,7 +282,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Op de Geotech-stap zet Model bouwen de aanvaarde pakkingsbanden om in 3D NAD-lichamen. Een preflight vraagt naar elke proef die litho draagt maar geen banden, voor het bouwt. Deze stap vinkt af zodra de geotech-solids bestaan.',
   'tutorial.geotech-fence.title': 'Exporteer de geotech-fence',
   'tutorial.geotech-fence.body':
-    'Zodra de geotech-solids bestaan, schrijft Fence exporteren het 3D-fencediagram naar DXF, net als de litho-stap. Het weigert met een waarschuwing tenzij de weergave in Fence-modus staat.',
+    'Zodra de geotech-solids bestaan, opent Fence exporteren de Export-stap op de kaart van het geotech-fencediagram, net als de litho-stap. Die kaart schrijft het 3D-fencediagram met de pakkingsklassen naar DXF.',
   'tutorial.geotech-pane.title': 'Het eenhedenpaneel',
   'tutorial.geotech-pane.body':
     'Het paneel toont de eenheden als grondsoort, dan NAD-pakkingsklasse, dan lichaam, en laat je een rij herkleuren. Klik een lichaam om het op het profiel te selecteren; de uitlezing noemt de klasse en hoe haar qc is toegekend.',
