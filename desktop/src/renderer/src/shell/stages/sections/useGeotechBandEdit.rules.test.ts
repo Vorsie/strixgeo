@@ -318,7 +318,12 @@ describe('every committed band edit is undoable (app-wide owner rule)', () => {
     expect(mergeGeotechBands).toHaveBeenCalledWith('proj-1', 'geo-model-1', 'band-1', 'new-lower')
   })
 
-  it('HK11 — undoing a merge re-splits at the old shared boundary', async () => {
+  it('HK11 — ctrl+z after a merge brings back both bands as they were', async () => {
+    // Owner (#35 dogfeed): "ctrl+z on geotech axis, after merges, deletes the
+    // merge but doesn't restore the earlier packing suggestion". Re-splitting and
+    // re-deriving lost a class the merge had changed or a hand class it never
+    // measured. The undo now RESTORES each half from the pre-merge state the
+    // merge captured — split + set class (and source) on each half.
     mergeGeotechBands.mockResolvedValue({
       deleted_edge_ids: [],
       flagged_edge_ids: [],
@@ -326,6 +331,10 @@ describe('every committed band edit is undoable (app-wide owner rule)', () => {
       layer_ids: ['band-upper'],
       created_layer_ids: [],
       deleted_layer_ids: ['band-lower'],
+      pre_merge_upper_nad_class: 6,
+      pre_merge_lower_nad_class: 7,
+      pre_merge_upper_source: 'segmenter',
+      pre_merge_lower_source: 'manual',
     })
     const d = deps()
     const { result } = renderHook(() => useGeotechBandEdit(d))
@@ -339,7 +348,14 @@ describe('every committed band edit is undoable (app-wide owner rule)', () => {
     })
     const command = d.undoStack.push.mock.calls[0][0]
     await command.revert()
-    expect(splitGeotechBand).toHaveBeenCalledWith('proj-1', 'geo-model-1', 'band-upper', 4.5)
+    // Split at the carried boundary, restoring each half's pre-merge class + source —
+    // NOT a bare re-split that re-derives (which lost the lower piece's class).
+    expect(splitGeotechBand).toHaveBeenCalledWith('proj-1', 'geo-model-1', 'band-upper', 4.5, {
+      upperNadClass: 6,
+      lowerNadClass: 7,
+      upperSource: 'segmenter',
+      lowerSource: 'manual',
+    })
   })
 
   it('HK12 — the toast names the flagged ties, not a deletion', async () => {
