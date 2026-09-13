@@ -158,6 +158,57 @@ def test_any_failed_clause_makes_the_whole_verdict_fail() -> None:
     assert "3" in column_totality["entries"][0]["label"]
 
 
+def test_a_hairline_void_is_not_something_the_engineer_can_act_on() -> None:
+    """A 15-34 mm interior void is snap-round residue, not a hole to report.
+
+    Owner finding (installer #35, project fhdh): clause 6 flagged "4 column
+    stacks carry an interior void over 15 mm, worst 33.5 mm".  A void that small
+    is below the voxel height and below anything an engineer can see or act on,
+    so the clause must PASS and merely note the residue, not report a violation.
+    """
+    residue_only = LabelReport(
+        in_footprint_columns=100,
+        empty_in_footprint_columns=0,
+        hairline_gaps_over_limit=4,
+        hairline_gaps_actionable=0,
+        hairline_worst_m=0.0335,
+    )
+
+    report = GaplessBuildReportAssembler().assemble(
+        _MODEL_ID,
+        gapless_2d=_clean_2d_clauses(),
+        label_report=residue_only,
+        reconciliations=_clean_reconciliation(),
+    )
+
+    stack_voids = next(c for c in report["clauses"] if c["key"] == "stack-voids")
+    assert stack_voids["status"] == "pass"
+    assert report["verdict"] == "pass"
+
+
+def test_an_interior_void_the_engineer_can_act_on_still_fails() -> None:
+    """A void at or above the action threshold is a real hole and must be reported."""
+    real_hole = LabelReport(
+        in_footprint_columns=100,
+        empty_in_footprint_columns=0,
+        hairline_gaps_over_limit=5,
+        hairline_gaps_actionable=2,
+        hairline_worst_m=0.60,
+    )
+
+    report = GaplessBuildReportAssembler().assemble(
+        _MODEL_ID,
+        gapless_2d=_clean_2d_clauses(),
+        label_report=real_hole,
+        reconciliations=_clean_reconciliation(),
+    )
+
+    stack_voids = next(c for c in report["clauses"] if c["key"] == "stack-voids")
+    assert stack_voids["status"] == "fail"
+    assert len(stack_voids["entries"]) == 1
+    assert "2" in stack_voids["entries"][0]["label"]
+
+
 def test_an_unevaluated_clause_with_no_failure_is_incomplete_not_pass() -> None:
     """Nothing failed, but a 2-D clause is missing: the verdict must not read clean."""
     partial_2d = _clean_2d_clauses()[:3]  # section-closure missing
