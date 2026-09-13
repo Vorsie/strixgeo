@@ -14,6 +14,7 @@ import {
   GEOPUNT_ORTHO_WMS,
   buildCutFaceBands,
   computeBasemapBounds,
+  lidElevationAtInvestigations,
   computeSolidCapTriangles,
   sampleTinZ,
   clipTrisToHalfSpace,
@@ -547,5 +548,53 @@ describe('trianglesToWireframeEdgeIndices', () => {
     expect(trianglesToWireframeEdgeIndices(soup)).toEqual([
       0, 1, 1, 2, 2, 0, 3, 4, 4, 5, 5, 3,
     ])
+  })
+})
+
+// Owner 2026-09-13 (project fhdh): "how come the basemap is so high above the
+// mTAW surface?" The lid sat at the single highest vertex of any surface: one
+// DEM hull-edge point at +30.8 m lifted it 14 m above collars at +14.7..+17.1.
+describe('lidElevationAtInvestigations', () => {
+  // A ground TIN over a 20 x 20 m square at +16 m, with one spike at +30 m on
+  // the hull corner (the fhdh case).
+  const ground = {
+    vertices: [
+      [0, 0, 16],
+      [20, 0, 16],
+      [20, 20, 16],
+      [0, 20, 16],
+      [40, 40, 30], // the DEM spike on the hull edge, away from the data
+    ] as [number, number, number][],
+    triangles: [
+      [0, 1, 2],
+      [0, 2, 3],
+      [1, 4, 2],
+    ] as [number, number, number][],
+  }
+
+  it('the lid sits just above the ground at the investigations, not at a DEM spike on the edge', () => {
+    // Two investigations in the flat part of the site.
+    const z = lidElevationAtInvestigations(ground, [[5, 5], [8, 3]], 0.5)
+    expect(z).not.toBeNull()
+    expect(z as number).toBeGreaterThan(16)
+    expect(z as number).toBeLessThan(18)
+  })
+
+  it('with no investigations or no ground there is no answer, so the caller keeps the old rule', () => {
+    expect(lidElevationAtInvestigations(ground, [], 0.5)).toBeNull()
+    expect(lidElevationAtInvestigations(null, [[5, 5]], 0.5)).toBeNull()
+  })
+
+  it('an investigation outside every triangle is ignored, the others still answer', () => {
+    const z = lidElevationAtInvestigations(ground, [[500, 500], [5, 5]], 0.5)
+    expect(z as number).toBeCloseTo(16.5, 6)
+  })
+
+  it('computeBasemapBounds places the lid at the given elevation instead of the highest vertex', () => {
+    const b = computeBasemapBounds([ground], 31370, 16.5)
+    expect(b?.elevation).toBeCloseTo(16.5, 6)
+    // The old rule: the highest vertex plus its half-metre clearance.
+    const fallback = computeBasemapBounds([ground], 31370, null)
+    expect(fallback?.elevation).toBeCloseTo(30.5, 6)
   })
 })
