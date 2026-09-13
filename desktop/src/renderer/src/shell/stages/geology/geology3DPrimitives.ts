@@ -62,6 +62,12 @@ export const Z_OFFSET_PER_ORDER = 0.2
  */
 export const DEFAULT_BASEMAP_LID_ALPHA = 0.65
 
+/** Clearance (m) between the ground at the highest investigation and the
+ *  basemap lid (owner 2026-09-13: the lid hugs the block's top, not a DEM
+ *  spike at the hull edge). Half a metre keeps it off the ground TIN's
+ *  translucent sheet without floating. */
+export const BASEMAP_LID_ABOVE_GROUND_M = 0.5
+
 /** How far (m) the translucent formation/ground/lid surfaces are receded
  * from the true split plane before clipping, so their cut edge never lands
  * exactly coplanar with the OPAQUE cut-face caps (which sit on the true
@@ -124,6 +130,9 @@ export interface BasemapLid {
  *     (formation TINs + the ground surface).
  * projectEpsg
  *     Project horizontal CRS. Must be 31370 for the Geopunt ortho.
+ * lidElevation
+ *     The ground-at-the-investigations lid level, or ``null`` for the
+ *     highest-vertex fallback (see ``lidElevationAtInvestigations``).
  *
  * Returns
  * -------
@@ -132,10 +141,11 @@ export interface BasemapLid {
 export function buildBasemapLid(
   surfaces: { vertices: readonly (readonly [number, number, number])[] }[],
   projectEpsg: number,
+  lidElevation: number | null = null,
 ): BasemapLid | null {
   // Pure footprint/url math lives in cesiumGeometry (debt #41); this
   // wrapper only wraps the degree bounds in a Cesium.Rectangle.
-  const b = computeBasemapBounds(surfaces, projectEpsg)
+  const b = computeBasemapBounds(surfaces, projectEpsg, lidElevation)
   if (b === null) return null
   return {
     rect: Cesium.Rectangle.fromDegrees(b.minLng, b.minLat, b.maxLng, b.maxLat),
