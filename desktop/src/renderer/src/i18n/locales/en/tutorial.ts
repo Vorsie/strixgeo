@@ -32,6 +32,9 @@ export const TUTORIAL = {
   'tutorial.ui.doItHint': 'Do this in the app, the tutorial moves on by itself when you do.',
   'tutorial.ui.openTab': 'Open the highlighted tab to find this control.',
   'tutorial.ui.offscreen': "The control isn't on screen right now, the tip stays here until it is.",
+  'tutorial.ui.foldCard': 'Fold tutorial card',
+  'tutorial.ui.unfoldCard': 'Unfold tutorial card',
+  'tutorial.ui.foldedPill': 'Tutorial · step {n}/{total}',
 
   // 1 · Your project --------------------------------------------------------
   'tutorial.project-name.title': 'Name your project',
