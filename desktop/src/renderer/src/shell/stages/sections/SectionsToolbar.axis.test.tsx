@@ -936,7 +936,7 @@ describe('SectionsToolbar axis pill — never truncated (owner dogfeed 2026-08-2
       'litho-bodies-dropdown',
       'litho-admixtures-dropdown',
       'suggest-tie-sections',
-      'sections-toolbar-export-dropdown',
+      'sections-toolbar-export',
     ]) {
       expect(screen.queryByTestId(testid), `${testid} disappeared`).not.toBeNull()
     }
