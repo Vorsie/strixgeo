@@ -65,6 +65,7 @@ class: it is a pure function, not a service, so nothing here inherits
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 
@@ -82,6 +83,37 @@ from groundmodel.domain.services.voxel_litho.voxel_types import (
 __all__ = ["reconcile_sections"]
 
 _EPS: float = 1e-9
+
+
+def _clip_intervals_to_bed(
+    intervals: list[tuple[float, float]], cap: float
+) -> list[tuple[float, float]]:
+    """Dredge every ``(base, top)`` interval to a bed cap, dropping what sits above.
+
+    A bed override voids everything ABOVE the dredged bed level, so the 2-D
+    reference must be dredged the same way the 3-D voxel model was
+    (:func:`~groundmodel.domain.services.voxel_litho.label_voxels.label_voxels`
+    voids ``labels[..., gz > cap]`` inside a bed polygon).  An interval whose base
+    is at or above the cap is entirely dredged away.
+
+    Parameters
+    ----------
+    intervals : list of (float, float)
+        The ``(base, top)`` elevation intervals of the 2-D fill at one sample.
+    cap : float
+        The bed level; nothing above it survives.
+
+    Returns
+    -------
+    list of (float, float)
+        The dredged intervals; an interval entirely above the cap is dropped.
+    """
+    out: list[tuple[float, float]] = []
+    for base, top in intervals:
+        clipped_top = min(top, cap)
+        if clipped_top - base > _EPS:
+            out.append((base, clipped_top))
+    return out
 
 
 def _union_length(intervals: list[tuple[float, float]]) -> tuple[float, int]:
@@ -119,6 +151,8 @@ def reconcile_sections(
     labels: np.ndarray,
     horizontal_spacing_m: float,
     vertical_spacing_m: float,
+    *,
+    bed_top_at: Callable[[float, float], float | None] | None = None,
 ) -> tuple[SectionReconciliation, ...]:
     """Reconcile every section's 2-D fill against the labelled 3-D grid.
 
@@ -141,6 +175,15 @@ def reconcile_sections(
     vertical_spacing_m : float
         The grid's vertical (Z) voxel edge length — one labelled voxel's
         height contribution.
+    bed_top_at : callable or None, optional
+        ``(x, y) -> bed level or None`` — the SAME dredged-bed cap
+        :func:`~groundmodel.domain.services.voxel_litho.label_voxels.label_voxels`
+        applied to the 3-D grid.  When a sample sits inside a bed polygon the
+        2-D reference is dredged to that level too, so the check compares the
+        same bed-capped model from both directions and the dredged cut is not
+        counted as ground the 3-D model failed to hold.  ``None`` (no override
+        on the project) leaves the 2-D reference untouched — byte-identical to a
+        build with no bed overrides.
 
     Returns
     -------
@@ -186,6 +229,12 @@ def reconcile_sections(
                 intervals: list[tuple[float, float]] = []
                 for region in gap_regions:
                     intervals.extend(slice_region_intervals(region.polygon, f))
+                # Dredge the 2-D reference to the same bed cap the 3-D grid was
+                # given, so a dredged-bed cut is not read as missing 3-D ground.
+                if bed_top_at is not None:
+                    cap = bed_top_at(x, y)
+                    if cap is not None:
+                        intervals = _clip_intervals_to_bed(intervals, cap)
                 h2, runs_2d = _union_length(intervals)
 
                 if not domain.contains(x, y, tol=tol):
