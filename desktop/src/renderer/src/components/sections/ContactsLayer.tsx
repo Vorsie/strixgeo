@@ -177,6 +177,24 @@ interface Props {
   onBatchCreateContacts?: (
     creates: readonly ContactCopyPayload[],
   ) => Promise<void>
+  /**
+   * Litho axis only — Shift-drag an ACCEPTED litho boundary cross-column to COPY
+   * both units onto the target test (owner ask, installer #35: *"can't i drag and
+   * drop an accepted litho contact onto a new cptm ... just like the litho
+   * boundaries?"* / *"b, both units."*). Fired on mouseup of a Shift +
+   * cross-column drag of a litho contact; the source contact's own depth is
+   * carried (drop Y is ignored, like the stratigraphy paint-through), and the
+   * handler creates both units on an empty target or splits the spanning layer on
+   * one that already has layers. Routes AROUND the stratigraphy paint-through
+   * below, which stamps bare contacts that cannot carry a litho composition.
+   * Absent → the gesture falls through to the paint-through (the geological axis).
+   */
+  onCopyLithoContactToColumn?: (params: {
+    sourceInvestigationId: string
+    contactDepthM: number
+    targetInvestigationId: string
+    targetKind: 'cpt' | 'borehole'
+  }) => void
   /** Plot area X extents in SVG coords. Kept on the prop list for
    * historical reasons + test backward-compat. The marquee
    * background rect itself lives in SectionPanel now (paint-order
@@ -774,6 +792,7 @@ export default function ContactsLayer({
   onLinkLithoToGeo,
   onBatchUpdateContacts,
   onBatchCreateContacts,
+  onCopyLithoContactToColumn,
   marquee,
   onSetMarquee,
   selectionResetSignal,
@@ -2041,6 +2060,38 @@ export default function ContactsLayer({
       const target = final.currentTargetCol
       const altMove = e.altKey
 
+      // Litho axis: a Shift + cross-column drag of an ACCEPTED litho boundary
+      // COPIES both units onto the target test (owner ask, installer #35). The
+      // stratigraphy paint-through below stamps bare formation contacts, which
+      // cannot carry a litho composition, so the litho axis routes to its own
+      // copy handler instead. Drop Y is ignored: the boundary lands at the SAME
+      // depth below the target collar as it sits below the source collar (the
+      // same convention the stratigraphy copy uses).
+      if (
+        axisMode === 'lithostratigraphic' &&
+        final.shiftHeld &&
+        target !== null &&
+        onCopyLithoContactToColumn
+      ) {
+        const primary = final.contactsInDrag.find(
+          c => c.contactId === final.contactId,
+        )
+        if (primary) {
+          log.info('contacts', '[drag-commit] litho-copy-contact', {
+            source: final.anchorId,
+            depthM: primary.originalDepthM,
+            target: target.proj.item.id,
+          })
+          onCopyLithoContactToColumn({
+            sourceInvestigationId: final.anchorId,
+            contactDepthM: primary.originalDepthM,
+            targetInvestigationId: target.proj.item.id,
+            targetKind: target.kind,
+          })
+        }
+        return
+      }
+
       // Shift+drag cross-column = PAINT-THROUGH: duplicate each
       // dragged contact at its ORIGINAL depth onto every column
       // between the source and the drop (drop included, source
@@ -2227,6 +2278,8 @@ export default function ContactsLayer({
     onUpdateContactDepth,
     onBatchUpdateContacts,
     onBatchCreateContacts,
+    onCopyLithoContactToColumn,
+    axisMode,
     placedColumns,
     levelToScreen,
     layers,
