@@ -33,6 +33,12 @@ export interface SectionExportDownload {
   logLabel: string
   /** The app toast fn. */
   toast: (kind: 'success' | 'error', message: string) => void
+  /**
+   * Called with the chosen path AFTER a successful write (installer #35 — the
+   * Export hub remembers each card's last path). Optional: callers that do not
+   * surface a last-path hint (the map-click flow) simply omit it.
+   */
+  onSaved?: (path: string) => void
 }
 
 /**
@@ -74,6 +80,7 @@ export async function downloadSectionExport(spec: SectionExportDownload): Promis
       'section',
       `${logLabel} ok bytes=${bytes.byteLength} path=${dialogPath}`,
     )
+    spec.onSaved?.(dialogPath)
     toast('success', spec.successMessage)
   } catch (err) {
     log.error('section', `${logLabel} failed`, err)
