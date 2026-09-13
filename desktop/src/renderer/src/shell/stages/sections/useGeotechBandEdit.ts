@@ -159,6 +159,13 @@ export interface UseGeotechBandEditResult {
     previousClass: number | null,
   ) => void
   /**
+   * Split a BOREHOLE band at the right-click depth (owner #35). Commits
+   * DIRECTLY — a borehole split keeps the class on both halves, so there is
+   * nothing to re-derive and nothing to preview. Undoable (undo re-merges the
+   * two halves, which the borehole merge does by keeping the survivor's class).
+   */
+  onRequestSplitBandHere?: (bandId: string, depthM: number) => void
+  /**
    * Clear ONE test's subdivision (owner ask 2026-08-18) — the escape hatch of
    * first-subdivision-wins: the pipeline presses import already-banded
    * columns as-is, so redoing one column is clear-then-press. Fires
@@ -545,8 +552,18 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         return
       }
       // merge (also the drag-absorb and remove-band paths — they commit through
-      // the same verb): re-split the survivor at the carried boundary.
+      // the same verb): re-split the survivor at the carried boundary AND restore
+      // each half's pre-merge class + source. A bare re-split re-derives from qc,
+      // which lost a class the merge had changed or a hand class it never
+      // measured (owner #35: "ctrl+z ... doesn't restore the earlier packing
+      // suggestion"). The pre-merge state travels on the merge response.
       const { upperBandId, lowerBandId, boundaryDepthM } = edit
+      const restore = {
+        upperNadClass: result.pre_merge_upper_nad_class ?? null,
+        lowerNadClass: result.pre_merge_lower_nad_class ?? null,
+        upperSource: result.pre_merge_upper_source ?? null,
+        lowerSource: result.pre_merge_lower_source ?? null,
+      }
       let currentLowerId = lowerBandId
       undoStack.push({
         descriptionKey: 'undo.mergePackingBands',
@@ -556,6 +573,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
             modelId,
             upperBandId,
             boundaryDepthM,
+            restore,
           )
           currentLowerId = undone.created_layer_ids[0]
           await settleAfterWrite()
@@ -677,12 +695,48 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     onAcceptedTiesFlagged,
   ])
 
+  const onRequestSplitBandHere = useCallback(
+    (bandId: string, depthM: number): void => {
+      if (modelId === null) return
+      log.info('section', `band-split-here: band=${bandId} depth=${depthM.toFixed(3)} m`)
+      setBusy(true)
+      // Commit directly — a borehole split keeps the class on both halves, so
+      // there is no re-derivation to preview (unlike the CPT split's sheet).
+      void api.geology
+        .splitGeotechBand(projectId, modelId, bandId, depthM)
+        .then(async result => {
+          // Undo re-merges the two halves; the borehole merge keeps the
+          // survivor's class, so the original band comes back intact.
+          pushUndoFor({ kind: 'split', bandId, depthM }, result)
+          toast('success', t('sections.bands.toast.splitHere'))
+          await settleAfterWrite()
+          const flaggedIds = result.flagged_edge_ids ?? []
+          if (flaggedIds.length > 0) onAcceptedTiesFlagged?.(flaggedIds)
+        })
+        .catch((err: unknown) => {
+          log.warn('section', 'band-split-here failed', err)
+          reportFailure(err, t('sections.bandEdit.applyFailed'))
+        })
+        .finally(() => setBusy(false))
+    },
+    [
+      modelId,
+      projectId,
+      pushUndoFor,
+      settleAfterWrite,
+      toast,
+      reportFailure,
+      onAcceptedTiesFlagged,
+    ],
+  )
+
   return {
     onRequestSplitBand: modelId === null ? undefined : onRequestSplitBand,
     onRequestMergeBands: modelId === null ? undefined : onRequestMergeBands,
     onRequestMoveBoundary: modelId === null ? undefined : onRequestMoveBoundary,
     onRequestAbsorbLens: modelId === null ? undefined : onRequestAbsorbLens,
     onRequestSetBandClass: modelId === null ? undefined : onRequestSetBandClass,
+    onRequestSplitBandHere: modelId === null ? undefined : onRequestSplitBandHere,
     onRequestClearColumn: modelId === null ? undefined : onRequestClearColumn,
     plan,
     busy,
