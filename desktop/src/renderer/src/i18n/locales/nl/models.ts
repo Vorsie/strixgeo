@@ -310,6 +310,8 @@ export const MODELS_NL = {
   'litho.exportFence': 'Hekkendiagram exporteren',
   'litho.exportFenceHint':
     'Bewaar de 3D-profielwand als DXF (zet de weergave eerst op hekkendiagram)',
+  'litho.exportHubHint':
+    'Open de Export-stap om het hekkendiagram en elke andere export te bewaren',
   'litho.resetCamera': 'Camera herstellen',
   'litho.resetCameraHint':
     'Klap elke gesplitste weergave dicht en breng de camera terug naar het volledige model',
