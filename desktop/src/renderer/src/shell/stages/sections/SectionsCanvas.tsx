@@ -3193,6 +3193,9 @@ export default function SectionsCanvas(): JSX.Element {
             onRequestGeotechSetBandClass={
               isGeotech ? geotechBandEdit.onRequestSetBandClass : undefined
             }
+            onRequestGeotechSplitHere={
+              isGeotech ? geotechBandEdit.onRequestSplitBandHere : undefined
+            }
             onRequestGeotechClearColumn={
               isGeotech ? geotechBandEdit.onRequestClearColumn : undefined
             }
