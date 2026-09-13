@@ -27,9 +27,11 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    // Main soil select shows KLEI.
-    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
-    expect(main.value).toBe('KLEI')
+    // Main soil control shows the KLEI label ("Clay"). (Retargeted from the
+    // native <select>.value pin — the control is now an in-app listbox trigger,
+    // owner #35.)
+    const main = screen.getByLabelText(/Main soil/i)
+    expect(main.textContent).toContain('Clay')
     // Live preview reflects the English label (KLEI + moderately sandy).
     const preview = screen.getByTestId('ghost-edit-preview')
     expect(preview.textContent ?? '').not.toBe('')
@@ -46,9 +48,10 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    // Change main code to KLEI.
-    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
-    fireEvent.change(main, { target: { value: 'KLEI' } })
+    // Change main code to KLEI via the listbox (retargeted from fireEvent.change
+    // on the native <select>, owner #35): open the control, pick "Clay".
+    fireEvent.click(screen.getByLabelText(/Main soil/i))
+    fireEvent.click(screen.getByRole('option', { name: 'Clay' }))
     fireEvent.click(screen.getByRole('button', { name: /save composition/i }))
     expect(onSave).toHaveBeenCalledTimes(1)
     const [mainSoilCode, admixtures] = onSave.mock.calls[0]
@@ -83,8 +86,8 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
-    expect(main.value).toBe('ZAND')
+    // (Retargeted from native <select>.value, owner #35.)
+    expect(screen.getByLabelText(/Main soil/i).textContent).toContain('Sand')
     // Close + reopen with KLEI.
     rerender(
       <LithoGhostCompositionEditor
@@ -104,8 +107,7 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    const main2 = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
-    expect(main2.value).toBe('KLEI')
+    expect(screen.getByLabelText(/Main soil/i).textContent).toContain('Clay')
   })
 
   it('E5 — Add → Remove admixture row mutations flow into Save payload', () => {
@@ -146,13 +148,14 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    // User adds an admixture row + changes its soil code to ZN.
+    // User adds an admixture row + changes its soil code to ZN via the listbox
+    // (retargeted from fireEvent.change on the native <select>, owner #35).
     fireEvent.click(screen.getByRole('button', { name: /add admixture/i }))
-    const soilSelect = screen.getByLabelText(
-      /Admixture soil code/i,
-    ) as HTMLSelectElement
-    fireEvent.change(soilSelect, { target: { value: 'ZN' } })
-    expect(soilSelect.value).toBe('ZN')
+    fireEvent.click(screen.getByLabelText(/Admixture soil code/i))
+    fireEvent.click(screen.getByRole('option', { name: /Sand \(ZN\)/ }))
+    expect(
+      screen.getByLabelText(/Admixture soil code/i).textContent,
+    ).toContain('Sand (ZN)')
     // Parent re-renders with a fresh-identity initialAdmixtures
     // (same content, new reference — the dogfeed bug trigger).
     rerender(
@@ -167,10 +170,9 @@ describe('LithoGhostCompositionEditor', () => {
     // The added row must still be present + the user's selection
     // preserved. Pre-fix: the row was wiped (no soil-code select
     // visible) and the dropdown reverted to its default.
-    const soilSelectAfter = screen.getByLabelText(
-      /Admixture soil code/i,
-    ) as HTMLSelectElement
-    expect(soilSelectAfter.value).toBe('ZN')
+    expect(
+      screen.getByLabelText(/Admixture soil code/i).textContent,
+    ).toContain('Sand (ZN)')
   })
 
   // E7 — variant of E6: the parent passes a non-empty initialAdmixtures
@@ -187,11 +189,10 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    // User changes the seeded row's soil code to VE.
-    const soilSelect = screen.getByLabelText(
-      /Admixture soil code/i,
-    ) as HTMLSelectElement
-    fireEvent.change(soilSelect, { target: { value: 'VE' } })
+    // User changes the seeded row's soil code to VE via the listbox
+    // (retargeted from fireEvent.change on the native <select>, owner #35).
+    fireEvent.click(screen.getByLabelText(/Admixture soil code/i))
+    fireEvent.click(screen.getByRole('option', { name: /Peat \(VE\)/ }))
     // Parent re-renders, passing a FRESH array with the original
     // content (the inline .map(...) pattern).
     rerender(
@@ -203,10 +204,9 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    const soilSelectAfter = screen.getByLabelText(
-      /Admixture soil code/i,
-    ) as HTMLSelectElement
-    expect(soilSelectAfter.value).toBe('VE')
+    expect(
+      screen.getByLabelText(/Admixture soil code/i).textContent,
+    ).toContain('Peat (VE)')
   })
 
   // E8 — mainSoilLocked=true: the main-soil select is disabled and the
@@ -222,7 +222,8 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
+    // The disabled main-soil trigger (retargeted from native <select>, owner #35).
+    const main = screen.getByLabelText(/Main soil/i) as HTMLButtonElement
     expect(main.disabled).toBe(true)
     expect(screen.getByText(/edit admixtures for this body/i)).toBeTruthy()
   })
@@ -261,7 +262,7 @@ describe('LithoGhostCompositionEditor', () => {
         onCancel={vi.fn()}
       />,
     )
-    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
+    const main = screen.getByLabelText(/Main soil/i) as HTMLButtonElement
     expect(main.disabled).toBe(false)
     expect(screen.getByText(/edit suggestion composition/i)).toBeTruthy()
   })
@@ -284,8 +285,74 @@ describe('LithoGhostCompositionEditor — a stray key cannot change the soil (ow
         onCancel={vi.fn()}
       />,
     )
-    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
+    const main = screen.getByLabelText(/Main soil/i)
     expect(document.activeElement).not.toBe(main)
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /cancel|annuleren/i }))
+  })
+})
+
+// Installer #35 (owner, verbatim): "I'm trying to change samenstelling through
+// the right click menu on the litho axis, but the dropdown is not dropping, i
+// managed to do it by using arrow keys though." Root cause (probed on the real
+// app): nothing in JS prevents the pointer default and focus lands on the
+// control, but the native Electron <select> popup itself does not open in this
+// window. The soil pickers are now an in-app listbox. Tests are in his words.
+describe('LithoGhostCompositionEditor — the samenstelling dropdown drops on click (owner #35)', () => {
+  it('the dropdown drops when I click it', () => {
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    // Closed to start: no listbox anywhere.
+    expect(screen.queryByRole('listbox')).toBeNull()
+    const trigger = screen.getByLabelText(/Main soil/i)
+    fireEvent.click(trigger)
+    // The click drops a listbox of the five base soils.
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(screen.getAllByRole('option')).toHaveLength(5)
+  })
+
+  it('arrow keys still change the soil', () => {
+    const onSave = vi.fn()
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={onSave}
+        onCancel={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText(/Main soil/i))
+    const listbox = screen.getByRole('listbox')
+    // The soils list is GRIND, ZAND, SILT, KLEI, VEEN; ZAND is current, so one
+    // step down is SILT, and Enter commits it.
+    fireEvent.keyDown(listbox, { key: 'ArrowDown' })
+    fireEvent.keyDown(listbox, { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: /save composition/i }))
+    const [mainSoilCode] = onSave.mock.calls[0]
+    expect(mainSoilCode).toBe('SILT')
+  })
+
+  it('Cancel is focused on open, not the soil control', () => {
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByLabelText(/Main soil/i)
+    expect(document.activeElement).not.toBe(trigger)
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: /cancel|annuleren/i }),
+    )
   })
 })
