@@ -297,7 +297,16 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('params-jump', 7, ['stage-tab-sections', 'sections-canvas', 'body-ctx-unit-statistics'], 'next', 'sections'),
   mkc('params-units', 7, ['stage-tab-parameters', 'parameters-unit-list'], 'next', 'parameters'),
   mkc('params-group', 7, ['stage-tab-parameters', 'parameters-group-bar', 'parameters-group-action'], 'next', 'parameters'),
-  mkc('params-water-table', 7, ['stage-tab-parameters', 'parameters-water-table-line'], 'next', 'parameters'),
+  // Owner 2026-09-13: "where does one adjust the groundwater table" — the line
+  // only exists once a CPT row is selected in the per-test table, so the card
+  // points at that table until it is.
+  mkc(
+    'params-water-table',
+    7,
+    ['stage-tab-parameters', 'parameters-panel-per-test', 'parameters-water-table-line'],
+    'next',
+    'parameters',
+  ),
   mkc('params-stats', 7, ['stage-tab-parameters'], 'next', 'parameters'),
 
   // 8 · Export ---------------------------------------------------------------
