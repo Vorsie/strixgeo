@@ -305,6 +305,7 @@ export const PANELS = {
   'undo.editLithoComposition': 'Edit litho layer composition',
   'undo.insertLithoLayer': 'Insert litho layer',
   'undo.splitLithoLayer': 'Split litho layer',
+  'undo.copyLithoContact': 'Copy litho contact',
   'undo.mergeLithoLayers': 'Merge litho layers',
   'undo.absorbLithoLayer': 'Absorb litho layer',
   'undo.rejectSuggestion': 'Reject suggestion',
