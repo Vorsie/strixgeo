@@ -37,10 +37,17 @@ import { useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 
 import { useT, type Translator } from '../../../i18n/translate'
+import {
+  clauseAction,
+  clauseEntryText,
+  clauseMeaning,
+  clauseTitle,
+} from '../../../utils/gaplessGate/modelCheckText'
 import type {
   GaplessBuildReport,
   GaplessClause,
   GaplessClauseEntry,
+  GaplessClauseKey,
   GaplessVerdict,
 } from '../../../utils/gaplessGate/types'
 
@@ -128,13 +135,19 @@ function summaryOf(report: GaplessBuildReport, t: Translator): string {
 
 /** One named spot, with a press only where the spot is somewhere. */
 function EntryRow({
+  clauseKey,
   entry,
   onVisitSpot,
 }: {
+  clauseKey: GaplessClauseKey
   entry: GaplessClauseEntry
   onVisitSpot: (sectionId: string, gapInvestigationIds: readonly string[]) => void
 }): JSX.Element {
   const t = useT()
+  // The detail sentence is composed in the viewer's language from the finding's
+  // numbers; ``entry.label`` (backend English) is only the fallback for an old
+  // report that carries no ``params``.
+  const text = clauseEntryText(t, clauseKey, entry)
   // Truthiness, not ``!== undefined``: the backend sends an absent locator as
   // an explicit ``null`` (Pydantic), and an id that is the empty string is no
   // id either. Testing the slot instead of the value put a "Show me" button on
@@ -148,7 +161,7 @@ function EntryRow({
       <span aria-hidden="true" className="text-text-muted select-none">
         ·
       </span>
-      <span className="flex-1">{entry.label}</span>
+      <span className="flex-1">{text}</span>
       {sectionId !== null && (
         <button
           type="button"
@@ -189,6 +202,12 @@ function ClauseRow({
         ? 'text-status-danger'
         : 'text-status-amber'
 
+  // "What this means" + "what to do", composed in the viewer's language and
+  // shown on EVERY clause, red or green (owner, 2026-09-13: a violation must
+  // always tell the engineer what to do, and a kept promise is worth explaining).
+  const meaning = clauseMeaning(t, clause.key)
+  const action = clauseAction(t, clause.key)
+
   return (
     <li>
       <div className="flex items-start gap-1.5">
@@ -196,8 +215,14 @@ function ClauseRow({
           {mark}
         </span>
         <span className="text-text-muted tabular-nums select-none">{clause.number}.</span>
-        <span className="flex-1 text-text-primary">{clause.title}</span>
+        <span className="flex-1 text-text-primary">{clauseTitle(t, clause)}</span>
       </div>
+      {meaning && <p className="pl-4 py-0.5 text-text-secondary">{meaning}</p>}
+      {action && (
+        <p className="pl-4 py-0.5 text-text-muted">
+          <span className="font-semibold">{t('geotech.reportWhatToDo')}</span> {action}
+        </p>
+      )}
       {clause.status === 'not-evaluated' && Boolean(clause.not_evaluated_reason) && (
         <p className="pl-4 py-0.5 text-text-muted italic">
           {t('geotech.reportNotChecked', { reason: clause.not_evaluated_reason ?? '' })}
@@ -210,6 +235,7 @@ function ClauseRow({
               // The entries of one clause have no id of their own; their order
               // within the clause is the engine's and is stable for a build.
               key={`${clause.key}-${i}`}
+              clauseKey={clause.key}
               entry={entry}
               onVisitSpot={onVisitSpot}
             />
@@ -275,7 +301,7 @@ export default function GeotechBuildReportBanner({
                   <span aria-hidden="true" className="text-status-danger font-semibold">
                     ✗{' '}
                   </span>
-                  {c.title}
+                  {clauseTitle(t, c)}
                 </li>
               ))}
             </ul>
