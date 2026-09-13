@@ -153,6 +153,10 @@ export interface UseShellContextValueArgs {
   setSectionsDeepLinkTarget: ShellContextValue['coordinator']['setSectionsDeepLinkTarget']
   parametersDeepLinkTarget: ShellContextValue['coordinator']['parametersDeepLinkTarget']
   setParametersDeepLinkTarget: ShellContextValue['coordinator']['setParametersDeepLinkTarget']
+  // Optional for the same fixture reason as importMenuOpen below (the Coordinator's
+  // own export deep-link fields are optional). App always passes them.
+  exportDeepLinkTarget?: ShellContextValue['coordinator']['exportDeepLinkTarget']
+  setExportDeepLinkTarget?: ShellContextValue['coordinator']['setExportDeepLinkTarget']
   selectedParameterUnit: ShellContextValue['coordinator']['selectedParameterUnit']
   setSelectedParameterUnit: ShellContextValue['coordinator']['setSelectedParameterUnit']
   parametersActiveTab: ShellContextValue['coordinator']['parametersActiveTab']
@@ -224,6 +228,7 @@ export function useShellContextValue(
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
     parametersDeepLinkTarget, setParametersDeepLinkTarget,
+    exportDeepLinkTarget, setExportDeepLinkTarget,
     selectedParameterUnit, setSelectedParameterUnit,
     parametersActiveTab, setParametersActiveTab,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
@@ -402,6 +407,8 @@ export function useShellContextValue(
       setSectionsDeepLinkTarget,
       parametersDeepLinkTarget,
       setParametersDeepLinkTarget,
+      exportDeepLinkTarget,
+      setExportDeepLinkTarget,
       selectedParameterUnit,
       setSelectedParameterUnit,
       parametersActiveTab,
