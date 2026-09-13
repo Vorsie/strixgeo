@@ -7,11 +7,10 @@
 // original. The two menus (tie-sections caret, Export items) are declared as
 // locals because each is consumed only by ``tailItems``.
 
-import { Trash2, FileOutput, FileText, Cpu, Plus, Network } from 'lucide-react'
+import { Trash2, FileOutput, Plus, Network } from 'lucide-react'
 
 import {
   ToolbarButton,
-  ToolbarDropdown,
   PrimaryToolbarButton,
   SplitToolbarButton,
 } from '../../ToolbarPrimitives'
@@ -19,7 +18,6 @@ import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 import type { ToolbarItemSpec } from '../../ResponsiveToolbarRow'
 import { SECTIONS_OVERFLOW_GROUP } from './sectionsToolbar_constants'
 import type {
-  GeologicalModelResponse,
   CrossSectionResponse,
   CptListItem,
   BoreholeListItem,
@@ -33,10 +31,6 @@ export interface TailToolbarItemsDeps {
    *  re-renders every verb in one pass. */
   t: Translator
   hasSection: boolean
-  hasModel: boolean
-  /** Already-translated model-level word ("lithostratigraphic" → NL
-   *  "lithostratigrafisch") — display only, never a filename or payload. */
-  axisLevelLabel: string
   creating: boolean
   deleting: boolean
   canCreate: boolean
@@ -47,18 +41,12 @@ export interface TailToolbarItemsDeps {
   visibleBoreholes: BoreholeListItem[]
   suggestedTies: UseSectionsResult['suggestedTies']
   acceptingAllTies: boolean
-  exportingDxf: boolean
-  exportingPlaxis: boolean
-  geoVerbDisabled: boolean
-  geoVerbHint: string | null
-  activeGeologicalModel: GeologicalModelResponse | null
-  dseriesExportItems: ToolbarDropdownItem[]
   setAcceptingAllTies: (accepting: boolean) => void
-  setSheetDialogOpen: (open: boolean) => void
   handleNew: () => Promise<void>
   handleDelete: () => void
-  handleExportDxf: () => Promise<void>
-  handleExportPlaxis: () => Promise<void>
+  /** Open the Export hub scoped to the current section + axis (installer #35 —
+   *  the Export stage is the only export surface). */
+  onOpenExportHub: () => void
   handleAcceptAllTies: UseSectionsResult['handleAcceptAllTies']
   handleSuggestTies: UseSectionsResult['handleSuggestTies']
   handleClearTieSuggestions: UseSectionsResult['handleClearTieSuggestions']
@@ -81,8 +69,6 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
   const {
     t,
     hasSection,
-    hasModel,
-    axisLevelLabel,
     creating,
     deleting,
     canCreate,
@@ -93,18 +79,10 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
     visibleBoreholes,
     suggestedTies,
     acceptingAllTies,
-    exportingDxf,
-    exportingPlaxis,
-    geoVerbDisabled,
-    geoVerbHint,
-    activeGeologicalModel,
-    dseriesExportItems,
     setAcceptingAllTies,
-    setSheetDialogOpen,
     handleNew,
     handleDelete,
-    handleExportDxf,
-    handleExportPlaxis,
+    onOpenExportHub,
     handleAcceptAllTies,
     handleSuggestTies,
     handleClearTieSuggestions,
@@ -135,54 +113,6 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
                   : t('sections.tie.acceptAllTitle'),
             testid: 'tie-accept-all',
           },
-        ]
-
-  const exportMenuItems: ToolbarDropdownItem[] = [
-          {
-            label: exportingDxf ? t('sections.export.exportingDxf') : t('sections.export.sectionDxf'),
-            icon: <FileOutput size={12} />,
-            onClick: () => void handleExportDxf(),
-            disabled: !hasSection || !hasModel || exportingDxf,
-            title:
-              !hasSection
-                ? t('sections.export.selectSection')
-                : !hasModel
-                  ? t('sections.export.noModelContacts', { level: axisLevelLabel })
-                  : exportingDxf
-                    ? t('sections.busy.exporting')
-                    : t('sections.export.dxfTitle', { level: axisLevelLabel }),
-            testid: 'export-section-dxf',
-          },
-          {
-            label: exportingPlaxis ? t('sections.export.exportingPlaxis') : t('sections.export.plaxisScript'),
-            icon: <Cpu size={12} />,
-            onClick: () => void handleExportPlaxis(),
-            disabled: geoVerbDisabled || exportingPlaxis,
-            title:
-              geoVerbHint ??
-              (activeGeologicalModel === null
-                ? t('sections.export.noGeologicalModel')
-                : exportingPlaxis
-                  ? t('sections.busy.exporting')
-                  : t('sections.export.plaxisTitle')),
-            testid: 'export-plaxis-3d',
-          },
-          {
-            // Debt #52 slice 1: the cross-section PDF sheet — opens the live
-            // preview dialog (SheetPreviewDialog), which owns the print flow.
-            label: t('sections.export.sectionPdf'),
-            icon: <FileText size={12} />,
-            onClick: () => setSheetDialogOpen(true),
-            disabled: !hasSection || !hasModel,
-            title:
-              !hasSection
-                ? t('sections.export.selectSection')
-                : !hasModel
-                  ? t('sections.export.noModelDefine', { level: axisLevelLabel })
-                  : t('sections.export.pdfTitle', { level: axisLevelLabel }),
-            testid: 'export-section-pdf',
-          },
-          ...dseriesExportItems,
         ]
 
   const tailItems: ToolbarItemSpec[] = [
@@ -324,36 +254,45 @@ export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSp
       ),
     },
 
-    /* Debt #93: Export DXF + Plaxis 3D collapsed under one "Export ▾"
-        dropdown to declutter the main toolbar.  Both verbs are still
-        one click away (trigger + item) but the toolbar no longer
-        dedicates two slots to them.  The trigger disables when
-        neither item would be reachable.
+    /* Export… — ONE verb that opens the Export hub scoped to the open
+        section + axis (installer #35, owner ruling: "remove all exports in
+        other places ... move it all to the export pane"). Every export (DXF,
+        Plaxis 2D/3D, D-Stability, D-Sheet, PDF, fence) now lives on the Export
+        stage; the toolbar just jumps there with the section preselected.
 
         'medium' — the deliverable step, run at the end of a session. */
     {
-      id: 'sections-toolbar-export-dropdown',
+      id: 'sections-toolbar-export',
       priority: 'medium',
-      kind: 'dropdown',
+      kind: 'button',
       label: t('sections.toolbar.export'),
       separatorBefore: true,
       overflowGroup: SECTIONS_OVERFLOW_GROUP.export,
-      overflowItems: exportMenuItems,
+      overflowItems: [
+        {
+          label: t('sections.toolbar.export'),
+          icon: <FileOutput size={12} />,
+          onClick: onOpenExportHub,
+          disabled: !hasSection,
+          title: hasSection
+            ? t('sections.export.hubJumpTitle')
+            : t('sections.export.selectSection'),
+          testid: 'sections-toolbar-export',
+        },
+      ],
       render: p => (
-        <ToolbarDropdown
+        <ToolbarButton
           iconOnly={p === 'icon'}
           icon={<FileOutput size={13} />}
           label={t('sections.toolbar.export')}
-          disabled={
-            (!hasSection || !hasModel || exportingDxf) && (geoVerbDisabled || exportingPlaxis)
-          }
+          onClick={onOpenExportHub}
+          disabled={!hasSection}
+          testid="sections-toolbar-export"
           title={
-            exportingDxf || exportingPlaxis
-              ? t('sections.busy.exporting')
-              : t('sections.export.dropdownTitle')
+            hasSection
+              ? t('sections.export.hubJumpTitle')
+              : t('sections.export.selectSection')
           }
-          testid="sections-toolbar-export-dropdown"
-          items={exportMenuItems}
         />
       ),
     },
