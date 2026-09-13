@@ -133,12 +133,15 @@ export interface Coordinator {
   handleSelectWithoutView: (id: string) => Promise<void>
   /** Select a borehole: sets selectedBoreholeId, clears CPT + section, loads detail, switches to chart. */
   handleSelectBorehole: (id: string) => Promise<void>
-  /** Export the section's geological model to DXF (owns the save-dialog + file-write flow). */
+  /** Export the section's geological model to DXF (owns the save-dialog +
+   *  file-write flow). ``onSaved`` reports the chosen path so the Export hub can
+   *  remember it (installer #35); the map-click caller omits it. */
   handleExportSectionDxf: (
     projectId: string,
     sectionId: string,
     sectionName: string,
     modelId: string,
+    onSaved?: (path: string) => void,
   ) => Promise<void>
   /** Export the section's geological model as a Plaxis 2D plxscripting
    *  script (debt #29 — owns the same save-dialog + file-write flow). */
@@ -147,6 +150,7 @@ export interface Coordinator {
     sectionId: string,
     sectionName: string,
     modelId: string,
+    onSaved?: (path: string) => void,
   ) => Promise<void>
   /** CPT ids that are outside the current map viewport. Empty before the map reports bounds. */
   outOfViewportCptIds: ReadonlySet<string>
@@ -306,6 +310,23 @@ export interface Coordinator {
   parametersDeepLinkTarget: ParameterUnitScope | null
   /** Set or clear the parameters deep-link target. */
   setParametersDeepLinkTarget: (target: ParameterUnitScope | null) => void
+  /**
+   * Export-stage deep-link request (installer #35 — the Export hub is the only
+   * export surface). Set by the Sections toolbar's single "Export…" verb and the
+   * 3-D stages' "Export…" verbs. ``AppShell`` watches it, switches to the Export
+   * stage, and (when a section is named) selects it + sets the axis so the hub's
+   * pickers open already scoped to the section and level the engineer was on.
+   * Cleared on dispatch (single-fire), like its deep-link siblings.
+   *
+   * OPTIONAL for the same reason ``importMenuOpen`` is — the many fully-typed
+   * ``ShellContextValue`` fixtures need not each add it; the real bus always sets
+   * it and the readers guard on its presence.
+   */
+  exportDeepLinkTarget?: { sectionId: string | null; axis: SectionModelAxis } | null
+  /** Set or clear the export deep-link target. */
+  setExportDeepLinkTarget?: (
+    target: { sectionId: string | null; axis: SectionModelAxis } | null,
+  ) => void
   /**
    * The unit (litho or geotech — see {@link ParameterUnitScope}) whose
    * statistics the Parameters stage is scoped to, or ``null`` when none is
