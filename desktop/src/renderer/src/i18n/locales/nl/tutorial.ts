@@ -31,6 +31,9 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   'tutorial.ui.doItHint': 'Doe dit in de app, de tutorial gaat vanzelf verder zodra je het doet.',
   'tutorial.ui.openTab': 'Open het gemarkeerde tabblad om deze knop te vinden.',
   'tutorial.ui.offscreen': 'De knop is nu niet zichtbaar, de tip blijft hier staan tot ze verschijnt.',
+  'tutorial.ui.foldCard': 'Tutorialkaart invouwen',
+  'tutorial.ui.unfoldCard': 'Tutorialkaart uitvouwen',
+  'tutorial.ui.foldedPill': 'Tutorial · stap {n}/{total}',
 
   // 1 · Je project ----------------------------------------------------------
   'tutorial.project-name.title': 'Geef je project een naam',
