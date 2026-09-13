@@ -27,7 +27,6 @@ import LithologyCanvas, {
   resetLithoCameraCallback,
   resetLithoSplitViewportCallback,
   lithoVoxelRequestCallback,
-  lithoFenceExportCallback,
 } from './LithologyCanvas'
 import LithologyInspector from './LithologyInspector'
 import { ToolbarButton } from '../../ToolbarPrimitives'
@@ -61,6 +60,8 @@ function LithologyToolbar(): JSX.Element | null {
       cancelLithoBuild,
       voxelBuildState,
     },
+    sections: { selectedSectionId },
+    coordinator: { setExportDeepLinkTarget },
   } = useShell()
   // Unconditional hook — above the ``!activeLithoModel`` early return.
   const t = useT()
@@ -104,17 +105,22 @@ function LithologyToolbar(): JSX.Element | null {
           }
         />
       )}
-      {/* Fence diagram -> DXF. Only offered once solids exist (the fence needs
-          a built model); the action itself refuses with a warning when the view
-          is not in Fence mode, because a silently empty DXF would read as a
-          successful export of an empty model. */}
+      {/* Export… — jumps to the Export hub (installer #35: the Export stage is
+          the only export surface). Offered once solids exist, because the fence
+          DXF (the litho stage's export) needs a built model; the hub's fence card
+          then writes it. */}
       {hasLithoSolids && (
         <ToolbarButton
           icon={<Download size={13} />}
-          label={t('litho.exportFence')}
-          onClick={() => void lithoFenceExportCallback.current?.()}
+          label={t('sections.toolbar.export')}
+          onClick={() =>
+            setExportDeepLinkTarget?.({
+              sectionId: selectedSectionId ?? null,
+              axis: 'lithostratigraphic',
+            })
+          }
           testid="litho-export-fence-button"
-          title={t('litho.exportFenceHint')}
+          title={t('litho.exportHubHint')}
         />
       )}
       {hasLithoSolids && (
