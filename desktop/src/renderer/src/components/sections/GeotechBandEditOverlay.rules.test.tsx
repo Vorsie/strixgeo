@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { LithoLayerResponse } from '../../api/client'
 import GeotechBandEditOverlay from './GeotechBandEditOverlay'
+import { nadCompactLabel } from '../../utils/nadClasses'
 import type { PlacedColumn } from './utils'
 
 /** 10 px per metre down, surface elevation 10 m → surface at y = 900. */
@@ -280,26 +281,27 @@ describe('the overlay yields when another gesture owns the canvas', () => {
   })
 })
 
-// Owner ruling A (2026-08-01): a borehole records no cone resistance, and both verbs
-// re-derive the NAD class from qc — so the server refuses them on a borehole-anchored band.
-// The gesture must not be on offer there either, or right-clicking a band earns a 422 for
-// the trouble. The last case is the one that matters most: a borehole standing next to a
-// CPT is still a borehole, so what is consulted is the BAND's anchor, never the column's
-// neighbourhood.
-describe('a borehole column is not offered the gesture at all', () => {
+// A borehole records no cone resistance, so the qc-driven CPT gestures are not on
+// offer there: the CPT-style split HIT RECT (which arms a re-deriving placement)
+// and the MERGE STRIP (which re-derives the union) both key on the BAND's anchor,
+// never the column's neighbourhood — a borehole beside a CPT is still a borehole.
+// Owner #35 (2026-09-13) later gave a borehole its OWN "Split band here" verb,
+// which keeps the class and lives on the ``geotech-borehole-band-*`` rect — that
+// is covered above; these cases pin only that the CPT affordances stay off it.
+describe('a borehole column is not offered the CPT split/merge affordances', () => {
   const boreholeOnly = {
     geotechLayers: BOREHOLE_GEOTECH_LAYERS,
     lithoLayers: BOREHOLE_LITHO_LAYERS,
     placedColumns: [BOREHOLE_COLUMN],
   }
 
-  it('GS13 — no split target is drawn on a band that hangs off a borehole', () => {
+  it('GS13 — no CPT-style split hit rect is drawn on a band that hangs off a borehole', () => {
     renderOverlay(boreholeOnly)
 
     expect(screen.queryByTestId('geotech-band-hit-bh-band-1')).toBeNull()
   })
 
-  it('GS14 — nor a merge handle on the boundary between two of its bands', () => {
+  it('GS14 — nor a merge strip on the boundary between two of its bands', () => {
     renderOverlay(boreholeOnly)
 
     // 5 m is a packing boundary inside one litho body, so the only reason for the handle
@@ -826,25 +828,81 @@ describe('a grab strip never reaches across a litho contact', () => {
   })
 })
 
-describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 2026-08-18)', () => {
-  // A borehole band's class is donor-extrapolated, never measured — the
-  // engineer's judgement outranks it. The menu offers the band's own soil
-  // FAMILY only (a sand band never offers a clay class); the current class is
-  // named and inert; a CPT band never gets the verb — its class is measured.
+/** Open the borehole band's menu (the setClass menu, restructured 2026-09-13). */
+function openBoreholeMenu(
+  bandTestId = 'geotech-borehole-band-bh-band-1',
+  clientY?: number,
+): void {
+  fireEvent.contextMenu(
+    screen.getByTestId(bandTestId),
+    clientY === undefined ? undefined : { clientY },
+  )
+}
+
+/** Open the "Packing class ▸" submenu so the class buttons render (owner #35). */
+function openPackingClassSubmenu(): void {
+  fireEvent.click(screen.getByTestId('geotech-band-menu-packing-class'))
+}
+
+describe('a borehole band splits at the click, and its classes live in a submenu (owner #35)', () => {
+  // Installer #35 dogfeed: a borehole band had NO split button ("there seems to
+  // be no button in the right click menu"), and every packing class crowded the
+  // first menu above the verbs. Now "Split band here" splits at the right-click
+  // depth (the class is KEPT — a borehole has no qc to re-derive), and the
+  // classes sit behind ONE "Packing class ▸" row so the verbs come first.
   const nadClasses = new Map<string, number | null>([
     ['f-bh-band-1', 6],
     ['f-bh-band-2', 7],
   ])
-  // The soil is what the menu is built from. This fixture used to omit it and
-  // the family was inferred from the CURRENT class, which read the same for a
-  // band whose class already matched its ground — and hid the case where it
-  // does not (owner ruling 2026-08-26).
   const soilCodes = new Map<string, string | null>([
     ['f-bh-band-1', 'ZAND'],
     ['f-bh-band-2', 'ZAND'],
   ])
 
-  it('right-click on a borehole band opens the class menu with the soil family', () => {
+  it('split band here is offered on a borehole band too, and splits at the clicked depth', () => {
+    const onRequestSplitHere = vi.fn()
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass: vi.fn(),
+      onRequestSplitHere,
+      nadClassByFormationId: nadClasses,
+      soilCodeByFormationId: soilCodes,
+    })
+    // bh-band-1 spans 2–5 m; right-click at 3.5 m places the split there.
+    openBoreholeMenu('geotech-borehole-band-bh-band-1', yAtDepth(3.5))
+    fireEvent.click(screen.getByTestId('geotech-band-menu-split-here'))
+    expect(onRequestSplitHere).toHaveBeenCalledTimes(1)
+    const [bandId, depthM] = onRequestSplitHere.mock.calls[0]
+    expect(bandId).toBe('bh-band-1')
+    expect(depthM).toBeCloseTo(3.5, 4)
+  })
+
+  it('the classes live in a submenu, the verbs come first', () => {
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass: vi.fn(),
+      onRequestSplitHere: vi.fn(),
+      nadClassByFormationId: nadClasses,
+      soilCodeByFormationId: soilCodes,
+    })
+    openBoreholeMenu()
+    // The verb + the packing-class ROW are on the first menu; the class buttons
+    // are NOT — they are behind the row until it is opened.
+    expect(screen.getByTestId('geotech-band-menu-split-here')).toBeTruthy()
+    expect(screen.getByTestId('geotech-band-menu-packing-class')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-band-menu-set-class-5')).toBeNull()
+    // Opening the submenu reveals the soil family (5..12), never a clay class.
+    openPackingClassSubmenu()
+    expect(screen.getByTestId('geotech-band-menu-set-class-5')).toBeTruthy()
+    expect(screen.getByTestId('geotech-band-menu-set-class-12')).toBeTruthy()
+    expect(screen.queryByTestId('geotech-band-menu-set-class-21')).toBeNull()
+  })
+
+  it('the packing-class row names the current class, and choosing one still fires setClass', () => {
     const onRequestSetClass = vi.fn()
     renderOverlay({
       geotechLayers: BOREHOLE_GEOTECH_LAYERS,
@@ -854,30 +912,45 @@ describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 
       nadClassByFormationId: nadClasses,
       soilCodeByFormationId: soilCodes,
     })
-    fireEvent.contextMenu(screen.getByTestId('geotech-borehole-band-bh-band-1'))
-    // SAND family = classes 5..12; the current class (6) is named and inert.
-    expect(screen.getByTestId('geotech-band-menu-set-class-5')).toBeTruthy()
-    expect(screen.getByTestId('geotech-band-menu-set-class-12')).toBeTruthy()
-    expect(screen.queryByTestId('geotech-band-menu-set-class-21')).toBeNull()
-    const current = screen.getByTestId(
-      'geotech-band-menu-set-class-6',
-    ) as HTMLButtonElement
+    openBoreholeMenu()
+    expect(screen.getByTestId('geotech-band-menu-packing-class').textContent).toContain(
+      nadCompactLabel(6),
+    )
+    openPackingClassSubmenu()
+    const current = screen.getByTestId('geotech-band-menu-set-class-6') as HTMLButtonElement
     expect(current.disabled).toBe(true)
-
     fireEvent.click(screen.getByTestId('geotech-band-menu-set-class-8'))
     expect(onRequestSetClass).toHaveBeenCalledWith('bh-band-1', 8, 6)
   })
 
-  it('a CPT band never gets the verb — its class is measured', () => {
+  it('arrow keys open and close the submenu', () => {
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass: vi.fn(),
+      nadClassByFormationId: nadClasses,
+      soilCodeByFormationId: soilCodes,
+    })
+    openBoreholeMenu()
+    const row = screen.getByTestId('geotech-band-menu-packing-class')
+    fireEvent.keyDown(row, { key: 'ArrowRight' })
+    expect(screen.getByTestId('geotech-band-menu-set-class-5')).toBeTruthy()
+    fireEvent.keyDown(row, { key: 'ArrowLeft' })
+    expect(screen.queryByTestId('geotech-band-menu-set-class-5')).toBeNull()
+  })
+
+  it('a CPT band never gets the borehole menu — its class is measured', () => {
     renderOverlay({
       onRequestSetClass: vi.fn(),
+      onRequestSplitHere: vi.fn(),
       nadClassByFormationId: new Map([['f-band-1', 6]]),
       soilCodeByFormationId: new Map([['f-band-1', 'ZAND']]),
     })
     expect(screen.queryByTestId('geotech-borehole-band-band-1')).toBeNull()
   })
 
-  it('without the handler the borehole band stays view-only', () => {
+  it('without any borehole handler the band stays view-only', () => {
     renderOverlay({
       geotechLayers: BOREHOLE_GEOTECH_LAYERS,
       lithoLayers: BOREHOLE_LITHO_LAYERS,
@@ -889,7 +962,7 @@ describe('a borehole band offers ONE verb: set its NAD class by hand (owner ask 
   })
 })
 
-describe('the class menu is built from the band\'s SOIL (owner ruling 2026-08-26)', () => {
+describe('the class submenu is built from the band\'s SOIL (owner ruling 2026-08-26)', () => {
   // "no a zand body can never carry a silt packing class" — "the nad coupling
   // is absolute". The menu used to be built from the band's CURRENT class, so
   // a sand band that had been stamped with a silt class offered only more silt
@@ -913,6 +986,9 @@ describe('the class menu is built from the band\'s SOIL (owner ruling 2026-08-26
       soilCodeByFormationId: SAND_SOIL,
     })
     fireEvent.contextMenu(screen.getByTestId('geotech-borehole-band-bh-band-1'))
+    // The classes moved into a submenu (owner #35) — open it so the S-cases can
+    // assert on the class buttons exactly as they did when the list was flat.
+    openPackingClassSubmenu()
     return onRequestSetClass
   }
 
