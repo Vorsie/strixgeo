@@ -952,6 +952,11 @@ export const SECTIONS_NL = {
   'sections.canvasToast.compositionUpdateFailed': 'Kon de samenstelling van de laag niet bijwerken — probeer opnieuw.',
   'sections.canvasToast.layerSplit': 'Laag gesplitst.',
   'sections.canvasToast.layerSplitFailed': 'Kon de laag niet splitsen — het splitspunt ligt mogelijk te dicht bij een grens.',
+  // Shift-slepen van een geaccepteerd litho-contact naar een andere test (installer #35).
+  'sections.canvasToast.lithoContactCopied': 'Litho-contact gekopieerd: beide eenheden aangemaakt.',
+  'sections.canvasToast.lithoBoundaryCopied': 'Grens gekopieerd, samenstellingen behouden.',
+  'sections.canvasToast.lithoContactCopyBelowTerminal': 'De grens ligt onder de diepte van deze test en is niet gekopieerd.',
+  'sections.canvasToast.lithoContactCopyFailed': 'Kon het litho-contact niet kopiëren. Probeer opnieuw.',
   'sections.canvasToast.noLithoContact': 'Deze grens heeft geen lithologische laaggrens om te verplaatsen — bewerk ze op de litho-as.',
   'sections.canvasToast.packingNotLithoCpt': 'Dat is een pakkingsgrens, geen lithologische laaggrens — sleep ze met de greep naast de kolom.',
   'sections.canvasToast.packingNotLithoBorehole': 'Dat is een pakkingsgrens, geen lithologische laaggrens. De pakkingsbanden van een boring zijn geëxtrapoleerd uit de sonderingen eromheen, dus ze kunnen hier niet verplaatst worden.',
