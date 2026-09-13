@@ -9,6 +9,7 @@
 //   SN2  it is a muted line, not a button — nothing here is pressable
 //   SN3  it is a geotech-axis block: the litho axis does not carry it
 
+import { getLanguage, setLanguage } from '../../../i18n/languageSelect'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -98,5 +99,23 @@ describe('the Sections inspector explains the representative qc', () => {
     renderInspector('lithostratigraphic')
 
     expect(screen.queryByTestId('sections-inspector-statistic-value')).toBeNull()
+  })
+})
+
+// Owner 2026-09-13: "token of course needs translation in dutch version".
+describe('the statistic token reads in Dutch in the Dutch version', () => {
+  const initialLanguage = getLanguage()
+  afterEach(() => {
+    setLanguage(initialLanguage)
+  })
+
+  it('the inspector reads Statistiek: mediaan, not median', () => {
+    setLanguage('nl')
+    publishGeotechStatistic('median')
+    renderInspector('geotechnical')
+
+    const text = screen.getByTestId('sections-inspector-statistic-value').textContent ?? ''
+    expect(text).toContain('mediaan')
+    expect(text).not.toContain('median')
   })
 })
