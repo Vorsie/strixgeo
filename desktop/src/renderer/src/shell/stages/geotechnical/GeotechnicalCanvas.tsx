@@ -39,6 +39,7 @@ import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
 import { EmptyState } from '../../EmptyState'
 import GeotechBuildReportBanner from './GeotechBuildReportBanner'
+import { resolveReconciliationSections } from '../../../utils/gaplessGate/resolveReconciliationSections'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import {
@@ -329,6 +330,14 @@ export default function GeotechnicalCanvas(): JSX.Element {
   // that centres somewhere confidently wrong.
   // Declared ABOVE every early return — the hook order must not depend on
   // whether a model exists yet.
+  // Give the section-reconciliation findings (which arrive with a section LINE
+  // but no row id) a "Show me" target by matching their endpoints to the
+  // project's cross-sections. A no-op for every other clause.
+  const reportWithJumps = useMemo(
+    () => resolveReconciliationSections(geotechGaplessReport, visibleSections),
+    [geotechGaplessReport, visibleSections],
+  )
+
   const visitReportSpot = useCallback(
     (sectionId: string, gapInvestigationIds: readonly string[]) => {
       setSectionsDeepLinkTarget({
@@ -375,7 +384,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
       <div className="relative w-full h-full">
         {content}
         <GeotechBuildReportBanner
-          report={geotechGaplessReport}
+          report={reportWithJumps}
           onVisitSpot={visitReportSpot}
         />
       </div>
@@ -420,7 +429,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
       />
 
       <GeotechBuildReportBanner
-        report={geotechGaplessReport}
+        report={reportWithJumps}
         onVisitSpot={visitReportSpot}
       />
     </div>
