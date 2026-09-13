@@ -628,6 +628,72 @@ export const MODELS = {
   'geotech.reportShowDetail': 'Show every guarantee and where it stands',
   'geotech.reportLess': 'Less',
   'geotech.reportDetail': 'Detail',
+  'geotech.reportWhatToDo': 'What to do:',
+  // Model-check clauses: title + "what this means" + "what to do", composed in
+  // the renderer (utils/gaplessGate/modelCheckText.ts) so the panel reads in the
+  // interface language, not backend English. Every clause carries an action so a
+  // reported violation always tells the engineer what to do (owner, 2026-09-13).
+  'geotech.clause.edgeLeft': 'left',
+  'geotech.clause.edgeRight': 'right',
+  'geotech.clause.area-conservation.title':
+    'Classed and unclassed ground add up to the litho cover',
+  'geotech.clause.area-conservation.meaning':
+    'The classed ground plus the unclassed ground should add up to the ground the litho model drew for this section.',
+  'geotech.clause.area-conservation.action':
+    'A small residue is the two engines rounding a sloping contact and is ignored. If a gap is named, open it and check the geotech bands cover the same ground as the litho layers, then Build again.',
+  'geotech.clause.area-conservation.entry':
+    '{section}, gap {gap}: classed + unclassed ground differs from the litho cover by {diff} m2 (geotech {geotech} m2; litho {litho} m2)',
+  'geotech.clause.edge-reach.title': 'The 3-D build can read the fill at every column edge',
+  'geotech.clause.edge-reach.meaning':
+    'The 3-D build has to be able to read a filled layer at both columns of every gap.',
+  'geotech.clause.edge-reach.action':
+    'Open the named gap and check both tests carry the layer the litho cover shows; re-accept or re-tie the missing layer there, then Build again.',
+  'geotech.clause.edge-reach.entry':
+    '{section}, gap {gap}, {side} column edge: the 3-D build would read this edge as empty ground, though the litho cover holds {cover} m there',
+  'geotech.clause.cause-closure.title': 'Every patch of unclassed ground has a known cause',
+  'geotech.clause.cause-closure.meaning':
+    'Every patch of ground the litho model drew must be either classed into a NAD unit or left unclassed for a reason the model knows.',
+  'geotech.clause.cause-closure.action':
+    'Open the named gap: an unanswered patch is usually a layer that was never subdivided. Divide the boreholes there and Build again.',
+  'geotech.clause.cause-closure.entry':
+    '{section}, gap {gap}: {area} m2 of litho cover is neither classed nor accounted for ({loops} unanswered loop(s))',
+  'geotech.clause.section-closure.title': 'Every section in the model reached the build',
+  'geotech.clause.section-closure.meaning':
+    'Every cross-section the litho model frames has to reach the 3-D build.',
+  'geotech.clause.section-closure.action':
+    'Open the named section and Build the geotech model so this section contributes to the 3-D model.',
+  'geotech.clause.section-closure.entry':
+    '{section}: framed by the lithological model but produced no geotech build output',
+  'geotech.clause.column-totality.title':
+    'Every column inside the model footprint carries material',
+  'geotech.clause.column-totality.meaning':
+    'Every column inside the model footprint must carry some material.',
+  'geotech.clause.column-totality.action':
+    'An empty column has no data reaching it. Tie an investigation across it, or accept the surrounding correlations, then Build again.',
+  'geotech.clause.column-totality.entry':
+    '{empty} of {total} column(s) inside the model footprint carry no labelled voxel',
+  'geotech.clause.stack-voids.title': 'No column holds an interior void you can act on',
+  'geotech.clause.stack-voids.meaning':
+    'No column may hold a gap between its layers large enough for an engineer to act on.',
+  'geotech.clause.stack-voids.action':
+    'A gap under the threshold is rounding and is ignored. A larger gap is usually a missing correlation between two tests: tie the layers across it and Build again.',
+  'geotech.clause.stack-voids.entry':
+    '{count} column stack(s) hold an interior void over {threshold} mm; worst {worst} mm',
+  'geotech.clause.stack-voids.entryNote':
+    'largest interior gap {worst} mm, below the {threshold} mm action threshold ({residue} stack(s), snap-round residue)',
+  'geotech.clause.section-reconciliation.title':
+    'The 3-D model holds the ground its sections classed',
+  'geotech.clause.section-reconciliation.meaning':
+    'The 3-D model must hold the ground each section classed in 2-D, allowing for the voxel grid and a dredged bed.',
+  'geotech.clause.section-reconciliation.action':
+    'Open the section at the named spot and check the columns there. This is usually a missing correlation or a short borehole; fix the ties and Build again. If the section looks right, send us the .strix.',
+  'geotech.clause.section-reconciliation.entry':
+    'section {index} ({sx}, {sy}) -> ({ex}, {ey}): the 3-D model holds {held} m2 of the {classed} m2 its 2-D fill classed (allowance {allowance} m2; {where}){outside}',
+  'geotech.clause.section-reconciliation.worstAt':
+    'worst sample {mm} mm off at {along} m along the line',
+  'geotech.clause.section-reconciliation.noSample': 'no sample fell inside the model footprint',
+  'geotech.clause.section-reconciliation.outsideNote':
+    '; {n} sample(s) outside the footprint excluded',
   // Admixture → NAD-family prompt (owner ruling 2026-09-04, refined 2026-09-05:
   // name the admixture found; only the clay/silt or sand fork is asked, gravel
   // never). Asked before the subdivide for units the NAD table can read two ways.
