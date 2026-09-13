@@ -609,6 +609,12 @@ export const SECTIONS_NL = {
   'sections.menu.mergeBands': 'Banden samenvoegen',
   'sections.menu.mergeIntoSurrounding': 'Opnemen in de omliggende band',
   'sections.menu.splitBand': 'Band splitsen…',
+  // Owner #35: een boringband is ook splitsbaar, op de rechtsklikdiepte (geen
+  // volgende plaatsing — de klasse blijft, dus er valt niets te plaatsen).
+  'sections.menu.splitBandHere': 'Band hier splitsen',
+  // Owner #35: de pakkingsklassen staan nu in een submenu achter deze ene rij,
+  // zodat de acties er niet meer onder wegvallen.
+  'sections.menu.packingClass': 'Pakkingsklasse',
   // Geotech band-bewerkmenu — de twee "Band verwijderen"-richtingen. FLAG: niet
   // door de eigenaar geformuleerd; natuurlijke NL keuze.
   'sections.bandMenu.removeUp': 'Band verwijderen (samenvoegen met band erboven)',
@@ -666,7 +672,8 @@ export const SECTIONS_NL = {
   // packing class inside a body. "Band" is short and already visual.
   'sections.bands.rightClickBoundary':
     'Rechtsklik om een nieuwe pakkingsgrens te plaatsen of deze band te verwijderen',
-  'sections.bands.rightClickClass': 'Rechtsklik om de NAD-klasse van deze band handmatig te zetten',
+  'sections.bands.rightClickClass':
+    'Rechtsklik om deze band te splitsen of de NAD-pakkingsklasse handmatig te zetten',
   'sections.bands.nothingToSnap':
     'Niets om op vast te klikken in deze kolom — een boring bevat geen conusweerstand, dus er zijn hier geen pakkingsgrenzen.',
   'sections.bands.acceptGhosts': 'Deze banden aanvaarden (deze boring verdelen)',
@@ -846,6 +853,9 @@ export const SECTIONS_NL = {
   'sections.bands.dirAbove': 'erboven',
   'sections.bands.moveReadout': '{depth} m — laat los om te verplaatsen, Esc om te annuleren',
   'sections.bands.currentSuffix': ' (huidig)',
+  // De "(huidig: X)"-markering op de "Pakkingsklasse ▸"-submenurij (owner #35).
+  'sections.bands.packingClassCurrent': '(huidig: {label})',
+  'sections.bands.toast.splitHere': 'Band gesplitst.',
   'sections.bands.foreignClassSuffix': ' (huidig — een {family}-klasse op deze grondsoort)',
   'sections.bandDialog.moveTitle': 'Deze pakkingsgrens verplaatsen?',
   'sections.bandDialog.mergeTitle': 'Deze pakkingsbanden samenvoegen?',
