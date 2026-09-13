@@ -244,7 +244,6 @@ export default function SectionsCanvas(): JSX.Element {
       selectedBoreholeId,
       handleSelect,
       handleSelectBorehole,
-      handleExportSectionDxf,
       setGeoDeepLinkTarget,
       setParametersDeepLinkTarget,
       correlationEdgesRefetchNonce,
@@ -3257,17 +3256,6 @@ export default function SectionsCanvas(): JSX.Element {
                 : undefined
             }
             onCreateFormation={axisCreateFormation}
-            onExportDxf={
-              activeAxisModel
-                ? () =>
-                    handleExportSectionDxf(
-                      project.id,
-                      selectedSection.id,
-                      selectedSection.name,
-                      activeAxisModel.id,
-                    )
-                : undefined
-            }
             onChangeVirtueleBoringPicker={handleChangeVirtueleBoringPicker}
             onChangeVirtueleBoringShowOnSection={(next) =>
               handleSetShowOverlay("section", next)
