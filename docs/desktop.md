@@ -152,7 +152,16 @@ desktop/src/
     │       │                  did. Committing a water table calls markMutated, so
     │       │                  the edit shows as unsaved; clearing it restores the
     │       │                  file's value when the first override snapshotted one.
-    │       └── export/        ExportStage hub — DXF, Plaxis 2D/3D, PDF report cards.
+    │       └── export/        ExportStage — THE export hub (installer #35, the only
+    │                          export surface): one card per export grouped by model
+    │                          level (Section DXF · Plaxis 3D · litho D-Stability /
+    │                          Plaxis 2D / fence · geotech D-Sheet / Plaxis 2D / fence ·
+    │                          PDF sheet). useExportHub owns state + runs; section
+    │                          exports reuse buildSectionExportPartition +
+    │                          sectionExportPartitionArgs (byte-identical to the old
+    │                          toolbar); fence via shared/makeProjectFenceBuilder.
+    │                          The Sections toolbar + 3-D stages jump here via
+    │                          coordinator.exportDeepLinkTarget.
     ├── hooks/
     │   ├── useProject.ts          File-aware project hook (open/save/archive/close).
     │   ├── useGeologicalModel.ts  Active model, contacts, litho layers, ghost suggestions,
