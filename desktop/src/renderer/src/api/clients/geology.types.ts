@@ -1715,6 +1715,20 @@ export interface GeotechBandEditResponse {
   flagged_edge_ids?: string[]
   /** Ties whose restored class match self-healed an earlier flag. */
   cleared_edge_ids?: string[]
+  /**
+   * A MERGE only: the class the SURVIVOR (upper) band carried before the merge,
+   * so ctrl+z can restore it exactly instead of re-deriving it (owner #35
+   * dogfeed — a re-derived undo lost a class the merge had changed or a hand
+   * class it never measured). ``null`` for a skeleton band; absent for a split /
+   * move, or an older backend.
+   */
+  pre_merge_upper_nad_class?: number | null
+  /** A MERGE only: the class the ABSORBED (lower) band carried before the merge. */
+  pre_merge_lower_nad_class?: number | null
+  /** A MERGE only: the survivor band's ``source`` stamp before the merge. */
+  pre_merge_upper_source?: string | null
+  /** A MERGE only: the absorbed band's ``source`` stamp before the merge. */
+  pre_merge_lower_source?: string | null
 }
 
 /**
