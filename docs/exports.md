@@ -6,6 +6,19 @@
 
 **Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
 
+### The renderer surface — the Export hub is the ONLY place exports run (installer #35)
+
+Owner ruling (installer #35, 2026-09-13): *"the Export stage becomes the only export surface … build the export hub."* Every export is a **card on the Export stage** (`shell/stages/export/ExportCanvas.tsx`), grouped by model level: Cross-section DXF (any axis), Stratigraphy → Plaxis 3D, Lithology (D-Stability `.stix`, Plaxis 2D, fence DXF), Geotechnical (D-Sheet `.shi`, Plaxis 2D, fence DXF), Report (PDF sheet). One shared cross-section picker drives the section-scoped cards; axis-flexible cards (Section DXF, PDF) carry their own model-level picker; each card shows its last save path (`exportPathMemory`, per-viewer localStorage) and, when a prerequisite is missing, guidance instead of a dead button.
+
+No other surface exports:
+
+* **The Sections toolbar** carries one verb, `sections-toolbar-export` ("Export…"), that sets `coordinator.exportDeepLinkTarget = { sectionId, axis }`; `AppShell` navigates to the Export stage and selects that section + axis so the hub opens scoped to what the engineer was looking at. The old export dropdown + its `useSectionExportVerbs` / `useDseriesExportItems` hooks + the toolbar's `SheetPreviewDialog` are removed.
+* **The 3-D Lithology / Geotechnical stages** keep a single `Export…` button (`litho-export-fence-button` / `geotech-export-fence-button`, once solids exist) that jumps to the hub the same way.
+
+**The section-scoped exports are byte-identical to the toolbar's** because the hub reuses the same primitives: `sectionExportPartitionArgs` (axis→model + litho-frame derivation, the single source of truth) → `buildSectionExportPartition` (`makeVoxelRequestBuilder`, scoped to one section) → `downloadSectionExport` / `api.section.*`; the PDF reuses `SheetPreviewDialog` / `useSheetPayload`. The litho / geotech **fence** is assembled stage-independently by `makeProjectFenceBuilder.buildProjectFencePanels` — the exact assembly `useBody3DViewState` paints (plain approved edges, the same litho frame + `packingClassOf`, the same `resolveRegionBodyId` body-collapse map) — then handed to `exportFenceDxf`. Plaxis 3D reuses `geoModel.handleExportModelPlaxis3d`. Each shared handler grew one optional `onSaved(path)` callback so the hub can remember the last path; the map-click / other callers omit it.
+
+**Not surfaced (no exporter exists):** GeoStudio and a standalone geological-surfaces DXF are named in the v1.0 gate but have no exporter in the codebase, so they are not cards; there is no geological-model fence (the fence needs built litho / geotech solids).
+
 ### The exporter ABCs and the export-route contract (debt #109 / #110)
 
 The single `BaseExporter` ABC was split into **three shape-correct ABCs** by input contract (debt #109; `base_exporter.py` is deleted). Each is `class X(GroundModelLogger, ABC)` with one `export(...) -> bytes` abstractmethod:
