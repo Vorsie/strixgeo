@@ -17,12 +17,14 @@ import type { LithoBodySolidResponse } from '../../../api/clients/geology'
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import type { FencePanel } from '../../../utils/fencePanels'
 import {
+  BASEMAP_LID_ABOVE_GROUND_M,
   buildBasemapLid,
   flyToBounds,
   flyToCutFace,
   rebuildSurfacePrimitives,
   type SplitLine,
 } from './geology3DPrimitives'
+import { lidElevationAtInvestigations } from './cesiumGeometry'
 import { useCameraLink } from './useCameraLink'
 import { useViewportZoomTuning, type ViewportZoomTuning } from './useViewportZoomTuning'
 import { REQUEST_RENDER_WIDGET_OPTIONS, requestSceneRender } from './sceneRender'
@@ -318,7 +320,15 @@ export function CesiumViewport({
     if (lidSurfaces.length === 0 && lidPanels !== undefined) {
       for (const panel of lidPanels) lidSurfaces.push({ vertices: panel.vertices })
     }
-    const lid = basemapEnabled ? buildBasemapLid(lidSurfaces, projectEpsg) : null
+    // The lid sits just above the ground AT THE INVESTIGATIONS (owner
+    // 2026-09-13: a DEM hull-edge spike had lifted it 14 m above the collars);
+    // with no ground or no investigations the highest-vertex rule stays.
+    const lidElevation = lidElevationAtInvestigations(
+      groundSurface ?? null,
+      investigationXY ?? [],
+      BASEMAP_LID_ABOVE_GROUND_M,
+    )
+    const lid = basemapEnabled ? buildBasemapLid(lidSurfaces, projectEpsg, lidElevation) : null
 
     rebuildSurfacePrimitives(
       widget.scene,
