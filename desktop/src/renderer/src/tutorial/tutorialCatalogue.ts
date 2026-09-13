@@ -201,7 +201,7 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   // section-tie moved to chapter 4 (owner ruling 3, 2026-09-06): the tie-sections
   // explanation must come AFTER the second profile is drawn, never before.
   mkc('section-delete', 3, ['stage-tab-sections', 'sections-delete'], 'next', 'sections'),
-  mkc('section-export', 3, ['stage-tab-sections', 'sections-toolbar-export-dropdown'], 'next', 'sections'),
+  mkc('section-export', 3, ['stage-tab-sections', 'sections-toolbar-export'], 'next', 'sections'),
   // The sections right pane: the section list + its Build / Seed / Dedupe verbs.
   mkc('section-inspector', 3, ['stage-tab-sections', 'inspector-build'], 'next', 'sections'),
 
