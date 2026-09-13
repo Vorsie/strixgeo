@@ -175,6 +175,57 @@ def test_the_quantisation_budget_absorbs_a_pure_rounding_difference() -> None:
     assert r.violated is False
 
 
+def test_a_bed_override_that_dredges_the_3d_top_must_dredge_the_2d_reference_too() -> None:
+    """A dredged bed caps the 3-D model; the cut is not "missing ground".
+
+    Owner finding (installer #35, project fhdh): a bed-override polygon caps the
+    3-D voxel model at the dredged bed level, but the 2-D fill regions the check
+    reads still reach the ground surface, so the reconciliation reported the
+    dredged cut as ground the 3-D model failed to hold.  When a bed cap is in
+    force at a sample, the 2-D reference must be capped at the SAME level, so the
+    two sides compare the same dredged model and the cut is not a shortfall.
+    """
+    section = _section(top=10.0, base=0.0)
+    domain = _rect_domain(-5.0, 15.0, -5.0, 5.0)
+    # The 3-D grid holds only 4 labelled voxels per column — the bed cut has
+    # already removed the top 6 m of the model (exactly the label a bed-capped
+    # ``label_voxels`` would produce).
+    gx, gy, labels = _grid(labelled_per_column=4)
+
+    # The bed caps everything above +4 m TAW at every sample of this section.
+    def bed_top_at(_x: float, _y: float) -> float:
+        return 4.0
+
+    result = reconcile_sections([section], domain, gx, gy, labels, _H, _V, bed_top_at=bed_top_at)
+
+    assert len(result) == 1
+    r = result[0]
+    # The 2-D reference is dredged to +4 too, so both sides hold 4 m: no shortfall.
+    assert r.violated is False
+    assert r.divergence_m2 == pytest.approx(0.0)
+    assert r.swept_2d_m2 == pytest.approx(4.0 * 10.0)  # 4 m over the whole 10 m gap
+
+
+def test_a_real_hole_below_the_bed_cap_still_fails() -> None:
+    """The bed cap forgives the dredged top, never a genuine hole beneath it.
+
+    With the bed at +8 the 2-D reference keeps 8 m, but the 3-D model holds only
+    4 m — a real 4 m hole below the dredged bed, which must still be reported.
+    """
+    section = _section(top=10.0, base=0.0)
+    domain = _rect_domain(-5.0, 15.0, -5.0, 5.0)
+    gx, gy, labels = _grid(labelled_per_column=4)
+
+    def bed_top_at(_x: float, _y: float) -> float:
+        return 8.0
+
+    result = reconcile_sections([section], domain, gx, gy, labels, _H, _V, bed_top_at=bed_top_at)
+
+    r = result[0]
+    assert r.swept_2d_m2 == pytest.approx(8.0 * 10.0)  # capped at the bed, not the surface
+    assert r.violated is True  # 8 m of reference against 4 m held is a real hole
+
+
 def test_a_section_with_a_single_column_has_no_gap_to_sample() -> None:
     """A degenerate section (no gap) contributes nothing rather than raising."""
     section = SectionPartitionInput(
