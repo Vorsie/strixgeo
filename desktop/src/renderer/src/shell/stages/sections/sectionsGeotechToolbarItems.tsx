@@ -6,6 +6,7 @@
 // pipeline dropdowns, the two live chips (pending tie / stale litho) and the
 // Correlate-packing + Display verbs.
 
+import { geotechStatisticLabel } from '../../../utils/geotechStatistic'
 import { GitMerge, Network, Eye, SplitSquareVertical, FlaskConical } from 'lucide-react'
 
 import { ToolbarButton, ToolbarDropdown } from '../../ToolbarPrimitives'
@@ -104,7 +105,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           id: 'geotech-statistic-menu',
           priority: 'high',
           kind: 'dropdown',
-          label: t('sections.geotech.qcLabel', { statistic: geotechStatistic }),
+          label: t('sections.geotech.qcLabel', { statistic: geotechStatisticLabel(geotechStatistic) }),
           iconOnly: false,
           separatorBefore: true,
           overflowGroup: SECTIONS_OVERFLOW_GROUP.model,
@@ -112,7 +113,7 @@ export function buildGeotechToolbarItems(deps: GeotechToolbarItemsDeps): Toolbar
           render: () => (
             <ToolbarDropdown
               icon={<FlaskConical size={13} />}
-              label={t('sections.geotech.qcLabel', { statistic: geotechStatistic })}
+              label={t('sections.geotech.qcLabel', { statistic: geotechStatisticLabel(geotechStatistic) })}
               title={t('sections.geotech.statisticMenuTitle')}
               testid="geotech-statistic-menu"
               items={geotechStatisticMenuItems}
