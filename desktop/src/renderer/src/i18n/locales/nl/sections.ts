@@ -831,6 +831,13 @@ export const SECTIONS_NL = {
   'sections.vb.noOverlay': 'Geen overlay in dit vak',
   'sections.ghost.copyChip': 'Kopieer {litho}',
   'sections.geotech.qcLabel': 'qc: {statistic}',
+  // De vier representatieve qc-statistieken zoals de gebruiker ze leest
+  // (eigenaar 2026-09-13). Het token op de lijn blijft Engels; alleen de
+  // weergave is vertaald.
+  'sections.geotech.statisticName.median': 'mediaan',
+  'sections.geotech.statisticName.arithmetic': 'rekenkundig',
+  'sections.geotech.statisticName.harmonic': 'harmonisch',
+  'sections.geotech.statisticName.geometric': 'meetkundig',
   'sections.bands.dragMoveHint': 'Sleep om deze pakkingsgrens te verplaatsen · rechtsklik om de banden samen te voegen',
   'sections.bands.rightClickMerge': 'Rechtsklik om deze twee pakkingsbanden samen te voegen',
   'sections.bands.placeReadout': '{depth} m — klik om te plaatsen, Esc om te annuleren',
