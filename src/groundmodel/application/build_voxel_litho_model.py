@@ -1057,6 +1057,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
                         grid.labels,
                         grid_spacing_m,
                         grid_spacing_m if vertical_spacing_m is None else vertical_spacing_m,
+                        # The 2-D reference is dredged to the SAME bed cap the grid
+                        # was labelled with, so a dredged-bed cut is not read as
+                        # ground the 3-D model failed to hold (owner finding,
+                        # installer #35). None when the project has no bed override
+                        # → byte-identical to before.
+                        bed_top_at=bed_top_at,
                     )
             except Exception as err:
                 reconciliation_error = (
