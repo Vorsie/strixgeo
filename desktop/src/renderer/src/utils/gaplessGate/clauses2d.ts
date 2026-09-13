@@ -38,6 +38,7 @@ import CascadedPolygonUnion from 'jsts/org/locationtech/jts/operation/union/Casc
 import OverlayOp from 'jsts/org/locationtech/jts/operation/overlay/OverlayOp.js'
 import BufferOp from 'jsts/org/locationtech/jts/operation/buffer/BufferOp.js'
 
+import { AREA_CONSERVATION_ABS_FLOOR_M2, AREA_CONSERVATION_REL_FRACTION } from './constants'
 import type { GaplessClauseEntry, GaplessClauseKey, GaplessClauseStatus } from './types'
 import type { HierarchicalGeotechFillResult } from '../geotechHierarchicalFill'
 import type { SectionRegion } from '../sectionPartition'
@@ -311,14 +312,28 @@ function areaConservationFor(
       continue
     }
     const { differenceM2, paintedM2, lithoM2 } = measured
-    if (differenceM2 === 0) continue
+    // A mismatch this small is the two engines snap-rounding a sloping contact
+    // independently, not a hole in the subdivision — the residue scales with the
+    // cover (the length of the cut contacts), so the floor is relative to the
+    // litho cover with a small absolute floor for tiny gaps. See ``constants.ts``.
+    const tolerance = Math.max(
+      AREA_CONSERVATION_ABS_FLOOR_M2,
+      AREA_CONSERVATION_REL_FRACTION * lithoM2,
+    )
+    if (differenceM2 <= tolerance) continue
     entries.push({
       label:
         `${sectionName}, gap ${gapIndex}: classed + unclassed ground differs from ` +
         `the litho cover by ${formatMeasure(differenceM2)} m² ` +
         `(geotech ${formatMeasure(paintedM2)} m²; litho ${formatMeasure(lithoM2)} m²)`,
       ...gapLocator(sectionId, sectionName, gapIndex, columnInvestigationIds),
-      measure: { value: differenceM2, unit: 'm2', budget: 0 },
+      measure: { value: differenceM2, unit: 'm2', budget: tolerance },
+      params: {
+        gap_index: gapIndex,
+        difference_m2: differenceM2,
+        geotech_m2: paintedM2,
+        litho_m2: lithoM2,
+      },
     })
   }
   return { key: 'area-conservation', status: entries.length > 0 ? 'fail' : 'pass', entries }
@@ -337,6 +352,7 @@ function edgeReachFor(
       `build would read this edge as empty ground, though the litho cover holds ${formatMeasure(v.coverM)} m there`,
     ...gapLocator(sectionId, sectionName, v.gapIndex, columnInvestigationIds),
     measure: { value: v.coverM, unit: 'm', budget: 0 },
+    params: { gap_index: v.gapIndex, edge: v.edge, cover_m: v.coverM },
   }))
   return { key: 'edge-reach', status: entries.length > 0 ? 'fail' : 'pass', entries }
 }
@@ -354,6 +370,7 @@ function causeClosureFor(
       `classed nor accounted for (${v.faces} unanswered ${v.faces === 1 ? 'loop' : 'loops'})`,
     ...gapLocator(sectionId, sectionName, v.gapIndex, columnInvestigationIds),
     measure: { value: v.areaM2, unit: 'm2', budget: 0 },
+    params: { gap_index: v.gapIndex, area_m2: v.areaM2, faces: v.faces },
   }))
   return { key: 'cause-closure', status: entries.length > 0 ? 'fail' : 'pass', entries }
 }
