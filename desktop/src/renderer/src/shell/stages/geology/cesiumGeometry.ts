@@ -80,6 +80,10 @@ export interface BasemapBounds {
  *     (formation TINs + the ground surface).
  * projectEpsg
  *     Project horizontal CRS. Must be 31370 for the Geopunt ortho.
+ * lidElevation
+ *     Where to place the lid, when the caller knows the ground at the
+ *     investigations (``lidElevationAtInvestigations``). ``null`` keeps the
+ *     old rule: the highest vertex of any surface.
  *
  * Returns
  * -------
@@ -88,6 +92,7 @@ export interface BasemapBounds {
 export function computeBasemapBounds(
   surfaces: { vertices: readonly (readonly [number, number, number])[] }[],
   projectEpsg: number,
+  lidElevation: number | null = null,
 ): BasemapBounds | null {
   if (projectEpsg !== 31370) return null
   let minE = Infinity
@@ -134,7 +139,7 @@ export function computeBasemapBounds(
     minLat: Math.min(latSW, latNE),
     maxLng: Math.max(lngSW, lngNE),
     maxLat: Math.max(latSW, latNE),
-    elevation: maxZ + 0.5,
+    elevation: lidElevation ?? maxZ + 0.5,
     url,
   }
 }
@@ -167,6 +172,45 @@ export interface TinLike {
  * number | null
  *     Interpolated z, or ``null`` if (px, py) is outside every triangle.
  */
+/**
+ * Where the basemap lid belongs: just above the ground AT THE INVESTIGATIONS.
+ *
+ * Owner 2026-09-13 (project fhdh): "how come the basemap is so high above the
+ * mTAW surface?" The lid used to sit at the single highest vertex of any
+ * surface, and one DEM hull-edge point at +30.8 m lifted it 14 m above collars
+ * at +14.7 to +17.1 m. The geological block's top is where the data starts, so
+ * the lid reads the ground TIN under each investigation and sits ``aboveM``
+ * over the highest of them; DEM spikes away from the data no longer count.
+ *
+ * Parameters
+ * ----------
+ * ground
+ *     The ground-surface TIN (projected x, y, z + triangles), or nothing yet.
+ * investigationXY
+ *     Projected ``[x, y]`` of every investigation the model reads.
+ * aboveM
+ *     Clearance (m) between the highest sampled ground and the lid.
+ *
+ * Returns
+ * -------
+ * number | null
+ *     The lid elevation, or ``null`` when no investigation lands on the TIN
+ *     (the caller then keeps the highest-vertex rule).
+ */
+export function lidElevationAtInvestigations(
+  ground: TinLike | null | undefined,
+  investigationXY: readonly (readonly [number, number])[],
+  aboveM: number,
+): number | null {
+  if (!ground || investigationXY.length === 0) return null
+  let highest = -Infinity
+  for (const [x, y] of investigationXY) {
+    const z = sampleTinZ(ground, x, y)
+    if (z !== null && z > highest) highest = z
+  }
+  return Number.isFinite(highest) ? highest + aboveM : null
+}
+
 export function sampleTinZ(surface: TinLike, px: number, py: number): number | null {
   for (const [i0, i1, i2] of surface.triangles) {
     const [ax, ay, az] = surface.vertices[i0]
