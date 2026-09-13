@@ -298,6 +298,9 @@ export function buildSectionInput(
   // from every column's stack BEFORE ``extractEnclosedLenses`` mutates it, so a tie into a
   // unit the merge later splices out still resolves at its own drawn contact.
   const rawLayerContacts = new Map<string, RawLayerContact>()
+  // Original indices of columns that survive (own units), in order — used to find each
+  // column's facing neighbours for the enclosed-lens physical-wrap test (owner fhdh #35).
+  const survivorOrig = columns.map((c, i) => ({ i, hasUnits: c.units.length > 0 })).filter((e) => e.hasUnits).map((e) => e.i)
   for (let oi = 0; oi < columns.length; oi++) {
     const c = columns[oi]
     if (c.units.length === 0) continue
@@ -353,8 +356,30 @@ export function buildSectionInput(
     // Tie-endpoint contact elevations for THIS original column (ruling 8a interbed guard). Only
     // consulted under the flag (``edgedBelowMergeEnabled``), so flag-OFF extraction is unchanged.
     const tieElevs = tieContactElevByOrigCol.get(oi) ?? null
+    // Facing neighbours (the immediately-adjacent surviving columns) — the enclosed-lens
+    // merge only fires when the wrap is physical: the matrix or the lens is present on a
+    // facing column at the lens's elevation (owner fhdh #35). Read from the ORIGINAL,
+    // un-mutated ``columns`` so an already-processed left neighbour's spliced stack does
+    // not skew the test.
+    const sPos = survivorOrig.indexOf(oi)
+    const facingCols: PartitionColumn[] = []
+    for (const nOi of [survivorOrig[sPos - 1], survivorOrig[sPos + 1]]) {
+      if (nOi !== undefined) facingCols.push(columns[nOi])
+    }
+    const facingHasFormation = (formationId: string, baseElev: number, topElev: number): boolean => {
+      const eps = 1e-9
+      for (const nc of facingCols) {
+        for (const u of nc.units) {
+          if (u.formationId !== formationId) continue
+          const nTop = nc.surfaceElevM - u.topDepthM
+          const nBase = nc.surfaceElevM - u.baseDepthM
+          if (nTop > baseElev + eps && nBase < topElev - eps) return true
+        }
+      }
+      return false
+    }
     const enclosedLenses = ENABLE_ENCLOSED_LENS
-      ? extractEnclosedLenses(stack, edgedLayerIds, tieElevs)
+      ? extractEnclosedLenses(stack, edgedLayerIds, tieElevs, facingHasFormation)
       : []
     // TARGET C (session 9, gated OFF): non-destructively record a same-formation-enclosed
     // minority whose merge was blocked by an edged enclosing unit (CS1 g20/g21/g22 ZAND). See
@@ -403,6 +428,13 @@ export function buildSectionInput(
  * band is a single face; the lens is returned to be drawn as a closed loop (a HOLE
  * in that band) — v1 enclosed-lens step-0 semantics, but formation-keyed.
  *
+ * The merge only fires when the wrap is PHYSICAL (owner ruling 2026-09-13, fhdh #35):
+ * either the matrix formation is present on a facing neighbour at the lens's own
+ * elevation (a genuine interior hole that reconnects — ruling 8g), OR the lens is the
+ * same formation as a facing mass (one body with that run — the zeroTie physical
+ * exemption). When neither holds, ``above`` and ``below`` are two isolated zero-tie
+ * units and stay separate lenses, with the lens between them its own lens.
+ *
  * Repeats until no more enclosed lenses exist (a matrix can enclose several). The
  * shallowest enclosing unit's identity represents the merged matrix.
  *
@@ -410,6 +442,13 @@ export function buildSectionInput(
  * ----------
  * units : UnitGeom[]
  *     The column's unit stack (shallow->deep). Mutated in place.
+ * edgedLayerIds : ReadonlySet<string>
+ *     Layer ids participating in any approved edge (a tied unit is not a lens).
+ * tieContactElevs : ReadonlySet<number> | null
+ *     Tie-endpoint contact elevations for this column (ruling 8a interbed guard).
+ * facingHasFormation : (formationId, baseElev, topElev) => boolean
+ *     Whether a facing neighbour column carries ``formationId`` overlapping the
+ *     elevation range — the physical-wrap test above.
  *
  * Returns
  * -------
@@ -420,6 +459,7 @@ function extractEnclosedLenses(
   units: UnitGeom[],
   edgedLayerIds: ReadonlySet<string>,
   tieContactElevs: ReadonlySet<number> | null,
+  facingHasFormation: (formationId: string, baseElev: number, topElev: number) => boolean,
 ): EnclosedLens[] {
   const lenses: EnclosedLens[] = []
   let changed = true
@@ -459,7 +499,30 @@ function extractEnclosedLenses(
         // lose its layerId and its band would vanish — the Cross-section 3 regress).
         // ``above`` keeps its layerId, so it may stay correlated.
         !edgedLayerIds.has(lens.layerId) &&
-        (!edgedLayerIds.has(below.layerId) || edgedBelowMergeEnabled())
+        (!edgedLayerIds.has(below.layerId) || edgedBelowMergeEnabled()) &&
+        // OWNER RULING 2026-09-13 (fhdh #35): "by our rule those clays surrounding the peat
+        // should be 2 separate lenses (0 ties is lens left)". This merge welds ``above`` and
+        // ``below`` — two DISTINCT litho layers — into ONE continuous matrix (splicing one out),
+        // so the render reads as one clay mass wrapping the lens. That wrap is only real when it
+        // is PHYSICAL, which is any one of:
+        //   * an enclosing end is TIED — the matrix bands across the gap, so it is one continuous
+        //     body around the lens (ruling 8g "flows AROUND the lens as a DETOUR and reconnects";
+        //     this is the case every CS1 / geotech enclosed lens is, so those stay byte-identical);
+        //   * the matrix formation is present on a facing neighbour at the lens's OWN elevation —
+        //     a genuine interior HOLE, the same "real hole context" ``emitEnclosedLensCurves``
+        //     draws into (a thin sand lens inside continuous clay, ruling 8b);
+        //   * the LENS itself is the same formation as a facing mass — it is one body with that
+        //     run, the zeroTie PHYSICAL EXEMPTION (his TS3 sand pocket, absorbed into the facing
+        //     sand, ruling 2 2026-09-07).
+        // When NONE holds — the peat and the two clays around it are tied to nothing and face no
+        // same-litho on either neighbour — there is no wrapping matrix: each zero-tie unit is its
+        // own lens and the peat between them stays its own lens. Pinned in
+        // partitionFillV2.twoZeroTieLenses.test.ts; CS1 golden byte-identical, GEOTECH_210/HIER_COV
+        // unmoved.
+        (edgedLayerIds.has(above.layerId) ||
+          edgedLayerIds.has(below.layerId) ||
+          facingHasFormation(above.formationId, lens.baseElev, lens.topElev) ||
+          facingHasFormation(lens.formationId, lens.baseElev, lens.topElev))
       ) {
         lenses.push({ lens: { ...lens }, matrixFormationId: above.formationId })
         // SESSION-24 EXPERIMENT (flag-ON, MEASURED): when ``below`` is EDGED, the ordinary merge
