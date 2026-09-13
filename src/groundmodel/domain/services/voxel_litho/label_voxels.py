@@ -79,6 +79,7 @@ from groundmodel.domain.services.voxel_litho.voxel_constants import (
     HAIRLINE_LIMIT_M,
     PROGRESS_TICK_TARGET,
     PROJECTION_TIE_EPS_M,
+    STACK_VOID_ACTIONABLE_M,
 )
 from groundmodel.domain.services.voxel_litho.voxel_grid_budget import check_voxel_grid_budget
 from groundmodel.domain.services.voxel_litho.voxel_types import (
@@ -193,6 +194,7 @@ class _LabelTally:
     layout_closed_worst_m: float = 0.0
     layout_closed_worst_site: str | None = None
     hairline_gaps_over_limit: int = 0
+    hairline_gaps_actionable: int = 0
     hairline_worst_m: float = 0.0
     logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
     in_footprint_columns: int = 0
@@ -215,6 +217,7 @@ class _LabelTally:
             layout_closed_worst_m=self.layout_closed_worst_m,
             layout_closed_worst_site=self.layout_closed_worst_site,
             hairline_gaps_over_limit=self.hairline_gaps_over_limit,
+            hairline_gaps_actionable=self.hairline_gaps_actionable,
             hairline_worst_m=self.hairline_worst_m,
             logs_below_grid_floor=self.logs_below_grid_floor,
             in_footprint_columns=self.in_footprint_columns,
@@ -2132,10 +2135,13 @@ def label_voxels(
             # 2-D engine's millimetre snapping of a contact drawn flush (rounding),
             # and a gap tall enough that rounding cannot explain it.
             for base, top in _interior_gaps(stack):
-                if top - base > tally.hairline_worst_m:
-                    tally.hairline_worst_m = top - base
-                if top - base > HAIRLINE_LIMIT_M:
+                gap_m = top - base
+                if gap_m > tally.hairline_worst_m:
+                    tally.hairline_worst_m = gap_m
+                if gap_m > HAIRLINE_LIMIT_M:
                     tally.hairline_gaps_over_limit += 1
+                if gap_m >= STACK_VOID_ACTIONABLE_M:
+                    tally.hairline_gaps_actionable += 1
             honored = honored_by_cell.get((i, j))
             if honored is not None:
                 labels[i, j, :] = _honored_column_labels(
