@@ -66,6 +66,7 @@ export function sectionClosure(input: SectionClosureInput): GaplessClauseInput {
       label: `${sectionName}: framed by the lithostratigraphic model but produced no geotech build output`,
       section_id: sectionId,
       section_name: sectionName,
+      params: { section_name: sectionName },
     })
   }
   return { key: 'section-closure', status: entries.length > 0 ? 'fail' : 'pass', entries }
