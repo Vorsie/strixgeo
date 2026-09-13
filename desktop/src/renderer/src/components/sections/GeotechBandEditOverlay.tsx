@@ -179,6 +179,16 @@ export interface Props {
    */
   onRequestSetClass?: (bandId: string, nadClass: number, previousClass: number | null) => void
   /**
+   * Split a BOREHOLE band at the right-click depth (owner #35 dogfeed, installer
+   * #35: *"i wanted to split this packing band, but there seems to be no button
+   * in the right click menu"*). A borehole has no qc to re-derive from, so the
+   * server keeps the class on both halves — there is nothing to preview, so this
+   * commits directly at the clicked depth rather than arming a cursor-following
+   * placement the way the CPT split (:member:`onRequestSplit`) does. Absent →
+   * borehole bands are not splittable (the CPT axis keeps its own split flow).
+   */
+  onRequestSplitHere?: (bandId: string, depthM: number) => void
+  /**
    * The model's "thinnest packing band kept" preference — the badge's size gate. The
    * MENU offers the absorb on any enclosed lens regardless (the enclosure is real either
    * way); only the unprompted badge is reserved for bands the model itself calls thin.
@@ -341,6 +351,12 @@ type MenuState =
       clientY: number
       bandId: string
       /**
+       * Depth below the collar the engineer right-clicked at — where "Split band
+       * here" puts the boundary (owner #35). A borehole split keeps the class, so
+       * the depth is all the verb needs.
+       */
+      depthM: number
+      /**
        * The band's class today — the undo anchor the handler carries. ``null``
        * for a band nothing has classified yet, which the soil-family clamp
        * makes a normal state rather than a rarity.
@@ -423,6 +439,7 @@ export default function GeotechBandEditOverlay({
   nadClassByFormationId,
   soilCodeByFormationId,
   onRequestSetClass,
+  onRequestSplitHere,
   smallLensThicknessM,
   suspended = false,
   onShowUnitStatistics,
@@ -514,6 +531,9 @@ export default function GeotechBandEditOverlay({
     )
   }
   const [menu, setMenu] = useState<MenuState | null>(null)
+  // Whether the borehole menu's "Packing class ▸" submenu is expanded (owner #35:
+  // the classes moved off the first menu into a submenu so the verbs come first).
+  const [classSubmenuOpen, setClassSubmenuOpen] = useState(false)
   const [placing, setPlacing] = useState<SplitPlacement | null>(null)
   const [drag, setDrag] = useState<BoundaryDrag | null>(null)
   // Which litho contact is under the cursor. HOVER-only, never at rest: one
@@ -529,6 +549,10 @@ export default function GeotechBandEditOverlay({
     dragRef.current = next
     setDrag(next)
   }, [])
+  // The packing-class submenu flyout + its opener row, so opening by keyboard can
+  // move focus into the class list and ArrowLeft can move it back out.
+  const classSubmenuRef = useRef<HTMLDivElement | null>(null)
+  const packingClassRowRef = useRef<HTMLButtonElement | null>(null)
 
   const editable =
     !suspended &&
@@ -644,12 +668,12 @@ export default function GeotechBandEditOverlay({
    * drag — geometry on a borehole column stays exactly as view-only as before.
    */
   const boreholeColumns = useMemo(() => {
-    // The soil map is what the verb now depends on — the menu is built from the
-    // band's ground, so without it there is no family to offer. The class map
-    // only supplies the undo anchor, and a band that carries no class is a
-    // normal state the clamp produces, so its absence is never a reason to
-    // withhold the verb.
-    if (suspended || onRequestSetClass === undefined || soilCodeByFormationId === undefined)
+    // The borehole column carries two possible verbs now: "Split band here"
+    // (owner #35 — a borehole split keeps the class) and "Set NAD class". Render
+    // the hit rect when EITHER is wired; the menu itself decides which items to
+    // show. The class submenu additionally needs the soil map, but the split
+    // verb does not, so a borehole with an unknown soil still offers the split.
+    if (suspended || (onRequestSetClass === undefined && onRequestSplitHere === undefined))
       return []
     const out: {
       investigationId: string
@@ -679,6 +703,7 @@ export default function GeotechBandEditOverlay({
   }, [
     suspended,
     onRequestSetClass,
+    onRequestSplitHere,
     soilCodeByFormationId,
     placedColumns,
     levelToScreen,
@@ -711,6 +736,23 @@ export default function GeotechBandEditOverlay({
       document.removeEventListener('keydown', onKey)
     }
   }, [menu, onUnjoinHover])
+
+  // The packing-class submenu belongs to ONE open setClass menu — collapse it
+  // whenever the menu closes or a different band's menu opens, so it never
+  // re-opens already-expanded on the next right-click.
+  useEffect(() => {
+    if (menu?.kind !== 'setClass') setClassSubmenuOpen(false)
+  }, [menu])
+
+  // When the submenu opens, move focus onto its first selectable class so the
+  // keyboard user lands in the list (owner #35: arrow keys open the submenu).
+  useEffect(() => {
+    if (!classSubmenuOpen) return
+    const first = classSubmenuRef.current?.querySelector<HTMLButtonElement>(
+      'button:not([disabled])',
+    )
+    first?.focus()
+  }, [classSubmenuOpen])
 
   // Escape abandons a placement, matching every other armed mode in the section
   // editor — and so does the WHEEL, for the same reason the menu dismisses on it
@@ -835,7 +877,8 @@ export default function GeotechBandEditOverlay({
 
   return (
     <g data-testid="geotech-band-edit-overlay">
-      {/* Borehole bands: right-click → "Set NAD class" (their ONE verb). */}
+      {/* Borehole bands: right-click → "Split band here" (owner #35, class kept)
+          + a "Packing class ▸" submenu ("Set NAD class"). */}
       {boreholeColumns.map(column => (
         <g key={`gbe-bh-${column.investigationId}`}>
           {column.bands.map(band => {
@@ -849,7 +892,13 @@ export default function GeotechBandEditOverlay({
             // clamp turned from a rarity into a normal state.
             const soilCode = soilCodeByFormationId?.get(band.formationId) ?? null
             const family = nadClassesForSoil(soilCode)
-            if (family.length === 0) return null
+            // A verb exists when the class picker has a family to offer OR the
+            // split is wired — a borehole with an unknown soil still splits
+            // (the split keeps the class, so it needs no family). No verb at
+            // all → no hit rect (the GS7 no-affordance rule).
+            const canSetClass = onRequestSetClass !== undefined && family.length > 0
+            const canSplit = onRequestSplitHere !== undefined
+            if (!canSetClass && !canSplit) return null
             const foreignClass = nadClassIsForeignToSoil(currentClass, soilCode)
               ? currentClass
               : null
@@ -884,11 +933,22 @@ export default function GeotechBandEditOverlay({
                 onContextMenu={e => {
                   e.preventDefault()
                   e.stopPropagation()
+                  const svg = e.currentTarget.ownerSVGElement
+                  const svgTop = svg ? svg.getBoundingClientRect().top : 0
+                  // Where "Split band here" puts the boundary — the clicked depth
+                  // (owner #35: no cursor-following placement on a borehole).
+                  const depthM = depthAtClientY(
+                    e.clientY,
+                    svgTop,
+                    column.surfaceY,
+                    column.pxPerMetre,
+                  )
                   setMenu({
                     kind: 'setClass',
                     clientX: e.clientX,
                     clientY: e.clientY,
                     bandId: band.layerId,
+                    depthM,
                     currentClass,
                     family,
                     foreignClass,
@@ -1393,47 +1453,20 @@ export default function GeotechBandEditOverlay({
                 </>
               ) : menu.kind === 'setClass' ? (
                 <>
-                  {/* The band's own SOIL family, current one named and inert. Built
-                      from litho_main_soil_code, so this list is exactly what the
-                      server's own soil check would accept. */}
-                  {menu.family.map(cls => (
+                  {/* VERBS FIRST (owner #35: the classes crowded the verbs below
+                      the fold). "Split band here" splits the borehole band at the
+                      right-click depth, keeping its class. */}
+                  {onRequestSplitHere !== undefined && (
                     <button
-                      key={`gbe-set-class-${cls}`}
                       type="button"
-                      data-testid={`geotech-band-menu-set-class-${cls}`}
-                      disabled={cls === menu.currentClass}
+                      data-testid="geotech-band-menu-split-here"
                       onClick={() => {
-                        onRequestSetClass?.(menu.bandId, cls, menu.currentClass)
+                        onRequestSplitHere(menu.bandId, menu.depthM)
                         setMenu(null)
                       }}
-                      style={
-                        cls === menu.currentClass
-                          ? { ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }
-                          : MENU_ITEM_STYLE
-                      }
+                      style={MENU_ITEM_STYLE}
                     >
-                      {nadCompactLabel(cls)}
-                      {cls === menu.currentClass ? t('sections.bands.currentSuffix') : ''}
-                    </button>
-                  ))}
-                  {/* A legacy row whose class belongs to another soil. Shown so the
-                      engineer can see WHAT the band says today and that it is wrong —
-                      a menu that silently omitted it would leave him choosing a
-                      replacement for a value he cannot see. Never selectable: picking
-                      it would restate the contradiction. Any item above heals it. */}
-                  {menu.foreignClass !== null && (
-                    <button
-                      key={`gbe-set-class-foreign-${menu.foreignClass}`}
-                      type="button"
-                      data-testid={`geotech-band-menu-set-class-${menu.foreignClass}`}
-                      data-foreign-class="true"
-                      disabled
-                      style={{ ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }}
-                    >
-                      {nadCompactLabel(menu.foreignClass)}
-                      {t('sections.bands.foreignClassSuffix', {
-                        family: nadSoilFamilyName(menu.foreignClass),
-                      })}
+                      {t('sections.menu.splitBandHere')}
                     </button>
                   )}
                   <UnitStatisticsItem
@@ -1446,6 +1479,123 @@ export default function GeotechBandEditOverlay({
                   {/* Body verbs — start a Join from this borehole column, or
                       un-join a group it is in. The band's own layer is the anchor. */}
                   {renderBodyVerbs(menu.unitBodyId, menu.bandId, menu.unitId)}
+                  {/* The packing classes now live in a SUBMENU behind ONE row
+                      (owner #35), so the verbs above are never pushed below the
+                      fold. Only when there is a family to offer. */}
+                  {menu.family.length > 0 && onRequestSetClass !== undefined && (
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        ref={packingClassRowRef}
+                        type="button"
+                        data-testid="geotech-band-menu-packing-class"
+                        aria-haspopup="menu"
+                        aria-expanded={classSubmenuOpen}
+                        onClick={() => setClassSubmenuOpen(o => !o)}
+                        onKeyDown={e => {
+                          // Arrow keys open / close the submenu (owner #35).
+                          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                            e.preventDefault()
+                            setClassSubmenuOpen(true)
+                          } else if (e.key === 'ArrowLeft') {
+                            e.preventDefault()
+                            setClassSubmenuOpen(false)
+                          }
+                        }}
+                        style={{
+                          ...MENU_ITEM_STYLE,
+                          borderTop: '1px solid var(--color-border-default, #334155)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 12,
+                        }}
+                      >
+                        <span>
+                          {t('sections.menu.packingClass')}
+                          {menu.currentClass !== null
+                            ? ' ' +
+                              t('sections.bands.packingClassCurrent', {
+                                label: nadCompactLabel(menu.currentClass),
+                              })
+                            : ''}
+                        </span>
+                        <span aria-hidden style={{ opacity: 0.6 }}>
+                          ▸
+                        </span>
+                      </button>
+                      {classSubmenuOpen && (
+                        <div
+                          ref={classSubmenuRef}
+                          role="menu"
+                          aria-label={t('sections.menu.packingClass')}
+                          onKeyDown={e => {
+                            // ArrowLeft steps back out to the row (Escape, handled
+                            // at the document level, closes the whole menu).
+                            if (e.key === 'ArrowLeft') {
+                              e.preventDefault()
+                              setClassSubmenuOpen(false)
+                              packingClassRowRef.current?.focus()
+                            }
+                          }}
+                          style={{
+                            position: 'absolute',
+                            left: '100%',
+                            top: 0,
+                            background: 'var(--color-surface-overlay, #1e293b)',
+                            border: '1px solid var(--color-border-default, #334155)',
+                            borderRadius: 6,
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                            minWidth: 180,
+                          }}
+                        >
+                          {/* The band's own SOIL family, current one named and
+                              inert. Built from litho_main_soil_code, so this list
+                              is exactly what the server's soil check would accept. */}
+                          {menu.family.map(cls => (
+                            <button
+                              key={`gbe-set-class-${cls}`}
+                              type="button"
+                              data-testid={`geotech-band-menu-set-class-${cls}`}
+                              role="menuitem"
+                              disabled={cls === menu.currentClass}
+                              onClick={() => {
+                                onRequestSetClass?.(menu.bandId, cls, menu.currentClass)
+                                setMenu(null)
+                              }}
+                              style={
+                                cls === menu.currentClass
+                                  ? { ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }
+                                  : MENU_ITEM_STYLE
+                              }
+                            >
+                              {nadCompactLabel(cls)}
+                              {cls === menu.currentClass ? t('sections.bands.currentSuffix') : ''}
+                            </button>
+                          ))}
+                          {/* A legacy row whose class belongs to another soil.
+                              Shown so the engineer can SEE what the band says today
+                              and that it is wrong; never selectable — picking it
+                              would restate the contradiction. Any item above heals it. */}
+                          {menu.foreignClass !== null && (
+                            <button
+                              key={`gbe-set-class-foreign-${menu.foreignClass}`}
+                              type="button"
+                              data-testid={`geotech-band-menu-set-class-${menu.foreignClass}`}
+                              data-foreign-class="true"
+                              role="menuitem"
+                              disabled
+                              style={{ ...MENU_ITEM_STYLE, opacity: 0.5, cursor: 'default' }}
+                            >
+                              {nadCompactLabel(menu.foreignClass)}
+                              {t('sections.bands.foreignClassSuffix', {
+                                family: nadSoilFamilyName(menu.foreignClass),
+                              })}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <button
