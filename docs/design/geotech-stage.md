@@ -293,6 +293,26 @@ and erases hand classes, so the pipeline's shape is one divide pass, hand
 fixes after the last press. SC1â€“SC3 at the DB; the overlay rules suite pins
 CPT-never/borehole-only and the family list.
 
+Owner #35 (2026-09-13) restructured this menu: the packing classes crowded the
+verbs below the fold, so they moved behind ONE keyboard-navigable
+"Pakkingsklasse / Packing class â–¸ (current: â€¦)" submenu row and the VERBS now come
+first â€” including the new "Band hier splitsen / Split band here" (Â§4-0-split).
+The class list, the current-class tag and the foreign-class stranger row are
+unchanged; only their home moved into the submenu.
+
+### 4-0-split. Split a BOREHOLE band, keeping the class (owner #35, 2026-09-13)
+
+The owner found no split button on a borehole band. A borehole records no qc, so
+the split cannot re-derive â€” it KEEPS the original band's class on both halves
+(`SplitGeotechBand`, the borehole branch: no `require_cpt_anchor`, both halves
+take the target band's class, `source='manual'`). "Split band here" splits at the
+right-click depth and commits DIRECTLY (no consequence sheet â€” a kept class has
+nothing to preview), unlike the CPT split's armed placement. It is undoable: undo
+re-merges the two halves, and `MergeGeotechBands` keeps the SURVIVOR's class on a
+borehole (the split's inverse), so the original band comes back intact. The merge
+is reached only by that undo â€” the borehole menu offers no merge affordance.
+GB17/GB18 pin the DB round-trip; the overlay suite pins the menu.
+
 The geotech axis is view-only **except** for the band-edit verbs and the one
 contact gesture in Â§4c. Everything else stays shut: contacts on this axis cannot
 be created, copied or deleted, and the only drag they accept is the snap in Â§4c
@@ -333,9 +353,19 @@ interval. The surface is six verbs wide:
 
 Every committed edit pushes its inverse onto the section undo stack AFTER the
 write succeeds (`useGeotechBandEdit.pushUndoFor`): a move moves back, a split
-merges its halves, a merge re-splits at the carried boundary, a lens absorb
-re-splits at BOTH carried boundaries. Row ids change across redo cycles; a
-closure-mutable id re-anchors them (the litho delete-undo pattern).
+merges its halves, a merge re-splits at the carried boundary AND RESTORES each
+half's pre-merge class + source, a lens absorb re-splits at BOTH carried
+boundaries. Row ids change across redo cycles; a closure-mutable id re-anchors
+them (the litho delete-undo pattern).
+
+The merge undo restores rather than re-derives because a re-derived re-split lost
+a class the merge had changed or a hand class it never measured (owner #35: *"ctrl+z
+... deletes the merge but doesn't restore the earlier packing suggestion"*). The
+merge captures both bands' class + source and returns them
+(`pre_merge_upper/lower_nad_class` / `_source`); the undo re-splits with a `restore`
+payload, which `SplitGeotechBand` assigns verbatim instead of reading qc (SR1/MU1
+at the DB, HK11 in the hook). The lens-absorb (N-run) undo still re-derives â€” out
+of #35's reported scope; a latent class-loss there is a known residual.
 
 Owner rulings driving the shape are recorded in full in `docs/debt.md` #227.
 The ones that constrain the code:
@@ -444,8 +474,13 @@ its per-column band "Remove this litho unit" menu and its per-column "Add new su
 here" capture rect all gate on the relevant handler, because
 `perColumnBandsFromContacts` is true on the geotech axis too and those surfaces
 otherwise render over packing bands (`ContactsLayer.viewOnly.test.tsx`).
-Borehole columns are refused every verb â€” their bands carry no qc to re-derive
-from (`require_cpt_anchor`; GB8 pins all six routes).
+Borehole columns carry no qc, so the verbs that RE-DERIVE from it stay refused
+there â€” the two PREVIEWS and MOVE (`require_cpt_anchor`; GB8). But since owner #35
+(2026-09-13) a borehole band can be SPLIT and MERGED without qc, by KEEPING the
+class: the split gives both halves the original band's class, and the merge keeps
+the survivor's class (the split's inverse, so ctrl+z re-merges it back). The
+desktop offers "Split band here" on the borehole band's own menu; the merge is
+reached only by that undo. GB17/GB18 pin the two, GB8 the four that still refuse.
 
 DB-level behaviour is exercised by
 `tests/integration/api/test_geotech_band_edit_endpoints.py` (GB1â€“GB16, wrapper
