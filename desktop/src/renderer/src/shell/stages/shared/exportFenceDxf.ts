@@ -32,6 +32,12 @@ export interface FenceExportOptions {
   formations: readonly GeologicalFormationResponse[]
   /** Shell toast dispatcher — the ``toasts.toast`` action off the shell bus. */
   toast: (kind: 'success' | 'error' | 'warning', message: string) => void
+  /**
+   * Called with the chosen path AFTER a successful write (installer #35 — the
+   * Export hub remembers each card's last path). Optional: the 3-D stage buttons
+   * do not surface a last-path hint and omit it.
+   */
+  onSaved?: (path: string) => void
 }
 
 /**
@@ -56,7 +62,7 @@ export interface FenceExportOptions {
  *     reported to the user, never thrown at a click handler.
  */
 export async function exportFenceDxf(options: FenceExportOptions): Promise<void> {
-  const { projectId, modelId, modelName, panels, formations, toast } = options
+  const { projectId, modelId, modelName, panels, formations, toast, onSaved } = options
 
   const request = buildFenceExportRequest(panels, formations)
   if (request.panels.length === 0) {
@@ -85,6 +91,7 @@ export async function exportFenceDxf(options: FenceExportOptions): Promise<void>
       'geology',
       `exportFenceDxf ok model=${modelId} bytes=${bytes.byteLength} path=${dialogPath}`,
     )
+    onSaved?.(dialogPath)
     toast('success', t('export.fenceExported', { count: request.panels.length }))
   } catch (err) {
     log.error('geology', 'exportFenceDxf failed', err)
