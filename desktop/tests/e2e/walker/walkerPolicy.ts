@@ -45,7 +45,7 @@ export const TUTORIAL_VERB_TESTIDS: readonly string[] = [
   'data-inspector-sort', 'data-row-remove', 'data-filter-testtype-cpt', 'data-filter-testtype-borehole',
   'section-create', 'axis-geology', 'axis-litho', 'axis-geotech', 'section-control-buffer',
   'section-control-spacing', 'section-control-vexag', 'section-control-snap', 'section-dem-line',
-  'sections-undo', 'sections-delete', 'sections-toolbar-export-dropdown', 'inspector-build',
+  'sections-undo', 'sections-delete', 'sections-toolbar-export', 'inspector-build',
   'suggest-tie-sections', 'geology-fill-from-boreholes-button', 'geology-create-formation-button',
   'geology-dedupe', 'geology-build-model-button', 'model-kind-picker', 'litho-model-create',
   'litho-suggest', 'litho-accept-all', 'correlate-mode', 'litho-bodies-dropdown',
