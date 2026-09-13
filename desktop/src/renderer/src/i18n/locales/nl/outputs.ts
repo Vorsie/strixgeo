@@ -307,4 +307,55 @@ export const OUTPUTS_NL = {
   'export.viewFence': 'Hekwerk',
   'export.viewWireframe': 'Draadmodel',
   'export.viewWireframeTitle': 'Toon het lichaammodel als draadmodel',
+
+  // --- Export-hub (installer #35, de Export-stap is de enige exportplek) ---
+  'export.hubBlurb':
+    'Alle exports staan hier. Kies een dwarsprofiel en exporteer het naar de tool die je nodig hebt. Hekkendiagrammen en het 3D-model exporteer je via hun eigen kaarten hieronder.',
+  'export.crossSectionPickerLabel': 'Te exporteren dwarsprofiel',
+  'export.axisLabel': 'Modelniveau',
+  'export.axisGeological': 'Stratigrafie',
+  'export.axisLithological': 'Lithologie',
+  'export.axisGeotechnical': 'Geotechniek',
+  'export.groupCrossSection': 'Dwarsprofiel',
+  'export.groupStratigraphy': 'Stratigrafie',
+  'export.groupLithology': 'Lithologie',
+  'export.groupGeotechnical': 'Geotechniek',
+  'export.groupReport': 'Rapport',
+  'export.cardSectionDxfTitle': 'Dwarsprofiel-DXF',
+  'export.cardSectionDxfDesc':
+    'De laaggeometrie van één dwarsprofiel als AutoCAD-DXF, op het gekozen modelniveau.',
+  'export.cardPlaxis3dTitle': 'Stratigrafisch model → Plaxis 3D',
+  'export.cardPlaxis3dDesc':
+    'Het volledige model als uitvoerbaar plxscripting-script: één voorlopige grondsoort en één boring per grondonderzoek.',
+  'export.cardLithoDstabilityDesc':
+    'Het lithologische dwarsprofiel als gesloten D-Stability-polygonen (alleen geometrie, geen ontwerpparameters).',
+  'export.cardLithoPlaxis2dTitle': 'Plaxis 2D',
+  'export.cardLithoPlaxis2dDesc':
+    'Het lithologische dwarsprofiel als uitvoerbaar Plaxis 2D plxscripting-script, één boring per kolom.',
+  'export.cardLithoFenceTitle': 'Hekkendiagram (DXF)',
+  'export.cardLithoFenceDesc':
+    'De lithologische 3D-hekwanden als DXF: één laag per profiel per eenheid.',
+  'export.cardGeotechDsheetDesc':
+    'Een 1D-grondprofiel doorheen het geotechnische dwarsprofiel als D-Sheet .shi (alleen geometrie).',
+  'export.cardGeotechPlaxis2dTitle': 'Plaxis 2D (pakkingsklassen)',
+  'export.cardGeotechPlaxis2dDesc':
+    'Het geotechnische dwarsprofiel, met NAD-pakkingsklassen, als Plaxis 2D-script.',
+  'export.cardGeotechFenceTitle': 'Hekkendiagram (DXF)',
+  'export.cardGeotechFenceDesc':
+    'De geotechnische 3D-hekwanden als DXF, gekleurd volgens NAD-pakkingsklasse.',
+  'export.cardPdfTitle': 'PDF-rapportblad',
+  'export.cardPdfDesc': 'Een A3-tekenblad van het dwarsprofiel: bekijk het en print naar PDF.',
+  'export.exportFence': 'Hekwerk exporteren',
+  'export.exportStix': '.stix exporteren',
+  'export.exportShi': '.shi exporteren',
+  'export.openPreview': 'Voorbeeld openen',
+  'export.lastSaved': 'Laatst opgeslagen: {path}',
+  'export.guideNoStratModel':
+    'Nog geen stratigrafisch model: leg eerst formaties en laaggrenzen vast in de Stratigrafie-stap.',
+  'export.guideNoLithoModel':
+    'Nog geen lithologisch model: maak en bouw er eerst een in de Lithologie-stap.',
+  'export.guideNoGeotechModel':
+    'Nog geen geotechnisch model: onderverdeel eerst de lithologische eenheden in de Geotechniek-stap.',
+  'export.guideNoSections': 'Nog geen dwarsprofielen: teken er eerst een in de Profielen-stap.',
+  'export.guidePickSection': 'Kies hierboven een dwarsprofiel om te exporteren.',
 } as const
