@@ -92,13 +92,17 @@ test.describe('flow_sections_toolbar_ui', () => {
         page.getByRole('button', { name: '+ New cross-section' }).first(),
       ).toBeVisible()
 
-      // --- Export ToolbarDropdown: three export targets. --------------------
+      // --- Export…: one verb that jumps to the Export hub (installer #35). ---
       await selectFirstSection(page)
-      await openDropdown(page, 'sections-toolbar-export-dropdown')
-      await expect(page.getByTestId('export-section-dxf')).toBeVisible()
-      await expect(page.getByTestId('export-plaxis-3d')).toBeVisible()
-      await expect(page.getByTestId('export-section-pdf')).toBeVisible()
-      await dismissMenu(page)
+      const exportVerb = page.getByTestId('sections-toolbar-export')
+      if (await exportVerb.isVisible()) await exportVerb.click()
+      else {
+        await page.getByTestId('toolbar-overflow-more').click()
+        await page.getByTestId('sections-toolbar-export').click()
+      }
+      // The jump lands on the Export stage, where every export target lives as a card.
+      await expect(page.getByTestId('stage-tab-export')).toHaveAttribute('aria-pressed', 'true')
+      await expect(page.getByTestId('export-canvas-dxf')).toBeVisible()
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
