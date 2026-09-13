@@ -4,6 +4,7 @@ import { useAppBoot } from './hooks/useAppBoot'
 import { useMapOverlays } from './hooks/useMapOverlays'
 import { useGeologicalModel } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
+import type { SectionModelAxis } from './hooks/useSections'
 import { useBedOverrides } from './hooks/useBedOverrides'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectBodyRecompute } from './hooks/useProjectBodyRecompute'
@@ -471,6 +472,17 @@ export default function App() {
     useState<ParameterUnitScope | null>(null)
   const [parametersActiveTab, setParametersActiveTab] =
     useState<ParametersTabId>('per-test')
+
+  // Export-stage deep-link target (installer #35 — the Export hub is the only
+  // export surface). Set by the Sections toolbar's single "Export…" verb and the
+  // 3-D stages' "Export…" verbs; AppShell switches to the Export stage and (when
+  // a section is named) selects it + sets the axis so the hub opens already
+  // scoped to what the engineer was looking at, then clears the target
+  // (single-fire). Same cross-boundary bus rationale as the other deep-links.
+  const [exportDeepLinkTarget, setExportDeepLinkTarget] = useState<{
+    sectionId: string | null
+    axis: SectionModelAxis
+  } | null>(null)
 
   // Correlation-edges refetch nonce (#163c). Auto-correlate is fired from
   // SectionsToolbar via the geoModel slice, but the contact-correlation edge
@@ -1034,6 +1046,7 @@ export default function App() {
       sectionId: string,
       sectionName: string,
       modelId: string,
+      onSaved?: (path: string) => void,
     ): Promise<void> => {
       log.info('section', `exportDxf start section=${sectionId} model=${modelId}`)
       try {
@@ -1059,6 +1072,7 @@ export default function App() {
           'section',
           `exportDxf ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
         )
+        onSaved?.(dialogPath)
         toast('success', tMsg('app.dxfExported'))
       } catch (err) {
         log.error('section', 'exportDxf failed', err)
@@ -1087,6 +1101,7 @@ export default function App() {
       sectionId: string,
       sectionName: string,
       modelId: string,
+      onSaved?: (path: string) => void,
     ): Promise<void> => {
       log.info('section', `exportPlaxis2d start section=${sectionId} model=${modelId}`)
       try {
@@ -1109,6 +1124,7 @@ export default function App() {
           'section',
           `exportPlaxis2d ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
         )
+        onSaved?.(dialogPath)
         toast('success', tMsg('app.plaxis2dExported'))
       } catch (err) {
         log.error('section', 'exportPlaxis2d failed', err)
@@ -1334,6 +1350,7 @@ export default function App() {
     geoDeepLinkTarget, setGeoDeepLinkTarget,
     sectionsDeepLinkTarget, setSectionsDeepLinkTarget,
     parametersDeepLinkTarget, setParametersDeepLinkTarget,
+    exportDeepLinkTarget, setExportDeepLinkTarget,
     selectedParameterUnit, setSelectedParameterUnit,
     parametersActiveTab, setParametersActiveTab,
     correlationEdgesRefetchNonce, bodyRecomputeLithoNonce, bodyRecomputeGeotechNonce,
