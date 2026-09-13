@@ -84,16 +84,38 @@ export const geotechBandsClient = {
    *
    * One transaction. Only the edited column re-derives (ruling 4); correlations on the
    * upper half survive unless the partner's class no longer matches the new one.
+   *
+   * ``restore`` is the additive escape from re-derivation: when present, each half
+   * is assigned the given class + source DIRECTLY, no qc is read and the borehole
+   * refusal is lifted. Two callers pass it — the merge undo (restoring the two
+   * pre-merge bands exactly, owner #35) and a borehole split (a borehole has no
+   * qc, so both halves keep the original band's class). Omit it for the ordinary
+   * re-deriving CPT split.
    */
   splitGeotechBand: (
     projectId: string,
     geotechModelId: string,
     bandId: string,
     splitDepthM: number,
+    restore?: {
+      upperNadClass: number | null
+      lowerNadClass: number | null
+      upperSource?: string | null
+      lowerSource?: string | null
+    },
   ): Promise<GeotechBandEditResponse> =>
     post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/split`, {
       band_id: bandId,
       split_depth_m: splitDepthM,
+      ...(restore === undefined
+        ? {}
+        : {
+            restore: true,
+            restore_upper_nad_class: restore.upperNadClass,
+            restore_lower_nad_class: restore.lowerNadClass,
+            restore_upper_source: restore.upperSource ?? null,
+            restore_lower_source: restore.lowerSource ?? null,
+          }),
     }),
 
   /**
