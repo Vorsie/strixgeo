@@ -364,6 +364,13 @@ interface Props {
     previousClass: number | null,
   ) => void;
   /**
+   * Split a BOREHOLE band at the right-click depth (owner #35). A borehole split
+   * keeps the class, so it commits directly rather than arming a placement. Pure
+   * pass-through to ``GeotechBandEditOverlay``'s ``onRequestSplitHere``. Absent →
+   * borehole bands are not splittable.
+   */
+  onRequestGeotechSplitHere?: (bandId: string, depthM: number) => void;
+  /**
    * Open the Parameters stage scoped to a geotech band's UNIT (owner ballot
    * 2026-08-26). Pure pass-through to ``GeotechBandEditOverlay``: the panel
    * neither navigates nor knows what a stage is — it forwards the unit id the
@@ -879,6 +886,7 @@ export default function SectionPanel({
   onDeleteContact,
   onRequestGeotechSplitBand,
   onRequestGeotechSetBandClass,
+  onRequestGeotechSplitHere,
   onShowGeotechUnitStatistics,
   onShowLithoUnitStatistics,
   onRequestGeotechClearColumn,
@@ -4221,6 +4229,7 @@ export default function SectionPanel({
                 onRequestMoveBoundary={onRequestGeotechMoveBoundary}
                 onRequestAbsorbLens={onRequestGeotechAbsorbLens}
                 onRequestSetClass={onRequestGeotechSetBandClass}
+                onRequestSplitHere={onRequestGeotechSplitHere}
                 nadClassByFormationId={geotechNadClassByFormationId}
                 soilCodeByFormationId={geotechSoilCodeByFormationId}
                 smallLensThicknessM={geotechSmallLensThicknessM}
