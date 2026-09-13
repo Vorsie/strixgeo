@@ -761,6 +761,13 @@ export const SECTIONS = {
   'sections.vb.noOverlay': 'No overlay in this slot',
   'sections.ghost.copyChip': 'Copy {litho}',
   'sections.geotech.qcLabel': 'qc: {statistic}',
+  // The four representative-qc statistics as the user reads them (owner
+  // 2026-09-13: "token of course needs translation in dutch version"). The
+  // wire token stays English; only the display is translated.
+  'sections.geotech.statisticName.median': 'median',
+  'sections.geotech.statisticName.arithmetic': 'arithmetic',
+  'sections.geotech.statisticName.harmonic': 'harmonic',
+  'sections.geotech.statisticName.geometric': 'geometric',
   'sections.bands.dragMoveHint': 'Drag to move this packing boundary · right-click to merge the bands',
   'sections.bands.rightClickMerge': 'Right-click to merge these two packing bands',
   'sections.bands.placeReadout': '{depth} m — click to place, Esc to cancel',
