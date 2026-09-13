@@ -7,6 +7,7 @@
 // "re-run under <statistic>" tag on the pipeline's Subdivide step — the verb
 // that actually re-classifies.
 
+import { getLanguage, setLanguage } from '../../../i18n/languageSelect'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -400,5 +401,22 @@ describe('the qc statistic can be chosen before the first subdivide', () => {
     })
     expect(screen.getByTestId('geotech-statistic-menu').textContent).toContain('geometric')
     expect(screen.getByTestId('geotech-statistic-menu').textContent).not.toContain('harmonic')
+  })
+})
+
+// Owner 2026-09-13: "token of course needs translation in dutch version".
+describe('the qc label reads in Dutch in the Dutch version', () => {
+  const initialLanguage = getLanguage()
+  afterEach(() => {
+    setLanguage(initialLanguage)
+  })
+
+  it('the toolbar reads qc: mediaan, and the picker rows read Dutch too', () => {
+    setLanguage('nl')
+    renderToolbar(makeCtx('geotechnical', { activeGeotechModel: makeGeotechModel() }))
+
+    const label = screen.getByTestId('geotech-statistic-menu').textContent ?? ''
+    expect(label).toContain('mediaan')
+    expect(label).not.toContain('median')
   })
 })
