@@ -466,11 +466,9 @@ interface Props {
   onCreateFormation?: (
     payload: GeologicalFormationCreatePayload,
   ) => Promise<{ id: string } | null>;
-  /** Fire the "Export DXF" header action. The handler owns the
-   * fetch + Electron save-dialog + file-write flow so the panel
-   * stays storage-agnostic. Omitting it (or there being no active
-   * geological model) hides the button. */
-  onExportDxf?: () => Promise<void>;
+  // (The panel's "Export DXF" header action was retired with the Export hub —
+  // installer #35: every export lives on the Export stage. The prop was already
+  // dead here; removed with its wiring in SectionsCanvas.)
   /**
    * Litho axis: fired when the user picks a composition in the "New
    * unit" tab of ``LithoCompositionPickerDialog``.  The caller posts
@@ -901,7 +899,6 @@ export default function SectionPanel({
   contactMarqueeEnabled,
   onAutoPopulateFromStratigraphy,
   onCreateFormation,
-  onExportDxf,
   onSelectCpt,
   onSelectBorehole,
   onFocusedColumnChange,
