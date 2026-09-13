@@ -222,6 +222,27 @@ async def _bands_on(db_session: AsyncSession, geotech_model_id: str, cpt_id) -> 
     return list(rows)
 
 
+async def _bands_on_borehole(
+    db_session: AsyncSession, geotech_model_id: str, borehole_id
+) -> list[LithoLayerOrm]:
+    """The borehole's geotech bands, top to bottom."""
+    rows = (
+        (
+            await db_session.execute(
+                select(LithoLayerOrm)
+                .where(
+                    LithoLayerOrm.model_id == UUID(geotech_model_id),
+                    LithoLayerOrm.borehole_id == borehole_id,
+                )
+                .order_by(LithoLayerOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
 def _band_url(scene: dict, geotech_model_id: str, tail: str) -> str:
     return f"/projects/{scene['project_id']}/geology/models/{geotech_model_id}/geotech/bands/{tail}"
 
@@ -496,52 +517,25 @@ async def test_gb7_moving_back_self_heals_the_flag(
 
 
 @pytest.mark.asyncio
-async def test_gb8_every_band_route_refuses_a_borehole_band(
+async def test_gb8_the_qc_only_borehole_verbs_still_refuse_a_borehole_band(
     band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """GB8 — a borehole records no qc, so every hand verb names the cause and refuses."""
-    gid = await _subdivide(async_client, band_scene)
-    # Get borehole bands: accept the ties and divide the boreholes.
-    auto = await async_client.post(
-        f"/projects/{band_scene['project_id']}/geology/models/{gid}/geotech/auto-correlate",
-        json={},
-    )
-    assert auto.status_code == 200, auto.text
-    accept = await async_client.post(
-        f"/projects/{band_scene['project_id']}/geology/models/{gid}/contact-correlations/accept",
-        json={},
-    )
-    assert accept.status_code == 200, accept.text
-    divide = await async_client.post(
-        f"/projects/{band_scene['project_id']}/geology/models/"
-        f"{band_scene['litho_model_id']}/geotech/divide-boreholes",
-        json={},
-    )
-    assert divide.status_code == 200, divide.text
+    """GB8 — the verbs that NEED qc still name the cause and refuse on a borehole.
 
-    bh_rows = (
-        (
-            await db_session.execute(
-                select(LithoLayerOrm)
-                .where(
-                    LithoLayerOrm.model_id == UUID(gid),
-                    LithoLayerOrm.borehole_id == band_scene["bh_id"],
-                )
-                .order_by(LithoLayerOrm.depth_top_m)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert bh_rows, "divide-boreholes must have produced borehole bands"
-    band = str(bh_rows[0].id)
-    partner = str(bh_rows[1].id) if len(bh_rows) > 1 else band
+    Owner #35 amended ruling A: a borehole band can be SPLIT (halves keep the
+    class) and MERGED (union keeps the survivor's class) — those two are covered
+    by GB17/GB18. What still has no meaning on a qc-less column is a PREVIEW of a
+    re-derivation (there is no re-derivation to preview) and a MOVE (both bands
+    would re-derive from qc that is not there). Those four refuse, naming the
+    borehole.
+    """
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+    band = rows[0][0]
+    partner = rows[1][0] if len(rows) > 1 else band
 
     cases = [
         ("preview-split", {"band_id": band, "split_depth_m": 1.0}),
-        ("split", {"band_id": band, "split_depth_m": 1.0}),
         ("preview-merge", {"upper_band_id": band, "lower_band_id": partner}),
-        ("merge", {"upper_band_id": band, "lower_band_id": partner}),
         ("preview-move", {"upper_band_id": band, "lower_band_id": partner, "new_depth_m": 1.0}),
         ("move", {"upper_band_id": band, "lower_band_id": partner, "new_depth_m": 1.0}),
     ]
@@ -549,6 +543,198 @@ async def test_gb8_every_band_route_refuses_a_borehole_band(
         resp = await async_client.post(_band_url(band_scene, gid, tail), json=body)
         assert resp.status_code == 422, f"{tail}: {resp.status_code} {resp.text}"
         assert "borehole" in resp.json()["detail"]["message"].lower(), tail
+
+
+@pytest.mark.asyncio
+async def test_gb17_split_band_here_is_offered_on_a_borehole_band_too(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB17 — owner #35: "split band here" works on a borehole band, class kept.
+
+    A borehole has no qc, so a split cannot re-derive the halves — it KEEPS the
+    original band's class on both. The commit succeeds (no 422), both halves point
+    at the original class, and only the source is stamped manual (the boundary is
+    the engineer's; the class is not).
+    """
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+    band_id, top, base = rows[0]
+    # Learn the band's current class so the "keep" claim can be checked against it.
+    before = await db_session.get(LithoLayerOrm, UUID(band_id))
+    assert before is not None
+    original_formation = await db_session.get(GeologicalFormationOrm, before.formation_id)
+    assert original_formation is not None
+    original_class = original_formation.nad_class
+
+    mid = round((top + base) / 2, 3)
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": band_id, "split_depth_m": mid},
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    halves = await _bands_on_borehole(db_session, gid, band_scene["bh_id"])
+    upper = next(r for r in halves if abs(r.depth_top_m - top) < 1e-6)
+    lower = next(r for r in halves if abs(r.depth_top_m - mid) < 1e-6)
+    for half in (upper, lower):
+        formation = await db_session.get(GeologicalFormationOrm, half.formation_id)
+        assert formation is not None
+        assert formation.nad_class == original_class, "both halves KEEP the original class"
+        assert half.source == "manual", "only the boundary is the engineer's, so only source moves"
+    assert abs(lower.depth_base_m - base) < 1e-6, "the split spans the original band exactly"
+
+
+@pytest.mark.asyncio
+async def test_gb18_a_borehole_split_undoes_by_re_merging_keeping_the_class(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """GB18 — ctrl+z after a borehole split re-merges the two halves, class kept.
+
+    A borehole merge has no qc to re-derive from, so the union takes the SURVIVOR
+    (upper) band's class. On the split-undo the two halves share the class, so the
+    survivor's class IS the original — the split is reversible.
+    """
+    gid, rows = await _divided_borehole_bands(band_scene, async_client, db_session)
+    band_id, top, base = rows[0]
+    before = await db_session.get(LithoLayerOrm, UUID(band_id))
+    assert before is not None
+    original_formation = await db_session.get(GeologicalFormationOrm, before.formation_id)
+    assert original_formation is not None
+    original_class = original_formation.nad_class
+
+    mid = round((top + base) / 2, 3)
+    split = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": band_id, "split_depth_m": mid},
+    )
+    assert split.status_code == 200, split.text
+    lower_id = split.json()["created_layer_ids"][0]
+
+    merge = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"upper_band_id": band_id, "lower_band_id": lower_id},
+    )
+    assert merge.status_code == 200, merge.text
+
+    db_session.expire_all()
+    survivor = await db_session.get(LithoLayerOrm, UUID(band_id))
+    assert survivor is not None
+    formation = await db_session.get(GeologicalFormationOrm, survivor.formation_id)
+    assert formation is not None
+    assert formation.nad_class == original_class, "the re-merged band keeps the original class"
+    assert abs(survivor.depth_top_m - top) < 1e-6 and abs(survivor.depth_base_m - base) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_sr1_a_restore_split_assigns_the_given_classes_ignoring_qc(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """SR1 — the restore split ASSIGNS the halves' classes + sources verbatim.
+
+    The merge undo (owner #35) restores the two pre-merge bands rather than
+    re-deriving them. A restore split therefore never reads qc: it points each
+    half at the class it is handed and stamps the source it is handed — which is
+    how the ordinary path (source forced to ``manual`` on both) is told apart
+    from a restore that carries a ``segmenter`` provenance back.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    cpt_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert cpt_bands, "subdivide must have produced CPT bands"
+    target = max(cpt_bands, key=lambda r: r.depth_base_m - r.depth_top_m)
+    mid = round((target.depth_top_m + target.depth_base_m) / 2, 3)
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={
+            "band_id": str(target.id),
+            "split_depth_m": mid,
+            "restore": True,
+            "restore_upper_nad_class": 5,
+            "restore_lower_nad_class": 8,
+            "restore_upper_source": "segmenter",
+            "restore_lower_source": "manual",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    halves = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    upper = next(r for r in halves if abs(r.depth_top_m - target.depth_top_m) < 1e-6)
+    lower = next(r for r in halves if abs(r.depth_top_m - mid) < 1e-6)
+    upper_formation = await db_session.get(GeologicalFormationOrm, upper.formation_id)
+    lower_formation = await db_session.get(GeologicalFormationOrm, lower.formation_id)
+    assert upper_formation is not None and lower_formation is not None
+    assert upper_formation.nad_class == 5, "the upper half took the class it was handed"
+    assert lower_formation.nad_class == 8, "the lower half took the class it was handed"
+    assert upper.source == "segmenter", "the restore carried the source back, not forced manual"
+    assert lower.source == "manual"
+
+
+@pytest.mark.asyncio
+async def test_mu1_ctrl_z_after_a_merge_brings_back_both_bands_as_they_were(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """MU1 — the merge response carries each pre-merge band, and a restore split
+    with them reproduces the two bands exactly (owner #35).
+
+    This is the backend half of ctrl+z after a merge: the merge captures the
+    survivor's + absorbed band's class and source; the undo re-splits at the
+    carried boundary and restores them, so nothing is lost to a re-derivation.
+    """
+    gid = await _subdivide(async_client, band_scene)
+    cpt_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    target = max(cpt_bands, key=lambda r: r.depth_base_m - r.depth_top_m)
+    top, base = target.depth_top_m, target.depth_base_m
+    mid = round((top + base) / 2, 3)
+
+    # Make a pair inside one litho unit: split the thickest band down the middle.
+    split = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(target.id), "split_depth_m": mid},
+    )
+    assert split.status_code == 200, split.text
+    lower_id = split.json()["created_layer_ids"][0]
+
+    async def _class_of(layer_id: str) -> int | None:
+        db_session.expire_all()
+        row = await db_session.get(LithoLayerOrm, UUID(layer_id))
+        assert row is not None
+        formation = await db_session.get(GeologicalFormationOrm, row.formation_id)
+        assert formation is not None
+        return formation.nad_class
+
+    upper_class_before = await _class_of(str(target.id))
+    lower_class_before = await _class_of(lower_id)
+
+    merge = await async_client.post(
+        _band_url(band_scene, gid, "merge"),
+        json={"upper_band_id": str(target.id), "lower_band_id": lower_id},
+    )
+    assert merge.status_code == 200, merge.text
+    payload = merge.json()
+    # The merge REMEMBERS both pre-merge bands, so the undo need not re-derive.
+    assert payload["pre_merge_upper_nad_class"] == upper_class_before
+    assert payload["pre_merge_lower_nad_class"] == lower_class_before
+    assert payload["pre_merge_upper_source"] == "manual"
+    assert payload["pre_merge_lower_source"] == "manual"
+
+    # The undo: re-split at the carried boundary, restoring each half.
+    undo = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={
+            "band_id": str(target.id),
+            "split_depth_m": mid,
+            "restore": True,
+            "restore_upper_nad_class": payload["pre_merge_upper_nad_class"],
+            "restore_lower_nad_class": payload["pre_merge_lower_nad_class"],
+            "restore_upper_source": payload["pre_merge_upper_source"],
+            "restore_lower_source": payload["pre_merge_lower_source"],
+        },
+    )
+    assert undo.status_code == 200, undo.text
+    restored_lower_id = undo.json()["created_layer_ids"][0]
+    assert await _class_of(str(target.id)) == upper_class_before, "the upper band is back"
+    assert await _class_of(restored_lower_id) == lower_class_before, "the lower band is back"
 
 
 @pytest.mark.asyncio
