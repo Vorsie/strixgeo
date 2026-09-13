@@ -13,6 +13,24 @@ where it has a row. Everything else is left for you to set downstream.
 Eventually, design parameters will flow further out of StrixGeo; today they do not
 beyond the NAD characteristic values, and that is future work.
 
+The Export stage is the only place exports live
+-----------------------------------------------
+
+Every export is a **card on the Export stage**, grouped by model level:
+a cross-section DXF (on any axis), the stratigraphic model to Plaxis 3D, the
+lithological D-Stability ``.stix`` / Plaxis 2D / fence DXF, the geotechnical
+D-Sheet ``.shi`` / Plaxis 2D / fence DXF, and the PDF report sheet. Each card has
+its own scope pickers (the cross-section, and the model level where a card offers
+a choice), an Export button, and a reminder of where you last saved that export.
+A card whose prerequisite is missing — no model, no cross-section — explains what
+to do first instead of offering a dead button.
+
+You never have to hunt for an export in the toolbars. On a cross-section, the
+toolbar's single **Export…** verb opens this stage with that section and its axis
+already selected; on the 3-D lithology and geotechnical stages, **Export…** does
+the same. Whatever the toolbar built before, the Export stage builds now — a
+cross-section export taken here is identical to the one the toolbar used to make.
+
 .. admonition:: The exports are not yet validated
 
    The Plaxis and D-Series exports are complete and runnable, but they have not
