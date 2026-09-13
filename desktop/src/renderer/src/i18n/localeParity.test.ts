@@ -32,6 +32,7 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'export.dxf',
   'export.dStability',
   'export.dSheetPiling',
+  'export.cardLithoPlaxis2dTitle', // "Plaxis 2D" is the product name, same in BE Dutch
   'export.title', // "Exports" is the plural used in BE Dutch too
   'sections.toolbar.export',
   // ⋯ More menu headings: "Model" and "Export" are the same words in BE Dutch.
