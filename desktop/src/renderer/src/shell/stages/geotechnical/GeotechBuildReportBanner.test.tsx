@@ -35,6 +35,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import GeotechBuildReportBanner from './GeotechBuildReportBanner'
 import type { GaplessBuildReport, GaplessClause } from '../../../utils/gaplessGate/types'
 import backendAssembled from './__fixtures__/backendAssembledReport.json'
+import { setLanguage } from '../../../i18n/languageSelect'
+import { DEFAULT_LANGUAGE } from '../../../i18n/i18n_constants'
 
 function clause(over: Partial<GaplessClause> & Pick<GaplessClause, 'key'>): GaplessClause {
   return {
@@ -103,6 +105,7 @@ function renderBanner(
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  setLanguage(DEFAULT_LANGUAGE)
 })
 
 describe('the gapless build-report banner', () => {
@@ -117,9 +120,12 @@ describe('the gapless build-report banner', () => {
     expect(banner.textContent).toMatch(/no gaps/i)
 
     // The seven promises are readable — that is the model-trust value, not
-    // just the absence of a complaint.
+    // just the absence of a complaint. Titles now come from the interface-language
+    // catalogue (composed in the renderer), not the backend's English string.
     fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
-    expect(screen.getByText(/The 3-D model holds its ground/)).toBeTruthy()
+    expect(screen.getByText(/The 3-D model holds the ground its sections classed/)).toBeTruthy()
+    // Every clause carries a "what to do" line, red or green.
+    expect(screen.getAllByText(/What to do:/).length).toBeGreaterThan(0)
   })
 
   it('GB3 leads with the promise that broke', () => {
@@ -225,15 +231,45 @@ describe('the gapless build-report banner', () => {
     expect(banner.textContent).toMatch(/3 of 7 model guarantees broken/)
 
     fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
-    // All seven promises are readable, by their backend-owned titles. Broken
-    // ones appear twice on purpose — once in the header, which names them
-    // without anything being opened, and once in the list.
-    for (const clause of backendAssembled.clauses) {
-      expect(screen.getAllByText(clause.title).length).toBeGreaterThan(0)
+    // All seven promises are readable, by their INTERFACE-LANGUAGE titles now
+    // composed in the renderer (not the backend's English string). Broken ones
+    // appear twice on purpose — once in the header, which names them without
+    // anything being opened, and once in the list. The catalogue title matches
+    // the backend title for every clause except stack-voids, whose promise was
+    // re-worded to the action threshold (owner, 2026-09-13).
+    const renderedTitles: Record<string, string> = {
+      'area-conservation': 'Classed and unclassed ground add up to the litho cover',
+      'edge-reach': 'The 3-D build can read the fill at every column edge',
+      'cause-closure': 'Every patch of unclassed ground has a known cause',
+      'section-closure': 'Every section in the model reached the build',
+      'column-totality': 'Every column inside the model footprint carries material',
+      'stack-voids': 'No column holds an interior void you can act on',
+      'section-reconciliation': 'The 3-D model holds the ground its sections classed',
     }
-    // The backend's own sentences reach the engineer verbatim.
+    for (const clause of backendAssembled.clauses) {
+      expect(screen.getAllByText(renderedTitles[clause.key]).length).toBeGreaterThan(0)
+    }
+    // A backend sentence with no params still reaches the engineer verbatim (the
+    // composer falls back to the backend label for a pre-params report).
     expect(screen.getByText(/412 of 37707 column\(s\)/)).toBeTruthy()
     // And a finding that stands on a section is still one press away.
     expect(screen.getAllByTestId('geotech-build-report-visit')).toHaveLength(1)
+  })
+
+  it('GB11 the panel reads Dutch in the Dutch interface, with a Dutch action line', () => {
+    // Owner finding (installer #35): "the panel reads English inside my Dutch
+    // interface". The title AND the "what to do" line must both be Dutch.
+    setLanguage('nl')
+    renderBanner(failingReport())
+    const banner = screen.getByTestId('geotech-build-report-banner')
+    // The Dutch summary and the broken promise's Dutch title.
+    expect(banner.textContent).toMatch(/modelgaranties/i)
+    expect(banner.textContent).toMatch(/Elke plek niet-ingedeelde grond heeft een bekende oorzaak/)
+
+    fireEvent.click(screen.getByTestId('geotech-build-report-disclosure'))
+    // Every clause carries a Dutch "what to do" line.
+    expect(screen.getAllByText(/Wat te doen:/).length).toBeGreaterThan(0)
+    // No backend English title leaks through.
+    expect(banner.textContent).not.toMatch(/Every patch of unclassed ground has a known cause/)
   })
 })
