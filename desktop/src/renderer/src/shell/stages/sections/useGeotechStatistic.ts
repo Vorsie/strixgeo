@@ -11,7 +11,11 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../../../api/client'
 import type { GeologicalModelResponse, ProjectResponse } from '../../../api/client'
-import { DEFAULT_GEOTECH_STATISTIC, type GeotechStatistic } from '../../../utils/geotechStatistic'
+import {
+  DEFAULT_GEOTECH_STATISTIC,
+  geotechStatisticLabel,
+  type GeotechStatistic,
+} from '../../../utils/geotechStatistic'
 import { publishGeotechStatistic } from '../../../utils/geotechStatisticStore'
 import { t } from '../../../i18n/translate'
 
@@ -138,7 +142,7 @@ export function useGeotechStatistic({
         // Nothing to write to yet — park the choice and say what will consume
         // it. No markMutated: no row changed, so the project is not dirty.
         setPendingStatistic(statistic)
-        toast('success', t('sections.stat.setBuild', { statistic }))
+        toast('success', t('sections.stat.setBuild', { statistic: geotechStatisticLabel(statistic) }))
         return
       }
       void api.geology
@@ -153,7 +157,7 @@ export function useGeotechStatistic({
           toast(
             'success',
             result.bands_stale
-              ? t('sections.stat.setReclassify', { statistic })
+              ? t('sections.stat.setReclassify', { statistic: geotechStatisticLabel(statistic) })
               : t('sections.stat.set', { statistic }),
           )
         })
