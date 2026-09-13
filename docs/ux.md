@@ -125,6 +125,21 @@ the GitHub Primer action-bar ladder.
   responsive row, or a width estimate that comes up short, gets a thin
   horizontal scrollbar rather than a silent clip.
 
+## Exports live in one place — the Export stage
+
+Owner ruling (installer #35): the **Export stage is the only export surface**.
+Every export is a card there, grouped by model level, each with its own scope
+pickers (cross-section; model level where the card offers a choice), an Export
+button and a "last saved" reminder. A card whose prerequisite is missing tells
+the user what to do first instead of showing a dead button — the same
+"tell-the-user-where-to-go" empty-state pattern the other stages use.
+
+No toolbar owns an export any more. On a cross-section the Sections toolbar shows
+one **Export…** verb that opens the Export stage with that section and axis
+preselected; the 3-D Lithology / Geotechnical stages do the same with a single
+**Export…** jump. A scattered export verb is a UX regression — new export targets
+become new cards, never new toolbar buttons.
+
 ## Detail panels
 
 * **Push-mode**, NOT overlay. The panel is a flex sibling that pushes
