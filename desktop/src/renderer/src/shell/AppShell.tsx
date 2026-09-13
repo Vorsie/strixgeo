@@ -235,6 +235,36 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.coordinator.parametersDeepLinkTarget])
 
+  // Export deep-link (installer #35 — the Export hub is the only export
+  // surface). Set by the Sections toolbar's single "Export…" verb and the 3-D
+  // stages' "Export…" verbs. Switches to the Export stage; when a section is
+  // named, selects it + sets the axis first so the hub's pickers open already
+  // scoped to the section and level the engineer was looking at.
+  //
+  // Cleared SYNCHRONOUSLY, like the parameters deep-link: nothing here is
+  // deferred, so the cleanup-before-re-run hazard the sections deep-link guards
+  // against cannot arise. The hub seeds its own local pickers from
+  // ``selectedSectionId`` + ``sectionModelAxis``, which this effect has just set.
+  useEffect(() => {
+    const target = context.coordinator.exportDeepLinkTarget
+    if (target == null) return
+    log.info(
+      'shell',
+      `export-deep-link: stage=export axis=${target.axis} section=${target.sectionId ?? '(none)'}`,
+    )
+    if (target.sectionId !== null) {
+      context.sections.setSectionModelAxis(target.axis)
+      context.sections.handleSelectSection(target.sectionId)
+    }
+    setActiveStage('export')
+    context.coordinator.setExportDeepLinkTarget?.(null)
+    // reason: setActiveStage + the sections handlers + the coord setter are
+    // stable callbacks; exportDeepLinkTarget is the only signal that should
+    // trigger this effect. Including context itself would re-fire on every
+    // unrelated shell-state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context.coordinator.exportDeepLinkTarget])
+
   // Open-a-detail → Data stage. handleSelect / handleSelectBorehole are
   // the single funnel for "show this investigation's detail" (map click
   // AND section double-click): they set the selection + view='chart'.
