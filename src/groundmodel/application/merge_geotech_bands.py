@@ -15,10 +15,14 @@ Owner spec 2026-08-01. What this use case does, and the ruling behind each part:
   written.
 * **Manual override always wins** — the warning about the material moving
   between layers is advisory; a merge is never blocked on it.
-* **A borehole is refused** (ruling A) — the class is re-derived from qc, and a
-  borehole has none, so :func:`require_cpt_anchor` rejects the merge before
-  anything is written rather than skeletonising a band whose class
-  ``DivideBoreholes`` extrapolated from the surrounding CPTs.
+* **A borehole is merged too — the union KEEPS the survivor's class** (owner #35,
+  the inverse of the borehole split, amending ruling A). A borehole records no
+  cone resistance, so there is nothing to re-derive from; rather than refuse, the
+  union takes the SURVIVOR (shallowest) band's class. This is what makes a
+  borehole split reversible: ctrl+z re-merges the two halves, which share the
+  original class, back to it. Reached today only by that undo — the borehole menu
+  offers no merge affordance of its own — so the two halves always agree; the
+  survivor's class is the unambiguous answer.
 
 Which correlations are touched
 ------------------------------
@@ -42,6 +46,7 @@ No other column's correlations are read or written.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +59,6 @@ from groundmodel.application.geotech_band_edit_helpers import (
     geo_parent_for_interval,
     load_geotech_column_context,
     pre_edit_class_snapshot,
-    require_cpt_anchor,
     revalidate_layer_edges,
     transfer_accepted_edges,
 )
@@ -155,7 +159,6 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             geotech_model_id=geotech_model_id,
             band_id=run[0],
         )
-        require_cpt_anchor(context, gesture="Merge")
         plan = plan_merge_run(
             bands=context.bands,
             band_ids=[str(b) for b in run],
@@ -176,10 +179,28 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         rows = sorted((context.band_rows[str(b)] for b in run), key=lambda r: r.depth_top_m)
         survivor, absorbed_rows = rows[0], rows[1:]
 
+        # Capture the pre-merge state of the survivor + the deepest absorbed band
+        # BEFORE anything is overwritten or deleted, so ctrl+z can re-split and
+        # restore each half exactly (owner #35). For a pair these two ARE the two
+        # bands; the pair-merge undo re-splits into exactly two, so it reads these.
+        pre_classes = pre_edit_class_snapshot(context)
+        survivor_band = next(b for b in context.bands if b.band_id == str(survivor.id))
+        deepest_absorbed = absorbed_rows[-1]
+        pre_merge_upper_nad_class = pre_classes.get(survivor.id)
+        pre_merge_upper_source = survivor.source
+        pre_merge_lower_nad_class = pre_classes.get(deepest_absorbed.id)
+        pre_merge_lower_source = deepest_absorbed.source
+
+        # A CPT re-derives the union's class from qc; a borehole has none, so the
+        # union keeps the SURVIVOR's class (owner #35 — the borehole split's
+        # inverse). ``merged.nad_class`` is ``None`` on a borehole (empty-qc
+        # re-derivation), so it is never the answer there.
+        merged_class = merged.nad_class if context.anchor_is_cpt else survivor_band.nad_class
+
         formation = await formation_for_class(
             self,
             project_id=project_id,
-            nad_class=merged.nad_class,
+            nad_class=merged_class,
             source_litho_formation_id=context.source_litho_formation_id,
             # Live-first: the union may legally span ground whose build-time
             # stamps went stale (the engineer moved a geological contact on its
@@ -202,7 +223,6 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         transfer_drops: list[UUID] = []
         accepted_drops: list[UUID] = []
         absorbed_ids: list[UUID] = []
-        pre_classes = pre_edit_class_snapshot(context)
         for absorbed in absorbed_rows:
             absorbed_ids.append(absorbed.id)
             transfer = await transfer_accepted_edges(
@@ -212,7 +232,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
                 from_layer_id=absorbed.id,
                 to_layer_id=survivor.id,
                 absorbed_class=pre_classes.get(absorbed.id),
-                survivor_class=merged.nad_class,
+                survivor_class=merged_class,
             )
             transfer_moves.extend(m.edge_id for m in transfer.moves)
             # ``drops`` are ACCEPTED ties the absorb could not re-anchor —
@@ -229,9 +249,25 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             self._session,
             self,
             model_id=geotech_model_id,
-            new_class_by_layer_id={survivor.id: merged.nad_class},
+            new_class_by_layer_id={survivor.id: merged_class},
             old_class_by_layer_id=pre_classes,
         )
+
+        # Make the returned plan honest when the class was KEPT rather than
+        # re-derived (a borehole): the response mirrors the preview shape, so it
+        # must state the class the survivor actually got, not the ``None`` the
+        # empty-qc re-derivation produced.
+        if not context.anchor_is_cpt:
+            plan = replace(
+                plan,
+                intervals=(
+                    replace(
+                        merged,
+                        nad_class=merged_class,
+                        class_changed=merged_class != merged.previous_nad_class,
+                    ),
+                ),
+            )
 
         await self._litho_repo.mark_litho_solids_stale(geotech_model_id)
         await ResolveLithoInstances(self._session).execute(model_id=geotech_model_id, commit=False)
@@ -249,7 +285,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
         deleted_edges = tuple(transfer_drops) + revalidation.deleted_edge_ids
         self.success(
             f"MergeGeotechBands ok: {survivor.depth_top_m:.2f}–{survivor.depth_base_m:.2f} m "
-            f"class {merged.previous_nad_class} → {merged.nad_class}; "
+            f"class {merged.previous_nad_class} → {merged_class}; "
             f"{len(absorbed_ids)} band(s) absorbed; "
             f"{len(transfer_moves)} tie(s) transferred+flagged, "
             f"{len(deleted_edges)} removed ({len(accepted_drops)} of them accepted), "
@@ -270,4 +306,9 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
             deleted_accepted_edge_ids=tuple(accepted_drops),
             flagged_edge_ids=flagged,
             cleared_edge_ids=revalidation.cleared_edge_ids,
+            # The pre-merge state ctrl+z restores each half from (owner #35).
+            pre_merge_upper_nad_class=pre_merge_upper_nad_class,
+            pre_merge_lower_nad_class=pre_merge_lower_nad_class,
+            pre_merge_upper_source=pre_merge_upper_source,
+            pre_merge_lower_source=pre_merge_lower_source,
         )
