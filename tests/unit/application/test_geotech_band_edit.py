@@ -8,11 +8,16 @@ Owner rulings pinned here (2026-08-01):
 * **A connection breaks if the new class no longer matches** — and only then.
 * **Cannot answer beats a plausible answer** — a preview over a column with no
   usable qc reports that it cannot answer rather than inventing a class.
-* **A borehole is refused outright** (ruling A, 2026-08-01) — it records no cone
-  resistance, so there is nothing to re-derive the class from. "Cannot answer"
-  is the right outcome for a CPT interval whose qc happens to be unusable; on a
-  borehole the gesture itself does not apply, and going ahead would trade the
-  class ``DivideBoreholes`` extrapolated onto the column for no class at all.
+* **A borehole is split and merged, KEEPING the class** (owner #35, 2026-09-13,
+  amending ruling A). It records no cone resistance, so there is nothing to
+  re-derive — but rather than refuse (the owner found no split button on a
+  borehole band), the split keeps the original band's class on both halves and
+  the merge keeps the SURVIVOR's class. The class ``DivideBoreholes``
+  extrapolated is preserved, not skeletonised. Only the qc-only verbs (the
+  PREVIEWS of a re-derivation, and MOVE) still refuse a borehole — there is no
+  re-derivation to preview or perform there.
+* **A RESTORE split assigns the halves' classes directly** — the merge-undo path
+  hands back a state that already existed, so no qc is read.
 
 The DB is mocked out: these pin the decision logic, not SQLAlchemy.
 """
@@ -494,41 +499,69 @@ async def test_the_merge_preview_refuses_bands_on_a_borehole(
         )
 
 
-async def test_the_split_commit_refuses_a_band_on_a_borehole_and_writes_nothing(
+async def test_the_split_commit_keeps_the_class_on_a_borehole(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The commit refuses too, so the API cannot be driven around the UI."""
+    """Owner #35: "split band here" works on a borehole band — both halves KEEP
+    the class.
+
+    A borehole has no qc, so nothing is re-derived: both halves take the ORIGINAL
+    band's class (6 here). The commit writes the lower row on the borehole anchor
+    and stamps ``manual`` (only the boundary is the engineer's).
+    """
     model_id, borehole_id, band_id = uuid4(), uuid4(), uuid4()
-    context = _borehole_column(model_id, borehole_id, [band_id])
+    context = _borehole_column(model_id, borehole_id, [band_id])  # one band, class 6
     _patch_common(monkeypatch, split_module, context)
+    target = context.band_rows[str(band_id)]
 
     session = _FakeSession()
     use_case = SplitGeotechBand(session)
     use_case._litho_repo = MagicMock()
     use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
 
-    with pytest.raises(GeotechBandEditError):
-        await use_case.execute(
-            project_id=context.project_id,
-            geotech_model_id=model_id,
-            band_id=band_id,
-            split_depth_m=1.0,
-        )
+    result = await use_case.execute(
+        project_id=context.project_id,
+        geotech_model_id=model_id,
+        band_id=band_id,
+        split_depth_m=1.0,
+    )
 
-    # The class DivideBoreholes extrapolated onto this column is still there: the
-    # refusal happens before any row is touched, so nothing was skeletonised.
-    assert session.added == []
-    assert session.deleted == []
-    assert session.commits == 0
+    assert session.commits == 1
+    assert len(session.added) == 1
+    new_row = session.added[0]
+    assert new_row.borehole_id == borehole_id and new_row.cpt_id is None
+    assert (new_row.depth_top_m, new_row.depth_base_m) == (1.0, 2.0)
+    assert (target.depth_top_m, target.depth_base_m) == (0.0, 1.0)
+    # Both halves KEEP the original class (6) — formation_for_class is asked for 6
+    # twice, never for None (which the empty-qc re-derivation would have produced).
+    classes = [
+        call.kwargs["nad_class"] for call in split_module.formation_for_class.await_args_list
+    ]
+    assert classes == [6, 6]
+    assert target.source == "manual" and new_row.source == "manual"
+    assert [iv.nad_class for iv in result.plan.intervals] == [6, 6]
 
 
-async def test_the_merge_commit_refuses_bands_on_a_borehole_and_writes_nothing(
+async def test_the_merge_commit_keeps_the_survivor_class_on_a_borehole(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """And the merge commit, for the same reason and with the same blast radius: none."""
+    """Owner #35: a borehole merge keeps the SURVIVOR's class (the split's inverse).
+
+    No qc, so the union cannot re-derive — it takes the shallower (survivor)
+    band's class. Here upper=6, lower=7; the merged band reads 6, never 7 and
+    never None. The response also carries both pre-merge bands, for ctrl+z.
+    """
     model_id, borehole_id = uuid4(), uuid4()
     upper_id, lower_id = uuid4(), uuid4()
-    context = _borehole_column(model_id, borehole_id, [upper_id, lower_id])
+    bands = [_band(str(upper_id), 0.0, 2.0, 6), _band(str(lower_id), 2.0, 4.0, 7)]
+    upper = _row(upper_id, 0.0, 2.0, model_id, borehole_id=borehole_id)
+    lower = _row(lower_id, 2.0, 4.0, model_id, borehole_id=borehole_id)
+    context = _borehole_context(
+        model_id=model_id,
+        borehole_id=borehole_id,
+        bands=bands,
+        rows={str(upper_id): upper, str(lower_id): lower},
+    )
     _patch_common(monkeypatch, merge_module, context)
 
     session = _FakeSession()
@@ -536,17 +569,73 @@ async def test_the_merge_commit_refuses_bands_on_a_borehole_and_writes_nothing(
     use_case._litho_repo = MagicMock()
     use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
 
-    with pytest.raises(GeotechBandEditError):
-        await use_case.execute(
-            project_id=context.project_id,
-            geotech_model_id=model_id,
-            upper_band_id=upper_id,
-            lower_band_id=lower_id,
-        )
+    result = await use_case.execute(
+        project_id=context.project_id,
+        geotech_model_id=model_id,
+        upper_band_id=upper_id,
+        lower_band_id=lower_id,
+    )
 
-    assert session.added == []
-    assert session.deleted == []
-    assert session.commits == 0
+    assert session.commits == 1
+    assert session.deleted == [lower]
+    assert (upper.depth_top_m, upper.depth_base_m) == (0.0, 4.0)
+    # The union keeps the SURVIVOR's class (6), not the lower's (7) or None.
+    assert merge_module.formation_for_class.await_args.kwargs["nad_class"] == 6
+    assert result.plan.intervals[0].nad_class == 6
+    # ctrl+z's inputs: both pre-merge bands, class + source, captured before the write.
+    assert result.pre_merge_upper_nad_class == 6
+    assert result.pre_merge_lower_nad_class == 7
+    assert result.pre_merge_upper_source == "segmenter"
+    assert result.pre_merge_lower_source == "segmenter"
+
+
+async def test_a_restore_split_assigns_the_given_classes_ignoring_qc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Owner #35 (the merge undo): a restore split ASSIGNS the halves' classes +
+    sources, never reads qc.
+
+    The CPT here would re-derive class 6 from its uniform qc; the restore hands
+    5 and 8 instead, and those are what land — with the sources it was given, so
+    a ``segmenter`` provenance is carried back rather than forced to ``manual``.
+    """
+    model_id, cpt_id, band_id = uuid4(), uuid4(), uuid4()
+    target = _row(band_id, 0.0, 4.0, model_id, cpt_id=cpt_id)
+    depths, qc = _uniform_series(5.0)
+    context = _context(
+        session_model_id=model_id,
+        cpt_id=cpt_id,
+        bands=[_band(str(band_id), 0.0, 4.0, 6)],
+        rows={str(band_id): target},
+        depth_m=depths,
+        qc_mpa=qc,
+    )
+    _patch_common(monkeypatch, split_module, context)
+
+    session = _FakeSession()
+    use_case = SplitGeotechBand(session)
+    use_case._litho_repo = MagicMock()
+    use_case._litho_repo.mark_litho_solids_stale = AsyncMock()
+
+    result = await use_case.execute(
+        project_id=context.project_id,
+        geotech_model_id=model_id,
+        band_id=band_id,
+        split_depth_m=2.0,
+        restore=True,
+        restore_upper_nad_class=5,
+        restore_lower_nad_class=8,
+        restore_upper_source="segmenter",
+        restore_lower_source="manual",
+    )
+
+    classes = [
+        call.kwargs["nad_class"] for call in split_module.formation_for_class.await_args_list
+    ]
+    assert classes == [5, 8], "the restore assigns 5 and 8, never the qc-derived 6"
+    new_row = session.added[0]
+    assert target.source == "segmenter" and new_row.source == "manual"
+    assert [iv.nad_class for iv in result.plan.intervals] == [5, 8]
 
 
 async def test_the_refusal_says_a_borehole_has_no_cone_resistance(
