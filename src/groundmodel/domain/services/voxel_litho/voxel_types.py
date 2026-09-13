@@ -262,7 +262,16 @@ class LabelReport:
     hairline_gaps_over_limit : int
         Interior gaps in a FINAL column stack taller than the hairline limit.
         A surviving void is legitimate (the partition said unknown), but one this
-        tall is no longer the millimetre snapping of a flush contact.
+        tall is no longer the millimetre snapping of a flush contact.  This is the
+        RESIDUE count (15 mm .. the action threshold): real but sub-actionable, it
+        is noted, not reported as a violation — see ``hairline_gaps_actionable``.
+    hairline_gaps_actionable : int
+        Interior gaps at or above
+        :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.STACK_VOID_ACTIONABLE_M`
+        — a hole an engineer can see and act on.  Clause 6 (stack-voids) fails on
+        THIS count, not on ``hairline_gaps_over_limit``, so a snap-round residue a
+        third of a voxel tall no longer reads as a broken guarantee (owner finding,
+        installer #35).
     hairline_worst_m : float
         Height of the tallest interior gap in any final stack, in metres —
         reported whether or not it passed the limit, so the margin is visible.
@@ -299,6 +308,7 @@ class LabelReport:
     layout_closed_worst_m: float = 0.0
     layout_closed_worst_site: str | None = None
     hairline_gaps_over_limit: int = 0
+    hairline_gaps_actionable: int = 0
     hairline_worst_m: float = 0.0
     logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
     in_footprint_columns: int = 0
