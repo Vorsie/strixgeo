@@ -264,6 +264,8 @@ export default function TutorialOverlay({ active, onExit }: TutorialOverlayProps
         videoUrl={meta?.videoUrl}
         onOpenExternal={openExternalUrl}
         placement={placement}
+        spotlightRect={spotlight}
+        viewport={viewport}
         isExplain={step.done === 'next'}
         isLast={step.id === TUTORIAL_STEPS[TUTORIAL_STEPS.length - 1].id}
         offscreen={primaryRect === null}
