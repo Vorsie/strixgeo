@@ -1101,6 +1101,10 @@ def _edit_payload(result: GeotechBandEditResult) -> GeotechBandEditResponse:
         deleted_accepted_edge_ids=list(result.deleted_accepted_edge_ids),
         flagged_edge_ids=list(result.flagged_edge_ids),
         cleared_edge_ids=list(result.cleared_edge_ids),
+        pre_merge_upper_nad_class=result.pre_merge_upper_nad_class,
+        pre_merge_lower_nad_class=result.pre_merge_lower_nad_class,
+        pre_merge_upper_source=result.pre_merge_upper_source,
+        pre_merge_lower_source=result.pre_merge_lower_source,
     )
 
 
@@ -1287,10 +1291,13 @@ async def split_geotech_band(
 ) -> GeotechBandEditResponse:
     """Commit a hand split. Only the edited column is rewritten.
 
-    Both halves are reclassified from the CPT qc over their own extent; a
+    On a CPT both halves are reclassified from the qc over their own extent; a
     correlation on the edited band is dropped only where the new class no longer
-    matches its partner. A band thinner than the configured minimum is committed
-    with a warning — a manual edit overrules that rule.
+    matches its partner. On a BOREHOLE there is no qc, so both halves KEEP the
+    original band's class (owner #35). With ``restore`` the halves take the
+    ``restore_*`` classes + sources verbatim (the merge-undo path). A band thinner
+    than the configured minimum is committed with a warning — a manual edit
+    overrules that rule.
 
     Parameters
     ----------
@@ -1313,9 +1320,8 @@ async def split_geotech_band(
     HTTPException(404)
         When the model does not belong to the project.
     HTTPException(422)
-        When the model is not geotechnical, the band sits on a borehole (no cone
-        resistance, so no class can be re-derived), or the depth breaches the
-        hierarchy.
+        When the model is not geotechnical, or the depth breaches the hierarchy.
+        A borehole band is no longer refused — its halves keep the class.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/split "
@@ -1328,6 +1334,11 @@ async def split_geotech_band(
             geotech_model_id=model_id,
             band_id=request.band_id,
             split_depth_m=request.split_depth_m,
+            restore=request.restore,
+            restore_upper_nad_class=request.restore_upper_nad_class,
+            restore_lower_nad_class=request.restore_lower_nad_class,
+            restore_upper_source=request.restore_upper_source,
+            restore_lower_source=request.restore_lower_source,
         )
     except GeotechBandEditError as exc:
         raise _band_edit_422(exc) from exc
@@ -1477,9 +1488,11 @@ async def merge_geotech_bands(
 ) -> GeotechBandEditResponse:
     """Commit a hand merge. Only the edited column is rewritten.
 
-    The merged band's class is re-derived from the qc over the union. The
-    absorbed band's correlations go with it; the surviving band keeps the
-    correlations whose partner still carries the merged class.
+    On a CPT the merged band's class is re-derived from the qc over the union; on
+    a BOREHOLE there is no qc, so the union keeps the SURVIVOR's class (owner #35
+    — the borehole split's inverse, reached by ctrl+z). The absorbed band's
+    correlations go with it; the surviving band keeps the correlations whose
+    partner still carries the merged class.
 
     Parameters
     ----------
@@ -1503,9 +1516,9 @@ async def merge_geotech_bands(
     HTTPException(404)
         When the model does not belong to the project.
     HTTPException(422)
-        When the model is not geotechnical, the bands sit on a borehole (no cone
-        resistance, so no class can be re-derived), or the merge would cross a
-        litho or geological contact.
+        When the model is not geotechnical, or the merge would cross a litho or
+        geological contact. A borehole band is no longer refused — the union
+        keeps the survivor's class.
     """
     logger.info(
         f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/merge "
