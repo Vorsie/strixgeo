@@ -1,0 +1,45 @@
+{
+ "provenance": "Verbatim 2-column extract of Cross-section 1 (gap GEO-16/057-S43 left -> GEO-22/047-S5 right) from the owner fhdh.strix (installer #35 dogfeed, 2026-09-13). Layer ids are descriptive; depths/elevations/edges are the real litho model. On S5 a peat (VEEN) 0-tie band sits between a KLEI 0-tie band above (s5_klei_above) and a KLEI 0-tie band below (s5_klei_below); neither KLEI is tied to S43. Owner's rule: 'by our rule those clays surrounding the peat should be 2 separate lenses (0 ties is lens left)' and 'the peat between them stays its own lens'. See partitionFillV2.twoZeroTieLenses.test.ts.",
+ "alongM": [133.1, 181.8],
+ "kleiAboveLayerId": "s5_klei_above",
+ "kleiBelowLayerId": "s5_klei_below",
+ "veenLayerId": "s5_veen",
+ "leftColumnIndex": 0,
+ "rightColumnIndex": 1,
+ "edges": [
+  { "a": "s43_silt1", "b": "s5_silt1", "aSide": "top", "bSide": "top" },
+  { "a": "s43_zand1", "b": "s5_zand1", "aSide": "top", "bSide": "top" },
+  { "a": "s43_silt2", "b": "s5_silt2", "aSide": "top", "bSide": "top" },
+  { "a": "s43_zand2", "b": "s5_zand2", "aSide": "top", "bSide": "top" },
+  { "a": "s43_klei1", "b": "s5_klei_deep", "aSide": "top", "bSide": "top" }
+ ],
+ "columns": [
+  {
+   "investigationId": "GEO-16/057-S43",
+   "surfaceElevM": 16.42,
+   "units": [
+    { "layerId": "s43_silt1", "topDepthM": 1.52, "baseDepthM": 2.48, "formationId": "SILT", "bodyId": null },
+    { "layerId": "s43_zand1", "topDepthM": 2.48, "baseDepthM": 6.86, "formationId": "ZAND", "bodyId": null },
+    { "layerId": "s43_silt2", "topDepthM": 6.86, "baseDepthM": 10.87, "formationId": "SILT", "bodyId": null },
+    { "layerId": "s43_zand2", "topDepthM": 10.87, "baseDepthM": 12.0, "formationId": "ZAND", "bodyId": null },
+    { "layerId": "s43_klei1", "topDepthM": 12.0, "baseDepthM": 19.98, "formationId": "KLEI", "bodyId": null }
+   ]
+  },
+  {
+   "investigationId": "GEO-22/047-S5",
+   "surfaceElevM": 16.45,
+   "units": [
+    { "layerId": "s5_silt1", "topDepthM": 1.21, "baseDepthM": 2.11, "formationId": "SILT", "bodyId": null },
+    { "layerId": "s5_zand1", "topDepthM": 2.11, "baseDepthM": 6.11, "formationId": "ZAND", "bodyId": null },
+    { "layerId": "s5_silt2", "topDepthM": 6.11, "baseDepthM": 6.95, "formationId": "SILT", "bodyId": null },
+    { "layerId": "s5_klei_above", "topDepthM": 6.95, "baseDepthM": 8.24, "formationId": "KLEI", "bodyId": null },
+    { "layerId": "s5_veen", "topDepthM": 8.24, "baseDepthM": 8.52, "formationId": "VEEN", "bodyId": null },
+    { "layerId": "s5_klei_below", "topDepthM": 8.52, "baseDepthM": 8.74, "formationId": "KLEI", "bodyId": null },
+    { "layerId": "s5_silt3", "topDepthM": 8.74, "baseDepthM": 8.96, "formationId": "SILT", "bodyId": null },
+    { "layerId": "s5_klei3", "topDepthM": 8.96, "baseDepthM": 9.42, "formationId": "KLEI", "bodyId": null },
+    { "layerId": "s5_zand2", "topDepthM": 9.42, "baseDepthM": 11.68, "formationId": "ZAND", "bodyId": null },
+    { "layerId": "s5_klei_deep", "topDepthM": 11.68, "baseDepthM": 20.26, "formationId": "KLEI", "bodyId": null }
+   ]
+  }
+ ]
+}
