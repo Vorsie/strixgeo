@@ -334,6 +334,7 @@ export const PANELS_NL = {
   'undo.editLithoComposition': 'Samenstelling van litholaag bewerken',
   'undo.insertLithoLayer': 'Litholaag invoegen',
   'undo.splitLithoLayer': 'Litholaag splitsen',
+  'undo.copyLithoContact': 'Litho-contact kopiëren',
   'undo.mergeLithoLayers': 'Litholagen samenvoegen',
   'undo.absorbLithoLayer': 'Litholaag opnemen',
   'undo.rejectSuggestion': 'Suggestie afwijzen',
