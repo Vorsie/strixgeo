@@ -72,6 +72,7 @@ import { log } from "../../../utils/log";
 import { apiFailureMessage } from "../../../utils/apiFailureMessage";
 import { buildRestatedContactUndoCommand } from "./restatedContactUndo";
 import { buildSplitLayerUndoCommand } from "./splitLayerUndo";
+import { useCopyLithoContact } from "../../../hooks/useCopyLithoContact";
 import { useFlaggedTiePrompt } from "./useFlaggedTiePrompt";
 import { useGeotechBandEdit } from "./useGeotechBandEdit";
 import { joinErrorToastKey } from "./joinErrorToastKey";
@@ -1807,6 +1808,51 @@ export default function SectionsCanvas(): JSX.Element {
     ],
   );
 
+  // Terminal depth (m) of an investigation — CPT ``max_depth_m`` / borehole
+  // ``total_depth_m`` — for the litho-contact copy's empty-target base + its
+  // below-terminal refusal. Reads the unfiltered project lists (a copy target
+  // can be a column not currently drawn).
+  const terminalDepthM = useCallback(
+    (investigationId: string, kind: "cpt" | "borehole"): number | null => {
+      if (kind === "cpt") {
+        return (
+          projectCpts.find((c) => c.id === investigationId)?.max_depth_m ?? null
+        );
+      }
+      return (
+        projectBoreholes.find((b) => b.id === investigationId)?.total_depth_m ??
+        null
+      );
+    },
+    [projectCpts, projectBoreholes],
+  );
+
+  // Shift-drag an accepted litho boundary onto another test → copy BOTH units
+  // (owner ask, installer #35). The hook plans the drop and fires the EXISTING
+  // endpoints — bulk-create both units on an empty target, or split the spanning
+  // layer on one that already has layers — then toasts and pushes one undo step.
+  // ``settle`` mirrors the split handler's post-write fan-out; the new accepted
+  // layers make the target column's geotech parent read stale on its next
+  // staleness check (derived, no explicit flag).
+  const { copyLithoContact } = useCopyLithoContact({
+    projectId: project.id,
+    modelId: activeLithoModel?.id ?? null,
+    lithoLayers,
+    terminalDepthM,
+    api: {
+      bulkCreateLayers: api.geology.bulkCreateLayers,
+      splitLayer: api.geology.splitLayer,
+      deleteLayer: api.geology.deleteLayer,
+    },
+    pushUndo: undoStack.push,
+    toast,
+    settle: async () => {
+      markMutated();
+      refetchLithoContacts();
+      requestBodyRecompute("litho");
+    },
+  });
+
   // Join two bodies into ONE group (owner ruling 2026-09-01, geotech axis only) —
   // record the must-link, then re-render. The endpoint re-resolves body identity
   // server-side in the same request, so the merge is durable before this returns.
@@ -3332,6 +3378,11 @@ export default function SectionsCanvas(): JSX.Element {
                 ? (lid, depthM) =>
                     void handleSplitAcceptedLithoLayer(lid, depthM)
                 : undefined
+            }
+            // Shift-drag an accepted litho boundary onto another test to copy
+            // both units (owner ask, installer #35). Litho axis only.
+            onCopyLithoContactToColumn={
+              isLitho ? (params) => void copyLithoContact(params) : undefined
             }
             // Join / Ontkoppelen (debt #278) — GEOTECH axis ONLY. Owner ruled
             // 2026-09-01 the body verbs are stripped to these two (Separate / Rejoin
