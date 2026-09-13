@@ -97,7 +97,7 @@ export interface UseGeologicalModelOpsResult {
   ) => Promise<void>
   handleDedupeContacts: () => Promise<number>
   handleRebuildSurfaces: () => Promise<void>
-  handleExportModelPlaxis3d: () => Promise<void>
+  handleExportModelPlaxis3d: (onSaved?: (path: string) => void) => Promise<void>
   handleToggleBoreholeInModel: (boreholeId: string, included: boolean) => Promise<void>
   /** Include ("Include again") or exclude a borehole in the active LITHO
    *  model (debt #65). Mirror of ``handleToggleBoreholeInModel`` for the litho
@@ -493,7 +493,9 @@ export function useGeologicalModelOps({
   // script (plxscripting). Mirrors handleExportSectionDxf — fetch
   // bytes → save dialog → file write. Hidden in the pane when no
   // active model is wired (Phase 4 Plaxis export).
-  const handleExportModelPlaxis3d = useCallback(async (): Promise<void> => {
+  const handleExportModelPlaxis3d = useCallback(async (
+    onSaved?: (path: string) => void,
+  ): Promise<void> => {
     if (!project || !activeGeologicalModel) return
     const projectId = project.id
     const modelId = activeGeologicalModel.id
@@ -517,6 +519,7 @@ export function useGeologicalModelOps({
         'geology',
         `exportPlaxis3d ok model=${modelId} bytes=${bytes.byteLength} path=${dialogPath}`,
       )
+      onSaved?.(dialogPath)
       toast('success', t('geology.plaxisExported'))
     } catch (err) {
       log.error('geology', 'exportPlaxis3d failed', err)
