@@ -49,7 +49,6 @@ from groundmodel.application.geotech_view_state import (
     read_geotech_min_thickness_m,
 )
 from groundmodel.application.litho_geo_link_helpers import load_geo_contacts_at_investigation
-from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import (
     BandEditPlan,
     GeotechBand,
@@ -191,6 +190,15 @@ class GeotechBandEditResult:
         engineer confirms or deletes via the existing verbs.
     cleared_edge_ids : tuple[UUID, ...]
         Ties whose restored class match self-healed a ``class_changed`` flag.
+    pre_merge_upper_nad_class, pre_merge_lower_nad_class : int | None
+        A MERGE only: the class the SURVIVOR (upper) and the deepest ABSORBED
+        (lower) band carried BEFORE the merge, so ctrl+z can restore each half
+        exactly rather than re-deriving it (owner #35 — a re-derived undo lost a
+        class the merge had changed or a hand class it never measured). ``None``
+        outside a merge, and for a skeleton band.
+    pre_merge_upper_source, pre_merge_lower_source : str | None
+        A MERGE only: the ``source`` stamps of those two bands before the merge,
+        so the undo restores provenance too.
     """
 
     geotech_model_id: UUID
@@ -203,6 +211,10 @@ class GeotechBandEditResult:
     flagged_edge_ids: tuple[UUID, ...] = ()
     cleared_edge_ids: tuple[UUID, ...] = ()
     deleted_accepted_edge_ids: tuple[UUID, ...] = ()
+    pre_merge_upper_nad_class: int | None = None
+    pre_merge_lower_nad_class: int | None = None
+    pre_merge_upper_source: str | None = None
+    pre_merge_lower_source: str | None = None
 
 
 @dataclass(frozen=True)
