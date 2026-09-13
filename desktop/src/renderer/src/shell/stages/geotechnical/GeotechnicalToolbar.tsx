@@ -37,7 +37,6 @@ import GeotechBuildPreflightDialog from './GeotechBuildPreflightDialog'
 import GeotechAdmixtureChoiceDialog from './GeotechAdmixtureChoiceDialog'
 import { useGeotechBuildPreflight } from './useGeotechBuildPreflight'
 import {
-  geotechFenceExportCallback,
   resetGeotechCameraCallback,
   resetGeotechSplitViewportCallback,
 } from './GeotechnicalCanvas'
@@ -78,6 +77,8 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       geotechVoxelBuildState,
       cancelGeotechBuild,
     },
+    sections: { selectedSectionId },
+    coordinator: { setExportDeepLinkTarget },
   } = useShell()
 
   // Above every early return — the hook order must not depend on whether a
@@ -179,17 +180,22 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           onReveal={preflight.visitNextExcluded}
         />
       )}
-      {/* Fence diagram → DXF. Only offered once solids exist (the fence needs
-          a built model), and the action itself refuses with a warning when the
-          view is not in Fence mode — a silently empty DXF would read as a
-          successful export of an empty model. */}
+      {/* Export… — jumps to the Export hub (installer #35: the Export stage is
+          the only export surface). Offered once solids exist, because the fence
+          DXF (the geotech stage's export) needs a built model; the hub's fence
+          card then writes it. */}
       {hasGeotechSolids && (
         <ToolbarButton
           icon={<Download size={13} />}
-          label={t('litho.exportFence')}
-          onClick={() => void geotechFenceExportCallback.current?.()}
+          label={t('sections.toolbar.export')}
+          onClick={() =>
+            setExportDeepLinkTarget?.({
+              sectionId: selectedSectionId ?? null,
+              axis: 'geotechnical',
+            })
+          }
           testid="geotech-export-fence-button"
-          title={t('litho.exportFenceHint')}
+          title={t('litho.exportHubHint')}
         />
       )}
       {/* Debt #266 — packing standing on lithology that was edited after the
