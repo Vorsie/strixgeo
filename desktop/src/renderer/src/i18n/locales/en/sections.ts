@@ -883,6 +883,11 @@ export const SECTIONS = {
   'sections.canvasToast.compositionUpdateFailed': 'Could not update the layer’s composition — try again.',
   'sections.canvasToast.layerSplit': 'Layer split.',
   'sections.canvasToast.layerSplitFailed': 'Could not split the layer — the split point may be too close to a boundary.',
+  // Shift-drag an accepted litho contact onto another test (installer #35).
+  'sections.canvasToast.lithoContactCopied': 'Litho contact copied: both units created.',
+  'sections.canvasToast.lithoBoundaryCopied': 'Boundary copied, compositions kept.',
+  'sections.canvasToast.lithoContactCopyBelowTerminal': 'The boundary sits below this test’s depth and was not copied.',
+  'sections.canvasToast.lithoContactCopyFailed': 'Could not copy the litho contact. Try again.',
   'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move — edit it on the litho axis.',
   'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact — drag it with the handle beside the column.',
   'sections.canvasToast.packingNotLithoBorehole': 'That is a packing boundary, not a lithological contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
