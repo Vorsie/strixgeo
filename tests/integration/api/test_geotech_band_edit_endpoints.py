@@ -684,13 +684,17 @@ async def test_mu1_ctrl_z_after_a_merge_brings_back_both_bands_as_they_were(
     gid = await _subdivide(async_client, band_scene)
     cpt_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
     target = max(cpt_bands, key=lambda r: r.depth_base_m - r.depth_top_m)
+    # Read every scalar NOW: ``_class_of`` below expires the whole session and an
+    # expired ORM attribute reloads lazily, which the async session cannot do
+    # outside a greenlet (MissingGreenlet at the merge call otherwise).
+    target_id = str(target.id)
     top, base = target.depth_top_m, target.depth_base_m
     mid = round((top + base) / 2, 3)
 
     # Make a pair inside one litho unit: split the thickest band down the middle.
     split = await async_client.post(
         _band_url(band_scene, gid, "split"),
-        json={"band_id": str(target.id), "split_depth_m": mid},
+        json={"band_id": target_id, "split_depth_m": mid},
     )
     assert split.status_code == 200, split.text
     lower_id = split.json()["created_layer_ids"][0]
@@ -703,12 +707,12 @@ async def test_mu1_ctrl_z_after_a_merge_brings_back_both_bands_as_they_were(
         assert formation is not None
         return formation.nad_class
 
-    upper_class_before = await _class_of(str(target.id))
+    upper_class_before = await _class_of(target_id)
     lower_class_before = await _class_of(lower_id)
 
     merge = await async_client.post(
         _band_url(band_scene, gid, "merge"),
-        json={"upper_band_id": str(target.id), "lower_band_id": lower_id},
+        json={"upper_band_id": target_id, "lower_band_id": lower_id},
     )
     assert merge.status_code == 200, merge.text
     payload = merge.json()
@@ -722,7 +726,7 @@ async def test_mu1_ctrl_z_after_a_merge_brings_back_both_bands_as_they_were(
     undo = await async_client.post(
         _band_url(band_scene, gid, "split"),
         json={
-            "band_id": str(target.id),
+            "band_id": target_id,
             "split_depth_m": mid,
             "restore": True,
             "restore_upper_nad_class": payload["pre_merge_upper_nad_class"],
@@ -733,7 +737,7 @@ async def test_mu1_ctrl_z_after_a_merge_brings_back_both_bands_as_they_were(
     )
     assert undo.status_code == 200, undo.text
     restored_lower_id = undo.json()["created_layer_ids"][0]
-    assert await _class_of(str(target.id)) == upper_class_before, "the upper band is back"
+    assert await _class_of(target_id) == upper_class_before, "the upper band is back"
     assert await _class_of(restored_lower_id) == lower_class_before, "the lower band is back"
 
 
