@@ -19,31 +19,47 @@ import { openFixtureProject, goToStage, cleanupFixtureFile } from './helpers/pro
 
 const FIXTURE_PROJECT_ID = process.env.E2E_FIXTURE_PROJECT_ID ?? ''
 
+/** Jump from the Sections stage to the Export hub's PDF card (installer #35). */
+async function openExportHubFromSection(page: Page): Promise<void> {
+  // The Sections toolbar carries a single "Export…" verb (folded under the ⋯
+  // menu on the crowded geotech axis) that opens the Export stage scoped to the
+  // open section + axis.
+  const verb = page.getByTestId('sections-toolbar-export')
+  if (await verb.isVisible()) await verb.click()
+  else {
+    await page.getByTestId('toolbar-overflow-more').click()
+    await page.getByTestId('sections-toolbar-export').click()
+  }
+}
+
 /** Open the Sections stage, select the first seeded section, switch to litho. */
 async function openFirstSectionWithFill(page: Page): Promise<void> {
   // The seeded fixture draws a partition only on some sections/axes (Section A on
   // the litho axis has column strips but no bands), so walk the rows and axes
   // until the sheet dialog reports a paper size, which it does only with a fill.
-  // Returns with the preview dialog OPEN on that section/axis.
-  await goToStage(page, 'Sections')
+  // The PDF sheet now lives on the Export hub (installer #35): select the section
+  // + axis on the Sections stage, jump to the hub, pick the axis on the PDF card
+  // and open the preview. Returns with the preview dialog OPEN on that section/axis.
   const rows = page.locator('[data-testid^="section-row-"]:not([data-testid*="delete"])')
-  await expect(rows.first()).toBeVisible({ timeout: 10_000 })
-  const n = await rows.count()
+  const n = await (async () => {
+    await goToStage(page, 'Sections')
+    await expect(rows.first()).toBeVisible({ timeout: 10_000 })
+    return rows.count()
+  })()
   for (let i = 0; i < n; i += 1) {
-    await rows.nth(i).click()
     for (const axis of ['Litho', 'Geotech'] as const) {
+      await goToStage(page, 'Sections')
+      await rows.nth(i).click()
       const radio = page.getByRole('radio', { name: axis })
       if (!(await radio.isVisible())) continue
       await radio.click()
-      // The geotech toolbar folds the export verbs under the overflow "More" menu.
-      const dropdown = page.getByTestId('sections-toolbar-export-dropdown')
-      if (await dropdown.isVisible()) await dropdown.click()
-      else {
-        await page.getByTestId('toolbar-overflow-more').click()
-        const nested = page.getByTestId('sections-toolbar-export-dropdown')
-        if (await nested.isVisible()) await nested.click()
-      }
-      await page.getByTestId('export-section-pdf').click()
+      await openExportHubFromSection(page)
+      // On the Export stage: pick the axis on the PDF card + open the preview.
+      const pdfAxis = axis === 'Geotech' ? 'geotechnical' : 'lithostratigraphic'
+      const axisPicker = page.getByTestId('export-pdf-axis')
+      if (!(await axisPicker.isVisible())) continue // the PDF card is guidance-only here
+      await axisPicker.selectOption(pdfAxis)
+      await page.getByTestId('export-canvas-pdf').click()
       await expect(page.getByTestId('sheet-preview-dialog')).toBeVisible()
       const size = page.getByTestId('sheet-paper-size')
       // Wait for THIS section's build to settle (the label carries data-busy while it runs).
