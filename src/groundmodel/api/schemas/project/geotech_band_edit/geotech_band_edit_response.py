@@ -67,3 +67,23 @@ class GeotechBandEditResponse(BaseModel):
             "things to the engineer."
         ),
     )
+    pre_merge_upper_nad_class: int | None = Field(
+        default=None,
+        description=(
+            "A MERGE only: the class the SURVIVOR (upper) band carried before the "
+            "merge, so ctrl+z can restore it exactly rather than re-deriving it "
+            "(owner #35). Null for a split / move or a skeleton band."
+        ),
+    )
+    pre_merge_lower_nad_class: int | None = Field(
+        default=None,
+        description="A MERGE only: the class the ABSORBED (lower) band carried before the merge.",
+    )
+    pre_merge_upper_source: str | None = Field(
+        default=None,
+        description="A MERGE only: the survivor band's source stamp before the merge.",
+    )
+    pre_merge_lower_source: str | None = Field(
+        default=None,
+        description="A MERGE only: the absorbed band's source stamp before the merge.",
+    )
