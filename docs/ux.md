@@ -268,3 +268,29 @@ bundled build persisted) is diagnosable from the log.
 * **Inline validation** for forms; never use a toast or alert box
   for "field X is invalid".
 * **Empty states** — text + icon (Lucide), never just blank.
+
+## Tutorial coach card
+
+The guided-tutorial coach card (`tutorial/CoachCard.tsx`) sits beside the
+spotlighted control, but the user can move it out of the way two ways so it
+never blocks the work it points at:
+
+* **Drag.** The card's header row is a grab handle (`cursor-grab`, native
+  pointer events with pointer capture). A drag relocates the card, clamped
+  inside the same `DOCK_MARGIN` the computed placement respects, and the
+  dragged spot **overrides** the computed placement while the same step is
+  shown (a window resize re-clamps but keeps it). A **step change re-places**
+  the card, because the next anchor may be anywhere. A drop that would cover
+  the spotlight snaps just off it (`nudgeCardOffSpotlight` in
+  `coachCardPlacement.ts`) so the card never hides the control it points at.
+* **Fold.** A chevron collapses the card to a compact pill ("Tutorial · step
+  n/total") docked bottom-right. It stays folded across step changes until the
+  user unfolds it, and the spotlight ring keeps working while folded so the
+  user still sees where to click. The pill is a `<button>` (Enter/Space
+  unfold). Folded state is session-only renderer state, never persisted.
+
+Fold is also the **keyboard/single-pointer alternative** to the drag gesture
+(WCAG 2.2 §2.5.7 Dragging Movements): a user who cannot drag can fold the card
+to move it aside. Drag / fold state lives on the card, not the tutorial
+machine (`tutorialMachine.ts`) — the do-it auto-advance and Next / Back / Skip
+all keep working folded or unfolded.
