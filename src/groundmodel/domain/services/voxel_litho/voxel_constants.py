@@ -20,6 +20,7 @@ __all__ = [
     "HAIRLINE_LIMIT_M",
     "PROGRESS_TICK_TARGET",
     "PROJECTION_TIE_EPS_M",
+    "STACK_VOID_ACTIONABLE_M",
 ]
 
 PROJECTION_TIE_EPS_M: float = SNAP_GRID_M
@@ -47,6 +48,28 @@ new class of event rather than more rounding.
 
 It is REPORTED, never enforced: the partition is allowed to say "unknown", and a
 build must not refuse a model because the engineer left a hole on purpose.
+"""
+
+STACK_VOID_ACTIONABLE_M: float = 0.10
+"""Smallest interior void the gapless gate reports as a broken guarantee.
+
+The hairline limit above (15 mm) separates a snapped-flush contact from a real
+gap for MEASUREMENT, but every gap over it — down to a couple of centimetres —
+was being reported as a broken promise.  The owner's installer-#35 build flagged
+"4 column stacks carry an interior void over 15 mm, worst 33.5 mm": a void a
+third of the vertical voxel height, invisible on screen and below anything an
+engineer could act on, reported as a guarantee failure with no action to take.
+
+A void between the hairline limit and this threshold is real but sub-actionable:
+it is carried in the report as a NOTE (the largest such residue is shown) and the
+clause still PASSES.  A void at or above this threshold is a hole an engineer can
+see and act on — a tenth of a metre is the coarsest reasonable "you can act on
+this" floor and an order of magnitude above the snap noise — so the clause FAILS
+and names it.  Owner directive 2026-09-13: report only what the engineer can act
+on, and give every violation an action.
+
+OWNER-CALIBRATION-PENDING like the reconciliation tolerance: 0.10 m is the
+starting floor, to be re-set once more real builds are measured against it.
 """
 
 #: Upper bound on the number of per-column progress ticks a single build emits.
