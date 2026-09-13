@@ -1,9 +1,9 @@
-// The shell reads the Sections stage's exporters share: the anchor-ordered
+// The shell reads the closed-geometry / PDF exporters share: the anchor-ordered
 // investigation list and the geotech mass-identity map, plus both axes' models,
-// layers and formations. Lifted out of ``useDseriesExportItems`` because the
-// cross-section PDF sheet builder is the second consumer of the same inputs —
-// extract-on-the-second-copy — and it needs BOTH axes so the sheet's fill toggle
-// can render litho or geotech from one hook.
+// layers and formations. Consumed by the Export hub's ``useExportHub`` (D-Series
+// partition assembly) and by the cross-section PDF sheet builder (``useSheetPayload``)
+// — it needs BOTH axes so the sheet's fill toggle can render litho or geotech
+// from one hook (installer #35 moved every export into the Export stage).
 
 import { useMemo } from 'react'
 
