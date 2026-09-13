@@ -153,6 +153,12 @@ function renderLayer(
     onSplitLithoLayer?: (layerId: string, depthM: number) => void
     onNameBody?: (bodyId: string) => void
     onDissolveBody?: (bodyId: string) => void
+    onCopyLithoContactToColumn?: (params: {
+      sourceInvestigationId: string
+      contactDepthM: number
+      targetInvestigationId: string
+      targetKind: 'cpt' | 'borehole'
+    }) => void
   } = {},
 ) {
   return render(
@@ -193,6 +199,7 @@ function renderLayer(
         onSplitLithoLayer={extras.onSplitLithoLayer}
         onNameBody={extras.onNameBody}
         onDissolveBody={extras.onDissolveBody}
+        onCopyLithoContactToColumn={extras.onCopyLithoContactToColumn}
       />
     </svg>,
   )
@@ -633,6 +640,86 @@ describe('ContactsLayer', () => {
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
     expect(onUpdateContactDepth.mock.calls[0][0]).toBe('c-1')
     expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(8, 5)
+  })
+
+  // ---- Litho-axis Shift-drag copies a contact onto another test (#35) ----
+  //
+  // Owner ask, installer #35: "can't i drag and drop an accepted litho contact
+  // onto a new cptm ... just like the litho boundaries?" / "b, both units.". On
+  // the LITHO axis a Shift + cross-column drag of an accepted litho boundary
+  // routes to the copy handler (which creates both units / splits), NOT to the
+  // stratigraphy paint-through that stamps bare contacts.
+
+  it('LC1: litho axis, Shift-drag a contact onto another test → copy handler, not paint-through', () => {
+    const onCopyLithoContactToColumn = vi.fn()
+    const onBatchCreateContacts = vi.fn().mockResolvedValue(undefined)
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'SAND' })],
+      [makeBoreholePlaced('bh-1', 100), makeBoreholePlaced('bh-2', 250)],
+      undefined,
+      {
+        axisMode: 'lithostratigraphic',
+        onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+        onBatchCreateContacts,
+        onCopyLithoContactToColumn,
+      },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-1"]',
+    )!
+    // Shift+mousedown on the source contact, drag across into bh-2, release.
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0, shiftKey: true })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientX: 250, clientY: 5, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onCopyLithoContactToColumn).toHaveBeenCalledTimes(1)
+    expect(onCopyLithoContactToColumn.mock.calls[0][0]).toEqual({
+      sourceInvestigationId: 'bh-1',
+      contactDepthM: 3,
+      targetInvestigationId: 'bh-2',
+      targetKind: 'borehole',
+    })
+    // The bare-contact paint-through must NOT fire on the litho axis.
+    expect(onBatchCreateContacts).not.toHaveBeenCalled()
+  })
+
+  it('LC2: geological axis keeps the Shift-drag paint-through (copy handler untouched)', () => {
+    const onCopyLithoContactToColumn = vi.fn()
+    const onBatchCreateContacts = vi.fn().mockResolvedValue(undefined)
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'SAND' })],
+      [makeBoreholePlaced('bh-1', 100), makeBoreholePlaced('bh-2', 250)],
+      undefined,
+      {
+        axisMode: 'geological',
+        onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+        onBatchCreateContacts,
+        onCopyLithoContactToColumn,
+      },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-1"]',
+    )!
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0, shiftKey: true })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientX: 250, clientY: 5, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onCopyLithoContactToColumn).not.toHaveBeenCalled()
+    expect(onBatchCreateContacts).toHaveBeenCalledTimes(1)
   })
 
   it('does not commit when the drag never moved (zero-delta release)', () => {
