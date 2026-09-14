@@ -186,6 +186,28 @@ per-family post-clip) and `clipPartitionToLithoFrame.ts` (the relabelling
 post-hoc clip before it) are both DELETED; the geometry primitives live on in
 `frameClipGeometry.ts`.
 
+**No holes in the model â€” the geometric safety net** (`fillGeotechHoles.ts`,
+owner installer #36 dogfeed, Cross-section 2: *"why is there a hole here on cs2
+between s1 and s2, the litho doesn't have a hole there?"*). The raster HIER_COV
+gate samples 60Ã—60 per gap and is blind to a thin crack; the GEOMETRIC audit
+(`geotechHoles.diag`, `GEOTECH_HOLES=1`) sees it. The #36 case: S1's deep SILT
+unit is an enclosed litho lens (a ZAND lens carved above it) whose band looks
+0-tie but carries a SHARED-CONTACT base tie (the ZAND-below's topâ†”top edge
+lands on the silt's own base), so `emitFor` returns an ONLAP whose apex falls
+EXACTLY on the litho unit's own base line; the arrangement then fails to trace
+the sub-TD onlap wedge and a 19.5 mÂ² triangle goes unpainted directly under a
+correlation band. A post-pass runs AFTER the constructive fill + weld: it
+overlays the litho frame with every painted region (same geometry as the audit,
+grazing tolerance `EDGE_TOL` 3 mm) and closes any litho-covered face the fill
+left empty with the packing class the MODEL already holds there (the geotech
+band whose own litho parent unit is the face's unit and whose depth window
+contains it), or the `lithoFallback` "correlate me" hatch when no band of that
+unit reaches the depth. It never overpaints, never crosses soils, and is a
+strict NO-OP on a section the fill already covered (CS1 golden byte-identical).
+Pinned by `we2FillNoHole.test.ts` on the committed Cross-section 2 fixture. This
+is a robustness layer, NOT the root fix for the sub-TD-onlap arrangement case
+(debt #283, the emission rewrite from the 2/1/0 oracle).
+
 **Render = build = one path.** `PartitionFillOverlay` renders the
 hierarchical fill on the geotech axis (litho axis untouched);
 `buildVoxelRequest` / `makeVoxelRequestBuilder` and the 3-D fences take the
@@ -237,6 +259,28 @@ deepest bands. Both are born accepted â€” they carry the litho approval dow
 (Â§4a). `DivideBoreholes` re-runs the shared edge derivation after
 borehole-band fill (Phase 8.5) and re-resolves `body_id`, so
 borehole-mediated restatements appear without a manual step-2 press.
+
+**A LENT class never changes the receiver sand's NAD family** (owner installer
+#36 dogfeed, borehole GEO-07/182-B2: *"this sand on B2 somehow got an
+admixture, while it did not have that in the original litho"*). A borehole band
+has no qc, so `DivideBoreholes` LENDS its packing from the flanking CPTs; the
+donor CPT's stored NAD class carries the DONOR'S own column â€” clean (ZAND 5-8)
+vs silt-/kleihoudend (ZAND 9-12). Copied verbatim onto a CLEAN-sand borehole
+flanked by silty-sand CPTs, the lent class sat in the with-admixture column and
+the band rendered `ZAND(f)`. The rule (owner): *"a lent class never changes the
+sand's family"* â€” the lend carries only the PACKING LEVEL (los/matig/dicht/zeer
+dicht) and lands it in the RECEIVER'S own column; the receiver's litho
+composition is never rewritten. `nad_classifier.remap_class_to_variant` re-maps
+a class to the target variant's column at the same level index (secondary dicht
+11 â†’ clean dicht 7), and `DivideBoreholes._plan_borehole_bands_litho_confined`
+applies it (`receiver_variant` from `resolve_variant` on the borehole unit's own
+soil + admixtures + `nad_admixture_choice`) at every donor-class source â€” the
+flank fill, the tie-informed fill, the section-geometry fill and the body_min
+statistic â€” so coarsen/merge/floor all reason in the receiver's family. The CPT
+press (`SubdivideAllBodies`) classifies from its OWN qc + own unit variant, so it
+never lends across families and is untouched. Pinned by
+`test_geotech_lent_class_variant.py` (LV1â€“LV5); the effect is a DB
+re-materialisation, so it appears on the next Divide-boreholes press.
 
 ## 3. Connecting geotech units (built 2026-06-25, develop UNPUSHED)
 
