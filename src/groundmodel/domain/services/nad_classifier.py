@@ -175,6 +175,88 @@ def loosest_class_for(
     return bands[0][1]
 
 
+def resolve_variant(
+    soil: BaseLithology | str | None,
+    admixtures: tuple[Admixture, ...],
+    variant_override: Variant | None = None,
+) -> Variant:
+    """The concrete NAD column a unit classifies into — override first, else admixtures.
+
+    The same decision :func:`classify_nad` makes internally, exposed so a caller
+    that has to compare or re-map a class knows which column the unit *itself*
+    would use. ``variant_override`` (the persisted engineer answer, already
+    resolved to a column) wins; otherwise it falls to the admixture rule. A unit
+    with no known soil has no qualifying admixture set, so it falls to
+    ``"clean"`` — harmless, as such a unit is never given a machine class.
+
+    Parameters
+    ----------
+    soil : BaseLithology | str | None
+        Main soil of the litho unit.
+    admixtures : tuple[Admixture, ...]
+        The unit's admixtures.
+    variant_override : Variant | None, optional
+        A forced column (``"clean"`` / ``"secondary"``), or ``None`` to defer to
+        the admixtures.
+
+    Returns
+    -------
+    Variant
+        ``"clean"`` or ``"secondary"`` — never ``None``, unlike the override.
+    """
+    if variant_override is not None:
+        return variant_override
+    return _variant_for(soil, admixtures)  # type: ignore[arg-type]
+
+
+def remap_class_to_variant(nad_class: int, target_variant: Variant) -> int:
+    """Re-map a NAD class into ``target_variant``'s column, keeping the packing level.
+
+    Owner ruling 2026-09-13 (borehole GEO-07/182-B2): a borehole band's packing
+    is LENT from a flanking CPT, and the CPT's stored class carries the CPT's own
+    NAD family — clean (ZAND 5-8) versus silt-/kleihoudend (ZAND 9-12). Copied
+    verbatim onto a clean-sand borehole unit, the lent class sat in the
+    with-admixture column and the band rendered as ``ZAND(f)`` although the
+    borehole's litho sand carries no admixture. His words: *"this sand on B2
+    somehow got an admixture, while it did not have that in the original litho"*
+    and the rule: *"a lent class never changes the sand's family"* — the lend
+    carries only the PACKING LEVEL (los / matig / dicht / zeer dicht) and lands
+    it in the RECEIVER'S own column; the receiver's litho composition is never
+    rewritten.
+
+    The packing level is the class's INDEX within its soil column, and every
+    soil's two columns have the same number of levels aligned at the same qc
+    thresholds (``NAD_QC_BANDS``), so the level index maps one-to-one across
+    variants: ZAND secondary ``dicht`` (11) → ZAND clean ``dicht`` (7), secondary
+    ``matig`` (10) → clean ``matig`` (6). A class the table does not know, or a
+    target column with fewer levels, is returned unchanged — the caller's soil
+    clamp (``clamp_class_to_soil``) is the backstop for a genuinely foreign class.
+    VEEN's two columns are identical, so a VEEN class re-maps to itself.
+
+    Parameters
+    ----------
+    nad_class : int
+        The lent class, carrying the donor's variant.
+    target_variant : Variant
+        The receiver unit's own column (``"clean"`` / ``"secondary"``), from
+        :func:`resolve_variant`.
+
+    Returns
+    -------
+    int
+        The class of the same packing level in ``target_variant``'s column, or
+        ``nad_class`` unchanged when it cannot be placed.
+    """
+    for (soil, _variant), bands in NAD_QC_BANDS.items():
+        for level_index, (_upper, cls) in enumerate(bands):
+            if cls == nad_class:
+                target = NAD_QC_BANDS.get((soil, target_variant))
+                if target is None or level_index >= len(target):
+                    return nad_class
+                return target[level_index][1]
+    return nad_class
+
+
 def soil_family_of(nad_class: int | None) -> BaseLithology | None:
     """The soil family a NAD packing class belongs to.
 
