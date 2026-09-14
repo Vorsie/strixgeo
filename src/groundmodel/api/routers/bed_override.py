@@ -24,6 +24,9 @@ from groundmodel.api.schemas.project.bed_override import (
     BedOverrideResponse,
     BedOverrideUpdateRequest,
 )
+from groundmodel.application.stale_models_for_bed_change import (
+    mark_models_stale_for_bed_change,
+)
 from groundmodel.infrastructure.db.models.bed_override_orm import BedOverrideOrm
 from groundmodel.infrastructure.db.repositories.bed_override_repository import (
     BedOverrideRepository,
@@ -65,6 +68,14 @@ async def create_bed_override(
         level_m=request.level_m,
         epsg=request.epsg,
         vertices=[[x, y] for x, y in request.vertices],
+    )
+    # A new bed cuts the ground under it, so every built model that caches the
+    # ground (geological TIN surfaces, litho / geotech voxel solids) is now
+    # stale — flip the on-click-Build staleness flags so the engineer is told to
+    # rebuild. The section / fence VIEWS already cut at once (no rebuild).
+    surfaces, solids = await mark_models_stale_for_bed_change(session, project_id)
+    logger.info(
+        f"bed override created — staled {surfaces} surface(s), {solids} solid(s) for rebuild"
     )
     await session.commit()
     await session.refresh(override)
@@ -125,6 +136,14 @@ async def update_bed_override(
     if "vertices" in patch and patch["vertices"] is not None:
         patch["vertices"] = [[x, y] for x, y in patch["vertices"]]
     updated = await repo.update(override_id, patch)
+    # Only a level / geometry change moves the ground the models cache; a
+    # label-only rename leaves every built model valid, so it does not stale them.
+    if "level_m" in patch or "vertices" in patch:
+        surfaces, solids = await mark_models_stale_for_bed_change(session, project_id)
+        logger.info(
+            f"bed override {override_id} moved — staled {surfaces} surface(s), "
+            f"{solids} solid(s) for rebuild"
+        )
     await session.commit()
     assert updated is not None  # guarded by get_in_project_or_404 above
     await session.refresh(updated)
@@ -162,5 +181,12 @@ async def delete_bed_override(
     repo = BedOverrideRepository(session)
     await get_in_project_or_404(repo.get(override_id), project_id, detail="Bed override not found")
     await repo.delete(override_id)
+    # Removing a bed restores the DEM ground under it, so the built models that
+    # cached the cut ground are stale again — flip the rebuild flags.
+    surfaces, solids = await mark_models_stale_for_bed_change(session, project_id)
+    logger.info(
+        f"bed override {override_id} deleted — staled {surfaces} surface(s), "
+        f"{solids} solid(s) for rebuild"
+    )
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
