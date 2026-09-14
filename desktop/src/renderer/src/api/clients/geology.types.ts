@@ -1502,6 +1502,18 @@ export interface DivideBoreholeResponse {
    * predates the field still parses.
    */
   deleted_crossing_span_count?: number
+  /**
+   * Boreholes imported as-is because they already carried HAND-edited bands
+   * (``source='manual'``) and the run was scoped to keep them (owner ruling
+   * 2026-08-18/2026-08-23, "first subdivision wins" narrowed to hand evidence).
+   * A machine-derived borehole is always re-derived; only a borehole the
+   * engineer split/edited by hand is kept. The divide is otherwise silent about
+   * the kept ones, so the toast owns the count (owner installer #37 dogfeed
+   * 2026-09-14: pressing "Divide boreholes" on an already-banded borehole did
+   * nothing and said nothing). Optional so a response from a backend that
+   * predates the field still parses.
+   */
+  skipped_existing_borehole_count?: number
 }
 
 /**
