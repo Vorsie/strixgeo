@@ -265,7 +265,7 @@ export const SECTIONS = {
     'model as a D-Sheet Piling .shi soil profile through the section (geometry only)',
   'sections.export.dseriesRowTitle': 'Export this section’s {level} {describes}',
   'sections.export.nothingDrawn':
-    'Nothing to export — this section has no drawn {level} geometry between two columns.',
+    'Nothing to export: this section has no drawn {level} geometry between two columns.',
   'sections.export.readFailed': 'Could not read this section — nothing was exported.',
 
   'sections.toolbar.display': 'Display',
