@@ -127,3 +127,78 @@ describe('useBedOverrides — groundRefreshNonce bumps on every mutation', () =>
     expect(result.current.groundRefreshNonce).toBe(before)
   })
 })
+
+// A bed change must tell the built models to rebuild (owner 2026-09-13: "is the
+// bed cut out of the fence, or must I recompute the models?"). ``onBedChanged``
+// is the upstream signal the model-staleness hook re-reads on, so it fires on
+// every successful create / update / delete and never on a failed save.
+describe('useBedOverrides — onBedChanged fires on every successful bed change', () => {
+  beforeEach(() => {
+    vi.spyOn(api.bedOverrides, 'list').mockResolvedValue([])
+    vi.spyOn(api.bedOverrides, 'create').mockResolvedValue(makeRow('bo-1'))
+    vi.spyOn(api.bedOverrides, 'update').mockResolvedValue(makeRow('bo-1'))
+    vi.spyOn(api.bedOverrides, 'delete').mockResolvedValue(undefined as unknown as void)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  function renderWithCallback(onBedChanged: () => void) {
+    const toast = vi.fn()
+    return renderHook(() => useBedOverrides({ project: PROJECT, epsg: EPSG, toast, onBedChanged }))
+  }
+
+  it('OBC1 — a create fires onBedChanged (the models must rebuild to cut the bed)', async () => {
+    const onBedChanged = vi.fn()
+    const { result } = renderWithCallback(onBedChanged)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    act(() => {
+      result.current.handlePolygonDrawn([
+        { lat: 51, lng: 4 },
+        { lat: 51, lng: 4.001 },
+        { lat: 51.001, lng: 4.001 },
+      ])
+    })
+    await act(async () => {
+      await result.current.submit('Canal bed', -4)
+    })
+
+    expect(onBedChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('OBC2 — an edit and a delete each fire onBedChanged', async () => {
+    vi.spyOn(api.bedOverrides, 'list').mockResolvedValue([makeRow('bo-1')])
+    const onBedChanged = vi.fn()
+    const { result } = renderWithCallback(onBedChanged)
+    await waitFor(() => expect(result.current.overrides).toHaveLength(1))
+
+    act(() => result.current.startEdit('bo-1'))
+    await act(async () => {
+      await result.current.submit('Canal bed', -5)
+    })
+    await act(async () => {
+      await result.current.remove('bo-1')
+    })
+
+    expect(onBedChanged).toHaveBeenCalledTimes(2)
+  })
+
+  it('OBC3 — a failed save does NOT fire onBedChanged (nothing changed)', async () => {
+    vi.spyOn(api.bedOverrides, 'create').mockRejectedValue(new Error('boom'))
+    const onBedChanged = vi.fn()
+    const { result } = renderWithCallback(onBedChanged)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    act(() => {
+      result.current.handlePolygonDrawn([
+        { lat: 51, lng: 4 },
+        { lat: 51, lng: 4.001 },
+        { lat: 51.001, lng: 4.001 },
+      ])
+    })
+    await act(async () => {
+      await result.current.submit('Canal bed', -4)
+    })
+
+    expect(onBedChanged).not.toHaveBeenCalled()
+  })
+})
