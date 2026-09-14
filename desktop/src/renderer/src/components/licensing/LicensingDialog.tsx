@@ -19,11 +19,14 @@ import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import ConfirmDialog from '../ui/ConfirmDialog'
 import { useT, type Translator } from '../../i18n/translate'
+import { useLanguage } from '../../i18n/languageSelect'
+import type { Language } from '../../i18n/i18n_constants'
 import type { MessageKey } from '../../i18n/locales/en'
 import { log } from '../../utils/log'
 import type {
   ActivationActionResultDto,
   ActivationStatusDto,
+  BuildInfoDto,
   IssueFailureCodeDto,
   LicenceStateDto,
 } from '../../utils/launchPrototypeTypes'
@@ -92,6 +95,60 @@ function formatDate(ms: number | null): string {
   return new Date(ms).toLocaleDateString()
 }
 
+/**
+ * Locale tag per app language for the LONG date form the build line uses
+ * ("1 November 2026" / "1 november 2026"). en-GB rather than en-US so the day
+ * leads, matching the owner's wording.
+ */
+const DATE_LOCALE: Record<Language, string> = {
+  en: 'en-GB',
+  nl: 'nl-BE',
+}
+
+/** Format an epoch-ms instant as a long local date ("1 November 2026"). */
+function formatLongDate(ms: number, language: Language): string {
+  return new Date(ms).toLocaleDateString(DATE_LOCALE[language], {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+/**
+ * The build's own beta expiry stamp + git SHA (owner finding f).
+ *
+ * Sits directly under the status panel so the licence key's expiry and the
+ * build's expiry read as one block: a tester can check both which build they
+ * hold ("Beta build 60e282c4") and when it stops ("expires 1 November 2026").
+ * A dev / unstamped build shows the "development build" line instead.
+ */
+function BuildInfoPanel({
+  info,
+  language,
+  t,
+}: {
+  info: BuildInfoDto
+  language: Language
+  t: Translator
+}): JSX.Element {
+  const line =
+    info.expiresAtMs !== null
+      ? t('licensing.betaBuild', {
+          sha: info.sha ?? '—',
+          date: formatLongDate(info.expiresAtMs, language),
+        })
+      : t('licensing.buildUnstamped')
+  return (
+    <div
+      className="text-xs text-text-secondary border-t border-border-subtle pt-3"
+      data-testid="licensing-build-info"
+    >
+      <span className="text-text-muted">{t('licensing.buildHeading')}: </span>
+      <span className="text-text-primary">{line}</span>
+    </div>
+  )
+}
+
 /** The status heading + day counts, rendered from a verdict. */
 function StatusPanel({ status, t }: { status: ActivationStatusDto; t: Translator }): JSX.Element {
   const { verdict } = status
@@ -143,7 +200,10 @@ export default function LicensingDialog({
   onStatusChange,
 }: Props): JSX.Element {
   const t = useT()
+  const language = useLanguage()
   const [status, setStatus] = useState<ActivationStatusDto | null>(null)
+  // Build facts (git SHA + beta expiry) shown next to the licence expiry (finding f).
+  const [buildInfo, setBuildInfo] = useState<BuildInfoDto | null>(null)
   const [keyInput, setKeyInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -172,6 +232,15 @@ export default function LicensingDialog({
       setError(null)
       setNotice(null)
       void refresh()
+      // Build facts (finding f) — the beta expiry stamp + git SHA. Optional on
+      // the bridge, so a renderer against an older preload simply hides the
+      // block rather than throwing on the open path.
+      const buildInfoPromise = window.electron.getBuildInfo?.()
+      if (buildInfoPromise) {
+        void buildInfoPromise
+          .then(info => setBuildInfo((info as BuildInfoDto | null) ?? null))
+          .catch(err => log.warn('licensing', 'could not read build info', err))
+      }
     }
   }, [open, refresh])
 
@@ -273,6 +342,10 @@ export default function LicensingDialog({
 
         <div className="px-6 py-4 overflow-y-auto flex flex-col gap-4">
           {status !== null && <StatusPanel status={status} t={t} />}
+
+          {/* The build's own beta expiry stamp + git SHA (finding f), next to
+              the licence expiry above so both read as one block. */}
+          {buildInfo !== null && <BuildInfoPanel info={buildInfo} language={language} t={t} />}
 
           {/* Inline feedback — self-contained so the dialog works in both the
               welcome and loaded-project branches, where the toast host differs. */}
