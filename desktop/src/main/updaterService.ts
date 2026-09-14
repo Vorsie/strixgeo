@@ -33,9 +33,11 @@ import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-update
 
 import {
   autoInstallOnQuit,
+  classifyUpdaterError,
   shouldAutoCheckOnLaunch,
   summariseUpdateInfo,
   type UpdateAvailableNotice,
+  type UpdaterErrorReason,
 } from './updaterPolicy'
 
 /**
@@ -55,6 +57,9 @@ export type UpdaterPhase =
   | 'checking'
   | 'available'
   | 'not-available'
+  // The feed answered, there is simply nothing published yet — the closed
+  // beta's normal state (owner finding (g)). Calm, NOT a failure.
+  | 'no-release'
   | 'downloading'
   | 'downloaded'
   | 'error'
@@ -69,6 +74,27 @@ export interface UpdaterEvent {
   progressPercent?: number
   /** Present on ``error`` / ``disabled`` — a loggable, showable line. */
   message?: string
+  /** Present on ``error`` — which cause the renderer should name (finding (g)). */
+  errorReason?: UpdaterErrorReason
+}
+
+/**
+ * Shape an ``autoUpdater`` error into an event the renderer can present.
+ *
+ * A feed with no release published yet is the closed beta's normal state, not a
+ * failure — it becomes the calm ``no-release`` phase. A genuine failure keeps
+ * the ``error`` phase but carries a ``reason`` so the renderer can name the
+ * cause (offline / blocked / unexpected). See {@link classifyUpdaterError}.
+ */
+function updaterErrorEvent(err: Error): UpdaterEvent {
+  const code = (err as { code?: string }).code ?? null
+  const classification = classifyUpdaterError({ message: err?.message, code })
+  if (classification.kind === 'no-release') return { phase: 'no-release' }
+  return {
+    phase: 'error',
+    errorReason: classification.reason,
+    message: err?.message ?? 'update check failed',
+  }
 }
 
 let targetWindow: BrowserWindow | null = null
@@ -115,9 +141,10 @@ export function configureUpdater(win: BrowserWindow): void {
   autoUpdater.on('update-downloaded', (info: UpdateInfo) =>
     emit({ phase: 'downloaded', notice: summariseUpdateInfo(info) }),
   )
-  autoUpdater.on('error', (err: Error) =>
-    emit({ phase: 'error', message: err?.message ?? 'update check failed' }),
-  )
+  // A feed with no published release yet reaches us here as an error event; it
+  // is classified into the calm ``no-release`` phase rather than a failure
+  // (owner finding (g)). A real failure keeps ``error`` and names its cause.
+  autoUpdater.on('error', (err: Error) => emit(updaterErrorEvent(err)))
 }
 
 /**
