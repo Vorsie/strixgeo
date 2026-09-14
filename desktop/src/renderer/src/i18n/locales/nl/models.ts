@@ -318,7 +318,7 @@ export const MODELS_NL = {
   'litho.nothingToBuild':
     'Niets om op te bouwen — aanvaard eerst litholagen op een dwarsprofiel en bouw daarna op.',
   'litho.nothingToExportFence':
-    'Niets om te exporteren — zet de 3D-weergave op Hekkendiagram en zorg dat de wand vlakken bevat.',
+    'Niets om te exporteren: zet de 3D-weergave op Hekkendiagram en zorg dat de wand vlakken bevat.',
   'litho.autoCorrelateNothing':
     'Autocorrelatie: geen correleerbare eenheden gevonden — aanvaard eerst de lithovoorstellen.',
   // dialoog bevestigen / opnieuw toewijzen / losmaken bovenliggende formatie
