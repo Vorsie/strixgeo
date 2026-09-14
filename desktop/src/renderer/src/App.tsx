@@ -984,6 +984,12 @@ export default function App() {
     // can resolve contacts on the litho axis without coupling useSections to the
     // geo model hook directly.
     lithoContacts,
+    // Installer #36 fix: gate the section model axis on model presence so the
+    // litho axis cannot be entered without a litho model (and a stale litho/
+    // geotech axis is clamped back to geological). Booleans, not the model
+    // objects, so the section state doesn't churn on every model re-identify.
+    hasLithoModel: geo.activeLithoModel !== null,
+    hasGeotechModel: geo.activeGeotechModel !== null,
     boreholes,
     cpts,
     setSelectedId,
