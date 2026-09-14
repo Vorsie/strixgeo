@@ -85,6 +85,12 @@ export const LAUNCH = {
   'licensing.toastActivated': 'Licence activated.',
   'licensing.toastTrialStarted': 'Free trial started.',
   'licensing.toastDeactivated': 'This device was deactivated.',
+  // Build facts (finding f): the beta expiry stamp + git SHA, shown next to the
+  // licence expiry so a tester can verify which build they hold. Date is
+  // formatted by the caller ("1 November 2026").
+  'licensing.buildHeading': 'This build',
+  'licensing.betaBuild': 'Beta build {sha}, expires {date}',
+  'licensing.buildUnstamped': 'Development build (no expiry stamp)',
 
   // -------------------------------------------------------------------------
   // updater — the update-available notification (#6).
@@ -99,7 +105,13 @@ export const LAUNCH = {
   'updater.downloadedBody': 'Version {version} will be applied when you restart.',
   'updater.restart': 'Restart & install',
   'updater.upToDate': 'You are on the latest version.',
+  // No release published yet (finding g): calm, not a failure.
+  'updater.noReleaseYet': 'No update available yet.',
   'updater.disabled': 'Updates are disabled in development.',
   'updater.error': 'Update check failed.',
+  // A real failure names its cause (finding g).
+  'updater.errorOffline': 'Update check failed: you appear to be offline.',
+  'updater.errorBlocked': 'Update check failed: the connection was blocked (proxy or firewall).',
+  'updater.errorUnexpected': 'Update check failed unexpectedly.',
   'updater.dismiss': 'Dismiss',
 } as const
