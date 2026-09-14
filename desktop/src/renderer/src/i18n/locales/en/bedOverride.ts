@@ -30,8 +30,8 @@ export const BED_OVERRIDE = {
   'bedOverride.cancel': 'Cancel',
 
   // Toasts.
-  'bedOverride.created': 'Bed level added',
-  'bedOverride.updated': 'Bed level updated',
+  'bedOverride.savedRebuild':
+    'Bed level saved. Rebuild the models to cut them at it; the section view is cut at once.',
   'bedOverride.deleted': 'Bed level deleted',
   'bedOverride.saveFailed': 'Could not save the bed level',
 
