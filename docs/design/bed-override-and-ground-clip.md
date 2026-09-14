@@ -127,6 +127,59 @@ golden unchanged).
   the on-open `force=false` path rebuilds. Both the litho and geotech voxel
   builds go through this one path.
 
+## Ruling 4 — the bed cuts the fence too, and the models say when a rebuild is needed (owner 2026-09-13)
+
+Owner question, verbatim Dutch: *"houdt dit rekening met getekend bodempeil?
+wordt het getekend bodempeil ook uit het hekwerk gesneden of moet ik
+strat/geo/litho model dan herberekenen?"* — does the model check account for the
+drawn bed level; is the drawn bed also cut out of the fence, or must the
+strat/geo/litho models be recomputed? Two parts.
+
+* **The fence is cut at once (render + export clip, no engine change).** The 3-D
+  fence walls and the fence DXF are clipped by the bed exactly like the 2-D
+  section view. Pure function
+  `desktop/.../utils/clipFencePanelsToBed.ts` (`clipFencePanelsToBed(panels,
+  bedPolygons)`): a fence panel is a triangle soup, but every INDIVIDUAL triangle
+  came from one gap of the partition, so its plan `(x, y)` points are collinear
+  (a vertical wall). Each triangle is parametrised by plan-distance `s` and
+  clipped in the `(s, elevation)` plane — split at every polygon-edge crossing
+  (cut only inside the polygon) and, inside a polygon, capped at the bed level via
+  Sutherland-Hodgman half-plane clips, then fan-triangulated and re-welded on a
+  1-micron grid so the DXF interior-edge hiding still sees the seams. Membership
+  is the SHARED `utils/bedPolygonMembership.ts` (`pointInRing` / `bedLevelAt`,
+  extracted from `sectionBedClip.ts`), so the fence cut and the section cut agree.
+  It is wired into `buildProjectFence` (the single point BOTH fence paths pass
+  through — the 3-D stages via `useBody3DViewState`, the Export hub via
+  `makeProjectFenceBuilder`), so the walls on screen and the exported DXF cut
+  identically. A no-op — same array — when there are no bed overrides, so every
+  existing fence is byte-identical.
+* **The BUILT models must be recomputed — and now they say so.** A bed change
+  cannot cut a cache that already exists, so a bed drawn / edited / deleted after a
+  Build marks the built models stale through the on-click-Build staleness flags:
+  `application/stale_models_for_bed_change.py` flips every geological model's TIN
+  surfaces (`mark_all_surfaces_stale`) and every litho / geotech model's voxel
+  solids (`mark_litho_solids_stale`) stale, called from the bed-override router's
+  create / delete and its level-or-geometry update (a label-only rename does not
+  stale). The desktop re-reads that staleness without a project reopen:
+  `useBedOverrides` fires `onBedChanged` → `App`'s `bedStaleNonce` → the two
+  `useLithoSolids` refresh keys and the geological-surface refetch in
+  `useGeologicalModel`, so the "rebuild" badge turns amber at once. A save also
+  toasts `bedOverride.savedRebuild` ("Bed level saved. Rebuild the models to cut
+  them at it; the section view is cut at once." / NL).
+
+## Where the bed is applied, and when a rebuild is needed
+
+| Surface | Bed applied | Rebuild needed? |
+|---|---|---|
+| 2-D section partition fill | render-layer SVG clip (`sectionBedClip.ts`) | no — cut at once |
+| 3-D fence walls + fence DXF | render/export clip (`clipFencePanelsToBed.ts`) | no — cut at once |
+| Stratigraphy (geological) TIN surfaces | crossing-line clip at Build (`clip_tin_by_ground_surface`) | **yes** — marked stale on a bed change |
+| Litho / geotech 3-D voxel solids | labelling-top cap at Build (`label_voxels(bed_top_at=)`) | **yes** — marked stale on a bed change |
+
+The two VIEW surfaces recompute their geometry from the live overrides every
+render, so they need no rebuild; the two BUILT caches embed the bed at Build
+time, so a later bed change stales them and the engineer clicks Build to cut them.
+
 ## What the owner sees on the worked example
 
 He draws a polygon over the canal and types the dredged bed level (say -4 m
