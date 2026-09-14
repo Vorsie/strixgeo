@@ -78,6 +78,105 @@ export function autoInstallOnQuit(isSigned: boolean): boolean {
 }
 
 /**
+ * Which cause an updater FAILURE should name to the user.
+ *
+ * Not every failed check is equal: an offline machine, a corporate proxy /
+ * firewall, and an unexpected server answer each want different words. Kept as a
+ * discriminator (not the finished string) so the renderer owns the EN/NL copy.
+ */
+export type UpdaterErrorReason = 'offline' | 'blocked' | 'unexpected'
+
+/**
+ * How the app should present an ``autoUpdater`` error.
+ *
+ * ``no-release`` is the closed beta's NORMAL state: the releases feed reached us
+ * and answered "nothing published yet". That is not a failure — the app shows a
+ * calm "no update available yet" line, never "check for updates failed" (owner
+ * finding (g), installer #37).
+ */
+export interface UpdaterErrorClassification {
+  /** ``no-release`` when the feed simply has nothing published; else ``error``. */
+  kind: 'no-release' | 'error'
+  /** Which cause to name; present only when ``kind === 'error'``. */
+  reason?: UpdaterErrorReason
+}
+
+/**
+ * electron-updater GitHubProvider error codes that mean "there is no release for
+ * this client yet" rather than "the check failed". Verified against
+ * ``node_modules/electron-updater/out/providers/GitHubProvider.js``:
+ *   * ``ERR_UPDATER_NO_PUBLISHED_VERSIONS`` — a draft-only repo (the closed beta).
+ *   * ``ERR_UPDATER_LATEST_VERSION_NOT_FOUND`` — "please ensure a production release exists".
+ *   * ``ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`` — a release exists but its
+ *     ``latest.yml`` is missing (owner named the "404 on latest.yml" case).
+ */
+const NO_RELEASE_CODES: ReadonlySet<string> = new Set([
+  'ERR_UPDATER_NO_PUBLISHED_VERSIONS',
+  'ERR_UPDATER_LATEST_VERSION_NOT_FOUND',
+  'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+])
+
+/** Message fragments that betray the same "no release yet" states, code-free. */
+const NO_RELEASE_MESSAGE = [
+  'no published versions',
+  'please ensure a production release exists',
+]
+
+/** Message fragments that mean the request never reached the feed (offline). */
+const OFFLINE_MESSAGE =
+  /net::err_internet_disconnected|net::err_name_not_resolved|enotfound|eai_again|enetunreach|etimedout|econnrefused|econnreset|econnaborted|getaddrinfo|network is unreachable/
+
+/** Message fragments that mean a proxy / firewall / TLS wall answered (blocked). */
+const BLOCKED_MESSAGE =
+  /\b40[13]\b|forbidden|unauthorized|err_proxy|err_tunnel|err_cert|self.signed|self-signed|unable to verify|err_ssl/
+
+/**
+ * Classify an ``autoUpdater`` error into a renderer-facing verdict.
+ *
+ * The whole point of finding (g): distinguish "the feed has nothing published
+ * yet" (calm, expected for the closed beta) from a genuine failure, and — for a
+ * genuine failure — name the cause. Pure and Electron-free so vitest pins it.
+ *
+ * Parameters
+ * ----------
+ * input : { message?, code? }
+ *     The ``message`` and (when present) the ``.code`` electron-updater sets via
+ *     ``newError(message, code)``.
+ *
+ * Returns
+ * -------
+ * UpdaterErrorClassification
+ *     ``{ kind: 'no-release' }`` for an empty feed; ``{ kind: 'error', reason }``
+ *     for a real failure.
+ */
+export function classifyUpdaterError(input: {
+  message?: string | null
+  code?: string | null
+}): UpdaterErrorClassification {
+  const code = (input.code ?? '').trim()
+  const lower = (input.message ?? '').toLowerCase()
+
+  // 1. No release published yet — the feed answered, there is just nothing to
+  //    offer. Not a failure.
+  if (NO_RELEASE_CODES.has(code)) return { kind: 'no-release' }
+  if (NO_RELEASE_MESSAGE.some(fragment => lower.includes(fragment))) return { kind: 'no-release' }
+  // A bare 404 for the update manifest is the same state (a release with no
+  // latest.yml, or a repo with none).
+  if (/(latest|beta|alpha)[^ ]*\.yml/.test(lower) && lower.includes('404')) {
+    return { kind: 'no-release' }
+  }
+
+  // 2. Offline — the request never reached the feed.
+  if (OFFLINE_MESSAGE.test(lower)) return { kind: 'error', reason: 'offline' }
+
+  // 3. Blocked — a proxy, firewall, TLS interception or auth wall answered.
+  if (BLOCKED_MESSAGE.test(lower)) return { kind: 'error', reason: 'blocked' }
+
+  // 4. Anything else — a real failure whose cause we cannot name precisely.
+  return { kind: 'error', reason: 'unexpected' }
+}
+
+/**
  * Reduce a raw ``UpdateInfo`` to the renderer-safe notice.
  *
  * Parameters
