@@ -44,6 +44,7 @@ import { closureBarsFor, fillPlans, planFamily } from './constructive/familyFill
 import type { GapFillInput } from './constructive/fillGap'
 import type { TotalityViolation } from './constructive/fillTotality'
 import { weldAcrossFamilies } from './crossFamilyWeld'
+import { fillGeotechHoles } from './fillGeotechHoles'
 import { runBandsOf, type RunBand, type RunColumn } from './constructive/constructs'
 import type { Mass } from './constructive/emitKernel'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
@@ -519,9 +520,36 @@ export function computeHierarchicalGeotechFill(
   // drawing, but it must never discard a closed region from these surfaces:
   // that would make the geotech model smaller than the litho cover it derives
   // from while hiding the loss as "needle" debris.
-  const sweptRegions = swept.regions
-  const sweptFallback = lithoFallback
+  let sweptRegions = swept.regions
+  let sweptFallback = lithoFallback
   const sweptPreMerge = preMergeRegions
+
+  // NO HOLES IN THE MODEL (owner absolute). The constructive fill can, on rare
+  // geometry, leave a litho-covered face unpainted — the installer #36 CS2 case: a
+  // deep SILT unit under a carved ZAND lens whose shared-contact base tie makes its
+  // band emit a sub-TD onlap the arrangement fails to trace. Close any such face
+  // with the packing class the model already holds there, or the correlate-me hatch
+  // when no band of that litho unit reaches the depth. A NO-OP where the fill already
+  // covered the section (CS1 stays byte-identical). Runs on the SWEPT surface so the
+  // build, the render and the gapless clauses all read the same closed geometry.
+  const bandLithoFormation = new Map<string, string | undefined>()
+  for (const column of input.geotechColumns) {
+    for (const unit of column.units) {
+      bandLithoFormation.set(
+        unit.layerId,
+        lithoFormationOfUnit.get(parentOfBand.get(unit.layerId) ?? ''),
+      )
+    }
+  }
+  const holes = fillGeotechHoles(
+    input.lithoRegions,
+    [...sweptRegions, ...sweptFallback],
+    input.geotechColumns,
+    input.alongM,
+    bandLithoFormation,
+  )
+  if (holes.classed.length > 0) sweptRegions = [...sweptRegions, ...holes.classed]
+  if (holes.fallback.length > 0) sweptFallback = [...sweptFallback, ...holes.fallback]
 
   return {
     regions: sweptRegions,
