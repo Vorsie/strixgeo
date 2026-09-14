@@ -295,7 +295,7 @@ export const OUTPUTS_NL = {
   'export.exportPlaxis3d': 'Plaxis 3D exporteren',
   // FLAG alt: Hekwerk — fence-view mode; the diagram noun stays "hekkendiagram".
   'export.fenceNothingToExport':
-    'Niets te exporteren — zet de 3D-weergave op Hekwerk en zorg dat het hekwerk wanden heeft.',
+    'Niets te exporteren: zet de 3D-weergave op Hekwerk en zorg dat het hekwerk wanden heeft.',
   'export.fenceExported': 'Hekkendiagram geëxporteerd — {count} panelen.',
   'export.fenceIncompleteOne':
     '{n} dwarsprofiel kon zijn correlaties niet laden — het hekwerk is onvolledig en toont die panelen ongekoppeld: {names}. Heropen de Hekwerk-weergave om opnieuw te proberen.',
