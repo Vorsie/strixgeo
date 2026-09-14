@@ -23,6 +23,8 @@
  * @module sections/sectionBedClip
  */
 
+import { bedLevelAt, type BedPolygon } from "../../utils/bedPolygonMembership";
+
 /** One DEM sample: its distance along the section and its (bed-applied) elevation. */
 export interface BedClipDemSample {
   along_m: number;
@@ -30,13 +32,15 @@ export interface BedClipDemSample {
   elevation_m: number | null;
 }
 
-/** A bed-override polygon in the section's horizontal CRS. */
-export interface BedClipPolygon {
-  /** The constant dredged bed elevation inside the ring (m TAW / NAP). */
-  level_m: number;
-  /** The polygon ring as `[x, y]` pairs; open ring (closing edge implicit). */
-  vertices: ReadonlyArray<readonly [number, number]>;
-}
+/**
+ * A bed-override polygon in the section's horizontal CRS.
+ *
+ * Alias of the shared {@link BedPolygon} — the section clip and the 3-D fence
+ * clip test membership through the SAME helpers (`bedPolygonMembership.ts`), so
+ * the on-screen cut and the exported fence agree. Kept as a named re-export so
+ * `SectionPanel` / `SectionsCanvas` imports are unchanged.
+ */
+export type BedClipPolygon = BedPolygon;
 
 /** Everything the clip builder needs, all in the section view's own units. */
 export interface BedClipParams {
@@ -61,51 +65,6 @@ export interface BedClipParams {
 }
 
 const EPS = 1e-9;
-
-/**
- * Even-odd ray-cast point-in-polygon test (port of `bed_override._point_in_ring`).
- *
- * Treats `vertices` as a closed ring (the last→first edge is implicit). Fewer
- * than three vertices never contains a point.
- */
-function pointInRing(
-  vertices: ReadonlyArray<readonly [number, number]>,
-  x: number,
-  y: number,
-): boolean {
-  const n = vertices.length;
-  if (n < 3) return false;
-  let inside = false;
-  let j = n - 1;
-  for (let i = 0; i < n; i++) {
-    const [xi, yi] = vertices[i];
-    const [xj, yj] = vertices[j];
-    // The edge (j -> i) straddles the horizontal ray at y when exactly one
-    // endpoint is above y; compare its x-intersection against the query x.
-    if (yi > y !== yj > y) {
-      const xCross = ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-      if (x < xCross) inside = !inside;
-    }
-    j = i;
-  }
-  return inside;
-}
-
-/**
- * The bed level overriding the ground at `(x, y)`, or `null` outside every
- * polygon (port of `bed_override.bed_level_at`). The first containing polygon
- * wins, so a newest-first list makes the newest-drawn polygon win an overlap.
- */
-function bedLevelAt(
-  polygons: readonly BedClipPolygon[],
-  x: number,
-  y: number,
-): number | null {
-  for (const poly of polygons) {
-    if (pointInRing(poly.vertices, x, y)) return poly.level_m;
-  }
-  return null;
-}
 
 /**
  * Build the partition-fill clip-path `d`, or `null` when nothing is capped.
