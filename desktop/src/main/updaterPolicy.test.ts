@@ -11,7 +11,12 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { autoInstallOnQuit, shouldAutoCheckOnLaunch, summariseUpdateInfo } from './updaterPolicy'
+import {
+  autoInstallOnQuit,
+  classifyUpdaterError,
+  shouldAutoCheckOnLaunch,
+  summariseUpdateInfo,
+} from './updaterPolicy'
 
 describe('updaterPolicy', () => {
   it('auto-checks on launch ONLY when the app is packaged', () => {
@@ -54,6 +59,87 @@ describe('updaterPolicy', () => {
     })
     expect(notice.version).toBe('2.1.0')
     expect(notice.releaseNotes).toBeNull()
+  })
+})
+
+// The rule the owner's finding (g) fixes: "check for updates failed" when the
+// releases feed simply has NO release published yet (the closed beta's normal
+// state) is not a failure — it must read as a calm "no update available yet".
+// A real network / auth failure keeps failure wording but names the cause. The
+// classification is pure and Electron-free so vitest pins it directly. The
+// exact electron-updater GitHubProvider error codes/messages are used
+// (verified against node_modules/electron-updater/out/providers/GitHubProvider.js).
+describe('classifyUpdaterError', () => {
+  it('a feed with no release yet is not a failure', () => {
+    // The closed beta ships with a draft-only releases repo: the provider sees
+    // no published release and throws ERR_UPDATER_NO_PUBLISHED_VERSIONS.
+    expect(
+      classifyUpdaterError({
+        message: 'No published versions on GitHub',
+        code: 'ERR_UPDATER_NO_PUBLISHED_VERSIONS',
+      }).kind,
+    ).toBe('no-release')
+  })
+
+  it('a 404 on latest.yml is not a failure — the release has no update file yet', () => {
+    // A release exists but its latest.yml asset is missing (owner named this
+    // case): ERR_UPDATER_CHANNEL_FILE_NOT_FOUND, "Cannot find latest.yml …: 404".
+    expect(
+      classifyUpdaterError({
+        message:
+          'Cannot find latest.yml in the latest release artifacts (https://…/latest.yml): HttpError: 404',
+        code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+      }).kind,
+    ).toBe('no-release')
+  })
+
+  it('an unreachable production release is not a failure', () => {
+    // ERR_UPDATER_LATEST_VERSION_NOT_FOUND — "please ensure a production release exists".
+    expect(
+      classifyUpdaterError({
+        message:
+          'Unable to find latest version on GitHub (https://…), please ensure a production release exists',
+        code: 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND',
+      }).kind,
+    ).toBe('no-release')
+  })
+
+  it('the no-release verdict holds even when the error carries no code', () => {
+    // Some paths hand only a message. The message must still classify.
+    expect(classifyUpdaterError({ message: 'No published versions on GitHub' }).kind).toBe(
+      'no-release',
+    )
+  })
+
+  it('offline is a failure that says offline', () => {
+    const result = classifyUpdaterError({
+      message: 'net::ERR_INTERNET_DISCONNECTED',
+    })
+    expect(result.kind).toBe('error')
+    expect(result.reason).toBe('offline')
+  })
+
+  it('a DNS failure with no route to the host is an offline failure', () => {
+    const result = classifyUpdaterError({
+      message: 'getaddrinfo ENOTFOUND github.com',
+    })
+    expect(result.kind).toBe('error')
+    expect(result.reason).toBe('offline')
+  })
+
+  it('a 403 / proxy wall is a blocked failure', () => {
+    const result = classifyUpdaterError({ message: 'HttpError: 403 Forbidden' })
+    expect(result.kind).toBe('error')
+    expect(result.reason).toBe('blocked')
+  })
+
+  it('anything else is an unexpected failure, still an error', () => {
+    const result = classifyUpdaterError({
+      message: 'Cannot parse releases feed: SyntaxError',
+      code: 'ERR_UPDATER_INVALID_RELEASE_FEED',
+    })
+    expect(result.kind).toBe('error')
+    expect(result.reason).toBe('unexpected')
   })
 })
 
