@@ -9,6 +9,7 @@
 import type {
   ActivationActionResultDto,
   ActivationStatusDto,
+  BuildInfoDto,
   UpdaterEventDto,
 } from './utils/launchPrototypeTypes'
 import type { SheetPayload, SheetReadyMessage } from './sheet/sheetPayload'
@@ -157,6 +158,10 @@ declare global {
         daysRemaining: number | null
         expiresAtMs: number | null
       } | null>
+      // Build facts (git SHA + beta expiry) for Help → Licence + About (finding
+      // (f)). Optional so a renderer against an older preload degrades to
+      // hiding the build block rather than throwing.
+      getBuildInfo?: () => Promise<BuildInfoDto>
       // Cross-section PDF sheet (docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md).
       // ``printSheetPdf`` hands the payload to the main process, which renders
       // sheet.html in a hidden window and prints it; ``onSheetPayload`` /
