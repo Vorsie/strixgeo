@@ -879,6 +879,26 @@ describe('a borehole band splits at the click, and its classes live in a submenu
     expect(depthM).toBeCloseTo(3.5, 4)
   })
 
+  it('statistieken van deze eenheid is on the borehole band menu and jumps with the unit (owner #37)', () => {
+    // Owner installer #37: "i don't see the show in statistics stage anymore."
+    // The verb belongs on the borehole band menu (its own setClass menu), not
+    // only the CPT split menu.
+    const onShowUnitStatistics = vi.fn()
+    renderOverlay({
+      geotechLayers: BOREHOLE_GEOTECH_LAYERS,
+      lithoLayers: BOREHOLE_LITHO_LAYERS,
+      placedColumns: [BOREHOLE_COLUMN],
+      onRequestSetClass: vi.fn(),
+      onRequestSplitHere: vi.fn(),
+      nadClassByFormationId: nadClasses,
+      soilCodeByFormationId: soilCodes,
+      onShowUnitStatistics,
+    })
+    openBoreholeMenu('geotech-borehole-band-bh-band-1', yAtDepth(3.5))
+    fireEvent.click(screen.getByTestId('geotech-band-menu-unit-statistics'))
+    expect(onShowUnitStatistics).toHaveBeenCalledWith('f-bh-band-1', null)
+  })
+
   it('the classes live in a submenu, the verbs come first', () => {
     renderOverlay({
       geotechLayers: BOREHOLE_GEOTECH_LAYERS,
