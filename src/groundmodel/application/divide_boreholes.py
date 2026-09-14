@@ -198,9 +198,12 @@ from groundmodel.domain.services.geotech_unit_boundaries import (
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
 from groundmodel.domain.services.litho_geo_bounding import mark_and_truncate_shallow_tests
 from groundmodel.domain.services.nad_admixture_choice import resolve_admixture_variant
+from groundmodel.domain.services.nad_classification_constants import Variant
 from groundmodel.domain.services.nad_classifier import (
     clamp_class_to_soil,
     loosest_class_for,
+    remap_class_to_variant,
+    resolve_variant,
     soil_family_of,
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
@@ -2220,6 +2223,13 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
                 continue
 
+            # The receiver unit's OWN NAD column (owner 2026-09-13). A donor CPT
+            # lends its class number, which encodes the donor's family; the lend
+            # must land in the family this borehole's litho unit actually is, so
+            # a clean sand flanked by silt-/kleihoudend CPTs stays clean. Past
+            # the guard ``soil_code`` is a known family, so this is concrete.
+            receiver_variant = resolve_variant(soil_code, unit_admixtures, variant_override)
+
             self.debug(
                 f"DivideBoreholes: group body={body_id_str} "
                 # The litho unit, not just the body: two admixture variants of
@@ -2348,6 +2358,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     geotech_formation_info=geotech_formation_info,
                     replaced_tie_pairs=replaced_tie_pairs,
                     preferred_section_id=str(section_id) if section_id is not None else None,
+                    receiver_variant=receiver_variant,
                 )
                 n_bands = len(fill_band_list)
                 total_layers += n_bands
@@ -3944,6 +3955,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         preferred_section_id: str | None = None,
         unit_soil_code: str | None = None,
         soil_by_formation: Mapping[str, str | None] | None = None,
+        receiver_variant: Variant | None = None,
     ) -> tuple[list[FillBand], list[UUID | None], list[tuple[str, ...]], FlankSelection]:
         """Compute one borehole's litho-confined bands. Reads nothing, writes nothing.
 
@@ -4016,6 +4028,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             conservative fallback bands with no same-class CPT evidence), and
             the donor selection those bands came from.
         """
+
+        # A lent donor class carries the DONOR'S NAD family (clean vs
+        # silt-/kleihoudend), and a borehole's own litho unit may be a different
+        # family (owner 2026-09-13, B2: a clean sand rendered ZAND(f) because its
+        # silty flanks lent it a with-admixture class). The lend carries only the
+        # packing LEVEL and lands it in the RECEIVER'S own column; a borehole
+        # whose unit truly is silty (``receiver_variant == "secondary"``) keeps
+        # the secondary classes, and ``None`` (the family-clamp pins' call shape)
+        # is a no-op. Applied at every class SOURCE below — before coarsen, the
+        # body_min statistic and the merge — so the whole pipeline reasons in the
+        # receiver's family and same-level bands coalesce correctly.
+        def _lend_class(nad_class: int) -> int:
+            if receiver_variant is None:
+                return nad_class
+            return remap_class_to_variant(nad_class, receiver_variant)
+
         # -------------------------------------------------------------------
         # Step 1: for each CPT in this body group, collect its geotech layers
         # that are WITHIN the CPT's own litho-body extent for this group.
@@ -4094,7 +4122,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         donor_surfaces = flank_packing_surfaces_with_donors(
             selection, extent_top_m=derive_top_m, extent_base_m=derive_base_m
         )
-        cpt_packing_surfaces = [(s.top, s.base, s.nad_class) for s in donor_surfaces]
+        cpt_packing_surfaces = [(s.top, s.base, _lend_class(s.nad_class)) for s in donor_surfaces]
         self.info(
             f"DivideBoreholes: borehole={inv_id} "
             f"extent=[{geo_top_m:.2f},{geo_base_m:.2f}] mode={selection.mode} "
@@ -4116,11 +4144,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         # same-lithology CPT bands in this group.
         # -------------------------------------------------------------------
         all_classes = [
-            nc
+            _lend_class(nc)
             for layers in filtered_cpt_layers.values()
             for (_t, _b, _lid, _fid, nc, _bid) in layers
             if nc is not None
         ]
+        # min() over classes ALREADY re-mapped into the receiver's column, so the
+        # weakest is the weakest LEVEL, not the smallest number across two
+        # columns (clean 8 vs secondary 9 would otherwise read 8 = "loosest").
         body_min_class: int | None = min(all_classes) if all_classes else None
 
         self.debug(
@@ -4221,6 +4252,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             unit_soil_code=unit_soil_code,
             soil_by_formation=soil_by_formation,
         )
+        if tied is not None and receiver_variant is not None:
+            # A tied hop continues a donor CPT band, so its class is the donor's
+            # too — re-map it into the receiver's own column before anything else
+            # reads it (owner 2026-09-13).
+            tied = replace(
+                tied,
+                bands=[replace(b, nad_class=_lend_class(b.nad_class)) for b in tied.bands],
+            )
         if tied is not None:
             # The minimum applies to the TIE path too — same reason, same rule.
             # Correspondences ride along per band, so they are carried by the
@@ -4302,6 +4341,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 section_partitions=section_partitions,
                 geotech_formation_info=geotech_formation_info,
                 unit_soil_code=unit_soil_code,
+            )
+        if sampled is not None and receiver_variant is not None:
+            # The region carries the donor CPT's class + family; re-map it into
+            # the receiver's own column before the conservative fill and the
+            # correspondence pass read it (owner 2026-09-13).
+            sampled = replace(
+                sampled,
+                bands=[replace(b, nad_class=_lend_class(b.nad_class)) for b in sampled.bands],
             )
         if sampled is not None:
             self.info(
