@@ -27,6 +27,7 @@ import {
 import type { LithoLayerResponse } from '../../../api/clients/geology.types'
 import { buildProjectFence } from '../../../utils/buildProjectFence'
 import type { FencePanel } from '../../../utils/fencePanels'
+import type { BedPolygon } from '../../../utils/bedPolygonMembership'
 import { resolveRegionBodyId } from '../../../components/sections/regionBodyId'
 import { log } from '../../../utils/log'
 import { fetchApprovedEdgesBySection } from './fetchApprovedEdgesBySection'
@@ -53,6 +54,14 @@ export interface ProjectFenceBuilderParams {
   frameModelId?: string | null
   /** The frame model's litho-layer rows; required alongside ``frameModelId``. */
   frameLayers?: readonly LithoLayerResponse[]
+  /**
+   * The project's bed-override polygons in the panels' horizontal CRS. Where a
+   * wall crosses one, the part above the drawn bed level is cut away — the same
+   * canal cut-out the section view and the 3-D viewer apply, so the exported
+   * fence DXF agrees with the walls on screen (owner 2026-09-13). The caller
+   * filters to the sections' CRS; omit / empty → no clip, byte-identical.
+   */
+  bedPolygons?: readonly BedPolygon[]
 }
 
 /**
@@ -86,6 +95,7 @@ export async function buildProjectFencePanels(
     packingClassOf,
     frameModelId,
     frameLayers,
+    bedPolygons,
   } = params
   if (!projectId || !modelId || visibleSections.length === 0) return null
 
@@ -140,5 +150,5 @@ export async function buildProjectFencePanels(
   const resolveBody = (layerIds: readonly string[] | undefined): string | null =>
     resolveRegionBodyId(layerIds, bodyIdByLayerId)
 
-  return buildProjectFence(sectionInputs, frameSectionInputs, packingClassOf, resolveBody)
+  return buildProjectFence(sectionInputs, frameSectionInputs, packingClassOf, resolveBody, bedPolygons)
 }
