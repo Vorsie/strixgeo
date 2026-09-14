@@ -567,6 +567,99 @@ _DEPTH_TOL_M = 0.001
 """Depth grain: ``litho_layer`` stores intervals to the millimetre."""
 
 
+def _clamp_bands_to_flank_cover(
+    bands: Sequence[FillBand],
+    correspondences: Sequence[tuple[str, ...]],
+    *,
+    cover_top_m: float,
+    cover_base_m: float,
+    floor_class: int,
+    min_thickness_m: float,
+) -> tuple[list[FillBand], list[tuple[str, ...]]]:
+    """Fill a borehole unit's overhang with the flank floor, not the dense band.
+
+    Owner, installer #37 dogfeed (2026-09-14), GEO-07/182-B2: *"I don't know
+    where the dense sand is coming from though. it says md on the left and md on
+    the right."*  The borehole's clean-sand unit is ONE unit that reaches above
+    where the flanks' sand begins in this body group (a clean-over-silty litho
+    contact splits the flank sand there).  The tie-driven placement painted that
+    overhang with the band immediately below the first placed cut — the flank's
+    DENSE band — even though the flank's dense band does not reach that high.
+
+    The rule: where the borehole unit extends ABOVE the shallowest flank band
+    (or BELOW the deepest), the overhang takes the conservative floor the flanks
+    measured (``floor_class`` — the loosest packing across the two flank stacks,
+    the same value the donor-fill path uses for a gap), NOT the class of the
+    adjacent band.  Design note §1c ("unread ground is not silently claimed"):
+    an overhang LONGER than the minimum layer thickness becomes its own floor
+    band; a shorter one keeps the current behaviour and stretches to the
+    boundary, so a hairline overhang can never flip a whole band to the floor
+    class through the coarsen pass.
+
+    When the unit sits entirely inside the flank coverage
+    (``cover_top_m <= band tops`` and ``cover_base_m >= band bases``) this is a
+    strict no-op — no band is split and the input is returned unchanged.
+
+    Parameters
+    ----------
+    bands : Sequence[FillBand]
+        The tie-placed bands, contiguous and top to bottom (borehole depths).
+    correspondences : Sequence[tuple[str, ...]]
+        Per band, the ``litho_layer`` ids it continues.  A floor band continues
+        nothing, so its correspondence is empty.
+    cover_top_m, cover_base_m : float
+        The depth range the flank donor actually covers on the borehole
+        (shallowest flank band top .. deepest flank band base).
+    floor_class : int
+        The conservative NAD class for an overhang — the loosest across both
+        flank stacks.
+    min_thickness_m : float
+        The model's minimum sub-unit thickness; an overhang thinner than this is
+        left as part of its adjacent band.
+
+    Returns
+    -------
+    tuple[list[FillBand], list[tuple[str, ...]]]
+        The clamped bands and their correspondences, contiguous over the same
+        extent, adjacent same-class rows coalesced.
+    """
+    out_bands: list[FillBand] = []
+    out_corr: list[tuple[str, ...]] = []
+    for band, corr in zip(bands, correspondences):
+        # Overhang lengths above the cover top and below the cover base.
+        head_len = min(band.base, cover_top_m) - band.top
+        tail_len = band.base - max(band.top, cover_base_m)
+        make_head = head_len >= min_thickness_m - _DEPTH_TOL_M
+        make_tail = tail_len >= min_thickness_m - _DEPTH_TOL_M
+        cursor = band.top
+        if make_head:
+            out_bands.append(FillBand(cursor, cover_top_m, floor_class, "body_min"))
+            out_corr.append(())
+            cursor = cover_top_m
+        inside_base = max(cursor, cover_base_m) if make_tail else band.base
+        if inside_base - cursor > _DEPTH_TOL_M:
+            out_bands.append(FillBand(cursor, inside_base, band.nad_class, band.source))
+            out_corr.append(corr)
+            cursor = inside_base
+        if make_tail and band.base - cursor > _DEPTH_TOL_M:
+            out_bands.append(FillBand(cursor, band.base, floor_class, "body_min"))
+            out_corr.append(())
+
+    # Coalesce adjacent same-class rows (a floor band beside a same-class inside
+    # band), unioning their correspondences so nothing that continues a flank
+    # band is dropped by the merge.
+    merged_bands: list[FillBand] = []
+    merged_corr: list[tuple[str, ...]] = []
+    for band, corr in zip(out_bands, out_corr):
+        if merged_bands and merged_bands[-1].nad_class == band.nad_class:
+            merged_bands[-1] = replace(merged_bands[-1], base=band.base)
+            merged_corr[-1] = tuple(dict.fromkeys([*merged_corr[-1], *corr]))
+            continue
+        merged_bands.append(band)
+        merged_corr.append(corr)
+    return merged_bands, merged_corr
+
+
 GROWABLE_FRACTION_OF_MINIMUM = 0.5
 """How thin a band may be and still be GROWN to the minimum rather than merged.
 
@@ -4251,6 +4344,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             accepted_ties=accepted_ties,
             unit_soil_code=unit_soil_code,
             soil_by_formation=soil_by_formation,
+            min_thickness_m=min_thickness_m,
         )
         if tied is not None and receiver_variant is not None:
             # A tied hop continues a donor CPT band, so its class is the donor's
@@ -4472,6 +4566,7 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         accepted_ties: Sequence[AcceptedTie],
         unit_soil_code: str | None = None,
         soil_by_formation: Mapping[str, str | None] | None = None,
+        min_thickness_m: float = DEFAULT_MIN_THICKNESS_M,
     ) -> UnitTiePlacement | None:
         """Lay this litho unit's packing boundaries on the borehole, from the TIES.
 
@@ -4742,6 +4837,45 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             )
             if not bands:
                 continue
+
+            # Where the borehole unit rises above (or drops below) the flank
+            # sand in this body group, the tie-placed bands stretch the adjacent
+            # band's class over ground the flanks say nothing about — the owner's
+            # B2, whose clean sand read dense above where the flanks' sand even
+            # begins (installer #37, 2026-09-14). Clamp that overhang to the
+            # conservative flank floor.
+            #
+            # Coverage is what the NEARER flank reaches plus every boundary this
+            # placement actually laid on the log (ties + the near flank's own
+            # onlaps). The FAR flank's bands are deliberately excluded: at
+            # fraction << 0.5 only the near flank's onlaps reach the borehole
+            # (``place_unit_boundaries``), so a far flank whose silty sand
+            # happens to start higher than the near flank's must NOT be read as
+            # covering the borehole — that is exactly what let B2's overhang read
+            # dense off S17 (installer #37). A straddling tie DOES bring the far
+            # flank's band in, and it is captured here as an on-log boundary
+            # (P10's VD sand), so it keeps its coverage.
+            near_pick = picks[left_id] if fraction <= 0.5 else picks[right_id]
+            near_stack = left_stack if fraction <= 0.5 else right_stack
+
+            def _cover_depth(band_depth_m: float) -> float:
+                """A near-flank band edge (its own depth) as a depth on the borehole."""
+                return bh_surface_elev - (near_pick.surface_elev_m - band_depth_m)
+
+            on_log_depths = [b.depth_m for b in placed if b.on_log]
+            cover_top_m = min([_cover_depth(near_stack[0][1]), *on_log_depths])
+            cover_base_m = max([_cover_depth(near_stack[-1][2]), *on_log_depths])
+            floor_classes = [b[3] for b in [*left_stack, *right_stack] if b[3] is not None]
+            if floor_classes:
+                bands, correspondences = _clamp_bands_to_flank_cover(
+                    bands,
+                    correspondences,
+                    cover_top_m=cover_top_m,
+                    cover_base_m=cover_base_m,
+                    floor_class=min(floor_classes),
+                    min_thickness_m=min_thickness_m,
+                )
+
             best_width = width
             best = UnitTiePlacement(
                 bands=bands,
