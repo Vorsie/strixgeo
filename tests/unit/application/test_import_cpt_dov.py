@@ -207,6 +207,54 @@ async def test_mixed_new_and_duplicate_counts_both(use_case: ImportCptDov):
 
 
 # ------------------------------------------------------------------
+# Intra-batch duplicate — "a test imported twice is one test"
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_test_imported_twice_is_one_test(use_case: ImportCptDov):
+    """A test imported twice is ONE test (owner, installer #36).
+
+    ``find_existing_test_ids`` only catches CROSS-import duplicates — a test_id
+    already persisted by a PREVIOUS import. When the SAME sounding appears twice
+    inside ONE bbox response (two WFS features that share a ``sondeernummer``),
+    neither is in the DB yet, so without an intra-batch guard both are persisted
+    and the project gets two rows for one test. The rule: the same test_id in one
+    batch is persisted once; the second occurrence counts as a duplicate.
+    """
+    # Two parsed results carrying the IDENTICAL test_id — the same sounding twice.
+    parsed = [
+        ("2025-01514 S3", _result("2025-01514 S3")),
+        ("2025-01514 S3", _result("2025-01514 S3")),
+    ]
+    index = [_index_entry("2025-01514 S3"), _index_entry("2025-01514 S3")]
+    persisted_id = uuid4()
+    persist_mock = AsyncMock(side_effect=[ImportCptResult(cpt_id=persisted_id, issues=[])])
+
+    with (
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_wfs_index",
+            new=AsyncMock(return_value=index),
+        ),
+        patch(
+            "groundmodel.application.import_cpt_dov.DovClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch.object(use_case._repo, "find_existing_test_ids", new=AsyncMock(return_value={})),
+        patch.object(use_case._import, "persist", new=persist_mock),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # One row persisted, the repeat counted as a duplicate.
+    assert result.imported == 1
+    assert result.duplicates == 1
+    assert persist_mock.await_count == 1
+    # The duplicate reuses the id of the copy that WAS persisted, so the map /
+    # list never references a row that was never written.
+    assert result.cpt_ids == [persisted_id, persisted_id]
+
+
+# ------------------------------------------------------------------
 # Per-CPT persist failure isolated
 # ------------------------------------------------------------------
 
