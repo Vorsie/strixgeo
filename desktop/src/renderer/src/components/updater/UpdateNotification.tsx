@@ -16,11 +16,29 @@ import { Download, RefreshCw, X } from 'lucide-react'
 
 import Button from '../ui/Button'
 import { useT } from '../../i18n/translate'
+import type { MessageKey } from '../../i18n/locales/en'
 import { log } from '../../utils/log'
-import type { UpdaterEventDto } from '../../utils/launchPrototypeTypes'
+import type { UpdaterErrorReasonDto, UpdaterEventDto } from '../../utils/launchPrototypeTypes'
 
 /** Phases that render a dismissable one-line acknowledgement rather than a card. */
-const INFO_PHASES = new Set<UpdaterEventDto['phase']>(['not-available', 'disabled', 'error', 'checking'])
+const INFO_PHASES = new Set<UpdaterEventDto['phase']>([
+  'not-available',
+  // The feed has nothing published yet — calm, not a failure (finding g).
+  'no-release',
+  'disabled',
+  'error',
+  'checking',
+])
+
+/**
+ * The message a FAILED check shows, by named cause (finding g). Absent /
+ * unknown reasons fall back to the generic ``updater.error`` line.
+ */
+const ERROR_REASON_KEY: Record<UpdaterErrorReasonDto, MessageKey> = {
+  offline: 'updater.errorOffline',
+  blocked: 'updater.errorBlocked',
+  unexpected: 'updater.errorUnexpected',
+}
 
 /**
  * The floating update notification.
@@ -127,8 +145,10 @@ export default function UpdateNotification(): JSX.Element | null {
           <div className="flex-1 text-xs text-text-secondary">
             {event.phase === 'checking' && t('updater.checking')}
             {event.phase === 'not-available' && t('updater.upToDate')}
+            {event.phase === 'no-release' && t('updater.noReleaseYet')}
             {event.phase === 'disabled' && t('updater.disabled')}
-            {event.phase === 'error' && t('updater.error')}
+            {event.phase === 'error' &&
+              t(event.errorReason ? ERROR_REASON_KEY[event.errorReason] : 'updater.error')}
           </div>
           <button
             type="button"
