@@ -221,6 +221,48 @@ A strict NO-OP when the apex already sits in the band (an ordinary near-flat gro
 collar just below the base, e.g. dev CS2 gap 15, is byte-identical) and never applied to a user
 free-draw override or the TD boundary lens. Pinned in `partitionFillV2/ownerRulings.test.ts` (Ruling 6).
 
+## A top-tied band member reaches under a shallow neighbour's TD (owner installer #37, 2026-09-14)
+
+Owner (Cross-section 2, gap 0, between borehole GEO-99/201-B1 [TD -4.32 mTAW] and CPT
+GEO-25/021-S23): *"the small black rectangle is still there. it sits left of Sand(f)-D top boundary
+between -4.4 mtaw and -4.8 mtaw."* The strip -4.32..-4.69 mTAW was an unfilled HOLE in the litho
+partition — on the geotech axis the empty strip's frame drew as a near-black rectangle
+(`lithoOutlineEdges` strokes the two single-owner horizontal edges); on the litho axis it was the
+hole itself.
+
+Cause: S23's ZAND unit (-2.52..-4.69) is TOP-TIED to B1's ZAND across the gap (a band), but it
+STRADDLES B1's TD (-4.32) — top above, base below. Its above-TD portion bands but caps FLAT at the
+shallow TD (`emitEnclosingFlood`'s shallow-TD floor `flood`); its sub-TD sliver [-4.32..-4.69] was
+owned by NEITHER the band NOR `emitSubTdLenses` (which only took units ENTIRELY below the facing TD).
+The deeper ZAND(GL) unit's sub-TD lens reached only up to -4.69, so the strip stayed empty.
+
+The fix (`emitSubTdLenses`, the straddle-sliver branch): a deep unit that straddles the facing TD,
+is TOP-TIED to the facing column (a declared band/onlap continuation — 2/1/0), has an untied base on
+this side, AND whose strip is a GENUINE hole fills its sub-TD sliver GAP-LOCALLY with a flat
+`emitContinuation` band to the facing column, so the deep sand continues under the shallow column's
+TD to meet its base and the litho outline dissolves (same soil on both sides — no black rectangle).
+Which unit takes it: the SAME formation as the band above it (the tied deep sand continuing), so
+`mergeTouchingBodies` welds them into one mass, base at the ZAND(GL) top.
+
+Four guards, each real-data-proven, keep it from over-firing:
+
+* **Untied straddlers stay pinches** (2/1/0 — a lone marginally-deeper unit is NOT a declared
+  continuation): CS1 gap21's 0.04 m untied straddler at two tests 0.2 m apart is skipped (its tiny
+  fill only slivered a neighbouring lens).
+* **A GENUINE hole only** (`terminationRun` in the facing direction returns `reads=false`): when a
+  deep column BEYOND the shallow facing already covers the strip via the deep-to-deep substrate/bridge
+  (CS1 gaps 14/15, a jump-tie substrate carries a ZAND band across the shallow column into the strip),
+  the substrate owns it and the fill would re-partition an already-covered strip — so it is skipped
+  and the CS1 golden stays byte-identical.
+* **Gap-local, not the cross-section `terminationRun` continuation**: a near column only MARGINALLY
+  deeper than its facing (TS4 gap0: 1411-B8A 0.04 m below GEO-20/034-S5's TD) must not paint a
+  section-wide sliver across the next gap's bottom-tie wedge.
+* **Not the R3/R4 bottom-tie config** (`facingTdTied`): a deep unit tied to the facing TD there also
+  looks like a straddler, but its onlap + `emitBottomTieWedge` already fill that wedge.
+
+Pinned in `partitionFillV2/we2Gap0SubTdStrip.test.ts` (no strip under B1's TD, the strip is ZAND, and
+the litho frame draws no closed black rectangle there) on the committed CS2 decode.
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
