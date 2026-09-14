@@ -28,6 +28,7 @@ import {
 } from '../../utils/geotechBodySelectionStore'
 // useSelectedGeotechBodyId gives the raw id; the store record also carries
 // assignmentSource, read by GeotechnicalInspector.
+import { forwardContextMenuBeneath } from './forwardContextMenuBeneath'
 import { usePsdPreviewOn } from '../../utils/psdPreviewOnStore'
 import { sampleExtentScreenSpan } from '../../utils/sampleExtentSpan'
 import { useT } from '../../i18n/translate'
@@ -253,6 +254,21 @@ export default function SampleGeotechOverlay({
                 }
                 style={{ cursor: clickable ? 'pointer' : 'default' }}
                 onClick={activate}
+                // A right-click on a sample capsule must reach the packing band
+                // BENEATH it (the band menu), not bubble to the section's column
+                // menu: this hit rect sits ABOVE the band-edit overlay on a
+                // borehole column (owner installer #37, GEO-99/201-B1). This
+                // overlay owns no right-click of its own, so it forwards the
+                // event to whatever lies under the cursor below it — the band
+                // (band menu), or the column glyph past the bands (column menu,
+                // which is the correct target there).
+                onContextMenu={(e: React.MouseEvent) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  forwardContextMenuBeneath(e.clientX, e.clientY, (el) =>
+                    el.closest('[data-testid="sample-geotech-overlay"]') !== null,
+                  )
+                }}
                 onKeyDown={(e: React.KeyboardEvent) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
