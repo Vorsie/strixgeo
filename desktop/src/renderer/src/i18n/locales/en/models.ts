@@ -295,7 +295,7 @@ export const MODELS = {
   'litho.resetCameraHint': 'Collapse any split view and fly the camera back to the model extent',
   'litho.nothingToBuild': 'Nothing to build — accept litho layers on a cross-section, then Build.',
   'litho.nothingToExportFence':
-    'Nothing to export — switch the 3-D view to Fence and make sure the fence has walls.',
+    'Nothing to export: switch the 3-D view to Fence and make sure the fence has walls.',
   'litho.autoCorrelateNothing':
     'Auto-correlate: no correlatable units found — accept litho suggestions first.',
   // Confirm / reassign / detach parent dialog.
