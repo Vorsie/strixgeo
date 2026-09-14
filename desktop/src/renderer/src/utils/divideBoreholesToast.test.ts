@@ -63,4 +63,27 @@ describe('divideBoreholesToastMessage', () => {
       'Boreholes divided — 3 split, 1 single-band, 1 crossing tie auto-deleted.',
     )
   })
+
+  // Owner installer #37 dogfeed 2026-09-14: pressing "Divide boreholes" on a
+  // borehole that already has bands "doesn't overwrite ... i manually deleted
+  // and now it did it". A machine borehole IS re-derived; one the engineer
+  // hand-edited is kept — and the divide was silent about which, so the toast
+  // must SAY how many were re-derived (split + single-band) and how many kept
+  // their hand edits.
+  it('says how many boreholes kept their hand edits', () => {
+    const msg = divideBoreholesToastMessage({ ...base, skipped_existing_borehole_count: 2 }, true)
+    expect(msg).toBe(
+      'Boreholes divided — 3 split, 1 single-band, 2 kept their hand edits.',
+    )
+  })
+
+  it('speaks singular for one borehole that kept its hand edits', () => {
+    const msg = divideBoreholesToastMessage({ ...base, skipped_existing_borehole_count: 1 }, false)
+    expect(msg).toBe('Borehole divided — 3 split, 1 single-band, 1 kept its hand edits.')
+  })
+
+  it('says nothing about hand edits when every borehole was re-derived', () => {
+    const msg = divideBoreholesToastMessage({ ...base, skipped_existing_borehole_count: 0 }, true)
+    expect(msg).toBe('Boreholes divided — 3 split, 1 single-band.')
+  })
 })
