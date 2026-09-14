@@ -1,6 +1,8 @@
 // desktop/src/renderer/src/utils/buildProjectFence.ts
 import { buildFencePanels, type FenceColumn, type FencePanel, type FenceRegion } from './fencePanels'
 import { mergeFencePanels } from './mergeFencePanels'
+import { clipFencePanelsToBed } from './clipFencePanelsToBed'
+import type { BedPolygon } from './bedPolygonMembership'
 import { type CorrelationEdge, type PartitionColumn } from './sectionPartition'
 import { frameAlignedColumns } from './frameAlignedPartition'
 import { computeHierarchicalGeotechFill } from './geotechHierarchicalFill'
@@ -63,12 +65,20 @@ export interface FenceSectionInput {
  *     All wall panels across every section, ready for 3D rendering. Each panel
  *     carries ``formationId``, ``bodyId``, world-space ``vertices`` and
  *     ``triangles``. One panel per connected body per section.
+ *
+ * bedPolygons : optional
+ *     The project's bed-override polygons in the panels' horizontal CRS. Where a
+ *     wall crosses one, the part above the drawn bed level is cut away — the
+ *     same canal cut-out the section view applies (owner question 2026-09-13:
+ *     "is the drawn bed level cut out of the fence too?"). Omitted / empty → no
+ *     clip, byte-identical to before this feature.
  */
 export function buildProjectFence(
   sections: readonly FenceSectionInput[],
   frameSections?: readonly FenceSectionInput[],
   packingClassOf?: ReadonlyMap<string, string>,
   resolveBody?: (layerIds: readonly string[] | undefined) => string | null,
+  bedPolygons?: readonly BedPolygon[],
 ): FencePanel[] {
   // Pass 1 (shared with ``buildVoxelRequest``): assemble every section +
   // compute the canonical per-test world positions.
@@ -159,5 +169,8 @@ export function buildProjectFence(
     )
     all.push(...mergeFencePanels(stamped, resolveBody))
   }
-  return all
+  // Cut the drawn bed level out of the fence, exactly like the section view
+  // (owner question 2026-09-13). A no-op — same array — when there are no bed
+  // overrides, so every existing caller stays byte-identical.
+  return clipFencePanelsToBed(all, bedPolygons ?? [])
 }
