@@ -15,6 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import ExportCanvas from './ExportCanvas'
+import { buildSectionExportPartition } from '../sections/buildSectionExportPartition'
+
+// The D-Series cards assemble the section's drawn partition before any save
+// dialog; a null partition means "nothing drawn on this level". Mocked so the
+// refusal path can be driven without the fill engine.
+vi.mock('../sections/buildSectionExportPartition', () => ({
+  buildSectionExportPartition: vi.fn(),
+}))
 
 const noopAsync = (): Promise<void> => Promise.resolve()
 const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
@@ -510,3 +518,23 @@ describe('the Export hub (installer #35)', () => {
   })
 })
 
+
+// Walker run 24 (2026-09-14): clicking "Export .stix" on a section with no drawn
+// litho geometry raised a STICKY ERROR toast. Nothing failed there; the section
+// simply has nothing to write yet, so the hub says so with a warning that clears
+// on its own.
+describe('a card whose section has nothing drawn', () => {
+  it('refuses with a warning, not an error', async () => {
+    vi.mocked(buildSectionExportPartition).mockResolvedValue(null as never)
+    const ctx = readyCtx()
+    renderCanvas(ctx)
+    fireEvent.click(screen.getByTestId('export-canvas-dstability'))
+    await vi.waitFor(() => {
+      expect(ctx.toasts.toast).toHaveBeenCalled()
+    })
+    const [kind, message] = vi.mocked(ctx.toasts.toast).mock.calls.at(-1) as [string, string]
+    expect(kind).toBe('warning')
+    expect(message).toContain('Nothing to export')
+    expect(message).not.toContain('—')
+  })
+})
