@@ -36,9 +36,18 @@ export function divideBoreholesToastMessage(
     deletedCrossings > 0
       ? `, ${deletedCrossings} crossing tie${deletedCrossings === 1 ? '' : 's'} auto-deleted`
       : ''
+  // A machine-derived borehole is always re-derived (split + single-band); one
+  // the engineer hand-edited is imported as-is (owner ruling 2026-08-18/-23).
+  // The kept ones are otherwise silent, which reads as "Divide boreholes does
+  // nothing" (owner installer #37, 2026-09-14) — so the toast owns the count.
+  const keptHandEdits = result.skipped_existing_borehole_count ?? 0
+  const keptNote =
+    keptHandEdits > 0
+      ? `, ${keptHandEdits} kept ${keptHandEdits === 1 ? 'its' : 'their'} hand edits`
+      : ''
   return (
     `${wholeModel ? 'Boreholes' : 'Borehole'} divided — ` +
     `${result.divided_borehole_count} split, ` +
-    `${result.single_band_borehole_count} single-band${tieNote}${supersededNote}${crossingNote}.`
+    `${result.single_band_borehole_count} single-band${keptNote}${tieNote}${supersededNote}${crossingNote}.`
   )
 }
