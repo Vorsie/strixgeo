@@ -26,6 +26,7 @@ import type { CrossSectionResponse } from '../../../api/client'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import { buildProjectFencePanels } from '../shared/makeProjectFenceBuilder'
 import { exportFenceDxf } from '../shared/exportFenceDxf'
+import { bedPolygonsForCrs } from '../../../utils/bedPolygonMembership'
 import { buildSectionExportPartition } from '../sections/buildSectionExportPartition'
 import { downloadSectionExport } from '../sections/downloadSectionExport'
 import { useSectionExportInputs } from '../sections/useSectionExportInputs'
@@ -91,6 +92,7 @@ export function useExportHub(): ExportHubResult {
     sections: { visibleSections, selectedSectionId, sectionModelAxis },
     coordinator: { handleExportSectionDxf, handleExportSectionPlaxis2d },
     toasts: { toast },
+    bedOverrides,
   } = shell
 
   const {
@@ -299,6 +301,13 @@ export function useExportHub(): ExportHubResult {
       const cardId = `${which}-fence`
       setBusy(cardId)
       try {
+        // Cut the drawn bed level out of the exported fence, so the DXF agrees
+        // with the walls on screen (owner 2026-09-13). Only overrides in the
+        // sections' CRS apply; none → no clip.
+        const bedPolygons = bedPolygonsForCrs(
+          bedOverrides?.overrides,
+          visibleSections[0]?.epsg ?? null,
+        )
         const panels = await buildProjectFencePanels({
           projectId,
           modelId: model.id,
@@ -309,6 +318,7 @@ export function useExportHub(): ExportHubResult {
           packingClassOf: isGeotech ? packingClassOf : undefined,
           frameModelId: isGeotech ? (activeLithoModel?.id ?? null) : undefined,
           frameLayers: isGeotech ? lithoLayers : undefined,
+          bedPolygons,
         })
         if (panels === null) {
           toast('warning', t('export.fenceNothingToExport'))
@@ -341,6 +351,7 @@ export function useExportHub(): ExportHubResult {
       packingClassOf,
       geotechFormations,
       lithoFormations,
+      bedOverrides?.overrides,
       toast,
       t,
       recordSaved,
